@@ -1,12 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { login, signInWithGoogle } from '../actions';
 import { cn } from '@/lib/utils';
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Surface errors handed back by the OAuth callback (e.g. consent denied or a
+  // misconfigured provider) via the `?error=` query param.
+  useEffect(() => {
+    const callbackError = new URLSearchParams(window.location.search).get(
+      'error',
+    );
+    if (callbackError) {
+      setError(callbackError);
+    }
+  }, []);
 
   async function handleSubmit(formData: FormData) {
     setError(null);
