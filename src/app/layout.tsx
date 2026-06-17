@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Montserrat } from "next/font/google";
+import { Bricolage_Grotesque, Manrope, Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const bricolageGrotesque = Bricolage_Grotesque({
   variable: "--font-bricolage-grotesque",
@@ -17,9 +17,16 @@ const montserrat = Montserrat({
   weight: ["300", "400", "500", "600", "700"],
 });
 
+const manrope = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "KO Platform - AI-Powered Marketing Strategy",
-  description: "AI-powered marketing strategy platform for brands and campaigns",
+  title: "KO OS — Your Brand Brain, powered by KO",
+  description:
+    "AI-powered content strategies and calendars. Human designers bring them to life.",
 };
 
 export default function RootLayout({
@@ -30,7 +37,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${bricolageGrotesque.variable} ${montserrat.variable} h-full antialiased`}
+      className={`${bricolageGrotesque.variable} ${montserrat.variable} ${manrope.variable} h-full antialiased`}
     >
       <head>
         <link
@@ -41,7 +48,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <Providers>
           <TooltipProvider delay={200}>{children}</TooltipProvider>
-          <Toaster position="top-right" richColors closeButton />
+          <Toaster position="bottom-right" richColors closeButton />
         </Providers>
       </body>
     </html>
