@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAuthUser } from "@/lib/auth/get-user";
+import { requireBrand } from "@/lib/auth/require-brand";
 import { getBrandsByUserId } from "@/lib/db/queries";
 
 /* ------------------------------------------------------------------ */
@@ -76,7 +76,7 @@ function mapOnboardingStatus(status: "draft" | "in_progress" | "completed"): {
 }
 
 const quickActions = [
-  { label: "Create Brand", icon: "add_business", href: "/brands/new" },
+  { label: "Edit Brand", icon: "add_business", href: "/brand" },
   { label: "Open AI Chat", icon: "auto_awesome", href: "/chat" },
 ];
 
@@ -84,11 +84,11 @@ const quickActions = [
 /*  Page                                                              */
 /* ------------------------------------------------------------------ */
 export default async function DashboardPage() {
-  const { dbUser } = await getAuthUser();
+  const { dbUser } = await requireBrand();
 
-  const userBrands = await getBrandsByUserId(dbUser!.id);
+  const userBrands = await getBrandsByUserId(dbUser.id);
 
-  const firstName = dbUser?.firstName ?? "there";
+  const firstName = dbUser.firstName ?? "there";
 
   return (
     <div className="space-y-8">
@@ -119,10 +119,10 @@ export default async function DashboardPage() {
                 </h2>
               </div>
               <Link
-                href="/brands"
+                href="/brand"
                 className="text-sm font-medium text-primary transition-colors hover:text-primary/80"
               >
-                View All
+                View Profile
               </Link>
             </div>
 
@@ -139,7 +139,7 @@ export default async function DashboardPage() {
                   Create your first brand to get started.
                 </p>
                 <Link
-                  href="/brands/new"
+                  href="/brand/create"
                   className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
                 >
                   Create Brand
