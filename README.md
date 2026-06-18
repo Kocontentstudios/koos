@@ -1,36 +1,122 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# KO OS
 
-## Getting Started
+KO Content Studios' AI content platform: **Brand Profile → AI Content Strategy → AI Content Calendar → Design Tickets** fulfilled by human KO designers ("AI plans, humans design").
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router) · **React 19** · **TypeScript** · **Tailwind v4**
+- **Drizzle ORM + PostgreSQL** (local for dev; Neon / Aiven / Vercel Postgres in prod)
+- **Auth**: self-hosted DB-backed sessions (argon2id passwords) + Google OAuth via `arctic`
+- **Storage**: Cloudflare R2 (S3-compatible)
+- **AI**: Vercel AI SDK, provider-agnostic (Google / OpenAI / Anthropic / Z.ai / any OpenAI-compatible)
+- **Tooling**: pnpm · Biome · Vitest
+
+## Prerequisites
+
+- Node.js 22+
+- pnpm
+- A PostgreSQL database (local or cloud)
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+cp .env.example .env   # then fill in the values (see .env.example for all keys)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Database (required)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Drizzle speaks plain PostgreSQL — point `DATABASE_URL` at any Postgres (local,
+Neon, Aiven, Vercel Postgres). Managed providers usually need SSL, e.g.
+`?sslmode=require` in the URL (Aiven/Neon include this in the connection string).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**A fresh/empty database needs two one-time steps before the app will run or build:**
 
-## Learn More
+1. **Enable the `citext` extension** (the `users.email` column uses it):
 
-To learn more about Next.js, take a look at the following resources:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS citext;
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   Run it in your provider's SQL console, or:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   ```bash
+   node -e "import('postgres').then(async ({default:pg})=>{process.loadEnvFile('.env');const s=pg(process.env.DIRECT_URL??process.env.DATABASE_URL,{max:1});await s.unsafe('create extension if not exists citext;');console.log('citext enabled');await s.end();})"
+   ```
 
-## Deploy on Vercel
+2. **Push the schema** (creates all tables). drizzle-kit uses `DIRECT_URL`, falling back to `DATABASE_URL`:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   ```bash
+   pnpm db:push
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> ⚠️ Skipping these is the #1 cause of a failed build/deploy — the preflight will
+> report `DB: connected, but the "users" table is missing`. Run the two steps
+> above against the new database and rebuild.
+
+Other DB commands: `pnpm db:generate` (SQL migrations), `pnpm db:studio` (browser UI).
+
+### AI provider
+
+The active provider is chosen via env — switch with one variable, no code change.
+Default is **Google Gemini** (`AI_PROVIDER=google`, `AI_MODEL=gemini-2.5-flash`).
+
+```bash
+AI_PROVIDER=google        # google | zai | openai | anthropic | openai-compatible
+AI_MODEL=gemini-2.5-flash
+# Provide the key for your chosen provider:
+GOOGLE_GENERATIVE_AI_API_KEY=...
+# Optional per-feature overrides:
+#   AI_CHAT_PROVIDER= / AI_CHAT_MODEL=
+#   AI_STRATEGY_PROVIDER= / AI_STRATEGY_MODEL=
+```
+
+For a generic OpenAI-compatible endpoint set `AI_PROVIDER=openai-compatible` plus
+`AI_COMPATIBLE_BASE_URL` / `AI_COMPATIBLE_API_KEY`.
+
+### Storage (Cloudflare R2)
+
+Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, and
+`R2_PUBLIC_BASE_URL`. The public base URL must be a **public** domain — the bucket's
+**Public Development URL** (`https://pub-<hash>.r2.dev`) or a custom domain — **not**
+the `*.r2.cloudflarestorage.com` S3 API endpoint (that is private and logo URLs
+built from it will 404).
+
+### Google OAuth (optional)
+
+Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and add the redirect URI
+`${NEXT_PUBLIC_APP_URL}/auth/callback` in Google Cloud. Email/password sign-in
+works without this.
+
+## Development
+
+```bash
+pnpm dev        # http://localhost:3000
+pnpm test       # Vitest
+pnpm lint       # Biome
+```
+
+## Build & deploy
+
+```bash
+pnpm build      # runs the deploy preflight, then `next build`
+pnpm preflight  # run the checks on their own
+```
+
+### Deploy preflight
+
+`pnpm build` runs `scripts/check-env.mjs` first and **fails the build** unless the
+required integrations are connected:
+
+| Integration | Check | Blocks build? |
+|---|---|---|
+| **Database** | connects + schema initialized (`users` table) | ✅ yes |
+| **AI provider** | configured key validates (free models call) | ✅ yes |
+| **Cloudflare R2** | bucket reachable (HeadBucket) + valid public URL | ✅ yes |
+| Google OAuth | credentials present | ⚠️ warning only |
+
+Escape hatches (use sparingly, e.g. offline CI):
+`SKIP_PREFLIGHT=1`, `SKIP_DB_CHECK=1`, `SKIP_AI_CHECK=1`, `SKIP_R2_CHECK=1`, `AI_SKIP_PING=1`.
+
+On Vercel, set the same env vars in the project settings — the preflight runs as
+part of the build there too.
