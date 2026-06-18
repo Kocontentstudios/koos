@@ -1,17 +1,15 @@
-import { createClient } from '@/lib/supabase/server';
-import { ensureUser } from './sync-user';
+import { cookies } from "next/headers";
+import { SESSION_COOKIE, validateSessionToken } from "./session";
 
+/**
+ * Resolve the currently authenticated user from the session cookie.
+ * Returns `{ dbUser: null }` when there is no valid session.
+ */
 export async function getAuthUser() {
-  const supabase = await createClient();
-  const {
-    data: { user: supabaseUser },
-  } = await supabase.auth.getUser();
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return { dbUser: null };
 
-  if (!supabaseUser) {
-    return { supabaseUser: null, dbUser: null };
-  }
-
-  const dbUser = await ensureUser(supabaseUser);
-
-  return { supabaseUser, dbUser };
+  const result = await validateSessionToken(token);
+  return { dbUser: result?.user ?? null };
 }

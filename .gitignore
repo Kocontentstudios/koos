@@ -46,3 +46,4 @@ drizzle/meta/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.claude/

@@ -1,7 +1,7 @@
-import { streamText, convertToModelMessages, type UIMessage } from 'ai';
-import { chatModel } from '@/lib/ai/provider';
-import { buildChatPrompt } from '@/lib/ai/prompts/chat';
-import type { ChatBrandContext } from '@/lib/ai/prompts/chat';
+import { convertToModelMessages, streamText, type UIMessage } from "ai";
+import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
+import { buildChatPrompt } from "@/lib/ai/prompts/chat";
+import { getModel } from "@/lib/ai/provider";
 
 export async function POST(req: Request) {
   const { messages, brandContext } = (await req.json()) as {
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const modelMessages = await convertToModelMessages(messages);
 
   const result = streamText({
-    model: chatModel,
+    model: getModel("chat"),
     system: systemPrompt,
     messages: modelMessages,
   });

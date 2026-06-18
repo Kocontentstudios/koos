@@ -1,7 +1,19 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
-  "organizeImports": {
-    "enabled": true
+  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["src/**", "scripts/**", "*.ts", "*.mjs"]
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   },
   "formatter": {
     "enabled": true,
@@ -12,11 +24,20 @@
   "javascript": {
     "formatter": {
       "semicolons": "always",
-      "quoteStyle": "single"
+      "quoteStyle": "double"
     }
   },
   "linter": {
-    "enabled": true
+    "enabled": true,
+    "rules": {
+      "complexity": {
+        "noImportantStyles": "off"
+      }
+    }
   },
-  "plugins": ["@biomejs/plugin-tailwindcss"]
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  }
 }

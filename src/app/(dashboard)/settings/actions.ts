@@ -1,17 +1,20 @@
-'use server';
+"use server";
 
-import { getAuthUser } from '@/lib/auth/get-user';
-import { updateUserProfile, getUserById } from '@/lib/db/queries';
-import { createClient } from '@/lib/supabase/server';
+import { getAuthUser } from "@/lib/auth/get-user";
+import { hashPassword } from "@/lib/auth/password";
+import { updateUserPassword, updateUserProfile } from "@/lib/db/queries";
 
 export async function getProfile() {
   const { dbUser } = await getAuthUser();
   return dbUser;
 }
 
-export async function updateProfileAction(data: { firstName: string; lastName: string }) {
+export async function updateProfileAction(data: {
+  firstName: string;
+  lastName: string;
+}) {
   const { dbUser } = await getAuthUser();
-  if (!dbUser) throw new Error('Not authenticated');
+  if (!dbUser) throw new Error("Not authenticated");
 
   const updated = await updateUserProfile(dbUser.id, {
     firstName: data.firstName,
@@ -22,14 +25,12 @@ export async function updateProfileAction(data: { firstName: string; lastName: s
 }
 
 export async function changePasswordAction(newPassword: string) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { dbUser } = await getAuthUser();
+  if (!dbUser) throw new Error("Not authenticated");
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
 
-  if (!user) throw new Error('Not authenticated');
-
-  const { error } = await supabase.auth.updateUser({ password: newPassword });
-
-  if (error) throw new Error(error.message);
-
+  await updateUserPassword(dbUser.id, await hashPassword(newPassword));
   return { success: true };
 }

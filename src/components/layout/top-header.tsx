@@ -1,30 +1,48 @@
-'use client';
+"use client";
+
+import { Bell, Building2 } from "lucide-react";
+import Link from "next/link";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface UserInfo {
   firstName: string;
   lastName: string;
   email: string;
-  avatarUrl: string | null;
+  avatarUrl?: string | null;
 }
 
 export function TopHeader({
   title,
   user,
+  brandName,
   children,
 }: {
   title: string;
   user: UserInfo;
+  brandName?: string;
   children?: React.ReactNode;
 }) {
-  const initials = (user.firstName[0] ?? '') + (user.lastName[0] ?? '');
+  const initials = (user.firstName[0] ?? "") + (user.lastName[0] ?? "");
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-outline-variant/30 bg-background/80 px-6 backdrop-blur-xl">
       {/* Left Side */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-on-surface-variant">
-          <span className="material-symbols-outlined text-lg">apartment</span>
+          <Building2 size={16} />
           <span>{user.firstName}&apos;s Workspace</span>
+          {brandName && (
+            <>
+              <span className="text-on-surface-variant">/</span>
+              <span className="font-medium text-on-surface">{brandName}</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-on-surface-variant">/</span>
@@ -36,44 +54,42 @@ export function TopHeader({
       <div className="flex items-center gap-3">
         {children}
 
-        {/* Notifications */}
+        {/* Notification Bell */}
+        {/* TODO Phase 4: wire unread dot badge when notification data is available */}
         <button
           type="button"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface"
+          aria-label="Notifications"
+          className="relative flex h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground"
         >
-          <span
-            className="material-symbols-outlined text-xl"
-            style={{ fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24" }}
-          >
-            notifications
-          </span>
+          <Bell size={20} />
         </button>
 
-        {/* Help */}
-        <button
-          type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface"
-        >
-          <span
-            className="material-symbols-outlined text-xl"
-            style={{ fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24" }}
+        {/* Avatar Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Account menu"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-nav text-sm font-semibold text-foreground"
           >
-            help_outline
-          </span>
-        </button>
-
-        {/* Avatar */}
-        {user.avatarUrl ? (
-          <img
-            alt={user.firstName}
-            className="h-9 w-9 rounded-full object-cover"
-            src={user.avatarUrl}
-          />
-        ) : (
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/20 text-sm font-semibold text-primary">
             {initials}
-          </div>
-        )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[200px]">
+            <DropdownMenuItem disabled>Account Settings</DropdownMenuItem>
+            <DropdownMenuItem>
+              <Link href="/privacy" className="w-full">
+                Privacy Policy
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <form action="/api/auth/logout" method="POST">
+              <DropdownMenuItem
+                render={<button type="submit" />}
+                className="w-full text-left text-[13px] text-[var(--text-secondary)] hover:text-[#d47575]"
+              >
+                Log out
+              </DropdownMenuItem>
+            </form>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

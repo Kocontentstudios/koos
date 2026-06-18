@@ -1,46 +1,61 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { ensureUser } from '@/lib/auth/sync-user';
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+import {
+  GOOGLE_STATE_COOKIE,
+  GOOGLE_VERIFIER_COOKIE,
+  getGoogleProfile,
+} from "@/lib/auth/google";
+import { startSession } from "@/lib/auth/session";
+import { createUser, getUserByEmail } from "@/lib/db/queries";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get('code');
-  // Only allow same-origin relative redirects to avoid open-redirect abuse.
-  const nextParam = searchParams.get('next') ?? '/dashboard';
-  const next = nextParam.startsWith('/') && !nextParam.startsWith('//')
-    ? nextParam
-    : '/dashboard';
-
-  // The OAuth provider (or Supabase) can return an error directly — e.g. the
-  // user denied consent, or the provider is misconfigured.
-  const providerError =
-    searchParams.get('error_description') ?? searchParams.get('error');
+  const code = searchParams.get("code");
+  const state = searchParams.get("state");
 
   const failureRedirect = (message: string) =>
-    NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(message)}`);
+    NextResponse.redirect(
+      `${origin}/login?error=${encodeURIComponent(message)}`,
+    );
 
-  if (providerError) {
-    return failureRedirect(providerError);
+  // The provider can return an error directly (e.g. consent denied).
+  const providerError =
+    searchParams.get("error_description") ?? searchParams.get("error");
+  if (providerError) return failureRedirect(providerError);
+
+  const store = await cookies();
+  const storedState = store.get(GOOGLE_STATE_COOKIE)?.value;
+  const codeVerifier = store.get(GOOGLE_VERIFIER_COOKIE)?.value;
+
+  // Clear the short-lived OAuth cookies regardless of outcome.
+  store.set(GOOGLE_STATE_COOKIE, "", { maxAge: 0, path: "/" });
+  store.set(GOOGLE_VERIFIER_COOKIE, "", { maxAge: 0, path: "/" });
+
+  if (!code || !state || !storedState || !codeVerifier) {
+    return failureRedirect("Invalid sign-in request. Please try again.");
+  }
+  if (state !== storedState) {
+    return failureRedirect("Sign-in verification failed. Please try again.");
   }
 
-  if (!code) {
-    return failureRedirect('No authorization code returned from provider.');
+  let profile: Awaited<ReturnType<typeof getGoogleProfile>>;
+  try {
+    profile = await getGoogleProfile(code, codeVerifier);
+  } catch {
+    return failureRedirect("Could not complete Google sign-in.");
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-  if (error) {
-    return failureRedirect(error.message);
+  let user = await getUserByEmail(profile.email);
+  if (!user) {
+    user = await createUser({
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      email: profile.email,
+      avatarUrl: profile.avatarUrl,
+      provider: "google",
+    });
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    await ensureUser(user);
-  }
-
-  return NextResponse.redirect(`${origin}${next}`);
+  await startSession(user.id);
+  return NextResponse.redirect(`${origin}/dashboard`);
 }

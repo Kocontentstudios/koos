@@ -1,9 +1,6 @@
 import Link from "next/link";
-import { getAuthUser } from "@/lib/auth/get-user";
-import {
-  getBrandsByUserId,
-  getCampaignsByUserId,
-} from "@/lib/db/queries";
+import { requireBrand } from "@/lib/auth/require-brand";
+import { getBrandsByUserId } from "@/lib/db/queries";
 
 /* ------------------------------------------------------------------ */
 /*  Material Symbol helper                                            */
@@ -61,73 +58,48 @@ function formatRelativeTime(date: Date): string {
   return `${diffMonths}mo ago`;
 }
 
-function mapOnboardingStatus(
-  status: "draft" | "in_progress" | "completed"
-): { label: string; style: string } {
+function mapOnboardingStatus(status: "draft" | "in_progress" | "completed"): {
+  label: string;
+  style: string;
+} {
   switch (status) {
     case "completed":
       return { label: "Active", style: "bg-emerald-500/15 text-emerald-400" };
     case "in_progress":
       return { label: "In Progress", style: "bg-amber-500/15 text-amber-400" };
     case "draft":
-      return { label: "Draft", style: "bg-on-surface-variant/10 text-on-surface-variant" };
-  }
-}
-
-function mapCampaignType(type: string): string {
-  switch (type) {
-    case "product_campaign":
-      return "Product Campaign";
-    case "service_campaign":
-      return "Service Campaign";
-    default:
-      return type;
-  }
-}
-
-function mapCampaignStatus(
-  status: "draft" | "generated" | "exported"
-): { label: string; style: string } {
-  switch (status) {
-    case "generated":
-      return { label: "Generated", style: "bg-emerald-500/15 text-emerald-400" };
-    case "draft":
-      return { label: "Draft", style: "bg-on-surface-variant/10 text-on-surface-variant" };
-    case "exported":
-      return { label: "Exported", style: "bg-sky-500/15 text-sky-400" };
+      return {
+        label: "Draft",
+        style: "bg-on-surface-variant/10 text-on-surface-variant",
+      };
   }
 }
 
 const quickActions = [
-  { label: "Create Brand", icon: "add_business", href: "/brands/new" },
-  { label: "Generate Campaign", icon: "campaign", href: "/campaigns" },
-  { label: "Open AI Chat", icon: "auto_awesome", href: "/chat" },
+  { label: "Edit Brand", icon: "add_business", href: "/brand" },
+  { label: "Open Strategy", icon: "auto_awesome", href: "/strategy" },
 ];
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                              */
 /* ------------------------------------------------------------------ */
 export default async function DashboardPage() {
-  const { dbUser } = await getAuthUser();
+  const { dbUser } = await requireBrand();
 
-  const [userBrands, userCampaigns] = await Promise.all([
-    getBrandsByUserId(dbUser!.id),
-    getCampaignsByUserId(dbUser!.id),
-  ]);
+  const userBrands = await getBrandsByUserId(dbUser.id);
 
-  const firstName = dbUser?.firstName ?? "there";
+  const firstName = dbUser.firstName ?? "there";
 
   return (
     <div className="space-y-8">
       {/* ---- Hero ---- */}
       <section>
         <h1 className="font-heading text-4xl font-bold text-on-surface">
-          Welcome back,{" "}
-          <span className="gradient-text">{firstName}</span>.
+          Welcome back, <span className="gradient-text">{firstName}</span>.
         </h1>
         <p className="mt-2 max-w-xl text-on-surface-variant">
-          Here&apos;s an overview of your brands and campaigns. Let&apos;s build
-          something remarkable today.
+          Here&apos;s an overview of your brands. Let&apos;s build something
+          remarkable today.
         </p>
       </section>
 
@@ -147,16 +119,19 @@ export default async function DashboardPage() {
                 </h2>
               </div>
               <Link
-                href="/brands"
+                href="/brand"
                 className="text-sm font-medium text-primary transition-colors hover:text-primary/80"
               >
-                View All
+                View Profile
               </Link>
             </div>
 
             {userBrands.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-outline-variant/50 py-12 text-center">
-                <Icon name="add_business" className="mb-3 text-4xl text-on-surface-variant/50" />
+                <Icon
+                  name="add_business"
+                  className="mb-3 text-4xl text-on-surface-variant/50"
+                />
                 <p className="text-sm font-medium text-on-surface-variant">
                   No brands yet.
                 </p>
@@ -164,7 +139,7 @@ export default async function DashboardPage() {
                   Create your first brand to get started.
                 </p>
                 <Link
-                  href="/brands/new"
+                  href="/brand/create"
                   className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
                 >
                   Create Brand
@@ -203,9 +178,7 @@ export default async function DashboardPage() {
                             </span>
                           </div>
                         </div>
-                        <span
-                          className={`status-pill mt-1 ${statusStyle}`}
-                        >
+                        <span className={`status-pill mt-1 ${statusStyle}`}>
                           {statusLabel}
                         </span>
                       </div>
@@ -215,130 +188,6 @@ export default async function DashboardPage() {
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-
-          {/* ---- Campaigns Overview ---- */}
-          <div className="glass-panel glow-hover p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Icon name="campaign" className="text-xl text-primary" />
-                <h2 className="font-heading text-lg font-semibold text-on-surface">
-                  Campaigns Overview
-                </h2>
-              </div>
-              <button
-                type="button"
-                className="flex items-center gap-1.5 rounded-lg border border-outline-variant/50 px-3 py-1.5 text-xs font-medium text-on-surface-variant transition-colors hover:border-primary/40 hover:text-on-surface"
-              >
-                <Icon name="filter_list" className="text-base" />
-                Filter
-              </button>
-            </div>
-
-            {userCampaigns.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-outline-variant/50 py-12 text-center">
-                <Icon name="campaign" className="mb-3 text-4xl text-on-surface-variant/50" />
-                <p className="text-sm font-medium text-on-surface-variant">
-                  No campaigns yet.
-                </p>
-                <p className="mt-1 text-xs text-on-surface-variant/70">
-                  Create a brand first, then generate your first campaign.
-                </p>
-                <Link
-                  href="/campaigns"
-                  className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
-                >
-                  Generate Campaign
-                </Link>
-              </div>
-            ) : (
-              /* Table */
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-outline-variant/30">
-                      <th className="pb-3 pr-4 font-medium text-on-surface-variant">
-                        Campaign
-                      </th>
-                      <th className="pb-3 pr-4 font-medium text-on-surface-variant">
-                        Type
-                      </th>
-                      <th className="pb-3 pr-4 font-medium text-on-surface-variant">
-                        Status
-                      </th>
-                      <th className="pb-3 pr-4 font-medium text-on-surface-variant">
-                        Date
-                      </th>
-                      <th className="pb-3 font-medium text-on-surface-variant">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {userCampaigns.map(({ campaign, brandName }) => {
-                      const { label: statusLabel, style: statusStyle } =
-                        mapCampaignStatus(campaign.status);
-
-                      return (
-                        <tr
-                          key={campaign.id}
-                          className="group border-b border-outline-variant/10 last:border-0"
-                        >
-                          <td className="py-3 pr-4">
-                            <div>
-                              <p className="font-medium text-on-surface">
-                                {campaign.title ?? "Untitled Campaign"}
-                              </p>
-                              <p className="text-xs text-on-surface-variant">
-                                {brandName}
-                              </p>
-                            </div>
-                          </td>
-                          <td className="py-3 pr-4 text-on-surface-variant">
-                            {mapCampaignType(campaign.type)}
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span
-                              className={`status-pill ${statusStyle}`}
-                            >
-                              {statusLabel}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4 text-on-surface-variant">
-                            {formatRelativeTime(campaign.createdAt)}
-                          </td>
-                          <td className="py-3">
-                            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                              <button
-                                type="button"
-                                className="flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface"
-                                title="Edit"
-                              >
-                                <Icon name="edit" className="text-base" />
-                              </button>
-                              <button
-                                type="button"
-                                className="flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface"
-                                title="View"
-                              >
-                                <Icon name="visibility" className="text-base" />
-                              </button>
-                              <button
-                                type="button"
-                                className="flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-red-500/10 hover:text-red-400"
-                                title="Delete"
-                              >
-                                <Icon name="delete" className="text-base" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
             )}
           </div>
@@ -352,28 +201,30 @@ export default async function DashboardPage() {
           <div className="glass-panel glow-hover border-primary/30 p-6">
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 ai-glow">
-                <Icon name="auto_awesome" filled className="text-xl text-primary" />
+                <Icon
+                  name="auto_awesome"
+                  filled
+                  className="text-xl text-primary"
+                />
               </div>
               <div>
                 <h3 className="font-heading text-sm font-semibold text-primary">
                   AI Insight
                 </h3>
-                <p className="text-xs text-on-surface-variant">
-                  Powered by AI
-                </p>
+                <p className="text-xs text-on-surface-variant">Powered by AI</p>
               </div>
             </div>
             <p className="mb-5 text-sm leading-relaxed text-on-surface-variant">
               {userBrands.length > 0
-                ? `Your "${userBrands[0].name}" brand is ready for action. Consider generating a campaign to engage your audience and drive growth.`
-                : "Create your first brand to unlock AI-powered insights and campaign recommendations."}
+                ? `Your "${userBrands[0].name}" brand is ready for action. Use Strategy to get insights and drive growth.`
+                : "Create your first brand to unlock AI-powered insights and recommendations."}
             </p>
             <Link
-              href="/chat"
+              href="/strategy"
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-[#0a6d9e] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-primary/25"
             >
               <Icon name="edit_note" className="text-lg" />
-              Draft Campaign
+              Open Strategy
             </Link>
           </div>
 

@@ -1,88 +1,223 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: 'Material Symbols Outlined';
+  font-family: "Material Symbols Outlined";
   font-style: normal;
-  src: url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200') format('woff2');
+  src: url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200")
+    format("woff2");
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   KO OS DARK DESIGN TOKENS  (UI Spec §9.2)
+   ─────────────────────────────────────────────────────────────────────────── */
 :root {
-  --background: #00204F;
-  --foreground: #e0e3e5;
-  --primary: #138BC8;
+  /* --- Backgrounds -------------------------------------------------------- */
+  --background: #000d20;
+  --surface-1: #00162e;
+  --surface-2: #001f3d;
+  --nav: #00204f;
+
+  /* --- Action / Primary --------------------------------------------------- */
+  --primary: #138bc8;
+  --primary-hover: #0f7eb8;
+  --primary-active: #0c5f8a;
+  --primary-disabled: #1a3a4a;
   --primary-foreground: #ffffff;
-  --primary-container: #1a6d94;
-  --secondary: #aec6fe;
-  --secondary-foreground: #001d3d;
-  --accent: #000D20;
-  --accent-foreground: #ffffff;
-  --surface: #000D20;
-  --surface-container-low: #001833;
-  --surface-container: #001a40;
-  --surface-container-high: #002060;
-  --surface-container-highest: #0a2744;
-  --on-surface: #ffffff;
-  --on-surface-variant: #a3b2c7;
-  --outline: #3f4850;
-  --outline-variant: #1a365d;
-  --error: #f44336;
+  --accent-glow: rgba(19, 139, 200, 0.15);
+
+  /* --- Text --------------------------------------------------------------- */
+  --foreground: #ffffff;
+  --text-secondary: #a7b6c7;
+  --text-muted: #6f8599;
+
+  /* --- Status bg / fg pairs ---------------------------------------------- */
+  --status-draft-bg: rgba(255, 255, 255, 0.06);
+  --status-draft-fg: #a7b6c7;
+  --status-progress-bg: rgba(19, 139, 200, 0.15);
+  --status-progress-fg: #85b7eb;
+  --status-ready-bg: rgba(99, 153, 34, 0.18);
+  --status-ready-fg: #97c459;
+  --status-pending-bg: rgba(212, 169, 84, 0.15);
+  --status-pending-fg: #d4a954;
+  --status-error-bg: rgba(212, 117, 117, 0.08);
+  --status-error-fg: #d47575;
+
+  /* --- Borders & effects -------------------------------------------------- */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(19, 139, 200, 0.4);
+  --divider: rgba(255, 255, 255, 0.08);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --backdrop: rgba(0, 0, 0, 0.6);
+
+  /* --- Radius ------------------------------------------------------------- */
+  --radius: 0.625rem;
+
+  /* --- Motion ------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
+
+  /* --- Fonts -------------------------------------------------------------- */
+  --font-display: var(--font-bricolage-grotesque);
+  --font-ui: var(--font-manrope);
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     BACKWARD-COMPATIBLE ALIASES
+     Every token currently referenced in src/**  is kept here, remapped to
+     the nearest KO OS dark value so existing screens don't lose styling.
+     ───────────────────────────────────────────────────────────────────────── */
+
+  /* Surface aliases */
+  --surface: var(--surface-1);
+  --surface-container-low: #001022;
+  --surface-container: var(--surface-1);
+  --surface-container-high: var(--surface-2);
+  --surface-container-highest: #002550;
+  --surface-container-lowest: #000919;
+  --surface-variant: var(--surface-2);
+
+  /* On-surface aliases */
+  --on-surface: var(--foreground);
+  --on-surface-variant: var(--text-secondary);
+
+  /* Outline aliases */
+  --outline: var(--border);
+  --outline-variant: var(--border);
+
+  /* Secondary aliases */
+  --secondary: #a7b6c7;
+  --secondary-foreground: var(--background);
+
+  /* Accent aliases */
+  --accent: var(--surface-1);
+  --accent-foreground: var(--foreground);
+
+  /* Primary container alias */
+  --primary-container: #1a3a4a;
+
+  /* Status / semantic aliases */
+  --error: #d47575;
   --error-foreground: #ffffff;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --muted: #001a40;
-  --muted-foreground: #a3b2c7;
-  --card: #000D20;
-  --card-foreground: #e0e3e5;
-  --popover: #000D20;
-  --popover-foreground: #e0e3e5;
-  --border: #1a365d;
-  --input: #1a365d;
-  --ring: #138BC8;
-  --radius: 0.5rem;
-  --sidebar-background: #000D20;
-  --sidebar-foreground: #e0e3e5;
-  --sidebar-primary: #138BC8;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #001a40;
-  --sidebar-accent-foreground: #e0e3e5;
+  --success: #97c459;
+  --warning: #d4a954;
+
+  /* Muted aliases */
+  --muted: var(--surface-1);
+  --muted-foreground: var(--text-muted);
+
+  /* Card / popover aliases */
+  --card: var(--surface-1);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-2);
+  --popover-foreground: var(--foreground);
+
+  /* Form aliases */
+  --input: var(--border);
+  --ring: var(--primary);
+
+  /* Sidebar aliases */
+  --sidebar-background: var(--nav);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--surface-2);
+  --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: rgba(19, 139, 200, 0.15);
-  --sidebar-ring: #138BC8;
+  --sidebar-ring: var(--primary);
+
+  /* Legacy font aliases (kept so existing uses of var(--font-heading) / var(--font-body) still resolve) */
   --font-heading: var(--font-bricolage-grotesque);
-  --font-body: var(--font-montserrat);
+  --font-body: var(--font-ui);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   TAILWIND v4 THEME MAPPING
+   All --color-* entries so Tailwind utility classes resolve (e.g. bg-surface,
+   text-on-surface-variant, border-outline-variant, etc.)
+   ─────────────────────────────────────────────────────────────────────────── */
 @theme inline {
+  /* KO OS primary tokens */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-nav: var(--nav);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-disabled: var(--primary-disabled);
   --color-primary-foreground: var(--primary-foreground);
-  --color-primary-container: var(--primary-container);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  /* Status tokens */
+  --color-status-draft-bg: var(--status-draft-bg);
+  --color-status-draft-fg: var(--status-draft-fg);
+  --color-status-progress-bg: var(--status-progress-bg);
+  --color-status-progress-fg: var(--status-progress-fg);
+  --color-status-ready-bg: var(--status-ready-bg);
+  --color-status-ready-fg: var(--status-ready-fg);
+  --color-status-pending-bg: var(--status-pending-bg);
+  --color-status-pending-fg: var(--status-pending-fg);
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-error-fg: var(--status-error-fg);
+
+  /* Border tokens */
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-border-accent: var(--border-accent);
+  --color-divider: var(--divider);
+
+  /* Backward-compatible surface aliases */
   --color-surface: var(--surface);
   --color-surface-container-low: var(--surface-container-low);
   --color-surface-container: var(--surface-container);
   --color-surface-container-high: var(--surface-container-high);
   --color-surface-container-highest: var(--surface-container-highest);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-variant: var(--surface-variant);
+
+  /* Backward-compatible on-surface aliases */
   --color-on-surface: var(--on-surface);
   --color-on-surface-variant: var(--on-surface-variant);
+
+  /* Backward-compatible outline aliases */
   --color-outline: var(--outline);
   --color-outline-variant: var(--outline-variant);
+
+  /* Backward-compatible secondary aliases */
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  /* Backward-compatible accent aliases */
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  /* Backward-compatible primary-container */
+  --color-primary-container: var(--primary-container);
+
+  /* Backward-compatible semantic tokens */
   --color-error: var(--error);
   --color-error-foreground: var(--error-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+
+  /* Backward-compatible muted tokens */
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+
+  /* Backward-compatible card / popover tokens */
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  --color-border: var(--border);
+
+  /* Form tokens */
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Sidebar tokens */
   --color-sidebar-background: var(--sidebar-background);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -91,16 +226,24 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Radius */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: var(--font-montserrat);
+
+  /* Font registrations */
+  --font-display: var(--font-bricolage-grotesque);
+  --font-sans: var(--font-manrope);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-bricolage-grotesque);
-  --font-body: var(--font-montserrat);
+  --font-body: var(--font-ui);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   BASE STYLES
+   ─────────────────────────────────────────────────────────────────────────── */
 * {
   border-color: var(--border);
 }
@@ -108,13 +251,40 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-body), Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui), system-ui, -apple-system, sans-serif;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-heading), Arial, Helvetica, sans-serif;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-ui), system-ui, sans-serif;
 }
 
+/* Display font utility — apply to hero headings, brand wordmarks, etc. */
+.font-display {
+  font-family: var(--font-display), system-ui, sans-serif;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   REDUCED-MOTION
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   UTILITY CLASSES (kept intact — colors already align with KO OS palette)
+   ─────────────────────────────────────────────────────────────────────────── */
 .glass-panel {
   background: rgba(0, 13, 32, 0.6);
   backdrop-filter: blur(20px);
@@ -132,7 +302,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .glow-hover {
-  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .glow-hover:hover {
@@ -141,11 +313,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .gradient-primary {
-  background: linear-gradient(135deg, #138BC8, #0a6d9e);
+  background: linear-gradient(135deg, #138bc8, #0a6d9e);
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, #138BC8, #aec6fe);
+  background: linear-gradient(135deg, #138bc8, #aec6fe);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -156,8 +328,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(19, 139, 200, 0.4); }
-  50% { box-shadow: 0 0 16px rgba(19, 139, 200, 0.8); }
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(19, 139, 200, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(19, 139, 200, 0.8);
+  }
 }
 
 .animate-pulse-glow {
@@ -165,13 +342,27 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @keyframes typing-dot {
-  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-4px); }
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
 }
 
-.typing-dot:nth-child(1) { animation: typing-dot 1.4s ease-in-out infinite 0s; }
-.typing-dot:nth-child(2) { animation: typing-dot 1.4s ease-in-out infinite 0.2s; }
-.typing-dot:nth-child(3) { animation: typing-dot 1.4s ease-in-out infinite 0.4s; }
+.typing-dot:nth-child(1) {
+  animation: typing-dot 1.4s ease-in-out infinite 0s;
+}
+.typing-dot:nth-child(2) {
+  animation: typing-dot 1.4s ease-in-out infinite 0.2s;
+}
+.typing-dot:nth-child(3) {
+  animation: typing-dot 1.4s ease-in-out infinite 0.4s;
+}
 
 .status-pill {
   padding: 2px 8px;
@@ -192,17 +383,21 @@ h1, h2, h3, h4, h5, h6 {
 .progress-bar-fill {
   height: 100%;
   border-radius: 9999px;
-  background: linear-gradient(90deg, #138BC8, #0a6d9e);
+  background: linear-gradient(90deg, #138bc8, #0a6d9e);
   transition: width 0.5s ease;
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(19, 139, 200, 0.2);
 }
 
-input, textarea, select {
+input,
+textarea,
+select {
   background: var(--surface-container-low);
   border: 1px solid var(--outline);
   border-radius: 0.5rem;
@@ -210,10 +405,13 @@ input, textarea, select {
   color: var(--on-surface);
   font-family: var(--font-body), sans-serif;
   font-size: 14px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-input::placeholder, textarea::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: var(--on-surface-variant);
   opacity: 0.5;
 }
@@ -233,4 +431,37 @@ input::placeholder, textarea::placeholder {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--on-surface-variant);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.status-draft {
+  background: var(--status-draft-bg);
+  color: var(--status-draft-fg);
+}
+.status-in_progress {
+  background: var(--status-progress-bg);
+  color: var(--status-progress-fg);
+}
+.status-ready {
+  background: var(--status-ready-bg);
+  color: var(--status-ready-fg);
+}
+.status-published {
+  background: var(--status-progress-bg);
+  color: var(--status-progress-fg);
+}
+.status-pending {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-fg);
+}
+.status-error {
+  background: var(--status-error-bg);
+  color: var(--status-error-fg);
 }
