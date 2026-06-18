@@ -82,6 +82,18 @@ Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, an
 the `*.r2.cloudflarestorage.com` S3 API endpoint (that is private and logo URLs
 built from it will 404).
 
+### Roles & the designer admin
+
+Roles are `user` (default), `designer`, and `admin`. Designers/admins reach the
+fulfillment queue at `/admin/tickets`; **admins** manage roles in-app at
+`/admin/users`. Bootstrap the first admin directly (no admin exists yet to grant it):
+
+```bash
+node scripts/set-role.mjs you@example.com admin
+```
+
+After that, grant designer/admin access from `/admin/users`.
+
 ### Google OAuth (optional)
 
 Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and add the redirect URI

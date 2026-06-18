@@ -75,9 +75,17 @@ export default async function TicketDetailPage({
 
       {deliverables.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-[15px] font-semibold text-foreground">
-            Deliverables
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[15px] font-semibold text-foreground">
+              Deliverables
+            </h2>
+            <a
+              href={`/api/design-tickets/${ticket.id}/deliverables/zip`}
+              className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              Download all (ZIP)
+            </a>
+          </div>
           <ul className="grid gap-3 sm:grid-cols-2">
             {deliverables.map((d) => {
               const href = `/api/design-tickets/${ticket.id}/deliverables/${d.id}`;

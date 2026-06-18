@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getAuthUser } from "./get-user";
+import type { Role } from "./roles";
 
-export type Role = "user" | "designer" | "admin";
+export type { Role };
 
 /**
  * Gate a server component/route on the user's role. Redirects unauthenticated

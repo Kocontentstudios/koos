@@ -70,6 +70,16 @@ export function publicUrl(key: string): string {
   return `${base}/${key}`;
 }
 
+/** Fetch an object's raw bytes (e.g. to bundle into a zip). */
+export async function getObjectBytes(key: string): Promise<Buffer> {
+  const res = await client().send(
+    new GetObjectCommand({ Bucket: env("R2_BUCKET"), Key: key }),
+  );
+  const bytes = await res.Body?.transformToByteArray();
+  if (!bytes) throw new Error(`Empty object: ${key}`);
+  return Buffer.from(bytes);
+}
+
 /** Short-lived signed GET URL, for private objects. */
 export async function getSignedReadUrl(
   key: string,

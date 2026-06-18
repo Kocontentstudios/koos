@@ -68,6 +68,32 @@ export async function updateUserPassword(id: string, passwordHash: string) {
   return updated;
 }
 
+export async function getAllUsers() {
+  return db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+      role: users.role,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt));
+}
+
+export async function updateUserRole(
+  id: string,
+  role: typeof users.$inferInsert.role,
+) {
+  const [updated] = await db
+    .update(users)
+    .set({ role, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return updated;
+}
+
 // ── Brands ───────────────────────────────────────────────────────────
 
 export async function getBrandsByUserId(userId: string) {
