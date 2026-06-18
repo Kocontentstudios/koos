@@ -1,14 +1,21 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   customType,
   integer,
   jsonb,
   pgEnum,
+  pgSequence,
   pgTable,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+
+// Human-readable, collision-free design ticket numbers (DT-#####).
+export const designTicketNumberSeq = pgSequence("design_ticket_number_seq", {
+  startWith: 1,
+});
 
 const citext = customType<{ data: string }>({
   dataType() {
@@ -239,7 +246,10 @@ export const calendarItems = pgTable("calendar_items", {
 
 export const designTickets = pgTable("design_tickets", {
   id: uuid("id").primaryKey().defaultRandom(),
-  ticketNumber: integer("ticket_number").notNull().unique(),
+  ticketNumber: integer("ticket_number")
+    .notNull()
+    .unique()
+    .default(sql`nextval('design_ticket_number_seq')`),
   calendarItemId: uuid("calendar_item_id").references(() => calendarItems.id, {
     onDelete: "set null",
   }),

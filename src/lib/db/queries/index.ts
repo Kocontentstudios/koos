@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
@@ -8,6 +8,9 @@ import {
   calendars,
   chatConversations,
   chatMessages,
+  designDeliverables,
+  designTickets,
+  notifications,
   strategies,
   usageEvents,
   users,
@@ -281,6 +284,18 @@ export async function getCalendarItems(calendarId: string) {
     .orderBy(calendarItems.date, calendarItems.sortOrder);
 }
 
+export async function updateCalendarItemStatus(
+  id: string,
+  status: typeof calendarItems.$inferInsert.status,
+) {
+  const [row] = await db
+    .update(calendarItems)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(calendarItems.id, id))
+    .returning();
+  return row;
+}
+
 export async function getCalendarItemById(id: string) {
   const [row] = await db
     .select()
@@ -288,6 +303,152 @@ export async function getCalendarItemById(id: string) {
     .where(eq(calendarItems.id, id))
     .limit(1);
   return row ?? null;
+}
+
+// ── Design Tickets ──────────────────────────────────────────────────
+
+export async function createDesignTicket(
+  data: Omit<typeof designTickets.$inferInsert, "ticketNumber">,
+) {
+  // ticketNumber comes from the design_ticket_number_seq default.
+  const [row] = await db.insert(designTickets).values(data).returning();
+  return row;
+}
+
+export async function getDesignTicketById(id: string) {
+  const [row] = await db
+    .select()
+    .from(designTickets)
+    .where(eq(designTickets.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+/** A user's tickets with campaign name + calendar item title for the list/detail. */
+export async function getDesignTicketsByUser(userId: string) {
+  return db
+    .select({
+      ticket: designTickets,
+      campaignName: strategies.name,
+      itemTitle: calendarItems.title,
+    })
+    .from(designTickets)
+    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
+    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
+    .where(eq(designTickets.userId, userId))
+    .orderBy(desc(designTickets.createdAt));
+}
+
+export async function getDesignTicketForCalendarItem(calendarItemId: string) {
+  const [row] = await db
+    .select()
+    .from(designTickets)
+    .where(eq(designTickets.calendarItemId, calendarItemId))
+    .orderBy(desc(designTickets.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function updateDesignTicket(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designTickets.$inferInsert,
+      "status" | "assignedDesignerId" | "notes"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designTickets)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(designTickets.id, id))
+    .returning();
+  return row;
+}
+
+const QUEUE_STATUSES = [
+  "submitted",
+  "assigned",
+  "in_progress",
+  "revision_requested",
+] as const;
+
+/** Open tickets for the designer/admin queue. */
+export async function getDesignerQueue() {
+  return db
+    .select({
+      ticket: designTickets,
+      campaignName: strategies.name,
+      itemTitle: calendarItems.title,
+      brandName: brands.name,
+    })
+    .from(designTickets)
+    .leftJoin(brands, eq(designTickets.brandId, brands.id))
+    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
+    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
+    .where(inArray(designTickets.status, [...QUEUE_STATUSES]))
+    .orderBy(desc(designTickets.createdAt));
+}
+
+// ── Design Deliverables ─────────────────────────────────────────────
+
+export async function addDeliverables(
+  rows: (typeof designDeliverables.$inferInsert)[],
+) {
+  if (rows.length === 0) return [];
+  return db.insert(designDeliverables).values(rows).returning();
+}
+
+export async function getDeliverables(ticketId: string) {
+  return db
+    .select()
+    .from(designDeliverables)
+    .where(eq(designDeliverables.ticketId, ticketId))
+    .orderBy(designDeliverables.slideIndex, designDeliverables.createdAt);
+}
+
+export async function getDeliverableById(id: string) {
+  const [row] = await db
+    .select()
+    .from(designDeliverables)
+    .where(eq(designDeliverables.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+// ── Notifications ───────────────────────────────────────────────────
+
+export async function createNotification(
+  data: typeof notifications.$inferInsert,
+) {
+  const [row] = await db.insert(notifications).values(data).returning();
+  return row;
+}
+
+export async function getNotifications(userId: string, limit = 20) {
+  return db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.userId, userId))
+    .orderBy(desc(notifications.createdAt))
+    .limit(limit);
+}
+
+export async function getUnreadNotificationCount(userId: string) {
+  const rows = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+  return rows.length;
+}
+
+export async function markNotificationsRead(userId: string) {
+  await db
+    .update(notifications)
+    .set({ readAt: new Date() })
+    .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
 }
 
 // ── Usage Events ────────────────────────────────────────────────────
