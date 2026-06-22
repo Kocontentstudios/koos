@@ -1,7 +1,6 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -9,99 +8,68 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { primaryGoalOptions, toneOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
+import { Field, OtherSelect } from "./fields";
 
-const toneLabels: Record<string, string> = {
-  professional: "Professional & Authoritative",
-  friendly: "Friendly & Conversational",
-  playful: "Playful & Fun",
-  bold: "Bold & Edgy",
-  calm: "Calm & Trustworthy",
-  luxurious: "Luxurious & Sophisticated",
-  educational: "Educational & Helpful",
-  aspirational: "Aspirational & Inspirational",
-};
-
-const primaryGoalLabels: Record<string, string> = {
-  product_launch: "Product Launch",
-  brand_awareness: "Brand Awareness",
-  drive_sales: "Drive Sales / Conversions",
-  grow_social: "Grow Social Following",
-  build_email: "Build Email List",
-  reengage: "Re-engage Customers",
-  seasonal: "Seasonal Promotion",
-  thought_leadership: "Thought Leadership",
-};
-
-interface StepDirectionProps {
+interface StepProps {
   state: CreateBrandState;
   onChange: (patch: Partial<CreateBrandState>) => void;
 }
 
-export function StepDirection({ state, onChange }: StepDirectionProps) {
+export function StepDirection({ state, onChange }: StepProps) {
   return (
     <div className="flex flex-col gap-5">
-      {/* Target Audience */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="target-audience">Target Audience</Label>
+      <p className="text-[13px] font-medium text-[var(--text-muted)]">
+        Optional · Recommended
+      </p>
+
+      <Field label="Target Audience" htmlFor="target-audience">
         <Input
           id="target-audience"
-          placeholder="e.g. Small business owners aged 25–45"
+          placeholder="e.g., Women 22–38, urban, Instagram-active, care about ingredients"
           value={state.targetAudience}
           onChange={(e) => onChange({ targetAudience: e.target.value })}
         />
-      </div>
+      </Field>
 
-      {/* Core Offer */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="brand-offer">Core Offer</Label>
+      <Field label="Offer" htmlFor="brand-offer">
         <Input
           id="brand-offer"
-          placeholder="e.g. Social media marketing services"
+          placeholder="e.g., A 3-step skincare kit for $49"
           value={state.offer}
           onChange={(e) => onChange({ offer: e.target.value })}
         />
-      </div>
+      </Field>
 
-      {/* Tone */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="brand-tone">Brand Tone</Label>
-        <Select
-          value={state.tone}
-          onValueChange={(val) => onChange({ tone: val ?? "" })}
-        >
-          <SelectTrigger id="brand-tone" className="w-full">
-            <SelectValue placeholder="Select brand tone" />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(toneLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <OtherSelect
+        id="brand-tone"
+        label="Tone / Voice"
+        placeholder="Select a tone..."
+        options={toneOptions}
+        value={state.tone}
+        otherValue={state.toneOther}
+        onChange={(v) => onChange({ tone: v })}
+        onOtherChange={(v) => onChange({ toneOther: v })}
+      />
 
-      {/* Primary Goal */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="primary-goal">Primary Goal</Label>
+      <Field label="Primary Goal" htmlFor="primary-goal">
         <Select
           value={state.primaryGoal}
-          onValueChange={(val) => onChange({ primaryGoal: val ?? "" })}
+          onValueChange={(v) => onChange({ primaryGoal: v ?? "" })}
         >
           <SelectTrigger id="primary-goal" className="w-full">
-            <SelectValue placeholder="Select primary goal" />
+            <SelectValue placeholder="Select your main objective..." />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(primaryGoalLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
+            {primaryGoalOptions.map((opt) => (
+              <SelectItem key={opt} value={opt}>
+                {opt}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </Field>
     </div>
   );
 }

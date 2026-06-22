@@ -52,9 +52,21 @@ export async function POST(req: Request) {
   const summary: BrandSummary = {
     name: brand.name,
     overview: brand.overview,
+    businessType: brand.businessType,
+    stage: brand.stage,
     targetAudience: brand.targetAudience,
+    offer: brand.offer,
     tone: brand.tone,
     primaryGoal: brand.primaryGoal,
+    values: brand.values,
+    wordsLove: brand.wordsLove,
+    wordsAvoid: brand.wordsAvoid,
+    brandStyle: brand.brandStyle,
+    competitors: brand.competitors,
+    differentiators: brand.differentiators,
+    platforms: brand.platforms,
+    primaryPlatform: brand.primaryPlatform,
+    postingFrequency: brand.postingFrequency,
   };
 
   let plan: ReturnType<typeof calendarPlanSchema.parse>;

@@ -1,5 +1,6 @@
 "use client";
 
+import { CalendarDays, Clock } from "lucide-react";
 import Link from "next/link";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useMemo } from "react";
@@ -74,12 +75,7 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
                   <span className="text-[12px] text-[var(--text-muted)]">
                     {formatTicketNumber(t.ticketNumber)}
                   </span>
-                  <div className="flex items-center gap-3">
-                    <TicketStatusBadge status={t.status} />
-                    <span className="text-[12px] text-[var(--text-muted)]">
-                      {formatDate(t.createdAt)}
-                    </span>
-                  </div>
+                  <TicketStatusBadge status={t.status} />
                 </div>
                 <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <span className="text-[14px] font-medium text-foreground">
@@ -96,6 +92,18 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
                     {t.itemTitle}
                   </p>
                 )}
+                <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px] text-[var(--text-muted)]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarDays size={13} /> Submitted {formatDate(t.createdAt)}
+                  </span>
+                  {t.dueDate && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock size={13} />
+                      {t.status === "delivered" ? "Delivered " : "Due "}
+                      {formatDate(t.dueDate)}
+                    </span>
+                  )}
+                </div>
               </Link>
             </li>
           ))}

@@ -132,6 +132,46 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   LIGHT THEME OVERRIDES  (mirrors koos_complete/assets/js/theme.js)
+   Applied when next-themes sets data-theme="light" on <html>.
+   The sidebar (--nav) intentionally stays dark in both themes.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  /* Backgrounds & surfaces */
+  --background: #edf1f7;
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --accent-glow: rgba(19, 139, 200, 0.12);
+
+  /* Text hierarchy */
+  --foreground: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #7c8da1;
+
+  /* Borders & dividers */
+  --border: #e2e8f0;
+  --border-hover: #cbd5e1;
+  --border-accent: rgba(19, 139, 200, 0.4);
+  --divider: #eaeff5;
+
+  /* Effects */
+  --backdrop: rgba(15, 23, 42, 0.4);
+  --shadow-modal: 0 16px 48px rgba(15, 23, 42, 0.18);
+  --shadow-toast: 0 4px 16px rgba(15, 23, 42, 0.16);
+
+  /* Hardcoded surface-container aliases need explicit light values
+     (the dark :root sets these to navy hex, not var()s) */
+  --surface-container-low: #f1f5f9;
+  --surface-container-lowest: #ffffff;
+  --surface-container-highest: #e2e8f0;
+  --primary-container: #dbeafe;
+
+  /* White-alpha overlays become invisible on light surfaces → flip to ink-alpha */
+  --status-draft-bg: rgba(15, 23, 42, 0.05);
+  --hover: rgba(15, 23, 42, 0.05);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    TAILWIND v4 THEME MAPPING
    All --color-* entries so Tailwind utility classes resolve (e.g. bg-surface,
    text-on-surface-variant, border-outline-variant, etc.)

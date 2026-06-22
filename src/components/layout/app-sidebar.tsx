@@ -17,7 +17,7 @@ export function AppSidebar({ user }: { user: UserInfo }) {
   const initials = (user.firstName[0] ?? "") + (user.lastName[0] ?? "");
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-[280px] flex-col border-r border-outline-variant bg-nav">
+    <aside className="fixed left-0 top-0 z-40 flex h-screen w-[240px] flex-col border-r border-[var(--border)] bg-nav">
       {/* Logo Area */}
       <div className="flex items-center gap-3 px-6 py-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#0a6d9e] text-sm font-bold text-white">

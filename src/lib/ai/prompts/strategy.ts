@@ -1,18 +1,42 @@
 export interface BrandSummary {
   name: string;
   overview?: string | null;
+  businessType?: string | null;
+  stage?: string | null;
   targetAudience?: string | null;
+  offer?: string | null;
   tone?: string | null;
   primaryGoal?: string | null;
+  values?: string | null;
+  wordsLove?: string | null;
+  wordsAvoid?: string | null;
+  brandStyle?: string | null;
+  competitors?: string | null;
+  differentiators?: string | null;
+  platforms?: string[] | null;
+  primaryPlatform?: string | null;
+  postingFrequency?: string | null;
 }
 
-function brandBlock(b: BrandSummary): string {
+export function brandBlock(b: BrandSummary): string {
   return [
     `Brand: ${b.name}`,
     b.overview ? `Overview: ${b.overview}` : null,
+    b.businessType ? `Business type: ${b.businessType}` : null,
+    b.stage ? `Stage: ${b.stage}` : null,
     b.targetAudience ? `Target audience: ${b.targetAudience}` : null,
+    b.offer ? `Offer: ${b.offer}` : null,
     b.tone ? `Tone of voice: ${b.tone}` : null,
     b.primaryGoal ? `Primary goal: ${b.primaryGoal}` : null,
+    b.values ? `Brand values: ${b.values}` : null,
+    b.wordsLove ? `Words to favor: ${b.wordsLove}` : null,
+    b.wordsAvoid ? `Words to avoid: ${b.wordsAvoid}` : null,
+    b.brandStyle ? `Visual style: ${b.brandStyle}` : null,
+    b.competitors ? `Competitors: ${b.competitors}` : null,
+    b.differentiators ? `How they differ: ${b.differentiators}` : null,
+    b.platforms?.length ? `Active platforms: ${b.platforms.join(", ")}` : null,
+    b.primaryPlatform ? `Primary platform: ${b.primaryPlatform}` : null,
+    b.postingFrequency ? `Posting frequency: ${b.postingFrequency}` : null,
   ]
     .filter(Boolean)
     .join("\n");

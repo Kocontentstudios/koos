@@ -37,6 +37,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${bricolageGrotesque.variable} ${montserrat.variable} ${manrope.variable} h-full antialiased`}
     >
       <head>

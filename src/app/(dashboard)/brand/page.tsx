@@ -8,34 +8,6 @@ import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getActiveBrandForUser } from "@/lib/db/queries";
 
 /* ------------------------------------------------------------------ */
-/*  Label helpers                                                      */
-/* ------------------------------------------------------------------ */
-
-function labelBusinessType(value: string): string {
-  const map: Record<string, string> = {
-    ecommerce: "E-Commerce",
-    saas: "SaaS",
-    agency: "Agency",
-    creator: "Creator / Personal Brand",
-    nonprofit: "Non-Profit",
-    local: "Local Business",
-    other: "Other",
-  };
-  return map[value] ?? value;
-}
-
-function labelStage(value: string): string {
-  const map: Record<string, string> = {
-    idea: "Idea Stage",
-    pre_launch: "Pre-Launch",
-    early: "Early Stage",
-    growth: "Growth",
-    scale: "Scale",
-  };
-  return map[value] ?? value;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -52,23 +24,43 @@ function Section({
       <dt className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
         {label}
       </dt>
-      <dd className="text-sm text-[var(--text-secondary)] leading-relaxed">
+      <dd className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line">
         {value}
       </dd>
     </div>
   );
 }
 
-function ColorSwatch({ hex }: { hex: string }) {
+function Panel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-surface-1 p-6 space-y-4">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function ColorSwatch({ hex, label }: { hex: string; label?: string }) {
   return (
     <div className="flex items-center gap-2">
       <div
-        className="h-6 w-6 rounded border border-[var(--border)]"
+        className="h-8 w-8 rounded-full border border-[var(--border)]"
         style={{ backgroundColor: hex }}
       />
-      <span className="text-xs font-mono text-[var(--text-secondary)]">
-        {hex}
-      </span>
+      <div>
+        {label && <p className="text-xs text-[var(--text-muted)]">{label}</p>}
+        <span className="text-xs font-mono text-[var(--text-secondary)]">
+          {hex}
+        </span>
+      </div>
     </div>
   );
 }
@@ -87,63 +79,82 @@ export default async function BrandProfilePage() {
   }
 
   const additionalColors = brand.additionalColors ?? [];
+  const platforms = brand.platforms ?? [];
+
+  const hasPersonality = Boolean(
+    brand.values || brand.wordsLove || brand.wordsAvoid,
+  );
+  const hasVisual = Boolean(brand.hasLogo != null || brand.brandStyle);
+  const hasCompetitors = Boolean(
+    brand.competitors || brand.competitorStrengths || brand.differentiators,
+  );
+  const hasPlatforms = Boolean(
+    platforms.length || brand.primaryPlatform || brand.postingFrequency,
+  );
+  const hasNotes = Boolean(brand.additionalNotes || brand.helpfulLinks);
 
   return (
-    <div className="space-y-8 max-w-[720px]">
+    <div className="space-y-6 max-w-[760px]">
       {/* ---- Header ---- */}
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
+        <div>
           <h1 className="font-display text-3xl font-bold text-foreground">
-            {brand.name}
+            Brand Profile
           </h1>
-          <StatusBadge status="ready">
-            {brand.onboardingStatus === "completed"
-              ? "Active"
-              : brand.onboardingStatus}
-          </StatusBadge>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Your brand information used for AI strategies and design assets
+          </p>
         </div>
-
-        {/* Note: Edit links to /brand/create; pre-fill support is deferred to a future phase. */}
         <Link href="/brand/create">
           <Button variant="secondary" size="lg">
-            Edit profile
+            Edit Brand
           </Button>
         </Link>
       </div>
 
-      {/* ---- Logo ---- */}
-      {brand.logoUrl && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-            Logo
-          </p>
-          <Image
-            src={brand.logoUrl}
-            alt={`${brand.name} logo`}
-            width={128}
-            height={64}
-            className="h-16 w-auto rounded object-contain"
-            unoptimized
-          />
+      {/* ---- Brand header card ---- */}
+      <div className="flex items-start gap-5 rounded-xl border border-[var(--border)] bg-surface-1 p-6">
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-container-low)]">
+          {brand.logoUrl ? (
+            <Image
+              src={brand.logoUrl}
+              alt={`${brand.name} logo`}
+              width={80}
+              height={80}
+              className="h-full w-full object-contain"
+              unoptimized
+            />
+          ) : (
+            <span className="text-2xl text-[var(--text-muted)]">
+              {brand.name[0]?.toUpperCase()}
+            </span>
+          )}
         </div>
-      )}
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-foreground">{brand.name}</h2>
+          {brand.overview && (
+            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+              {brand.overview}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {brand.businessType && (
+              <StatusBadge status="in_progress">
+                {brand.businessType}
+              </StatusBadge>
+            )}
+            {brand.stage && (
+              <StatusBadge status="draft">{brand.stage}</StatusBadge>
+            )}
+          </div>
+        </div>
+      </div>
 
-      {/* ---- Profile Fields ---- */}
+      {/* ---- Direction ---- */}
       <dl className="grid grid-cols-1 gap-6 sm:grid-cols-2 rounded-xl border border-[var(--border)] bg-surface-1 p-6">
-        <Section label="Overview" value={brand.overview} />
-        <Section
-          label="Business Type"
-          value={
-            brand.businessType ? labelBusinessType(brand.businessType) : null
-          }
-        />
-        <Section
-          label="Stage"
-          value={brand.stage ? labelStage(brand.stage) : null}
-        />
         <Section label="Target Audience" value={brand.targetAudience} />
         <Section label="Offer" value={brand.offer} />
-        <Section label="Tone" value={brand.tone} />
+        <Section label="Tone of Voice" value={brand.tone} />
         <Section label="Primary Goal" value={brand.primaryGoal} />
       </dl>
 
@@ -151,35 +162,146 @@ export default async function BrandProfilePage() {
       {(brand.primaryColor ||
         brand.secondaryColor ||
         additionalColors.length > 0) && (
-        <div className="rounded-xl border border-[var(--border)] bg-surface-1 p-6 space-y-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-            Brand Colors
-          </p>
-          <div className="space-y-3">
+        <Panel title="Brand Colors">
+          <div className="flex flex-wrap gap-6">
             {brand.primaryColor && (
-              <div className="space-y-1">
-                <p className="text-xs text-[var(--text-muted)]">Primary</p>
-                <ColorSwatch hex={brand.primaryColor} />
-              </div>
+              <ColorSwatch hex={brand.primaryColor} label="Primary" />
             )}
             {brand.secondaryColor && (
-              <div className="space-y-1">
-                <p className="text-xs text-[var(--text-muted)]">Secondary</p>
-                <ColorSwatch hex={brand.secondaryColor} />
-              </div>
+              <ColorSwatch hex={brand.secondaryColor} label="Secondary" />
             )}
-            {additionalColors.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-[var(--text-muted)]">Additional</p>
-                <div className="flex flex-wrap gap-3">
-                  {additionalColors.map((hex) => (
-                    <ColorSwatch key={hex} hex={hex} />
-                  ))}
-                </div>
-              </div>
+            {additionalColors.map((hex) => (
+              <ColorSwatch key={hex} hex={hex} />
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {/* ---- Brand Personality ---- */}
+      {hasPersonality && (
+        <Panel title="Brand Personality">
+          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+            {brand.values && <p>{brand.values}</p>}
+            {brand.wordsLove && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  Words we love:
+                </span>{" "}
+                {brand.wordsLove}
+              </p>
+            )}
+            {brand.wordsAvoid && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  Words to avoid:
+                </span>{" "}
+                {brand.wordsAvoid}
+              </p>
             )}
           </div>
-        </div>
+        </Panel>
+      )}
+
+      {/* ---- Visual Identity ---- */}
+      {hasVisual && (
+        <Panel title="Visual Identity">
+          <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+            {brand.hasLogo != null && (
+              <p>
+                <span className="font-semibold text-foreground">Has logo:</span>{" "}
+                {brand.hasLogo ? "Yes" : "No"}
+              </p>
+            )}
+            {brand.brandStyle && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  Brand style:
+                </span>{" "}
+                {brand.brandStyle}
+              </p>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {/* ---- Competitors ---- */}
+      {hasCompetitors && (
+        <Panel title="Competitors">
+          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+            {brand.competitors && <p>{brand.competitors}</p>}
+            {brand.competitorStrengths && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  What they do well:
+                </span>{" "}
+                {brand.competitorStrengths}
+              </p>
+            )}
+            {brand.differentiators && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  How we&apos;re different:
+                </span>{" "}
+                {brand.differentiators}
+              </p>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {/* ---- Platforms & Posting ---- */}
+      {hasPlatforms && (
+        <Panel title="Platforms & Posting">
+          {platforms.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {platforms.map((p) => (
+                <span
+                  key={p}
+                  className="rounded-full border border-border bg-[var(--surface-container-low)] px-3 py-1 text-[13px] text-text-secondary"
+                >
+                  {p}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+            {brand.primaryPlatform && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  Primary platform:
+                </span>{" "}
+                {brand.primaryPlatform}
+              </p>
+            )}
+            {brand.postingFrequency && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  Posting frequency:
+                </span>{" "}
+                {brand.postingFrequency}
+              </p>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {/* ---- Anything Else ---- */}
+      {hasNotes && (
+        <Panel title="Anything Else">
+          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+            {brand.additionalNotes && (
+              <p className="whitespace-pre-line">{brand.additionalNotes}</p>
+            )}
+            {brand.helpfulLinks && (
+              <p>
+                <span className="font-semibold text-foreground">
+                  Helpful links:
+                </span>{" "}
+                {brand.helpfulLinks}
+              </p>
+            )}
+          </div>
+        </Panel>
       )}
     </div>
   );

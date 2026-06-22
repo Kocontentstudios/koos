@@ -6,10 +6,32 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { signInWithGoogle, signup } from "../actions";
 
+const STRENGTH_COLORS = [
+  "var(--error)",
+  "#D4A954",
+  "#85B7EB",
+  "var(--success)",
+];
+const STRENGTH_LABELS = ["Weak", "Fair", "Good", "Strong"];
+
+/** Mirrors checkStrength() in koos_complete/register.html — 0–4 score. */
+function passwordScore(val: string): number {
+  let score = 0;
+  if (val.length >= 8) score++;
+  if (/[A-Z]/.test(val)) score++;
+  if (/[0-9]/.test(val)) score++;
+  if (/[^A-Za-z0-9]/.test(val)) score++;
+  return score;
+}
+
 export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  const [password, setPassword] = useState("");
+
+  const score = passwordScore(password);
+  const level = Math.min(score - 1, 3);
 
   async function handleSubmit(formData: FormData) {
     setError(null);
@@ -144,6 +166,8 @@ export default function RegisterPage() {
                 placeholder="At least 6 characters"
                 required
                 type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
               <button
                 aria-label={showPw ? "Hide password" : "Show password"}
@@ -158,6 +182,28 @@ export default function RegisterPage() {
                 )}
               </button>
             </div>
+
+            {/* Password strength meter */}
+            <div className="mt-1 flex gap-1.5">
+              {["seg1", "seg2", "seg3", "seg4"].map((seg, i) => (
+                <div
+                  key={seg}
+                  className="h-1 flex-1 rounded-full transition-colors"
+                  style={{
+                    background:
+                      i < score ? STRENGTH_COLORS[level] : "var(--border)",
+                  }}
+                />
+              ))}
+            </div>
+            <p
+              className="text-[11px]"
+              style={{
+                color: score > 0 ? STRENGTH_COLORS[level] : "var(--text-muted)",
+              }}
+            >
+              {score > 0 ? STRENGTH_LABELS[level] : "Password strength"}
+            </p>
           </div>
 
           {/* Submit */}

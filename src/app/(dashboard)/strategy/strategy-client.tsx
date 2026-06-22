@@ -12,6 +12,7 @@ import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
 import { PromptChips } from "./prompt-chips";
 import { StrategyCard } from "./strategy-card";
+import { StrategyPanel } from "./strategy-panel";
 
 interface StrategyHistoryItem {
   id: string;
@@ -40,6 +41,7 @@ export function StrategyClient({
   const [buildError, setBuildError] = useState<string | null>(null);
   const [calendarPending, setCalendarPending] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
 
   const transport = useMemo(
     () =>
@@ -222,9 +224,9 @@ export function StrategyClient({
           </div>
         )}
 
-        {/* Strategy card */}
+        {/* Strategy card — mobile fallback (right panel is desktop-only) */}
         {strategy && (
-          <div className="px-4 pb-4 flex flex-col gap-2">
+          <div className="flex flex-col gap-2 px-4 pb-4 lg:hidden">
             <StrategyCard
               strategy={strategy}
               generating={calendarPending}
@@ -232,17 +234,9 @@ export function StrategyClient({
               onGenerateCalendar={handleGenerateCalendar}
             />
             {calendarError && (
-              <div className="px-4 py-2 rounded-xl bg-[var(--status-error-bg)] text-[var(--status-error-fg)] text-sm flex items-center justify-between gap-3">
-                <span>{calendarError}</span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleGenerateCalendar}
-                  aria-label="Retry generate calendar"
-                >
-                  Try Again
-                </Button>
-              </div>
+              <p className="rounded-xl bg-[var(--status-error-bg)] px-4 py-2 text-sm text-[var(--status-error-fg)]">
+                {calendarError}
+              </p>
             )}
           </div>
         )}
@@ -286,6 +280,19 @@ export function StrategyClient({
           isLoading={isLoading}
         />
       </div>
+
+      {/* Right strategy-preview panel (collapsible) */}
+      {strategy && (
+        <StrategyPanel
+          strategy={strategy}
+          collapsed={panelCollapsed}
+          onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
+          onEdit={() => setStrategy(null)}
+          onGenerateCalendar={handleGenerateCalendar}
+          generating={calendarPending}
+          calendarError={calendarError}
+        />
+      )}
     </div>
   );
 }

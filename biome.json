@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**", "scripts/**", "*.ts", "*.mjs"]
+    "includes": [
+      "src/**",
+      "scripts/**",
+      "*.ts",
+      "*.mjs",
+      "!src/app/landing.css"
+    ]
   },
   "assist": {
     "actions": {

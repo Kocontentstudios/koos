@@ -1,124 +1,67 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { businessTypeOptions, stageOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
+import { Field, OtherSelect } from "./fields";
 
-const businessTypeLabels: Record<string, string> = {
-  ecommerce: "E-commerce / Product",
-  service: "Service-based",
-  saas: "SaaS / Technology",
-  creator: "Content Creator / Influencer",
-  agency: "Agency / Consultancy",
-  nonprofit: "Non-profit",
-  restaurant: "Restaurant / Food",
-  fashion: "Fashion / Beauty",
-  health: "Health / Wellness",
-  education: "Education",
-  other: "Other",
-};
-
-const stageLabels: Record<string, string> = {
-  pre_launch: "Pre-launch / New business",
-  early_growth: "Early growth (1-2 years)",
-  established: "Established (3+ years)",
-  rebranding: "Rebranding",
-  new_product: "Launching a new product/service",
-};
-
-interface StepBasicsProps {
+interface StepProps {
   state: CreateBrandState;
   onChange: (patch: Partial<CreateBrandState>) => void;
 }
 
-export function StepBasics({ state, onChange }: StepBasicsProps) {
+export function StepBasics({ state, onChange }: StepProps) {
   return (
     <div className="flex flex-col gap-5">
-      {/* Brand Name */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="brand-name">Brand Name</Label>
+      <p className="text-[13px] font-medium text-[var(--error)]">Required</p>
+
+      <Field label="Brand / Business Name *" htmlFor="brand-name">
         <Input
           id="brand-name"
-          placeholder="e.g. Acme Co."
+          placeholder="e.g., KO Skincare"
           value={state.name}
           onChange={(e) => onChange({ name: e.target.value })}
         />
-      </div>
+      </Field>
 
-      {/* Overview */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="brand-overview">Brand Overview</Label>
+      <Field
+        label="Business Overview *"
+        htmlFor="brand-overview"
+        hint={`What you do and who it's for. Minimum 20 characters${
+          state.overview.length > 0 ? ` (${state.overview.length} / 500)` : ""
+        }`}
+      >
         <Textarea
           id="brand-overview"
-          placeholder="Describe your business, what you do, and who you serve…"
-          rows={4}
+          rows={3}
+          placeholder="We make clean, affordable skincare products for young professionals who want effective routines without 20 steps."
           value={state.overview}
           onChange={(e) => onChange({ overview: e.target.value })}
         />
-        <p className="text-[12px] text-[var(--text-muted)]">
-          Minimum 20 characters
-          {state.overview.length > 0 && (
-            <span
-              className={
-                state.overview.length >= 20
-                  ? " text-[var(--status-success-fg)]"
-                  : ""
-              }
-            >
-              {" "}
-              ({state.overview.length} / 500)
-            </span>
-          )}
-        </p>
-      </div>
+      </Field>
 
-      {/* Business Type */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="business-type">Business Type</Label>
-        <Select
-          value={state.businessType}
-          onValueChange={(val) => onChange({ businessType: val ?? "" })}
-        >
-          <SelectTrigger id="business-type" className="w-full">
-            <SelectValue placeholder="Select business type" />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(businessTypeLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <OtherSelect
+        id="business-type"
+        label="Business Type *"
+        placeholder="Select a type..."
+        options={businessTypeOptions}
+        value={state.businessType}
+        otherValue={state.businessTypeOther}
+        onChange={(v) => onChange({ businessType: v })}
+        onOtherChange={(v) => onChange({ businessTypeOther: v })}
+      />
 
-      {/* Stage */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="brand-stage">Business Stage</Label>
-        <Select
-          value={state.stage}
-          onValueChange={(val) => onChange({ stage: val ?? "" })}
-        >
-          <SelectTrigger id="brand-stage" className="w-full">
-            <SelectValue placeholder="Select stage" />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(stageLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <OtherSelect
+        id="stage"
+        label="Stage *"
+        placeholder="Select your current stage..."
+        options={stageOptions}
+        value={state.stage}
+        otherValue={state.stageOther}
+        onChange={(v) => onChange({ stage: v })}
+        onOtherChange={(v) => onChange({ stageOther: v })}
+      />
     </div>
   );
 }
