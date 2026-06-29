@@ -227,7 +227,7 @@ export default function LoginPage() {
         </button>
 
         {/* Register Link */}
-        <div className="mt-8 text-center space-y-3">
+        <div className="mt-8 text-center">
           <p className="text-sm text-[var(--text-secondary)]">
             Need an account?{" "}
             <Link
@@ -237,12 +237,6 @@ export default function LoginPage() {
               Create one.
             </Link>
           </p>
-          <Link
-            className="block text-xs text-[var(--text-muted)] hover:text-foreground transition-colors"
-            href="/"
-          >
-            ← Back to home
-          </Link>
         </div>
       </div>
     </div>
