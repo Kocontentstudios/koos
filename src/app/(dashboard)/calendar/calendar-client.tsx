@@ -121,37 +121,49 @@ export function CalendarClient({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        {/* Left: campaign label + view switcher (template calendar-header-left). */}
+        <div className="flex flex-wrap items-center gap-3">
+          {campaignName && (
+            <span className="inline-flex items-center rounded-lg border border-[var(--border)] bg-surface-1 px-3.5 py-2 text-[13px] text-[var(--text-secondary)]">
+              {campaignName}
+            </span>
+          )}
+          <ViewToggle value={view} onChange={(v) => setView(v)} />
+        </div>
+
+        {/* Right: range label + prev → Today → next (template calendar-header-right). */}
+        <div className="flex items-center gap-2">
+          <span className="mr-1 text-[13px] text-[var(--text-secondary)]">
+            {label}
+          </span>
           {showNav && (
             <div className="flex items-center gap-1">
               <Button
-                variant="icon"
-                size="icon"
+                variant="ghost"
+                size="icon-sm"
                 aria-label={
                   view === "month" ? "Previous month" : "Previous week"
                 }
                 onClick={() => shift(-1)}
-                className="h-11 w-11 sm:h-9 sm:w-9"
+                className="h-9 w-9 sm:h-7 sm:w-7"
               >
                 <ChevronLeft />
               </Button>
+              <Button variant="ghost" size="sm" onClick={goToday}>
+                Today
+              </Button>
               <Button
-                variant="icon"
-                size="icon"
+                variant="ghost"
+                size="icon-sm"
                 aria-label={view === "month" ? "Next month" : "Next week"}
                 onClick={() => shift(1)}
-                className="h-11 w-11 sm:h-9 sm:w-9"
+                className="h-9 w-9 sm:h-7 sm:w-7"
               >
                 <ChevronRight />
               </Button>
-              <Button variant="secondary" size="lg" onClick={goToday}>
-                Today
-              </Button>
             </div>
           )}
-          <h1 className="text-lg font-semibold text-foreground">{label}</h1>
         </div>
-        <ViewToggle value={view} onChange={(v) => setView(v)} />
       </header>
 
       {view === "month" && (

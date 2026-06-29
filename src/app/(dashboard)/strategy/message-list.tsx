@@ -45,17 +45,23 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
             key={msg.id}
             className={`flex items-start gap-3 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : ""}`}
           >
-            {/* Avatar */}
-            <div className="w-8 h-8 rounded-full bg-[rgba(19,139,200,0.2)] flex items-center justify-center shrink-0 text-primary font-bold text-[11px]">
-              {isUser ? "U" : "K"}
+            {/* Avatar — 28px solid primary for KO, surface for user */}
+            <div
+              className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
+                isUser
+                  ? "bg-surface-2 text-foreground"
+                  : "bg-primary text-white"
+              }`}
+            >
+              {isUser ? "U" : "KO"}
             </div>
 
             {/* Bubble — user text is plain; assistant text is markdown. */}
             <div
-              className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+              className={`rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
                 isUser
-                  ? "bg-surface-2 text-foreground rounded-tr-sm whitespace-pre-line"
-                  : "bg-surface-1 text-foreground rounded-tl-sm"
+                  ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
+                  : "bg-surface-1 border-[var(--border)] rounded-tl-sm"
               }`}
             >
               {isUser ? text : <Markdown>{text}</Markdown>}
@@ -67,10 +73,10 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
       {/* Typing dots */}
       {isLoading && (
         <div className="flex items-start gap-3 max-w-[85%]">
-          <div className="w-8 h-8 rounded-full bg-[rgba(19,139,200,0.2)] flex items-center justify-center shrink-0 text-primary font-bold text-[11px]">
-            K
+          <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
+            KO
           </div>
-          <div className="bg-surface-1 rounded-2xl rounded-tl-sm px-4 py-3">
+          <div className="bg-surface-1 border border-[var(--border)] rounded-xl rounded-tl-sm px-4 py-3">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-primary inline-block animate-bounce [animation-delay:0ms]" />
               <span className="w-2 h-2 rounded-full bg-primary inline-block animate-bounce [animation-delay:150ms]" />

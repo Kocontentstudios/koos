@@ -2,11 +2,13 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Strategy } from "@/lib/ai/strategy-schema";
+import { cn } from "@/lib/utils";
 import { markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
@@ -18,6 +20,7 @@ interface StrategyHistoryItem {
   id: string;
   name: string;
   updatedAt: Date;
+  status?: string;
 }
 
 interface StrategyClientProps {
@@ -149,15 +152,19 @@ export function StrategyClient({
   const showBuildButton = messages.length >= 2 && !strategy && !isLoading;
 
   return (
-    <div className="h-[calc(100vh-56px)] flex overflow-hidden -m-6">
+    <div className="h-[calc(100vh-56px)] flex overflow-hidden -mx-4 -my-6 md:-mx-8 md:-my-8">
       {/* Left history panel — desktop only */}
-      <aside className="hidden lg:flex w-[280px] flex-col border-r border-[rgba(255,255,255,0.06)] overflow-hidden">
-        <div className="px-4 py-4 border-b border-[rgba(255,255,255,0.06)]">
+      <aside className="hidden lg:flex w-[280px] flex-col border-r border-[var(--border)] bg-surface-1 overflow-hidden">
+        <div className="px-5 py-5 border-b border-[var(--border)]">
+          <h3 className="mb-3 text-[14px] font-semibold text-foreground">
+            Campaign History
+          </h3>
           <Button
-            variant="secondary"
+            variant="default"
             onClick={handleNewStrategy}
             className="w-full justify-center"
           >
+            <Plus className="size-4" />
             New Strategy
           </Button>
         </div>
@@ -168,18 +175,31 @@ export function StrategyClient({
             </p>
           ) : (
             <ul className="space-y-1">
-              {pastStrategies.map((s) => (
-                <li key={s.id}>
-                  <div className="px-3 py-2 rounded-lg hover:bg-[rgba(255,255,255,0.04)] cursor-default">
-                    <p className="text-[13px] text-foreground truncate">
-                      {s.name}
-                    </p>
-                    <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
-                      {new Date(s.updatedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                </li>
-              ))}
+              {pastStrategies.map((s) => {
+                const active =
+                  s.id === strategyId || s.status === "active";
+                return (
+                  <li key={s.id}>
+                    <div
+                      className={cn(
+                        "rounded-lg px-3 py-3 cursor-default transition-colors hover:bg-surface-2",
+                        active &&
+                          "bg-surface-2 border-l-2 border-l-primary",
+                      )}
+                    >
+                      <p className="text-[13px] font-semibold text-foreground truncate">
+                        {s.name}
+                      </p>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-1 capitalize">
+                        {s.status ?? "draft"}
+                      </p>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                        {new Date(s.updatedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -187,19 +207,20 @@ export function StrategyClient({
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Empty state */}
+        {/* Empty state — KO welcome bubble + indented prompt chips */}
         {messages.length === 0 && (
-          <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-            <div className="w-14 h-14 rounded-full bg-[rgba(19,139,200,0.2)] flex items-center justify-center mb-5 text-primary font-bold text-xl">
-              K
+          <div className="flex-1 overflow-y-auto px-4 py-6">
+            <div className="flex items-start gap-3 max-w-[85%]">
+              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
+                KO
+              </div>
+              <div className="rounded-xl rounded-tl-sm border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm leading-relaxed text-foreground">
+                Hi! I&apos;m KO, your content strategist. Tell me about your
+                campaign, product, or goal and I&apos;ll build a content
+                strategy for you. Pick one to get started, or describe it in
+                your own words.
+              </div>
             </div>
-            <h2 className="text-[24px] font-semibold text-foreground mb-2">
-              What are you working on?
-            </h2>
-            <p className="text-[var(--text-secondary)] max-w-md text-[15px]">
-              Tell me about your campaign, product, or goal and I&apos;ll build
-              a content strategy for you.
-            </p>
             <PromptChips onPick={handlePickChip} />
           </div>
         )}
@@ -224,9 +245,9 @@ export function StrategyClient({
           </div>
         )}
 
-        {/* Strategy card — mobile fallback (right panel is desktop-only) */}
+        {/* Strategy card — injected inline into the conversation (all sizes) */}
         {strategy && (
-          <div className="flex flex-col gap-2 px-4 pb-4 lg:hidden">
+          <div className="flex flex-col gap-2 px-4 pb-4">
             <StrategyCard
               strategy={strategy}
               generating={calendarPending}
@@ -282,18 +303,15 @@ export function StrategyClient({
         />
       </div>
 
-      {/* Right strategy-preview panel (collapsible) */}
-      {strategy && (
-        <StrategyPanel
-          strategy={strategy}
-          collapsed={panelCollapsed}
-          onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
-          onEdit={() => setStrategy(null)}
-          onGenerateCalendar={handleGenerateCalendar}
-          generating={calendarPending}
-          calendarError={calendarError}
-        />
-      )}
+      {/* Right strategy-summary panel — always present (collapsible) */}
+      <StrategyPanel
+        strategy={strategy}
+        collapsed={panelCollapsed}
+        onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
+        onGenerateCalendar={handleGenerateCalendar}
+        generating={calendarPending}
+        calendarError={calendarError}
+      />
     </div>
   );
 }

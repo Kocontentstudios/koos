@@ -27,6 +27,7 @@ export default async function StrategyPage() {
     id: s.id,
     name: s.name,
     updatedAt: s.updatedAt,
+    status: s.status,
   }));
 
   void dbUser; // used for auth check via requireBrand

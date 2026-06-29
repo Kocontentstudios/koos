@@ -56,13 +56,14 @@ export function ChatInput({
         />
 
         {isLoading ? (
+          // Stop button — wired to the real useChat stop() to abort streaming.
           <button
             type="button"
             onClick={onStop}
             aria-label="Stop generating"
-            className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.1)] flex items-center justify-center hover:bg-[rgba(255,255,255,0.15)] transition-colors shrink-0"
+            className="w-9 h-9 rounded-full bg-[rgba(255,255,255,0.1)] flex items-center justify-center hover:bg-[rgba(255,255,255,0.15)] transition-colors shrink-0"
           >
-            <Square className="w-3.5 h-3.5 text-foreground" />
+            <Square className="w-4 h-4 text-foreground" />
           </button>
         ) : (
           <button
@@ -70,9 +71,9 @@ export function ChatInput({
             onClick={handleSend}
             disabled={!value.trim() || isLoading}
             aria-label="Send message"
-            className="w-8 h-8 rounded-full bg-primary flex items-center justify-center hover:bg-[var(--primary-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
+            className="w-9 h-9 rounded-full bg-primary flex items-center justify-center hover:bg-[var(--primary-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
           >
-            <Send className="w-3.5 h-3.5 text-white" />
+            <Send className="w-4 h-4 text-white" />
           </button>
         )}
       </div>

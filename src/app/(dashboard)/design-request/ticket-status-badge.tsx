@@ -28,7 +28,7 @@ export function TicketStatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap",
+        "inline-flex items-center rounded-full px-2.5 py-[3px] text-[11px] font-medium whitespace-nowrap",
         className,
       )}
       style={{
@@ -36,11 +36,6 @@ export function TicketStatusBadge({
         backgroundColor: `color-mix(in srgb, ${color} 16%, transparent)`,
       }}
     >
-      <span
-        aria-hidden="true"
-        className="inline-block h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: color }}
-      />
       {humanizeStatus(status)}
     </span>
   );

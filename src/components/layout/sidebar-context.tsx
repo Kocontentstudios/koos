@@ -5,15 +5,21 @@ import { createContext, useContext, useEffect, useState } from "react";
 const STORAGE_KEY = "koos_sidebar_collapsed";
 
 interface SidebarCollapseValue {
+  /** Desktop-only: sidebar shrunk to an icon rail (md+). */
   collapsed: boolean;
   toggle: () => void;
+  /** Mobile-only: off-canvas drawer is open. */
+  mobileOpen: boolean;
+  openMobile: () => void;
+  closeMobile: () => void;
 }
 
 const SidebarCollapseContext = createContext<SidebarCollapseValue | null>(null);
 
 /**
- * Shares the sidebar collapse state between the sidebar and the main content
- * wrapper (siblings), and persists the preference to localStorage.
+ * Shares sidebar state between the sidebar and the main content wrapper
+ * (siblings). `collapsed` is the persisted desktop icon-rail preference;
+ * `mobileOpen` is the transient off-canvas drawer state for small screens.
  */
 export function SidebarCollapseProvider({
   children,
@@ -21,6 +27,7 @@ export function SidebarCollapseProvider({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Hydrate after mount to avoid an SSR/client mismatch.
   useEffect(() => {
@@ -28,6 +35,16 @@ export function SidebarCollapseProvider({
       setCollapsed(true);
     }
   }, []);
+
+  // Lock body scroll while the mobile drawer is open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [mobileOpen]);
 
   function toggle() {
     setCollapsed((c) => {
@@ -38,7 +55,15 @@ export function SidebarCollapseProvider({
   }
 
   return (
-    <SidebarCollapseContext.Provider value={{ collapsed, toggle }}>
+    <SidebarCollapseContext.Provider
+      value={{
+        collapsed,
+        toggle,
+        mobileOpen,
+        openMobile: () => setMobileOpen(true),
+        closeMobile: () => setMobileOpen(false),
+      }}
+    >
       {children}
     </SidebarCollapseContext.Provider>
   );

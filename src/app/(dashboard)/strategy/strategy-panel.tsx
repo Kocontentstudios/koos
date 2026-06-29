@@ -1,16 +1,20 @@
 "use client";
 
-import { ChevronDown, PanelRightClose, PanelRightOpen } from "lucide-react";
+import {
+  Calendar,
+  ChevronDown,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Strategy } from "@/lib/ai/strategy-schema";
 import { cn } from "@/lib/utils";
 
 interface StrategyPanelProps {
-  strategy: Strategy;
+  strategy: Strategy | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onEdit: () => void;
   onGenerateCalendar: () => void;
   generating: boolean;
   calendarError: string | null;
@@ -18,7 +22,7 @@ interface StrategyPanelProps {
 
 function AccordionSection({
   title,
-  defaultOpen = true,
+  defaultOpen = false,
   children,
 }: {
   title: string;
@@ -31,15 +35,17 @@ function AccordionSection({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between py-3 text-left text-[12px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
+        className="flex w-full items-center justify-between py-2.5 text-left text-[13px] font-medium text-[var(--text-secondary)]"
       >
         {title}
         <ChevronDown
-          size={14}
+          size={12}
           className={cn("transition-transform", open && "rotate-180")}
         />
       </button>
-      {open && <div className="pb-3 text-sm text-foreground">{children}</div>}
+      {open && (
+        <div className="pb-2.5 text-[13px] text-foreground">{children}</div>
+      )}
     </div>
   );
 }
@@ -48,7 +54,6 @@ export function StrategyPanel({
   strategy,
   collapsed,
   onToggleCollapsed,
-  onEdit,
   onGenerateCalendar,
   generating,
   calendarError,
@@ -74,9 +79,9 @@ export function StrategyPanel({
   return (
     <aside className="hidden w-[320px] shrink-0 flex-col border-l border-[var(--border)] lg:flex">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-        <h3 className="text-[13px] font-semibold text-foreground">
-          Strategy Preview
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+        <h3 className="text-[14px] font-semibold text-foreground">
+          Strategy Summary
         </h3>
         <button
           type="button"
@@ -89,104 +94,110 @@ export function StrategyPanel({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-4">
-        <div className="py-3">
-          <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary">
-            Strategy
-          </span>
-          <h4 className="mt-2 text-[16px] font-semibold text-foreground">
-            {strategy.campaignName}
-          </h4>
-        </div>
+      <div className="flex-1 overflow-y-auto px-4 py-2">
+        {strategy ? (
+          <>
+            <div className="py-3">
+              <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary">
+                Strategy
+              </span>
+              <h4 className="mt-2 text-[16px] font-semibold text-foreground">
+                {strategy.campaignName}
+              </h4>
+            </div>
 
-        <AccordionSection title="Objective">
-          {strategy.objective}
-        </AccordionSection>
-        <AccordionSection title="Target Audience">
-          {strategy.targetAudience}
-        </AccordionSection>
-        <AccordionSection title="Key Message">
-          {strategy.keyMessage}
-        </AccordionSection>
-        <AccordionSection title="Channels">
-          <div className="space-y-1.5">
-            {strategy.channels.map((ch) => (
-              <div key={ch.name}>
-                <span className="font-medium">{ch.name}</span>
-                {ch.rationale && (
-                  <span className="text-[var(--text-secondary)]">
-                    {" "}
-                    — {ch.rationale}
-                  </span>
-                )}
+            <AccordionSection title="Objective" defaultOpen>
+              {strategy.objective}
+            </AccordionSection>
+            <AccordionSection title="Target Audience">
+              {strategy.targetAudience}
+            </AccordionSection>
+            <AccordionSection title="Key Message">
+              {strategy.keyMessage}
+            </AccordionSection>
+            <AccordionSection title="Channels">
+              <div className="space-y-1.5">
+                {strategy.channels.map((ch) => (
+                  <div key={ch.name}>
+                    <span className="font-medium">{ch.name}</span>
+                    {ch.rationale && (
+                      <span className="text-[var(--text-secondary)]">
+                        {" "}
+                        — {ch.rationale}
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </AccordionSection>
-        <AccordionSection title="Content Mix">
-          <div className="space-y-1">
-            {strategy.contentMix.map((cm) => (
-              <div key={cm.type}>
-                {cm.type} × {cm.count}
+            </AccordionSection>
+            <AccordionSection title="Content Mix">
+              <div className="space-y-1">
+                {strategy.contentMix.map((cm) => (
+                  <div key={cm.type}>
+                    {cm.type} × {cm.count}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </AccordionSection>
-        <AccordionSection title="Timeline">
-          <div className="space-y-1.5">
-            {strategy.timeline.map((t) => (
-              <div key={t.phase}>
-                <span className="font-medium">{t.phase}</span>{" "}
-                <span className="text-[var(--text-muted)]">
-                  ({t.dateRange})
-                </span>
-                : {t.focus}
+            </AccordionSection>
+            <AccordionSection title="Timeline">
+              <div className="space-y-1.5">
+                {strategy.timeline.map((t) => (
+                  <div key={t.phase}>
+                    <span className="font-medium">{t.phase}</span>{" "}
+                    <span className="text-[var(--text-muted)]">
+                      ({t.dateRange})
+                    </span>
+                    : {t.focus}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </AccordionSection>
-        <AccordionSection title="Themes">
-          <div className="space-y-1.5">
-            {strategy.themes.map((th) => (
-              <div key={th.title}>
-                <span className="font-medium">{th.title}</span> —{" "}
-                {th.description}
+            </AccordionSection>
+            <AccordionSection title="Themes">
+              <div className="space-y-1.5">
+                {strategy.themes.map((th) => (
+                  <div key={th.title}>
+                    <span className="font-medium">{th.title}</span> —{" "}
+                    {th.description}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </AccordionSection>
-        <AccordionSection title="Posting Schedule">
-          <div className="space-y-1">
-            {strategy.postingSchedule.map((ps) => (
-              <div key={ps.channel}>
-                {ps.channel}: {ps.cadence}
+            </AccordionSection>
+            <AccordionSection title="Posting Schedule">
+              <div className="space-y-1">
+                {strategy.postingSchedule.map((ps) => (
+                  <div key={ps.channel}>
+                    {ps.channel}: {ps.cadence}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </AccordionSection>
-      </div>
-
-      {/* Footer */}
-      <div className="flex flex-col gap-2 border-t border-[var(--border)] p-4">
-        {calendarError && (
-          <p className="rounded-lg bg-[var(--status-error-bg)] px-3 py-2 text-[13px] text-[var(--status-error-fg)]">
-            {calendarError}
+            </AccordionSection>
+          </>
+        ) : (
+          <p className="px-1 py-3 text-[13px] leading-relaxed text-[var(--text-muted)]">
+            Your strategy summary will appear here once KO drafts a plan.
           </p>
         )}
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={onEdit} className="flex-1">
-            Edit
-          </Button>
+      </div>
+
+      {/* Footer — only once a strategy exists */}
+      {strategy && (
+        <div className="flex flex-col gap-2 border-t border-[var(--border)] p-4">
+          {calendarError && (
+            <p className="rounded-lg bg-[var(--status-error-bg)] px-3 py-2 text-[13px] text-[var(--status-error-fg)]">
+              {calendarError}
+            </p>
+          )}
           <Button
             variant="default"
             onClick={onGenerateCalendar}
             disabled={generating}
-            className="flex-1"
+            className="w-full justify-center"
           >
+            <Calendar className="size-4" />
             {generating ? "Generating…" : "Generate Calendar"}
           </Button>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

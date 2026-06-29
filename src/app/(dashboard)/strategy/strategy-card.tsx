@@ -23,6 +23,14 @@ function SectionValue({ children }: { children: React.ReactNode }) {
   return <p className="text-white text-sm">{children}</p>;
 }
 
+function Section({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-b border-[var(--divider)] pb-3 mb-3 last:mb-0 last:border-0 last:pb-0">
+      {children}
+    </div>
+  );
+}
+
 export function StrategyCard({
   strategy,
   onEdit,
@@ -45,27 +53,27 @@ export function StrategyCard({
         {strategy.campaignName}
       </h3>
 
-      <div className="space-y-3">
+      <div>
         {/* Objective */}
-        <div>
+        <Section>
           <SectionLabel>Objective</SectionLabel>
           <SectionValue>{strategy.objective}</SectionValue>
-        </div>
+        </Section>
 
         {/* Target Audience */}
-        <div>
+        <Section>
           <SectionLabel>Target</SectionLabel>
           <SectionValue>{strategy.targetAudience}</SectionValue>
-        </div>
+        </Section>
 
         {/* Key Message */}
-        <div>
+        <Section>
           <SectionLabel>Key Message</SectionLabel>
           <SectionValue>{strategy.keyMessage}</SectionValue>
-        </div>
+        </Section>
 
         {/* Channels */}
-        <div>
+        <Section>
           <SectionLabel>Channels</SectionLabel>
           <div className="space-y-0.5">
             {strategy.channels.map((ch) => (
@@ -77,10 +85,10 @@ export function StrategyCard({
               </div>
             ))}
           </div>
-        </div>
+        </Section>
 
         {/* Content Mix */}
-        <div>
+        <Section>
           <SectionLabel>Content Mix</SectionLabel>
           <div className="space-y-0.5">
             {strategy.contentMix.map((cm) => (
@@ -89,10 +97,10 @@ export function StrategyCard({
               </SectionValue>
             ))}
           </div>
-        </div>
+        </Section>
 
         {/* Timeline */}
-        <div>
+        <Section>
           <SectionLabel>Timeline</SectionLabel>
           <div className="space-y-0.5">
             {strategy.timeline.map((t) => (
@@ -101,10 +109,10 @@ export function StrategyCard({
               </SectionValue>
             ))}
           </div>
-        </div>
+        </Section>
 
         {/* Themes */}
-        <div>
+        <Section>
           <SectionLabel>Themes</SectionLabel>
           <div className="space-y-0.5">
             {strategy.themes.map((th) => (
@@ -113,10 +121,10 @@ export function StrategyCard({
               </SectionValue>
             ))}
           </div>
-        </div>
+        </Section>
 
         {/* Posting Schedule */}
-        <div>
+        <Section>
           <SectionLabel>Posting Schedule</SectionLabel>
           <div className="space-y-0.5">
             {strategy.postingSchedule.map((ps) => (
@@ -125,7 +133,7 @@ export function StrategyCard({
               </SectionValue>
             ))}
           </div>
-        </div>
+        </Section>
       </div>
 
       {/* Footer */}

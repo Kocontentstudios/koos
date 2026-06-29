@@ -14,8 +14,6 @@ interface StepProps {
 export function StepBasics({ state, onChange }: StepProps) {
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px] font-medium text-[var(--error)]">Required</p>
-
       <Field label="Brand / Business Name *" htmlFor="brand-name">
         <Input
           id="brand-name"

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2 } from "lucide-react";
+import { Check, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -16,10 +16,31 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import { defaultDueDate, isCarouselType } from "@/lib/design/tickets-ui";
 import type { BrandSummary, CalendarItem } from "./types";
+
+/** Design-type options from the static template (design-request.html). */
+const DESIGN_TYPE_OPTIONS = [
+  "Instagram Carousel (1080x1080 per slide)",
+  "Instagram Post (1080x1080)",
+  "Instagram Story (1080x1920)",
+  "Instagram Reel Cover (1080x1920)",
+  "X/Twitter Post (1200x675)",
+  "LinkedIn Post (1200x627)",
+  "Blog Header (1200x630)",
+  "Email Header (600x200)",
+  "Banner Ad",
+  "Other",
+];
 
 interface RequestDesignModalProps {
   open: boolean;
@@ -47,6 +68,15 @@ function formatDueDate(iso: string | null): string {
   });
 }
 
+/** A top-bordered section heading, matching the template's `.section-label`. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-t border-[var(--divider)] pt-4 text-[14px] font-semibold text-foreground">
+      {children}
+    </div>
+  );
+}
+
 function Swatch({ color, label }: { color: string; label: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -57,6 +87,32 @@ function Swatch({ color, label }: { color: string; label: string }) {
       />
       <span className="text-[13px] text-[var(--text-secondary)]">
         {label}: {color}
+      </span>
+    </div>
+  );
+}
+
+/** One labeled row of the confirmation summary table. */
+function SummaryRow({
+  label,
+  value,
+  last,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <div
+      className={
+        last
+          ? "flex items-center justify-between gap-4 py-2"
+          : "flex items-center justify-between gap-4 border-b border-[var(--divider)] py-2"
+      }
+    >
+      <span className="text-[12px] text-[var(--text-muted)]">{label}</span>
+      <span className="text-right text-[13px] font-medium text-foreground">
+        {value}
       </span>
     </div>
   );
@@ -144,66 +200,74 @@ export function RequestDesignModal({
   const submitDisabled = submitting || designType.trim().length === 0;
   const showSlides = isCarouselType(designType);
 
+  // Keep a prefilled value selectable even if it isn't a standard option.
+  const typeOptions =
+    designType && !DESIGN_TYPE_OPTIONS.includes(designType)
+      ? [designType, ...DESIGN_TYPE_OPTIONS]
+      : DESIGN_TYPE_OPTIONS;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] gap-0 overflow-y-auto sm:max-w-lg">
+      <DialogContent className="gap-0 overflow-y-auto sm:max-h-[90vh] sm:max-w-lg max-sm:inset-0 max-sm:h-full max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none">
         {created ? (
           // ── Confirmation screen (§5.9) ───────────────────────────────
           <div className="flex flex-col items-center gap-4 py-2 text-center">
-            <CheckCircle2
+            <div
               aria-hidden="true"
-              className="h-12 w-12"
-              style={{ color: "#97C459" }}
-            />
+              className="flex h-16 w-16 items-center justify-center rounded-full"
+              style={{
+                backgroundColor: "color-mix(in srgb, #97C459 15%, transparent)",
+              }}
+            >
+              <Check className="h-7 w-7" style={{ color: "#97C459" }} />
+            </div>
             <div className="space-y-1">
               <h2 className="font-display text-2xl font-semibold text-foreground">
-                Design request submitted!
+                Design request submitted
               </h2>
               <p className="max-w-sm text-sm text-[var(--text-secondary)]">
-                Your request has been assigned to the KO design team. You will
-                receive a notification when it is ready.
+                Your request has been sent to the KO design team. You will
+                receive a notification when your design is ready.
               </p>
             </div>
 
-            <div className="w-full space-y-1 rounded-xl border border-[var(--border)] bg-surface-1 p-4 text-left">
-              <p className="text-[13px] text-[var(--text-muted)]">
-                {formatTicketNumber(created.ticketNumber)}
-              </p>
-              <p className="text-sm font-medium text-foreground">
-                {created.designType}
-                {created.slides ? ` — ${created.slides} slides` : ""}
-              </p>
-              <p className="text-[13px] text-[var(--text-secondary)]">
-                Due by: {formatDueDate(created.dueDate)}
-              </p>
+            <div className="w-full rounded-xl border border-[var(--border)] bg-surface-1 p-5 text-left">
+              <SummaryRow
+                label="Ticket ID"
+                value={formatTicketNumber(created.ticketNumber)}
+              />
+              <SummaryRow
+                label="Design Type"
+                value={`${created.designType}${
+                  created.slides ? ` — ${created.slides} slides` : ""
+                }`}
+              />
+              <SummaryRow
+                label="Due By"
+                value={formatDueDate(created.dueDate)}
+              />
+              <SummaryRow
+                label="Campaign"
+                value={campaignName ?? "—"}
+                last
+              />
             </div>
 
-            <div className="flex w-full flex-col gap-2 sm:flex-row">
-              <Link href="/design-request" className="flex-1">
-                <Button variant="secondary" size="lg" className="w-full">
-                  View My Tickets
-                </Button>
-              </Link>
+            <div className="flex w-full flex-col gap-3">
               <Button
                 variant="default"
                 size="lg"
-                className="flex-1"
+                className="w-full"
                 onClick={() => onOpenChange(false)}
               >
                 Back to Calendar
               </Button>
+              <Link href="/design-request" className="w-full">
+                <Button variant="secondary" size="lg" className="w-full">
+                  View My Tickets
+                </Button>
+              </Link>
             </div>
-
-            {/* Billing stub (design spec §8) — not yet implemented. */}
-            <Button
-              variant="ghost"
-              size="lg"
-              disabled
-              className="w-full"
-              title="Invoicing is coming soon"
-            >
-              Get Invoice
-            </Button>
           </div>
         ) : (
           // ── Request form (§5.8) ──────────────────────────────────────
@@ -217,49 +281,44 @@ export function RequestDesignModal({
             </DialogHeader>
 
             <div className="mt-4 flex flex-col gap-4">
-              {/* Read-only context */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label className="text-[11px] uppercase tracking-widest text-[var(--text-muted)]">
-                    Campaign
-                  </Label>
-                  <p className="inline-flex rounded-md bg-surface-1 px-2.5 py-1 text-[13px] text-[var(--text-secondary)]">
-                    {campaignName ?? "—"}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[11px] uppercase tracking-widest text-[var(--text-muted)]">
-                    Content
-                  </Label>
-                  <p className="text-[13px] text-[var(--text-secondary)]">
-                    {item?.title ?? "—"}
-                  </p>
-                </div>
+              {/* Read-only context — stacked full-width per template */}
+              <div className="space-y-1">
+                <Label className="text-[11px] uppercase tracking-widest text-[var(--text-muted)]">
+                  Campaign
+                </Label>
+                <p className="inline-flex rounded-md bg-surface-1 px-2.5 py-1 text-[13px] text-[var(--text-secondary)]">
+                  {campaignName ?? "—"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] uppercase tracking-widest text-[var(--text-muted)]">
+                  Content
+                </Label>
+                <p className="text-[13px] text-[var(--text-secondary)]">
+                  {item?.title ?? "—"}
+                </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="rd-type">
-                    Design Type <span className="text-primary">*</span>
-                  </Label>
-                  <Input
-                    id="rd-type"
-                    value={designType}
-                    disabled={submitting}
-                    onChange={(e) => setDesignType(e.target.value)}
-                    placeholder="e.g. Instagram Post"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="rd-dim">Dimensions</Label>
-                  <Input
-                    id="rd-dim"
-                    value={dimensions}
-                    disabled={submitting}
-                    onChange={(e) => setDimensions(e.target.value)}
-                    placeholder="e.g. 1080x1080"
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="rd-type">
+                  Design Type <span className="text-primary">*</span>
+                </Label>
+                <Select
+                  value={designType}
+                  onValueChange={(v) => setDesignType((v as string) ?? "")}
+                  disabled={submitting}
+                >
+                  <SelectTrigger id="rd-type" className="w-full">
+                    <SelectValue placeholder="Select design type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {typeOptions.map((opt) => (
+                      <SelectItem key={opt} value={opt}>
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {showSlides && (
@@ -292,10 +351,8 @@ export function RequestDesignModal({
 
               {/* Brand assets */}
               {brand && (
-                <div className="space-y-2 rounded-xl border border-[var(--border)] p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-                    Your Brand Assets
-                  </p>
+                <div className="space-y-3">
+                  <SectionLabel>Your Brand Assets</SectionLabel>
                   <div className="flex items-center gap-3">
                     {brand.logoUrl ? (
                       // biome-ignore lint/performance/noImgElement: arbitrary external/R2 logo URL, not optimizable by next/image
@@ -327,20 +384,41 @@ export function RequestDesignModal({
                 </div>
               )}
 
+              <SectionLabel>Extra Notes</SectionLabel>
               <div className="space-y-1.5">
-                <Label htmlFor="rd-notes">Extra Notes</Label>
                 <Textarea
                   id="rd-notes"
                   value={notes}
                   disabled={submitting}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Any specific direction? Style preferences, reference links, things to avoid..."
+                  placeholder="Any specific direction for the designer? Reference images, style preferences, things to avoid..."
                   className="min-h-[80px]"
                 />
               </div>
 
+              {/* Reference images dropzone — presentational only.
+                  NOTE: needs wiring (file input + upload handler + API field). */}
               <div className="space-y-1.5">
-                <Label htmlFor="rd-due">When do you need this by?</Label>
+                <Label htmlFor="rd-refs">Reference Images (Optional)</Label>
+                <div
+                  id="rd-refs"
+                  className="flex flex-col items-center justify-center rounded-[10px] border-2 border-dashed border-[var(--border)] bg-surface-1 px-6 py-6 text-center"
+                >
+                  <UploadCloud
+                    aria-hidden="true"
+                    className="mb-1.5 size-5 text-[var(--text-muted)]"
+                  />
+                  <p className="text-[13px] text-[var(--text-secondary)]">
+                    Click to upload or drag and drop
+                  </p>
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    PNG, JPG, GIF up to 5MB each (max 3)
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="rd-due">Due Date (Optional)</Label>
                 <Input
                   id="rd-due"
                   type="date"

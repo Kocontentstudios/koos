@@ -1,8 +1,9 @@
+import { Fragment } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PencilIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getActiveBrandForUser } from "@/lib/db/queries";
@@ -11,55 +12,55 @@ import { getActiveBrandForUser } from "@/lib/db/queries";
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
-function Section({
+/** A single divider-separated row inside the profile body. */
+function FieldRow({
   label,
-  value,
+  children,
 }: {
   label: string;
-  value: string | null | undefined;
+  children: React.ReactNode;
 }) {
-  if (!value) return null;
   return (
-    <div className="space-y-1">
-      <dt className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+    <div>
+      <div className="mb-3 text-[12px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
         {label}
-      </dt>
-      <dd className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line">
-        {value}
-      </dd>
+      </div>
+      <div className="text-[15px] leading-relaxed text-foreground">
+        {children}
+      </div>
     </div>
   );
 }
 
-function Panel({
-  title,
+/** Secondary "key: value" line used inside richer sections. */
+function DetailLine({
+  label,
   children,
 }: {
-  title: string;
+  label: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-surface-1 p-6 space-y-4">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-        {title}
-      </p>
-      {children}
-    </div>
+    <p className="text-[13px] text-[var(--text-secondary)]">
+      <span className="font-semibold text-foreground">{label}:</span> {children}
+    </p>
   );
 }
 
 function ColorSwatch({ hex, label }: { hex: string; label?: string }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       <div
-        className="h-8 w-8 rounded-full border border-[var(--border)]"
+        className="h-9 w-9 shrink-0 rounded-full border-2 border-[var(--border)]"
         style={{ backgroundColor: hex }}
       />
-      <div>
-        {label && <p className="text-xs text-[var(--text-muted)]">{label}</p>}
-        <span className="text-xs font-mono text-[var(--text-secondary)]">
+      <div className="leading-tight">
+        {label && (
+          <div className="text-[11px] text-[var(--text-muted)]">{label}</div>
+        )}
+        <div className="font-mono text-[13px] font-medium text-foreground">
           {hex}
-        </span>
+        </div>
       </div>
     </div>
   );
@@ -81,6 +82,9 @@ export default async function BrandProfilePage() {
   const additionalColors = brand.additionalColors ?? [];
   const platforms = brand.platforms ?? [];
 
+  const hasColors = Boolean(
+    brand.primaryColor || brand.secondaryColor || additionalColors.length > 0,
+  );
   const hasPersonality = Boolean(
     brand.values || brand.wordsLove || brand.wordsAvoid,
   );
@@ -93,77 +97,41 @@ export default async function BrandProfilePage() {
   );
   const hasNotes = Boolean(brand.additionalNotes || brand.helpfulLinks);
 
-  return (
-    <div className="space-y-6 max-w-[760px]">
-      {/* ---- Header ---- */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-foreground">
-            Brand Profile
-          </h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            Your brand information used for AI strategies and design assets
-          </p>
-        </div>
-        <Link href="/brand/create">
-          <Button variant="secondary" size="lg">
-            Edit Brand
-          </Button>
-        </Link>
-      </div>
+  /* Build the body as an ordered list of sections so we can interleave
+     dividers only between the ones that actually render (matching
+     koos_complete/brands.html). */
+  const sections: { key: string; node: React.ReactNode }[] = [];
 
-      {/* ---- Brand header card ---- */}
-      <div className="flex items-start gap-5 rounded-xl border border-[var(--border)] bg-surface-1 p-6">
-        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-container-low)]">
-          {brand.logoUrl ? (
-            <Image
-              src={brand.logoUrl}
-              alt={`${brand.name} logo`}
-              width={80}
-              height={80}
-              className="h-full w-full object-contain"
-              unoptimized
-            />
-          ) : (
-            <span className="text-2xl text-[var(--text-muted)]">
-              {brand.name[0]?.toUpperCase()}
-            </span>
-          )}
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-xl font-bold text-foreground">{brand.name}</h2>
-          {brand.overview && (
-            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-              {brand.overview}
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {brand.businessType && (
-              <StatusBadge status="in_progress">
-                {brand.businessType}
-              </StatusBadge>
-            )}
-            {brand.stage && (
-              <StatusBadge status="draft">{brand.stage}</StatusBadge>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ---- Direction ---- */}
-      <dl className="grid grid-cols-1 gap-6 sm:grid-cols-2 rounded-xl border border-[var(--border)] bg-surface-1 p-6">
-        <Section label="Target Audience" value={brand.targetAudience} />
-        <Section label="Offer" value={brand.offer} />
-        <Section label="Tone of Voice" value={brand.tone} />
-        <Section label="Primary Goal" value={brand.primaryGoal} />
-      </dl>
-
-      {/* ---- Brand Colors ---- */}
-      {(brand.primaryColor ||
-        brand.secondaryColor ||
-        additionalColors.length > 0) && (
-        <Panel title="Brand Colors">
-          <div className="flex flex-wrap gap-6">
+  if (brand.targetAudience) {
+    sections.push({
+      key: "audience",
+      node: <FieldRow label="Target Audience">{brand.targetAudience}</FieldRow>,
+    });
+  }
+  if (brand.offer) {
+    sections.push({
+      key: "offer",
+      node: <FieldRow label="Offer">{brand.offer}</FieldRow>,
+    });
+  }
+  if (brand.tone) {
+    sections.push({
+      key: "tone",
+      node: <FieldRow label="Tone of Voice">{brand.tone}</FieldRow>,
+    });
+  }
+  if (brand.primaryGoal) {
+    sections.push({
+      key: "goal",
+      node: <FieldRow label="Primary Goal">{brand.primaryGoal}</FieldRow>,
+    });
+  }
+  if (hasColors) {
+    sections.push({
+      key: "colors",
+      node: (
+        <FieldRow label="Brand Colors">
+          <div className="flex flex-wrap gap-x-8 gap-y-4">
             {brand.primaryColor && (
               <ColorSwatch hex={brand.primaryColor} label="Primary" />
             )}
@@ -174,135 +142,198 @@ export default async function BrandProfilePage() {
               <ColorSwatch key={hex} hex={hex} />
             ))}
           </div>
-        </Panel>
-      )}
-
-      {/* ---- Brand Personality ---- */}
-      {hasPersonality && (
-        <Panel title="Brand Personality">
-          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+        </FieldRow>
+      ),
+    });
+  }
+  if (hasPersonality) {
+    sections.push({
+      key: "personality",
+      node: (
+        <FieldRow label="Brand Personality">
+          <div className="space-y-2">
             {brand.values && <p>{brand.values}</p>}
             {brand.wordsLove && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  Words we love:
-                </span>{" "}
-                {brand.wordsLove}
-              </p>
+              <DetailLine label="Words we love">{brand.wordsLove}</DetailLine>
             )}
             {brand.wordsAvoid && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  Words to avoid:
-                </span>{" "}
-                {brand.wordsAvoid}
-              </p>
+              <DetailLine label="Words to avoid">{brand.wordsAvoid}</DetailLine>
             )}
           </div>
-        </Panel>
-      )}
-
-      {/* ---- Visual Identity ---- */}
-      {hasVisual && (
-        <Panel title="Visual Identity">
-          <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+        </FieldRow>
+      ),
+    });
+  }
+  if (hasVisual) {
+    sections.push({
+      key: "visual",
+      node: (
+        <FieldRow label="Visual Identity">
+          <div className="space-y-1.5">
             {brand.hasLogo != null && (
-              <p>
-                <span className="font-semibold text-foreground">Has logo:</span>{" "}
+              <DetailLine label="Has logo">
                 {brand.hasLogo ? "Yes" : "No"}
-              </p>
+              </DetailLine>
             )}
             {brand.brandStyle && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  Brand style:
-                </span>{" "}
-                {brand.brandStyle}
-              </p>
+              <DetailLine label="Brand style">{brand.brandStyle}</DetailLine>
             )}
           </div>
-        </Panel>
-      )}
-
-      {/* ---- Competitors ---- */}
-      {hasCompetitors && (
-        <Panel title="Competitors">
-          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+        </FieldRow>
+      ),
+    });
+  }
+  if (hasCompetitors) {
+    sections.push({
+      key: "competitors",
+      node: (
+        <FieldRow label="Competitors">
+          <div className="space-y-2">
             {brand.competitors && <p>{brand.competitors}</p>}
             {brand.competitorStrengths && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  What they do well:
-                </span>{" "}
+              <DetailLine label="What they do well">
                 {brand.competitorStrengths}
-              </p>
+              </DetailLine>
             )}
             {brand.differentiators && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  How we&apos;re different:
-                </span>{" "}
+              <DetailLine label="How we're different">
                 {brand.differentiators}
-              </p>
+              </DetailLine>
             )}
           </div>
-        </Panel>
-      )}
-
-      {/* ---- Platforms & Posting ---- */}
-      {hasPlatforms && (
-        <Panel title="Platforms & Posting">
-          {platforms.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {platforms.map((p) => (
-                <span
-                  key={p}
-                  className="rounded-full border border-border bg-[var(--surface-container-low)] px-3 py-1 text-[13px] text-text-secondary"
-                >
-                  {p}
-                </span>
-              ))}
+        </FieldRow>
+      ),
+    });
+  }
+  if (hasPlatforms) {
+    sections.push({
+      key: "platforms",
+      node: (
+        <FieldRow label="Platforms & Posting">
+          <div className="space-y-3">
+            {platforms.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {platforms.map((p) => (
+                  <span
+                    key={p}
+                    className="rounded-full bg-[rgba(19,139,200,0.12)] px-2.5 py-1 text-xs font-medium text-primary"
+                  >
+                    {p}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {brand.primaryPlatform && (
+                <DetailLine label="Primary platform">
+                  {brand.primaryPlatform}
+                </DetailLine>
+              )}
+              {brand.postingFrequency && (
+                <DetailLine label="Posting frequency">
+                  {brand.postingFrequency}
+                </DetailLine>
+              )}
             </div>
-          )}
-          <div className="space-y-2 text-sm text-[var(--text-secondary)]">
-            {brand.primaryPlatform && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  Primary platform:
-                </span>{" "}
-                {brand.primaryPlatform}
-              </p>
-            )}
-            {brand.postingFrequency && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  Posting frequency:
-                </span>{" "}
-                {brand.postingFrequency}
-              </p>
-            )}
           </div>
-        </Panel>
-      )}
-
-      {/* ---- Anything Else ---- */}
-      {hasNotes && (
-        <Panel title="Anything Else">
-          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+        </FieldRow>
+      ),
+    });
+  }
+  if (hasNotes) {
+    sections.push({
+      key: "notes",
+      node: (
+        <FieldRow label="Anything Else">
+          <div className="space-y-2">
             {brand.additionalNotes && (
               <p className="whitespace-pre-line">{brand.additionalNotes}</p>
             )}
             {brand.helpfulLinks && (
-              <p>
-                <span className="font-semibold text-foreground">
-                  Helpful links:
-                </span>{" "}
-                {brand.helpfulLinks}
-              </p>
+              <DetailLine label="Helpful links">{brand.helpfulLinks}</DetailLine>
             )}
           </div>
-        </Panel>
-      )}
+        </FieldRow>
+      ),
+    });
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ---- Page header ---- */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-foreground">
+            Brand Profile
+          </h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Your brand information used for AI strategies and design assets
+          </p>
+        </div>
+        <Link href="/brand/create" className="shrink-0">
+          <Button variant="secondary" size="lg">
+            <PencilIcon aria-hidden="true" />
+            Edit Brand
+          </Button>
+        </Link>
+      </div>
+
+      {/* ---- Unified brand profile card ---- */}
+      <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-surface-1">
+        {/* Header band — blue in light mode, navy in dark */}
+        <div className="brand-header-band flex flex-col items-center gap-5 p-6 text-center sm:flex-row sm:items-center sm:gap-6 sm:p-8 sm:text-left">
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 border-[var(--border)] bg-surface-2">
+            {brand.logoUrl ? (
+              <Image
+                src={brand.logoUrl}
+                alt={`${brand.name} logo`}
+                width={80}
+                height={80}
+                className="h-full w-full object-contain"
+                unoptimized
+              />
+            ) : (
+              <span className="text-3xl font-semibold text-[var(--text-muted)]">
+                {brand.name[0]?.toUpperCase()}
+              </span>
+            )}
+          </div>
+          <div className="brand-header-info space-y-2">
+            <h2 className="text-2xl font-bold text-foreground">{brand.name}</h2>
+            {brand.overview && (
+              <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
+                {brand.overview}
+              </p>
+            )}
+            {(brand.businessType || brand.stage) && (
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1 sm:justify-start">
+                {brand.businessType && (
+                  <span className="brand-badge brand-badge-blue">
+                    {brand.businessType}
+                  </span>
+                )}
+                {brand.stage && (
+                  <span className="brand-badge brand-badge-gray">
+                    {brand.stage}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Body — divider-separated rows */}
+        {sections.length > 0 && (
+          <div className="p-6 sm:p-8">
+            {sections.map((section, i) => (
+              <Fragment key={section.key}>
+                {i > 0 && <div className="my-6 h-px bg-[var(--divider)]" />}
+                {section.node}
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

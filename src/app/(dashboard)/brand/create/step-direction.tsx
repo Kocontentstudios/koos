@@ -20,10 +20,6 @@ interface StepProps {
 export function StepDirection({ state, onChange }: StepProps) {
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px] font-medium text-[var(--text-muted)]">
-        Optional · Recommended
-      </p>
-
       <Field label="Target Audience" htmlFor="target-audience">
         <Input
           id="target-audience"

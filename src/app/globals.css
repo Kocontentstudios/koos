@@ -55,6 +55,7 @@
   --border-hover: rgba(255, 255, 255, 0.1);
   --border-accent: rgba(19, 139, 200, 0.4);
   --divider: rgba(255, 255, 255, 0.08);
+  --hover: rgba(255, 255, 255, 0.06);
   --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.5);
   --shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.3);
   --backdrop: rgba(0, 0, 0, 0.6);
@@ -537,4 +538,46 @@ h6 {
 .status-error {
   background: var(--status-error-bg);
   color: var(--status-error-fg);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   BRAND PROFILE — header band
+   Mirrors koos_complete/brands.html: the profile card's top band is surface-2
+   (navy) in dark mode and brand-blue in light mode. In light mode the band text
+   and badges flip to white so they read on the blue. The logo tile is excluded
+   (it keeps its own surface/border) by scoping the white-text rule to
+   .brand-header-info.
+   ─────────────────────────────────────────────────────────────────────────── */
+.brand-header-band {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+:root[data-theme="light"] .brand-header-band {
+  background: #0f7eb8;
+  border-bottom-color: rgba(255, 255, 255, 0.15);
+}
+:root[data-theme="light"] .brand-header-band .brand-header-info :is(h2, p, span) {
+  color: #ffffff;
+}
+
+.brand-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.brand-badge-blue {
+  background: var(--status-progress-bg);
+  color: var(--status-progress-fg);
+}
+.brand-badge-gray {
+  background: var(--status-draft-bg);
+  color: var(--text-secondary);
+}
+:root[data-theme="light"] .brand-header-band .brand-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }

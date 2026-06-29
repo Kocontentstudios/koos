@@ -4,6 +4,8 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  ListChecks,
+  PieChart,
   Sparkles,
   Target,
   WandSparkles,
@@ -147,14 +149,14 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-7">
+    <div className="flex flex-col gap-7">
       {/* ── Welcome hero ── */}
-      <div className="relative overflow-hidden rounded-[20px] bg-gradient-to-br from-[#00204F] to-[#00162E] p-9">
+      <div className="relative overflow-hidden rounded-[20px] bg-gradient-to-br from-[#00204F] to-[#00162E] p-6 md:p-9">
         <span className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-[#85B7EB]">
           <Sparkles size={11} />{" "}
           {doneCount === total ? "All set" : "Getting started"}
         </span>
-        <h2 className="font-display text-[26px] font-bold text-white">
+        <h2 className="font-display text-[26px] font-bold text-white md:text-[30px]">
           Welcome aboard, {firstName}
         </h2>
         <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-[#A7B6C7]">
@@ -186,11 +188,11 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── Progress: ring + checklist ── */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_2fr]">
         {/* Ring */}
-        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-6">
-          <h3 className="mb-5 flex items-center gap-2 text-[15px] font-semibold text-foreground">
-            <Sparkles size={16} className="text-primary" /> Your Progress
+        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
+          <h3 className="mb-5 flex items-center gap-2 text-[15px] font-bold text-foreground">
+            <PieChart size={16} className="text-primary" /> Your Progress
           </h3>
           <div className="flex flex-col items-center gap-4">
             <div className="relative h-[140px] w-[140px]">
@@ -245,14 +247,21 @@ export default async function DashboardPage() {
         </div>
 
         {/* Checklist */}
-        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-6">
-          <h3 className="mb-5 flex items-center gap-2 text-[15px] font-semibold text-foreground">
-            <CheckCircle2 size={16} className="text-success" /> Getting Started
+        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
+          <h3 className="mb-5 flex items-center gap-2 text-[15px] font-bold text-foreground">
+            <ListChecks size={16} className="text-success" /> Getting Started
             Checklist
           </h3>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2.5">
             {checklist.map((item) => (
-              <div key={item.key} className="flex items-center gap-3 py-2">
+              <div
+                key={item.key}
+                className={`flex items-center gap-3 rounded-xl border p-3.5 transition-colors ${
+                  item.done
+                    ? "border-success bg-[rgba(151,196,89,0.12)]"
+                    : "border-[var(--border)] bg-surface-2"
+                }`}
+              >
                 <div
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${
                     item.done
@@ -263,7 +272,11 @@ export default async function DashboardPage() {
                   <Check size={12} strokeWidth={3} />
                 </div>
                 <div>
-                  <h4 className="text-[13px] font-semibold text-foreground">
+                  <h4
+                    className={`text-[13px] font-semibold ${
+                      item.done ? "text-success" : "text-foreground"
+                    }`}
+                  >
                     {item.title}
                   </h4>
                   <p className="text-[12px] text-[var(--text-muted)]">
@@ -284,23 +297,22 @@ export default async function DashboardPage() {
             <Link
               key={c.title}
               href={c.href}
-              className="group relative rounded-2xl border border-[var(--border)] bg-surface-1 p-5 transition-colors hover:border-[var(--border-accent)]"
+              className="group relative rounded-2xl border border-[var(--border)] bg-surface-1 p-5 pb-16 transition-colors hover:border-[var(--border-accent)]"
             >
               <div
                 className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${c.tint}`}
               >
                 <Icon size={20} />
               </div>
-              <h4 className="text-[15px] font-semibold text-foreground">
+              <h4 className="text-[15px] font-bold text-foreground">
                 {c.title}
               </h4>
               <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-secondary)]">
                 {c.desc}
               </p>
-              <ArrowRight
-                size={16}
-                className="absolute right-5 top-5 text-[var(--text-muted)] transition-colors group-hover:text-primary"
-              />
+              <span className="absolute bottom-5 right-5 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-[var(--text-muted)] transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                <ArrowRight size={16} />
+              </span>
             </Link>
           );
         })}
@@ -308,9 +320,9 @@ export default async function DashboardPage() {
 
       {/* ── Activity + Pro tip ── */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
-        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-6">
+        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-[15px] font-semibold text-foreground">
+            <h3 className="text-[15px] font-bold text-foreground">
               Recent Activity
             </h3>
             <Link
@@ -347,7 +359,7 @@ export default async function DashboardPage() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-[var(--border)] border-l-[3px] border-l-[var(--warning)] bg-surface-1 p-5">
-          <h4 className="text-[15px] font-semibold text-foreground">Pro Tip</h4>
+          <h4 className="text-[15px] font-bold text-[var(--warning)]">Pro Tip</h4>
           <p className="mt-2 text-[13px] leading-relaxed text-[var(--text-secondary)]">
             Brands with complete profiles see richer AI output. Fill in your
             audience, voice, and platforms to unlock sharper strategies and
@@ -355,7 +367,7 @@ export default async function DashboardPage() {
           </p>
           <Link
             href="/brand/create"
-            className="mt-4 inline-flex h-9 items-center rounded-[10px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-[var(--primary-hover)]"
+            className="mt-4 inline-flex h-9 items-center rounded-lg bg-[var(--status-pending-bg)] px-4 text-[13px] font-semibold text-[var(--status-pending-fg)] transition-colors hover:bg-[rgba(212,169,84,0.28)]"
           >
             Complete Profile
           </Link>

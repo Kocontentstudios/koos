@@ -4,12 +4,13 @@ import {
   dayKey,
   groupItemsByDay,
   isSameMonth,
-  monthMatrix,
+  monthMatrixSunday,
 } from "@/lib/calendar/group";
 import { cn } from "@/lib/utils";
 import type { CalendarItem } from "./types";
 
-const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// Sunday-start columns, matching the design template's month view.
+const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MAX_CHIPS = 2;
 
 interface MonthViewProps {
@@ -26,7 +27,7 @@ export function MonthView({
   today,
   onSelectDay,
 }: MonthViewProps) {
-  const weeks = monthMatrix(focused);
+  const weeks = monthMatrixSunday(focused);
   const byDay = groupItemsByDay(items);
   const todayKey = dayKey(today);
 
@@ -68,7 +69,9 @@ export function MonthView({
               <span
                 className={cn(
                   "text-[12px] font-semibold",
-                  isToday ? "text-primary" : "text-foreground",
+                  isToday
+                    ? "inline-flex h-[22px] w-[22px] items-center justify-center self-start rounded-full bg-primary text-white"
+                    : "text-foreground",
                 )}
               >
                 {day.getUTCDate()}
@@ -77,7 +80,7 @@ export function MonthView({
                 {dayItems.slice(0, MAX_CHIPS).map((item) => (
                   <span
                     key={item.id}
-                    className="flex items-center gap-1 truncate rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]"
+                    className="flex items-center gap-1 truncate rounded border border-[var(--border)] border-l-2 border-l-primary bg-surface-1 px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]"
                   >
                     {item.designRequired && (
                       <span

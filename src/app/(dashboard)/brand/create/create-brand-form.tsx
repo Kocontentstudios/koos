@@ -1,12 +1,13 @@
 "use client";
 
+import { ArrowRight, Info } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { saveBrandProfile } from "@/app/(dashboard)/brand/actions";
 import { Button } from "@/components/ui/button";
-import { ProgressSteps } from "@/components/ui/progress-steps";
 import { OTHER_OPTION } from "../brand-profile-form";
+import { ProgressSteps } from "./progress-steps";
 import { StepAnythingElse } from "./step-anything-else";
 import { StepBasics } from "./step-basics";
 import { StepCompetitors } from "./step-competitors";
@@ -16,15 +17,67 @@ import { StepPlatforms } from "./step-platforms";
 import { StepVisual } from "./step-visual";
 
 const STORAGE_KEY = "ko-os:brand-create";
-const STEPS = [
-  "Business Basics",
-  "Brand Direction",
-  "Brand Personality",
-  "Visual Identity",
-  "Competitors",
-  "Platforms",
-  "Anything Else",
+
+interface StepMeta {
+  /** Short label shown in the progress bar. */
+  label: string;
+  /** Section-title band heading. */
+  title: string;
+  /** Status badge copy shown next to the heading. */
+  status: string;
+  /** Whether the status should read as required (error-colored). */
+  required?: boolean;
+  /** Per-step "Next" button copy. Empty on the final step. */
+  next: string;
+}
+
+const STEPS: StepMeta[] = [
+  {
+    label: "Basics",
+    title: "Business Basics",
+    status: "Required",
+    required: true,
+    next: "Next: Brand Direction",
+  },
+  {
+    label: "Direction",
+    title: "Brand Direction",
+    status: "Optional · Recommended",
+    next: "Next: Brand Personality",
+  },
+  {
+    label: "Personality",
+    title: "Brand Personality",
+    status: "Optional",
+    next: "Next: Visual Identity",
+  },
+  {
+    label: "Visual",
+    title: "Visual Identity",
+    status: "Optional",
+    next: "Next: Competitors",
+  },
+  {
+    label: "Competitors",
+    title: "Competitors",
+    status: "Optional",
+    next: "Next: Platforms",
+  },
+  {
+    label: "Platforms",
+    title: "Platforms & Posting",
+    status: "Optional · Recommended",
+    next: "Next: Anything Else",
+  },
+  {
+    label: "Anything Else",
+    title: "Anything Else",
+    status: "Optional",
+    next: "",
+  },
 ];
+
+const STEP_LABELS = STEPS.map((s) => s.label);
 
 export interface CreateBrandState {
   // Section 1 — Business Basics
@@ -229,14 +282,28 @@ export function CreateBrandForm() {
     });
   }
 
+  const meta = STEPS[step];
+  const isFinalStep = step === STEPS.length - 1;
+
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-10">
+    <div className="w-full px-4 py-8 md:px-6 lg:px-8">
+      {/* Welcome banner — first step only */}
+      {step === 0 && (
+        <div className="mb-6 flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-surface-2 px-4 py-3 text-[13px] text-[var(--text-secondary)]">
+          <Info className="size-4 shrink-0 text-primary" aria-hidden="true" />
+          <span>
+            Welcome! Let&apos;s set up your brand first. This helps us create
+            better strategies for you.
+          </span>
+        </div>
+      )}
+
       {/* Heading */}
       <div className="mb-8">
         <h1 className="font-display text-[32px] font-bold text-foreground">
           Create Your Brand
         </h1>
-        <p className="mt-2 text-[var(--text-secondary)]">
+        <p className="mt-2 max-w-xl text-[var(--text-secondary)]">
           Section 1 is all we need to get started — everything after sharpens
           the AI Strategy Generator. You can skip ahead and come back later.
         </p>
@@ -244,68 +311,112 @@ export function CreateBrandForm() {
 
       {/* Progress */}
       <div className="mb-8">
-        <ProgressSteps steps={STEPS} current={step} />
+        <ProgressSteps steps={STEP_LABELS} current={step} />
       </div>
 
-      {/* Step content */}
-      <div className="mb-8">
-        {step === 0 && <StepBasics state={state} onChange={handleChange} />}
-        {step === 1 && <StepDirection state={state} onChange={handleChange} />}
-        {step === 2 && (
-          <StepPersonality state={state} onChange={handleChange} />
-        )}
-        {step === 3 && <StepVisual state={state} onChange={handleChange} />}
-        {step === 4 && (
-          <StepCompetitors state={state} onChange={handleChange} />
-        )}
-        {step === 5 && <StepPlatforms state={state} onChange={handleChange} />}
-        {step === 6 && (
-          <StepAnythingElse state={state} onChange={handleChange} />
-        )}
-      </div>
+      {/* Unified card: section-title band → fields → action bar */}
+      <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-surface-1">
+        {/* Section-title band */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 md:px-6">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="text-[18px] font-semibold text-foreground">
+              {meta.title}
+            </h2>
+            <span
+              className={
+                meta.required
+                  ? "text-[12px] font-medium text-[var(--error)]"
+                  : "text-[12px] font-medium text-[var(--text-muted)]"
+              }
+            >
+              {meta.status}
+            </span>
+          </div>
+          <span className="shrink-0 rounded-full border border-[var(--border)] bg-surface-2 px-2.5 py-1 text-[11px] font-medium whitespace-nowrap text-[var(--text-muted)]">
+            Step {step + 1} of {STEPS.length}
+          </span>
+        </div>
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between gap-3">
-        {step > 0 ? (
-          <Button
-            variant="secondary"
-            onClick={handlePrevious}
-            disabled={isPending}
-          >
-            Previous
-          </Button>
-        ) : (
-          <div />
-        )}
+        <div className="h-px bg-[var(--divider)]" />
 
-        <div className="flex items-center gap-3">
-          {/* Once Section 1 is valid the user can finish from any step. */}
-          {step > 0 && step < STEPS.length - 1 && (
+        {/* Step content */}
+        <div className="px-5 py-6 md:px-6">
+          {step === 0 && <StepBasics state={state} onChange={handleChange} />}
+          {step === 1 && (
+            <StepDirection state={state} onChange={handleChange} />
+          )}
+          {step === 2 && (
+            <StepPersonality state={state} onChange={handleChange} />
+          )}
+          {step === 3 && <StepVisual state={state} onChange={handleChange} />}
+          {step === 4 && (
+            <StepCompetitors state={state} onChange={handleChange} />
+          )}
+          {step === 5 && (
+            <StepPlatforms state={state} onChange={handleChange} />
+          )}
+          {step === 6 && (
+            <StepAnythingElse state={state} onChange={handleChange} />
+          )}
+        </div>
+
+        <div className="h-px bg-[var(--divider)]" />
+
+        {/* Action bar — sticky to bottom, wraps on mobile */}
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 bg-surface-1 px-5 py-4 md:px-6">
+          {step > 0 ? (
             <Button
               variant="ghost"
-              onClick={handleSubmit}
-              loading={isPending}
-              loadingText="Saving…"
-              disabled={!step0Valid}
+              size="lg"
+              className="h-11 px-5"
+              onClick={handlePrevious}
+              disabled={isPending}
             >
-              Create Profile
-            </Button>
-          )}
-
-          {step < STEPS.length - 1 ? (
-            <Button onClick={handleNext} disabled={step === 0 && !step0Valid}>
-              Next
+              Previous
             </Button>
           ) : (
-            <Button
-              onClick={handleSubmit}
-              loading={isPending}
-              loadingText="Saving…"
-              disabled={!step0Valid}
-            >
-              Save Brand
-            </Button>
+            <div />
           )}
+
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {/* Once Section 1 is valid the user can finish from any step. */}
+            {step > 0 && !isFinalStep && (
+              <Button
+                variant="ghost"
+                size="lg"
+                className="h-11 px-5"
+                onClick={handleSubmit}
+                loading={isPending}
+                loadingText="Saving…"
+                disabled={!step0Valid}
+              >
+                Create Profile
+              </Button>
+            )}
+
+            {!isFinalStep ? (
+              <Button
+                size="lg"
+                className="h-11 px-5"
+                onClick={handleNext}
+                disabled={step === 0 && !step0Valid}
+              >
+                {meta.next}
+                <ArrowRight aria-hidden="true" />
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                className="h-11 px-5"
+                onClick={handleSubmit}
+                loading={isPending}
+                loadingText="Saving…"
+                disabled={!step0Valid}
+              >
+                Create Profile
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,7 @@
 "use client";
 
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, UploadCloud } from "lucide-react";
 import { useState } from "react";
-import { ColorPicker } from "@/components/ui/color-picker";
 import { FileUpload } from "@/components/ui/file-upload";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { brandStyleOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
-import { Field, OtherSelect } from "./fields";
+import { ColorField, Field, OtherSelect } from "./fields";
 
 interface StepProps {
   state: CreateBrandState;
@@ -64,10 +63,6 @@ export function StepVisual({ state, onChange }: StepProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-[13px] font-medium text-[var(--text-muted)]">
-        Optional
-      </p>
-
       <Field label="Do You Have a Logo?" htmlFor="has-logo">
         <Select
           value={state.hasLogo}
@@ -86,6 +81,10 @@ export function StepVisual({ state, onChange }: StepProps) {
       {state.hasLogo === "Yes" && (
         <div className="flex flex-col gap-2">
           <Label>Logo Upload</Label>
+          <p className="flex items-center gap-1.5 text-[12px] text-[var(--text-muted)]">
+            <UploadCloud className="size-3.5" aria-hidden="true" />
+            PNG, SVG, or JPG up to 5MB.
+          </p>
           <FileUpload
             accept="image/png,image/svg+xml,image/jpeg"
             maxSizeMb={5}
@@ -114,14 +113,14 @@ export function StepVisual({ state, onChange }: StepProps) {
             Hex codes if you have them.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <ColorPicker
+        <div className="flex flex-col gap-4 sm:flex-row sm:gap-8">
+          <ColorField
             id="primary-color"
             label="Primary"
             value={state.primaryColor || "#138BC8"}
             onChange={(hex) => onChange({ primaryColor: hex })}
           />
-          <ColorPicker
+          <ColorField
             id="secondary-color"
             label="Secondary"
             value={state.secondaryColor || "#FFFFFF"}

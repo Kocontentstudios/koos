@@ -14,6 +14,7 @@ export default async function DesignRequestPage() {
       id: ticket.id,
       ticketNumber: ticket.ticketNumber,
       designType: ticket.designType,
+      slides: ticket.slides ?? null,
       status: ticket.status as TicketStatus,
       campaignName: campaignName ?? null,
       itemTitle: itemTitle ?? null,
@@ -23,7 +24,7 @@ export default async function DesignRequestPage() {
   );
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <header className="space-y-1">
         <h1 className="font-display text-[28px] font-bold text-foreground">
           Design Tickets

@@ -29,10 +29,6 @@ export function StepPlatforms({ state, onChange }: StepProps) {
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px] font-medium text-[var(--text-muted)]">
-        Optional · Recommended
-      </p>
-
       <Field label="Active Platforms">
         <PlatformChips
           selected={state.platforms}

@@ -1,6 +1,8 @@
 "use client";
 
 import { Clock } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -10,9 +12,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { formatDateTime } from "@/lib/calendar/labels";
-import type { CalendarItem } from "./types";
+import { updateCalendarItemStatusAction } from "./actions";
+import type { CalendarItem, CalendarItemStatus } from "./types";
 import { statusLabel } from "./types";
 
 interface CalendarItemDrawerProps {
@@ -25,7 +27,26 @@ interface CalendarItemDrawerProps {
   onRequestDesign: () => void;
 }
 
-function Field({
+const STATUS_OPTIONS: CalendarItemStatus[] = [
+  "draft",
+  "in_progress",
+  "ready",
+  "published",
+];
+
+function Divider() {
+  return <div className="h-px bg-[var(--divider)]" />;
+}
+
+function Pill({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-[rgba(255,255,255,0.06)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+      {children}
+    </span>
+  );
+}
+
+function Section({
   label,
   children,
 }: {
@@ -33,7 +54,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
         {label}
       </p>
@@ -51,6 +72,33 @@ export function CalendarItemDrawer({
   submitted,
   onRequestDesign,
 }: CalendarItemDrawerProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [status, setStatus] = useState<CalendarItemStatus>(
+    item?.status ?? "draft",
+  );
+  // Re-sync the local select whenever a different item is opened, without an
+  // effect (the React "adjusting state on prop change" pattern).
+  const [prevItemId, setPrevItemId] = useState(item?.id);
+  if (item && item.id !== prevItemId) {
+    setPrevItemId(item.id);
+    setStatus(item.status);
+  }
+
+  function handleStatusChange(next: CalendarItemStatus) {
+    if (!item) return;
+    const prev = status;
+    setStatus(next); // optimistic
+    startTransition(async () => {
+      const res = await updateCalendarItemStatusAction(item.id, next);
+      if (res.ok) {
+        router.refresh();
+      } else {
+        setStatus(prev); // revert on failure
+      }
+    });
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -59,7 +107,11 @@ export function CalendarItemDrawer({
       >
         {item && (
           <>
-            <SheetHeader className="pr-10">
+            <SheetHeader className="gap-2 pr-10">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pill>{item.platform}</Pill>
+                <Pill>{item.contentType}</Pill>
+              </div>
               <SheetTitle className="text-lg">{item.title}</SheetTitle>
               <SheetDescription>
                 {formatDateTime(item.date, item.time)}
@@ -67,39 +119,57 @@ export function CalendarItemDrawer({
             </SheetHeader>
 
             <div className="flex flex-col gap-5 px-4 pb-4">
-              <Field label="Platform">{item.platform}</Field>
-              <Field label="Content Type">{item.contentType}</Field>
               {item.brief && (
-                <Field label="Caption / Brief">
-                  <p className="whitespace-pre-wrap">{item.brief}</p>
-                </Field>
+                <>
+                  <Divider />
+                  <Section label="Caption / Brief">
+                    <p className="whitespace-pre-wrap">{item.brief}</p>
+                  </Section>
+                </>
               )}
-              <Field label="Design Required">
+
+              <Divider />
+              <Section label="Design Asset">
                 {item.designRequired ? (
-                  <span className="flex items-center gap-1.5 font-medium text-primary">
-                    <span
-                      aria-hidden="true"
-                      className="inline-block h-2 w-2 rounded-full bg-primary"
-                    />
-                    Yes
-                    {item.designType ? ` — ${item.designType}` : ""}
-                    {item.dimensions ? ` (${item.dimensions})` : ""}
-                  </span>
+                  <div className="space-y-1.5">
+                    <span className="inline-flex items-center rounded-full bg-[rgba(19,139,200,0.15)] px-2.5 py-0.5 text-[10px] font-medium text-[#85B7EB]">
+                      Design Required
+                    </span>
+                    <p className="text-[var(--text-secondary)]">
+                      {item.designType ?? "Design asset"}
+                      {item.dimensions ? ` · ${item.dimensions}` : ""}
+                    </p>
+                    {submitted && (
+                      <span className="flex items-center gap-1.5 text-[13px] font-medium text-[#97C459]">
+                        <Clock aria-hidden="true" className="h-3.5 w-3.5" />
+                        Design Ticket Submitted
+                      </span>
+                    )}
+                  </div>
                 ) : (
-                  "No"
-                )}
-                {submitted && (
-                  <span className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-[#97C459]">
-                    <Clock aria-hidden="true" className="h-3.5 w-3.5" />
-                    Design Ticket Submitted
+                  <span className="text-[var(--text-muted)]">
+                    No design asset needed
                   </span>
                 )}
-              </Field>
-              <Field label="Status">
-                <StatusBadge status={item.status}>
-                  {statusLabel(item.status)}
-                </StatusBadge>
-              </Field>
+              </Section>
+
+              <Divider />
+              <Section label="Status">
+                <select
+                  value={status}
+                  onChange={(e) =>
+                    handleStatusChange(e.target.value as CalendarItemStatus)
+                  }
+                  disabled={isPending}
+                  className="w-[200px] cursor-pointer rounded-lg border border-[var(--border)] bg-surface-1 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)] disabled:opacity-60"
+                >
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {statusLabel(s)}
+                    </option>
+                  ))}
+                </select>
+              </Section>
             </div>
 
             <SheetFooter className="flex-row justify-end gap-2 border-t border-[var(--border)]">

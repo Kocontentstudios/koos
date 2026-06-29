@@ -51,6 +51,37 @@ export function monthMatrix(date: Date): Date[][] {
   return weeks;
 }
 
+/** Sunday (UTC midnight) of the week containing `date`. */
+function sundayWeekStart(date: Date): Date {
+  const d = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // back up to Sunday (dow 0)
+  return d;
+}
+
+/**
+ * A month grid as 6 weeks of 7 dates, SUNDAY-aligned (Sun…Sat columns) to
+ * match the design template's month view. Padded with leading/trailing days
+ * from adjacent months so every row has 7 cells. (Week view stays Monday-start
+ * via `weekDays`, matching the template's week view.)
+ */
+export function monthMatrixSunday(date: Date): Date[][] {
+  const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  const gridStart = sundayWeekStart(first);
+  const weeks: Date[][] = [];
+  const cursor = new Date(gridStart);
+  for (let w = 0; w < 6; w++) {
+    const week: Date[] = [];
+    for (let d = 0; d < 7; d++) {
+      week.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    weeks.push(week);
+  }
+  return weeks;
+}
+
 export function isSameMonth(a: Date, b: Date): boolean {
   return (
     a.getUTCFullYear() === b.getUTCFullYear() &&

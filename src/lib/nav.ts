@@ -1,9 +1,9 @@
 import {
   Calendar,
   LayoutDashboard,
-  Lightbulb,
   type LucideIcon,
-  Palette,
+  Rocket,
+  Target,
   Ticket,
 } from "lucide-react";
 
@@ -16,8 +16,8 @@ export interface NavItem {
 /** Primary sidebar items, in the exact order from UI Spec section 7.1. */
 export const MAIN_NAV: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { title: "Brands", href: "/brand", icon: Palette },
-  { title: "Campaigns", href: "/strategy", icon: Lightbulb },
+  { title: "Brands", href: "/brand", icon: Target },
+  { title: "Campaigns", href: "/strategy", icon: Rocket },
   { title: "Calendar", href: "/calendar", icon: Calendar },
   { title: "Design Tickets", href: "/design-request", icon: Ticket },
 ];

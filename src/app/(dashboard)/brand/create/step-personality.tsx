@@ -12,10 +12,6 @@ interface StepProps {
 export function StepPersonality({ state, onChange }: StepProps) {
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px] font-medium text-[var(--text-muted)]">
-        Optional
-      </p>
-
       <Field label="Brand Values (3–5)" htmlFor="brand-values">
         <Input
           id="brand-values"

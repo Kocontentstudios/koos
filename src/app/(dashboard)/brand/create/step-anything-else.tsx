@@ -13,10 +13,6 @@ interface StepProps {
 export function StepAnythingElse({ state, onChange }: StepProps) {
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[13px] font-medium text-[var(--text-muted)]">
-        Optional
-      </p>
-
       <Field label="Additional Notes" htmlFor="additional-notes">
         <Textarea
           id="additional-notes"

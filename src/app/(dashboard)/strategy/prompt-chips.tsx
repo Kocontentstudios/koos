@@ -15,13 +15,13 @@ interface PromptChipsProps {
 
 export function PromptChips({ onPick }: PromptChipsProps) {
   return (
-    <div className="flex flex-wrap justify-center gap-2 mt-4">
+    <div className="flex flex-wrap gap-2 mt-2 ml-10 max-w-[560px]">
       {PROMPTS.map((text) => (
         <button
           key={text}
           type="button"
           onClick={() => onPick(text)}
-          className="rounded-full bg-[rgba(255,255,255,0.06)] px-4 py-2 text-[13px] text-[var(--text-secondary)] hover:bg-[rgba(19,139,200,0.12)] hover:text-foreground transition-colors"
+          className="min-h-[40px] rounded-full bg-[rgba(255,255,255,0.06)] px-4 py-2 text-[13px] text-[var(--text-secondary)] hover:bg-[rgba(19,139,200,0.12)] hover:text-foreground transition-colors"
         >
           {text}
         </button>
