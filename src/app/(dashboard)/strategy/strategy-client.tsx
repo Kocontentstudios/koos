@@ -2,26 +2,20 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Plus } from "lucide-react";
+import { PanelRight, PanelsTopLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Strategy } from "@/lib/ai/strategy-schema";
 import { cn } from "@/lib/utils";
-import { markStrategyActive } from "./actions";
+import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
 import { PromptChips } from "./prompt-chips";
 import { StrategyCard } from "./strategy-card";
+import { StrategyHistory, type StrategyHistoryItem } from "./strategy-history";
 import { StrategyPanel } from "./strategy-panel";
-
-interface StrategyHistoryItem {
-  id: string;
-  name: string;
-  updatedAt: Date;
-  status?: string;
-}
 
 interface StrategyClientProps {
   brandId: string;
@@ -45,6 +39,13 @@ export function StrategyClient({
   const [calendarPending, setCalendarPending] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  // Mobile-only drawer state for the history and summary panels (below `lg`).
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [loadingStrategyId, setLoadingStrategyId] = useState<string | null>(
+    null,
+  );
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const transport = useMemo(
     () =>
@@ -147,6 +148,47 @@ export function StrategyClient({
     setStrategy(null);
     setStrategyId(null);
     setBuildError(null);
+    setLoadError(null);
+    setHistoryOpen(false);
+  };
+
+  // Load a saved strategy into the summary/card and seed the chat with a recap
+  // so the user can keep refining it and rebuild.
+  const handleSelectStrategy = async (id: string) => {
+    if (loadingStrategyId) return;
+    setLoadError(null);
+    setLoadingStrategyId(id);
+    try {
+      const res = await loadStrategy(id);
+      if (!res.ok) {
+        setLoadError(res.error);
+        return;
+      }
+      const s = res.strategy;
+      setStrategy(s);
+      setStrategyId(id);
+      const recap = [
+        `I've loaded your saved strategy "${s.campaignName}".`,
+        "",
+        `Objective: ${s.objective}`,
+        `Key message: ${s.keyMessage}`,
+        `Channels: ${s.channels.map((c) => c.name).join(", ")}`,
+        "",
+        "Tell me what you'd like to change and I'll refine it, then you can rebuild the strategy.",
+      ].join("\n");
+      setMessages([
+        {
+          id: `loaded-${id}`,
+          role: "assistant",
+          parts: [{ type: "text", text: recap }],
+        },
+      ]);
+      setHistoryOpen(false);
+    } catch {
+      setLoadError("Could not load strategy.");
+    } finally {
+      setLoadingStrategyId(null);
+    }
   };
 
   const showBuildButton = messages.length >= 2 && !strategy && !isLoading;
@@ -155,58 +197,75 @@ export function StrategyClient({
     <div className="h-[calc(100vh-56px)] flex overflow-hidden -mx-4 -my-6 md:-mx-8 md:-my-8">
       {/* Left history panel — desktop only */}
       <aside className="hidden lg:flex w-[280px] flex-col border-r border-[var(--border)] bg-surface-1 overflow-hidden">
-        <div className="px-5 py-5 border-b border-[var(--border)]">
-          <h3 className="mb-3 text-[14px] font-semibold text-foreground">
-            Campaign History
-          </h3>
-          <Button
-            variant="default"
-            onClick={handleNewStrategy}
-            className="w-full justify-center"
-          >
-            <Plus className="size-4" />
-            New Strategy
-          </Button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-2 py-2">
-          {pastStrategies.length === 0 ? (
-            <p className="text-[13px] text-[var(--text-secondary)] px-2 py-3">
-              No strategies yet.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {pastStrategies.map((s) => {
-                const active =
-                  s.id === strategyId || s.status === "active";
-                return (
-                  <li key={s.id}>
-                    <div
-                      className={cn(
-                        "rounded-lg px-3 py-3 cursor-default transition-colors hover:bg-surface-2",
-                        active &&
-                          "bg-surface-2 border-l-2 border-l-primary",
-                      )}
-                    >
-                      <p className="text-[13px] font-semibold text-foreground truncate">
-                        {s.name}
-                      </p>
-                      <p className="text-[11px] text-[var(--text-muted)] mt-1 capitalize">
-                        {s.status ?? "draft"}
-                      </p>
-                      <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                        {new Date(s.updatedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+        <StrategyHistory
+          pastStrategies={pastStrategies}
+          activeId={strategyId}
+          loadingId={loadingStrategyId}
+          onSelect={handleSelectStrategy}
+          onNew={handleNewStrategy}
+        />
+      </aside>
+
+      {/* Mobile history drawer + backdrop (below lg) */}
+      {historyOpen && (
+        <button
+          type="button"
+          aria-label="Close history"
+          onClick={() => setHistoryOpen(false)}
+          className="fixed inset-0 z-40 bg-[var(--backdrop)] lg:hidden"
+        />
+      )}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[85vw] flex-col border-r border-[var(--border)] bg-surface-1 transition-transform duration-200 lg:hidden",
+          historyOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <StrategyHistory
+          pastStrategies={pastStrategies}
+          activeId={strategyId}
+          loadingId={loadingStrategyId}
+          onSelect={handleSelectStrategy}
+          onNew={handleNewStrategy}
+          onClose={() => setHistoryOpen(false)}
+        />
       </aside>
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile toolbar — opens the history / summary drawers (below lg) */}
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 lg:hidden">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setSummaryOpen(false);
+              setHistoryOpen(true);
+            }}
+          >
+            <PanelsTopLeft className="size-4" />
+            History
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setHistoryOpen(false);
+              setSummaryOpen(true);
+            }}
+          >
+            Summary
+            <PanelRight className="size-4" />
+          </Button>
+        </div>
+
+        {/* Load error */}
+        {loadError && (
+          <div className="mx-4 mt-3 rounded-xl bg-[var(--status-error-bg)] px-4 py-2 text-sm text-[var(--status-error-fg)]">
+            {loadError}
+          </div>
+        )}
+
         {/* Empty state — KO welcome bubble + indented prompt chips */}
         {messages.length === 0 && (
           <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -311,6 +370,8 @@ export function StrategyClient({
         onGenerateCalendar={handleGenerateCalendar}
         generating={calendarPending}
         calendarError={calendarError}
+        mobileOpen={summaryOpen}
+        onMobileClose={() => setSummaryOpen(false)}
       />
     </div>
   );
