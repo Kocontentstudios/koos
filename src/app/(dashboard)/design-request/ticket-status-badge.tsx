@@ -2,14 +2,15 @@ import { humanizeStatus, type TicketStatus } from "@/lib/design/tickets-ui";
 import { cn } from "@/lib/utils";
 
 /** Lifecycle status colors per UI spec §5.9 (Design Ticket Lifecycle table).
- * These literal hexes are the spec source of truth, hence allowed here. */
+ * Mapped to the shared status tokens: these carry the spec hexes in dark mode
+ * and darken for light mode so the badge text stays readable on white. */
 const STATUS_COLOR: Record<TicketStatus, string> = {
-  submitted: "#D4A954",
-  assigned: "#85B7EB",
-  in_progress: "#138BC8",
-  ready_for_review: "#97C459",
-  delivered: "#97C459",
-  revision_requested: "#D4A954",
+  submitted: "var(--status-pending-fg)",
+  assigned: "var(--status-progress-fg)",
+  in_progress: "var(--primary)",
+  ready_for_review: "var(--status-ready-fg)",
+  delivered: "var(--status-ready-fg)",
+  revision_requested: "var(--status-pending-fg)",
 };
 
 /**

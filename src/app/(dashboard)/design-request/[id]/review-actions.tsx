@@ -65,7 +65,7 @@ export function ReviewActions({ ticketId }: { ticketId: string }) {
         className="min-h-[80px]"
       />
       {error && (
-        <p role="alert" className="text-[13px] text-[#d47575]">
+        <p role="alert" className="text-[13px] text-[var(--status-error-fg)]">
           {error}
         </p>
       )}

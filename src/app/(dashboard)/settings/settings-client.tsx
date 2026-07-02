@@ -30,7 +30,7 @@ function Banner({ msg }: { msg: Msg }) {
       aria-live="polite"
       className={`mt-4 rounded-lg px-4 py-2 text-sm ${
         ok
-          ? "bg-[var(--status-ready-bg,rgba(99,153,34,0.15))] text-[var(--status-success-fg,#97C459)]"
+          ? "bg-[var(--status-ready-bg)] text-[var(--status-ready-fg)]"
           : "bg-[var(--status-error-bg)] text-[var(--status-error-fg)]"
       }`}
     >

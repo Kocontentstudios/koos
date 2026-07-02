@@ -311,6 +311,7 @@ export function StrategyClient({
               strategy={strategy}
               generating={calendarPending}
               onEdit={() => setStrategy(null)}
+              onClose={() => setStrategy(null)}
               onGenerateCalendar={handleGenerateCalendar}
             />
             {calendarError && (

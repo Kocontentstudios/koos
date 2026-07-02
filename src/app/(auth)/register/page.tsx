@@ -8,10 +8,10 @@ import { cn } from "@/lib/utils";
 import { signInWithGoogle, signup } from "../actions";
 
 const STRENGTH_COLORS = [
-  "var(--error)",
-  "#D4A954",
-  "#85B7EB",
-  "var(--success)",
+  "var(--status-error-fg)",
+  "var(--status-pending-fg)",
+  "var(--status-progress-fg)",
+  "var(--status-ready-fg)",
 ];
 const STRENGTH_LABELS = ["Weak", "Fair", "Good", "Strong"];
 

@@ -180,6 +180,14 @@
   /* White-alpha overlays become invisible on light surfaces → flip to ink-alpha */
   --status-draft-bg: rgba(15, 23, 42, 0.05);
   --hover: rgba(15, 23, 42, 0.05);
+
+  /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
+     amber/red drop below readable contrast on white surfaces. Darken them for
+     light mode (the low-alpha tint backgrounds stay legible as-is). */
+  --status-progress-fg: #1f7ab5;
+  --status-ready-fg: #4d7c0f;
+  --status-pending-fg: #a16207;
+  --status-error-fg: #c0392b;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -556,7 +564,10 @@ h6 {
   background: #0f7eb8;
   border-bottom-color: rgba(255, 255, 255, 0.15);
 }
-:root[data-theme="light"] .brand-header-band .brand-header-info :is(h2, p, span) {
+:root[data-theme="light"]
+  .brand-header-band
+  .brand-header-info
+  :is(h2, p, span) {
   color: #ffffff;
 }
 
