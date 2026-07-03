@@ -143,6 +143,12 @@ const NAV_LINKS = [
   { href: "#contact", label: "Contact" },
 ];
 
+/* The app lives on a separate host (app.kocontentstudios.com) in production.
+   NEXT_PUBLIC_APP_URL points there; when unset (local dev) we fall back to a
+   relative path so the same-origin dev server keeps working. */
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
+const OPEN_APP_HREF = `${APP_URL}/login`;
+
 const STEPS = [
   {
     n: 1,
@@ -247,7 +253,7 @@ export function LandingPage() {
               {l.label}
             </a>
           ))}
-          <Link href="/login" className="nav-cta nav-cta-primary">
+          <Link href={OPEN_APP_HREF} className="nav-cta nav-cta-primary">
             Open KO-OS
           </Link>
         </div>
@@ -266,7 +272,7 @@ export function LandingPage() {
           calendar. Human designers bring it to life.
         </p>
         <div className="hero-ctas">
-          <Link href="/login" className="hero-cta-primary">
+          <Link href={OPEN_APP_HREF} className="hero-cta-primary">
             Open KO-OS <ArrowRight size={16} />
           </Link>
           <a href="#services" className="hero-cta-secondary">
@@ -552,7 +558,7 @@ export function LandingPage() {
             Join hundreds of brands using KO OS to plan, create, and launch
             campaigns.
           </p>
-          <Link href="/login" className="cta-btn">
+          <Link href={OPEN_APP_HREF} className="cta-btn">
             Open KO-OS <ArrowRight size={16} />
           </Link>
         </div>
@@ -616,7 +622,7 @@ export function LandingPage() {
             <h4>Product</h4>
             <a href="#services">Services</a>
             <a href="#how">How It Works</a>
-            <Link href="/login">Open KO-OS</Link>
+            <Link href={OPEN_APP_HREF}>Open KO-OS</Link>
           </div>
           <div className="footer-col">
             <h4>Company</h4>
