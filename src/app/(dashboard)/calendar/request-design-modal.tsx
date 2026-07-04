@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import { defaultDueDate, isCarouselType } from "@/lib/design/tickets-ui";
+import { isValidEmail } from "@/lib/validation/email";
 import type { BrandSummary, CalendarItem } from "./types";
 
 /** Design-type options from the static template (design-request.html). */
@@ -133,6 +134,7 @@ export function RequestDesignModal({
   const [brief, setBrief] = useState("");
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [deliveryEmail, setDeliveryEmail] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +149,7 @@ export function RequestDesignModal({
     setBrief(item.brief ?? "");
     setNotes("");
     setDueDate(defaultDueDate(item.date));
+    setDeliveryEmail("");
     setError(null);
     setCreated(null);
     setSubmitting(false);
@@ -156,6 +159,12 @@ export function RequestDesignModal({
     if (!item || !brand || submitting) return;
     setSubmitting(true);
     setError(null);
+    const trimmedDeliveryEmail = deliveryEmail.trim();
+    if (trimmedDeliveryEmail && !isValidEmail(trimmedDeliveryEmail)) {
+      setSubmitting(false);
+      setError("Enter a valid email address, or leave it blank.");
+      return;
+    }
     try {
       const res = await fetch("/api/design-tickets", {
         method: "POST",
@@ -168,6 +177,7 @@ export function RequestDesignModal({
           slides: isCarouselType(designType) && slides ? Number(slides) : null,
           brief: brief.trim() || item.title,
           notes: notes.trim() || null,
+          deliveryEmail: trimmedDeliveryEmail || null,
           dueDate: dueDate
             ? new Date(`${dueDate}T00:00:00Z`).toISOString()
             : null,
@@ -426,6 +436,23 @@ export function RequestDesignModal({
                   disabled={submitting}
                   onChange={(e) => setDueDate(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="rd-delivery-email">
+                  Receive updates &amp; final design at (Optional)
+                </Label>
+                <Input
+                  id="rd-delivery-email"
+                  type="email"
+                  value={deliveryEmail}
+                  disabled={submitting}
+                  onChange={(e) => setDeliveryEmail(e.target.value)}
+                  placeholder="you@company.com"
+                />
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Leave blank to use your account email.
+                </p>
               </div>
 
               {error && (
