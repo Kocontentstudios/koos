@@ -13,7 +13,6 @@ import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
 import { PromptChips } from "./prompt-chips";
-import { StrategyCard } from "./strategy-card";
 import { StrategyHistory, type StrategyHistoryItem } from "./strategy-history";
 import { StrategyPanel } from "./strategy-panel";
 
@@ -112,6 +111,8 @@ export function StrategyClient({
       };
       setStrategy(data.strategy);
       setStrategyId(data.strategyId);
+      setPanelCollapsed(false);
+      setSummaryOpen(true);
     } catch (err) {
       setBuildError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -183,6 +184,8 @@ export function StrategyClient({
           parts: [{ type: "text", text: recap }],
         },
       ]);
+      setPanelCollapsed(false);
+      setSummaryOpen(true);
       setHistoryOpen(false);
     } catch {
       setLoadError("Could not load strategy.");
@@ -304,24 +307,6 @@ export function StrategyClient({
           </div>
         )}
 
-        {/* Strategy card — injected inline into the conversation (all sizes) */}
-        {strategy && (
-          <div className="flex flex-col gap-2 px-4 pb-4">
-            <StrategyCard
-              strategy={strategy}
-              generating={calendarPending}
-              onEdit={() => setStrategy(null)}
-              onClose={() => setStrategy(null)}
-              onGenerateCalendar={handleGenerateCalendar}
-            />
-            {calendarError && (
-              <p className="rounded-xl bg-[var(--status-error-bg)] px-4 py-2 text-sm text-[var(--status-error-fg)]">
-                {calendarError}
-              </p>
-            )}
-          </div>
-        )}
-
         {/* Build strategy + build error */}
         {(showBuildButton || buildError) && (
           <div className="px-4 pb-3 flex flex-col gap-2">
@@ -363,12 +348,16 @@ export function StrategyClient({
         />
       </div>
 
-      {/* Right strategy-summary panel — always present (collapsible) */}
+      {/* Right strategy-summary panel — the single strategy surface (collapsible) */}
       <StrategyPanel
         strategy={strategy}
         collapsed={panelCollapsed}
         onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
         onGenerateCalendar={handleGenerateCalendar}
+        onEdit={() => {
+          setStrategy(null);
+          setSummaryOpen(false);
+        }}
         generating={calendarPending}
         calendarError={calendarError}
         mobileOpen={summaryOpen}
