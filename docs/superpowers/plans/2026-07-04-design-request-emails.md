@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Scripts (exact): lint = `npm run lint` (`biome check .`); tests = `npm test` (`vitest run --passWithNoTests`); typecheck = `npx tsc --noEmit`; migration generate = `npm run db:generate` (`drizzle-kit generate`).
+- Scripts (exact): lint = `npm run lint` (`biome check .`); tests = `npm test` (`vitest run --passWithNoTests`); typecheck = `npx tsc --noEmit`. NOTE: this repo gitignores `drizzle/meta/` and has no in-app migrator, so `drizzle-kit generate` cannot produce incremental migrations on a fresh checkout — schema is applied via `db:push` (schema.ts is the source of truth) and DDL is recorded as hand-written `.sql` files under `drizzle/`.
 - **SMTP/mail secrets stay in env** (`ZOHO_SMTP_*`, `ZOHO_MAIL_FROM`). The only new env var is `DESIGN_TEAM_EMAIL` (optional). Never store credentials in code or DB.
 - **Email is non-blocking:** every send is wrapped in try/catch and logged; a mail failure must NOT fail ticket creation or deliverable upload, and must NOT change the HTTP response. Applying the migration is a deploy step — out of scope for these tasks.
 - Delivery-email field framing (verbatim): label **"Receive updates & final design at"**; helper **"Leave blank to use your account email."** (This one field is the requester's contact for confirmation, updates, AND final delivery.)
@@ -26,7 +26,7 @@
 
 **Files:**
 - Modify: `src/lib/db/schema.ts:287` (inside `designTickets`, after `notes`)
-- Create: `drizzle/0002_*.sql` (generated) + drizzle meta snapshot updates
+- Create: `drizzle/0002_add_delivery_email.sql` (hand-written DDL record; matches the existing committed `.sql` format)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -42,22 +42,25 @@ In `src/lib/db/schema.ts`, in the `designTickets` table, add the column immediat
   dueDate: timestamp("due_date"),
 ```
 
-- [ ] **Step 2: Generate the migration**
+- [ ] **Step 2: Write the migration DDL by hand**
 
-Run: `npm run db:generate`
-Expected: a new `drizzle/0002_*.sql` file is created containing `ALTER TABLE "design_tickets" ADD COLUMN "delivery_email" text;` plus updated snapshot/journal files under `drizzle/meta/`. (Generation diffs the schema offline; it does not connect to the database.)
+Do NOT run `db:generate` — this repo gitignores `drizzle/meta/`, so generate has no snapshot baseline and emits a bogus full-schema migration. Instead, create `drizzle/0002_add_delivery_email.sql` with the single statement, matching the format of the existing committed `.sql` files:
 
-If drizzle-kit prompts interactively, the change is a single new nullable column — accept the straightforward add. If it cannot run without a database connection, STOP and report BLOCKED (do not hand-edit the meta snapshot).
+```sql
+ALTER TABLE "design_tickets" ADD COLUMN "delivery_email" text;
+```
+
+(schema.ts remains the source of truth applied via `db:push` at deploy; this file is the committed DDL record. Do NOT run `db:push`/`db:migrate` — applying is a deploy step.)
 
 - [ ] **Step 3: Typecheck**
 
 Run: `npx tsc --noEmit`
-Expected: PASS.
+Expected: PASS. (The column is now on `designTickets`, so `createDesignTicket` accepts `deliveryEmail` and `ticket.deliveryEmail` is typed `string | null`.)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/lib/db/schema.ts drizzle/
+git add src/lib/db/schema.ts drizzle/0002_add_delivery_email.sql
 git commit -m "feat(design): add nullable deliveryEmail column to design_tickets"
 ```
 
@@ -804,4 +807,4 @@ git commit -m "feat(design): email finished design with signed links on delivera
 - **Spec coverage:** optional delivery email field (Task 4) ✓; persisted on ticket (Task 1) ✓; team notification on submit (Task 3) ✓; requester confirmation (Task 3) ✓; final delivery email with links (Task 5) ✓; "includes all data required for proper delivery" proven by template unit tests (Task 2) ✓; team address env with fallback, Feature-3-ready (Task 3 `getDesignTeamEmail`) ✓; SMTP secrets stay in env ✓; non-blocking sends ✓.
 - **Type consistency:** `DesignRequestEmailInput` / `DesignDeliveryEmailInput` defined in Task 2 and consumed unchanged by `notify.ts` (Task 3) and the two routes (Tasks 3, 5). `isValidEmail` defined in Task 3, used by both the route (Task 3) and the modal (Task 4). `deliveryEmail` column (Task 1) read as `ticket.deliveryEmail` in Tasks 3 and 5.
 - **Recipient resolution** is identical everywhere: team via `getDesignTeamEmail()`, requester/delivery via `deliveryEmail || accountEmail`.
-- **No placeholders:** every code step contains complete code. Migration file name is a generated wildcard (`0002_*.sql`) — expected, not a placeholder.
+- **No placeholders:** every code step contains complete code, including the hand-written `drizzle/0002_add_delivery_email.sql` DDL.
