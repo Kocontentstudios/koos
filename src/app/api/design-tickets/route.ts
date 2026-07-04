@@ -87,21 +87,28 @@ export async function POST(req: Request) {
       kind: "design_ticket_created",
       metadata: { designType, ticketId: ticket.id },
     });
-    await sendDesignRequestEmails({
-      ticketNumber: ticket.ticketNumber,
-      requesterName: `${dbUser.firstName} ${dbUser.lastName}`.trim(),
-      requesterEmail: dbUser.email,
-      deliveryEmail: ticket.deliveryEmail,
-      brandName: brand.name,
-      designType: ticket.designType,
-      dimensions: ticket.dimensions,
-      slides: ticket.slides,
-      brief: ticket.brief,
-      notes: ticket.notes,
-      dueDate: ticket.dueDate,
-      adminUrl: appUrl("/admin/tickets"),
-      ticketUrl: appUrl(`/design-request/${ticket.id}`),
-    });
+    try {
+      await sendDesignRequestEmails({
+        ticketNumber: ticket.ticketNumber,
+        requesterName: `${dbUser.firstName} ${dbUser.lastName}`.trim(),
+        requesterEmail: dbUser.email,
+        deliveryEmail: ticket.deliveryEmail,
+        brandName: brand.name,
+        designType: ticket.designType,
+        dimensions: ticket.dimensions,
+        slides: ticket.slides,
+        brief: ticket.brief,
+        notes: ticket.notes,
+        dueDate: ticket.dueDate,
+        adminUrl: appUrl("/admin/tickets"),
+        ticketUrl: appUrl(`/design-request/${ticket.id}`),
+      });
+    } catch (err) {
+      console.error("design request emails failed", {
+        ticketId: ticket.id,
+        err,
+      });
+    }
     return Response.json({ ticket });
   } catch (err) {
     console.error("create design ticket failed", err);
