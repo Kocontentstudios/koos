@@ -107,7 +107,7 @@ export function StrategyClient({
       const res = await fetch("/api/strategy/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, conversation }),
+        body: JSON.stringify({ brandId, conversation, conversationId }),
       });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };

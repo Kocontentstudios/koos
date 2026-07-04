@@ -17,13 +17,13 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
-  let body: { brandId?: string; conversation?: string };
+  let body: { brandId?: string; conversation?: string; conversationId?: string };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
-  const { brandId, conversation } = body;
+  const { brandId, conversation, conversationId } = body;
   if (!brandId || !conversation) {
     return Response.json(
       { error: "Missing brandId or conversation" },
@@ -62,6 +62,7 @@ export async function POST(req: Request) {
     });
     const strategy = await createStrategy({
       brandId,
+      conversationId: conversationId ?? null,
       name: object.campaignName,
       structured: object,
       status: "active",
