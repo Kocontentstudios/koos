@@ -7,6 +7,11 @@ import { toast } from "sonner";
 import { saveBrandProfile } from "@/app/(dashboard)/brand/actions";
 import { Button } from "@/components/ui/button";
 import { OTHER_OPTION } from "../brand-profile-form";
+import {
+  type CreateBrandState,
+  DEFAULT_STATE,
+  STORAGE_KEY,
+} from "./brand-form-state";
 import { ProgressSteps } from "./progress-steps";
 import { StepAnythingElse } from "./step-anything-else";
 import { StepBasics } from "./step-basics";
@@ -16,7 +21,7 @@ import { StepPersonality } from "./step-personality";
 import { StepPlatforms } from "./step-platforms";
 import { StepVisual } from "./step-visual";
 
-const STORAGE_KEY = "ko-os:brand-create";
+export type { CreateBrandState } from "./brand-form-state";
 
 interface StepMeta {
   /** Short label shown in the progress bar. */
@@ -78,81 +83,6 @@ const STEPS: StepMeta[] = [
 ];
 
 const STEP_LABELS = STEPS.map((s) => s.label);
-
-export interface CreateBrandState {
-  // Section 1 — Business Basics
-  name: string;
-  overview: string;
-  businessType: string;
-  businessTypeOther: string;
-  stage: string;
-  stageOther: string;
-  // Section 2 — Brand Direction
-  targetAudience: string;
-  offer: string;
-  tone: string;
-  toneOther: string;
-  primaryGoal: string;
-  // Section 3 — Brand Personality
-  values: string;
-  wordsLove: string;
-  wordsAvoid: string;
-  // Section 4 — Visual Identity
-  hasLogo: string; // "", "Yes", "No"
-  brandStyle: string;
-  brandStyleOther: string;
-  primaryColor: string;
-  secondaryColor: string;
-  additionalColors: string[];
-  logoUrl: string;
-  // Section 5 — Competitors
-  competitors: string;
-  competitorStrengths: string;
-  differentiators: string;
-  // Section 6 — Platforms & Posting
-  platforms: string[];
-  platformsOther: string;
-  primaryPlatform: string;
-  postingFrequency: string;
-  postingFrequencyOther: string;
-  // Section 7 — Anything Else
-  additionalNotes: string;
-  helpfulLinks: string;
-}
-
-const DEFAULT_STATE: CreateBrandState = {
-  name: "",
-  overview: "",
-  businessType: "",
-  businessTypeOther: "",
-  stage: "",
-  stageOther: "",
-  targetAudience: "",
-  offer: "",
-  tone: "",
-  toneOther: "",
-  primaryGoal: "",
-  values: "",
-  wordsLove: "",
-  wordsAvoid: "",
-  hasLogo: "",
-  brandStyle: "",
-  brandStyleOther: "",
-  primaryColor: "#138BC8",
-  secondaryColor: "#FFFFFF",
-  additionalColors: [],
-  logoUrl: "",
-  competitors: "",
-  competitorStrengths: "",
-  differentiators: "",
-  platforms: [],
-  platformsOther: "",
-  primaryPlatform: "",
-  postingFrequency: "",
-  postingFrequencyOther: "",
-  additionalNotes: "",
-  helpfulLinks: "",
-};
 
 /** Resolve a select value that may be the "Other (Specify)" sentinel. */
 function resolveOther(value: string, other: string, sentinel = OTHER_OPTION) {
