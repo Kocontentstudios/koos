@@ -31,7 +31,9 @@ function splitOther(
 }
 
 /** The six selectable platforms (the "Other" entry is not a real platform). */
-const KNOWN_PLATFORMS = platformOptions.filter((p) => p !== "Other");
+const KNOWN_PLATFORMS: readonly string[] = platformOptions.filter(
+  (p) => p !== "Other",
+);
 
 export function brandToFormState(brand: Brand): CreateBrandState {
   const businessType = splitOther(
