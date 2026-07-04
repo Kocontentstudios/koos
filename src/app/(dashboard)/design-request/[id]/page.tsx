@@ -2,10 +2,18 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireBrand } from "@/lib/auth/require-brand";
-import { getDeliverables, getDesignTicketById } from "@/lib/db/queries";
+import {
+  getDeliverables,
+  getDesignTicketById,
+  getTicketUpdates,
+} from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { TicketStatusBadge } from "../ticket-status-badge";
+import {
+  type TimelineUpdate,
+  TicketUpdatesTimeline,
+} from "../ticket-updates-timeline";
 import { ReviewActions } from "./review-actions";
 
 function formatDate(d: Date | null): string {
@@ -33,6 +41,14 @@ export default async function TicketDetailPage({
   }
 
   const deliverables = await getDeliverables(ticket.id);
+  const updateRows = await getTicketUpdates(ticket.id);
+  const updates: TimelineUpdate[] = updateRows.map((r) => ({
+    id: r.update.id,
+    message: r.update.message,
+    newStatus: r.update.newStatus,
+    createdAt: r.update.createdAt,
+    authorName: "KO Design Team",
+  }));
   const status = ticket.status as TicketStatus;
 
   return (
@@ -121,6 +137,11 @@ export default async function TicketDetailPage({
           </ul>
         </section>
       )}
+
+      <section className="space-y-3">
+        <h2 className="text-[15px] font-semibold text-foreground">Updates</h2>
+        <TicketUpdatesTimeline updates={updates} />
+      </section>
 
       {status === "ready_for_review" && <ReviewActions ticketId={ticket.id} />}
     </div>
