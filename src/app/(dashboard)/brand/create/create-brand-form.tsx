@@ -90,14 +90,23 @@ function resolveOther(value: string, other: string, sentinel = OTHER_OPTION) {
   return value || undefined;
 }
 
-export function CreateBrandForm() {
+export function CreateBrandForm({
+  initialBrand = null,
+}: {
+  initialBrand?: CreateBrandState | null;
+}) {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [state, setState] = useState<CreateBrandState>(DEFAULT_STATE);
+  const [state, setState] = useState<CreateBrandState>(
+    initialBrand ?? DEFAULT_STATE,
+  );
   const [isPending, startTransition] = useTransition();
+  const isEditing = initialBrand !== null;
 
-  // Restore from localStorage on mount (SSR-safe)
+  // Restore an in-progress draft from localStorage only for a brand-new profile.
+  // When editing, the server-provided brand is authoritative, so we ignore drafts.
   useEffect(() => {
+    if (isEditing) return;
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -107,7 +116,7 @@ export function CreateBrandForm() {
     } catch {
       // Ignore parse errors
     }
-  }, []);
+  }, [isEditing]);
 
   // Persist to localStorage on every state change
   useEffect(() => {
@@ -205,7 +214,7 @@ export function CreateBrandForm() {
         } catch {
           // Ignore
         }
-        router.push("/strategy");
+        router.push(isEditing ? "/brand" : "/strategy");
       } else {
         toast.error(res.error);
       }
