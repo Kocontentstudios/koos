@@ -12,6 +12,7 @@ import {
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
+  appSettings,
   brandContexts,
   brands,
   calendarItems,
@@ -624,4 +625,27 @@ export async function getRecentTickets(limit = 8) {
     .leftJoin(brands, eq(designTickets.brandId, brands.id))
     .orderBy(desc(designTickets.createdAt))
     .limit(limit);
+}
+
+// ── App settings ────────────────────────────────────────────────────
+
+export async function getAppSettings() {
+  const [row] = await db
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.id, 1))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function updateAppSettings(data: { designTeamEmail: string | null }) {
+  const [row] = await db
+    .insert(appSettings)
+    .values({ id: 1, designTeamEmail: data.designTeamEmail, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: appSettings.id,
+      set: { designTeamEmail: data.designTeamEmail, updatedAt: new Date() },
+    })
+    .returning();
+  return row;
 }

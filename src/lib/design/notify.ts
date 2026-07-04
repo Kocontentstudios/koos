@@ -1,3 +1,4 @@
+import { getAppSettings } from "@/lib/db/queries";
 import { sendMail } from "@/lib/email";
 import {
   type DesignDeliveryEmailInput,
@@ -7,9 +8,11 @@ import {
   designRequestTeamEmail,
 } from "@/lib/email-templates";
 
-/** Design-team inbox. Env-only for now; Feature 3 will layer app_settings on top. */
-export function getDesignTeamEmail(): string {
+/** Design-team inbox: DB setting first, then env fallbacks. */
+export async function getDesignTeamEmail(): Promise<string> {
+  const settings = await getAppSettings();
   return (
+    settings?.designTeamEmail ||
     process.env.DESIGN_TEAM_EMAIL ||
     process.env.ZOHO_MAIL_FROM ||
     process.env.ZOHO_SMTP_USER ||
@@ -32,7 +35,7 @@ export function appUrl(path: string): string {
 export async function sendDesignRequestEmails(
   input: DesignRequestEmailInput,
 ): Promise<void> {
-  const team = getDesignTeamEmail();
+  const team = await getDesignTeamEmail();
   if (team) {
     try {
       const { subject, html } = designRequestTeamEmail(input);
