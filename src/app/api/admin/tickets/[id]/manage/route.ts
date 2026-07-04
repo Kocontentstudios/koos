@@ -1,5 +1,6 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  createNotification,
   getDesignTicketById,
   getUserById,
   updateDesignTicket,
@@ -82,5 +83,28 @@ export async function POST(
   }
 
   const updated = await updateDesignTicket(id, patch);
+
+  // Inform the requester when an admin changes the status (non-blocking —
+  // a notification failure must not fail the update that already succeeded).
+  if (patch.status && patch.status !== ticket.status) {
+    try {
+      await createNotification({
+        userId: ticket.userId,
+        type: "ticket_status",
+        payload: {
+          ticketId: id,
+          ticketNumber: ticket.ticketNumber,
+          designType: ticket.designType,
+          status: patch.status,
+        },
+      });
+    } catch (err) {
+      console.error("manage: status notification failed", {
+        ticketId: id,
+        err,
+      });
+    }
+  }
+
   return Response.json({ ticket: updated });
 }
