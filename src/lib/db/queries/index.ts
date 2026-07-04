@@ -1,4 +1,14 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+} from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
@@ -541,4 +551,77 @@ export async function postTicketProgressUpdate(input: {
 export async function recordUsageEvent(data: typeof usageEvents.$inferInsert) {
   const [row] = await db.insert(usageEvents).values(data).returning();
   return row;
+}
+
+// ── Admin dashboard ─────────────────────────────────────────────────
+
+/** Ticket counts grouped by status. */
+export async function getTicketCountsByStatus() {
+  return db
+    .select({ status: designTickets.status, count: count() })
+    .from(designTickets)
+    .groupBy(designTickets.status);
+}
+
+/** Tickets past their due date that are not yet delivered. */
+export async function getOverdueTicketCount() {
+  const [row] = await db
+    .select({ count: count() })
+    .from(designTickets)
+    .where(
+      and(
+        lt(designTickets.dueDate, new Date()),
+        ne(designTickets.status, "delivered"),
+      ),
+    );
+  return row?.count ?? 0;
+}
+
+/** User counts grouped by role. */
+export async function getUserCountsByRole() {
+  return db
+    .select({ role: users.role, count: count() })
+    .from(users)
+    .groupBy(users.role);
+}
+
+/** Active (assigned/in_progress/ready_for_review) ticket load per designer. */
+export async function getDesignerLoads() {
+  return db
+    .select({
+      designerId: designTickets.assignedDesignerId,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      count: count(),
+    })
+    .from(designTickets)
+    .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
+    .where(
+      and(
+        isNotNull(designTickets.assignedDesignerId),
+        inArray(designTickets.status, [
+          "assigned",
+          "in_progress",
+          "ready_for_review",
+        ]),
+      ),
+    )
+    .groupBy(designTickets.assignedDesignerId, users.firstName, users.lastName);
+}
+
+/** Most recently created tickets, with brand name. */
+export async function getRecentTickets(limit = 8) {
+  return db
+    .select({
+      id: designTickets.id,
+      ticketNumber: designTickets.ticketNumber,
+      designType: designTickets.designType,
+      status: designTickets.status,
+      brandName: brands.name,
+      createdAt: designTickets.createdAt,
+    })
+    .from(designTickets)
+    .leftJoin(brands, eq(designTickets.brandId, brands.id))
+    .orderBy(desc(designTickets.createdAt))
+    .limit(limit);
 }
