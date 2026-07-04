@@ -94,6 +94,20 @@ export async function getAllUsers() {
     .orderBy(desc(users.createdAt));
 }
 
+/** Designers and admins — candidates for ticket assignment. */
+export async function getStaffUsers() {
+  return db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+    })
+    .from(users)
+    .where(inArray(users.role, ["designer", "admin"]))
+    .orderBy(users.firstName);
+}
+
 export async function updateUserRole(
   id: string,
   role: typeof users.$inferInsert.role,
@@ -393,7 +407,7 @@ export async function updateDesignTicket(
   data: Partial<
     Pick<
       typeof designTickets.$inferInsert,
-      "status" | "assignedDesignerId" | "notes"
+      "status" | "assignedDesignerId" | "notes" | "priority"
     >
   >,
 ) {
@@ -638,10 +652,16 @@ export async function getAppSettings() {
   return row ?? null;
 }
 
-export async function updateAppSettings(data: { designTeamEmail: string | null }) {
+export async function updateAppSettings(data: {
+  designTeamEmail: string | null;
+}) {
   const [row] = await db
     .insert(appSettings)
-    .values({ id: 1, designTeamEmail: data.designTeamEmail, updatedAt: new Date() })
+    .values({
+      id: 1,
+      designTeamEmail: data.designTeamEmail,
+      updatedAt: new Date(),
+    })
     .onConflictDoUpdate({
       target: appSettings.id,
       set: { designTeamEmail: data.designTeamEmail, updatedAt: new Date() },
