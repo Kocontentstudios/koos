@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-// Point to the main project's node_modules to avoid duplicate React instances
-const mainNodeModules = "/home/oluwaseyi/dev247/project/koos/node_modules";
+// Point to this repo's node_modules to avoid duplicate React instances
+const mainNodeModules = resolve(__dirname, "node_modules");
 
 export default defineConfig({
   plugins: [react()],
