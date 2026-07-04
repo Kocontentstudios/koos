@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/check-env.mjs && next build",
+    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && next build",
     "preflight": "node scripts/check-env.mjs",
     "start": "next start",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "biome check .",
