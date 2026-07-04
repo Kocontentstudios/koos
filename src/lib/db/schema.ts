@@ -285,6 +285,7 @@ export const designTickets = pgTable("design_tickets", {
   slides: integer("slides"),
   brief: text("brief").notNull(),
   notes: text("notes"),
+  deliveryEmail: text("delivery_email"),
   dueDate: timestamp("due_date"),
   status: designTicketStatusEnum("status").notNull().default("submitted"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
