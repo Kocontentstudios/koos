@@ -278,6 +278,32 @@ export async function createMessage(data: typeof chatMessages.$inferInsert) {
   return msg;
 }
 
+export async function getConversationById(id: string) {
+  const [conv] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.id, id))
+    .limit(1);
+  return conv ?? null;
+}
+
+export async function getLatestConversationForBrand(brandId: string) {
+  const [conv] = await db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.brandId, brandId))
+    .orderBy(desc(chatConversations.updatedAt))
+    .limit(1);
+  return conv ?? null;
+}
+
+export async function touchConversation(id: string) {
+  await db
+    .update(chatConversations)
+    .set({ updatedAt: new Date() })
+    .where(eq(chatConversations.id, id));
+}
+
 // ── Strategies ──────────────────────────────────────────────────────
 
 export async function createStrategy(data: typeof strategies.$inferInsert) {
