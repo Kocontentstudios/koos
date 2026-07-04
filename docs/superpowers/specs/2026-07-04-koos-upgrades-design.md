@@ -1,22 +1,23 @@
 # KO OS Upgrades — Design Spec
 
 **Date:** 2026-07-04
-**Status:** Draft — awaiting user review
+**Status:** Confirmed — decisions locked via user Q&A 2026-07-04
 **Branch:** `feat/upgrades`
 
 > This spec covers six independent work items requested together. Each is scoped
-> to be shippable on its own. Recommendations below reflect best-judgment defaults
-> chosen while awaiting the user's answers to the sequencing/scope questions; any
-> of them can be revised before we write the implementation plan.
+> to be shippable on its own. The decisions below are the user's confirmed choices.
 
-## Decisions adopted (pending confirmation)
+## Decisions (confirmed)
 
-| Question | Chosen default | Rationale |
-|----------|---------------|-----------|
+| Question | Choice | Rationale |
+|----------|--------|-----------|
 | Sequencing | Quick wins first, then big items, one design/approval per batch | Bugfixes #1/#3 are low-risk and independent; big items get their own review |
-| Bedrock (#4) | **Add** as another provider, not a full replacement | Matches the existing provider-agnostic design; lowest risk |
+| Bedrock (#4) | **Add** as another provider (not a replacement); **env-driven, nothing hardcoded** — user supplies region/keys/model id later | Matches the existing provider-agnostic design; lowest risk |
 | Chat persistence (#5) | **Postgres** — wire the already-defined `chat_conversations`/`chat_messages` tables | Tables + helpers already exist unused; cross-device; no new infra |
-| Email scope (#6) | Tiers A + B + C (skip low-value D) | Covers notification fan-out, ticket lifecycle, and auth emails incl. password reset |
+| Email scope (#6) | Tiers A + B + C (skip low-value D) **plus the landing "Contact us" form** | Notification fan-out, ticket lifecycle, auth emails, and lead capture |
+| Suggest button (#2) | **Both** Suggest + Enhance, on the long-text fields (overview, target audience, offer, values, differentiators) | Highest-value fields; one control does fill-empty and improve-existing |
+| Password reset (#7) | **Build now**, as its own batch (largest email sub-piece) | Net-new flow: routes + token table + email |
+| Brand duplicates (#1) | **Fix the bug and dedupe existing** orphan rows | Stops new dupes and cleans up rows the bug already created |
 
 ---
 
@@ -71,8 +72,12 @@ allow-list that omits ~13 newer columns (`values`, `wordsLove`, `wordsAvoid`,
    so edits persist every field. (Alternatively, drop the `Pick` and accept the
    full profile type — decide during implementation; extending the `Pick` is
    safer/more explicit.)
-4. **Optional cleanup (flag, not doing unless approved):** a one-off to dedupe
-   pre-existing orphan brand rows. Out of scope by default.
+4. **Dedupe existing orphans (confirmed in scope):** a one-off migration/script
+   that, per user, keeps the most-recently-updated brand row and removes (or
+   reassigns dependents from) older duplicate rows. Must first check whether any
+   child records (`strategies`, `calendars`, etc.) reference the older brand ids
+   before deleting — reassign or block deletion accordingly. Report counts before
+   destructive action.
 
 ### Files touched
 - `src/app/(dashboard)/brand/create/page.tsx` (fetch + pass `initialBrand`)
@@ -184,6 +189,11 @@ added as one more case — chat/strategy/calendar (and #2 brand) inherit it.
 4. **Preflight/env:** update `scripts/check-env.mjs` and `.env.example` with the
    new provider + AWS vars.
 
+**Confirmed:** nothing hardcoded. The `bedrock` case reads region/keys/model from
+env only; `DEFAULT_MODELS.bedrock` may hold a placeholder default but the real
+model id + AWS credentials are supplied by the user in the deployment env later.
+No default AWS region is baked in.
+
 ### Credentials the user must provide
 To use Bedrock the deployment (Vercel) env needs:
 - `AWS_REGION` — e.g. `us-east-1` (a region where the target model is enabled)
@@ -284,6 +294,7 @@ by exactly two events:
 | 5 | Admin overrides user role | `api/admin/users/[id]/role/route.ts:38` | affected user | B |
 | 6 | Welcome on signup | `(auth)/actions.ts:42` + `auth/callback/route.ts` | new user | C |
 | 7 | Password reset | *no flow exists* | user | C |
+| 6b | **Landing "Contact us" form** | `components/marketing/landing-page.tsx` (currently fake — discards input) | support inbox (`hello@kocontentstudios.com`) | C |
 | 8 | Strategy generation complete | `api/strategy/generate/route.ts:67` | user | D (skip) |
 | 9 | Deliverable deletion | `api/design-tickets/[id]/deliverables/[deliverableId]/route.ts` | requester | D (skip) |
 
@@ -299,6 +310,15 @@ by exactly two events:
 - **Tier A (cheapest):** at the two sites that already call `createNotification`,
   also call the matching email wrapper.
 - **Tier B:** add wrappers at the three lifecycle sites.
+- **Contact form (confirmed in scope):** the landing "Get in touch" form
+  (`components/marketing/landing-page.tsx`) currently fakes success and discards
+  the input. Add a real submission path: a `/api/contact` route (or server action)
+  that validates name/email/message (reuse `src/lib/validation/email.ts`) and
+  `sendMail`s to the support inbox with `replyTo` = the submitter, then have
+  `handleContactSubmit` await it and show real success/error. Route the support
+  address through config (env `CONTACT_EMAIL` / DB setting) instead of the current
+  hardcoded `hello@kocontentstudios.com` in landing + legal pages. Consider basic
+  anti-abuse (honeypot or rate-limit) since this endpoint is public/unauthenticated.
 - **Tier C — auth:**
   - Welcome email on first signup (email/password in `(auth)/actions.ts:42` and
     Google first-time in `auth/callback/route.ts`).
@@ -324,18 +344,21 @@ by exactly two events:
 
 ---
 
-## Suggested build order
-1. **Batch 1 (quick wins):** #1 edit-brand fix, #3 KO OS link.
+## Build order (confirmed)
+1. **Batch 1 (quick wins):** #1 edit-brand fix + dedupe, #3 KO OS link.
 2. **Batch 2:** #5 chat persistence (Postgres wiring).
-3. **Batch 3:** #4 Bedrock provider.
-4. **Batch 4:** #2 brand suggest button (after #4).
-5. **Batch 5:** #6 emails — Tier A → B → C, with password-reset as its own step.
+3. **Batch 3:** #4 Bedrock provider (env-driven; creds supplied at deploy).
+4. **Batch 4:** #2 brand suggest/enhance button (after #4).
+5. **Batch 5:** #6 emails — Tier A → B → contact form → C welcome, then
+   **password reset as its own sub-batch** (routes + token table + email).
 
 Each batch: short plan → implement → tests → review before the next.
 
-## Open questions (carry into review)
-- Bedrock: exact model id / inference-profile string and region (needs the AWS
-  account's enabled models).
-- #2: which specific fields get a Suggest button, and Suggest-vs-Enhance UX.
-- #6 password reset: confirm we build the full flow now vs. defer.
-- #1: do you want the one-off orphan-brand dedupe, or leave existing duplicates?
+## Resolved / remaining inputs
+- **Resolved:** sequencing (quick wins first), Bedrock additive + env-driven,
+  Postgres chat, email A+B+C + contact form, Suggest+Enhance on the 5 text fields,
+  password reset built now as its own batch, brand fix + dedupe.
+- **Still needed from user (not blocking early batches):** AWS region, Bedrock
+  credentials, and the exact Bedrock model id / inference-profile string — supplied
+  in the deployment env when Batch 3 ships. The support inbox address for the
+  contact form (default: existing `hello@kocontentstudios.com`, made configurable).
