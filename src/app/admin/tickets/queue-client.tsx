@@ -5,10 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PriorityBadge } from "@/app/(dashboard)/design-request/priority-badge";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { Button } from "@/components/ui/button";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import type { TicketStatus } from "@/lib/design/tickets-ui";
+import type { TicketPriority, TicketStatus } from "@/lib/design/tickets-ui";
 
 export interface QueueRow {
   id: string;
@@ -18,6 +19,7 @@ export interface QueueRow {
   slides: number | null;
   brief: string;
   status: TicketStatus;
+  priority: TicketPriority;
   brandName: string | null;
   campaignName: string | null;
   itemTitle: string | null;
@@ -138,6 +140,7 @@ function QueueItem({ row }: { row: QueueRow }) {
             {formatTicketNumber(row.ticketNumber)}
           </span>
           <TicketStatusBadge status={row.status} />
+          <PriorityBadge priority={row.priority} />
         </div>
         <span className="text-[12px] text-[var(--text-muted)]">
           Due {formatDate(row.dueDate)}

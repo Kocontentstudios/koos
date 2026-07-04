@@ -11,10 +11,12 @@ import {
   getBrandById,
   getDeliverables,
   getDesignTicketById,
+  getStaffUsers,
   getTicketUpdates,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
+import { ManagePanel, type StaffOption } from "./manage-panel";
 import { UpdateComposer } from "./update-composer";
 
 function formatDate(d: Date | null): string {
@@ -31,15 +33,17 @@ export default async function AdminTicketDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireRole(["designer", "admin"]);
+  const { dbUser } = await requireRole(["designer", "admin"]);
+  const isAdmin = dbUser.role === "admin";
   const { id } = await params;
   const ticket = await getDesignTicketById(id);
   if (!ticket) notFound();
 
-  const [brand, deliverables, updateRows] = await Promise.all([
+  const [brand, deliverables, updateRows, staff] = await Promise.all([
     getBrandById(ticket.brandId),
     getDeliverables(ticket.id),
     getTicketUpdates(ticket.id),
+    getStaffUsers(),
   ]);
 
   const updates: TimelineUpdate[] = updateRows.map((r) => ({
@@ -99,6 +103,22 @@ export default async function AdminTicketDetailPage({
           {deliverables.length === 1 ? "" : "s"}
         </p>
       </section>
+
+      {isAdmin && (
+        <section className="space-y-3">
+          <h2 className="text-[15px] font-semibold text-foreground">Manage</h2>
+          <ManagePanel
+            ticketId={ticket.id}
+            currentStatus={ticket.status}
+            currentPriority={ticket.priority}
+            currentAssigneeId={ticket.assignedDesignerId}
+            staff={staff.map<StaffOption>((s) => ({
+              id: s.id,
+              name: `${s.firstName} ${s.lastName}`.trim(),
+            }))}
+          />
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-[15px] font-semibold text-foreground">
