@@ -8,11 +8,21 @@ import {
   designRequestTeamEmail,
 } from "@/lib/email-templates";
 
-/** Design-team inbox: DB setting first, then env fallbacks. */
+/** Design-team inbox: DB setting first, then env fallbacks. Never throws — a
+ * settings-lookup failure degrades to the env fallback. */
 export async function getDesignTeamEmail(): Promise<string> {
-  const settings = await getAppSettings();
+  let dbEmail: string | null = null;
+  try {
+    const settings = await getAppSettings();
+    dbEmail = settings?.designTeamEmail ?? null;
+  } catch (err) {
+    console.error(
+      "getDesignTeamEmail: settings lookup failed; using env fallback",
+      err,
+    );
+  }
   return (
-    settings?.designTeamEmail ||
+    dbEmail ||
     process.env.DESIGN_TEAM_EMAIL ||
     process.env.ZOHO_MAIL_FROM ||
     process.env.ZOHO_SMTP_USER ||
