@@ -105,10 +105,10 @@ export async function POST(
     },
   });
 
-  const owner = await getUserById(ticket.userId);
-  const deliverTo = ticket.deliveryEmail || owner?.email;
-  if (deliverTo) {
-    try {
+  try {
+    const owner = await getUserById(ticket.userId);
+    const deliverTo = ticket.deliveryEmail || owner?.email;
+    if (deliverTo) {
       const links = await Promise.all(
         rows.map(async (r) => ({
           fileName: r.fileName,
@@ -124,12 +124,12 @@ export async function POST(
           ticketUrl: appUrl(`/design-request/${ticket.id}`),
         },
       });
-    } catch (err) {
-      console.error("design delivery email prep failed", {
-        ticketId: ticket.id,
-        err,
-      });
     }
+  } catch (err) {
+    console.error("design delivery email prep failed", {
+      ticketId: ticket.id,
+      err,
+    });
   }
 
   return Response.json({ ok: true, count: rows.length });
