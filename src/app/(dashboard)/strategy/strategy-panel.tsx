@@ -17,6 +17,7 @@ interface StrategyPanelProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onGenerateCalendar: () => void;
+  onEdit: () => void;
   generating: boolean;
   calendarError: string | null;
   /** Mobile drawer open state (below the lg breakpoint). */
@@ -143,12 +144,14 @@ function PanelBody({ strategy }: { strategy: Strategy | null }) {
 function PanelContent({
   strategy,
   onGenerateCalendar,
+  onEdit,
   generating,
   calendarError,
   headerAction,
 }: {
   strategy: Strategy | null;
   onGenerateCalendar: () => void;
+  onEdit: () => void;
   generating: boolean;
   calendarError: string | null;
   headerAction: React.ReactNode;
@@ -183,6 +186,13 @@ function PanelContent({
             <Calendar className="size-4" />
             Generate Calendar
           </Button>
+          <Button
+            variant="secondary"
+            onClick={onEdit}
+            className="w-full justify-center"
+          >
+            Edit strategy
+          </Button>
         </div>
       )}
     </>
@@ -194,6 +204,7 @@ export function StrategyPanel({
   collapsed,
   onToggleCollapsed,
   onGenerateCalendar,
+  onEdit,
   generating,
   calendarError,
   mobileOpen,
@@ -224,6 +235,7 @@ export function StrategyPanel({
           <PanelContent
             strategy={strategy}
             onGenerateCalendar={onGenerateCalendar}
+            onEdit={onEdit}
             generating={generating}
             calendarError={calendarError}
             headerAction={
@@ -251,13 +263,14 @@ export function StrategyPanel({
       )}
       <aside
         className={cn(
-          "fixed inset-y-0 right-0 z-50 flex w-[320px] max-w-[85vw] flex-col border-l border-[var(--border)] bg-surface-1 transition-transform duration-200 lg:hidden",
+          "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-[var(--border)] bg-surface-1 transition-transform duration-200 lg:hidden",
           mobileOpen ? "translate-x-0" : "translate-x-full",
         )}
       >
         <PanelContent
           strategy={strategy}
           onGenerateCalendar={onGenerateCalendar}
+          onEdit={onEdit}
           generating={generating}
           calendarError={calendarError}
           headerAction={
