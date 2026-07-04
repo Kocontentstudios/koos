@@ -75,7 +75,11 @@ export default function RegisterPage() {
 
       <div className="relative z-[2] w-full max-w-[420px] mx-auto bg-surface-1 rounded-2xl border border-[var(--border)] p-10 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
         {/* KO OS Wordmark */}
-        <div className="flex items-center justify-center gap-2.5 mb-8">
+        <Link
+          href="/"
+          aria-label="KO OS — back to home"
+          className="flex items-center justify-center gap-2.5 mb-8"
+        >
           <div
             aria-hidden="true"
             className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
@@ -87,7 +91,7 @@ export default function RegisterPage() {
           <span className="text-lg font-bold text-foreground tracking-tight">
             KO OS
           </span>
-        </div>
+        </Link>
 
         {/* Header */}
         <div className="mb-8 text-center">
