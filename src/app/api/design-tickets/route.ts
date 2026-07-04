@@ -5,6 +5,8 @@ import {
   getCalendarItemById,
   recordUsageEvent,
 } from "@/lib/db/queries";
+import { appUrl, sendDesignRequestEmails } from "@/lib/design/notify";
+import { isValidEmail } from "@/lib/validation/email";
 
 interface Body {
   brandId?: string;
@@ -15,6 +17,7 @@ interface Body {
   brief?: string;
   notes?: string | null;
   dueDate?: string | null;
+  deliveryEmail?: string | null;
 }
 
 export async function POST(req: Request) {
@@ -43,6 +46,14 @@ export async function POST(req: Request) {
     return Response.json({ error: "Brand not found" }, { status: 404 });
   }
 
+  const deliveryEmail = body.deliveryEmail?.trim() || null;
+  if (deliveryEmail && !isValidEmail(deliveryEmail)) {
+    return Response.json(
+      { error: "Enter a valid delivery email address." },
+      { status: 400 },
+    );
+  }
+
   // If linked to a calendar item, make sure it belongs to this brand.
   let calendarItemId: string | null = null;
   if (body.calendarItemId) {
@@ -66,6 +77,7 @@ export async function POST(req: Request) {
       slides: body.slides ?? null,
       brief,
       notes: body.notes ?? null,
+      deliveryEmail,
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       status: "submitted",
     });
@@ -74,6 +86,21 @@ export async function POST(req: Request) {
       brandId: brand.id,
       kind: "design_ticket_created",
       metadata: { designType, ticketId: ticket.id },
+    });
+    await sendDesignRequestEmails({
+      ticketNumber: ticket.ticketNumber,
+      requesterName: `${dbUser.firstName} ${dbUser.lastName}`.trim(),
+      requesterEmail: dbUser.email,
+      deliveryEmail: ticket.deliveryEmail,
+      brandName: brand.name,
+      designType: ticket.designType,
+      dimensions: ticket.dimensions,
+      slides: ticket.slides,
+      brief: ticket.brief,
+      notes: ticket.notes,
+      dueDate: ticket.dueDate,
+      adminUrl: appUrl("/admin/tickets"),
+      ticketUrl: appUrl(`/design-request/${ticket.id}`),
     });
     return Response.json({ ticket });
   } catch (err) {
