@@ -12,6 +12,7 @@ import {
   designTickets,
   notifications,
   strategies,
+  ticketUpdates,
   usageEvents,
   users,
 } from "@/lib/db/schema";
@@ -475,6 +476,29 @@ export async function markNotificationsRead(userId: string) {
     .update(notifications)
     .set({ readAt: new Date() })
     .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+}
+
+// ── Ticket Updates ──────────────────────────────────────────────────
+
+export async function createTicketUpdate(
+  data: typeof ticketUpdates.$inferInsert,
+) {
+  const [row] = await db.insert(ticketUpdates).values(data).returning();
+  return row;
+}
+
+/** A ticket's progress updates, newest first, with the author's name. */
+export async function getTicketUpdates(ticketId: string) {
+  return db
+    .select({
+      update: ticketUpdates,
+      authorFirstName: users.firstName,
+      authorLastName: users.lastName,
+    })
+    .from(ticketUpdates)
+    .leftJoin(users, eq(ticketUpdates.authorId, users.id))
+    .where(eq(ticketUpdates.ticketId, ticketId))
+    .orderBy(desc(ticketUpdates.createdAt));
 }
 
 // ── Usage Events ────────────────────────────────────────────────────
