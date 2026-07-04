@@ -327,6 +327,13 @@ export const ticketUpdates = pgTable("ticket_updates", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Singleton row (id is always 1) holding admin-editable app configuration.
+export const appSettings = pgTable("app_settings", {
+  id: integer("id").primaryKey().default(1),
+  designTeamEmail: text("design_team_email"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const usageEvents = pgTable("usage_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
