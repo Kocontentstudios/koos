@@ -83,6 +83,13 @@ export const designTicketStatusEnum = pgEnum("design_ticket_status", [
   "revision_requested",
 ]);
 
+export const ticketPriorityEnum = pgEnum("ticket_priority", [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+]);
+
 export const notificationTypeEnum = pgEnum("notification_type", [
   "design_ready",
   "ticket_status",
@@ -288,6 +295,7 @@ export const designTickets = pgTable("design_tickets", {
   deliveryEmail: text("delivery_email"),
   dueDate: timestamp("due_date"),
   status: designTicketStatusEnum("status").notNull().default("submitted"),
+  priority: ticketPriorityEnum("priority").notNull().default("normal"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
