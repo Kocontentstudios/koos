@@ -11,6 +11,7 @@ import {
   getBrandById,
   recordUsageEvent,
 } from "@/lib/db/queries";
+import { isUuid } from "@/lib/validation/uuid";
 
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
@@ -24,9 +25,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
   const { brandId, conversation, conversationId } = body;
-  if (!brandId || !conversation) {
+  if (!brandId || !conversation || !isUuid(brandId)) {
     return Response.json(
-      { error: "Missing brandId or conversation" },
+      { error: "Missing or invalid brandId or conversation" },
+      { status: 400 },
+    );
+  }
+  if (conversationId != null && !isUuid(conversationId)) {
+    return Response.json(
+      { error: "Invalid conversationId" },
       { status: 400 },
     );
   }

@@ -11,6 +11,7 @@ import {
   getConversationById,
   touchConversation,
 } from "@/lib/db/queries";
+import { isUuid } from "@/lib/validation/uuid";
 import { ensureConversation } from "./ensure-conversation";
 
 export async function POST(req: Request) {
@@ -28,9 +29,9 @@ export async function POST(req: Request) {
       conversationId: string;
     };
 
-  if (!brandId || !conversationId) {
+  if (!isUuid(brandId) || !isUuid(conversationId)) {
     return Response.json(
-      { error: "Missing brandId or conversationId" },
+      { error: "Invalid brandId or conversationId" },
       { status: 400 },
     );
   }

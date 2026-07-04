@@ -23,10 +23,17 @@ vi.mock("@/lib/ai/prompts/strategy", () => ({
 import { POST } from "./route";
 
 describe("strategy generate route", () => {
+  const BRAND_ID = "11111111-1111-4111-8111-111111111111";
+  const CONVERSATION_ID = "22222222-2222-4222-8222-222222222222";
+
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
-    getBrandById.mockResolvedValue({ id: "b1", userId: "u1", name: "Acme" });
+    getBrandById.mockResolvedValue({
+      id: BRAND_ID,
+      userId: "u1",
+      name: "Acme",
+    });
     generateObject.mockResolvedValue({ object: { campaignName: "Camp" } });
     createStrategy.mockResolvedValue({ id: "s1" });
   });
@@ -35,27 +42,44 @@ describe("strategy generate route", () => {
     const req = new Request("http://x/api/strategy/generate", {
       method: "POST",
       body: JSON.stringify({
-        brandId: "b1",
+        brandId: BRAND_ID,
         conversation: "user: hi",
-        conversationId: "c1",
+        conversationId: CONVERSATION_ID,
       }),
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
     expect(createStrategy).toHaveBeenCalledWith(
-      expect.objectContaining({ brandId: "b1", conversationId: "c1" }),
+      expect.objectContaining({
+        brandId: BRAND_ID,
+        conversationId: CONVERSATION_ID,
+      }),
     );
   });
 
   it("still works when conversationId is omitted (null)", async () => {
     const req = new Request("http://x/api/strategy/generate", {
       method: "POST",
-      body: JSON.stringify({ brandId: "b1", conversation: "user: hi" }),
+      body: JSON.stringify({ brandId: BRAND_ID, conversation: "user: hi" }),
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
     expect(createStrategy).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: null }),
     );
+  });
+
+  it("rejects a malformed conversationId with 400", async () => {
+    const req = new Request("http://x/api/strategy/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        brandId: BRAND_ID,
+        conversation: "user: hi",
+        conversationId: "bad",
+      }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(createStrategy).not.toHaveBeenCalled();
   });
 });
