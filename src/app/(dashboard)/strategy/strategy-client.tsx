@@ -1,6 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { PanelRight, PanelsTopLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -21,6 +22,8 @@ interface StrategyClientProps {
   brandContext: ChatBrandContext;
   brandName: string;
   pastStrategies?: StrategyHistoryItem[];
+  initialMessages?: UIMessage[];
+  initialConversationId?: string | null;
 }
 
 export function StrategyClient({
@@ -28,8 +31,13 @@ export function StrategyClient({
   brandContext,
   brandName,
   pastStrategies = [],
+  initialMessages = [],
+  initialConversationId = null,
 }: StrategyClientProps) {
   const router = useRouter();
+  const [conversationId, setConversationId] = useState<string>(
+    () => initialConversationId ?? crypto.randomUUID(),
+  );
   const [input, setInput] = useState("");
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [strategyId, setStrategyId] = useState<string | null>(null);
@@ -50,9 +58,9 @@ export function StrategyClient({
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
-        body: { brandContext },
+        body: { brandContext, brandId, conversationId },
       }),
-    [brandContext],
+    [brandContext, brandId, conversationId],
   );
 
   const {
@@ -63,19 +71,19 @@ export function StrategyClient({
     error,
     regenerate,
     setMessages,
-  } = useChat({ transport });
+  } = useChat({ transport, messages: initialMessages });
 
   const isLoading = status === "submitted" || status === "streaming";
 
   const handleSend = () => {
     const text = input.trim();
     if (!text || isLoading) return;
-    sendMessage({ text }, { body: { brandContext } });
+    sendMessage({ text }, { body: { brandContext, brandId, conversationId } });
     setInput("");
   };
 
   const handlePickChip = (text: string) => {
-    sendMessage({ text }, { body: { brandContext } });
+    sendMessage({ text }, { body: { brandContext, brandId, conversationId } });
   };
 
   const handleBuildStrategy = async () => {
@@ -145,6 +153,7 @@ export function StrategyClient({
   };
 
   const handleNewStrategy = () => {
+    setConversationId(crypto.randomUUID());
     setMessages([]);
     setStrategy(null);
     setStrategyId(null);

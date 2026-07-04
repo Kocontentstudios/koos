@@ -6,3 +6,9 @@ import { afterEach } from "vitest";
 afterEach(() => {
   localStorage.clear();
 });
+
+// jsdom doesn't implement scrollIntoView; stub it so components that call it
+// (e.g. auto-scrolling message lists) don't throw in tests.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}

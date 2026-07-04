@@ -1,5 +1,10 @@
+import { rowsToUiMessages } from "@/lib/ai/chat-messages";
 import { requireBrand } from "@/lib/auth/require-brand";
-import { getStrategiesByBrand } from "@/lib/db/queries";
+import {
+  getConversationMessages,
+  getLatestConversationForBrand,
+  getStrategiesByBrand,
+} from "@/lib/db/queries";
 import { StrategyClient } from "./strategy-client";
 
 export default async function StrategyPage() {
@@ -32,12 +37,25 @@ export default async function StrategyPage() {
 
   void dbUser; // used for auth check via requireBrand
 
+  const latestConversation = await getLatestConversationForBrand(brand.id);
+  const initialMessages = latestConversation
+    ? rowsToUiMessages(
+        (await getConversationMessages(latestConversation.id)).map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      )
+    : [];
+
   return (
     <StrategyClient
       brandId={brand.id}
       brandName={brand.name}
       brandContext={brandContext}
       pastStrategies={pastStrategies}
+      initialMessages={initialMessages}
+      initialConversationId={latestConversation?.id ?? null}
     />
   );
 }
