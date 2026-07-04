@@ -160,10 +160,23 @@ export async function updateBrand(
       | "offer"
       | "tone"
       | "primaryGoal"
+      | "values"
+      | "wordsLove"
+      | "wordsAvoid"
+      | "hasLogo"
+      | "brandStyle"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
       | "logoUrl"
+      | "competitors"
+      | "competitorStrengths"
+      | "differentiators"
+      | "platforms"
+      | "primaryPlatform"
+      | "postingFrequency"
+      | "additionalNotes"
+      | "helpfulLinks"
     >
   >,
 ) {

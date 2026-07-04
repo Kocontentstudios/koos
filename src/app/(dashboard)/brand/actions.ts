@@ -54,10 +54,9 @@ export async function saveBrandProfile(
   };
 
   const existing = await getActiveBrandForUser(dbUser.id);
-  const brand =
-    existing && existing.onboardingStatus !== "completed"
-      ? await updateBrand(existing.id, profile)
-      : await createBrand({ userId: dbUser.id, ...profile });
+  const brand = existing
+    ? await updateBrand(existing.id, profile)
+    : await createBrand({ userId: dbUser.id, ...profile });
 
   if (!brand) return { ok: false, error: "Failed to save" };
 
