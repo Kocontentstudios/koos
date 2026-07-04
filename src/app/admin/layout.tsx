@@ -27,9 +27,14 @@ export default async function AdminLayout({
               Queue
             </Link>
             {isAdmin && (
-              <Link href="/admin/users" className="hover:text-foreground">
-                Users
-              </Link>
+              <>
+                <Link href="/admin/users" className="hover:text-foreground">
+                  Users
+                </Link>
+                <Link href="/admin/settings" className="hover:text-foreground">
+                  Settings
+                </Link>
+              </>
             )}
           </nav>
         </div>
