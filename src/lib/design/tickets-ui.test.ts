@@ -3,8 +3,10 @@ import {
   defaultDueDate,
   formatNotificationMessage,
   humanizeStatus,
+  humanizePriority,
   isCarouselType,
   matchesTicketFilter,
+  priorityRank,
 } from "./tickets-ui";
 
 describe("matchesTicketFilter", () => {
@@ -112,5 +114,18 @@ describe("humanizeStatus", () => {
   it("maps statuses to labels", () => {
     expect(humanizeStatus("ready_for_review")).toBe("Ready for Review");
     expect(humanizeStatus("revision_requested")).toBe("Revision Requested");
+  });
+});
+
+describe("priority helpers", () => {
+  it("humanizes each priority", () => {
+    expect(humanizePriority("urgent")).toBe("Urgent");
+    expect(humanizePriority("normal")).toBe("Normal");
+  });
+  it("ranks urgent highest (lowest number) for ascending sort", () => {
+    const order = (["low", "urgent", "normal", "high"] as const)
+      .slice()
+      .sort((a, b) => priorityRank(a) - priorityRank(b));
+    expect(order).toEqual(["urgent", "high", "normal", "low"]);
   });
 });

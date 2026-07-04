@@ -113,3 +113,28 @@ const STATUS_LABELS: Record<TicketStatus, string> = {
 export function humanizeStatus(status: TicketStatus): string {
   return STATUS_LABELS[status] ?? status;
 }
+
+export type TicketPriority = "low" | "normal" | "high" | "urgent";
+
+const PRIORITY_LABELS: Record<TicketPriority, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  urgent: "Urgent",
+};
+
+export function humanizePriority(p: TicketPriority): string {
+  return PRIORITY_LABELS[p] ?? p;
+}
+
+const PRIORITY_RANK: Record<TicketPriority, number> = {
+  urgent: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+};
+
+/** Lower number = more urgent; sort ascending to surface urgent first. */
+export function priorityRank(p: TicketPriority): number {
+  return PRIORITY_RANK[p] ?? 99;
+}
