@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2Icon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -213,6 +214,12 @@ function QueueItem({ row }: { row: QueueRow }) {
           onChange={onFiles}
           className="sr-only"
         />
+        <Link
+          href={`/admin/tickets/${row.id}`}
+          className="inline-flex h-9 items-center rounded-[10px] px-2.5 text-[13px] font-semibold text-primary hover:underline"
+        >
+          View / update
+        </Link>
       </div>
     </li>
   );
