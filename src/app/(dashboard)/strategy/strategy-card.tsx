@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Strategy } from "@/lib/ai/strategy-schema";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,8 @@ interface StrategyCardProps {
   strategy: Strategy;
   onEdit?: () => void;
   onGenerateCalendar?: () => void;
+  /** Dismisses the card (e.g. to go back after loading a past strategy). */
+  onClose?: () => void;
   generating?: boolean;
 }
 
@@ -20,7 +23,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function SectionValue({ children }: { children: React.ReactNode }) {
-  return <p className="text-white text-sm">{children}</p>;
+  return <p className="text-foreground text-sm">{children}</p>;
 }
 
 function Section({ children }: { children: React.ReactNode }) {
@@ -35,6 +38,7 @@ export function StrategyCard({
   strategy,
   onEdit,
   onGenerateCalendar,
+  onClose,
   generating = false,
 }: StrategyCardProps) {
   return (
@@ -43,13 +47,25 @@ export function StrategyCard({
         "bg-surface-1 border border-[rgba(19,139,200,0.3)] border-l-[3px] border-l-primary rounded-xl p-5",
       )}
     >
-      {/* Badge */}
-      <span className="inline-block rounded-full bg-[rgba(19,139,200,0.15)] text-primary text-[11px] px-2 py-0.5 font-medium uppercase tracking-wider mb-3">
-        STRATEGY
-      </span>
+      {/* Badge + close */}
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <span className="inline-block rounded-full bg-[rgba(19,139,200,0.15)] text-primary text-[11px] px-2 py-0.5 font-medium uppercase tracking-wider">
+          STRATEGY
+        </span>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close strategy"
+            className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--hover)] hover:text-foreground"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
 
       {/* Campaign Name */}
-      <h3 className="text-[18px] font-semibold text-white mb-4">
+      <h3 className="text-[18px] font-semibold text-foreground mb-4">
         {strategy.campaignName}
       </h3>
 
@@ -77,10 +93,13 @@ export function StrategyCard({
           <SectionLabel>Channels</SectionLabel>
           <div className="space-y-0.5">
             {strategy.channels.map((ch) => (
-              <div key={ch.name} className="text-white text-sm">
+              <div key={ch.name} className="text-foreground text-sm">
                 <span>{ch.name}</span>
                 {ch.rationale ? (
-                  <span className="text-white/70"> — {ch.rationale}</span>
+                  <span className="text-[var(--text-secondary)]">
+                    {" "}
+                    — {ch.rationale}
+                  </span>
                 ) : null}
               </div>
             ))}

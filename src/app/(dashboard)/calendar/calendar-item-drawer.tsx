@@ -132,7 +132,7 @@ export function CalendarItemDrawer({
               <Section label="Design Asset">
                 {item.designRequired ? (
                   <div className="space-y-1.5">
-                    <span className="inline-flex items-center rounded-full bg-[rgba(19,139,200,0.15)] px-2.5 py-0.5 text-[10px] font-medium text-[#85B7EB]">
+                    <span className="inline-flex items-center rounded-full bg-[rgba(19,139,200,0.15)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--status-progress-fg)]">
                       Design Required
                     </span>
                     <p className="text-[var(--text-secondary)]">
@@ -140,7 +140,7 @@ export function CalendarItemDrawer({
                       {item.dimensions ? ` · ${item.dimensions}` : ""}
                     </p>
                     {submitted && (
-                      <span className="flex items-center gap-1.5 text-[13px] font-medium text-[#97C459]">
+                      <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--status-ready-fg)]">
                         <Clock aria-hidden="true" className="h-3.5 w-3.5" />
                         Design Ticket Submitted
                       </span>

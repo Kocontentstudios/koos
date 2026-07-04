@@ -160,7 +160,10 @@ function QueueItem({ row }: { row: QueueRow }) {
       </div>
 
       {error && (
-        <p role="alert" className="mt-2 text-[13px] text-[#d47575]">
+        <p
+          role="alert"
+          className="mt-2 text-[13px] text-[var(--status-error-fg)]"
+        >
           {error}
         </p>
       )}

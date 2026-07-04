@@ -216,10 +216,14 @@ export function RequestDesignModal({
               aria-hidden="true"
               className="flex h-16 w-16 items-center justify-center rounded-full"
               style={{
-                backgroundColor: "color-mix(in srgb, #97C459 15%, transparent)",
+                backgroundColor:
+                  "color-mix(in srgb, var(--status-ready-fg) 15%, transparent)",
               }}
             >
-              <Check className="h-7 w-7" style={{ color: "#97C459" }} />
+              <Check
+                className="h-7 w-7"
+                style={{ color: "var(--status-ready-fg)" }}
+              />
             </div>
             <div className="space-y-1">
               <h2 className="font-display text-2xl font-semibold text-foreground">
@@ -246,11 +250,7 @@ export function RequestDesignModal({
                 label="Due By"
                 value={formatDueDate(created.dueDate)}
               />
-              <SummaryRow
-                label="Campaign"
-                value={campaignName ?? "—"}
-                last
-              />
+              <SummaryRow label="Campaign" value={campaignName ?? "—"} last />
             </div>
 
             <div className="flex w-full flex-col gap-3">
@@ -429,7 +429,10 @@ export function RequestDesignModal({
               </div>
 
               {error && (
-                <p role="alert" className="text-[13px] text-[#d47575]">
+                <p
+                  role="alert"
+                  className="text-[13px] text-[var(--status-error-fg)]"
+                >
                   {error}
                 </p>
               )}
