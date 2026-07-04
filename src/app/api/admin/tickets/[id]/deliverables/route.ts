@@ -4,9 +4,12 @@ import {
   addDeliverables,
   createNotification,
   getDesignTicketById,
+  getUserById,
   updateDesignTicket,
 } from "@/lib/db/queries";
+import { appUrl, sendDesignDeliveryEmail } from "@/lib/design/notify";
 import {
+  getSignedReadUrl,
   isStorageConfigured,
   STORAGE_PREFIXES,
   uploadObject,
@@ -101,6 +104,33 @@ export async function POST(
       count: rows.length,
     },
   });
+
+  const owner = await getUserById(ticket.userId);
+  const deliverTo = ticket.deliveryEmail || owner?.email;
+  if (deliverTo) {
+    try {
+      const links = await Promise.all(
+        rows.map(async (r) => ({
+          fileName: r.fileName,
+          url: await getSignedReadUrl(r.fileUrl, 60 * 60 * 24 * 7),
+        })),
+      );
+      await sendDesignDeliveryEmail({
+        to: deliverTo,
+        input: {
+          ticketNumber: ticket.ticketNumber,
+          designType: ticket.designType,
+          links,
+          ticketUrl: appUrl(`/design-request/${ticket.id}`),
+        },
+      });
+    } catch (err) {
+      console.error("design delivery email prep failed", {
+        ticketId: ticket.id,
+        err,
+      });
+    }
+  }
 
   return Response.json({ ok: true, count: rows.length });
 }
