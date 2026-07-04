@@ -89,6 +89,25 @@ describe("formatNotificationMessage", () => {
   });
 });
 
+describe("formatNotificationMessage — ticket_status", () => {
+  it("shows the free-text message when present", () => {
+    expect(
+      formatNotificationMessage({
+        type: "ticket_status",
+        payload: { message: "Started on your carousel — first draft tomorrow." },
+      }),
+    ).toBe("Started on your carousel — first draft tomorrow.");
+  });
+  it("falls back to the status sentence when no message", () => {
+    expect(
+      formatNotificationMessage({
+        type: "ticket_status",
+        payload: { status: "in_progress" },
+      }),
+    ).toBe("Your design ticket is now In Progress.");
+  });
+});
+
 describe("humanizeStatus", () => {
   it("maps statuses to labels", () => {
     expect(humanizeStatus("ready_for_review")).toBe("Ready for Review");

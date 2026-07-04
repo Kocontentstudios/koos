@@ -71,6 +71,7 @@ interface NotificationPayload {
   designType?: string;
   count?: number;
   status?: string;
+  message?: string;
 }
 
 interface NotificationLike {
@@ -87,6 +88,9 @@ export function formatNotificationMessage(n: NotificationLike): string {
       return `Your design is ready for review${type}.`;
     }
     case "ticket_status": {
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message;
+      }
       const status = payload.status
         ? humanizeStatus(payload.status as TicketStatus)
         : "updated";
