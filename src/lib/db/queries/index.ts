@@ -501,6 +501,41 @@ export async function getTicketUpdates(ticketId: string) {
     .orderBy(desc(ticketUpdates.createdAt));
 }
 
+/** Atomically apply an optional status change, insert the update row, and
+ * notify the ticket owner — all in one transaction. */
+export async function postTicketProgressUpdate(input: {
+  ticketId: string;
+  authorId: string;
+  message: string;
+  newStatus: typeof ticketUpdates.$inferInsert.newStatus;
+  ownerId: string;
+  notificationPayload: typeof notifications.$inferInsert.payload;
+}) {
+  return db.transaction(async (tx) => {
+    if (input.newStatus) {
+      await tx
+        .update(designTickets)
+        .set({ status: input.newStatus, updatedAt: new Date() })
+        .where(eq(designTickets.id, input.ticketId));
+    }
+    const [update] = await tx
+      .insert(ticketUpdates)
+      .values({
+        ticketId: input.ticketId,
+        authorId: input.authorId,
+        message: input.message,
+        newStatus: input.newStatus,
+      })
+      .returning();
+    await tx.insert(notifications).values({
+      userId: input.ownerId,
+      type: "ticket_status",
+      payload: input.notificationPayload,
+    });
+    return update;
+  });
+}
+
 // ── Usage Events ────────────────────────────────────────────────────
 
 export async function recordUsageEvent(data: typeof usageEvents.$inferInsert) {

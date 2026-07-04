@@ -1,9 +1,7 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
-  createNotification,
-  createTicketUpdate,
   getDesignTicketById,
-  updateDesignTicket,
+  postTicketProgressUpdate,
 } from "@/lib/db/queries";
 
 // Statuses a designer/admin may set alongside a progress update (mirrors the
@@ -32,6 +30,12 @@ export async function POST(
   if (!message) {
     return Response.json({ error: "A message is required." }, { status: 400 });
   }
+  if (message.length > 2000) {
+    return Response.json(
+      { error: "Message is too long (2000 characters max)." },
+      { status: 400 },
+    );
+  }
 
   let newStatus: SettableStatus | null = null;
   if (body.status) {
@@ -46,19 +50,13 @@ export async function POST(
     return Response.json({ error: "Ticket not found" }, { status: 404 });
   }
 
-  if (newStatus) {
-    await updateDesignTicket(id, { status: newStatus });
-  }
-  await createTicketUpdate({
+  await postTicketProgressUpdate({
     ticketId: id,
     authorId: dbUser.id,
     message,
     newStatus,
-  });
-  await createNotification({
-    userId: ticket.userId,
-    type: "ticket_status",
-    payload: {
+    ownerId: ticket.userId,
+    notificationPayload: {
       ticketId: id,
       ticketNumber: ticket.ticketNumber,
       designType: ticket.designType,

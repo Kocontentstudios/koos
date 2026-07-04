@@ -57,6 +57,7 @@ export function UpdateComposer({ ticketId }: { ticketId: string }) {
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Post a progress update the requester will see…"
         className="min-h-[80px]"
+        maxLength={2000}
       />
       <div className="flex flex-wrap items-center gap-3">
         <select
