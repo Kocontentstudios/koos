@@ -45,6 +45,23 @@ describe("saveBrandProfile", () => {
     expect(res).toEqual({ ok: true, brandId: "existing-brand" });
   });
 
+  it("persists cleared optional fields as null on edit, not undefined", async () => {
+    getActiveBrandForUser.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    // targetAudience and tone are omitted entirely (cleared by the user).
+    const res = await saveBrandProfile(validInput);
+
+    expect(updateBrand).toHaveBeenCalledWith(
+      "existing-brand",
+      expect.objectContaining({ tone: null, targetAudience: null }),
+    );
+    expect(res).toEqual({ ok: true, brandId: "existing-brand" });
+  });
+
   it("creates a new brand when the user has none", async () => {
     getActiveBrandForUser.mockResolvedValue(null);
     createBrand.mockResolvedValue({ id: "new-brand" });

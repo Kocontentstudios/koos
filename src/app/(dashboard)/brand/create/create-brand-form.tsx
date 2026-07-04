@@ -118,8 +118,10 @@ export function CreateBrandForm({
     }
   }, [isEditing]);
 
-  // Persist to localStorage on every state change
+  // Persist to localStorage on every state change — new-user drafts only.
+  // When editing, skip so we don't write dead draft data over the server-provided brand.
   useEffect(() => {
+    if (isEditing) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
