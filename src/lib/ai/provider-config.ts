@@ -2,7 +2,7 @@
 // (AI_PROVIDER / AI_MODEL), with optional per-feature overrides
 // (AI_CHAT_PROVIDER / AI_CHAT_MODEL, AI_STRATEGY_PROVIDER / AI_STRATEGY_MODEL).
 
-export type AiFeature = "chat" | "strategy";
+export type AiFeature = "chat" | "strategy" | "brand";
 
 export type AiProvider =
   | "zai"

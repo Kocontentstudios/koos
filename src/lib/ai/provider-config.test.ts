@@ -74,4 +74,26 @@ describe("resolveProviderConfig", () => {
       model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
     });
   });
+
+  it("resolves a per-feature provider/model for the brand feature", () => {
+    const env = {
+      AI_PROVIDER: "google",
+      AI_MODEL: "gemini-2.5-flash",
+      AI_BRAND_PROVIDER: "anthropic",
+      AI_BRAND_MODEL: "claude-sonnet-4-5",
+    };
+    expect(resolveProviderConfig("brand", env)).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
+  });
+
+  it("falls the brand feature back to the global provider/model", () => {
+    expect(
+      resolveProviderConfig("brand", {
+        AI_PROVIDER: "google",
+        AI_MODEL: "gemini-2.5-flash",
+      }),
+    ).toEqual({ provider: "google", model: "gemini-2.5-flash" });
+  });
 });
