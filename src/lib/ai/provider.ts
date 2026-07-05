@@ -1,3 +1,4 @@
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -51,6 +52,15 @@ export function getModel(feature: AiFeature): LanguageModel {
         name: process.env.AI_COMPATIBLE_NAME || "compatible",
         baseURL: requireEnv("AI_COMPATIBLE_BASE_URL"),
         apiKey: requireEnv("AI_COMPATIBLE_API_KEY"),
+      })(model);
+    case "bedrock":
+      return createAmazonBedrock({
+        region: requireEnv("AWS_REGION"),
+        accessKeyId: requireEnv("AWS_ACCESS_KEY_ID"),
+        secretAccessKey: requireEnv("AWS_SECRET_ACCESS_KEY"),
+        ...(process.env.AWS_SESSION_TOKEN
+          ? { sessionToken: process.env.AWS_SESSION_TOKEN }
+          : {}),
       })(model);
     default:
       throw new Error(`Unknown AI provider: ${provider satisfies never}`);

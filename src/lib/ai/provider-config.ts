@@ -9,6 +9,7 @@ export type AiProvider =
   | "openai"
   | "anthropic"
   | "google"
+  | "bedrock"
   | "openai-compatible";
 
 export const AI_PROVIDERS: readonly AiProvider[] = [
@@ -16,6 +17,7 @@ export const AI_PROVIDERS: readonly AiProvider[] = [
   "openai",
   "anthropic",
   "google",
+  "bedrock",
   "openai-compatible",
 ];
 
@@ -25,6 +27,7 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   openai: "gpt-4o",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
+  bedrock: "",
   "openai-compatible": "",
 };
 
@@ -34,6 +37,7 @@ export const PROVIDER_KEY_ENV: Record<AiProvider, string> = {
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  bedrock: "AWS_ACCESS_KEY_ID",
   "openai-compatible": "AI_COMPATIBLE_API_KEY",
 };
 

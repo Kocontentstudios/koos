@@ -56,4 +56,22 @@ describe("resolveProviderConfig", () => {
       resolveProviderConfig("chat", { AI_PROVIDER: "openai-compatible" }),
     ).toEqual({ provider: "openai-compatible", model: "" });
   });
+
+  it("returns an empty model for bedrock (must be set explicitly)", () => {
+    expect(resolveProviderConfig("chat", { AI_PROVIDER: "bedrock" })).toEqual({
+      provider: "bedrock",
+      model: "",
+    });
+  });
+
+  it("honors an explicit model for bedrock", () => {
+    const env = {
+      AI_PROVIDER: "bedrock",
+      AI_MODEL: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    };
+    expect(resolveProviderConfig("chat", env)).toEqual({
+      provider: "bedrock",
+      model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    });
+  });
 });
