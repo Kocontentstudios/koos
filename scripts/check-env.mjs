@@ -49,6 +49,7 @@ const DEFAULT_MODELS = {
   anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
   "openai-compatible": "",
+  bedrock: "",
 };
 const KEY_ENV = {
   zai: "ZAI_API_KEY",
@@ -122,6 +123,19 @@ async function checkDb() {
 // ── AI provider ──────────────────────────────────────────────────────
 
 async function pingProvider(provider) {
+  if (provider === "bedrock") {
+    const required = [
+      "AWS_REGION",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+    ];
+    const missing = required.filter((k) => !process.env[k]);
+    if (missing.length) {
+      return { status: "fail", detail: `missing ${missing.join(", ")}` };
+    }
+    return { status: "ok", detail: "AWS credentials present (ping skipped)" };
+  }
+
   const key = process.env[KEY_ENV[provider]];
   if (!key) return { status: "fail", detail: `${KEY_ENV[provider]} not set` };
   if (process.env.AI_SKIP_PING === "1") {
