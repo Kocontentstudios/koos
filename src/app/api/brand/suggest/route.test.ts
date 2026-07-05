@@ -33,23 +33,37 @@ describe("brand suggest route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
-    generateObject.mockResolvedValue({ object: { suggestion: "A crisp line." } });
+    generateObject.mockResolvedValue({
+      object: { suggestion: "A crisp line." },
+    });
   });
 
   it("returns 401 when unauthenticated", async () => {
     getAuthUser.mockResolvedValue({ dbUser: null });
-    const res = await POST(req({ field: "overview", currentValue: "", context }));
+    const res = await POST(
+      req({ field: "overview", currentValue: "", context }),
+    );
     expect(res.status).toBe(401);
   });
 
   it("returns a suggestion for a valid field", async () => {
-    const res = await POST(req({ field: "overview", currentValue: "", context }));
+    const res = await POST(
+      req({ field: "overview", currentValue: "", context }),
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ suggestion: "A crisp line." });
   });
 
   it("rejects an unknown field with 400", async () => {
     const res = await POST(req({ field: "hacker", currentValue: "", context }));
+    expect(res.status).toBe(400);
+    expect(generateObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects a prototype-chain key (constructor) with 400", async () => {
+    const res = await POST(
+      req({ field: "constructor", currentValue: "", context }),
+    );
     expect(res.status).toBe(400);
     expect(generateObject).not.toHaveBeenCalled();
   });

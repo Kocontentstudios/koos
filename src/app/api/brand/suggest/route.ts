@@ -29,8 +29,11 @@ export async function POST(req: Request) {
   }
 
   const { field, currentValue = "", context } = body;
-  if (!field || !(field in BRAND_SUGGEST_FIELDS) || !context) {
-    return Response.json({ error: "Invalid field or context" }, { status: 400 });
+  if (!field || !Object.hasOwn(BRAND_SUGGEST_FIELDS, field) || !context) {
+    return Response.json(
+      { error: "Invalid field or context" },
+      { status: 400 },
+    );
   }
 
   const { system, prompt } = buildBrandFieldPrompt({
