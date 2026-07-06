@@ -1343,6 +1343,11 @@
             display: block;
         }
 
+        .hp-field {
+            position: absolute;
+            left: -9999px;
+        }
+
         /* Animations */
         @keyframes fadeInUp {
             from {

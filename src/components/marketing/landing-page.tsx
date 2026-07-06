@@ -177,6 +177,8 @@ export function LandingPage() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [contactSent, setContactSent] = useState(false);
+  const [contactPending, setContactPending] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
 
   // ── Navbar scroll effect ──────────────────────────────────────────────
   useEffect(() => {
@@ -206,11 +208,38 @@ export function LandingPage() {
     return () => observer.disconnect();
   }, []);
 
-  function handleContactSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleContactSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setContactSent(true);
-    e.currentTarget.reset();
-    setTimeout(() => setContactSent(false), 5000);
+    if (contactPending) return;
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    setContactPending(true);
+    setContactError(null);
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: data.get("name"),
+          email: data.get("email"),
+          message: data.get("message"),
+          company: data.get("company"),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not send your message.");
+      }
+      setContactSent(true);
+      form.reset();
+      setTimeout(() => setContactSent(false), 5000);
+    } catch (err) {
+      setContactError(
+        err instanceof Error ? err.message : "Could not send your message.",
+      );
+    } finally {
+      setContactPending(false);
+    }
   }
 
   function handleBrandClick(e: React.MouseEvent<HTMLAnchorElement>) {
@@ -511,12 +540,22 @@ export function LandingPage() {
               <CheckCircle2 size={16} /> Message sent. We will get back to you
               shortly.
             </div>
+            {contactError && (
+              <div
+                className="form-success visible"
+                role="alert"
+                style={{ color: "var(--status-error-fg, #d47575)" }}
+              >
+                {contactError}
+              </div>
+            )}
             <form onSubmit={handleContactSubmit}>
               <div className="form-group">
                 <label htmlFor="contactName">Name</label>
                 <input
                   type="text"
                   id="contactName"
+                  name="name"
                   placeholder="Your name"
                   required
                 />
@@ -526,6 +565,7 @@ export function LandingPage() {
                 <input
                   type="email"
                   id="contactEmail"
+                  name="email"
                   placeholder="you@example.com"
                   required
                 />
@@ -534,16 +574,28 @@ export function LandingPage() {
                 <label htmlFor="contactMessage">Message</label>
                 <textarea
                   id="contactMessage"
+                  name="message"
                   placeholder="How can we help?"
                   required
+                />
+              </div>
+              <div aria-hidden="true" className="hp-field">
+                <label htmlFor="contactCompany">Company</label>
+                <input
+                  type="text"
+                  id="contactCompany"
+                  name="company"
+                  tabIndex={-1}
+                  autoComplete="off"
                 />
               </div>
               <button
                 type="submit"
                 className="cta-btn"
                 style={{ width: "100%" }}
+                disabled={contactPending}
               >
-                Send Message
+                {contactPending ? "Sending…" : "Send Message"}
               </button>
             </form>
           </div>
