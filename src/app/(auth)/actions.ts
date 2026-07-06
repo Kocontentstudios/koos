@@ -12,10 +12,19 @@ import {
   generateState,
 } from "@/lib/auth/google";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
-import { startSession } from "@/lib/auth/session";
-import { createUser, getUserByEmail } from "@/lib/db/queries";
+import { performReset, requestReset } from "@/lib/auth/password-reset";
+import { invalidateUserSessions, startSession } from "@/lib/auth/session";
+import {
+  createPasswordResetToken,
+  createUser,
+  getPasswordResetTokenByHash,
+  getUserByEmail,
+  markPasswordResetTokenUsed,
+  updateUserPassword,
+} from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
-import { sendWelcomeEmail } from "@/lib/notify/account";
+import { sendPasswordResetEmail, sendWelcomeEmail } from "@/lib/notify/account";
+import { isValidEmail } from "@/lib/validation/email";
 
 export async function login(formData: FormData) {
   const email = (formData.get("email") as string)?.trim();
@@ -109,4 +118,51 @@ export async function signInWithGoogle() {
     return { error: "Google sign-in is unavailable." };
   }
   redirect(authUrl.toString());
+}
+
+export async function requestPasswordReset(formData: FormData) {
+  const email = (formData.get("email") as string)?.trim();
+  if (!email || !isValidEmail(email)) {
+    return { error: "Please enter a valid email address." };
+  }
+  await requestReset(
+    {
+      getUserByEmail,
+      createPasswordResetToken,
+      sendPasswordResetEmail,
+      buildResetUrl: (token) =>
+        appUrl(`/reset-password?token=${encodeURIComponent(token)}`),
+    },
+    email,
+  );
+  // Same message whether or not the account exists.
+  return {
+    success: "If an account exists for that email, a reset link is on its way.",
+  };
+}
+
+export async function resetPassword(formData: FormData) {
+  const token = (formData.get("token") as string) ?? "";
+  const password = (formData.get("password") as string) ?? "";
+  const confirm = (formData.get("confirm") as string) ?? "";
+  if (!token) {
+    return { error: "This reset link is invalid. Please request a new one." };
+  }
+  if (password !== confirm) {
+    return { error: "Passwords don't match." };
+  }
+  const result = await performReset(
+    {
+      getPasswordResetTokenByHash,
+      updateUserPassword,
+      markPasswordResetTokenUsed,
+      invalidateUserSessions,
+      hashPassword,
+    },
+    { token, password },
+  );
+  if (!result.ok) {
+    return { error: result.error };
+  }
+  redirect("/login?reset=1");
 }
