@@ -11,6 +11,7 @@ type LoginState = { error?: string } | null;
 
 export default function LoginPage() {
   const [callbackError, setCallbackError] = useState<string | null>(null);
+  const [resetDone, setResetDone] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [googlePending, startGoogle] = useTransition();
 
@@ -31,8 +32,10 @@ export default function LoginPage() {
   // Surface errors handed back by the OAuth callback (e.g. consent denied or a
   // misconfigured provider) via the `?error=` query param.
   useEffect(() => {
-    const cb = new URLSearchParams(window.location.search).get("error");
+    const params = new URLSearchParams(window.location.search);
+    const cb = params.get("error");
     if (cb) setCallbackError(cb);
+    if (params.get("reset") === "1") setResetDone(true);
   }, []);
 
   function handleGoogleSignIn() {
@@ -84,6 +87,12 @@ export default function LoginPage() {
             Sign in to your KO OS account
           </p>
         </div>
+
+        {resetDone && !error && (
+          <div className="mb-6 rounded-lg bg-[rgba(52,199,89,0.08)] border border-[rgba(52,199,89,0.2)] p-3 text-sm text-[var(--text-secondary)]">
+            Password updated. Sign in with your new password.
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 rounded-lg bg-[rgba(212,117,117,0.08)] border border-[rgba(212,117,117,0.2)] p-3 text-sm text-[var(--status-error-fg)]">
@@ -139,6 +148,14 @@ export default function LoginPage() {
                   <Eye aria-hidden="true" className="w-4 h-4" />
                 )}
               </button>
+            </div>
+            <div className="flex justify-end -mt-3">
+              <Link
+                className="text-xs text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+                href="/forgot-password"
+              >
+                Forgot password?
+              </Link>
             </div>
           </div>
 
