@@ -22,6 +22,7 @@ import {
   designDeliverables,
   designTickets,
   notifications,
+  passwordResetTokens,
   strategies,
   ticketUpdates,
   usageEvents,
@@ -118,6 +119,42 @@ export async function updateUserRole(
     .where(eq(users.id, id))
     .returning();
   return updated;
+}
+
+// ── Password reset ──────────────────────────────────────────────────
+
+export async function createPasswordResetToken(input: {
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}) {
+  return db.transaction(async (tx) => {
+    // One active token per user: a new request supersedes older links.
+    await tx
+      .delete(passwordResetTokens)
+      .where(eq(passwordResetTokens.userId, input.userId));
+    const [row] = await tx
+      .insert(passwordResetTokens)
+      .values(input)
+      .returning();
+    return row;
+  });
+}
+
+export async function getPasswordResetTokenByHash(tokenHash: string) {
+  const [row] = await db
+    .select()
+    .from(passwordResetTokens)
+    .where(eq(passwordResetTokens.tokenHash, tokenHash))
+    .limit(1);
+  return row;
+}
+
+export async function markPasswordResetTokenUsed(id: string) {
+  await db
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(passwordResetTokens.id, id));
 }
 
 // ── Brands ───────────────────────────────────────────────────────────

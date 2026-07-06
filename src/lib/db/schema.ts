@@ -128,6 +128,19 @@ export const sessions = pgTable("sessions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Single-use password-reset tokens. Stores only the SHA-256 hash of the raw
+// token emailed to the user (same never-store-the-secret rule as sessions).
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const brands = pgTable("brands", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
