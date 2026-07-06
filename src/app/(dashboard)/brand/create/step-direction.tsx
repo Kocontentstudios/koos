@@ -11,6 +11,7 @@ import {
 import { primaryGoalOptions, toneOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
 import { Field, OtherSelect } from "./fields";
+import { SuggestButton } from "./suggest-button";
 
 interface StepProps {
   state: CreateBrandState;
@@ -27,6 +28,11 @@ export function StepDirection({ state, onChange }: StepProps) {
           value={state.targetAudience}
           onChange={(e) => onChange({ targetAudience: e.target.value })}
         />
+        <SuggestButton
+          field="targetAudience"
+          state={state}
+          onApply={(text) => onChange({ targetAudience: text })}
+        />
       </Field>
 
       <Field label="Offer" htmlFor="brand-offer">
@@ -35,6 +41,11 @@ export function StepDirection({ state, onChange }: StepProps) {
           placeholder="e.g., A 3-step skincare kit for $49"
           value={state.offer}
           onChange={(e) => onChange({ offer: e.target.value })}
+        />
+        <SuggestButton
+          field="offer"
+          state={state}
+          onApply={(text) => onChange({ offer: text })}
         />
       </Field>
 

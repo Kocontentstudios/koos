@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { businessTypeOptions, stageOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
 import { Field, OtherSelect } from "./fields";
+import { SuggestButton } from "./suggest-button";
 
 interface StepProps {
   state: CreateBrandState;
@@ -36,6 +37,11 @@ export function StepBasics({ state, onChange }: StepProps) {
           placeholder="We make clean, affordable skincare products for young professionals who want effective routines without 20 steps."
           value={state.overview}
           onChange={(e) => onChange({ overview: e.target.value })}
+        />
+        <SuggestButton
+          field="overview"
+          state={state}
+          onApply={(text) => onChange({ overview: text })}
         />
       </Field>
 

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { CreateBrandState } from "./create-brand-form";
 import { Field } from "./fields";
+import { SuggestButton } from "./suggest-button";
 
 interface StepProps {
   state: CreateBrandState;
@@ -39,6 +40,11 @@ export function StepCompetitors({ state, onChange }: StepProps) {
           placeholder="e.g., More ingredient education, less hype."
           value={state.differentiators}
           onChange={(e) => onChange({ differentiators: e.target.value })}
+        />
+        <SuggestButton
+          field="differentiators"
+          state={state}
+          onApply={(text) => onChange({ differentiators: text })}
         />
       </Field>
     </div>

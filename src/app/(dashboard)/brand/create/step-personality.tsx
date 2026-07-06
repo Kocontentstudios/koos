@@ -3,6 +3,7 @@
 import { Input } from "@/components/ui/input";
 import type { CreateBrandState } from "./create-brand-form";
 import { Field } from "./fields";
+import { SuggestButton } from "./suggest-button";
 
 interface StepProps {
   state: CreateBrandState;
@@ -18,6 +19,11 @@ export function StepPersonality({ state, onChange }: StepProps) {
           placeholder="e.g., Honesty, simplicity, effectiveness"
           value={state.values}
           onChange={(e) => onChange({ values: e.target.value })}
+        />
+        <SuggestButton
+          field="values"
+          state={state}
+          onApply={(text) => onChange({ values: text })}
         />
       </Field>
 
