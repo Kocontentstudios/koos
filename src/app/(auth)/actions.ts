@@ -125,16 +125,22 @@ export async function requestPasswordReset(formData: FormData) {
   if (!email || !isValidEmail(email)) {
     return { error: "Please enter a valid email address." };
   }
-  await requestReset(
-    {
-      getUserByEmail,
-      createPasswordResetToken,
-      sendPasswordResetEmail,
-      buildResetUrl: (token) =>
-        appUrl(`/reset-password?token=${encodeURIComponent(token)}`),
-    },
-    email,
-  );
+  try {
+    await requestReset(
+      {
+        getUserByEmail,
+        createPasswordResetToken,
+        sendPasswordResetEmail,
+        buildResetUrl: (token) =>
+          appUrl(`/reset-password?token=${encodeURIComponent(token)}`),
+      },
+      email,
+    );
+  } catch (err) {
+    // Fall through to the same generic success response so a DB hiccup
+    // doesn't reveal whether the email is known (no enumeration).
+    console.error("password reset request failed", err);
+  }
   // Same message whether or not the account exists.
   return {
     success: "If an account exists for that email, a reset link is on its way.",

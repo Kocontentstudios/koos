@@ -74,6 +74,20 @@ describe("performReset", () => {
     expect(deps.updateUserPassword).toHaveBeenCalledWith("u1", "argon-hash");
     expect(deps.markPasswordResetTokenUsed).toHaveBeenCalledWith("prt1");
     expect(deps.invalidateUserSessions).toHaveBeenCalledWith("u1");
+    // Fail-safe order: burn the token before updating the password.
+    expect(
+      deps.markPasswordResetTokenUsed.mock.invocationCallOrder[0],
+    ).toBeLessThan(deps.updateUserPassword.mock.invocationCallOrder[0]);
+  });
+
+  it("leaves the password unchanged when burning the token fails", async () => {
+    const { token } = generateResetToken();
+    deps.getPasswordResetTokenByHash.mockResolvedValue(validRow());
+    deps.markPasswordResetTokenUsed.mockRejectedValue(new Error("db down"));
+    await expect(
+      performReset(deps, { token, password: "newpass1" }),
+    ).rejects.toThrow("db down");
+    expect(deps.updateUserPassword).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown token", async () => {

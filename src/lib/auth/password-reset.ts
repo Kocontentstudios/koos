@@ -75,8 +75,10 @@ export async function performReset(
     return { ok: false, error: INVALID_LINK };
   }
   const passwordHash = await deps.hashPassword(input.password);
-  await deps.updateUserPassword(row.userId, passwordHash);
+  // Burn the token before updating the password: if a step after this throws,
+  // the token is dead (safe) rather than replayable with an already-changed password.
   await deps.markPasswordResetTokenUsed(row.id);
+  await deps.updateUserPassword(row.userId, passwordHash);
   await deps.invalidateUserSessions(row.userId);
   return { ok: true };
 }
