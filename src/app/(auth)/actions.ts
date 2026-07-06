@@ -14,6 +14,8 @@ import {
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { startSession } from "@/lib/auth/session";
 import { createUser, getUserByEmail } from "@/lib/db/queries";
+import { appUrl } from "@/lib/design/notify";
+import { sendWelcomeEmail } from "@/lib/notify/account";
 
 export async function login(formData: FormData) {
   const email = (formData.get("email") as string)?.trim();
@@ -63,6 +65,12 @@ export async function signup(formData: FormData) {
     email,
     passwordHash,
     provider: "email",
+  });
+
+  // Fire-and-forget welcome (never throws; must not block first login).
+  await sendWelcomeEmail({
+    to: user.email,
+    input: { firstName: user.firstName, dashboardUrl: appUrl("/dashboard") },
   });
 
   await startSession(user.id);

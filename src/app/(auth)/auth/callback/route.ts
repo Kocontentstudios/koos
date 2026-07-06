@@ -7,6 +7,8 @@ import {
 } from "@/lib/auth/google";
 import { startSession } from "@/lib/auth/session";
 import { createUser, getUserByEmail } from "@/lib/db/queries";
+import { appUrl } from "@/lib/design/notify";
+import { sendWelcomeEmail } from "@/lib/notify/account";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -53,6 +55,11 @@ export async function GET(request: Request) {
       email: profile.email,
       avatarUrl: profile.avatarUrl,
       provider: "google",
+    });
+    // Fire-and-forget welcome (never throws; must not block first login).
+    await sendWelcomeEmail({
+      to: user.email,
+      input: { firstName: user.firstName, dashboardUrl: appUrl("/dashboard") },
     });
   }
 
