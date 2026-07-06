@@ -67,4 +67,39 @@ describe("brand suggest route", () => {
     expect(res.status).toBe(400);
     expect(generateObject).not.toHaveBeenCalled();
   });
+
+  it("rejects an oversized currentValue with 400", async () => {
+    const res = await POST(
+      req({ field: "overview", currentValue: "x".repeat(2001), context }),
+    );
+    expect(res.status).toBe(400);
+    expect(generateObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized context field with 400", async () => {
+    const res = await POST(
+      req({
+        field: "overview",
+        currentValue: "",
+        context: { ...context, name: "x".repeat(2001) },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(generateObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-string currentValue with 400 (not a thrown 500)", async () => {
+    const res = await POST(
+      req({ field: "overview", currentValue: 7, context }),
+    );
+    expect(res.status).toBe(400);
+    expect(generateObject).not.toHaveBeenCalled();
+  });
+
+  it("tolerates missing context keys by defaulting them to empty strings", async () => {
+    const res = await POST(
+      req({ field: "overview", currentValue: "", context: { name: "KO" } }),
+    );
+    expect(res.status).toBe(200);
+  });
 });
