@@ -132,3 +132,154 @@ export function designDeliveryEmail(i: DesignDeliveryEmailInput): BuiltEmail {
     html,
   };
 }
+
+export const STATUS_LABELS = {
+  submitted: "Submitted",
+  assigned: "Assigned",
+  in_progress: "In progress",
+  ready_for_review: "Ready for review",
+  delivered: "Delivered",
+  revision_requested: "Revision requested",
+} as const;
+
+type StatusKey = keyof typeof STATUS_LABELS;
+
+function statusLabel(status: string): string {
+  return STATUS_LABELS[status as StatusKey] ?? status;
+}
+
+export interface TicketStatusEmailInput {
+  ticketNumber: number;
+  designType: string;
+  status: string;
+  ticketUrl: string;
+}
+
+export function ticketStatusEmail(i: TicketStatusEmailInput): BuiltEmail {
+  const label = statusLabel(i.status);
+  const html = shell(
+    `Update on your design request — ${formatTicketNumber(i.ticketNumber)}`,
+    `<p style="font-size:13px">Your <strong>${escapeHtml(
+      i.designType,
+    )}</strong> request is now: <strong>${escapeHtml(label)}</strong>.</p>
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View your request →</a></p>`,
+  );
+  return {
+    subject: `${label} — ${formatTicketNumber(i.ticketNumber)}`,
+    html,
+  };
+}
+
+export interface TicketProgressEmailInput {
+  ticketNumber: number;
+  designType: string;
+  message: string;
+  status: string | null;
+  ticketUrl: string;
+}
+
+export function ticketProgressEmail(i: TicketProgressEmailInput): BuiltEmail {
+  const statusRow = i.status
+    ? row("New status", escapeHtml(statusLabel(i.status)))
+    : "";
+  const html = shell(
+    `Progress update — ${formatTicketNumber(i.ticketNumber)}`,
+    `<p style="font-size:13px">New update on your <strong>${escapeHtml(
+      i.designType,
+    )}</strong> request:</p>
+    <blockquote style="margin:8px 0;padding:8px 12px;border-left:3px solid #138bc8;font-size:13px">${escapeHtml(
+      i.message,
+    )}</blockquote>
+    <table style="border-collapse:collapse;width:100%">${statusRow}</table>
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View your request →</a></p>`,
+  );
+  return {
+    subject: `Progress update — ${formatTicketNumber(i.ticketNumber)}`,
+    html,
+  };
+}
+
+export interface TicketReviewTeamEmailInput {
+  ticketNumber: number;
+  designType: string;
+  action: "approve" | "revise";
+  note: string | null;
+  requesterName: string;
+  requesterEmail: string;
+  adminUrl: string;
+}
+
+export function ticketReviewTeamEmail(
+  i: TicketReviewTeamEmailInput,
+): BuiltEmail {
+  const verb = i.action === "approve" ? "approved" : "requested a revision on";
+  const noteRow = i.note ? row("Revision note", escapeHtml(i.note)) : "";
+  const html = shell(
+    `Customer ${verb} ${formatTicketNumber(i.ticketNumber)}`,
+    `<p style="font-size:13px"><strong>${escapeHtml(
+      i.requesterName,
+    )}</strong> &lt;${escapeHtml(i.requesterEmail)}&gt; ${verb} the <strong>${escapeHtml(
+      i.designType,
+    )}</strong> delivery.</p>
+    <table style="border-collapse:collapse;width:100%">${noteRow}</table>
+    <p style="margin-top:16px"><a href="${i.adminUrl}" style="color:#138bc8">Open the ticket →</a></p>`,
+  );
+  const subjectVerb =
+    i.action === "approve" ? "Design approved" : "Revision requested";
+  return {
+    subject: `${subjectVerb} — ${formatTicketNumber(i.ticketNumber)}`,
+    html,
+  };
+}
+
+export interface RoleChangeEmailInput {
+  firstName: string;
+  newRole: string;
+  dashboardUrl: string;
+}
+
+export function roleChangeEmail(i: RoleChangeEmailInput): BuiltEmail {
+  const html = shell(
+    "Your KO OS role has changed",
+    `<p style="font-size:13px">Hi ${escapeHtml(
+      i.firstName,
+    )}, your account role is now <strong>${escapeHtml(
+      i.newRole,
+    )}</strong>. Your access updates the next time you sign in or refresh.</p>
+    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:#138bc8">Open KO OS →</a></p>`,
+  );
+  return { subject: "Your KO OS role has changed", html };
+}
+
+export interface WelcomeEmailInput {
+  firstName: string;
+  dashboardUrl: string;
+}
+
+export function welcomeEmail(i: WelcomeEmailInput): BuiltEmail {
+  const html = shell(
+    "Welcome to KO OS",
+    `<p style="font-size:13px">Hi ${escapeHtml(
+      i.firstName,
+    )}, your account is ready. Set up your brand and generate your first content strategy in minutes.</p>
+    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:#138bc8">Go to your dashboard →</a></p>`,
+  );
+  return { subject: "Welcome to KO OS", html };
+}
+
+export interface ContactFormEmailInput {
+  name: string;
+  email: string;
+  message: string;
+}
+
+export function contactFormEmail(i: ContactFormEmailInput): BuiltEmail {
+  const html = shell(
+    "New contact form message",
+    `<table style="border-collapse:collapse;width:100%">
+    ${row("From", `${escapeHtml(i.name)} &lt;${escapeHtml(i.email)}&gt;`)}
+    </table>
+    <p style="font-size:13px;white-space:pre-wrap">${escapeHtml(i.message)}</p>`,
+  );
+  return { subject: `Contact form — ${i.name}`, html };
+}

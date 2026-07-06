@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  contactFormEmail,
   type DesignDeliveryEmailInput,
   type DesignRequestEmailInput,
   designDeliveryEmail,
   designRequestConfirmationEmail,
   designRequestTeamEmail,
+  roleChangeEmail,
+  STATUS_LABELS,
+  ticketProgressEmail,
+  ticketReviewTeamEmail,
+  ticketStatusEmail,
+  welcomeEmail,
 } from "./email-templates";
 
 const REQ: DesignRequestEmailInput = {
@@ -77,5 +84,115 @@ describe("designDeliveryEmail", () => {
     expect(html).toContain("https://r2.test/a?sig=1");
     expect(html).toContain("slide-2.png");
     expect(html).toContain("https://r2.test/b?sig=2");
+  });
+});
+
+describe("ticketStatusEmail", () => {
+  it("uses the human status label and escapes the design type", () => {
+    const { subject, html } = ticketStatusEmail({
+      ticketNumber: 42,
+      designType: "<b>Flyer</b>",
+      status: "ready_for_review",
+      ticketUrl: "https://app/design-request/42",
+    });
+    expect(subject).toContain("Ready for review");
+    expect(html).toContain("Ready for review");
+    expect(html).toContain("&lt;b&gt;Flyer&lt;/b&gt;");
+    expect(html).toContain("https://app/design-request/42");
+    expect(html).not.toContain("ready_for_review");
+  });
+});
+
+describe("ticketProgressEmail", () => {
+  it("includes the escaped message and optional status", () => {
+    const { html } = ticketProgressEmail({
+      ticketNumber: 7,
+      designType: "Logo",
+      message: "First draft <ready>",
+      status: "in_progress",
+      ticketUrl: "https://app/t/7",
+    });
+    expect(html).toContain("First draft &lt;ready&gt;");
+    expect(html).toContain(STATUS_LABELS.in_progress);
+  });
+
+  it("omits the status row when status is null", () => {
+    const { html } = ticketProgressEmail({
+      ticketNumber: 7,
+      designType: "Logo",
+      message: "Note",
+      status: null,
+      ticketUrl: "https://app/t/7",
+    });
+    expect(html).not.toContain("New status");
+  });
+});
+
+describe("ticketReviewTeamEmail", () => {
+  it("says approved with no note row", () => {
+    const { subject, html } = ticketReviewTeamEmail({
+      ticketNumber: 3,
+      designType: "Banner",
+      action: "approve",
+      note: null,
+      requesterName: "Ada",
+      requesterEmail: "ada@x.com",
+      adminUrl: "https://app/admin/tickets/3",
+    });
+    expect(subject.toLowerCase()).toContain("approved");
+    expect(html).toContain("Ada");
+    expect(html).not.toContain("Revision note");
+  });
+
+  it("says revision requested and escapes the note", () => {
+    const { subject, html } = ticketReviewTeamEmail({
+      ticketNumber: 3,
+      designType: "Banner",
+      action: "revise",
+      note: "Make it <pop>",
+      requesterName: "Ada",
+      requesterEmail: "ada@x.com",
+      adminUrl: "https://app/admin/tickets/3",
+    });
+    expect(subject.toLowerCase()).toContain("revision");
+    expect(html).toContain("Make it &lt;pop&gt;");
+  });
+});
+
+describe("roleChangeEmail", () => {
+  it("names the new role and greets by first name", () => {
+    const { html } = roleChangeEmail({
+      firstName: "Sam",
+      newRole: "designer",
+      dashboardUrl: "https://app/dashboard",
+    });
+    expect(html).toContain("Sam");
+    expect(html).toContain("designer");
+  });
+});
+
+describe("welcomeEmail", () => {
+  it("greets by first name and links the dashboard", () => {
+    const { subject, html } = welcomeEmail({
+      firstName: "Sam",
+      dashboardUrl: "https://app/dashboard",
+    });
+    expect(subject).toContain("Welcome");
+    expect(html).toContain("Sam");
+    expect(html).toContain("https://app/dashboard");
+  });
+});
+
+describe("contactFormEmail", () => {
+  it("carries sender identity and escapes the message", () => {
+    const { subject, html } = contactFormEmail({
+      name: "Eve <script>",
+      email: "eve@x.com",
+      message: "Hi <there>",
+    });
+    expect(subject).toContain("Contact form");
+    expect(html).toContain("Eve &lt;script&gt;");
+    expect(html).toContain("eve@x.com");
+    expect(html).toContain("Hi &lt;there&gt;");
   });
 });
