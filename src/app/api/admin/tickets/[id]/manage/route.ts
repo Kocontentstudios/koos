@@ -5,6 +5,7 @@ import {
   getUserById,
   updateDesignTicket,
 } from "@/lib/db/queries";
+import { appUrl, sendTicketStatusEmail } from "@/lib/design/notify";
 
 const STATUSES = [
   "submitted",
@@ -98,6 +99,19 @@ export async function POST(
           status: patch.status,
         },
       });
+      const owner = await getUserById(ticket.userId);
+      const to = ticket.deliveryEmail || owner?.email;
+      if (to) {
+        await sendTicketStatusEmail({
+          to,
+          input: {
+            ticketNumber: ticket.ticketNumber,
+            designType: ticket.designType,
+            status: patch.status,
+            ticketUrl: appUrl(`/design-request/${id}`),
+          },
+        });
+      }
     } catch (err) {
       console.error("manage: status notification failed", {
         ticketId: id,

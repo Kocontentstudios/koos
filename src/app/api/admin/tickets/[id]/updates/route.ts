@@ -1,8 +1,10 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   getDesignTicketById,
+  getUserById,
   postTicketProgressUpdate,
 } from "@/lib/db/queries";
+import { appUrl, sendTicketProgressEmail } from "@/lib/design/notify";
 
 // Statuses a designer/admin may set alongside a progress update (mirrors the
 // status route's DESIGNER_SETTABLE). Broader admin overrides land in Part D.
@@ -64,6 +66,26 @@ export async function POST(
       message,
     },
   });
+
+  // Email the requester (non-blocking — the update is already persisted).
+  try {
+    const owner = await getUserById(ticket.userId);
+    const to = ticket.deliveryEmail || owner?.email;
+    if (to) {
+      await sendTicketProgressEmail({
+        to,
+        input: {
+          ticketNumber: ticket.ticketNumber,
+          designType: ticket.designType,
+          message,
+          status: newStatus,
+          ticketUrl: appUrl(`/design-request/${id}`),
+        },
+      });
+    }
+  } catch (err) {
+    console.error("updates: progress email failed", { ticketId: id, err });
+  }
 
   return Response.json({ ok: true });
 }
