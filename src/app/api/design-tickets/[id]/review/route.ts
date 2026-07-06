@@ -5,6 +5,7 @@ import {
   updateCalendarItemStatus,
   updateDesignTicket,
 } from "@/lib/db/queries";
+import { appUrl, sendTicketReviewTeamEmail } from "@/lib/design/notify";
 
 export async function POST(
   req: Request,
@@ -33,11 +34,32 @@ export async function POST(
     return Response.json({ error: "Ticket not found" }, { status: 404 });
   }
 
+  const u = dbUser;
+  async function notifyTeamOfReview(
+    action: "approve" | "revise",
+    note: string | null,
+  ) {
+    try {
+      await sendTicketReviewTeamEmail({
+        ticketNumber: ticket.ticketNumber,
+        designType: ticket.designType,
+        action,
+        note,
+        requesterName: `${u.firstName} ${u.lastName}`.trim(),
+        requesterEmail: u.email,
+        adminUrl: appUrl(`/admin/tickets/${id}`),
+      });
+    } catch (err) {
+      console.error("review: team email failed", { ticketId: id, err });
+    }
+  }
+
   if (body.action === "approve") {
     const updated = await updateDesignTicket(id, { status: "delivered" });
     if (ticket.calendarItemId) {
       await updateCalendarItemStatus(ticket.calendarItemId, "ready");
     }
+    await notifyTeamOfReview("approve", null);
     return Response.json({ ticket: updated });
   }
 
@@ -49,6 +71,7 @@ export async function POST(
         ? `${ticket.notes ? `${ticket.notes}\n\n` : ""}Revision: ${note}`
         : ticket.notes,
     });
+    await notifyTeamOfReview("revise", note ?? null);
     return Response.json({ ticket: updated });
   }
 

@@ -1,6 +1,8 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import { isRole } from "@/lib/auth/roles";
 import { getUserById, updateUserRole } from "@/lib/db/queries";
+import { appUrl } from "@/lib/design/notify";
+import { sendRoleChangeEmail } from "@/lib/notify/account";
 
 export async function POST(
   req: Request,
@@ -36,5 +38,20 @@ export async function POST(
   }
 
   const updated = await updateUserRole(id, body.role);
+
+  // Non-blocking: role change already persisted.
+  try {
+    await sendRoleChangeEmail({
+      to: target.email,
+      input: {
+        firstName: target.firstName,
+        newRole: updated.role,
+        dashboardUrl: appUrl("/dashboard"),
+      },
+    });
+  } catch (err) {
+    console.error("role: change email failed", { userId: id, err });
+  }
+
   return Response.json({ user: { id: updated.id, role: updated.role } });
 }

@@ -1,5 +1,10 @@
 import { getAuthUser } from "@/lib/auth/get-user";
-import { getDesignTicketById, updateDesignTicket } from "@/lib/db/queries";
+import {
+  getDesignTicketById,
+  getUserById,
+  updateDesignTicket,
+} from "@/lib/db/queries";
+import { appUrl, sendTicketStatusEmail } from "@/lib/design/notify";
 
 const DESIGNER_SETTABLE = [
   "assigned",
@@ -47,5 +52,27 @@ export async function POST(
   }
 
   const updated = await updateDesignTicket(id, patch);
+
+  // Email the requester when the visible status actually changed (non-blocking).
+  if (patch.status && patch.status !== ticket.status) {
+    try {
+      const owner = await getUserById(ticket.userId);
+      const to = ticket.deliveryEmail || owner?.email;
+      if (to) {
+        await sendTicketStatusEmail({
+          to,
+          input: {
+            ticketNumber: ticket.ticketNumber,
+            designType: ticket.designType,
+            status: patch.status,
+            ticketUrl: appUrl(`/design-request/${id}`),
+          },
+        });
+      }
+    } catch (err) {
+      console.error("status: requester email failed", { ticketId: id, err });
+    }
+  }
+
   return Response.json({ ticket: updated });
 }
