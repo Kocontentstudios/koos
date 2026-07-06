@@ -6,6 +6,12 @@ import {
   designDeliveryEmail,
   designRequestConfirmationEmail,
   designRequestTeamEmail,
+  type TicketProgressEmailInput,
+  type TicketReviewTeamEmailInput,
+  type TicketStatusEmailInput,
+  ticketProgressEmail,
+  ticketReviewTeamEmail,
+  ticketStatusEmail,
 } from "@/lib/email-templates";
 
 /** Design-team inbox: DB setting first, then env fallbacks. Never throws — a
@@ -93,6 +99,62 @@ export async function sendDesignDeliveryEmail(args: {
     console.error("design delivery email failed", {
       ticketNumber: args.input.ticketNumber,
       to: args.to,
+      err,
+    });
+  }
+}
+
+/** Email the requester when a ticket's status changes. Never throws. */
+export async function sendTicketStatusEmail(args: {
+  to: string;
+  input: TicketStatusEmailInput;
+}): Promise<void> {
+  try {
+    const { subject, html } = ticketStatusEmail(args.input);
+    await sendMail({ to: args.to, subject, html });
+  } catch (err) {
+    console.error("ticket status email failed", {
+      ticketNumber: args.input.ticketNumber,
+      to: args.to,
+      err,
+    });
+  }
+}
+
+/** Email the requester when a progress update is posted. Never throws. */
+export async function sendTicketProgressEmail(args: {
+  to: string;
+  input: TicketProgressEmailInput;
+}): Promise<void> {
+  try {
+    const { subject, html } = ticketProgressEmail(args.input);
+    await sendMail({ to: args.to, subject, html });
+  } catch (err) {
+    console.error("ticket progress email failed", {
+      ticketNumber: args.input.ticketNumber,
+      to: args.to,
+      err,
+    });
+  }
+}
+
+/** Tell the design team the customer approved / requested revision. Never throws. */
+export async function sendTicketReviewTeamEmail(
+  input: TicketReviewTeamEmailInput,
+): Promise<void> {
+  try {
+    const team = await getDesignTeamEmail();
+    if (!team) {
+      console.warn("ticket review: no design team email configured; skipping", {
+        ticketNumber: input.ticketNumber,
+      });
+      return;
+    }
+    const { subject, html } = ticketReviewTeamEmail(input);
+    await sendMail({ to: team, subject, html, replyTo: input.requesterEmail });
+  } catch (err) {
+    console.error("ticket review team email failed", {
+      ticketNumber: input.ticketNumber,
       err,
     });
   }
