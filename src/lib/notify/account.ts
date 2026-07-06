@@ -1,5 +1,7 @@
 import { sendMail } from "@/lib/email";
 import {
+  type PasswordResetEmailInput,
+  passwordResetEmail,
   type RoleChangeEmailInput,
   roleChangeEmail,
   type WelcomeEmailInput,
@@ -29,5 +31,18 @@ export async function sendWelcomeEmail(args: {
     await sendMail({ to: args.to, subject, html });
   } catch (err) {
     console.error("welcome email failed", { to: args.to, err });
+  }
+}
+
+/** Send the password-reset link. Never throws. */
+export async function sendPasswordResetEmail(args: {
+  to: string;
+  input: PasswordResetEmailInput;
+}): Promise<void> {
+  try {
+    const { subject, html } = passwordResetEmail(args.input);
+    await sendMail({ to: args.to, subject, html });
+  } catch (err) {
+    console.error("password reset email failed", { to: args.to, err });
   }
 }

@@ -283,3 +283,20 @@ export function contactFormEmail(i: ContactFormEmailInput): BuiltEmail {
   );
   return { subject: `Contact form — ${i.name}`, html };
 }
+
+export interface PasswordResetEmailInput {
+  firstName: string;
+  resetUrl: string;
+}
+
+export function passwordResetEmail(i: PasswordResetEmailInput): BuiltEmail {
+  const html = shell(
+    "Reset your KO OS password",
+    `<p style="font-size:13px">Hi ${escapeHtml(
+      i.firstName,
+    )}, we received a request to reset your password. This link is valid for 1 hour and can be used once:</p>
+    <p style="margin-top:16px"><a href="${i.resetUrl}" style="color:#138bc8">Reset your password →</a></p>
+    <p style="font-size:12px;color:#6b7280;margin-top:16px">If you didn't request this, you can safely ignore this email — your password is unchanged.</p>`,
+  );
+  return { subject: "Reset your KO OS password", html };
+}

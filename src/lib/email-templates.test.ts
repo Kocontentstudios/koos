@@ -6,6 +6,7 @@ import {
   designDeliveryEmail,
   designRequestConfirmationEmail,
   designRequestTeamEmail,
+  passwordResetEmail,
   roleChangeEmail,
   STATUS_LABELS,
   ticketProgressEmail,
@@ -194,5 +195,18 @@ describe("contactFormEmail", () => {
     expect(html).toContain("Eve &lt;script&gt;");
     expect(html).toContain("eve@x.com");
     expect(html).toContain("Hi &lt;there&gt;");
+  });
+});
+
+describe("passwordResetEmail", () => {
+  it("links the reset URL and warns about expiry", () => {
+    const { subject, html } = passwordResetEmail({
+      firstName: "Sam",
+      resetUrl: "https://app/reset-password?token=abc",
+    });
+    expect(subject).toContain("Reset");
+    expect(html).toContain("https://app/reset-password?token=abc");
+    expect(html).toContain("Sam");
+    expect(html.toLowerCase()).toContain("hour");
   });
 });
