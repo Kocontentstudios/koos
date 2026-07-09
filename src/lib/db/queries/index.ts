@@ -445,6 +445,32 @@ export async function updateCalendarItemStatus(
   return row;
 }
 
+/** Partial update of a calendar item's editable content fields. */
+export async function updateCalendarItem(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof calendarItems.$inferInsert,
+      | "date"
+      | "time"
+      | "platform"
+      | "contentType"
+      | "title"
+      | "brief"
+      | "designRequired"
+      | "designType"
+      | "dimensions"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(calendarItems)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(calendarItems.id, id))
+    .returning();
+  return row;
+}
+
 export async function getCalendarItemById(id: string) {
   const [row] = await db
     .select()

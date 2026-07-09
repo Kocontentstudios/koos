@@ -94,12 +94,18 @@ export function CalendarClient({
 
   const focused = useMemo(() => new Date(`${dateKey}T00:00:00Z`), [dateKey]);
 
-  const [selected, setSelected] = useState<CalendarItem | null>(null);
+  // Track the selected item by id and re-derive it from the freshest props,
+  // so an edit + router.refresh() updates the open drawer's contents.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = useMemo(
+    () => parsedItems.find((it) => it.id === selectedId) ?? null,
+    [parsedItems, selectedId],
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
 
   function openItem(item: CalendarItem) {
-    setSelected(item);
+    setSelectedId(item.id);
     setDrawerOpen(true);
   }
 
