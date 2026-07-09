@@ -355,6 +355,17 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/* Fixed-window rate limiting counters. One row per (endpoint, caller) key,
+   e.g. "login:1.2.3.4" or "chat:<userId>". Rows are upserted atomically by
+   hitRateLimit(); stale rows are harmless (the window check resets them). */
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  windowStart: timestamp("window_start", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const usageEvents = pgTable("usage_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

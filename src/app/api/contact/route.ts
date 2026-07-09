@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { describeMailError, sendMail } from "@/lib/email";
 import { contactFormEmail } from "@/lib/email-templates";
+import {
+  checkRateLimit,
+  clientIpFrom,
+  tooManyRequests,
+} from "@/lib/rate-limit";
 import { isValidEmail } from "@/lib/validation/email";
 
 const requestSchema = z.object({
@@ -15,6 +20,13 @@ function contactInbox(): string {
 }
 
 export async function POST(req: Request) {
+  const verdict = await checkRateLimit({
+    key: `contact:${clientIpFrom(req.headers)}`,
+    limit: 5,
+    windowSeconds: 3600,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
+
   let json: unknown;
   try {
     json = await req.json();

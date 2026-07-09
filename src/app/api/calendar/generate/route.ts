@@ -16,12 +16,20 @@ import {
   insertCalendarItems,
   recordUsageEvent,
 } from "@/lib/db/queries";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  const verdict = await checkRateLimit({
+    key: `calendar-generate:${dbUser.id}`,
+    limit: 10,
+    windowSeconds: 3600,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
 
   let body: { strategyId?: string };
   try {

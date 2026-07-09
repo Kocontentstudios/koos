@@ -11,6 +11,7 @@ import {
   getBrandById,
   recordUsageEvent,
 } from "@/lib/db/queries";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
 
 export async function POST(req: Request) {
@@ -18,7 +19,18 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
-  let body: { brandId?: string; conversation?: string; conversationId?: string };
+
+  const verdict = await checkRateLimit({
+    key: `strategy-generate:${dbUser.id}`,
+    limit: 10,
+    windowSeconds: 3600,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
+  let body: {
+    brandId?: string;
+    conversation?: string;
+    conversationId?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -32,10 +44,7 @@ export async function POST(req: Request) {
     );
   }
   if (conversationId != null && !isUuid(conversationId)) {
-    return Response.json(
-      { error: "Invalid conversationId" },
-      { status: 400 },
-    );
+    return Response.json({ error: "Invalid conversationId" }, { status: 400 });
   }
   const brand = await getBrandById(brandId);
   if (!brand || brand.userId !== dbUser.id) {

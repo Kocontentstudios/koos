@@ -8,6 +8,7 @@ import {
   isNull,
   lt,
   ne,
+  sql,
 } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
@@ -23,6 +24,7 @@ import {
   designTickets,
   notifications,
   passwordResetTokens,
+  rateLimits,
   strategies,
   ticketUpdates,
   usageEvents,
@@ -642,6 +644,34 @@ export async function postTicketProgressUpdate(input: {
 export async function recordUsageEvent(data: typeof usageEvents.$inferInsert) {
   const [row] = await db.insert(usageEvents).values(data).returning();
   return row;
+}
+
+// ── Rate limiting ───────────────────────────────────────────────────
+
+/**
+ * Atomically record one hit against a fixed-window counter and return the
+ * window's running total. A single upsert keeps concurrent requests correct:
+ * if the stored window has expired the counter resets to 1, otherwise it
+ * increments in place.
+ */
+export async function hitRateLimit(key: string, windowSeconds: number) {
+  const rows = await db.execute<{ count: number; window_start: string }>(sql`
+    INSERT INTO ${rateLimits} ("key", "count", "window_start")
+    VALUES (${key}, 1, now())
+    ON CONFLICT ("key") DO UPDATE SET
+      "count" = CASE
+        WHEN ${rateLimits.windowStart} <= now() - make_interval(secs => ${windowSeconds})
+        THEN 1 ELSE ${rateLimits.count} + 1 END,
+      "window_start" = CASE
+        WHEN ${rateLimits.windowStart} <= now() - make_interval(secs => ${windowSeconds})
+        THEN now() ELSE ${rateLimits.windowStart} END
+    RETURNING "count", "window_start"
+  `);
+  const row = rows[0];
+  return {
+    count: Number(row.count),
+    windowStart: new Date(row.window_start),
+  };
 }
 
 // ── Admin dashboard ─────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   createGoogleClient,
@@ -24,7 +24,27 @@ import {
 } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "@/lib/notify/account";
+import { checkRateLimit, clientIpFrom } from "@/lib/rate-limit";
 import { isValidEmail } from "@/lib/validation/email";
+
+/** Per-IP limit for an auth action; returns a form error when throttled. */
+async function throttleByIp(
+  action: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<{ error: string } | null> {
+  const ip = clientIpFrom(await headers());
+  const verdict = await checkRateLimit({
+    key: `${action}:${ip}`,
+    limit,
+    windowSeconds,
+  });
+  if (verdict.ok) return null;
+  const minutes = Math.max(1, Math.ceil(verdict.retryAfterSeconds / 60));
+  return {
+    error: `Too many attempts. Please try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+  };
+}
 
 export async function login(formData: FormData) {
   const email = (formData.get("email") as string)?.trim();
@@ -33,6 +53,9 @@ export async function login(formData: FormData) {
   if (!email || !password) {
     return { error: "Email and password are required." };
   }
+
+  const throttled = await throttleByIp("login", 10, 600);
+  if (throttled) return throttled;
 
   const user = await getUserByEmail(email);
   // Same generic message whether the email is unknown or the password is wrong,
@@ -62,6 +85,9 @@ export async function signup(formData: FormData) {
   if (password.length < 6) {
     return { error: "Password must be at least 6 characters." };
   }
+
+  const throttled = await throttleByIp("signup", 10, 600);
+  if (throttled) return throttled;
 
   if (await getUserByEmail(email)) {
     return { error: "An account with this email already exists." };
@@ -125,6 +151,8 @@ export async function requestPasswordReset(formData: FormData) {
   if (!email || !isValidEmail(email)) {
     return { error: "Please enter a valid email address." };
   }
+  const throttled = await throttleByIp("password-reset-request", 5, 900);
+  if (throttled) return throttled;
   try {
     await requestReset(
       {
@@ -157,6 +185,8 @@ export async function resetPassword(formData: FormData) {
   if (password !== confirm) {
     return { error: "Passwords don't match." };
   }
+  const throttled = await throttleByIp("password-reset", 5, 900);
+  if (throttled) return throttled;
   const result = await performReset(
     {
       getPasswordResetTokenByHash,

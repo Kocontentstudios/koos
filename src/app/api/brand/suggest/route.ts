@@ -8,6 +8,7 @@ import {
 } from "@/lib/ai/prompts/brand";
 import { getModel } from "@/lib/ai/provider";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 const suggestionSchema = z.object({ suggestion: z.string() });
 
@@ -40,6 +41,13 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  const verdict = await checkRateLimit({
+    key: `brand-suggest:${dbUser.id}`,
+    limit: 30,
+    windowSeconds: 600,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
 
   let json: unknown;
   try {

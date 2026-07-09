@@ -11,6 +11,7 @@ import {
   getConversationById,
   touchConversation,
 } from "@/lib/db/queries";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
 import { ensureConversation } from "./ensure-conversation";
 
@@ -20,6 +21,13 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  const verdict = await checkRateLimit({
+    key: `chat:${dbUser.id}`,
+    limit: 30,
+    windowSeconds: 300,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
 
   const { messages, brandContext, brandId, conversationId } =
     (await req.json()) as {
