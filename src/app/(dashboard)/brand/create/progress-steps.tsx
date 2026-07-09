@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 interface ProgressStepsProps {
   steps: string[];
   current: number;
+  /** When provided, steps become clickable and jump directly to that index. */
+  onSelect?: (index: number) => void;
 }
 
 /**
@@ -12,12 +14,44 @@ interface ProgressStepsProps {
  * completed and outlined when active. Labels collapse on small screens so
  * the 7-step bar never clips.
  */
-export function ProgressSteps({ steps, current }: ProgressStepsProps) {
+export function ProgressSteps({
+  steps,
+  current,
+  onSelect,
+}: ProgressStepsProps) {
   return (
     <ol className="flex flex-wrap items-center justify-center gap-y-2.5 sm:justify-start">
       {steps.map((label, index) => {
         const isCompleted = index < current;
         const isActive = index === current;
+
+        const content = (
+          <>
+            <div
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-semibold transition-colors",
+                isCompleted &&
+                  "border-primary bg-primary text-primary-foreground",
+                isActive && "border-primary bg-surface-1 text-primary",
+                !isCompleted &&
+                  !isActive &&
+                  "border-[var(--text-muted)] text-[var(--text-muted)]",
+              )}
+            >
+              {isCompleted ? <Check className="size-3.5" /> : index + 1}
+            </div>
+            <span
+              className={cn(
+                "hidden text-[12px] font-medium whitespace-nowrap transition-colors sm:inline",
+                isActive && "text-primary",
+                isCompleted && "text-[var(--text-secondary)]",
+                !isCompleted && !isActive && "text-[var(--text-muted)]",
+              )}
+            >
+              {label}
+            </span>
+          </>
+        );
 
         return (
           <li
@@ -25,31 +59,22 @@ export function ProgressSteps({ steps, current }: ProgressStepsProps) {
             className="flex items-center"
             aria-current={isActive ? "step" : undefined}
           >
-            <div className="flex items-center gap-2">
-              <div
+            {onSelect ? (
+              <button
+                type="button"
+                onClick={() => onSelect(index)}
+                aria-label={`Go to step ${index + 1}: ${label}`}
                 className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-semibold transition-colors",
-                  isCompleted &&
-                    "border-primary bg-primary text-primary-foreground",
-                  isActive && "border-primary bg-surface-1 text-primary",
-                  !isCompleted &&
-                    !isActive &&
-                    "border-[var(--text-muted)] text-[var(--text-muted)]",
+                  "flex items-center gap-2 rounded-lg p-0.5 transition-opacity",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                  !isActive && "cursor-pointer hover:opacity-80",
                 )}
               >
-                {isCompleted ? <Check className="size-3.5" /> : index + 1}
-              </div>
-              <span
-                className={cn(
-                  "hidden text-[12px] font-medium whitespace-nowrap transition-colors sm:inline",
-                  isActive && "text-primary",
-                  isCompleted && "text-[var(--text-secondary)]",
-                  !isCompleted && !isActive && "text-[var(--text-muted)]",
-                )}
-              >
-                {label}
-              </span>
-            </div>
+                {content}
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">{content}</div>
+            )}
             {index < steps.length - 1 && (
               <div
                 className={cn(
