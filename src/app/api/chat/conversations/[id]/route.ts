@@ -1,0 +1,42 @@
+import { rowsToUiMessages } from "@/lib/ai/chat-messages";
+import { getAuthUser } from "@/lib/auth/get-user";
+import { getConversationById, getConversationMessages } from "@/lib/db/queries";
+import { isUuid } from "@/lib/validation/uuid";
+
+/**
+ * Load a past conversation's messages for the chat-history switcher.
+ * Owned conversations only; 404 otherwise so ids don't leak existence.
+ */
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { dbUser } = await getAuthUser();
+  if (!dbUser) {
+    return Response.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  if (!isUuid(id)) {
+    return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  const conversation = await getConversationById(id);
+  if (!conversation || conversation.userId !== dbUser.id) {
+    return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  const rows = await getConversationMessages(id);
+  const messages = rowsToUiMessages(
+    rows.map((m) => ({
+      id: m.id,
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+  );
+
+  return Response.json({
+    id: conversation.id,
+    title: conversation.title,
+    messages,
+  });
+}

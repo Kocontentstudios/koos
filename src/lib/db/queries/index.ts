@@ -298,6 +298,18 @@ export async function getRecentConversations(userId: string, limit = 10) {
     .limit(limit);
 }
 
+export async function getRecentConversationsForBrand(
+  brandId: string,
+  limit = 15,
+) {
+  return db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.brandId, brandId))
+    .orderBy(desc(chatConversations.updatedAt))
+    .limit(limit);
+}
+
 export async function getConversationMessages(conversationId: string) {
   return db
     .select()

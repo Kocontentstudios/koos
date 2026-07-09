@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { ensureConversation } from "./ensure-conversation";
+import {
+  conversationTitleFrom,
+  ensureConversation,
+} from "./ensure-conversation";
 
 function deps(over: Partial<Parameters<typeof ensureConversation>[0]> = {}) {
   return {
@@ -20,7 +23,16 @@ describe("ensureConversation", () => {
       id: "c1",
       brandId: "b1",
       userId: "u1",
+      title: null,
     });
+  });
+
+  it("stores the provided title on a newly created conversation", async () => {
+    const d = deps();
+    await ensureConversation(d, { ...args, title: "Launch my skincare kit" });
+    expect(d.createConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Launch my skincare kit" }),
+    );
   });
 
   it("accepts an existing conversation owned by the same user", async () => {
@@ -43,5 +55,23 @@ describe("ensureConversation", () => {
     const res = await ensureConversation(d, args);
     expect(res).toEqual({ ok: false, status: 403, error: expect.any(String) });
     expect(d.createConversation).not.toHaveBeenCalled();
+  });
+});
+
+describe("conversationTitleFrom", () => {
+  it("collapses whitespace and trims", () => {
+    expect(conversationTitleFrom("  Launch\n my   kit  ")).toBe(
+      "Launch my kit",
+    );
+  });
+
+  it("returns null for empty text", () => {
+    expect(conversationTitleFrom("   \n ")).toBeNull();
+  });
+
+  it("truncates long messages to ~60 chars with an ellipsis", () => {
+    const title = conversationTitleFrom("x".repeat(100));
+    expect(title).toHaveLength(58);
+    expect(title?.endsWith("…")).toBe(true);
   });
 });

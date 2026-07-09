@@ -13,7 +13,10 @@ import {
 } from "@/lib/db/queries";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
-import { ensureConversation } from "./ensure-conversation";
+import {
+  conversationTitleFrom,
+  ensureConversation,
+} from "./ensure-conversation";
 
 export async function POST(req: Request) {
   // Authenticated users only — this endpoint spends AI tokens.
@@ -50,9 +53,19 @@ export async function POST(req: Request) {
     return Response.json({ error: "Brand not found" }, { status: 404 });
   }
 
+  // The just-sent user message is the last item; it doubles as the title
+  // for a conversation created on this first turn.
+  const firstUserMessage = messages.findLast((m) => m.role === "user");
   const ensured = await ensureConversation(
     { getConversationById, createConversation },
-    { conversationId, brandId, userId: dbUser.id },
+    {
+      conversationId,
+      brandId,
+      userId: dbUser.id,
+      title: firstUserMessage
+        ? conversationTitleFrom(flattenMessageText(firstUserMessage))
+        : null,
+    },
   );
   if (!ensured.ok) {
     return Response.json({ error: ensured.error }, { status: ensured.status });

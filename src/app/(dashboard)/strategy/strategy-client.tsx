@@ -15,7 +15,11 @@ import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
 import { pollGenerationJob } from "./poll-job";
 import { PromptChips } from "./prompt-chips";
-import { StrategyHistory, type StrategyHistoryItem } from "./strategy-history";
+import {
+  type ConversationListItem,
+  StrategyHistory,
+  type StrategyHistoryItem,
+} from "./strategy-history";
 import { StrategyPanel } from "./strategy-panel";
 
 interface StrategyClientProps {
@@ -23,6 +27,7 @@ interface StrategyClientProps {
   brandContext: ChatBrandContext;
   brandName: string;
   pastStrategies?: StrategyHistoryItem[];
+  conversations?: ConversationListItem[];
   initialMessages?: UIMessage[];
   initialConversationId?: string | null;
 }
@@ -32,6 +37,7 @@ export function StrategyClient({
   brandContext,
   brandName,
   pastStrategies = [],
+  conversations = [],
   initialMessages = [],
   initialConversationId = null,
 }: StrategyClientProps) {
@@ -53,6 +59,9 @@ export function StrategyClient({
   const [loadingStrategyId, setLoadingStrategyId] = useState<string | null>(
     null,
   );
+  const [loadingConversationId, setLoadingConversationId] = useState<
+    string | null
+  >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const transport = useMemo(
@@ -170,6 +179,34 @@ export function StrategyClient({
     setHistoryOpen(false);
   };
 
+  // Reopen a persisted conversation: fetch its messages and make it the
+  // active chat (subsequent turns append to the same conversation row).
+  const handleSelectConversation = async (id: string) => {
+    if (id === conversationId || loadingConversationId) return;
+    setLoadError(null);
+    setLoadingConversationId(id);
+    try {
+      const res = await fetch(`/api/chat/conversations/${id}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error ?? "Could not load chat.");
+      }
+      const data = (await res.json()) as { messages: UIMessage[] };
+      setConversationId(id);
+      setMessages(data.messages);
+      setStrategy(null);
+      setStrategyId(null);
+      setBuildError(null);
+      setHistoryOpen(false);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load chat.");
+    } finally {
+      setLoadingConversationId(null);
+    }
+  };
+
   // Load a saved strategy into the summary/card and seed the chat with a recap
   // so the user can keep refining it and rebuild.
   const handleSelectStrategy = async (id: string) => {
@@ -223,6 +260,10 @@ export function StrategyClient({
           loadingId={loadingStrategyId}
           onSelect={handleSelectStrategy}
           onNew={handleNewStrategy}
+          conversations={conversations}
+          activeConversationId={conversationId}
+          loadingConversationId={loadingConversationId}
+          onSelectConversation={handleSelectConversation}
         />
       </aside>
 
@@ -248,6 +289,10 @@ export function StrategyClient({
           onSelect={handleSelectStrategy}
           onNew={handleNewStrategy}
           onClose={() => setHistoryOpen(false)}
+          conversations={conversations}
+          activeConversationId={conversationId}
+          loadingConversationId={loadingConversationId}
+          onSelectConversation={handleSelectConversation}
         />
       </aside>
 
