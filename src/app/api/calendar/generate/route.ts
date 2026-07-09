@@ -1,23 +1,26 @@
-import { generateObject } from "ai";
-import { calendarPlanSchema } from "@/lib/ai/calendar-schema";
-import {
-  buildCalendarGenerationPrompt,
-  buildCalendarSystemPrompt,
-} from "@/lib/ai/prompts/calendar";
-import type { BrandSummary } from "@/lib/ai/prompts/strategy";
-import { getModel } from "@/lib/ai/provider";
+import { after } from "next/server";
 import { strategySchema } from "@/lib/ai/strategy-schema";
 import { getAuthUser } from "@/lib/auth/get-user";
-import { toCalendarRows, upcomingMonday } from "@/lib/calendar/schedule";
 import {
-  createCalendar,
+  createGenerationJob,
   getBrandById,
   getStrategyById,
-  insertCalendarItems,
-  recordUsageEvent,
 } from "@/lib/db/queries";
+import {
+  executeGenerationJob,
+  generateCalendarWork,
+} from "@/lib/jobs/run-generation";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
+// Headroom for the post-response generation work kicked off via after().
+export const maxDuration = 300;
+
+/**
+ * Kicks off calendar generation as an async job and returns 202 + jobId
+ * immediately; the client polls /api/jobs/[id]. Calendar generation is the
+ * slowest AI call in the app (a full 14-day plan), which previously exceeded
+ * Cloudflare's ~100s origin timeout and surfaced as a 524.
+ */
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
   if (!dbUser) {
@@ -57,79 +60,23 @@ export async function POST(req: Request) {
     );
   }
 
-  const summary: BrandSummary = {
-    name: brand.name,
-    overview: brand.overview,
-    businessType: brand.businessType,
-    stage: brand.stage,
-    targetAudience: brand.targetAudience,
-    offer: brand.offer,
-    tone: brand.tone,
-    primaryGoal: brand.primaryGoal,
-    values: brand.values,
-    wordsLove: brand.wordsLove,
-    wordsAvoid: brand.wordsAvoid,
-    brandStyle: brand.brandStyle,
-    competitors: brand.competitors,
-    differentiators: brand.differentiators,
-    platforms: brand.platforms,
-    primaryPlatform: brand.primaryPlatform,
-    postingFrequency: brand.postingFrequency,
-  };
+  const job = await createGenerationJob({
+    kind: "calendar",
+    userId: dbUser.id,
+    brandId: brand.id,
+    input: { strategyId: strategy.id },
+  });
 
-  let plan: ReturnType<typeof calendarPlanSchema.parse>;
-  try {
-    const { object } = await generateObject({
-      model: getModel("strategy"),
-      schema: calendarPlanSchema,
-      system: buildCalendarSystemPrompt(summary),
-      prompt: buildCalendarGenerationPrompt(parsedStrategy.data, summary),
-    });
-    plan = object;
-  } catch (err) {
-    console.error("calendar generation failed", err);
-    return Response.json(
-      { error: "The AI could not generate a calendar. Please try again." },
-      { status: 502 },
-    );
-  }
+  after(() =>
+    executeGenerationJob(job.id, () =>
+      generateCalendarWork({
+        brand,
+        strategy,
+        structured: parsedStrategy.data,
+        userId: dbUser.id,
+      }),
+    ),
+  );
 
-  const scheduled = toCalendarRows(plan, upcomingMonday(new Date()));
-
-  try {
-    const calendar = await createCalendar({
-      brandId: brand.id,
-      strategyId: strategy.id,
-      startDate: scheduled.startDate,
-      endDate: scheduled.endDate,
-    });
-    await insertCalendarItems(
-      scheduled.rows.map((r) => ({
-        calendarId: calendar.id,
-        date: r.date,
-        time: r.time,
-        platform: r.platform,
-        contentType: r.contentType,
-        title: r.title,
-        brief: r.brief,
-        designRequired: r.designRequired,
-        designType: r.designType,
-        dimensions: r.dimensions,
-        sortOrder: r.sortOrder,
-      })),
-    );
-    await recordUsageEvent({
-      userId: dbUser.id,
-      brandId: brand.id,
-      kind: "calendar_generated",
-      metadata: { calendarId: calendar.id, items: scheduled.rows.length },
-    });
-    return Response.json({ calendarId: calendar.id });
-  } catch (err) {
-    console.error("calendar persist failed", err);
-    return Response.json(
-      { error: "Could not save the calendar. Please try again." },
-      { status: 500 },
-    );
-  }
+  return Response.json({ jobId: job.id }, { status: 202 });
 }

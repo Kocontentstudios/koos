@@ -22,6 +22,7 @@ import {
   chatMessages,
   designDeliverables,
   designTickets,
+  generationJobs,
   notifications,
   passwordResetTokens,
   rateLimits,
@@ -689,6 +690,44 @@ export async function postTicketProgressUpdate(input: {
 export async function recordUsageEvent(data: typeof usageEvents.$inferInsert) {
   const [row] = await db.insert(usageEvents).values(data).returning();
   return row;
+}
+
+// ── Generation jobs ─────────────────────────────────────────────────
+
+export async function createGenerationJob(data: {
+  kind: (typeof generationJobs.$inferInsert)["kind"];
+  userId: string;
+  brandId: string;
+  input?: unknown;
+}) {
+  const [row] = await db.insert(generationJobs).values(data).returning();
+  return row;
+}
+
+export async function updateGenerationJob(
+  id: string,
+  patch: Partial<
+    Pick<
+      typeof generationJobs.$inferInsert,
+      "status" | "resultId" | "result" | "error"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(generationJobs)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(generationJobs.id, id))
+    .returning();
+  return row;
+}
+
+export async function getGenerationJobById(id: string) {
+  const [row] = await db
+    .select()
+    .from(generationJobs)
+    .where(eq(generationJobs.id, id))
+    .limit(1);
+  return row ?? null;
 }
 
 // ── Rate limiting ───────────────────────────────────────────────────

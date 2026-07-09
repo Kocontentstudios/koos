@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
+import { pollGenerationJob } from "./poll-job";
 import { PromptChips } from "./prompt-chips";
 import { StrategyHistory, type StrategyHistoryItem } from "./strategy-history";
 import { StrategyPanel } from "./strategy-panel";
@@ -104,6 +105,8 @@ export function StrategyClient({
       .join("\n\n");
 
     try {
+      // The generate route returns 202 + a job id immediately; poll for the
+      // result so no request is held open long enough to hit proxy timeouts.
       const res = await fetch("/api/strategy/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,10 +116,11 @@ export function StrategyClient({
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Strategy generation failed");
       }
-      const data = (await res.json()) as {
+      const { jobId } = (await res.json()) as { jobId: string };
+      const data = await pollGenerationJob<{
         strategy: Strategy;
         strategyId: string;
-      };
+      }>(jobId);
       setStrategy(data.strategy);
       setStrategyId(data.strategyId);
       setPanelCollapsed(false);
@@ -143,7 +147,11 @@ export function StrategyClient({
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Calendar generation failed");
       }
-      router.push("/calendar");
+      const { jobId } = (await res.json()) as { jobId: string };
+      const { calendarId } = await pollGenerationJob<{ calendarId: string }>(
+        jobId,
+      );
+      router.push(`/calendar?calendarId=${calendarId}`);
     } catch (err) {
       setCalendarError(
         err instanceof Error ? err.message : "An error occurred",
