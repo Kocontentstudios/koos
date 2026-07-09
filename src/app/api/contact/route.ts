@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sendMail } from "@/lib/email";
+import { describeMailError, sendMail } from "@/lib/email";
 import { contactFormEmail } from "@/lib/email-templates";
 import { isValidEmail } from "@/lib/validation/email";
 
@@ -40,9 +40,13 @@ export async function POST(req: Request) {
     const { subject, html } = contactFormEmail({ name, email, message });
     await sendMail({ to: contactInbox(), subject, html, replyTo: email });
   } catch (err) {
-    console.error("contact form email failed", err);
+    console.error("contact form email failed:", describeMailError(err));
     return Response.json(
-      { error: "Could not send your message. Please try again." },
+      {
+        error:
+          "We couldn't send your message right now. Please try again in a few minutes, " +
+          "or email us directly at hello@kocontentstudios.com.",
+      },
       { status: 500 },
     );
   }

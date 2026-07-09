@@ -269,6 +269,31 @@ function checkGoogle() {
   else warn("Google OAuth: not configured — 'Sign in with Google' disabled.");
 }
 
+// ── SMTP / Zoho Mail (warning only) ──────────────────────────────────
+
+function checkSmtp() {
+  const missing = ["ZOHO_SMTP_USER", "ZOHO_SMTP_PASS"].filter(
+    (k) => !process.env[k],
+  );
+  if (missing.length) {
+    warn(
+      `SMTP: missing ${missing.join(", ")} — ALL email (contact form, ` +
+        "password reset, welcome, design tickets) will fail. " +
+        "Run `node scripts/check-smtp.mjs` to diagnose.",
+    );
+    return;
+  }
+  const from = process.env.ZOHO_MAIL_FROM;
+  const user = process.env.ZOHO_SMTP_USER;
+  if (from && from !== user) {
+    warn(
+      `SMTP: ZOHO_MAIL_FROM (${from}) != ZOHO_SMTP_USER (${user}) — ` +
+        "Zoho rejects sends unless the From address is an authorized alias.",
+    );
+  }
+  ok("SMTP: Zoho credentials present (auth not verified at build time).");
+}
+
 // ── run ──────────────────────────────────────────────────────────────
 
 console.log("Running deploy preflight…\n");
@@ -276,6 +301,7 @@ await checkDb();
 await checkAi();
 await checkR2();
 checkGoogle();
+checkSmtp();
 
 console.log("");
 if (failures.length) {

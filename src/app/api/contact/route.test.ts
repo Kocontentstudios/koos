@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMail = vi.fn();
-vi.mock("@/lib/email", () => ({ sendMail: (o: unknown) => sendMail(o) }));
+vi.mock("@/lib/email", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/email")>()),
+  sendMail: (o: unknown) => sendMail(o),
+}));
 
 import { POST } from "./route";
 
