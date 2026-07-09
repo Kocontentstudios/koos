@@ -2,17 +2,46 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
-  getActiveCalendarForBrand,
   getCalendarItems,
+  getCalendarsForBrand,
   getDesignTicketsByUser,
   getStrategyById,
 } from "@/lib/db/queries";
+import { isUuid } from "@/lib/validation/uuid";
 import { CalendarClient } from "./calendar-client";
-import type { BrandSummary, SerializedCalendar, SerializedItem } from "./types";
+import type {
+  BrandSummary,
+  CalendarOption,
+  SerializedCalendar,
+  SerializedItem,
+} from "./types";
 
-export default async function CalendarPage() {
+function calendarRangeLabel(startDate: Date, endDate: Date): string {
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  return `${fmt(startDate)} – ${fmt(endDate)}`;
+}
+
+export default async function CalendarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ calendarId?: string }>;
+}) {
   const { dbUser, brand } = await requireBrand();
-  const calendar = await getActiveCalendarForBrand(brand.id);
+  const { calendarId } = await searchParams;
+
+  // All calendars for the brand (newest first); the URL may pin a specific
+  // one, otherwise fall back to the latest. Non-owned ids simply don't match.
+  const brandCalendars = await getCalendarsForBrand(brand.id);
+  const selected =
+    (calendarId && isUuid(calendarId)
+      ? brandCalendars.find((c) => c.calendar.id === calendarId)
+      : undefined) ?? brandCalendars[0];
+  const calendar = selected?.calendar ?? null;
 
   if (!calendar) {
     return (
@@ -76,6 +105,12 @@ export default async function CalendarPage() {
     status: it.status,
   }));
 
+  // Picker options across every strategy's calendar, newest first.
+  const calendarOptions: CalendarOption[] = brandCalendars.map((c) => ({
+    id: c.calendar.id,
+    label: `${c.strategyName} · ${calendarRangeLabel(c.calendar.startDate, c.calendar.endDate)}`,
+  }));
+
   return (
     <CalendarClient
       calendar={serializedCalendar}
@@ -83,6 +118,7 @@ export default async function CalendarPage() {
       brand={brandSummary}
       campaignName={strategy?.name ?? null}
       submittedItemIds={submittedItemIds}
+      calendarOptions={calendarOptions}
     />
   );
 }

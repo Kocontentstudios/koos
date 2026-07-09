@@ -18,6 +18,7 @@ import { RequestDesignModal } from "./request-design-modal";
 import type {
   BrandSummary,
   CalendarItem,
+  CalendarOption,
   CalendarView,
   SerializedCalendar,
   SerializedItem,
@@ -41,6 +42,7 @@ interface CalendarClientProps {
   brand: BrandSummary;
   campaignName: string | null;
   submittedItemIds: string[];
+  calendarOptions: CalendarOption[];
 }
 
 export function CalendarClient({
@@ -49,6 +51,7 @@ export function CalendarClient({
   brand,
   campaignName,
   submittedItemIds,
+  calendarOptions,
 }: CalendarClientProps) {
   const submittedSet = useMemo(
     () => new Set(submittedItemIds),
@@ -75,6 +78,19 @@ export function CalendarClient({
     "date",
     parseAsString.withDefault(defaultDate),
   );
+  // ?calendarId= selects which strategy's calendar is shown. shallow:false so
+  // the server component re-runs and loads the selected calendar's items.
+  const [, setCalendarId] = useQueryState(
+    "calendarId",
+    parseAsString.withOptions({ shallow: false }),
+  );
+
+  function switchCalendar(id: string) {
+    if (id === calendar.id) return;
+    // Reset the focused date so the view lands on the new calendar's start.
+    setDateKey(null);
+    setCalendarId(id);
+  }
 
   const focused = useMemo(() => new Date(`${dateKey}T00:00:00Z`), [dateKey]);
 
@@ -121,12 +137,27 @@ export function CalendarClient({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Left: campaign label + view switcher (template calendar-header-left). */}
+        {/* Left: strategy/calendar picker + view switcher (template calendar-header-left). */}
         <div className="flex flex-wrap items-center gap-3">
-          {campaignName && (
-            <span className="inline-flex items-center rounded-lg border border-[var(--border)] bg-surface-1 px-3.5 py-2 text-[13px] text-[var(--text-secondary)]">
-              {campaignName}
-            </span>
+          {calendarOptions.length > 1 ? (
+            <select
+              value={calendar.id}
+              onChange={(e) => switchCalendar(e.target.value)}
+              aria-label="Switch strategy calendar"
+              className="h-[38px] max-w-[280px] cursor-pointer truncate rounded-lg border border-[var(--border)] bg-surface-1 px-3 text-[13px] text-[var(--text-secondary)] outline-none transition-colors hover:border-[var(--border-accent)] focus-visible:border-primary"
+            >
+              {calendarOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            campaignName && (
+              <span className="inline-flex items-center rounded-lg border border-[var(--border)] bg-surface-1 px-3.5 py-2 text-[13px] text-[var(--text-secondary)]">
+                {campaignName}
+              </span>
+            )
           )}
           <ViewToggle value={view} onChange={(v) => setView(v)} />
         </div>

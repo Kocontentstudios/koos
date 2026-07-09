@@ -406,6 +406,25 @@ export async function getActiveCalendarForBrand(brandId: string) {
   return row ?? null;
 }
 
+/** All of a brand's calendars with their strategy names, newest first. */
+export async function getCalendarsForBrand(brandId: string) {
+  return db
+    .select({ calendar: calendars, strategyName: strategies.name })
+    .from(calendars)
+    .innerJoin(strategies, eq(calendars.strategyId, strategies.id))
+    .where(eq(calendars.brandId, brandId))
+    .orderBy(desc(calendars.createdAt));
+}
+
+export async function getCalendarById(id: string) {
+  const [row] = await db
+    .select()
+    .from(calendars)
+    .where(eq(calendars.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function getCalendarItems(calendarId: string) {
   return db
     .select()
