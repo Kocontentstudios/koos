@@ -2,23 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthUser = vi.fn();
 const getBrandById = vi.fn();
-const createStrategy = vi.fn();
-const recordUsageEvent = vi.fn();
-const generateObject = vi.fn();
+const createGenerationJob = vi.fn();
+const executeGenerationJob = vi.fn();
+const generateStrategyWork = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/db/queries", () => ({
   getBrandById: (id: string) => getBrandById(id),
-  createStrategy: (data: unknown) => createStrategy(data),
-  recordUsageEvent: (data: unknown) => recordUsageEvent(data),
+  createGenerationJob: (data: unknown) => createGenerationJob(data),
 }));
-vi.mock("ai", () => ({ generateObject: (opts: unknown) => generateObject(opts) }));
-vi.mock("@/lib/ai/provider", () => ({ getModel: () => ({}) }));
-vi.mock("@/lib/ai/strategy-schema", () => ({ strategySchema: {} }));
-vi.mock("@/lib/ai/prompts/strategy", () => ({
-  buildStrategistSystemPrompt: () => "sys",
-  buildStrategyGenerationPrompt: () => "prompt",
+vi.mock("@/lib/jobs/run-generation", () => ({
+  executeGenerationJob: (id: string, work: () => Promise<unknown>) =>
+    executeGenerationJob(id, work),
+  generateStrategyWork: (args: unknown) => generateStrategyWork(args),
 }));
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: async () => ({ ok: true, retryAfterSeconds: 0 }),
+  tooManyRequests: () => new Response(null, { status: 429 }),
+}));
+// Run the post-response work inline so assertions can see it.
+vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
 
 import { POST } from "./route";
 
@@ -34,11 +37,19 @@ describe("strategy generate route", () => {
       userId: "u1",
       name: "Acme",
     });
-    generateObject.mockResolvedValue({ object: { campaignName: "Camp" } });
-    createStrategy.mockResolvedValue({ id: "s1" });
+    createGenerationJob.mockResolvedValue({ id: "job-1" });
+    executeGenerationJob.mockImplementation(
+      async (_id: string, work: () => Promise<unknown>) => {
+        await work();
+      },
+    );
+    generateStrategyWork.mockResolvedValue({
+      resultId: "s1",
+      result: { strategyId: "s1" },
+    });
   });
 
-  it("stores the conversationId on the created strategy", async () => {
+  it("returns 202 with a job id and forwards conversationId to the work", async () => {
     const req = new Request("http://x/api/strategy/generate", {
       method: "POST",
       body: JSON.stringify({
@@ -48,12 +59,19 @@ describe("strategy generate route", () => {
       }),
     });
     const res = await POST(req);
-    expect(res.status).toBe(200);
-    expect(createStrategy).toHaveBeenCalledWith(
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { jobId: string };
+    expect(body.jobId).toBe("job-1");
+    expect(createGenerationJob).toHaveBeenCalledWith(
       expect.objectContaining({
+        kind: "strategy",
+        userId: "u1",
         brandId: BRAND_ID,
-        conversationId: CONVERSATION_ID,
+        input: { conversationId: CONVERSATION_ID },
       }),
+    );
+    expect(generateStrategyWork).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID }),
     );
   });
 
@@ -63,8 +81,8 @@ describe("strategy generate route", () => {
       body: JSON.stringify({ brandId: BRAND_ID, conversation: "user: hi" }),
     });
     const res = await POST(req);
-    expect(res.status).toBe(200);
-    expect(createStrategy).toHaveBeenCalledWith(
+    expect(res.status).toBe(202);
+    expect(generateStrategyWork).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: null }),
     );
   });
@@ -80,6 +98,17 @@ describe("strategy generate route", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
-    expect(createStrategy).not.toHaveBeenCalled();
+    expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("does not create a job for a brand the caller doesn't own", async () => {
+    getBrandById.mockResolvedValue({ id: BRAND_ID, userId: "someone-else" });
+    const req = new Request("http://x/api/strategy/generate", {
+      method: "POST",
+      body: JSON.stringify({ brandId: BRAND_ID, conversation: "user: hi" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(404);
+    expect(createGenerationJob).not.toHaveBeenCalled();
   });
 });

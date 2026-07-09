@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2Icon, Plus, X } from "lucide-react";
+import { Loader2Icon, MessageSquare, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,12 @@ export interface StrategyHistoryItem {
   name: string;
   updatedAt: Date;
   status?: string;
+}
+
+export interface ConversationListItem {
+  id: string;
+  title: string | null;
+  updatedAt: Date;
 }
 
 interface StrategyHistoryProps {
@@ -21,6 +27,16 @@ interface StrategyHistoryProps {
   onNew: () => void;
   /** When provided, renders a close button (mobile drawer). */
   onClose?: () => void;
+  /** Past chat conversations (persisted); click to reopen one. */
+  conversations?: ConversationListItem[];
+  activeConversationId?: string | null;
+  loadingConversationId?: string | null;
+  onSelectConversation?: (id: string) => void;
+}
+
+function conversationLabel(c: ConversationListItem): string {
+  if (c.title) return c.title;
+  return `Chat from ${new Date(c.updatedAt).toLocaleDateString()}`;
 }
 
 export function StrategyHistory({
@@ -30,6 +46,10 @@ export function StrategyHistory({
   onSelect,
   onNew,
   onClose,
+  conversations = [],
+  activeConversationId = null,
+  loadingConversationId = null,
+  onSelectConversation,
 }: StrategyHistoryProps) {
   return (
     <>
@@ -60,6 +80,60 @@ export function StrategyHistory({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
+        {onSelectConversation && conversations.length > 0 && (
+          <div className="mb-3">
+            <h4 className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              Recent Chats
+            </h4>
+            <ul className="space-y-1">
+              {conversations.map((c) => {
+                const active = c.id === activeConversationId;
+                const loading = c.id === loadingConversationId;
+                return (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelectConversation(c.id)}
+                      disabled={loading}
+                      aria-current={active ? "true" : undefined}
+                      className={cn(
+                        "flex w-full items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-70",
+                        active && "border-l-2 border-l-primary bg-surface-2",
+                      )}
+                    >
+                      <MessageSquare
+                        size={13}
+                        className="mt-0.5 shrink-0 text-[var(--text-muted)]"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] text-foreground">
+                          {conversationLabel(c)}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-[var(--text-muted)]">
+                          {new Date(c.updatedAt).toLocaleDateString()}
+                        </span>
+                      </span>
+                      {loading && (
+                        <Loader2Icon
+                          size={13}
+                          className="mt-0.5 shrink-0 animate-spin text-[var(--text-muted)]"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mx-2 mt-3 h-px bg-[var(--divider)]" />
+          </div>
+        )}
+        {onSelectConversation && conversations.length > 0 && (
+          <h4 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+            Strategies
+          </h4>
+        )}
         {pastStrategies.length === 0 ? (
           <p className="px-2 py-3 text-[13px] text-[var(--text-secondary)]">
             No strategies yet.

@@ -151,6 +151,18 @@ export function CreateBrandForm({
     if (step > 0) setStep((s) => s - 1);
   }
 
+  // Direct jumps from the step indicator. Business Basics (step 0) is the
+  // only gated section: jumping forward past it while invalid is blocked.
+  function handleStepSelect(target: number) {
+    if (target === step) return;
+    if (target > 0 && !step0Valid) {
+      toast.error("Please complete the required Business Basics fields first");
+      setStep(0);
+      return;
+    }
+    setStep(target);
+  }
+
   function buildPayload() {
     const platforms = state.platforms
       .filter((p) => p !== "Other")
@@ -252,7 +264,11 @@ export function CreateBrandForm({
 
       {/* Progress */}
       <div className="mb-8">
-        <ProgressSteps steps={STEP_LABELS} current={step} />
+        <ProgressSteps
+          steps={STEP_LABELS}
+          current={step}
+          onSelect={handleStepSelect}
+        />
       </div>
 
       {/* Unified card: section-title band → fields → action bar */}

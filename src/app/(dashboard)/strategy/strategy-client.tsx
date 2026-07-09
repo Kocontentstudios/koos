@@ -13,8 +13,13 @@ import { cn } from "@/lib/utils";
 import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
 import { MessageList } from "./message-list";
+import { pollGenerationJob } from "./poll-job";
 import { PromptChips } from "./prompt-chips";
-import { StrategyHistory, type StrategyHistoryItem } from "./strategy-history";
+import {
+  type ConversationListItem,
+  StrategyHistory,
+  type StrategyHistoryItem,
+} from "./strategy-history";
 import { StrategyPanel } from "./strategy-panel";
 
 interface StrategyClientProps {
@@ -22,6 +27,7 @@ interface StrategyClientProps {
   brandContext: ChatBrandContext;
   brandName: string;
   pastStrategies?: StrategyHistoryItem[];
+  conversations?: ConversationListItem[];
   initialMessages?: UIMessage[];
   initialConversationId?: string | null;
 }
@@ -31,6 +37,7 @@ export function StrategyClient({
   brandContext,
   brandName,
   pastStrategies = [],
+  conversations = [],
   initialMessages = [],
   initialConversationId = null,
 }: StrategyClientProps) {
@@ -52,6 +59,9 @@ export function StrategyClient({
   const [loadingStrategyId, setLoadingStrategyId] = useState<string | null>(
     null,
   );
+  const [loadingConversationId, setLoadingConversationId] = useState<
+    string | null
+  >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const transport = useMemo(
@@ -104,6 +114,8 @@ export function StrategyClient({
       .join("\n\n");
 
     try {
+      // The generate route returns 202 + a job id immediately; poll for the
+      // result so no request is held open long enough to hit proxy timeouts.
       const res = await fetch("/api/strategy/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,10 +125,11 @@ export function StrategyClient({
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Strategy generation failed");
       }
-      const data = (await res.json()) as {
+      const { jobId } = (await res.json()) as { jobId: string };
+      const data = await pollGenerationJob<{
         strategy: Strategy;
         strategyId: string;
-      };
+      }>(jobId);
       setStrategy(data.strategy);
       setStrategyId(data.strategyId);
       setPanelCollapsed(false);
@@ -143,7 +156,11 @@ export function StrategyClient({
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Calendar generation failed");
       }
-      router.push("/calendar");
+      const { jobId } = (await res.json()) as { jobId: string };
+      const { calendarId } = await pollGenerationJob<{ calendarId: string }>(
+        jobId,
+      );
+      router.push(`/calendar?calendarId=${calendarId}`);
     } catch (err) {
       setCalendarError(
         err instanceof Error ? err.message : "An error occurred",
@@ -160,6 +177,34 @@ export function StrategyClient({
     setBuildError(null);
     setLoadError(null);
     setHistoryOpen(false);
+  };
+
+  // Reopen a persisted conversation: fetch its messages and make it the
+  // active chat (subsequent turns append to the same conversation row).
+  const handleSelectConversation = async (id: string) => {
+    if (id === conversationId || loadingConversationId) return;
+    setLoadError(null);
+    setLoadingConversationId(id);
+    try {
+      const res = await fetch(`/api/chat/conversations/${id}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error ?? "Could not load chat.");
+      }
+      const data = (await res.json()) as { messages: UIMessage[] };
+      setConversationId(id);
+      setMessages(data.messages);
+      setStrategy(null);
+      setStrategyId(null);
+      setBuildError(null);
+      setHistoryOpen(false);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load chat.");
+    } finally {
+      setLoadingConversationId(null);
+    }
   };
 
   // Load a saved strategy into the summary/card and seed the chat with a recap
@@ -215,6 +260,10 @@ export function StrategyClient({
           loadingId={loadingStrategyId}
           onSelect={handleSelectStrategy}
           onNew={handleNewStrategy}
+          conversations={conversations}
+          activeConversationId={conversationId}
+          loadingConversationId={loadingConversationId}
+          onSelectConversation={handleSelectConversation}
         />
       </aside>
 
@@ -240,6 +289,10 @@ export function StrategyClient({
           onSelect={handleSelectStrategy}
           onNew={handleNewStrategy}
           onClose={() => setHistoryOpen(false)}
+          conversations={conversations}
+          activeConversationId={conversationId}
+          loadingConversationId={loadingConversationId}
+          onSelectConversation={handleSelectConversation}
         />
       </aside>
 

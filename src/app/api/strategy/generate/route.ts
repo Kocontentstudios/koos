@@ -1,24 +1,39 @@
-import { generateObject } from "ai";
-import {
-  buildStrategistSystemPrompt,
-  buildStrategyGenerationPrompt,
-} from "@/lib/ai/prompts/strategy";
-import { getModel } from "@/lib/ai/provider";
-import { strategySchema } from "@/lib/ai/strategy-schema";
+import { after } from "next/server";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { createGenerationJob, getBrandById } from "@/lib/db/queries";
 import {
-  createStrategy,
-  getBrandById,
-  recordUsageEvent,
-} from "@/lib/db/queries";
+  executeGenerationJob,
+  generateStrategyWork,
+} from "@/lib/jobs/run-generation";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
 
+// Headroom for the post-response generation work kicked off via after().
+export const maxDuration = 300;
+
+/**
+ * Kicks off strategy generation as an async job and returns 202 + jobId
+ * immediately; the client polls /api/jobs/[id]. The request is never held
+ * open for the model call, so proxy timeouts (Cloudflare 524) can't trigger.
+ */
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
-  let body: { brandId?: string; conversation?: string; conversationId?: string };
+
+  const verdict = await checkRateLimit({
+    key: `strategy-generate:${dbUser.id}`,
+    limit: 10,
+    windowSeconds: 3600,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
+
+  let body: {
+    brandId?: string;
+    conversation?: string;
+    conversationId?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -32,60 +47,30 @@ export async function POST(req: Request) {
     );
   }
   if (conversationId != null && !isUuid(conversationId)) {
-    return Response.json(
-      { error: "Invalid conversationId" },
-      { status: 400 },
-    );
+    return Response.json({ error: "Invalid conversationId" }, { status: 400 });
   }
   const brand = await getBrandById(brandId);
   if (!brand || brand.userId !== dbUser.id) {
     return Response.json({ error: "Brand not found" }, { status: 404 });
   }
-  const summary = {
-    name: brand.name,
-    overview: brand.overview,
-    businessType: brand.businessType,
-    stage: brand.stage,
-    targetAudience: brand.targetAudience,
-    offer: brand.offer,
-    tone: brand.tone,
-    primaryGoal: brand.primaryGoal,
-    values: brand.values,
-    wordsLove: brand.wordsLove,
-    wordsAvoid: brand.wordsAvoid,
-    brandStyle: brand.brandStyle,
-    competitors: brand.competitors,
-    differentiators: brand.differentiators,
-    platforms: brand.platforms,
-    primaryPlatform: brand.primaryPlatform,
-    postingFrequency: brand.postingFrequency,
-  };
-  try {
-    const { object } = await generateObject({
-      model: getModel("strategy"),
-      schema: strategySchema,
-      system: buildStrategistSystemPrompt(summary),
-      prompt: buildStrategyGenerationPrompt(conversation, summary),
-    });
-    const strategy = await createStrategy({
-      brandId,
-      conversationId: conversationId ?? null,
-      name: object.campaignName,
-      structured: object,
-      status: "active",
-    });
-    await recordUsageEvent({
-      userId: dbUser.id,
-      brandId,
-      kind: "strategy_generated",
-      metadata: { strategyId: strategy.id },
-    });
-    return Response.json({ strategy: object, strategyId: strategy.id });
-  } catch (err) {
-    console.error("strategy generation failed", err);
-    return Response.json(
-      { error: "Strategy generation failed. Please try again." },
-      { status: 500 },
-    );
-  }
+
+  const job = await createGenerationJob({
+    kind: "strategy",
+    userId: dbUser.id,
+    brandId,
+    input: { conversationId: conversationId ?? null },
+  });
+
+  after(() =>
+    executeGenerationJob(job.id, () =>
+      generateStrategyWork({
+        brand,
+        conversation,
+        conversationId: conversationId ?? null,
+        userId: dbUser.id,
+      }),
+    ),
+  );
+
+  return Response.json({ jobId: job.id }, { status: 202 });
 }

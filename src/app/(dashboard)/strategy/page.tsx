@@ -3,6 +3,7 @@ import { requireBrand } from "@/lib/auth/require-brand";
 import {
   getConversationMessages,
   getLatestConversationForBrand,
+  getRecentConversationsForBrand,
   getStrategiesByBrand,
 } from "@/lib/db/queries";
 import { StrategyClient } from "./strategy-client";
@@ -37,7 +38,10 @@ export default async function StrategyPage() {
 
   void dbUser; // used for auth check via requireBrand
 
-  const latestConversation = await getLatestConversationForBrand(brand.id);
+  const [latestConversation, recentConversations] = await Promise.all([
+    getLatestConversationForBrand(brand.id),
+    getRecentConversationsForBrand(brand.id),
+  ]);
   const initialMessages = latestConversation
     ? rowsToUiMessages(
         (await getConversationMessages(latestConversation.id)).map((m) => ({
@@ -48,12 +52,19 @@ export default async function StrategyPage() {
       )
     : [];
 
+  const conversations = recentConversations.map((c) => ({
+    id: c.id,
+    title: c.title,
+    updatedAt: c.updatedAt,
+  }));
+
   return (
     <StrategyClient
       brandId={brand.id}
       brandName={brand.name}
       brandContext={brandContext}
       pastStrategies={pastStrategies}
+      conversations={conversations}
       initialMessages={initialMessages}
       initialConversationId={latestConversation?.id ?? null}
     />

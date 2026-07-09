@@ -8,6 +8,7 @@ import {
   isNull,
   lt,
   ne,
+  sql,
 } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
@@ -21,8 +22,10 @@ import {
   chatMessages,
   designDeliverables,
   designTickets,
+  generationJobs,
   notifications,
   passwordResetTokens,
+  rateLimits,
   strategies,
   ticketUpdates,
   usageEvents,
@@ -295,6 +298,18 @@ export async function getRecentConversations(userId: string, limit = 10) {
     .limit(limit);
 }
 
+export async function getRecentConversationsForBrand(
+  brandId: string,
+  limit = 15,
+) {
+  return db
+    .select()
+    .from(chatConversations)
+    .where(eq(chatConversations.brandId, brandId))
+    .orderBy(desc(chatConversations.updatedAt))
+    .limit(limit);
+}
+
 export async function getConversationMessages(conversationId: string) {
   return db
     .select()
@@ -404,6 +419,25 @@ export async function getActiveCalendarForBrand(brandId: string) {
   return row ?? null;
 }
 
+/** All of a brand's calendars with their strategy names, newest first. */
+export async function getCalendarsForBrand(brandId: string) {
+  return db
+    .select({ calendar: calendars, strategyName: strategies.name })
+    .from(calendars)
+    .innerJoin(strategies, eq(calendars.strategyId, strategies.id))
+    .where(eq(calendars.brandId, brandId))
+    .orderBy(desc(calendars.createdAt));
+}
+
+export async function getCalendarById(id: string) {
+  const [row] = await db
+    .select()
+    .from(calendars)
+    .where(eq(calendars.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function getCalendarItems(calendarId: string) {
   return db
     .select()
@@ -419,6 +453,32 @@ export async function updateCalendarItemStatus(
   const [row] = await db
     .update(calendarItems)
     .set({ status, updatedAt: new Date() })
+    .where(eq(calendarItems.id, id))
+    .returning();
+  return row;
+}
+
+/** Partial update of a calendar item's editable content fields. */
+export async function updateCalendarItem(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof calendarItems.$inferInsert,
+      | "date"
+      | "time"
+      | "platform"
+      | "contentType"
+      | "title"
+      | "brief"
+      | "designRequired"
+      | "designType"
+      | "dimensions"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(calendarItems)
+    .set({ ...data, updatedAt: new Date() })
     .where(eq(calendarItems.id, id))
     .returning();
   return row;
@@ -642,6 +702,72 @@ export async function postTicketProgressUpdate(input: {
 export async function recordUsageEvent(data: typeof usageEvents.$inferInsert) {
   const [row] = await db.insert(usageEvents).values(data).returning();
   return row;
+}
+
+// ── Generation jobs ─────────────────────────────────────────────────
+
+export async function createGenerationJob(data: {
+  kind: (typeof generationJobs.$inferInsert)["kind"];
+  userId: string;
+  brandId: string;
+  input?: unknown;
+}) {
+  const [row] = await db.insert(generationJobs).values(data).returning();
+  return row;
+}
+
+export async function updateGenerationJob(
+  id: string,
+  patch: Partial<
+    Pick<
+      typeof generationJobs.$inferInsert,
+      "status" | "resultId" | "result" | "error"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(generationJobs)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(generationJobs.id, id))
+    .returning();
+  return row;
+}
+
+export async function getGenerationJobById(id: string) {
+  const [row] = await db
+    .select()
+    .from(generationJobs)
+    .where(eq(generationJobs.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+// ── Rate limiting ───────────────────────────────────────────────────
+
+/**
+ * Atomically record one hit against a fixed-window counter and return the
+ * window's running total. A single upsert keeps concurrent requests correct:
+ * if the stored window has expired the counter resets to 1, otherwise it
+ * increments in place.
+ */
+export async function hitRateLimit(key: string, windowSeconds: number) {
+  const rows = await db.execute<{ count: number; window_start: string }>(sql`
+    INSERT INTO ${rateLimits} ("key", "count", "window_start")
+    VALUES (${key}, 1, now())
+    ON CONFLICT ("key") DO UPDATE SET
+      "count" = CASE
+        WHEN ${rateLimits.windowStart} <= now() - make_interval(secs => ${windowSeconds})
+        THEN 1 ELSE ${rateLimits.count} + 1 END,
+      "window_start" = CASE
+        WHEN ${rateLimits.windowStart} <= now() - make_interval(secs => ${windowSeconds})
+        THEN now() ELSE ${rateLimits.windowStart} END
+    RETURNING "count", "window_start"
+  `);
+  const row = rows[0];
+  return {
+    count: Number(row.count),
+    windowStart: new Date(row.window_start),
+  };
 }
 
 // ── Admin dashboard ─────────────────────────────────────────────────

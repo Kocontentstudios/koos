@@ -355,6 +355,53 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const generationJobKindEnum = pgEnum("generation_job_kind", [
+  "strategy",
+  "calendar",
+]);
+
+export const generationJobStatusEnum = pgEnum("generation_job_status", [
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+]);
+
+/* Async AI generation jobs. The generate routes create a row, return its id
+   immediately (202), and run the actual model call after the response via
+   next/server after(); the client polls /api/jobs/[id]. This keeps requests
+   under proxy timeouts (Cloudflare cuts held connections at ~100s). */
+export const generationJobs = pgTable("generation_jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  kind: generationJobKindEnum("kind").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  brandId: uuid("brand_id")
+    .notNull()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  status: generationJobStatusEnum("status").notNull().default("pending"),
+  input: jsonb("input"),
+  /** id of the created strategy/calendar once succeeded. */
+  resultId: uuid("result_id"),
+  /** Response payload the client would have received synchronously. */
+  result: jsonb("result"),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/* Fixed-window rate limiting counters. One row per (endpoint, caller) key,
+   e.g. "login:1.2.3.4" or "chat:<userId>". Rows are upserted atomically by
+   hitRateLimit(); stale rows are harmless (the window check resets them). */
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  windowStart: timestamp("window_start", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const usageEvents = pgTable("usage_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

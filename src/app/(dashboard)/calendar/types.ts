@@ -31,6 +31,12 @@ export interface SerializedCalendar {
   endDate: string;
 }
 
+/** One entry in the calendar/strategy picker: "<strategy> · <date range>". */
+export interface CalendarOption {
+  id: string;
+  label: string;
+}
+
 /** Minimal brand info needed to prefill the Request Design modal. */
 export interface BrandSummary {
   id: string;
