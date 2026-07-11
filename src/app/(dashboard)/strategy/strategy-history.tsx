@@ -75,7 +75,7 @@ export function StrategyHistory({
           className="w-full justify-center"
         >
           <Plus className="size-4" />
-          New Strategy
+          New Chat
         </Button>
       </div>
 

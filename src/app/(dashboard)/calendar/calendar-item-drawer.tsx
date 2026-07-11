@@ -209,7 +209,7 @@ export function CalendarItemDrawer({
               {item.brief && (
                 <>
                   <Divider />
-                  <Section label="Caption / Brief">
+                  <Section label="Brief">
                     <p className="whitespace-pre-wrap">{item.brief}</p>
                   </Section>
                 </>
@@ -306,7 +306,7 @@ export function CalendarItemDrawer({
                 />
               </EditField>
 
-              <EditField id="ci-brief" label="Caption / Brief">
+              <EditField id="ci-brief" label="Brief">
                 <textarea
                   id="ci-brief"
                   value={draft.brief ?? ""}

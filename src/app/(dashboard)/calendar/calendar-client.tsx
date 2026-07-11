@@ -72,7 +72,7 @@ export function CalendarClient({
   // URL state: ?view=… & ?date=YYYY-MM-DD — shareable / back-button friendly.
   const [view, setView] = useQueryState(
     "view",
-    parseAsStringLiteral(VIEWS).withDefault("week"),
+    parseAsStringLiteral(VIEWS).withDefault("month"),
   );
   const [dateKey, setDateKey] = useQueryState(
     "date",
