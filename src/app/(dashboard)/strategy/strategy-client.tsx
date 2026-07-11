@@ -6,12 +6,15 @@ import { DefaultChatTransport } from "ai";
 import { PanelRight, PanelsTopLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import type { ConversationMode } from "@/app/api/chat/ensure-conversation";
 import { Button } from "@/components/ui/button";
+import type { DesignBrief } from "@/lib/ai/design-brief-schema";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Strategy } from "@/lib/ai/strategy-schema";
 import { cn } from "@/lib/utils";
 import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
+import { DesignBriefPanel } from "./design-brief-panel";
 import { MessageList } from "./message-list";
 import { pollGenerationJob } from "./poll-job";
 import { PromptChips } from "./prompt-chips";
@@ -30,6 +33,8 @@ interface StrategyClientProps {
   conversations?: ConversationListItem[];
   initialMessages?: UIMessage[];
   initialConversationId?: string | null;
+  /** "design" opens the workspace in Design Request Mode. */
+  initialMode?: ConversationMode;
 }
 
 export function StrategyClient({
@@ -40,14 +45,17 @@ export function StrategyClient({
   conversations = [],
   initialMessages = [],
   initialConversationId = null,
+  initialMode = "strategy",
 }: StrategyClientProps) {
   const router = useRouter();
   const [conversationId, setConversationId] = useState<string>(
     () => initialConversationId ?? crypto.randomUUID(),
   );
+  const [mode, setMode] = useState<ConversationMode>(initialMode);
   const [input, setInput] = useState("");
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [strategyId, setStrategyId] = useState<string | null>(null);
+  const [brief, setBrief] = useState<DesignBrief | null>(null);
   const [buildPending, setBuildPending] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [calendarPending, setCalendarPending] = useState(false);
@@ -68,9 +76,9 @@ export function StrategyClient({
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
-        body: { brandContext, brandId, conversationId },
+        body: { brandContext, brandId, conversationId, mode },
       }),
-    [brandContext, brandId, conversationId],
+    [brandContext, brandId, conversationId, mode],
   );
 
   const {
@@ -88,12 +96,18 @@ export function StrategyClient({
   const handleSend = () => {
     const text = input.trim();
     if (!text || isLoading) return;
-    sendMessage({ text }, { body: { brandContext, brandId, conversationId } });
+    sendMessage(
+      { text },
+      { body: { brandContext, brandId, conversationId, mode } },
+    );
     setInput("");
   };
 
   const handlePickChip = (text: string) => {
-    sendMessage({ text }, { body: { brandContext, brandId, conversationId } });
+    sendMessage(
+      { text },
+      { body: { brandContext, brandId, conversationId, mode } },
+    );
   };
 
   const handleBuildStrategy = async () => {
@@ -169,11 +183,53 @@ export function StrategyClient({
     }
   };
 
+  // In design mode the build button generates a structured design brief
+  // instead of a strategy; the brief lands in the right-hand panel for review.
+  const handleGenerateBrief = async () => {
+    setBuildPending(true);
+    setBuildError(null);
+    const conversation = messages
+      .map((m) => {
+        const text =
+          m.parts
+            ?.filter(
+              (p): p is Extract<(typeof m.parts)[number], { type: "text" }> =>
+                p.type === "text",
+            )
+            .map((p) => p.text)
+            .join("") ?? "";
+        return `${m.role}: ${text}`;
+      })
+      .join("\n\n");
+
+    try {
+      const res = await fetch("/api/design-brief/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId, conversation }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Brief generation failed");
+      }
+      const { jobId } = (await res.json()) as { jobId: string };
+      const data = await pollGenerationJob<{ brief: DesignBrief }>(jobId);
+      setBrief(data.brief);
+      setPanelCollapsed(false);
+      setSummaryOpen(true);
+    } catch (err) {
+      setBuildError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setBuildPending(false);
+    }
+  };
+
   const handleNewStrategy = () => {
     setConversationId(crypto.randomUUID());
     setMessages([]);
     setStrategy(null);
     setStrategyId(null);
+    setBrief(null);
     setBuildError(null);
     setLoadError(null);
     setHistoryOpen(false);
@@ -195,9 +251,13 @@ export function StrategyClient({
       }
       const data = (await res.json()) as { messages: UIMessage[] };
       setConversationId(id);
+      // Follow the reopened conversation's mode so replies use the right prompt.
+      const reopened = conversations.find((c) => c.id === id);
+      if (reopened?.mode) setMode(reopened.mode);
       setMessages(data.messages);
       setStrategy(null);
       setStrategyId(null);
+      setBrief(null);
       setBuildError(null);
       setHistoryOpen(false);
     } catch (err) {
@@ -248,7 +308,9 @@ export function StrategyClient({
     }
   };
 
-  const showBuildButton = messages.length >= 2 && !strategy && !isLoading;
+  const isDesignMode = mode === "design";
+  const showBuildButton =
+    messages.length >= 2 && !(isDesignMode ? brief : strategy) && !isLoading;
 
   return (
     <div className="h-[calc(100vh-56px)] flex overflow-hidden -mx-4 -my-6 md:-mx-8 md:-my-8">
@@ -339,13 +401,12 @@ export function StrategyClient({
                 KO
               </div>
               <div className="rounded-xl rounded-tl-sm border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm leading-relaxed text-foreground">
-                Hi! I&apos;m KO, your content strategist. Tell me about your
-                campaign, product, or goal and I&apos;ll build a content
-                strategy for you. Pick one to get started, or describe it in
-                your own words.
+                {isDesignMode
+                  ? "Hi! I'm KO. Let's get your design request ready for the KO design team. Tell me what you need — what it's about, what it should achieve, and the format (flyer, carousel, banner…). Pick one to get started, or describe it in your own words."
+                  : "Hi! I'm KO, your content strategist. Tell me about your campaign, product, or goal and I'll build a content strategy for you. Pick one to get started, or describe it in your own words."}
               </div>
             </div>
-            <PromptChips onPick={handlePickChip} />
+            <PromptChips onPick={handlePickChip} mode={mode} />
           </div>
         )}
 
@@ -378,8 +439,14 @@ export function StrategyClient({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={handleBuildStrategy}
-                  aria-label="Retry build strategy"
+                  onClick={
+                    isDesignMode ? handleGenerateBrief : handleBuildStrategy
+                  }
+                  aria-label={
+                    isDesignMode
+                      ? "Retry generate design brief"
+                      : "Retry build strategy"
+                  }
                 >
                   Retry
                 </Button>
@@ -388,13 +455,21 @@ export function StrategyClient({
             {showBuildButton && (
               <Button
                 variant="default"
-                onClick={handleBuildStrategy}
+                onClick={
+                  isDesignMode ? handleGenerateBrief : handleBuildStrategy
+                }
                 loading={buildPending}
-                loadingText="Building…"
-                aria-label="Build strategy from conversation"
+                loadingText={isDesignMode ? "Generating…" : "Building…"}
+                aria-label={
+                  isDesignMode
+                    ? "Generate design brief from conversation"
+                    : "Build strategy from conversation"
+                }
                 className="self-start"
               >
-                {`Build Strategy for ${brandName}`}
+                {isDesignMode
+                  ? "Generate Design Brief"
+                  : `Build Strategy for ${brandName}`}
               </Button>
             )}
           </div>
@@ -410,21 +485,36 @@ export function StrategyClient({
         />
       </div>
 
-      {/* Right strategy-summary panel — the single strategy surface (collapsible) */}
-      <StrategyPanel
-        strategy={strategy}
-        collapsed={panelCollapsed}
-        onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
-        onGenerateCalendar={handleGenerateCalendar}
-        onEdit={() => {
-          setStrategy(null);
-          setSummaryOpen(false);
-        }}
-        generating={calendarPending}
-        calendarError={calendarError}
-        mobileOpen={summaryOpen}
-        onMobileClose={() => setSummaryOpen(false)}
-      />
+      {/* Right panel — design brief in design mode, strategy summary otherwise */}
+      {isDesignMode ? (
+        <DesignBriefPanel
+          brief={brief}
+          brandId={brandId}
+          collapsed={panelCollapsed}
+          onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
+          onEdit={() => {
+            setBrief(null);
+            setSummaryOpen(false);
+          }}
+          mobileOpen={summaryOpen}
+          onMobileClose={() => setSummaryOpen(false)}
+        />
+      ) : (
+        <StrategyPanel
+          strategy={strategy}
+          collapsed={panelCollapsed}
+          onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
+          onGenerateCalendar={handleGenerateCalendar}
+          onEdit={() => {
+            setStrategy(null);
+            setSummaryOpen(false);
+          }}
+          generating={calendarPending}
+          calendarError={calendarError}
+          mobileOpen={summaryOpen}
+          onMobileClose={() => setSummaryOpen(false)}
+        />
+      )}
     </div>
   );
 }

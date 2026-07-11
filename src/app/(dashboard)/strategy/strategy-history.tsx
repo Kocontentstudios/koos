@@ -15,6 +15,7 @@ export interface ConversationListItem {
   id: string;
   title: string | null;
   updatedAt: Date;
+  mode?: "strategy" | "design";
 }
 
 interface StrategyHistoryProps {
@@ -75,7 +76,7 @@ export function StrategyHistory({
           className="w-full justify-center"
         >
           <Plus className="size-4" />
-          New Strategy
+          New Chat
         </Button>
       </div>
 
@@ -110,8 +111,13 @@ export function StrategyHistory({
                         <span className="block truncate text-[13px] text-foreground">
                           {conversationLabel(c)}
                         </span>
-                        <span className="mt-0.5 block text-[11px] text-[var(--text-muted)]">
+                        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                           {new Date(c.updatedAt).toLocaleDateString()}
+                          {c.mode === "design" && (
+                            <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary">
+                              Design
+                            </span>
+                          )}
                         </span>
                       </span>
                       {loading && (

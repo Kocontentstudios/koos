@@ -1,9 +1,14 @@
 import { generateObject } from "ai";
 import { calendarPlanSchema } from "@/lib/ai/calendar-schema";
+import { designBriefSchema } from "@/lib/ai/design-brief-schema";
 import {
   buildCalendarGenerationPrompt,
   buildCalendarSystemPrompt,
 } from "@/lib/ai/prompts/calendar";
+import {
+  buildDesignBriefGenerationPrompt,
+  buildDesignBriefSystemPrompt,
+} from "@/lib/ai/prompts/design-request";
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import {
   buildStrategistSystemPrompt,
@@ -11,7 +16,8 @@ import {
 } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import { type Strategy, strategySchema } from "@/lib/ai/strategy-schema";
-import { toCalendarRows, upcomingMonday } from "@/lib/calendar/schedule";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { resolveStartDate, toCalendarRows } from "@/lib/calendar/schedule";
 import {
   createCalendar,
   createStrategy,
@@ -47,7 +53,8 @@ export function brandSummaryFrom(brand: BrandRow): BrandSummary {
 }
 
 interface JobOutcome {
-  resultId: string;
+  /** id of a created row (strategy/calendar); omitted for ephemeral results. */
+  resultId?: string;
   /** The payload the client reads from the job once it succeeds. */
   result: unknown;
 }
@@ -91,6 +98,7 @@ export async function generateStrategyWork(args: {
   conversation: string;
   conversationId: string | null;
   userId: string;
+  sessionId?: string | null;
 }): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
   const { object } = await generateObject({
@@ -112,6 +120,15 @@ export async function generateStrategyWork(args: {
     kind: "strategy_generated",
     metadata: { strategyId: strategy.id },
   });
+  await captureServerEvent({
+    distinctId: args.userId,
+    event: "strategy_generated",
+    properties: {
+      brand_id: args.brand.id,
+      strategy_id: strategy.id,
+      session_id: args.sessionId ?? null,
+    },
+  });
   return {
     resultId: strategy.id,
     result: { strategy: object, strategyId: strategy.id },
@@ -124,16 +141,20 @@ export async function generateCalendarWork(args: {
   strategy: StrategyRow;
   structured: Strategy;
   userId: string;
+  sessionId?: string | null;
 }): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
   const { object: plan } = await generateObject({
     model: getModel("strategy"),
     schema: calendarPlanSchema,
-    system: buildCalendarSystemPrompt(summary),
-    prompt: buildCalendarGenerationPrompt(args.structured, summary),
+    system: buildCalendarSystemPrompt(summary, todayIso),
+    prompt: buildCalendarGenerationPrompt(args.structured, summary, todayIso),
   });
 
-  const scheduled = toCalendarRows(plan, upcomingMonday(new Date()));
+  // Honor the strategy's timeline via the AI-declared (validated) start date.
+  const scheduled = toCalendarRows(plan, resolveStartDate(plan.startDate, now));
 
   const calendar = await createCalendar({
     brandId: args.brand.id,
@@ -162,5 +183,42 @@ export async function generateCalendarWork(args: {
     kind: "calendar_generated",
     metadata: { calendarId: calendar.id, items: scheduled.rows.length },
   });
+  await captureServerEvent({
+    distinctId: args.userId,
+    event: "calendar_generated",
+    properties: {
+      brand_id: args.brand.id,
+      calendar_id: calendar.id,
+      items: scheduled.rows.length,
+      session_id: args.sessionId ?? null,
+    },
+  });
   return { resultId: calendar.id, result: { calendarId: calendar.id } };
+}
+
+/** Turn a design-request conversation into a structured brief (not persisted —
+ * the client reviews it, then submits it as a design ticket). */
+export async function generateDesignBriefWork(args: {
+  brand: BrandRow;
+  conversation: string;
+  userId: string;
+  sessionId?: string | null;
+}): Promise<JobOutcome> {
+  const summary = brandSummaryFrom(args.brand);
+  const { object } = await generateObject({
+    model: getModel("strategy"),
+    schema: designBriefSchema,
+    system: buildDesignBriefSystemPrompt(summary),
+    prompt: buildDesignBriefGenerationPrompt(args.conversation, summary),
+  });
+  await captureServerEvent({
+    distinctId: args.userId,
+    event: "design_brief_generated",
+    properties: {
+      brand_id: args.brand.id,
+      design_type: object.designType,
+      session_id: args.sessionId ?? null,
+    },
+  });
+  return { result: { brief: object } };
 }

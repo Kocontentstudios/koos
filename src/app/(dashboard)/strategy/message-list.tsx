@@ -58,7 +58,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
             {/* Bubble — user text is plain; assistant text is markdown. */}
             <div
-              className={`rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
+              className={`min-w-0 break-words rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
                 isUser
                   ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
                   : "bg-surface-1 border-[var(--border)] rounded-tl-sm"

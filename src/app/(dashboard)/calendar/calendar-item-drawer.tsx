@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
 import {
   Sheet,
   SheetContent,
@@ -209,8 +210,8 @@ export function CalendarItemDrawer({
               {item.brief && (
                 <>
                   <Divider />
-                  <Section label="Caption / Brief">
-                    <p className="whitespace-pre-wrap">{item.brief}</p>
+                  <Section label="Brief">
+                    <Markdown className="text-[13px]">{item.brief}</Markdown>
                   </Section>
                 </>
               )}
@@ -306,7 +307,7 @@ export function CalendarItemDrawer({
                 />
               </EditField>
 
-              <EditField id="ci-brief" label="Caption / Brief">
+              <EditField id="ci-brief" label="Brief">
                 <textarea
                   id="ci-brief"
                   value={draft.brief ?? ""}

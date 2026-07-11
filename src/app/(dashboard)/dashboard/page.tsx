@@ -222,8 +222,8 @@ export default async function DashboardPage() {
           icon: Palette,
           tint: "bg-[rgba(151,196,89,0.12)] text-success",
           title: "Request a Design",
-          desc: "Send a brief to the KO design team from any calendar item.",
-          href: "/design-request",
+          desc: "Chat with KO AI to build a design brief and send it to the design team.",
+          href: "/strategy?mode=design",
         }
       : null,
     setupComplete
@@ -257,7 +257,10 @@ export default async function DashboardPage() {
         <div className="mt-6 flex flex-wrap items-center gap-6">
           {setupComplete ? (
             <>
-              <div className="flex items-center gap-3">
+              <Link
+                href="/calendar"
+                className="-m-2 flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/10"
+              >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#85B7EB]">
                   <CalendarDays size={18} />
                 </div>
@@ -269,8 +272,11 @@ export default async function DashboardPage() {
                     Posts this week
                   </span>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
+              </Link>
+              <Link
+                href="/design-request"
+                className="-m-2 flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/10"
+              >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#85B7EB]">
                   <Palette size={18} />
                 </div>
@@ -282,7 +288,7 @@ export default async function DashboardPage() {
                     Open design tickets
                   </span>
                 </div>
-              </div>
+              </Link>
             </>
           ) : (
             <>
@@ -308,12 +314,14 @@ export default async function DashboardPage() {
               </div>
             </>
           )}
-          <Link
-            href={setup.nextCta.href}
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-white/15 px-5 text-[14px] font-semibold text-white transition-colors hover:bg-white/25"
-          >
-            {setup.nextCta.label} <ArrowRight size={16} />
-          </Link>
+          {!setupComplete && (
+            <Link
+              href={setup.nextCta.href}
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-white/15 px-5 text-[14px] font-semibold text-white transition-colors hover:bg-white/25"
+            >
+              {setup.nextCta.label} <ArrowRight size={16} />
+            </Link>
+          )}
         </div>
       </div>
 

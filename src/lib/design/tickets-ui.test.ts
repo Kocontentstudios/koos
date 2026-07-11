@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   defaultDueDate,
   formatNotificationMessage,
-  humanizeStatus,
   humanizePriority,
+  humanizeStatus,
   isCarouselType,
   matchesTicketFilter,
   priorityRank,
@@ -96,7 +96,9 @@ describe("formatNotificationMessage — ticket_status", () => {
     expect(
       formatNotificationMessage({
         type: "ticket_status",
-        payload: { message: "Started on your carousel — first draft tomorrow." },
+        payload: {
+          message: "Started on your carousel — first draft tomorrow.",
+        },
       }),
     ).toBe("Started on your carousel — first draft tomorrow.");
   });

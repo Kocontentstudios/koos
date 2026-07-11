@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Markdown } from "@/components/ui/markdown";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
   getDeliverables,
@@ -11,8 +12,8 @@ import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { TicketStatusBadge } from "../ticket-status-badge";
 import {
-  type TimelineUpdate,
   TicketUpdatesTimeline,
+  type TimelineUpdate,
 } from "../ticket-updates-timeline";
 import { ReviewActions } from "./review-actions";
 
@@ -77,7 +78,7 @@ export default async function TicketDetailPage({
 
       <section className="grid gap-4 rounded-xl border border-[var(--border)] bg-surface-1 p-5 sm:grid-cols-2">
         <Detail label="Brief" full>
-          <p className="whitespace-pre-wrap">{ticket.brief}</p>
+          <Markdown className="text-sm">{ticket.brief}</Markdown>
         </Detail>
         {ticket.notes && (
           <Detail label="Notes" full>

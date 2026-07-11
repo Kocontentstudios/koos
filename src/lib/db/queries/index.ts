@@ -356,6 +356,13 @@ export async function touchConversation(id: string) {
     .where(eq(chatConversations.id, id));
 }
 
+export async function updateConversationTitle(id: string, title: string) {
+  await db
+    .update(chatConversations)
+    .set({ title, updatedAt: new Date() })
+    .where(eq(chatConversations.id, id));
+}
+
 // ── Strategies ──────────────────────────────────────────────────────
 
 export async function createStrategy(data: typeof strategies.$inferInsert) {

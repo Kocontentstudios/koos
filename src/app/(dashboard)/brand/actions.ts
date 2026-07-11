@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createBrand,
@@ -59,6 +61,18 @@ export async function saveBrandProfile(
     : await createBrand({ userId: dbUser.id, ...profile });
 
   if (!brand) return { ok: false, error: "Failed to save" };
+
+  // First transition into "completed" = the user finished their Brand Brain.
+  if (!existing || existing.onboardingStatus !== "completed") {
+    await captureServerEvent({
+      distinctId: dbUser.id,
+      event: "brand_brain_completed",
+      properties: {
+        brand_id: brand.id,
+        session_id: await getAnalyticsSessionId(),
+      },
+    });
+  }
 
   revalidatePath("/brand");
   revalidatePath("/dashboard");

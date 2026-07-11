@@ -7,6 +7,7 @@ import "./globals.css";
 // is safe and avoids the per-route CSS chunk that left /login unstyled on soft
 // navigation from the home page.
 import "./landing.css";
+import { PostHogProvider } from "@/components/analytics/posthog-provider";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -60,6 +61,7 @@ export default function RootLayout({
           shadow="0 0 10px #138BC8, 0 0 5px #138BC8"
         />
         <Providers>
+          <PostHogProvider />
           <TooltipProvider delay={200}>{children}</TooltipProvider>
           <Toaster position="bottom-right" richColors closeButton />
         </Providers>
