@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   type Capability,
   evaluateBrandAccess,
@@ -8,6 +8,8 @@ import { db } from "@/lib/db/client";
 import {
   brands,
   memberBrandAccess,
+  users,
+  workspaceInvitations,
   workspaceMembers,
   workspaces,
 } from "@/lib/db/schema";
@@ -178,4 +180,152 @@ export async function getActiveBrandForMember(
 ) {
   const list = await getBrandsForMember(workspaceId, userId);
   return list[0] ?? null;
+}
+
+// ── Members ──────────────────────────────────────────────────────────
+
+export async function getWorkspaceMembers(workspaceId: string) {
+  return db
+    .select({
+      membershipId: workspaceMembers.id,
+      role: workspaceMembers.role,
+      joinedAt: workspaceMembers.createdAt,
+      user: {
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+      },
+    })
+    .from(workspaceMembers)
+    .innerJoin(users, eq(workspaceMembers.userId, users.id))
+    .where(eq(workspaceMembers.workspaceId, workspaceId))
+    .orderBy(workspaceMembers.role, workspaceMembers.createdAt);
+}
+
+/** Idempotent: accepting an invite twice (or racing) is a no-op. */
+export async function addWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+  role: WorkspaceRole,
+) {
+  await db
+    .insert(workspaceMembers)
+    .values({ workspaceId, userId, role })
+    .onConflictDoNothing();
+}
+
+export async function removeWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+) {
+  await db
+    .delete(memberBrandAccess)
+    .where(
+      and(
+        eq(memberBrandAccess.workspaceId, workspaceId),
+        eq(memberBrandAccess.userId, userId),
+      ),
+    );
+  await db
+    .delete(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspaceId),
+        eq(workspaceMembers.userId, userId),
+      ),
+    );
+}
+
+// ── Invitations ──────────────────────────────────────────────────────
+
+export async function getPendingInvitations(workspaceId: string) {
+  return db
+    .select()
+    .from(workspaceInvitations)
+    .where(
+      and(
+        eq(workspaceInvitations.workspaceId, workspaceId),
+        isNull(workspaceInvitations.acceptedAt),
+      ),
+    )
+    .orderBy(desc(workspaceInvitations.createdAt));
+}
+
+/** citext column ⇒ equality is case-insensitive at the DB level. */
+export async function getPendingInvitationByEmail(
+  workspaceId: string,
+  email: string,
+) {
+  const [row] = await db
+    .select({ id: workspaceInvitations.id })
+    .from(workspaceInvitations)
+    .where(
+      and(
+        eq(workspaceInvitations.workspaceId, workspaceId),
+        eq(workspaceInvitations.email, email),
+        isNull(workspaceInvitations.acceptedAt),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function createWorkspaceInvitation(input: {
+  workspaceId: string;
+  email: string;
+  tokenHash: string;
+  invitedById: string;
+  expiresAt: Date;
+}) {
+  const [row] = await db
+    .insert(workspaceInvitations)
+    .values(input)
+    .returning({ id: workspaceInvitations.id });
+  return row;
+}
+
+export async function getInvitationById(id: string) {
+  const [row] = await db
+    .select()
+    .from(workspaceInvitations)
+    .where(eq(workspaceInvitations.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getInvitationByTokenHash(tokenHash: string) {
+  const [row] = await db
+    .select({
+      invitation: workspaceInvitations,
+      workspaceName: workspaces.name,
+    })
+    .from(workspaceInvitations)
+    .innerJoin(workspaces, eq(workspaceInvitations.workspaceId, workspaces.id))
+    .where(eq(workspaceInvitations.tokenHash, tokenHash))
+    .limit(1);
+  return row ? { ...row.invitation, workspaceName: row.workspaceName } : null;
+}
+
+export async function rotateInvitationToken(
+  id: string,
+  tokenHash: string,
+  expiresAt: Date,
+) {
+  await db
+    .update(workspaceInvitations)
+    .set({ tokenHash, expiresAt })
+    .where(eq(workspaceInvitations.id, id));
+}
+
+export async function deleteInvitation(id: string) {
+  await db.delete(workspaceInvitations).where(eq(workspaceInvitations.id, id));
+}
+
+export async function markInvitationAccepted(id: string) {
+  await db
+    .update(workspaceInvitations)
+    .set({ acceptedAt: new Date() })
+    .where(eq(workspaceInvitations.id, id));
 }
