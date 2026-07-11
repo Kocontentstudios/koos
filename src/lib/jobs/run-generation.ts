@@ -16,7 +16,7 @@ import {
 } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import { type Strategy, strategySchema } from "@/lib/ai/strategy-schema";
-import { toCalendarRows, upcomingMonday } from "@/lib/calendar/schedule";
+import { resolveStartDate, toCalendarRows } from "@/lib/calendar/schedule";
 import {
   createCalendar,
   createStrategy,
@@ -132,14 +132,17 @@ export async function generateCalendarWork(args: {
   userId: string;
 }): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
   const { object: plan } = await generateObject({
     model: getModel("strategy"),
     schema: calendarPlanSchema,
-    system: buildCalendarSystemPrompt(summary),
-    prompt: buildCalendarGenerationPrompt(args.structured, summary),
+    system: buildCalendarSystemPrompt(summary, todayIso),
+    prompt: buildCalendarGenerationPrompt(args.structured, summary, todayIso),
   });
 
-  const scheduled = toCalendarRows(plan, upcomingMonday(new Date()));
+  // Honor the strategy's timeline via the AI-declared (validated) start date.
+  const scheduled = toCalendarRows(plan, resolveStartDate(plan.startDate, now));
 
   const calendar = await createCalendar({
     brandId: args.brand.id,

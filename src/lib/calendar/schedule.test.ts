@@ -2,23 +2,39 @@ import { describe, expect, it } from "vitest";
 import {
   itemDate,
   parseTimeToMinutes,
+  resolveStartDate,
   toCalendarRows,
-  upcomingMonday,
   utcMidnight,
 } from "./schedule";
 
-describe("upcomingMonday", () => {
-  it("returns the same day when it's already Monday", () => {
-    const mon = new Date("2026-06-15T10:00:00Z"); // Monday
-    expect(upcomingMonday(mon).toISOString()).toBe("2026-06-15T00:00:00.000Z");
+describe("resolveStartDate", () => {
+  const today = new Date("2026-07-11T15:00:00Z");
+
+  it("uses a valid future date from the plan", () => {
+    expect(resolveStartDate("2026-08-01", today).toISOString()).toBe(
+      "2026-08-01T00:00:00.000Z",
+    );
   });
-  it("jumps to next Monday from a Wednesday", () => {
-    const wed = new Date("2026-06-17T10:00:00Z"); // Wednesday
-    expect(upcomingMonday(wed).toISOString()).toBe("2026-06-22T00:00:00.000Z");
+  it("clamps a past date to today (UTC midnight)", () => {
+    expect(resolveStartDate("2026-07-01", today).toISOString()).toBe(
+      "2026-07-11T00:00:00.000Z",
+    );
   });
-  it("returns tomorrow from a Sunday", () => {
-    const sun = new Date("2026-06-21T23:00:00Z"); // Sunday
-    expect(upcomingMonday(sun).toISOString()).toBe("2026-06-22T00:00:00.000Z");
+  it("falls back to today when the plan omits or malforms the date", () => {
+    expect(resolveStartDate(undefined, today).toISOString()).toBe(
+      "2026-07-11T00:00:00.000Z",
+    );
+    expect(resolveStartDate("August 1st", today).toISOString()).toBe(
+      "2026-07-11T00:00:00.000Z",
+    );
+    expect(resolveStartDate("2026-13-45", today).toISOString()).toBe(
+      "2026-07-11T00:00:00.000Z",
+    );
+  });
+  it("falls back to today when the date is more than a year out", () => {
+    expect(resolveStartDate("2028-01-01", today).toISOString()).toBe(
+      "2026-07-11T00:00:00.000Z",
+    );
   });
 });
 
@@ -45,6 +61,7 @@ describe("parseTimeToMinutes", () => {
 describe("toCalendarRows", () => {
   const start = new Date("2026-06-15T00:00:00Z"); // Monday
   const plan = {
+    startDate: "2026-06-15",
     items: [
       {
         dayOffset: 2,
