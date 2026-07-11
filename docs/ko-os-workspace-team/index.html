@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KO OS - Workspace & Team Feature</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+    <!-- ============================================
+         SIDEBAR
+         ============================================ -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-brand-logo">KO</div>
+            <div class="sidebar-brand-text">
+                <div class="sidebar-brand-name">KO OS</div>
+                <div class="sidebar-brand-tagline">Brand Brain</div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="#" class="sidebar-nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+            <a href="#" class="sidebar-nav-item" data-view="brands" onclick="switchView('brands')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/></svg>
+                Brands
+            </a>
+            <a href="#" class="sidebar-nav-item" data-view="campaigns" onclick="switchView('campaigns')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                Campaigns
+            </a>
+            <a href="#" class="sidebar-nav-item" data-view="calendar" onclick="switchView('calendar')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Calendar
+            </a>
+            <a href="#" class="sidebar-nav-item" data-view="design-tickets" onclick="switchView('design-tickets')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                Design Tickets
+            </a>
+            <a href="#" class="sidebar-nav-item" data-view="team" onclick="switchView('team')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Team
+            </a>
+        </nav>
+
+        <!-- WORKSPACE CARD -->
+        <div class="workspace-card" id="workspaceCard" onclick="toggleWorkspaceMenu(event)">
+            <div class="workspace-card-inner">
+                <div class="workspace-card-avatar" id="workspaceAvatar" style="background: linear-gradient(135deg, #3B82F6, #8B5CF6);">KO</div>
+                <div class="workspace-card-info">
+                    <div class="workspace-card-name" id="workspaceName">KO Content Studio</div>
+                    <div class="workspace-card-role" id="workspaceRole">Owner</div>
+                </div>
+                <svg class="workspace-card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+
+            <!-- WORKSPACE MENU -->
+            <div class="workspace-menu" id="workspaceMenu" onclick="event.stopPropagation()">
+                <div class="workspace-menu-section">
+                    <div class="workspace-menu-item current">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                        Current Workspace
+                    </div>
+                </div>
+                <div class="workspace-menu-section">
+                    <div class="workspace-switcher-item active" onclick="switchWorkspace('ko-content-studio')">
+                        <div class="workspace-switcher-avatar" style="background: linear-gradient(135deg, #3B82F6, #8B5CF6);">KO</div>
+                        <div class="workspace-switcher-info">
+                            <div class="workspace-switcher-name">KO Content Studio</div>
+                            <div class="workspace-switcher-role">Owner</div>
+                        </div>
+                        <svg class="workspace-switcher-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+                    <div class="workspace-switcher-item" onclick="switchWorkspace('cropcura')">
+                        <div class="workspace-switcher-avatar" style="background: linear-gradient(135deg, #10B981, #059669);">CC</div>
+                        <div class="workspace-switcher-info">
+                            <div class="workspace-switcher-name">CropCura</div>
+                            <div class="workspace-switcher-role">Member</div>
+                        </div>
+                        <svg class="workspace-switcher-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+                    <div class="workspace-switcher-item" onclick="switchWorkspace('growcle')">
+                        <div class="workspace-switcher-avatar" style="background: linear-gradient(135deg, #F59E0B, #D97706);">GR</div>
+                        <div class="workspace-switcher-info">
+                            <div class="workspace-switcher-name">Growcle</div>
+                            <div class="workspace-switcher-role">Member</div>
+                        </div>
+                        <svg class="workspace-switcher-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+                </div>
+                <div class="workspace-menu-section">
+                    <div class="workspace-menu-item" onclick="switchView('team'); toggleWorkspaceMenu(event);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        Manage Team
+                    </div>
+                    <div class="workspace-menu-item" onclick="switchView('workspace-settings'); toggleWorkspaceMenu(event);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        Workspace Settings
+                    </div>
+                </div>
+                <div class="workspace-menu-section">
+                    <div class="workspace-menu-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        My Account
+                    </div>
+                    <div class="workspace-menu-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        Log Out
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ============================================
+         MAIN CONTENT
+         ============================================ -->
+    <main class="main">
+
+        <!-- ============================================
+             DASHBOARD VIEW
+             ============================================ -->
+        <div class="view active" id="view-dashboard">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">Your brand at a glance</p>
+                </div>
+                <div class="top-bar-right">
+                    <div class="search-bar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted); flex-shrink: 0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" placeholder="Search...">
+                    </div>
+                    <button class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Create Brand
+                    </button>
+                    <button class="btn-icon tooltip">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </button>
+                    <button class="btn-icon tooltip">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    </button>
+                    <button class="btn-icon tooltip" style="padding: 0; overflow: hidden;">
+                        <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #EC4899, #8B5CF6); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px;">PO</div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Welcome Banner -->
+            <div class="welcome-banner animate-in">
+                <div class="welcome-badge">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    All set
+                </div>
+                <h2 class="welcome-title">Welcome back, Precious</h2>
+                <p class="welcome-subtitle">Your workspace is humming. Here's what's coming up across your content and designs.</p>
+                <div class="welcome-metrics">
+                    <div class="welcome-metric">
+                        <div class="welcome-metric-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </div>
+                        <div>
+                            <div class="welcome-metric-value">10</div>
+                            <div class="welcome-metric-label">Posts this week</div>
+                        </div>
+                    </div>
+                    <div class="welcome-metric">
+                        <div class="welcome-metric-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                        </div>
+                        <div>
+                            <div class="welcome-metric-value">4</div>
+                            <div class="welcome-metric-label">Open design tickets</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary" style="margin-left: auto;">
+                        View Your Calendar
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Invite Your Team Card (shown when no team members) -->
+            <div class="invite-card animate-in" id="inviteCard" style="margin-bottom: var(--section-gap);">
+                <div class="invite-card-header">
+                    <div class="invite-card-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    </div>
+                    <div>
+                        <div class="invite-card-title">Invite Your Team</div>
+                        <div class="invite-card-subtitle">Invite someone you trust to manage your content operations inside KO OS.</div>
+                    </div>
+                </div>
+                <p class="invite-card-desc">Many founders don't operate content daily. Invite a trusted teammate to generate strategies, manage calendars and run your content operations while everything stays inside your business workspace.</p>
+                <div class="invite-card-actions">
+                    <button class="btn btn-primary" onclick="openInviteModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Invite Team
+                    </button>
+                    <button class="btn btn-secondary">Learn More</button>
+                </div>
+            </div>
+
+            <!-- Team Overview Card (shown after team members exist - hidden by default) -->
+            <div class="team-overview" id="teamOverviewCard" style="display: none; margin-bottom: var(--section-gap);">
+                <div class="team-overview-header">
+                    <div class="team-overview-stats">
+                        <div class="team-overview-stat">
+                            <div class="team-overview-stat-value" id="teamMemberCount">3</div>
+                            <div class="team-overview-stat-label">Members</div>
+                        </div>
+                        <div class="team-overview-stat">
+                            <div class="team-overview-stat-value" id="pendingCount">1</div>
+                            <div class="team-overview-stat-label">Pending Invitations</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: var(--element-gap);">
+                        <div class="team-overview-avatars">
+                            <div class="team-overview-avatar" style="background: linear-gradient(135deg, #EC4899, #8B5CF6);">PO</div>
+                            <div class="team-overview-avatar" style="background: linear-gradient(135deg, #3B82F6, #06B6D4);">SK</div>
+                            <div class="team-overview-avatar" style="background: linear-gradient(135deg, #10B981, #84CC16);">AM</div>
+                        </div>
+                        <a href="#" class="card-link" onclick="switchView('team')">Manage Team &rarr;</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Grid -->
+            <div class="grid-2" style="margin-bottom: var(--section-gap);">
+                <!-- This Week Card -->
+                <div class="card animate-in">
+                    <div class="card-header">
+                        <div class="card-header-left">
+                            <div class="card-header-icon blue">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </div>
+                            <div class="card-title">This Week</div>
+                        </div>
+                        <a href="#" class="card-link" onclick="switchView('calendar')">Open calendar &rarr;</a>
+                    </div>
+                    <div class="calendar-item">
+                        <div class="calendar-item-date">
+                            <div class="calendar-item-day">13</div>
+                            <div class="calendar-item-weekday">Mon</div>
+                        </div>
+                        <div class="calendar-item-content">
+                            <div class="calendar-item-title">You're Not Losing Because of Budget — You're Losing Because of This</div>
+                            <div class="calendar-item-meta">Instagram <span class="calendar-item-meta-dot"></span> 9:00 AM <span class="calendar-item-meta-dot"></span> Carousel</div>
+                        </div>
+                        <span class="badge badge-yellow">Draft</span>
+                    </div>
+                    <div class="calendar-item">
+                        <div class="calendar-item-date">
+                            <div class="calendar-item-day">13</div>
+                            <div class="calendar-item-weekday">Mon</div>
+                        </div>
+                        <div class="calendar-item-content">
+                            <div class="calendar-item-title">Why Your Marketing Feels Chaotic (It's Not What You Think)</div>
+                            <div class="calendar-item-meta">TikTok <span class="calendar-item-meta-dot"></span> 10:00 AM <span class="calendar-item-meta-dot"></span> Short-Form Video / Reel</div>
+                        </div>
+                        <span class="badge badge-yellow">Draft</span>
+                    </div>
+                    <div class="calendar-item">
+                        <div class="calendar-item-date">
+                            <div class="calendar-item-day">13</div>
+                            <div class="calendar-item-weekday">Mon</div>
+                        </div>
+                        <div class="calendar-item-content">
+                            <div class="calendar-item-title">The Tool-Stack Trap Thread</div>
+                            <div class="calendar-item-meta">X (Twitter) <span class="calendar-item-meta-dot"></span> 11:00 AM <span class="calendar-item-meta-dot"></span> Thought Leadership Text Post</div>
+                        </div>
+                        <span class="badge badge-yellow">Draft</span>
+                    </div>
+                    <div class="calendar-item">
+                        <div class="calendar-item-date">
+                            <div class="calendar-item-day">14</div>
+                            <div class="calendar-item-weekday">Tue</div>
+                        </div>
+                        <div class="calendar-item-content">
+                            <div class="calendar-item-title">The Real Reason Most Startups Struggle with Marketing</div>
+                            <div class="calendar-item-meta">LinkedIn <span class="calendar-item-meta-dot"></span> 9:00 AM <span class="calendar-item-meta-dot"></span> Thought Leadership Text Post</div>
+                        </div>
+                        <span class="badge badge-yellow">Draft</span>
+                    </div>
+                    <div class="calendar-item">
+                        <div class="calendar-item-date">
+                            <div class="calendar-item-day">14</div>
+                            <div class="calendar-item-weekday">Tue</div>
+                        </div>
+                        <div class="calendar-item-content">
+                            <div class="calendar-item-title">Poll: Biggest Marketing Bottleneck</div>
+                            <div class="calendar-item-meta">X (Twitter) <span class="calendar-item-meta-dot"></span> 11:00 AM <span class="calendar-item-meta-dot"></span> Poll</div>
+                        </div>
+                        <span class="badge badge-yellow">Draft</span>
+                    </div>
+                </div>
+
+                <!-- Design Tickets Card -->
+                <div class="card animate-in">
+                    <div class="card-header">
+                        <div class="card-header-left">
+                            <div class="card-header-icon green">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                            </div>
+                            <div class="card-title">Design Tickets</div>
+                        </div>
+                        <a href="#" class="card-link" onclick="switchView('design-tickets')">View all &rarr;</a>
+                    </div>
+                    <div class="grid-3" style="gap: var(--element-gap);">
+                        <div class="metric-card">
+                            <div class="metric-card-value" style="color: var(--accent-blue);">4</div>
+                            <div class="metric-card-label">Open</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-card-value" style="color: var(--accent-green);">0</div>
+                            <div class="metric-card-label">Delivered</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-card-value">4</div>
+                            <div class="metric-card-label">Total</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: var(--inner-gap); padding-top: var(--inner-gap); border-top: 1px solid var(--border-light);">
+                        <div style="font-size: 13px; color: var(--text-muted);">Latest: <span style="color: var(--text-secondary);">DT-00007</span> — Submitted</div>
+                        <div style="font-size: 14px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">Activate Windows</div>
+                        <div style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Go to Settings to activate Windows.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Cards -->
+            <div class="grid-3" style="margin-bottom: var(--section-gap);">
+                <div class="action-card animate-in" onclick="switchView('calendar')">
+                    <div class="action-card-icon pink">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    </div>
+                    <div class="action-card-title">View Your Calendar</div>
+                    <div class="action-card-desc">See your day-by-day content schedule and request designs.</div>
+                    <div class="action-card-arrow">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </div>
+                </div>
+                <div class="action-card animate-in" onclick="switchView('design-tickets')">
+                    <div class="action-card-icon green">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                    </div>
+                    <div class="action-card-title">Request a Design</div>
+                    <div class="action-card-desc">Send a brief to the KO design team from any calendar item.</div>
+                    <div class="action-card-arrow">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </div>
+                </div>
+                <div class="action-card animate-in" onclick="switchView('campaigns')">
+                    <div class="action-card-icon purple">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <div class="action-card-title">Start a New Strategy</div>
+                    <div class="action-card-desc">Plan your next campaign with KO AI.</div>
+                    <div class="action-card-arrow">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Row -->
+            <div class="grid-2">
+                <!-- Recent Activity -->
+                <div class="card animate-in">
+                    <div class="card-header">
+                        <div class="card-title">Recent Activity</div>
+                        <a href="#" class="card-link">View all &rarr;</a>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot yellow"></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Strategy generated</div>
+                            <div class="activity-desc">One System. Every Edge.</div>
+                        </div>
+                        <div class="activity-time">9h ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot green"></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Content calendar generated</div>
+                            <div class="activity-desc">31 scheduled items</div>
+                        </div>
+                        <div class="activity-time">10h ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot blue"></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Design ticket submitted</div>
+                            <div class="activity-desc">DT-00007</div>
+                        </div>
+                        <div class="activity-time">3d ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot purple"></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Brand profile created</div>
+                            <div class="activity-desc">KO Content Studios is ready for strategies and design</div>
+                        </div>
+                        <div class="activity-time">10d ago</div>
+                    </div>
+                </div>
+
+                <!-- Pro Tip -->
+                <div class="pro-tip animate-in">
+                    <div class="pro-tip-header">
+                        <span class="pro-tip-label">Pro Tip</span>
+                    </div>
+                    <div class="pro-tip-title">Activate Windows</div>
+                    <p class="pro-tip-text">Keep briefs sharp: the more context a calendar item carries, the faster the design team can turn it around.</p>
+                    <button class="btn btn-secondary btn-sm">Review Calendar</button>
+                    <div style="margin-top: var(--inner-gap); padding-top: var(--inner-gap); border-top: 1px solid var(--border-light);">
+                        <div style="font-size: 14px; color: var(--text-secondary);">Activate Windows</div>
+                        <div style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Go to Settings to activate Windows.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             TEAM PAGE - EMPTY STATE
+             ============================================ -->
+        <div class="view" id="view-team">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Team</h1>
+                    <p class="page-subtitle">Manage who has access to your workspace</p>
+                </div>
+                <div class="top-bar-right">
+                    <button class="btn btn-primary" onclick="openInviteModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Invite Team
+                    </button>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div class="card" id="teamEmptyState">
+                <div class="team-empty-state">
+                    <div class="team-empty-illustration">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    </div>
+                    <h2 class="team-empty-title">Build Your Team</h2>
+                    <p class="team-empty-desc">Invite someone you trust to manage your content operations.</p>
+                    <button class="btn btn-primary" onclick="openInviteModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Invite Team
+                    </button>
+                </div>
+            </div>
+
+            <!-- Populated State (hidden by default) -->
+            <div class="card" id="teamPopulatedState" style="display: none;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--inner-gap);">
+                    <div style="display: flex; gap: var(--small-gap);">
+                        <button class="tab active">All Members</button>
+                        <button class="tab">Pending</button>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="openInviteModal()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Invite
+                    </button>
+                </div>
+                <div class="team-member-list">
+                    <!-- Owner -->
+                    <div class="team-member-item">
+                        <div class="team-member-avatar" style="background: linear-gradient(135deg, #EC4899, #8B5CF6);">PO</div>
+                        <div class="team-member-info">
+                            <div class="team-member-name">Precious Oyenuga</div>
+                            <div class="team-member-email">preciousoyenuga@ko...</div>
+                        </div>
+                        <div class="team-member-status">
+                            <span class="badge badge-purple">Owner</span>
+                        </div>
+                        <div class="team-member-actions">
+                            <span style="font-size: 12px; color: var(--text-muted);">You</span>
+                        </div>
+                    </div>
+                    <!-- Active Member -->
+                    <div class="team-member-item">
+                        <div class="team-member-avatar" style="background: linear-gradient(135deg, #3B82F6, #06B6D4);">SK</div>
+                        <div class="team-member-info">
+                            <div class="team-member-name">Sarah Kim</div>
+                            <div class="team-member-email">sarah.kim@example.com</div>
+                        </div>
+                        <div class="team-member-status">
+                            <span class="badge badge-green">Active</span>
+                        </div>
+                        <div class="team-member-actions">
+                            <button class="btn btn-ghost btn-sm" onclick="openRemoveModal('Sarah Kim')">Remove</button>
+                        </div>
+                    </div>
+                    <!-- Active Member -->
+                    <div class="team-member-item">
+                        <div class="team-member-avatar" style="background: linear-gradient(135deg, #10B981, #84CC16);">AM</div>
+                        <div class="team-member-info">
+                            <div class="team-member-name">Alex Martinez</div>
+                            <div class="team-member-email">alex.martinez@example.com</div>
+                        </div>
+                        <div class="team-member-status">
+                            <span class="badge badge-green">Active</span>
+                        </div>
+                        <div class="team-member-actions">
+                            <button class="btn btn-ghost btn-sm" onclick="openRemoveModal('Alex Martinez')">Remove</button>
+                        </div>
+                    </div>
+                    <!-- Pending Member -->
+                    <div class="team-member-item">
+                        <div class="team-member-avatar" style="background: linear-gradient(135deg, #F59E0B, #D97706);">JC</div>
+                        <div class="team-member-info">
+                            <div class="team-member-name">James Chen</div>
+                            <div class="team-member-email">james.chen@example.com</div>
+                        </div>
+                        <div class="team-member-status">
+                            <span class="badge badge-yellow">Pending</span>
+                        </div>
+                        <div class="team-member-actions">
+                            <button class="btn btn-ghost btn-sm" onclick="resendInvitation('James Chen')">Resend</button>
+                            <button class="btn btn-ghost btn-sm" onclick="openRemoveModal('James Chen')">Remove</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             WORKSPACE SETTINGS VIEW
+             ============================================ -->
+        <div class="view" id="view-workspace-settings">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Workspace Settings</h1>
+                    <p class="page-subtitle">Manage your workspace preferences</p>
+                </div>
+            </div>
+
+            <div class="settings-section animate-in">
+                <div class="settings-section-title">Workspace Information</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Workspace Name</div>
+                        <div class="settings-row-desc">This is the name that appears across KO OS</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: var(--element-gap);">
+                        <span style="font-size: 14px; color: var(--text-primary); font-weight: 500;">KO Content Studio</span>
+                        <button class="btn btn-ghost btn-sm">Edit</button>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Workspace Logo</div>
+                        <div class="settings-row-desc">Upload a logo to represent your workspace</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: var(--element-gap);">
+                        <div style="width: 40px; height: 40px; border-radius: var(--radius-button); background: linear-gradient(135deg, #3B82F6, #8B5CF6); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; color: white;">KO</div>
+                        <button class="btn btn-ghost btn-sm">Change</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section animate-in">
+                <div class="settings-section-title">Notifications</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Email Notifications</div>
+                        <div class="settings-row-desc">Receive email updates about workspace activity</div>
+                    </div>
+                    <div class="toggle active" onclick="this.classList.toggle('active')">
+                        <div class="toggle-knob"></div>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Design Ticket Updates</div>
+                        <div class="settings-row-desc">Get notified when design tickets are updated</div>
+                    </div>
+                    <div class="toggle active" onclick="this.classList.toggle('active')">
+                        <div class="toggle-knob"></div>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label">Calendar Reminders</div>
+                        <div class="settings-row-desc">Receive reminders before scheduled posts</div>
+                    </div>
+                    <div class="toggle" onclick="this.classList.toggle('active')">
+                        <div class="toggle-knob"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section animate-in">
+                <div class="settings-section-title">Danger Zone</div>
+                <div class="settings-row">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label" style="color: var(--error-text);">Delete Workspace</div>
+                        <div class="settings-row-desc">Permanently delete this workspace and all its data</div>
+                    </div>
+                    <button class="btn btn-danger btn-sm">Delete Workspace</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             PLACEHOLDER VIEWS (Brands, Campaigns, Calendar, Design Tickets)
+             ============================================ -->
+        <div class="view" id="view-brands">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Brands</h1>
+                    <p class="page-subtitle">Manage your brand profiles</p>
+                </div>
+                <div class="top-bar-right">
+                    <button class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Create Brand
+                    </button>
+                </div>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/></svg>
+                </div>
+                <h3 class="empty-state-title">No brands yet</h3>
+                <p class="empty-state-desc">Create your first brand to start generating content strategies and calendars.</p>
+                <button class="btn btn-primary">Create Brand</button>
+            </div>
+        </div>
+
+        <div class="view" id="view-campaigns">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Campaigns</h1>
+                    <p class="page-subtitle">Plan and execute your content campaigns</p>
+                </div>
+                <div class="top-bar-right">
+                    <button class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        New Campaign
+                    </button>
+                </div>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
+                <h3 class="empty-state-title">No campaigns yet</h3>
+                <p class="empty-state-desc">Start a new campaign to generate AI-powered content strategies.</p>
+                <button class="btn btn-primary">Start Campaign</button>
+            </div>
+        </div>
+
+        <div class="view" id="view-calendar">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Calendar</h1>
+                    <p class="page-subtitle">Your content schedule at a glance</p>
+                </div>
+                <div class="top-bar-right">
+                    <button class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Post
+                    </button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="calendar-item">
+                    <div class="calendar-item-date">
+                        <div class="calendar-item-day">13</div>
+                        <div class="calendar-item-weekday">Mon</div>
+                    </div>
+                    <div class="calendar-item-content">
+                        <div class="calendar-item-title">You're Not Losing Because of Budget — You're Losing Because of This</div>
+                        <div class="calendar-item-meta">Instagram <span class="calendar-item-meta-dot"></span> 9:00 AM <span class="calendar-item-meta-dot"></span> Carousel</div>
+                    </div>
+                    <span class="badge badge-yellow">Draft</span>
+                </div>
+                <div class="calendar-item">
+                    <div class="calendar-item-date">
+                        <div class="calendar-item-day">13</div>
+                        <div class="calendar-item-weekday">Mon</div>
+                    </div>
+                    <div class="calendar-item-content">
+                        <div class="calendar-item-title">Why Your Marketing Feels Chaotic (It's Not What You Think)</div>
+                        <div class="calendar-item-meta">TikTok <span class="calendar-item-meta-dot"></span> 10:00 AM <span class="calendar-item-meta-dot"></span> Short-Form Video / Reel</div>
+                    </div>
+                    <span class="badge badge-yellow">Draft</span>
+                </div>
+                <div class="calendar-item">
+                    <div class="calendar-item-date">
+                        <div class="calendar-item-day">14</div>
+                        <div class="calendar-item-weekday">Tue</div>
+                    </div>
+                    <div class="calendar-item-content">
+                        <div class="calendar-item-title">The Real Reason Most Startups Struggle with Marketing</div>
+                        <div class="calendar-item-meta">LinkedIn <span class="calendar-item-meta-dot"></span> 9:00 AM <span class="calendar-item-meta-dot"></span> Thought Leadership</div>
+                    </div>
+                    <span class="badge badge-yellow">Draft</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="view" id="view-design-tickets">
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h1 class="page-title">Design Tickets</h1>
+                    <p class="page-subtitle">Track your design requests</p>
+                </div>
+                <div class="top-bar-right">
+                    <button class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        New Ticket
+                    </button>
+                </div>
+            </div>
+            <div class="grid-3" style="margin-bottom: var(--section-gap);">
+                <div class="metric-card">
+                    <div class="metric-card-value" style="color: var(--accent-blue);">4</div>
+                    <div class="metric-card-label">Open</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-value" style="color: var(--accent-green);">0</div>
+                    <div class="metric-card-label">Delivered</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-value">4</div>
+                    <div class="metric-card-label">Total</div>
+                </div>
+            </div>
+            <div class="card">
+                <div style="padding: 20px 0; border-bottom: 1px solid var(--border-light);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">DT-00007 — Activate Windows</div>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Submitted 3 days ago</div>
+                        </div>
+                        <span class="badge badge-blue">Open</span>
+                    </div>
+                </div>
+                <div style="padding: 20px 0; border-bottom: 1px solid var(--border-light);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">DT-00006 — Social Media Banner Set</div>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Submitted 5 days ago</div>
+                        </div>
+                        <span class="badge badge-blue">Open</span>
+                    </div>
+                </div>
+                <div style="padding: 20px 0;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">DT-00005 — Instagram Carousel Templates</div>
+                            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Submitted 1 week ago</div>
+                        </div>
+                        <span class="badge badge-blue">Open</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ============================================
+         MODALS
+         ============================================ -->
+
+    <!-- Invite Team Modal -->
+    <div class="modal-overlay" id="inviteModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeInviteModal()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="modal-header">
+                <div class="modal-title">Invite Your Team</div>
+                <div class="modal-subtitle">Invite someone you trust to manage your content operations inside KO OS.</div>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-success" id="inviteSuccessAlert" style="display: none;">
+                    <svg class="alert-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <div class="alert-content">
+                        <div class="alert-title">Invitation Sent Successfully</div>
+                        <div class="alert-text">They'll receive an email to join your workspace.</div>
+                    </div>
+                </div>
+                <div class="alert alert-error" id="inviteErrorAlert" style="display: none;">
+                    <svg class="alert-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--error-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <div class="alert-content">
+                        <div class="alert-title" id="errorAlertTitle">Invalid Email</div>
+                        <div class="alert-text" id="errorAlertText">Please enter a valid email address.</div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email Address</label>
+                    <input type="email" class="form-input" id="inviteEmail" placeholder="teammate@company.com">
+                    <div class="form-error" id="emailError" style="display: none;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <span id="emailErrorText">Please enter a valid email address</span>
+                    </div>
+                    <div class="form-hint">We'll send them an invitation email to join your workspace.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeInviteModal()">Cancel</button>
+                <button class="btn btn-primary" id="sendInviteBtn" onclick="sendInvitation()">
+                    <span id="sendInviteText">Send Invitation</span>
+                    <div class="loading-spinner" id="sendInviteSpinner" style="display: none;"></div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Remove Member Confirmation Modal -->
+    <div class="modal-overlay" id="removeModal">
+        <div class="modal" style="max-width: 400px;">
+            <button class="modal-close" onclick="closeRemoveModal()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div class="modal-body">
+                <div class="confirm-dialog">
+                    <div class="confirm-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </div>
+                    <div class="confirm-title">Remove Team Member?</div>
+                    <div class="confirm-text">Are you sure you want to remove <strong id="removeMemberName" style="color: var(--text-primary);">Sarah Kim</strong> from your workspace? They will immediately lose access to all workspace data.</div>
+                    <div class="confirm-actions">
+                        <button class="btn btn-secondary" onclick="closeRemoveModal()">Cancel</button>
+                        <button class="btn btn-danger" onclick="confirmRemove()">Remove Member</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workspace Switching Overlay -->
+    <div class="modal-overlay" id="switchingOverlay" style="background: var(--overlay); z-index: 2000;">
+        <div style="text-align: center;">
+            <div class="loading-spinner" style="width: 40px; height: 40px; border-width: 3px; margin: 0 auto 16px;"></div>
+            <div style="font-size: 16px; font-weight: 600; color: var(--text-primary);">Switching Workspace...</div>
+            <div style="font-size: 14px; color: var(--text-secondary); margin-top: 4px;">Loading <span id="switchingWorkspaceName">CropCura</span></div>
+        </div>
+    </div>
+
+
+    <!-- ============================================
+         JAVASCRIPT
+         ============================================ -->
+    <script>
+        // ============================================
+        // VIEW NAVIGATION
+        // ============================================
+
+        function switchView(viewName) {
+            // Hide all views
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+
+            // Show target view
+            const targetView = document.getElementById('view-' + viewName);
+            if (targetView) {
+                targetView.classList.add('active');
+            }
+
+            // Update sidebar active state
+            document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.view === viewName) {
+                    item.classList.add('active');
+                }
+            });
+
+            // Close workspace menu if open
+            document.getElementById('workspaceCard').classList.remove('open');
+
+            // Scroll to top
+            window.scrollTo(0, 0);
+        }
+
+        // ============================================
+        // WORKSPACE MENU
+        // ============================================
+
+        function toggleWorkspaceMenu(event) {
+            event.stopPropagation();
+            const card = document.getElementById('workspaceCard');
+            card.classList.toggle('open');
+        }
+
+        // Close workspace menu when clicking outside
+        document.addEventListener('click', function(event) {
+            const card = document.getElementById('workspaceCard');
+            const menu = document.getElementById('workspaceMenu');
+            if (!card.contains(event.target)) {
+                card.classList.remove('open');
+            }
+        });
+
+        // ============================================
+        // WORKSPACE SWITCHING
+        // ============================================
+
+        const workspaces = {
+            'ko-content-studio': {
+                name: 'KO Content Studio',
+                initials: 'KO',
+                role: 'Owner',
+                gradient: 'linear-gradient(135deg, #3B82F6, #8B5CF6)'
+            },
+            'cropcura': {
+                name: 'CropCura',
+                initials: 'CC',
+                role: 'Member',
+                gradient: 'linear-gradient(135deg, #10B981, #059669)'
+            },
+            'growcle': {
+                name: 'Growcle',
+                initials: 'GR',
+                role: 'Member',
+                gradient: 'linear-gradient(135deg, #F59E0B, #D97706)'
+            }
+        };
+
+        function switchWorkspace(workspaceId) {
+            const workspace = workspaces[workspaceId];
+            if (!workspace) return;
+
+            // Show switching overlay
+            const overlay = document.getElementById('switchingOverlay');
+            document.getElementById('switchingWorkspaceName').textContent = workspace.name;
+            overlay.classList.add('active');
+
+            // Close workspace menu
+            document.getElementById('workspaceCard').classList.remove('open');
+
+            // Simulate workspace switch delay
+            setTimeout(() => {
+                // Update workspace card
+                document.getElementById('workspaceName').textContent = workspace.name;
+                document.getElementById('workspaceRole').textContent = workspace.role;
+                document.getElementById('workspaceAvatar').textContent = workspace.initials;
+                document.getElementById('workspaceAvatar').style.background = workspace.gradient;
+
+                // Update workspace switcher items
+                document.querySelectorAll('.workspace-switcher-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                event.currentTarget.classList.add('active');
+
+                // Hide overlay
+                overlay.classList.remove('active');
+
+                // Show toast notification
+                showToast('Switched to ' + workspace.name);
+            }, 800);
+        }
+
+        // ============================================
+        // INVITE MODAL
+        // ============================================
+
+        function openInviteModal() {
+            const modal = document.getElementById('inviteModal');
+            modal.classList.add('active');
+
+            // Reset form
+            document.getElementById('inviteEmail').value = '';
+            document.getElementById('inviteEmail').classList.remove('error');
+            document.getElementById('emailError').style.display = 'none';
+            document.getElementById('inviteSuccessAlert').style.display = 'none';
+            document.getElementById('inviteErrorAlert').style.display = 'none';
+            document.getElementById('sendInviteBtn').disabled = false;
+            document.getElementById('sendInviteText').style.display = 'inline';
+            document.getElementById('sendInviteSpinner').style.display = 'none';
+
+            // Focus input
+            setTimeout(() => document.getElementById('inviteEmail').focus(), 100);
+        }
+
+        function closeInviteModal() {
+            document.getElementById('inviteModal').classList.remove('active');
+        }
+
+        function sendInvitation() {
+            const email = document.getElementById('inviteEmail').value.trim();
+            const emailInput = document.getElementById('inviteEmail');
+            const emailError = document.getElementById('emailError');
+            const sendBtn = document.getElementById('sendInviteBtn');
+            const sendText = document.getElementById('sendInviteText');
+            const sendSpinner = document.getElementById('sendInviteSpinner');
+
+            // Reset errors
+            emailInput.classList.remove('error');
+            emailError.style.display = 'none';
+            document.getElementById('inviteSuccessAlert').style.display = 'none';
+            document.getElementById('inviteErrorAlert').style.display = 'none';
+
+            // Validate email
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!email) {
+                emailInput.classList.add('error');
+                document.getElementById('emailErrorText').textContent = 'Email address is required';
+                emailError.style.display = 'flex';
+                return;
+            }
+            if (!emailRegex.test(email)) {
+                emailInput.classList.add('error');
+                document.getElementById('emailErrorText').textContent = 'Please enter a valid email address';
+                emailError.style.display = 'flex';
+                return;
+            }
+
+            // Simulate already invited error for demo
+            if (email === 'james.chen@example.com') {
+                document.getElementById('errorAlertTitle').textContent = 'Already Invited';
+                document.getElementById('errorAlertText').textContent = 'This email has already been invited to your workspace.';
+                document.getElementById('inviteErrorAlert').style.display = 'flex';
+                return;
+            }
+
+            // Simulate already member error for demo
+            if (email === 'sarah.kim@example.com') {
+                document.getElementById('errorAlertTitle').textContent = 'Already a Member';
+                document.getElementById('errorAlertText').textContent = 'This person is already a member of your workspace.';
+                document.getElementById('inviteErrorAlert').style.display = 'flex';
+                return;
+            }
+
+            // Show loading state
+            sendBtn.disabled = true;
+            sendText.style.display = 'none';
+            sendSpinner.style.display = 'block';
+
+            // Simulate API call
+            setTimeout(() => {
+                sendBtn.disabled = false;
+                sendText.style.display = 'inline';
+                sendSpinner.style.display = 'none';
+
+                // Show success
+                document.getElementById('inviteSuccessAlert').style.display = 'flex';
+                document.getElementById('inviteEmail').value = '';
+
+                // After a delay, close modal and update UI
+                setTimeout(() => {
+                    closeInviteModal();
+                    showTeamPopulatedState();
+                    showToast('Invitation sent to ' + email);
+                }, 1500);
+            }, 1200);
+        }
+
+        // Close modal on overlay click
+        document.getElementById('inviteModal').addEventListener('click', function(e) {
+            if (e.target === this) closeInviteModal();
+        });
+
+        // Enter key to submit
+        document.getElementById('inviteEmail').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendInvitation();
+        });
+
+        // ============================================
+        // REMOVE MEMBER MODAL
+        // ============================================
+
+        let memberToRemove = '';
+
+        function openRemoveModal(memberName) {
+            memberToRemove = memberName;
+            document.getElementById('removeMemberName').textContent = memberName;
+            document.getElementById('removeModal').classList.add('active');
+        }
+
+        function closeRemoveModal() {
+            document.getElementById('removeModal').classList.remove('active');
+            memberToRemove = '';
+        }
+
+        function confirmRemove() {
+            closeRemoveModal();
+            showToast(memberToRemove + ' has been removed from the workspace');
+        }
+
+        document.getElementById('removeModal').addEventListener('click', function(e) {
+            if (e.target === this) closeRemoveModal();
+        });
+
+        // ============================================
+        // RESEND INVITATION
+        // ============================================
+
+        function resendInvitation(memberName) {
+            showToast('Invitation resent to ' + memberName);
+        }
+
+        // ============================================
+        // TEAM STATE MANAGEMENT
+        // ============================================
+
+        function showTeamPopulatedState() {
+            document.getElementById('teamEmptyState').style.display = 'none';
+            document.getElementById('teamPopulatedState').style.display = 'block';
+
+            // Also update dashboard
+            document.getElementById('inviteCard').style.display = 'none';
+            document.getElementById('teamOverviewCard').style.display = 'block';
+        }
+
+        // ============================================
+        // TOAST NOTIFICATIONS
+        // ============================================
+
+        function showToast(message) {
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                background: var(--card-bg);
+                border: 1px solid var(--border);
+                border-radius: var(--radius-button);
+                padding: 14px 20px;
+                box-shadow: var(--shadow-dropdown);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                z-index: 3000;
+                font-size: 14px;
+                color: var(--text-primary);
+                animation: fadeIn 0.3s ease;
+            `;
+            toast.innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                ${message}
+            `;
+            document.body.appendChild(toast);
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // ============================================
+        // KEYBOARD SHORTCUTS
+        // ============================================
+
+        document.addEventListener('keydown', function(e) {
+            // Escape to close modals
+            if (e.key === 'Escape') {
+                closeInviteModal();
+                closeRemoveModal();
+                document.getElementById('workspaceCard').classList.remove('open');
+            }
+        });
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add animation classes to elements
+            document.querySelectorAll('.animate-in').forEach((el, i) => {
+                el.style.animationDelay = (i * 0.05) + 's';
+            });
+        });
+    </script>
+</body>
+</html>
