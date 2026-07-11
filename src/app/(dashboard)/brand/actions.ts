@@ -1,14 +1,18 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { db } from "@/lib/db/client";
 import {
   createBrand,
   getActiveBrandForUser,
   updateBrand,
 } from "@/lib/db/queries";
+import type { brands } from "@/lib/db/schema";
+import { workspaces } from "@/lib/db/schema";
 import { brandProfileSchema } from "./brand-profile-form";
 
 export async function saveBrandProfile(
@@ -56,9 +60,22 @@ export async function saveBrandProfile(
   };
 
   const existing = await getActiveBrandForUser(dbUser.id);
-  const brand = existing
-    ? await updateBrand(existing.id, profile)
-    : await createBrand({ userId: dbUser.id, ...profile });
+  let brand: typeof brands.$inferSelect;
+  if (existing) {
+    brand = await updateBrand(existing.id, profile);
+  } else {
+    const [personalWorkspace] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.ownerId, dbUser.id))
+      .limit(1);
+    if (!personalWorkspace) throw new Error("no workspace for user");
+    brand = await createBrand({
+      userId: dbUser.id,
+      workspaceId: personalWorkspace.id,
+      ...profile,
+    });
+  }
 
   if (!brand) return { ok: false, error: "Failed to save" };
 

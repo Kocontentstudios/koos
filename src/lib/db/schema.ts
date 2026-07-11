@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   customType,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -9,6 +10,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -65,6 +67,8 @@ export const assetTypeEnum = pgEnum("asset_type", [
 ]);
 
 export const userRoleEnum = pgEnum("user_role", ["user", "designer", "admin"]);
+
+export const workspaceRoleEnum = pgEnum("workspace_role", ["owner", "member"]);
 
 export const strategyStatusEnum = pgEnum("strategy_status", [
   "draft",
@@ -146,11 +150,63 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const workspaces = pgTable("workspaces", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  logoUrl: text("logo_url"),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: workspaceRoleEnum("role").notNull().default("member"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.workspaceId, t.userId), index().on(t.userId)],
+);
+
+// Single-use invitation tokens. Stores only the SHA-256 hash of the raw token
+// emailed to the invitee (same never-store-the-secret rule as sessions).
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: citext("email").notNull(),
+    role: workspaceRoleEnum("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedById: uuid("invited_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.workspaceId)],
+);
+
 export const brands = pgTable("brands", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   onboardingType: onboardingTypeEnum("onboarding_type")
     .notNull()
@@ -421,3 +477,23 @@ export const usageEvents = pgTable("usage_events", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).
+   Default-open rule: a member with no rows sees every brand in the
+   workspace; a member with rows sees only those brands. */
+export const memberBrandAccess = pgTable(
+  "member_brand_access",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+  },
+  (t) => [unique().on(t.workspaceId, t.userId, t.brandId)],
+);
