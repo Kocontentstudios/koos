@@ -199,54 +199,58 @@ export const workspaceInvitations = pgTable(
   (t) => [index().on(t.workspaceId)],
 );
 
-export const brands = pgTable("brands", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  onboardingType: onboardingTypeEnum("onboarding_type")
-    .notNull()
-    .default("manual"),
-  onboardingStatus: onboardingStatusEnum("onboarding_status")
-    .notNull()
-    .default("draft"),
-  completionPercentage: integer("completion_percentage").notNull().default(0),
-  overview: text("overview"),
-  businessType: text("business_type"),
-  stage: text("stage"),
-  targetAudience: text("target_audience"),
-  offer: text("offer"),
-  tone: text("tone"),
-  primaryGoal: text("primary_goal"),
-  primaryColor: text("primary_color"),
-  secondaryColor: text("secondary_color"),
-  additionalColors: text("additional_colors").array(),
-  logoUrl: text("logo_url"),
-  // Section 3 — Brand Personality
-  values: text("values"),
-  wordsLove: text("words_love"),
-  wordsAvoid: text("words_avoid"),
-  // Section 4 — Visual Identity (extends colors/logoUrl above)
-  hasLogo: boolean("has_logo"),
-  brandStyle: text("brand_style"),
-  // Section 5 — Competitors
-  competitors: text("competitors"),
-  competitorStrengths: text("competitor_strengths"),
-  differentiators: text("differentiators"),
-  // Section 6 — Platforms & Posting
-  platforms: text("platforms").array(),
-  primaryPlatform: text("primary_platform"),
-  postingFrequency: text("posting_frequency"),
-  // Section 7 — Anything Else
-  additionalNotes: text("additional_notes"),
-  helpfulLinks: text("helpful_links"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const brands = pgTable(
+  "brands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    onboardingType: onboardingTypeEnum("onboarding_type")
+      .notNull()
+      .default("manual"),
+    onboardingStatus: onboardingStatusEnum("onboarding_status")
+      .notNull()
+      .default("draft"),
+    completionPercentage: integer("completion_percentage").notNull().default(0),
+    overview: text("overview"),
+    businessType: text("business_type"),
+    stage: text("stage"),
+    targetAudience: text("target_audience"),
+    offer: text("offer"),
+    tone: text("tone"),
+    primaryGoal: text("primary_goal"),
+    primaryColor: text("primary_color"),
+    secondaryColor: text("secondary_color"),
+    additionalColors: text("additional_colors").array(),
+    logoUrl: text("logo_url"),
+    // Section 3 — Brand Personality
+    values: text("values"),
+    wordsLove: text("words_love"),
+    wordsAvoid: text("words_avoid"),
+    // Section 4 — Visual Identity (extends colors/logoUrl above)
+    hasLogo: boolean("has_logo"),
+    brandStyle: text("brand_style"),
+    // Section 5 — Competitors
+    competitors: text("competitors"),
+    competitorStrengths: text("competitor_strengths"),
+    differentiators: text("differentiators"),
+    // Section 6 — Platforms & Posting
+    platforms: text("platforms").array(),
+    primaryPlatform: text("primary_platform"),
+    postingFrequency: text("posting_frequency"),
+    // Section 7 — Anything Else
+    additionalNotes: text("additional_notes"),
+    helpfulLinks: text("helpful_links"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.workspaceId)],
+);
 
 export const brandContexts = pgTable("brand_contexts", {
   id: uuid("id").primaryKey().defaultRandom(),

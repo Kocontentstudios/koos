@@ -30,6 +30,7 @@ import {
   ticketUpdates,
   usageEvents,
   users,
+  workspaces,
 } from "@/lib/db/schema";
 
 // ── Users ───────────────────────────────────────────────────────────
@@ -236,6 +237,17 @@ export async function getActiveBrandForUser(userId: string) {
     .orderBy(desc(brands.updatedAt))
     .limit(1);
   return brand ?? null;
+}
+
+/** TEMPORARY (workspace foundation Task 1): the caller's personal workspace.
+ * Replaced by active-workspace resolution in a later task. */
+export async function getPersonalWorkspaceIdForOwner(userId: string) {
+  const [row] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, userId))
+    .limit(1);
+  return row?.id ?? null;
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────

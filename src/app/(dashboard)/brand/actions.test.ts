@@ -4,12 +4,15 @@ const getAuthUser = vi.fn();
 const getActiveBrandForUser = vi.fn();
 const updateBrand = vi.fn();
 const createBrand = vi.fn();
+const getPersonalWorkspaceIdForOwner = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/db/queries", () => ({
   getActiveBrandForUser: (id: string) => getActiveBrandForUser(id),
   updateBrand: (id: string, data: unknown) => updateBrand(id, data),
   createBrand: (data: unknown) => createBrand(data),
+  getPersonalWorkspaceIdForOwner: (id: string) =>
+    getPersonalWorkspaceIdForOwner(id),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -26,6 +29,7 @@ describe("saveBrandProfile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    getPersonalWorkspaceIdForOwner.mockResolvedValue("ws-1");
   });
 
   it("updates the existing brand even when onboarding is completed", async () => {
@@ -69,7 +73,11 @@ describe("saveBrandProfile", () => {
     const res = await saveBrandProfile(validInput);
 
     expect(createBrand).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "u1", name: "Acme" }),
+      expect.objectContaining({
+        userId: "u1",
+        workspaceId: "ws-1",
+        name: "Acme",
+      }),
     );
     expect(updateBrand).not.toHaveBeenCalled();
     expect(res).toEqual({ ok: true, brandId: "new-brand" });
