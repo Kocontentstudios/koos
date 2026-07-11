@@ -1,13 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { getActiveWorkspace } from "@/lib/auth/workspace";
 import {
   createBrand,
-  getActiveBrandForUser,
-  getPersonalWorkspaceIdForOwner,
+  getActiveBrandForMember,
   updateBrand,
 } from "@/lib/db/queries";
 import type { brands } from "@/lib/db/schema";
@@ -18,6 +19,9 @@ export async function saveBrandProfile(
 ): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
   const { dbUser } = await getAuthUser();
   if (!dbUser) return { ok: false, error: "Not authenticated" };
+
+  const { workspace } = await getActiveWorkspace();
+  if (!workspace) redirect("/login");
 
   const parsed = brandProfileSchema.safeParse(raw);
   if (!parsed.success) {
@@ -57,16 +61,14 @@ export async function saveBrandProfile(
     completionPercentage: 100,
   };
 
-  const existing = await getActiveBrandForUser(dbUser.id);
+  const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   let brand: typeof brands.$inferSelect;
   if (existing) {
     brand = await updateBrand(existing.id, profile);
   } else {
-    const workspaceId = await getPersonalWorkspaceIdForOwner(dbUser.id);
-    if (!workspaceId) throw new Error("no workspace for user");
     brand = await createBrand({
-      userId: dbUser.id,
-      workspaceId,
+      userId: dbUser.id, // attribution only ("created by")
+      workspaceId: workspace.id,
       ...profile,
     });
   }

@@ -18,6 +18,7 @@ import { invalidateUserSessions, startSession } from "@/lib/auth/session";
 import {
   createPasswordResetToken,
   createUser,
+  getOrCreatePersonalWorkspaceId,
   getPasswordResetTokenByHash,
   getUserByEmail,
   markPasswordResetTokenUsed,
@@ -101,6 +102,7 @@ export async function signup(formData: FormData) {
     passwordHash,
     provider: "email",
   });
+  await getOrCreatePersonalWorkspaceId(user.id, user.firstName);
 
   // Fire-and-forget welcome (never throws; must not block first login).
   await sendWelcomeEmail({

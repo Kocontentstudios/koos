@@ -7,7 +7,11 @@ import {
   getGoogleProfile,
 } from "@/lib/auth/google";
 import { startSession } from "@/lib/auth/session";
-import { createUser, getUserByEmail } from "@/lib/db/queries";
+import {
+  createUser,
+  getOrCreatePersonalWorkspaceId,
+  getUserByEmail,
+} from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
 import { sendWelcomeEmail } from "@/lib/notify/account";
 
@@ -57,6 +61,7 @@ export async function GET(request: Request) {
       avatarUrl: profile.avatarUrl,
       provider: "google",
     });
+    await getOrCreatePersonalWorkspaceId(user.id, user.firstName);
     // Fire-and-forget welcome (never throws; must not block first login).
     await sendWelcomeEmail({
       to: user.email,
