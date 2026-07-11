@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { createGenerationJob, getBrandById } from "@/lib/db/queries";
 import {
@@ -54,9 +55,15 @@ export async function POST(req: Request) {
     input: {},
   });
 
+  const sessionId = await getAnalyticsSessionId();
   after(() =>
     executeGenerationJob(job.id, () =>
-      generateDesignBriefWork({ brand, conversation }),
+      generateDesignBriefWork({
+        brand,
+        conversation,
+        userId: dbUser.id,
+        sessionId,
+      }),
     ),
   );
 

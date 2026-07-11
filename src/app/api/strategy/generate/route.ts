@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { createGenerationJob, getBrandById } from "@/lib/db/queries";
 import {
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
     input: { conversationId: conversationId ?? null },
   });
 
+  const sessionId = await getAnalyticsSessionId();
   after(() =>
     executeGenerationJob(job.id, () =>
       generateStrategyWork({
@@ -68,6 +70,7 @@ export async function POST(req: Request) {
         conversation,
         conversationId: conversationId ?? null,
         userId: dbUser.id,
+        sessionId,
       }),
     ),
   );

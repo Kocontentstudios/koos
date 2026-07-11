@@ -9,6 +9,8 @@ import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import { buildChatPrompt } from "@/lib/ai/prompts/chat";
 import { buildDesignRequestChatPrompt } from "@/lib/ai/prompts/design-request";
 import { getModel } from "@/lib/ai/provider";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createConversation,
@@ -80,6 +82,18 @@ export async function POST(req: Request) {
   );
   if (!ensured.ok) {
     return Response.json({ error: ensured.error }, { status: ensured.status });
+  }
+
+  if (ensured.created) {
+    await captureServerEvent({
+      distinctId: dbUser.id,
+      event: "chat_started",
+      properties: {
+        brand_id: brandId,
+        mode: chatMode,
+        session_id: await getAnalyticsSessionId(),
+      },
+    });
   }
 
   const systemPrompt =

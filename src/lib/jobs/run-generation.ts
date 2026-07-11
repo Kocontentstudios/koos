@@ -16,6 +16,7 @@ import {
 } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import { type Strategy, strategySchema } from "@/lib/ai/strategy-schema";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { resolveStartDate, toCalendarRows } from "@/lib/calendar/schedule";
 import {
   createCalendar,
@@ -97,6 +98,7 @@ export async function generateStrategyWork(args: {
   conversation: string;
   conversationId: string | null;
   userId: string;
+  sessionId?: string | null;
 }): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
   const { object } = await generateObject({
@@ -118,6 +120,15 @@ export async function generateStrategyWork(args: {
     kind: "strategy_generated",
     metadata: { strategyId: strategy.id },
   });
+  await captureServerEvent({
+    distinctId: args.userId,
+    event: "strategy_generated",
+    properties: {
+      brand_id: args.brand.id,
+      strategy_id: strategy.id,
+      session_id: args.sessionId ?? null,
+    },
+  });
   return {
     resultId: strategy.id,
     result: { strategy: object, strategyId: strategy.id },
@@ -130,6 +141,7 @@ export async function generateCalendarWork(args: {
   strategy: StrategyRow;
   structured: Strategy;
   userId: string;
+  sessionId?: string | null;
 }): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
   const now = new Date();
@@ -171,6 +183,16 @@ export async function generateCalendarWork(args: {
     kind: "calendar_generated",
     metadata: { calendarId: calendar.id, items: scheduled.rows.length },
   });
+  await captureServerEvent({
+    distinctId: args.userId,
+    event: "calendar_generated",
+    properties: {
+      brand_id: args.brand.id,
+      calendar_id: calendar.id,
+      items: scheduled.rows.length,
+      session_id: args.sessionId ?? null,
+    },
+  });
   return { resultId: calendar.id, result: { calendarId: calendar.id } };
 }
 
@@ -179,6 +201,8 @@ export async function generateCalendarWork(args: {
 export async function generateDesignBriefWork(args: {
   brand: BrandRow;
   conversation: string;
+  userId: string;
+  sessionId?: string | null;
 }): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
   const { object } = await generateObject({
@@ -186,6 +210,15 @@ export async function generateDesignBriefWork(args: {
     schema: designBriefSchema,
     system: buildDesignBriefSystemPrompt(summary),
     prompt: buildDesignBriefGenerationPrompt(args.conversation, summary),
+  });
+  await captureServerEvent({
+    distinctId: args.userId,
+    event: "design_brief_generated",
+    properties: {
+      brand_id: args.brand.id,
+      design_type: object.designType,
+      session_id: args.sessionId ?? null,
+    },
   });
   return { result: { brief: object } };
 }

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
   createGoogleClient,
   GOOGLE_SCOPES,
@@ -105,6 +106,11 @@ export async function signup(formData: FormData) {
   await sendWelcomeEmail({
     to: user.email,
     input: { firstName: user.firstName, dashboardUrl: appUrl("/dashboard") },
+  });
+  await captureServerEvent({
+    distinctId: user.id,
+    event: "signed_up",
+    properties: { provider: "email" },
   });
 
   await startSession(user.id);
