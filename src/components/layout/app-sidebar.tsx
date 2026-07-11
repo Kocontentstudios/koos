@@ -28,6 +28,10 @@ export function AppSidebar({ user }: { user: UserInfo }) {
   const initials = (user.firstName[0] ?? "") + (user.lastName[0] ?? "");
 
   // Close the mobile drawer whenever the route changes (e.g. after a nav tap).
+  // `pathname` isn't read in the effect body — it's a trigger, not a value —
+  // so it must stay in the dependency list; removing it (biome's suggested
+  // fix) would stop the drawer from closing on navigation.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname is an intentional re-run trigger, not a used value
   useEffect(() => {
     closeMobile();
   }, [pathname, closeMobile]);

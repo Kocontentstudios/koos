@@ -100,7 +100,7 @@ try {
 const sendIdx = process.argv.indexOf("--send");
 if (sendIdx !== -1) {
   const to = process.argv[sendIdx + 1];
-  if (!to || !to.includes("@")) {
+  if (!to?.includes("@")) {
     bad("Usage: node scripts/check-smtp.mjs --send you@example.com");
     process.exit(1);
   }
