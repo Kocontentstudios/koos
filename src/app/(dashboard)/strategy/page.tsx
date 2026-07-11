@@ -5,8 +5,15 @@ import {
 } from "@/lib/db/queries";
 import { StrategyClient } from "./strategy-client";
 
-export default async function StrategyPage() {
+export default async function StrategyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
   const { dbUser, brand } = await requireBrand();
+  const { mode } = await searchParams;
+  const initialMode =
+    mode === "design" ? ("design" as const) : ("strategy" as const);
 
   const brandContext = {
     brandProfile: [
@@ -43,6 +50,7 @@ export default async function StrategyPage() {
     id: c.id,
     title: c.title,
     updatedAt: c.updatedAt,
+    mode: c.mode,
   }));
 
   return (
@@ -52,6 +60,7 @@ export default async function StrategyPage() {
       brandContext={brandContext}
       pastStrategies={pastStrategies}
       conversations={conversations}
+      initialMode={initialMode}
     />
   );
 }

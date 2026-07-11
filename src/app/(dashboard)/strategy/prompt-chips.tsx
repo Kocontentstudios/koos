@@ -1,6 +1,8 @@
 "use client";
 
-const PROMPTS = [
+import type { ConversationMode } from "@/app/api/chat/ensure-conversation";
+
+const STRATEGY_PROMPTS = [
   "I am launching a new product",
   "Running a seasonal sale",
   "Building brand awareness",
@@ -9,14 +11,25 @@ const PROMPTS = [
   "Content for a new platform",
 ];
 
+const DESIGN_PROMPTS = [
+  "I need an Instagram carousel",
+  "A flyer for an upcoming event",
+  "A LinkedIn post visual",
+  "A banner for my website",
+  "A story for a promotion",
+  "Something else",
+];
+
 interface PromptChipsProps {
   onPick: (text: string) => void;
+  mode?: ConversationMode;
 }
 
-export function PromptChips({ onPick }: PromptChipsProps) {
+export function PromptChips({ onPick, mode = "strategy" }: PromptChipsProps) {
+  const prompts = mode === "design" ? DESIGN_PROMPTS : STRATEGY_PROMPTS;
   return (
     <div className="flex flex-wrap gap-2 mt-2 ml-10 max-w-[560px]">
-      {PROMPTS.map((text) => (
+      {prompts.map((text) => (
         <button
           key={text}
           type="button"

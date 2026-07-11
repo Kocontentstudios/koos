@@ -1,5 +1,7 @@
 type ConversationRow = { id: string; userId: string; brandId: string };
 
+export type ConversationMode = "strategy" | "design";
+
 export interface EnsureConversationDeps {
   getConversationById: (id: string) => Promise<ConversationRow | null>;
   createConversation: (data: {
@@ -7,6 +9,7 @@ export interface EnsureConversationDeps {
     brandId: string;
     userId: string;
     title: string | null;
+    mode: ConversationMode;
   }) => Promise<unknown>;
 }
 
@@ -16,6 +19,8 @@ export interface EnsureConversationArgs {
   userId: string;
   /** Title for a newly-created conversation (ignored when it already exists). */
   title?: string | null;
+  /** Chat mode stored on a newly-created conversation. */
+  mode?: ConversationMode;
 }
 
 /**
@@ -24,7 +29,7 @@ export interface EnsureConversationArgs {
  */
 export async function ensureConversation(
   deps: EnsureConversationDeps,
-  { conversationId, brandId, userId, title }: EnsureConversationArgs,
+  { conversationId, brandId, userId, title, mode }: EnsureConversationArgs,
 ): Promise<
   { ok: true; created: boolean } | { ok: false; status: number; error: string }
 > {
@@ -35,6 +40,7 @@ export async function ensureConversation(
       brandId,
       userId,
       title: title ?? null,
+      mode: mode ?? "strategy",
     });
     return { ok: true, created: true };
   }

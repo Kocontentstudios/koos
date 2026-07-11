@@ -60,6 +60,21 @@ export function defaultDueDate(itemDate: Date): string {
   return due.toISOString().slice(0, 10);
 }
 
+/** Standard design-type options (from the design-request template), shared by
+ * the request form and the AI design-brief generator. */
+export const DESIGN_TYPE_OPTIONS = [
+  "Instagram Carousel (1080x1080 per slide)",
+  "Instagram Post (1080x1080)",
+  "Instagram Story (1080x1920)",
+  "Instagram Reel Cover (1080x1920)",
+  "X/Twitter Post (1200x675)",
+  "LinkedIn Post (1200x627)",
+  "Blog Header (1200x630)",
+  "Email Header (600x200)",
+  "Banner Ad",
+  "Other",
+];
+
 /** Carousel design types take a slide count; others don't. */
 export function isCarouselType(designType: string | null | undefined): boolean {
   if (!designType) return false;

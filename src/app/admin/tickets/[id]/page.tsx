@@ -6,6 +6,7 @@ import {
   TicketUpdatesTimeline,
   type TimelineUpdate,
 } from "@/app/(dashboard)/design-request/ticket-updates-timeline";
+import { Markdown } from "@/components/ui/markdown";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   getBrandById,
@@ -84,9 +85,9 @@ export default async function AdminTicketDetailPage({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
             Brief
           </p>
-          <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)]">
+          <Markdown className="text-sm text-[var(--text-secondary)]">
             {ticket.brief}
-          </p>
+          </Markdown>
         </div>
         {ticket.notes && (
           <div className="space-y-1">

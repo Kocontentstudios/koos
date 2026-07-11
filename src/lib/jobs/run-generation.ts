@@ -1,9 +1,14 @@
 import { generateObject } from "ai";
 import { calendarPlanSchema } from "@/lib/ai/calendar-schema";
+import { designBriefSchema } from "@/lib/ai/design-brief-schema";
 import {
   buildCalendarGenerationPrompt,
   buildCalendarSystemPrompt,
 } from "@/lib/ai/prompts/calendar";
+import {
+  buildDesignBriefGenerationPrompt,
+  buildDesignBriefSystemPrompt,
+} from "@/lib/ai/prompts/design-request";
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import {
   buildStrategistSystemPrompt,
@@ -47,7 +52,8 @@ export function brandSummaryFrom(brand: BrandRow): BrandSummary {
 }
 
 interface JobOutcome {
-  resultId: string;
+  /** id of a created row (strategy/calendar); omitted for ephemeral results. */
+  resultId?: string;
   /** The payload the client reads from the job once it succeeds. */
   result: unknown;
 }
@@ -163,4 +169,20 @@ export async function generateCalendarWork(args: {
     metadata: { calendarId: calendar.id, items: scheduled.rows.length },
   });
   return { resultId: calendar.id, result: { calendarId: calendar.id } };
+}
+
+/** Turn a design-request conversation into a structured brief (not persisted —
+ * the client reviews it, then submits it as a design ticket). */
+export async function generateDesignBriefWork(args: {
+  brand: BrandRow;
+  conversation: string;
+}): Promise<JobOutcome> {
+  const summary = brandSummaryFrom(args.brand);
+  const { object } = await generateObject({
+    model: getModel("strategy"),
+    schema: designBriefSchema,
+    system: buildDesignBriefSystemPrompt(summary),
+    prompt: buildDesignBriefGenerationPrompt(args.conversation, summary),
+  });
+  return { result: { brief: object } };
 }

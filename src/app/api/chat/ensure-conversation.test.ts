@@ -24,7 +24,16 @@ describe("ensureConversation", () => {
       brandId: "b1",
       userId: "u1",
       title: null,
+      mode: "strategy",
     });
+  });
+
+  it("stores the requested mode on a newly created conversation", async () => {
+    const d = deps();
+    await ensureConversation(d, { ...args, mode: "design" });
+    expect(d.createConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "design" }),
+    );
   });
 
   it("stores the provided title on a newly created conversation", async () => {

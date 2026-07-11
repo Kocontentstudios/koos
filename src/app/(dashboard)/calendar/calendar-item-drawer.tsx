@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
 import {
   Sheet,
   SheetContent,
@@ -210,7 +211,7 @@ export function CalendarItemDrawer({
                 <>
                   <Divider />
                   <Section label="Brief">
-                    <p className="whitespace-pre-wrap">{item.brief}</p>
+                    <Markdown className="text-[13px]">{item.brief}</Markdown>
                   </Section>
                 </>
               )}

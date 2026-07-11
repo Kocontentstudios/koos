@@ -222,8 +222,8 @@ export default async function DashboardPage() {
           icon: Palette,
           tint: "bg-[rgba(151,196,89,0.12)] text-success",
           title: "Request a Design",
-          desc: "Send a brief to the KO design team from any calendar item.",
-          href: "/design-request",
+          desc: "Chat with KO AI to build a design brief and send it to the design team.",
+          href: "/strategy?mode=design",
         }
       : null,
     setupComplete
