@@ -25,7 +25,9 @@ export interface EnsureConversationArgs {
 export async function ensureConversation(
   deps: EnsureConversationDeps,
   { conversationId, brandId, userId, title }: EnsureConversationArgs,
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+): Promise<
+  { ok: true; created: boolean } | { ok: false; status: number; error: string }
+> {
   const existing = await deps.getConversationById(conversationId);
   if (!existing) {
     await deps.createConversation({
@@ -34,12 +36,12 @@ export async function ensureConversation(
       userId,
       title: title ?? null,
     });
-    return { ok: true };
+    return { ok: true, created: true };
   }
   if (existing.userId !== userId) {
     return { ok: false, status: 403, error: "Forbidden" };
   }
-  return { ok: true };
+  return { ok: true, created: false };
 }
 
 /** Derive a short conversation title from the opening user message. */

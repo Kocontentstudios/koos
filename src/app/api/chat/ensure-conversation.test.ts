@@ -18,7 +18,7 @@ describe("ensureConversation", () => {
   it("creates the conversation when it does not exist, owned by the user+brand", async () => {
     const d = deps();
     const res = await ensureConversation(d, args);
-    expect(res.ok).toBe(true);
+    expect(res).toEqual({ ok: true, created: true });
     expect(d.createConversation).toHaveBeenCalledWith({
       id: "c1",
       brandId: "b1",
@@ -42,7 +42,7 @@ describe("ensureConversation", () => {
         .mockResolvedValue({ id: "c1", userId: "u1", brandId: "b1" }),
     });
     const res = await ensureConversation(d, args);
-    expect(res.ok).toBe(true);
+    expect(res).toEqual({ ok: true, created: false });
     expect(d.createConversation).not.toHaveBeenCalled();
   });
 

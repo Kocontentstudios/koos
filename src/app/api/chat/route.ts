@@ -1,4 +1,9 @@
-import { convertToModelMessages, streamText, type UIMessage } from "ai";
+import {
+  convertToModelMessages,
+  generateText,
+  streamText,
+  type UIMessage,
+} from "ai";
 import { flattenMessageText } from "@/lib/ai/chat-messages";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import { buildChatPrompt } from "@/lib/ai/prompts/chat";
@@ -10,6 +15,7 @@ import {
   getBrandById,
   getConversationById,
   touchConversation,
+  updateConversationTitle,
 } from "@/lib/db/queries";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
@@ -17,6 +23,7 @@ import {
   conversationTitleFrom,
   ensureConversation,
 } from "./ensure-conversation";
+import { buildTitlePrompt, cleanGeneratedTitle } from "./title";
 
 export async function POST(req: Request) {
   // Authenticated users only — this endpoint spends AI tokens.
@@ -101,6 +108,25 @@ export async function POST(req: Request) {
       } catch (err) {
         // Persistence failure must not break the user's chat experience.
         console.error("chat persistence failed", err);
+      }
+
+      // First turn of a new conversation: replace the truncated first-message
+      // title with a short AI-generated one. Best-effort — a failure here must
+      // never affect the chat itself.
+      if (ensured.created && firstUserMessage) {
+        try {
+          const { text: rawTitle } = await generateText({
+            model: getModel("chat"),
+            prompt: buildTitlePrompt(
+              flattenMessageText(firstUserMessage),
+              text,
+            ),
+          });
+          const title = cleanGeneratedTitle(rawTitle);
+          if (title) await updateConversationTitle(conversationId, title);
+        } catch (err) {
+          console.error("conversation title generation failed", err);
+        }
       }
     },
   });
