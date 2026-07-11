@@ -1,8 +1,16 @@
-import { convertToModelMessages, streamText, type UIMessage } from "ai";
+import {
+  convertToModelMessages,
+  generateText,
+  streamText,
+  type UIMessage,
+} from "ai";
 import { flattenMessageText } from "@/lib/ai/chat-messages";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import { buildChatPrompt } from "@/lib/ai/prompts/chat";
+import { buildDesignRequestChatPrompt } from "@/lib/ai/prompts/design-request";
 import { getModel } from "@/lib/ai/provider";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createConversation,
@@ -10,6 +18,7 @@ import {
   getBrandById,
   getConversationById,
   touchConversation,
+  updateConversationTitle,
 } from "@/lib/db/queries";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
@@ -17,6 +26,7 @@ import {
   conversationTitleFrom,
   ensureConversation,
 } from "./ensure-conversation";
+import { buildTitlePrompt, cleanGeneratedTitle } from "./title";
 
 export async function POST(req: Request) {
   // Authenticated users only — this endpoint spends AI tokens.
@@ -32,13 +42,15 @@ export async function POST(req: Request) {
   });
   if (!verdict.ok) return tooManyRequests(verdict);
 
-  const { messages, brandContext, brandId, conversationId } =
+  const { messages, brandContext, brandId, conversationId, mode } =
     (await req.json()) as {
       messages: UIMessage[];
       brandContext: ChatBrandContext;
       brandId: string;
       conversationId: string;
+      mode?: string;
     };
+  const chatMode = mode === "design" ? "design" : "strategy";
 
   if (!isUuid(brandId) || !isUuid(conversationId)) {
     return Response.json(
@@ -65,13 +77,29 @@ export async function POST(req: Request) {
       title: firstUserMessage
         ? conversationTitleFrom(flattenMessageText(firstUserMessage))
         : null,
+      mode: chatMode,
     },
   );
   if (!ensured.ok) {
     return Response.json({ error: ensured.error }, { status: ensured.status });
   }
 
-  const systemPrompt = buildChatPrompt(brandContext);
+  if (ensured.created) {
+    await captureServerEvent({
+      distinctId: dbUser.id,
+      event: "chat_started",
+      properties: {
+        brand_id: brandId,
+        mode: chatMode,
+        session_id: await getAnalyticsSessionId(),
+      },
+    });
+  }
+
+  const systemPrompt =
+    chatMode === "design"
+      ? buildDesignRequestChatPrompt(brandContext)
+      : buildChatPrompt(brandContext);
   const modelMessages = await convertToModelMessages(messages);
 
   // The just-sent user message is the last item; capture it for persistence.
@@ -101,6 +129,25 @@ export async function POST(req: Request) {
       } catch (err) {
         // Persistence failure must not break the user's chat experience.
         console.error("chat persistence failed", err);
+      }
+
+      // First turn of a new conversation: replace the truncated first-message
+      // title with a short AI-generated one. Best-effort — a failure here must
+      // never affect the chat itself.
+      if (ensured.created && firstUserMessage) {
+        try {
+          const { text: rawTitle } = await generateText({
+            model: getModel("chat"),
+            prompt: buildTitlePrompt(
+              flattenMessageText(firstUserMessage),
+              text,
+            ),
+          });
+          const title = cleanGeneratedTitle(rawTitle);
+          if (title) await updateConversationTitle(conversationId, title);
+        } catch (err) {
+          console.error("conversation title generation failed", err);
+        }
       }
     },
   });

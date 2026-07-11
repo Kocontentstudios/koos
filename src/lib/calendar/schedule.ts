@@ -9,17 +9,28 @@ export function utcMidnight(d: Date): Date {
   );
 }
 
-/** The upcoming Monday at UTC midnight — today if it's already Monday. */
-export function upcomingMonday(from: Date): Date {
-  const d = utcMidnight(from);
-  const dow = d.getUTCDay(); // 0 Sun … 6 Sat
-  const delta = (1 - dow + 7) % 7; // 0 when Monday
-  d.setUTCDate(d.getUTCDate() + delta);
-  return d;
-}
-
 export function itemDate(start: Date, dayOffset: number): Date {
   return new Date(utcMidnight(start).getTime() + dayOffset * DAY_MS);
+}
+
+/**
+ * Validate the AI-declared calendar start date (YYYY-MM-DD). Falls back to
+ * today's UTC midnight when missing, malformed, in the past, or more than a
+ * year out — dates come from a model, so they are never trusted blindly.
+ */
+export function resolveStartDate(
+  planStartDate: string | undefined,
+  today: Date,
+): Date {
+  const todayUtc = utcMidnight(today);
+  if (!planStartDate || !/^\d{4}-\d{2}-\d{2}$/.test(planStartDate)) {
+    return todayUtc;
+  }
+  const parsed = new Date(`${planStartDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return todayUtc;
+  if (parsed < todayUtc) return todayUtc;
+  if (parsed.getTime() - todayUtc.getTime() > 366 * DAY_MS) return todayUtc;
+  return parsed;
 }
 
 /** Parse a human time ("9:00 AM", "13:30") to minutes-since-midnight for sorting. */

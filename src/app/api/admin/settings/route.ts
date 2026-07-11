@@ -4,7 +4,7 @@ import { isValidEmail } from "@/lib/validation/email";
 
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
-  if (!dbUser || dbUser.role !== "admin") {
+  if (dbUser?.role !== "admin") {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 

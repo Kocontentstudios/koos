@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
   GOOGLE_STATE_COOKIE,
   GOOGLE_VERIFIER_COOKIE,
@@ -60,6 +61,11 @@ export async function GET(request: Request) {
     await sendWelcomeEmail({
       to: user.email,
       input: { firstName: user.firstName, dashboardUrl: appUrl("/dashboard") },
+    });
+    await captureServerEvent({
+      distinctId: user.id,
+      event: "signed_up",
+      properties: { provider: "google" },
     });
   }
 

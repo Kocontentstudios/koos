@@ -1,15 +1,19 @@
-import { rowsToUiMessages } from "@/lib/ai/chat-messages";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
-  getConversationMessages,
-  getLatestConversationForBrand,
   getRecentConversationsForBrand,
   getStrategiesByBrand,
 } from "@/lib/db/queries";
 import { StrategyClient } from "./strategy-client";
 
-export default async function StrategyPage() {
+export default async function StrategyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
   const { dbUser, brand } = await requireBrand();
+  const { mode } = await searchParams;
+  const initialMode =
+    mode === "design" ? ("design" as const) : ("strategy" as const);
 
   const brandContext = {
     brandProfile: [
@@ -38,24 +42,15 @@ export default async function StrategyPage() {
 
   void dbUser; // used for auth check via requireBrand
 
-  const [latestConversation, recentConversations] = await Promise.all([
-    getLatestConversationForBrand(brand.id),
-    getRecentConversationsForBrand(brand.id),
-  ]);
-  const initialMessages = latestConversation
-    ? rowsToUiMessages(
-        (await getConversationMessages(latestConversation.id)).map((m) => ({
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-      )
-    : [];
+  // Every visit starts a fresh chat; past conversations stay one click away
+  // in the history panel (Recent Chats).
+  const recentConversations = await getRecentConversationsForBrand(brand.id);
 
   const conversations = recentConversations.map((c) => ({
     id: c.id,
     title: c.title,
     updatedAt: c.updatedAt,
+    mode: c.mode,
   }));
 
   return (
@@ -65,8 +60,7 @@ export default async function StrategyPage() {
       brandContext={brandContext}
       pastStrategies={pastStrategies}
       conversations={conversations}
-      initialMessages={initialMessages}
-      initialConversationId={latestConversation?.id ?? null}
+      initialMode={initialMode}
     />
   );
 }

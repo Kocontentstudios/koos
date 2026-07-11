@@ -18,13 +18,22 @@ describe("ensureConversation", () => {
   it("creates the conversation when it does not exist, owned by the user+brand", async () => {
     const d = deps();
     const res = await ensureConversation(d, args);
-    expect(res.ok).toBe(true);
+    expect(res).toEqual({ ok: true, created: true });
     expect(d.createConversation).toHaveBeenCalledWith({
       id: "c1",
       brandId: "b1",
       userId: "u1",
       title: null,
+      mode: "strategy",
     });
+  });
+
+  it("stores the requested mode on a newly created conversation", async () => {
+    const d = deps();
+    await ensureConversation(d, { ...args, mode: "design" });
+    expect(d.createConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "design" }),
+    );
   });
 
   it("stores the provided title on a newly created conversation", async () => {
@@ -42,7 +51,7 @@ describe("ensureConversation", () => {
         .mockResolvedValue({ id: "c1", userId: "u1", brandId: "b1" }),
     });
     const res = await ensureConversation(d, args);
-    expect(res.ok).toBe(true);
+    expect(res).toEqual({ ok: true, created: false });
     expect(d.createConversation).not.toHaveBeenCalled();
   });
 

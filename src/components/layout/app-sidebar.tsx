@@ -150,7 +150,13 @@ export function AppSidebar({ user }: { user: UserInfo }) {
                 disabled={pending}
                 aria-busy={pending}
                 title={collapsed ? "Logout" : undefined}
-                className={cn(rowBase, rowPad, "w-full", rowIdle, "disabled:opacity-60")}
+                className={cn(
+                  rowBase,
+                  rowPad,
+                  "w-full",
+                  rowIdle,
+                  "disabled:opacity-60",
+                )}
               >
                 {pending ? (
                   <Loader2Icon size={20} className="animate-spin" />
@@ -170,7 +176,8 @@ export function AppSidebar({ user }: { user: UserInfo }) {
           <div
             className={cn(
               "flex items-center gap-3 rounded-xl border border-[var(--nav-border)] bg-[var(--nav-card)] p-3",
-              collapsed && "md:justify-center md:border-transparent md:bg-transparent md:p-2",
+              collapsed &&
+                "md:justify-center md:border-transparent md:bg-transparent md:p-2",
             )}
           >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#e8a0b0] to-[#7c5cff] text-sm font-semibold text-white">

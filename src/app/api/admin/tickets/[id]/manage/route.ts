@@ -25,7 +25,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { dbUser } = await getAuthUser();
-  if (!dbUser || dbUser.role !== "admin") {
+  if (dbUser?.role !== "admin") {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;

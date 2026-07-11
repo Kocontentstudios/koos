@@ -25,23 +25,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import { defaultDueDate, isCarouselType } from "@/lib/design/tickets-ui";
+import {
+  DESIGN_TYPE_OPTIONS,
+  defaultDueDate,
+  isCarouselType,
+} from "@/lib/design/tickets-ui";
 import { isValidEmail } from "@/lib/validation/email";
 import type { BrandSummary, CalendarItem } from "./types";
-
-/** Design-type options from the static template (design-request.html). */
-const DESIGN_TYPE_OPTIONS = [
-  "Instagram Carousel (1080x1080 per slide)",
-  "Instagram Post (1080x1080)",
-  "Instagram Story (1080x1920)",
-  "Instagram Reel Cover (1080x1920)",
-  "X/Twitter Post (1200x675)",
-  "LinkedIn Post (1200x627)",
-  "Blog Header (1200x630)",
-  "Email Header (600x200)",
-  "Banner Ad",
-  "Other",
-];
 
 interface RequestDesignModalProps {
   open: boolean;

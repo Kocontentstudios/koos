@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { strategySchema } from "@/lib/ai/strategy-schema";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createGenerationJob,
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
     input: { strategyId: strategy.id },
   });
 
+  const sessionId = await getAnalyticsSessionId();
   after(() =>
     executeGenerationJob(job.id, () =>
       generateCalendarWork({
@@ -74,6 +76,7 @@ export async function POST(req: Request) {
         strategy,
         structured: parsedStrategy.data,
         userId: dbUser.id,
+        sessionId,
       }),
     ),
   );

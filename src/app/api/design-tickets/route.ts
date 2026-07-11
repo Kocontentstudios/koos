@@ -1,3 +1,5 @@
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createDesignTicket,
@@ -86,6 +88,16 @@ export async function POST(req: Request) {
       brandId: brand.id,
       kind: "design_ticket_created",
       metadata: { designType, ticketId: ticket.id },
+    });
+    await captureServerEvent({
+      distinctId: dbUser.id,
+      event: "design_ticket_submitted",
+      properties: {
+        brand_id: brand.id,
+        design_type: designType,
+        from_calendar_item: calendarItemId !== null,
+        session_id: await getAnalyticsSessionId(),
+      },
     });
     try {
       await sendDesignRequestEmails({

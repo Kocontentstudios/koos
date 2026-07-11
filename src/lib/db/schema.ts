@@ -53,6 +53,11 @@ export const messageRoleEnum = pgEnum("message_role", [
   "system",
 ]);
 
+export const conversationModeEnum = pgEnum("conversation_mode", [
+  "strategy",
+  "design",
+]);
+
 export const assetTypeEnum = pgEnum("asset_type", [
   "logo",
   "image",
@@ -218,6 +223,7 @@ export const chatConversations = pgTable("chat_conversations", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   title: text("title"),
+  mode: conversationModeEnum("mode").notNull().default("strategy"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -358,6 +364,7 @@ export const appSettings = pgTable("app_settings", {
 export const generationJobKindEnum = pgEnum("generation_job_kind", [
   "strategy",
   "calendar",
+  "design_brief",
 ]);
 
 export const generationJobStatusEnum = pgEnum("generation_job_status", [
