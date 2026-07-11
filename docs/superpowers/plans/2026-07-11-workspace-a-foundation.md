@@ -124,7 +124,23 @@ export const memberBrandAccess = pgTable(
 - [ ] **Step 2: Verify the schema compiles**
 
 Run: `corepack pnpm exec tsc --noEmit`
-Expected: exit 0. (Callers of `createBrand` don't break — `$inferInsert` gains a required key but no caller is type-checked against the old shape until Task 6 updates them; if tsc DOES flag `createBrand` call sites in `src/app/(dashboard)/brand/actions.ts`, note the error and continue — Task 6 fixes them, and the intermediate commit at the end of THIS task must still typecheck, so in that case add `workspaceId` there in this task using `getOrCreatePersonalWorkspaceId` — see Task 6 Step 3 — and say so in the commit message.)
+Expected: `brands.$inferInsert` now requires `workspaceId`, so tsc WILL flag the `createBrand` call site in `src/app/(dashboard)/brand/actions.ts`. Fix it in this task with a direct lookup of the caller's personal workspace (guaranteed to exist by this migration's backfill; Task 6 replaces this with proper active-workspace resolution):
+
+```ts
+import { workspaces } from "@/lib/db/schema";
+import { db } from "@/lib/db/client";
+import { eq } from "drizzle-orm";
+// at the createBrand call site:
+const [personalWorkspace] = await db
+  .select({ id: workspaces.id })
+  .from(workspaces)
+  .where(eq(workspaces.ownerId, dbUser.id))
+  .limit(1);
+if (!personalWorkspace) throw new Error("no workspace for user");
+// then pass workspaceId: personalWorkspace.id to createBrand(...)
+```
+
+Re-run tsc after the fix. Expected: exit 0.
 
 - [ ] **Step 3: Write `drizzle/0010_workspaces.sql`**
 
