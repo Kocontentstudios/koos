@@ -6,3 +6,7 @@ allowBuilds:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+minimumReleaseAgeExclude:
+  - '@posthog/core@1.40.2'
+  - posthog-js@1.399.2
+  - posthog-node@5.41.0
