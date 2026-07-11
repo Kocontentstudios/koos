@@ -1,6 +1,10 @@
 import JSZip from "jszip";
 import { getAuthUser } from "@/lib/auth/get-user";
-import { getDeliverables, getDesignTicketById } from "@/lib/db/queries";
+import {
+  checkBrandAccess,
+  getDeliverables,
+  getDesignTicketById,
+} from "@/lib/db/queries";
 import { deliverablesZipName } from "@/lib/design/ticket";
 import { getObjectBytes } from "@/lib/storage";
 
@@ -19,9 +23,14 @@ export async function GET(
   if (!ticket) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
-  const isOwner = ticket.userId === dbUser.id;
+  const access = await checkBrandAccess(
+    dbUser.id,
+    ticket.brandId,
+    "manage_content",
+  );
+  const isWorkspaceMember = access.ok;
   const isStaff = dbUser.role === "designer" || dbUser.role === "admin";
-  if (!isOwner && !isStaff) {
+  if (!isWorkspaceMember && !isStaff) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 

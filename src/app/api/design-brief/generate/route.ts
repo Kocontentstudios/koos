@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
-import { createGenerationJob, getBrandById } from "@/lib/db/queries";
+import { checkBrandAccess, createGenerationJob } from "@/lib/db/queries";
 import {
   executeGenerationJob,
   generateDesignBriefWork,
@@ -43,10 +43,11 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const brand = await getBrandById(brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Brand not found" }, { status: 404 });
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) {
+    return Response.json({ error: access.error }, { status: access.status });
   }
+  const brand = access.brand;
 
   const job = await createGenerationJob({
     kind: "design_brief",

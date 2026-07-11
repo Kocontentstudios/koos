@@ -44,22 +44,22 @@ describe("ensureConversation", () => {
     );
   });
 
-  it("accepts an existing conversation owned by the same user", async () => {
+  it("accepts an existing conversation for the same brand, even created by another user", async () => {
     const d = deps({
       getConversationById: vi
         .fn()
-        .mockResolvedValue({ id: "c1", userId: "u1", brandId: "b1" }),
+        .mockResolvedValue({ id: "c1", userId: "someone-else", brandId: "b1" }),
     });
     const res = await ensureConversation(d, args);
     expect(res).toEqual({ ok: true, created: false });
     expect(d.createConversation).not.toHaveBeenCalled();
   });
 
-  it("rejects an existing conversation owned by another user (403)", async () => {
+  it("rejects an existing conversation that belongs to a different brand (403)", async () => {
     const d = deps({
       getConversationById: vi
         .fn()
-        .mockResolvedValue({ id: "c1", userId: "someone-else", brandId: "b1" }),
+        .mockResolvedValue({ id: "c1", userId: "u1", brandId: "other-brand" }),
     });
     const res = await ensureConversation(d, args);
     expect(res).toEqual({ ok: false, status: 403, error: expect.any(String) });

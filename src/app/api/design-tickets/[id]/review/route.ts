@@ -1,6 +1,6 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
-  getBrandById,
+  checkBrandAccess,
   getDesignTicketById,
   updateCalendarItemStatus,
   updateDesignTicket,
@@ -25,13 +25,19 @@ export async function POST(
   }
 
   const ticket = await getDesignTicketById(id);
-  if (!ticket || ticket.userId !== dbUser.id) {
+  if (!ticket) {
     return Response.json({ error: "Ticket not found" }, { status: 404 });
   }
-  // Defense in depth: the ticket's brand must belong to this user.
-  const brand = await getBrandById(ticket.brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Ticket not found" }, { status: 404 });
+  const access = await checkBrandAccess(
+    dbUser.id,
+    ticket.brandId,
+    "manage_content",
+  );
+  if (!access.ok) {
+    return Response.json(
+      { error: "Ticket not found" },
+      { status: access.status },
+    );
   }
 
   const u = dbUser;

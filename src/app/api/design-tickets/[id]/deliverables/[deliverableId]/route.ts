@@ -1,5 +1,9 @@
 import { getAuthUser } from "@/lib/auth/get-user";
-import { getDeliverableById, getDesignTicketById } from "@/lib/db/queries";
+import {
+  checkBrandAccess,
+  getDeliverableById,
+  getDesignTicketById,
+} from "@/lib/db/queries";
 import { getSignedReadUrl } from "@/lib/storage";
 
 /** Redirect to a short-lived signed URL for a deliverable (ownership-checked). */
@@ -17,9 +21,14 @@ export async function GET(
   if (!ticket) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
-  const isOwner = ticket.userId === dbUser.id;
+  const access = await checkBrandAccess(
+    dbUser.id,
+    ticket.brandId,
+    "manage_content",
+  );
+  const isWorkspaceMember = access.ok;
   const isStaff = dbUser.role === "designer" || dbUser.role === "admin";
-  if (!isOwner && !isStaff) {
+  if (!isWorkspaceMember && !isStaff) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 

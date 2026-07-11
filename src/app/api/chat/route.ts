@@ -13,9 +13,9 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  checkBrandAccess,
   createConversation,
   createMessage,
-  getBrandById,
   getConversationById,
   touchConversation,
   updateConversationTitle,
@@ -59,10 +59,10 @@ export async function POST(req: Request) {
     );
   }
 
-  // Verify the brand belongs to the caller before persisting under it.
-  const brand = await getBrandById(brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Brand not found" }, { status: 404 });
+  // Verify the caller has workspace access to the brand before persisting.
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) {
+    return Response.json({ error: access.error }, { status: access.status });
   }
 
   // The just-sent user message is the last item; it doubles as the title
