@@ -66,6 +66,11 @@ export async function getWorkspacesForUser(
 /**
  * Personal-workspace fallback for accounts created before this feature's
  * signup hook ran (or by Google OAuth paths added later). Idempotent.
+ *
+ * The workspace insert and the owner-membership insert run inside a single
+ * transaction so the pair is atomic: concurrent zero-membership requests
+ * can't each create their own workspace, and a crash between the two inserts
+ * can't leave an orphaned, membership-less workspace behind.
  */
 export async function getOrCreatePersonalWorkspaceId(
   userId: string,
@@ -73,15 +78,17 @@ export async function getOrCreatePersonalWorkspaceId(
 ): Promise<string> {
   const existing = await getWorkspacesForUser(userId);
   if (existing.length > 0) return existing[0].workspaceId;
-  const [ws] = await db
-    .insert(workspaces)
-    .values({ name: `${firstName}'s Workspace`, ownerId: userId })
-    .returning({ id: workspaces.id });
-  await db
-    .insert(workspaceMembers)
-    .values({ workspaceId: ws.id, userId, role: "owner" })
-    .onConflictDoNothing();
-  return ws.id;
+  return db.transaction(async (tx) => {
+    const [ws] = await tx
+      .insert(workspaces)
+      .values({ name: `${firstName}'s Workspace`, ownerId: userId })
+      .returning({ id: workspaces.id });
+    await tx
+      .insert(workspaceMembers)
+      .values({ workspaceId: ws.id, userId, role: "owner" })
+      .onConflictDoNothing();
+    return ws.id;
+  });
 }
 
 // ── Brand access (THE choke point) ───────────────────────────────────
