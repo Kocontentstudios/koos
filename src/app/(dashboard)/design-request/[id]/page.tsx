@@ -11,8 +11,8 @@ import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { TicketStatusBadge } from "../ticket-status-badge";
 import {
-  type TimelineUpdate,
   TicketUpdatesTimeline,
+  type TimelineUpdate,
 } from "../ticket-updates-timeline";
 import { ReviewActions } from "./review-actions";
 

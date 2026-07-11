@@ -67,7 +67,9 @@ function sundayWeekStart(date: Date): Date {
  * via `weekDays`, matching the template's week view.)
  */
 export function monthMatrixSunday(date: Date): Date[][] {
-  const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  const first = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1),
+  );
   const gridStart = sundayWeekStart(first);
   const weeks: Date[][] = [];
   const cursor = new Date(gridStart);

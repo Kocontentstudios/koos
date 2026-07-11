@@ -1,8 +1,8 @@
-import { Fragment } from "react";
+import { PencilIcon } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { PencilIcon } from "lucide-react";
+import { Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { hasCompletedBrand } from "@/lib/brand-profile";
@@ -250,7 +250,9 @@ export default async function BrandProfilePage() {
               <p className="whitespace-pre-line">{brand.additionalNotes}</p>
             )}
             {brand.helpfulLinks && (
-              <DetailLine label="Helpful links">{brand.helpfulLinks}</DetailLine>
+              <DetailLine label="Helpful links">
+                {brand.helpfulLinks}
+              </DetailLine>
             )}
           </div>
         </FieldRow>

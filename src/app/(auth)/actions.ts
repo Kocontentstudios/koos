@@ -61,8 +61,7 @@ export async function login(formData: FormData) {
   // Same generic message whether the email is unknown or the password is wrong,
   // so we don't leak which emails have accounts.
   if (
-    !user ||
-    !user.passwordHash ||
+    !user?.passwordHash ||
     !(await verifyPassword(user.passwordHash, password))
   ) {
     return { error: "Invalid email or password." };
