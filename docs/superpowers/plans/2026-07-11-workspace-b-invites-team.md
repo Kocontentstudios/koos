@@ -2053,7 +2053,77 @@ git commit -m "feat(team): team page with invite/resend/remove and read-only mem
 
 ---
 
-### Task 8: Plan-level verification
+### Task 8: Workspace-scope the ticket pages and lists
+
+*Added after Plan A's final review: the API layer already grants teammates ticket access via `checkBrandAccess`, but the dashboard PAGES still filter by `ticket.userId` — a teammate could download a ticket's deliverables through the API yet get `notFound()` on the ticket page and see an empty ticket list. Fix the inconsistency before the Team feature makes it visible.*
+
+**Files:**
+- Modify: `src/lib/db/queries/workspaces.ts` (one new query)
+- Modify: `src/app/(dashboard)/design-request/page.tsx` (list)
+- Modify: `src/app/(dashboard)/design-request/[id]/page.tsx` (detail, line ~40)
+- Modify: `src/app/(dashboard)/calendar/page.tsx` (line ~70) and `src/app/(dashboard)/dashboard/page.tsx` (line ~57) — both call `getDesignTicketsByUser`
+
+**Interfaces:**
+- Consumes: `checkBrandAccess`, `getBrandsForMember` (Plan A), `requireBrand()` returning `{ dbUser, workspace, role, brand }`.
+- Produces: `getDesignTicketsForMember(workspaceId: string, userId: string)` — same row shape as `getDesignTicketsByUser`.
+
+- [ ] **Step 1: Add the workspace-scoped ticket query**
+
+Append to `src/lib/db/queries/workspaces.ts` (extend imports with `designTickets` from schema):
+
+```ts
+/** Tickets across every brand this member can see (honors member_brand_access). */
+export async function getDesignTicketsForMember(
+  workspaceId: string,
+  userId: string,
+) {
+  const visibleBrands = await getBrandsForMember(workspaceId, userId);
+  if (visibleBrands.length === 0) return [];
+  return db
+    .select()
+    .from(designTickets)
+    .where(
+      inArray(
+        designTickets.brandId,
+        visibleBrands.map((b) => b.id),
+      ),
+    )
+    .orderBy(desc(designTickets.createdAt));
+}
+```
+
+Before writing, read `getDesignTicketsByUser` in `src/lib/db/queries/index.ts` — if it returns a joined/mapped shape rather than raw rows, mirror that shape exactly so the pages' rendering code is untouched.
+
+- [ ] **Step 2: Swap the three list call sites**
+
+In `design-request/page.tsx`, `calendar/page.tsx`, `dashboard/page.tsx`: these already call `requireBrand()`; replace `getDesignTicketsByUser(dbUser.id)` with `getDesignTicketsForMember(workspace.id, dbUser.id)` (destructure `workspace` from the existing `requireBrand()` result).
+
+- [ ] **Step 3: Fix the detail-page check**
+
+In `design-request/[id]/page.tsx`, replace the `ticket.userId !== dbUser.id` guard with:
+
+```ts
+const access = await checkBrandAccess(dbUser.id, ticket.brandId, "manage_content");
+if (!access.ok) notFound();
+```
+
+keeping any existing designer/admin allowances exactly as they are.
+
+- [ ] **Step 4: Gate and commit**
+
+Run: `corepack pnpm exec tsc --noEmit && corepack pnpm lint && corepack pnpm test`
+Expected: all pass.
+
+Run: `grep -rn "getDesignTicketsByUser" src/app` — expected: no hits.
+
+```bash
+git add src/lib/db/queries/workspaces.ts "src/app/(dashboard)"
+git commit -m "refactor(tickets): workspace-scope ticket pages and lists"
+```
+
+---
+
+### Task 9: Plan-level verification
 
 - [ ] **Step 1: Full gate**
 

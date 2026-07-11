@@ -102,7 +102,7 @@ Defined in code (not owner-configurable). The guard reads this table even while 
 ### Guard functions
 
 - **`getActiveWorkspace()`** (`src/lib/auth/`) — companion to `getAuthUser()`: resolves the cookie to a validated membership row + workspace, with the fallback chain above. Page shells call it once, as `requireBrand()` does today.
-- **`requireBrandAccess(userId, brandId, capability)`** (query layer, `src/lib/db/queries/`) — one query joining `brands → workspace_members`, plus the default-open check against `member_brand_access`. Returns the brand or throws a typed `ForbiddenError`. Fetch-and-authorize is one call, so no unauthorized brand object ever exists in scope.
+- **`checkBrandAccess(userId, brandId, capability)`** (query layer, `src/lib/db/queries/workspaces.ts`) — fetches the brand, membership, and `member_brand_access` rows, then applies the pure `evaluateBrandAccess` decision. Returns a discriminated union — `{ ok: true, brand }` or `{ ok: false, status: 403 | 404, error }` — rather than throwing; call sites map it exhaustively to responses. (*Implementation note: the design originally sketched a throwing `requireBrandAccess`; the returned-union form was adopted during build as the better fit for route handlers.*) Fetch-and-authorize is one call, so no unauthorized brand object ever exists in scope.
 
 ### The guard refactor
 

@@ -993,6 +993,8 @@ gh pr create --base dev --title "feat: Workspaces & Team" --body "Implements doc
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
 
+**Deploy-window note:** the build applies migrations BEFORE the new code is promoted, so between `0010_workspaces.sql` landing and the new deployment going live, the OLD code's `createBrand` (no `workspace_id`) violates the new NOT NULL and brand onboarding 500s for that window. Promote at low traffic; the reverse direction is safe (users created by old code are self-healed by `getActiveWorkspace`).
+
 After merge to `dev`, promote to `staging` — the build applies `0010_workspaces.sql` to the staging database automatically. **On staging, before promoting to `main`, re-run the backfill verification query from Plan A Task 1 Step 5 against the staging DB** (users === workspaces === owner memberships, zero orphan brands) and click through flows 1–4 on the staging domain. Only then PR `staging → main`; production migration runs in that deploy's build.
 
 Expected: staging verification green before any production promotion.
