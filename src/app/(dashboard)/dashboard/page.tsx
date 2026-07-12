@@ -24,9 +24,12 @@ import {
   getActiveCalendarForBrand,
   getCalendarItems,
   getDesignTicketsForMember,
+  getPendingInvitations,
   getStrategiesByBrand,
+  getWorkspaceMembers,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import { InviteTeamCard, TeamOverviewCard } from "./team-cards";
 
 function relativeTime(date: Date, now: Date): string {
   const diffMs = now.getTime() - date.getTime();
@@ -52,11 +55,14 @@ function shortDate(date: Date): string {
 export default async function DashboardPage() {
   const { dbUser, workspace, brand } = await requireBrand();
 
-  const [strategies, ticketRows, calendar] = await Promise.all([
-    getStrategiesByBrand(brand.id),
-    getDesignTicketsForMember(workspace.id, dbUser.id),
-    getActiveCalendarForBrand(brand.id),
-  ]);
+  const [strategies, ticketRows, calendar, teamMembers, pendingInvites] =
+    await Promise.all([
+      getStrategiesByBrand(brand.id),
+      getDesignTicketsForMember(workspace.id, dbUser.id),
+      getActiveCalendarForBrand(brand.id),
+      getWorkspaceMembers(workspace.id),
+      getPendingInvitations(workspace.id),
+    ]);
   const calendarItems = calendar ? await getCalendarItems(calendar.id) : [];
 
   const now = new Date();
@@ -553,6 +559,19 @@ export default async function DashboardPage() {
           );
         })}
       </div>
+
+      {/* ── Team ── */}
+      {teamMembers.length > 1 || pendingInvites.length > 0 ? (
+        <TeamOverviewCard
+          memberCount={teamMembers.length}
+          pendingCount={pendingInvites.length}
+          names={teamMembers.map((m) =>
+            `${m.user.firstName} ${m.user.lastName}`.trim(),
+          )}
+        />
+      ) : (
+        <InviteTeamCard />
+      )}
 
       {/* ── Activity + Pro tip ── */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
