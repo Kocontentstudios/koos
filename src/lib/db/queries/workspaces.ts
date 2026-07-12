@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   type Capability,
   evaluateBrandAccess,
@@ -373,4 +373,41 @@ export async function getWorkspaceOwner(workspaceId: string) {
     .where(eq(workspaces.id, workspaceId))
     .limit(1);
   return row ?? null;
+}
+
+// ── Workspace settings / lifecycle ───────────────────────────────────
+
+export async function updateWorkspace(
+  id: string,
+  data: { name?: string; logoUrl?: string | null },
+) {
+  await db
+    .update(workspaces)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(workspaces.id, id));
+}
+
+/**
+ * Delete a workspace ONLY if `ownerId` still owns it — the ownership check
+ * and the delete are one atomic statement, so a concurrent ownership change
+ * can't slip through between check and delete. Brands (and their whole
+ * content tree), memberships, and invitations go with it via FK cascades.
+ */
+export async function deleteWorkspaceOwnedBy(
+  workspaceId: string,
+  ownerId: string,
+): Promise<boolean> {
+  const deleted = await db
+    .delete(workspaces)
+    .where(and(eq(workspaces.id, workspaceId), eq(workspaces.ownerId, ownerId)))
+    .returning({ id: workspaces.id });
+  return deleted.length > 0;
+}
+
+export async function countWorkspaceBrands(workspaceId: string) {
+  const [row] = await db
+    .select({ value: count() })
+    .from(brands)
+    .where(eq(brands.workspaceId, workspaceId));
+  return row?.value ?? 0;
 }
