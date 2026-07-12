@@ -173,6 +173,15 @@ describe("acceptInvitation", () => {
     expect(bad).toEqual({ ok: false, reason: "email-mismatch" });
   });
 
+  it("binds case-insensitively when the USER email is uppercase", async () => {
+    deps.getInvitationByTokenHash.mockResolvedValue(inviteRow());
+    const result = await acceptInvitation(deps, {
+      token: "x",
+      user: { ...joiner, email: "NEW@X.COM" },
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("still succeeds when the joined notification throws", async () => {
     deps.getInvitationByTokenHash.mockResolvedValue(inviteRow());
     deps.notifyOwnerMemberJoined.mockRejectedValue(new Error("smtp down"));
@@ -222,5 +231,25 @@ describe("resendInvitation", () => {
     });
     expect(result.ok).toBe(false);
     expect(deps.rotateInvitationToken).not.toHaveBeenCalled();
+  });
+
+  it("refuses an already-accepted invite", async () => {
+    const deps = {
+      getInvitationById: vi
+        .fn()
+        .mockResolvedValue(inviteRow({ acceptedAt: new Date() })),
+      rotateInvitationToken: vi.fn(),
+      sendInviteEmail: vi.fn(),
+      buildAcceptUrl: (t: string) => t,
+    };
+    const result = await resendInvitation(deps, {
+      invitationId: "inv1",
+      workspaceId: "w1",
+      workspaceName: "KO Content Studio",
+      inviterName: "Seyi",
+    });
+    expect(result.ok).toBe(false);
+    expect(deps.rotateInvitationToken).not.toHaveBeenCalled();
+    expect(deps.sendInviteEmail).not.toHaveBeenCalled();
   });
 });
