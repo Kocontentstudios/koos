@@ -172,12 +172,12 @@ Colocated `*.test.ts`, matching the existing `password-reset.test.ts` / `roles.t
 
 On `feat/workspace` (off `dev`), guard-first, each stage leaving the app fully working:
 
-1. **Migration** — tables + backfill (additive; invisible).
+1. **Migration** — tables + backfill. Additive to the *schema*, but NOT zero-downtime: `scripts/migrate.mjs` runs during the build, before the new deployment is promoted, so there is a short window where the old code is still serving against the new schema. During it, the old `createBrand` (no `workspace_id`) violates the new `brands.workspace_id NOT NULL` and brand creation 500s until promotion completes. The reverse is fail-safe — a user the old code creates during the window gets no workspace and is self-healed by `getActiveWorkspace`. **Promote at low traffic**, and expect brand-create errors only for the promotion window.
 2. **Guard + route refactor** — every existing user is the sole owner-member of their personal workspace, so any behavior diff at this stage is a bug by definition.
 3. **Invite flow + Team page.**
 4. **Workspace Card/Switcher + Settings + dashboard cards.**
 
-PRs flow `dev → staging → main`; the migration ledger applies staging-first automatically during builds.
+PRs flow `dev → staging → main`; the migration ledger applies staging-first automatically during builds. Because the backfill and the `SET NOT NULL` run in one transaction, a brand committed by live old code between the backfill's snapshot and the `ALTER` fails the constraint and rolls the whole migration back — a safe, deterministic build failure, not a half-migrated database. Retry the deploy (again, at low traffic).
 
 ## 9. Out of scope (v1)
 
