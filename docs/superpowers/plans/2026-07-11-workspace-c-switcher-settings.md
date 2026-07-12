@@ -238,14 +238,56 @@ export async function POST(req: Request) {
 }
 ```
 
-- [ ] **Step 3: Typecheck, lint, tests; commit**
+- [ ] **Step 3: Extract the shared owner-guard and test the route validation matrix** *(added from Plan B's final review — spec §7 item 4)*
+
+Plan B's four team routes each hand-roll the same 401/403 block. Now that this plan adds three more owner-gated handlers, extract once and test once:
+
+1. Create `src/lib/auth/workspace-guard.ts`:
+
+```ts
+import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { type Capability, can } from "@/lib/auth/workspace-access";
+
+type Guarded = Awaited<ReturnType<typeof getActiveWorkspace>> & {
+  dbUser: NonNullable<Awaited<ReturnType<typeof getActiveWorkspace>>["dbUser"]>;
+};
+
+/** Shared route guard: 401 when signed out, 403 when the capability is denied.
+ * Returns either the failure Response to return as-is, or the narrowed context. */
+export async function guardWorkspaceRoute(
+  capability?: Capability,
+): Promise<{ response: Response } | { ctx: Guarded }> {
+  const resolved = await getActiveWorkspace();
+  if (!resolved.dbUser) {
+    return {
+      response: Response.json({ error: "Not authenticated" }, { status: 401 }),
+    };
+  }
+  if (capability && !can(resolved.role, capability)) {
+    return {
+      response: Response.json(
+        { error: "Only the workspace owner can manage the team." },
+        { status: 403 },
+      ),
+    };
+  }
+  return { ctx: resolved as Guarded };
+}
+```
+
+Adjust the 403 copy per capability if the existing routes differ ("…can change settings." / "…can delete a workspace.") — read them and preserve each route's current message (pass the message in, or map capability → copy).
+
+2. Refactor this plan's three `/api/workspace` handlers AND Plan B's four team routes onto it, preserving every response byte-for-byte.
+3. Add `src/app/api/workspace/route-guards.test.ts` (or colocated per the repo's route-test convention — check how `src/app/api/strategy/generate/` tests mock modules) covering the spec §7 matrix at route level: member (non-owner) hitting PATCH /api/workspace → 403; DELETE /api/workspace as member → 403; owner DELETE own membership via /api/workspace/members/[userId] → 400 self-removal; DELETE /api/workspace with a single membership → 400 only-workspace; unauthenticated → 401.
+
+- [ ] **Step 4: Typecheck, lint, tests; commit**
 
 Run: `corepack pnpm exec tsc --noEmit && corepack pnpm lint && corepack pnpm test`
 Expected: all pass.
 
 ```bash
-git add src/app/api/workspace
-git commit -m "feat(api): workspace get/update/delete and switch routes"
+git add src/app/api/workspace src/lib/auth/workspace-guard.ts
+git commit -m "feat(api): workspace get/update/delete and switch routes + shared owner guard"
 ```
 
 ---
