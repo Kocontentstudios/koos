@@ -25,6 +25,12 @@ describe("safeNext", () => {
     expect(safeNext("\\evil.com")).toBeNull();
   });
 
+  it("rejects ASCII control characters that the URL parser strips", () => {
+    expect(safeNext("/\t/evil.com")).toBeNull();
+    expect(safeNext("/\n/evil.com")).toBeNull();
+    expect(safeNext("/\r/evil.com")).toBeNull();
+  });
+
   it("rejects an empty string", () => {
     expect(safeNext("")).toBeNull();
   });
