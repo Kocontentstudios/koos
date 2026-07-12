@@ -64,6 +64,7 @@ export async function saveBrandProfile(
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   let brand: typeof brands.$inferSelect;
   if (existing) {
+    // Safe without checkBrandAccess: the brand was fetched workspace-scoped via getActiveBrandForMember above, and every role holds manage_content.
     brand = await updateBrand(existing.id, profile);
   } else {
     brand = await createBrand({

@@ -162,14 +162,6 @@ export async function markPasswordResetTokenUsed(id: string) {
 
 // ── Brands ───────────────────────────────────────────────────────────
 
-export async function getBrandsByUserId(userId: string) {
-  return db
-    .select()
-    .from(brands)
-    .where(eq(brands.userId, userId))
-    .orderBy(desc(brands.createdAt));
-}
-
 export async function getBrandById(id: string) {
   const [brand] = await db
     .select()
@@ -228,16 +220,6 @@ export async function updateBrand(
   return updated;
 }
 
-export async function getActiveBrandForUser(userId: string) {
-  const [brand] = await db
-    .select()
-    .from(brands)
-    .where(eq(brands.userId, userId))
-    .orderBy(desc(brands.updatedAt))
-    .limit(1);
-  return brand ?? null;
-}
-
 // ── Brand Contexts ───────────────────────────────────────────────────
 
 export async function getAllBrandContexts(brandId: string) {
@@ -288,15 +270,6 @@ export async function upsertBrandContext(
 }
 
 // ── Chat ────────────────────────────────────────────────────────────
-
-export async function getRecentConversations(userId: string, limit = 10) {
-  return db
-    .select()
-    .from(chatConversations)
-    .where(eq(chatConversations.userId, userId))
-    .orderBy(desc(chatConversations.updatedAt))
-    .limit(limit);
-}
 
 export async function getRecentConversationsForBrand(
   brandId: string,
