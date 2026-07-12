@@ -1,0 +1,107 @@
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { SettingsClient } from "./settings-client";
+
+const { refreshMock } = vi.hoisted(() => ({ refreshMock: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: refreshMock }),
+}));
+
+let originalLocation: Location;
+
+afterEach(() => {
+  refreshMock.mockClear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  if (originalLocation) {
+    Object.defineProperty(window, "location", {
+      value: originalLocation,
+      writable: true,
+      configurable: true,
+    });
+  }
+});
+
+const workspace = { id: "ws-1", name: "KO Content Studio", logoUrl: null };
+
+describe("SettingsClient", () => {
+  it("disables the confirm-delete button until the typed name matches exactly", async () => {
+    const user = userEvent.setup();
+    render(
+      <SettingsClient workspace={workspace} brandCount={2} canDelete={true} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /delete workspace/i }));
+
+    const confirmInput = await screen.findByLabelText(
+      /type the workspace name to confirm deletion/i,
+    );
+    // Two "Delete Workspace" buttons now exist (Danger Zone trigger + dialog
+    // confirm); the confirm button is inside the dialog.
+    const dialog = screen.getByRole("dialog");
+    const confirmButton = within(dialog).getByRole("button", {
+      name: /delete workspace/i,
+    });
+    expect(confirmButton).toBeDisabled();
+
+    await user.type(confirmInput, "wrong name");
+    expect(confirmButton).toBeDisabled();
+
+    await user.clear(confirmInput);
+    await user.type(confirmInput, workspace.name);
+    expect(confirmButton).toBeEnabled();
+  });
+
+  it("disables the Danger Zone delete trigger when canDelete is false", () => {
+    render(
+      <SettingsClient workspace={workspace} brandCount={1} canDelete={false} />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /delete workspace/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/you can't delete your only workspace/i),
+    ).toBeInTheDocument();
+  });
+
+  it("hard-reloads to /dashboard on successful delete", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const assignMock = vi.fn();
+    originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      value: { ...originalLocation, assign: assignMock },
+      writable: true,
+      configurable: true,
+    });
+
+    render(
+      <SettingsClient workspace={workspace} brandCount={0} canDelete={true} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /delete workspace/i }));
+    const confirmInput = await screen.findByLabelText(
+      /type the workspace name to confirm deletion/i,
+    );
+    await user.type(confirmInput, workspace.name);
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: /delete workspace/i }),
+    );
+
+    await vi.waitFor(() =>
+      expect(assignMock).toHaveBeenCalledWith("/dashboard"),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workspace",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+});

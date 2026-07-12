@@ -67,6 +67,13 @@ const PAGE_META: { match: string; meta: PageMeta }[] = [
     meta: { title: "Team", subtitle: "People with access to this workspace" },
   },
   {
+    match: "/workspace",
+    meta: {
+      title: "Workspace Settings",
+      subtitle: "Name, logo, and danger zone",
+    },
+  },
+  {
     match: "/admin",
     meta: { title: "Admin", subtitle: "Manage the workspace" },
   },
