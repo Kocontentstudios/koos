@@ -188,7 +188,6 @@ export async function getActiveBrandForMember(
 
 /**
  * Tickets across every brand this member can see (honors member_brand_access).
- * Same joined shape as getDesignTicketsByUser so page rendering is unchanged.
  */
 export async function getDesignTicketsForMember(
   workspaceId: string,
@@ -253,22 +252,24 @@ export async function removeWorkspaceMember(
   workspaceId: string,
   userId: string,
 ) {
-  await db
-    .delete(memberBrandAccess)
-    .where(
-      and(
-        eq(memberBrandAccess.workspaceId, workspaceId),
-        eq(memberBrandAccess.userId, userId),
-      ),
-    );
-  await db
-    .delete(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        eq(workspaceMembers.userId, userId),
-      ),
-    );
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(memberBrandAccess)
+      .where(
+        and(
+          eq(memberBrandAccess.workspaceId, workspaceId),
+          eq(memberBrandAccess.userId, userId),
+        ),
+      );
+    await tx
+      .delete(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.userId, userId),
+        ),
+      );
+  });
 }
 
 // ── Invitations ──────────────────────────────────────────────────────

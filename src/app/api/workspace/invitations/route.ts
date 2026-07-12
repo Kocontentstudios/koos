@@ -75,7 +75,10 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("create invitation failed", err);
     return Response.json(
-      { error: "Could not send the invitation. Please try again." },
+      {
+        error:
+          "The invitation was saved but the email could not be sent — use Resend from the Pending tab.",
+      },
       { status: 500 },
     );
   }
