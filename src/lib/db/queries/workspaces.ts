@@ -329,3 +329,14 @@ export async function markInvitationAccepted(id: string) {
     .set({ acceptedAt: new Date() })
     .where(eq(workspaceInvitations.id, id));
 }
+
+/** The owner user of a workspace (for notifications). */
+export async function getWorkspaceOwner(workspaceId: string) {
+  const [row] = await db
+    .select({ id: users.id, email: users.email, firstName: users.firstName })
+    .from(workspaces)
+    .innerJoin(users, eq(workspaces.ownerId, users.id))
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+  return row ?? null;
+}

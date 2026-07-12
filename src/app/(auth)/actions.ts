@@ -29,6 +29,13 @@ import { sendPasswordResetEmail, sendWelcomeEmail } from "@/lib/notify/account";
 import { checkRateLimit, clientIpFrom } from "@/lib/rate-limit";
 import { isValidEmail } from "@/lib/validation/email";
 
+/** Only same-app relative paths — never absolute/protocol-relative URLs. */
+function safeNext(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string") return null;
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
 /** Per-IP limit for an auth action; returns a form error when throttled. */
 async function throttleByIp(
   action: string,
@@ -71,7 +78,7 @@ export async function login(formData: FormData) {
 
   await startSession(user.id);
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(safeNext(formData.get("next")) ?? "/dashboard");
 }
 
 export async function signup(formData: FormData) {
@@ -117,7 +124,7 @@ export async function signup(formData: FormData) {
 
   await startSession(user.id);
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(safeNext(formData.get("next")) ?? "/dashboard");
 }
 
 export async function signInWithGoogle() {
