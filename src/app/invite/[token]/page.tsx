@@ -77,6 +77,10 @@ export default async function InvitePage({
             Sign in
           </Link>
         </div>
+        <p className="mt-4 text-xs text-muted-foreground">
+          If you use Google sign-in, sign in first and then open this invitation
+          link again.
+        </p>
       </Shell>
     );
   }

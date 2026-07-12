@@ -519,22 +519,6 @@ export async function getDesignTicketById(id: string) {
   return row ?? null;
 }
 
-/** A user's tickets with campaign name + calendar item title for the list/detail. */
-export async function getDesignTicketsByUser(userId: string) {
-  return db
-    .select({
-      ticket: designTickets,
-      campaignName: strategies.name,
-      itemTitle: calendarItems.title,
-    })
-    .from(designTickets)
-    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
-    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(eq(designTickets.userId, userId))
-    .orderBy(desc(designTickets.createdAt));
-}
-
 export async function getDesignTicketForCalendarItem(calendarItemId: string) {
   const [row] = await db
     .select()
