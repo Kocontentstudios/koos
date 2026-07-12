@@ -23,7 +23,7 @@ import {
 import {
   getActiveCalendarForBrand,
   getCalendarItems,
-  getDesignTicketsByUser,
+  getDesignTicketsForMember,
   getStrategiesByBrand,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
@@ -50,11 +50,11 @@ function shortDate(date: Date): string {
 }
 
 export default async function DashboardPage() {
-  const { dbUser, brand } = await requireBrand();
+  const { dbUser, workspace, brand } = await requireBrand();
 
   const [strategies, ticketRows, calendar] = await Promise.all([
     getStrategiesByBrand(brand.id),
-    getDesignTicketsByUser(dbUser.id),
+    getDesignTicketsForMember(workspace.id, dbUser.id),
     getActiveCalendarForBrand(brand.id),
   ]);
   const calendarItems = calendar ? await getCalendarItems(calendar.id) : [];

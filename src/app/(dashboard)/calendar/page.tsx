@@ -4,7 +4,7 @@ import { requireBrand } from "@/lib/auth/require-brand";
 import {
   getCalendarItems,
   getCalendarsForBrand,
-  getDesignTicketsByUser,
+  getDesignTicketsForMember,
   getStrategyById,
 } from "@/lib/db/queries";
 import { isUuid } from "@/lib/validation/uuid";
@@ -31,7 +31,7 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{ calendarId?: string }>;
 }) {
-  const { dbUser, brand } = await requireBrand();
+  const { dbUser, workspace, brand } = await requireBrand();
   const { calendarId } = await searchParams;
 
   // All calendars for the brand (newest first); the URL may pin a specific
@@ -67,7 +67,7 @@ export default async function CalendarPage({
   const [items, strategy, userTickets] = await Promise.all([
     getCalendarItems(calendar.id),
     getStrategyById(calendar.strategyId),
-    getDesignTicketsByUser(dbUser.id),
+    getDesignTicketsForMember(workspace.id, dbUser.id),
   ]);
 
   const brandSummary: BrandSummary = {

@@ -7,7 +7,11 @@ import {
 import { db } from "@/lib/db/client";
 import {
   brands,
+  calendarItems,
+  calendars,
+  designTickets,
   memberBrandAccess,
+  strategies,
   users,
   workspaceInvitations,
   workspaceMembers,
@@ -180,6 +184,35 @@ export async function getActiveBrandForMember(
 ) {
   const list = await getBrandsForMember(workspaceId, userId);
   return list[0] ?? null;
+}
+
+/**
+ * Tickets across every brand this member can see (honors member_brand_access).
+ * Same joined shape as getDesignTicketsByUser so page rendering is unchanged.
+ */
+export async function getDesignTicketsForMember(
+  workspaceId: string,
+  userId: string,
+) {
+  const visibleBrands = await getBrandsForMember(workspaceId, userId);
+  if (visibleBrands.length === 0) return [];
+  return db
+    .select({
+      ticket: designTickets,
+      campaignName: strategies.name,
+      itemTitle: calendarItems.title,
+    })
+    .from(designTickets)
+    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
+    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
+    .where(
+      inArray(
+        designTickets.brandId,
+        visibleBrands.map((b) => b.id),
+      ),
+    )
+    .orderBy(desc(designTickets.createdAt));
 }
 
 // ── Members ──────────────────────────────────────────────────────────
