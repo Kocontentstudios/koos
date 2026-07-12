@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthUser = vi.fn();
-const getActiveBrandForUser = vi.fn();
+const getActiveWorkspace = vi.fn();
+const getActiveBrandForMember = vi.fn();
 const updateBrand = vi.fn();
 const createBrand = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
+vi.mock("@/lib/auth/workspace", () => ({
+  getActiveWorkspace: () => getActiveWorkspace(),
+}));
 vi.mock("@/lib/db/queries", () => ({
-  getActiveBrandForUser: (id: string) => getActiveBrandForUser(id),
+  getActiveBrandForMember: (workspaceId: string, userId: string) =>
+    getActiveBrandForMember(workspaceId, userId),
   updateBrand: (id: string, data: unknown) => updateBrand(id, data),
   createBrand: (data: unknown) => createBrand(data),
 }));
@@ -26,10 +31,15 @@ describe("saveBrandProfile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1" },
+      workspace: { id: "ws-1" },
+      role: "owner",
+    });
   });
 
   it("updates the existing brand even when onboarding is completed", async () => {
-    getActiveBrandForUser.mockResolvedValue({
+    getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
       onboardingStatus: "completed",
     });
@@ -46,7 +56,7 @@ describe("saveBrandProfile", () => {
   });
 
   it("persists cleared optional fields as null on edit, not undefined", async () => {
-    getActiveBrandForUser.mockResolvedValue({
+    getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
       onboardingStatus: "completed",
     });
@@ -63,13 +73,17 @@ describe("saveBrandProfile", () => {
   });
 
   it("creates a new brand when the user has none", async () => {
-    getActiveBrandForUser.mockResolvedValue(null);
+    getActiveBrandForMember.mockResolvedValue(null);
     createBrand.mockResolvedValue({ id: "new-brand" });
 
     const res = await saveBrandProfile(validInput);
 
     expect(createBrand).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "u1", name: "Acme" }),
+      expect.objectContaining({
+        userId: "u1",
+        workspaceId: "ws-1",
+        name: "Acme",
+      }),
     );
     expect(updateBrand).not.toHaveBeenCalled();
     expect(res).toEqual({ ok: true, brandId: "new-brand" });

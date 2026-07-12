@@ -1,6 +1,10 @@
 import { rowsToUiMessages } from "@/lib/ai/chat-messages";
 import { getAuthUser } from "@/lib/auth/get-user";
-import { getConversationById, getConversationMessages } from "@/lib/db/queries";
+import {
+  checkBrandAccess,
+  getConversationById,
+  getConversationMessages,
+} from "@/lib/db/queries";
 import { isUuid } from "@/lib/validation/uuid";
 
 /**
@@ -21,8 +25,19 @@ export async function GET(
     return Response.json({ error: "Conversation not found" }, { status: 404 });
   }
   const conversation = await getConversationById(id);
-  if (!conversation || conversation.userId !== dbUser.id) {
+  if (!conversation) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
+  }
+  const access = await checkBrandAccess(
+    dbUser.id,
+    conversation.brandId,
+    "manage_content",
+  );
+  if (!access.ok) {
+    return Response.json(
+      { error: "Conversation not found" },
+      { status: access.status },
+    );
   }
 
   const rows = await getConversationMessages(id);

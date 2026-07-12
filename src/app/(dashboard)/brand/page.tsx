@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { hasCompletedBrand } from "@/lib/brand-profile";
-import { getActiveBrandForUser } from "@/lib/db/queries";
+import { getActiveBrandForMember } from "@/lib/db/queries";
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -74,7 +75,10 @@ export default async function BrandProfilePage() {
   const { dbUser } = await getAuthUser();
   if (!dbUser) redirect("/login");
 
-  const brand = await getActiveBrandForUser(dbUser.id);
+  const { workspace } = await getActiveWorkspace();
+  const brand = workspace
+    ? await getActiveBrandForMember(workspace.id, dbUser.id)
+    : null;
   if (!brand || !hasCompletedBrand(brand.onboardingStatus)) {
     redirect("/brand/create");
   }
