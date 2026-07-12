@@ -126,6 +126,7 @@ export function SettingsClient({
       } | null;
       setStatus("error");
       setError(data?.error ?? "Could not delete the workspace.");
+      setConfirmText("");
       setDeleteOpen(false);
     });
   }

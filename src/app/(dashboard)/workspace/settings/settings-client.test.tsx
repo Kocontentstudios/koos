@@ -127,12 +127,12 @@ describe("SettingsClient", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /delete workspace/i }));
-    const confirmInput = await screen.findByLabelText(
+    let confirmInput = await screen.findByLabelText(
       /type the workspace name to confirm deletion/i,
     );
     await user.type(confirmInput, workspace.name);
 
-    const dialog = screen.getByRole("dialog");
+    let dialog = screen.getByRole("dialog");
     await user.click(
       within(dialog).getByRole("button", {
         name: /delete workspace permanently/i,
@@ -143,6 +143,21 @@ describe("SettingsClient", () => {
       await screen.findByText(/you do not have permission/i),
     ).toBeInTheDocument();
     expect(assignMock).not.toHaveBeenCalled();
+
+    // Verify that after the failed delete, reopening the dialog shows
+    // the confirm input empty and the confirm button disabled
+    await user.click(screen.getByRole("button", { name: /delete workspace/i }));
+    confirmInput = await screen.findByLabelText(
+      /type the workspace name to confirm deletion/i,
+    );
+    expect(confirmInput).toHaveValue("");
+
+    dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByRole("button", {
+        name: /delete workspace permanently/i,
+      }),
+    ).toBeDisabled();
   });
 
   it("resets the typed confirmation text when the delete dialog is closed and reopened", async () => {
