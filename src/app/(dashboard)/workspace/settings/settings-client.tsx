@@ -124,6 +124,7 @@ export function SettingsClient({
       const data = (await res.json().catch(() => null)) as {
         error?: string;
       } | null;
+      setStatus("error");
       setError(data?.error ?? "Could not delete the workspace.");
       setDeleteOpen(false);
     });
@@ -202,7 +203,13 @@ export function SettingsClient({
         </button>
       </SectionCard>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setConfirmText("");
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete {workspace.name}?</DialogTitle>
@@ -221,7 +228,10 @@ export function SettingsClient({
           <DialogFooter>
             <button
               type="button"
-              onClick={() => setDeleteOpen(false)}
+              onClick={() => {
+                setDeleteOpen(false);
+                setConfirmText("");
+              }}
               className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
             >
               Cancel
@@ -233,7 +243,7 @@ export function SettingsClient({
               className="flex items-center gap-2 rounded-lg bg-[var(--status-error-fg)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {pending ? <Spinner /> : null}
-              Delete Workspace
+              Delete Workspace Permanently
             </button>
           </DialogFooter>
         </DialogContent>
