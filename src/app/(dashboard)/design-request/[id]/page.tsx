@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Markdown } from "@/components/ui/markdown";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
+  checkBrandAccess,
   getDeliverables,
   getDesignTicketById,
   getTicketUpdates,
@@ -37,9 +38,16 @@ export default async function TicketDetailPage({
   const { dbUser } = await requireBrand();
   const ticket = await getDesignTicketById(id);
 
-  if (!ticket || ticket.userId !== dbUser.id) {
+  if (!ticket) {
     notFound();
   }
+
+  const access = await checkBrandAccess(
+    dbUser.id,
+    ticket.brandId,
+    "manage_content",
+  );
+  if (!access.ok) notFound();
 
   const deliverables = await getDeliverables(ticket.id);
   const updateRows = await getTicketUpdates(ticket.id);

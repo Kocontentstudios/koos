@@ -2,8 +2,8 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  checkBrandAccess,
   createDesignTicket,
-  getBrandById,
   getCalendarItemById,
   recordUsageEvent,
 } from "@/lib/db/queries";
@@ -43,10 +43,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const brand = await getBrandById(brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Brand not found" }, { status: 404 });
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) {
+    return Response.json({ error: access.error }, { status: access.status });
   }
+  const brand = access.brand;
 
   const deliveryEmail = body.deliveryEmail?.trim() || null;
   if (deliveryEmail && !isValidEmail(deliveryEmail)) {

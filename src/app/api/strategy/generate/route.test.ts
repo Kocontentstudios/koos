@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthUser = vi.fn();
-const getBrandById = vi.fn();
+const checkBrandAccess = vi.fn();
 const createGenerationJob = vi.fn();
 const executeGenerationJob = vi.fn();
 const generateStrategyWork = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/db/queries", () => ({
-  getBrandById: (id: string) => getBrandById(id),
+  checkBrandAccess: (userId: string, brandId: string, capability: string) =>
+    checkBrandAccess(userId, brandId, capability),
   createGenerationJob: (data: unknown) => createGenerationJob(data),
 }));
 vi.mock("@/lib/jobs/run-generation", () => ({
@@ -32,10 +33,9 @@ describe("strategy generate route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
-    getBrandById.mockResolvedValue({
-      id: BRAND_ID,
-      userId: "u1",
-      name: "Acme",
+    checkBrandAccess.mockResolvedValue({
+      ok: true,
+      brand: { id: BRAND_ID, userId: "u1", name: "Acme" },
     });
     createGenerationJob.mockResolvedValue({ id: "job-1" });
     executeGenerationJob.mockImplementation(
@@ -102,7 +102,11 @@ describe("strategy generate route", () => {
   });
 
   it("does not create a job for a brand the caller doesn't own", async () => {
-    getBrandById.mockResolvedValue({ id: BRAND_ID, userId: "someone-else" });
+    checkBrandAccess.mockResolvedValue({
+      ok: false,
+      status: 404,
+      error: "Brand not found",
+    });
     const req = new Request("http://x/api/strategy/generate", {
       method: "POST",
       body: JSON.stringify({ brandId: BRAND_ID, conversation: "user: hi" }),

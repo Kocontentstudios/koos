@@ -162,14 +162,6 @@ export async function markPasswordResetTokenUsed(id: string) {
 
 // ── Brands ───────────────────────────────────────────────────────────
 
-export async function getBrandsByUserId(userId: string) {
-  return db
-    .select()
-    .from(brands)
-    .where(eq(brands.userId, userId))
-    .orderBy(desc(brands.createdAt));
-}
-
 export async function getBrandById(id: string) {
   const [brand] = await db
     .select()
@@ -228,16 +220,6 @@ export async function updateBrand(
   return updated;
 }
 
-export async function getActiveBrandForUser(userId: string) {
-  const [brand] = await db
-    .select()
-    .from(brands)
-    .where(eq(brands.userId, userId))
-    .orderBy(desc(brands.updatedAt))
-    .limit(1);
-  return brand ?? null;
-}
-
 // ── Brand Contexts ───────────────────────────────────────────────────
 
 export async function getAllBrandContexts(brandId: string) {
@@ -288,15 +270,6 @@ export async function upsertBrandContext(
 }
 
 // ── Chat ────────────────────────────────────────────────────────────
-
-export async function getRecentConversations(userId: string, limit = 10) {
-  return db
-    .select()
-    .from(chatConversations)
-    .where(eq(chatConversations.userId, userId))
-    .orderBy(desc(chatConversations.updatedAt))
-    .limit(limit);
-}
 
 export async function getRecentConversationsForBrand(
   brandId: string,
@@ -517,22 +490,6 @@ export async function getDesignTicketById(id: string) {
     .where(eq(designTickets.id, id))
     .limit(1);
   return row ?? null;
-}
-
-/** A user's tickets with campaign name + calendar item title for the list/detail. */
-export async function getDesignTicketsByUser(userId: string) {
-  return db
-    .select({
-      ticket: designTickets,
-      campaignName: strategies.name,
-      itemTitle: calendarItems.title,
-    })
-    .from(designTickets)
-    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
-    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(eq(designTickets.userId, userId))
-    .orderBy(desc(designTickets.createdAt));
 }
 
 export async function getDesignTicketForCalendarItem(calendarItemId: string) {
@@ -878,3 +835,5 @@ export async function updateAppSettings(data: {
     .returning();
   return row;
 }
+
+export * from "./workspaces";

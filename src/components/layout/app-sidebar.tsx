@@ -14,20 +14,23 @@ import { MAIN_NAV } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { LogoutForm } from "./logout-form";
 import { useSidebarCollapse } from "./sidebar-context";
+import { WorkspaceCard, type WorkspaceInfo } from "./workspace-card";
 
-interface UserInfo {
-  firstName: string;
-  lastName: string;
-  email: string;
-  avatarUrl: string | null;
-}
-
-export function AppSidebar({ user }: { user: UserInfo }) {
+export function AppSidebar({
+  workspace,
+  memberships,
+}: {
+  workspace: WorkspaceInfo;
+  memberships: WorkspaceInfo[];
+}) {
   const pathname = usePathname();
   const { collapsed, toggle, mobileOpen, closeMobile } = useSidebarCollapse();
-  const initials = (user.firstName[0] ?? "") + (user.lastName[0] ?? "");
 
   // Close the mobile drawer whenever the route changes (e.g. after a nav tap).
+  // `pathname` isn't read in the effect body — it's a trigger, not a value —
+  // so it must stay in the dependency list; removing it (biome's suggested
+  // fix) would stop the drawer from closing on navigation.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname is an intentional re-run trigger, not a used value
   useEffect(() => {
     closeMobile();
   }, [pathname, closeMobile]);
@@ -171,27 +174,13 @@ export function AppSidebar({ user }: { user: UserInfo }) {
           </LogoutForm>
         </div>
 
-        {/* User Card */}
+        {/* Workspace Card (replaces the profile card — prototype §Workspace Card) */}
         <div className="px-3 pb-4">
-          <div
-            className={cn(
-              "flex items-center gap-3 rounded-xl border border-[var(--nav-border)] bg-[var(--nav-card)] p-3",
-              collapsed &&
-                "md:justify-center md:border-transparent md:bg-transparent md:p-2",
-            )}
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#e8a0b0] to-[#7c5cff] text-sm font-semibold text-white">
-              {initials}
-            </div>
-            <div className={cn("min-w-0 flex-1", labelHidden)}>
-              <p className="truncate text-sm font-medium text-[var(--nav-text-active)]">
-                {user.firstName} {user.lastName}
-              </p>
-              <p className="truncate text-xs text-[var(--nav-text)]">
-                {user.email}
-              </p>
-            </div>
-          </div>
+          <WorkspaceCard
+            collapsed={collapsed}
+            active={workspace}
+            memberships={memberships}
+          />
         </div>
       </aside>
     </>

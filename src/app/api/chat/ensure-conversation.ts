@@ -24,8 +24,11 @@ export interface EnsureConversationArgs {
 }
 
 /**
- * Ensure a chat conversation exists and belongs to the caller. Creates it
- * (owned by userId+brandId) when absent; when present, verifies ownership.
+ * Ensure a chat conversation exists for the given brand. Creates it (owned
+ * by userId+brandId) when absent; when present, verifies it belongs to the
+ * same brand. Chat conversations are workspace content, so any teammate with
+ * access to the brand may resume one — the caller is responsible for
+ * checking that access (see `checkBrandAccess`) before calling this helper.
  */
 export async function ensureConversation(
   deps: EnsureConversationDeps,
@@ -44,7 +47,7 @@ export async function ensureConversation(
     });
     return { ok: true, created: true };
   }
-  if (existing.userId !== userId) {
+  if (existing.brandId !== brandId) {
     return { ok: false, status: 403, error: "Forbidden" };
   }
   return { ok: true, created: false };
