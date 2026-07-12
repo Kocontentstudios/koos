@@ -1,5 +1,4 @@
-import { getActiveWorkspace } from "@/lib/auth/workspace";
-import { can } from "@/lib/auth/workspace-access";
+import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import { getMembership, removeWorkspaceMember } from "@/lib/db/queries";
 
 export async function DELETE(
@@ -7,16 +6,9 @@ export async function DELETE(
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
-  const { dbUser, workspace, role } = await getActiveWorkspace();
-  if (!dbUser) {
-    return Response.json({ error: "Not authenticated" }, { status: 401 });
-  }
-  if (!can(role, "manage_team")) {
-    return Response.json(
-      { error: "Only the workspace owner can manage the team." },
-      { status: 403 },
-    );
-  }
+  const guard = await guardWorkspaceRoute("manage_team");
+  if ("response" in guard) return guard.response;
+  const { dbUser, workspace } = guard.ctx;
   if (userId === dbUser.id) {
     return Response.json(
       { error: "You can't remove yourself from your own workspace." },

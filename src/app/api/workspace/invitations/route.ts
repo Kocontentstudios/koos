@@ -1,5 +1,4 @@
-import { getActiveWorkspace } from "@/lib/auth/workspace";
-import { can } from "@/lib/auth/workspace-access";
+import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import {
   createWorkspaceInvitation,
   getMembership,
@@ -12,16 +11,9 @@ import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { createInvitation } from "@/lib/workspace/invitations";
 
 export async function POST(req: Request) {
-  const { dbUser, workspace, role } = await getActiveWorkspace();
-  if (!dbUser) {
-    return Response.json({ error: "Not authenticated" }, { status: 401 });
-  }
-  if (!can(role, "manage_team")) {
-    return Response.json(
-      { error: "Only the workspace owner can manage the team." },
-      { status: 403 },
-    );
-  }
+  const guard = await guardWorkspaceRoute("manage_team");
+  if ("response" in guard) return guard.response;
+  const { dbUser, workspace } = guard.ctx;
 
   const verdict = await checkRateLimit({
     key: `invite:${dbUser.id}`,

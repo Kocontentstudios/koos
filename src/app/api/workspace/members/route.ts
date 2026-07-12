@@ -1,11 +1,10 @@
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import { getPendingInvitations, getWorkspaceMembers } from "@/lib/db/queries";
 
 export async function GET() {
-  const { dbUser, workspace } = await getActiveWorkspace();
-  if (!dbUser) {
-    return Response.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  const guard = await guardWorkspaceRoute();
+  if ("response" in guard) return guard.response;
+  const { workspace } = guard.ctx;
   const [members, invitations] = await Promise.all([
     getWorkspaceMembers(workspace.id),
     getPendingInvitations(workspace.id),
