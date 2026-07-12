@@ -5,6 +5,7 @@ import {
   Rocket,
   Target,
   Ticket,
+  Users,
 } from "lucide-react";
 
 export interface NavItem {
@@ -20,6 +21,7 @@ export const MAIN_NAV: NavItem[] = [
   { title: "Campaigns", href: "/strategy", icon: Rocket },
   { title: "Calendar", href: "/calendar", icon: Calendar },
   { title: "Design Tickets", href: "/design-request", icon: Ticket },
+  { title: "Team", href: "/team", icon: Users },
 ];
 
 interface PageMeta {
@@ -59,6 +61,10 @@ const PAGE_META: { match: string; meta: PageMeta }[] = [
   {
     match: "/settings",
     meta: { title: "Settings", subtitle: "Manage your account" },
+  },
+  {
+    match: "/team",
+    meta: { title: "Team", subtitle: "People with access to this workspace" },
   },
   {
     match: "/admin",
