@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth/google";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { performReset, requestReset } from "@/lib/auth/password-reset";
+import { safeNext } from "@/lib/auth/safe-next";
 import { invalidateUserSessions, startSession } from "@/lib/auth/session";
 import {
   createPasswordResetToken,
@@ -28,13 +29,6 @@ import { appUrl } from "@/lib/design/notify";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "@/lib/notify/account";
 import { checkRateLimit, clientIpFrom } from "@/lib/rate-limit";
 import { isValidEmail } from "@/lib/validation/email";
-
-/** Only same-app relative paths — never absolute/protocol-relative URLs. */
-function safeNext(value: FormDataEntryValue | null): string | null {
-  if (typeof value !== "string") return null;
-  if (!value.startsWith("/") || value.startsWith("//")) return null;
-  return value;
-}
 
 /** Per-IP limit for an auth action; returns a form error when throttled. */
 async function throttleByIp(
