@@ -78,14 +78,17 @@ export async function POST(req: Request) {
 
   const sessionId = await getAnalyticsSessionId();
   after(() =>
-    executeGenerationJob(job.id, () =>
-      generateCalendarWork({
-        brand,
-        strategy,
-        structured: parsedStrategy.data,
-        userId: dbUser.id,
-        sessionId,
-      }),
+    executeGenerationJob(job.id, (reportProgress) =>
+      generateCalendarWork(
+        {
+          brand,
+          strategy,
+          structured: parsedStrategy.data,
+          userId: dbUser.id,
+          sessionId,
+        },
+        reportProgress,
+      ),
     ),
   );
 

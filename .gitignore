@@ -52,3 +52,6 @@ next-env.d.ts
 
 koos_complete/
 docs/ko-os-workspace-team
+commands
+# local scratch / practice material (not shipped)
+/local/

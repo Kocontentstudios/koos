@@ -57,6 +57,38 @@ describe("pollGenerationJob", () => {
     ).rejects.toThrow("Job not found");
   });
 
+  it("reports in-flight progress to onProgress", async () => {
+    const progress = { done: 2, total: 5, label: "Writing briefs — week 1…" };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "running", result: null, error: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "running",
+          result: null,
+          error: null,
+          progress,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "succeeded",
+          result: { ok: true },
+          error: null,
+        }),
+      );
+    const onProgress = vi.fn();
+    await pollGenerationJob("job-5", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: noSleep,
+      onProgress,
+    });
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith(progress);
+  });
+
   it("times out when the job never terminates", async () => {
     const fetchImpl = vi
       .fn()
