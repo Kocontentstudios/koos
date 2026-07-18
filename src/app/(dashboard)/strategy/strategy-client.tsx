@@ -3,7 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
-import { PanelRight, PanelsTopLeft } from "lucide-react";
+import { PanelLeftOpen, PanelRight, PanelsTopLeft, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { ConversationMode } from "@/app/api/chat/ensure-conversation";
@@ -29,7 +29,8 @@ interface StrategyClientProps {
   brandId: string;
   brandContext: ChatBrandContext;
   brandName: string;
-  pastStrategies?: StrategyHistoryItem[];
+  /** Strategies not reachable through a listed chat. */
+  olderStrategies?: StrategyHistoryItem[];
   conversations?: ConversationListItem[];
   initialMessages?: UIMessage[];
   initialConversationId?: string | null;
@@ -41,7 +42,7 @@ export function StrategyClient({
   brandId,
   brandContext,
   brandName,
-  pastStrategies = [],
+  olderStrategies = [],
   conversations = [],
   initialMessages = [],
   initialConversationId = null,
@@ -60,7 +61,10 @@ export function StrategyClient({
   const [buildError, setBuildError] = useState<string | null>(null);
   const [calendarPending, setCalendarPending] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [calendarProgress, setCalendarProgress] = useState<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  // Desktop-only: collapse the left history panel to a slim icon rail.
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
   // Mobile-only drawer state for the history and summary panels (below `lg`).
   const [historyOpen, setHistoryOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -159,6 +163,7 @@ export function StrategyClient({
     if (!strategyId) return;
     setCalendarPending(true);
     setCalendarError(null);
+    setCalendarProgress(null);
     try {
       await markStrategyActive(strategyId);
       const res = await fetch("/api/calendar/generate", {
@@ -173,6 +178,7 @@ export function StrategyClient({
       const { jobId } = (await res.json()) as { jobId: string };
       const { calendarId } = await pollGenerationJob<{ calendarId: string }>(
         jobId,
+        { onProgress: (p) => setCalendarProgress(p.label) },
       );
       router.push(`/calendar?calendarId=${calendarId}`);
     } catch (err) {
@@ -180,6 +186,7 @@ export function StrategyClient({
         err instanceof Error ? err.message : "An error occurred",
       );
       setCalendarPending(false);
+      setCalendarProgress(null);
     }
   };
 
@@ -267,6 +274,30 @@ export function StrategyClient({
     }
   };
 
+  // Open the current chat's saved strategy in the summary panel WITHOUT
+  // touching the conversation — unlike handleSelectStrategy, which replaces
+  // the chat with a recap (kept for the sidebar's Older Strategies list).
+  const handleViewStrategy = async (id: string) => {
+    if (loadingStrategyId) return;
+    setLoadError(null);
+    setLoadingStrategyId(id);
+    try {
+      const res = await loadStrategy(id);
+      if (!res.ok) {
+        setLoadError(res.error);
+        return;
+      }
+      setStrategy(res.strategy);
+      setStrategyId(id);
+      setPanelCollapsed(false);
+      setSummaryOpen(true);
+    } catch {
+      setLoadError("Could not load strategy.");
+    } finally {
+      setLoadingStrategyId(null);
+    }
+  };
+
   // Load a saved strategy into the summary/card and seed the chat with a recap
   // so the user can keep refining it and rebuild.
   const handleSelectStrategy = async (id: string) => {
@@ -311,23 +342,53 @@ export function StrategyClient({
   const isDesignMode = mode === "design";
   const showBuildButton =
     messages.length >= 2 && !(isDesignMode ? brief : strategy) && !isLoading;
+  // The reopened chat's saved strategy, offered as a "View Strategy" action.
+  const activeConversationStrategyId =
+    conversations.find((c) => c.id === conversationId)?.strategyId ?? null;
+  const showViewStrategy =
+    !isDesignMode && !!activeConversationStrategyId && !strategy;
 
   return (
     <div className="h-[calc(100vh-56px)] flex overflow-hidden -mx-4 -my-6 md:-mx-8 md:-my-8">
-      {/* Left history panel — desktop only */}
-      <aside className="hidden lg:flex w-[280px] flex-col border-r border-[var(--border)] bg-surface-1 overflow-hidden">
-        <StrategyHistory
-          pastStrategies={pastStrategies}
-          activeId={strategyId}
-          loadingId={loadingStrategyId}
-          onSelect={handleSelectStrategy}
-          onNew={handleNewStrategy}
-          conversations={conversations}
-          activeConversationId={conversationId}
-          loadingConversationId={loadingConversationId}
-          onSelectConversation={handleSelectConversation}
-        />
-      </aside>
+      {/* Left history panel — desktop only, collapsible to a slim rail */}
+      {historyCollapsed ? (
+        <aside className="hidden w-12 shrink-0 flex-col items-center gap-2 border-r border-[var(--border)] bg-surface-1 py-4 lg:flex">
+          <button
+            type="button"
+            onClick={() => setHistoryCollapsed(false)}
+            aria-label="Expand history panel"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground"
+          >
+            <PanelLeftOpen size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={handleNewStrategy}
+            aria-label="New chat"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground"
+          >
+            <Plus size={18} />
+          </button>
+          <span className="mt-2 text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)] [writing-mode:vertical-rl]">
+            History
+          </span>
+        </aside>
+      ) : (
+        <aside className="hidden lg:flex w-[280px] flex-col border-r border-[var(--border)] bg-surface-1 overflow-hidden">
+          <StrategyHistory
+            olderStrategies={olderStrategies}
+            activeId={strategyId}
+            loadingId={loadingStrategyId}
+            onSelect={handleSelectStrategy}
+            onNew={handleNewStrategy}
+            onCollapse={() => setHistoryCollapsed(true)}
+            conversations={conversations}
+            activeConversationId={conversationId}
+            loadingConversationId={loadingConversationId}
+            onSelectConversation={handleSelectConversation}
+          />
+        </aside>
+      )}
 
       {/* Mobile history drawer + backdrop (below lg) */}
       {historyOpen && (
@@ -345,7 +406,7 @@ export function StrategyClient({
         )}
       >
         <StrategyHistory
-          pastStrategies={pastStrategies}
+          olderStrategies={olderStrategies}
           activeId={strategyId}
           loadingId={loadingStrategyId}
           onSelect={handleSelectStrategy}
@@ -390,6 +451,25 @@ export function StrategyClient({
         {loadError && (
           <div className="mx-4 mt-3 rounded-xl bg-[var(--status-error-bg)] px-4 py-2 text-sm text-[var(--status-error-fg)]">
             {loadError}
+          </div>
+        )}
+
+        {/* This chat produced a strategy — open it without disturbing the chat */}
+        {showViewStrategy && activeConversationStrategyId && (
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2">
+            <span className="text-[13px] text-[var(--text-secondary)]">
+              This chat has a saved strategy.
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleViewStrategy(activeConversationStrategyId)}
+              loading={loadingStrategyId === activeConversationStrategyId}
+              loadingText="Loading…"
+              aria-label="View this chat's strategy"
+            >
+              View Strategy
+            </Button>
           </div>
         )}
 
@@ -510,6 +590,7 @@ export function StrategyClient({
             setSummaryOpen(false);
           }}
           generating={calendarPending}
+          generatingLabel={calendarProgress ?? undefined}
           calendarError={calendarError}
           mobileOpen={summaryOpen}
           onMobileClose={() => setSummaryOpen(false)}

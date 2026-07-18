@@ -1,9 +1,14 @@
 import { generateObject } from "ai";
-import { calendarPlanSchema } from "@/lib/ai/calendar-schema";
+import {
+  calendarChunkSchema,
+  calendarOutlineSchema,
+} from "@/lib/ai/calendar-schema";
 import { designBriefSchema } from "@/lib/ai/design-brief-schema";
 import {
-  buildCalendarGenerationPrompt,
-  buildCalendarSystemPrompt,
+  buildCalendarChunkPrompt,
+  buildCalendarChunkSystemPrompt,
+  buildCalendarOutlinePrompt,
+  buildCalendarOutlineSystemPrompt,
 } from "@/lib/ai/prompts/calendar";
 import {
   buildDesignBriefGenerationPrompt,
@@ -26,6 +31,7 @@ import {
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
+import { assembleCalendarItems, withRetry } from "@/lib/jobs/calendar-assembly";
 
 type BrandRow = typeof brands.$inferSelect;
 type StrategyRow = typeof strategies.$inferSelect;
@@ -59,18 +65,35 @@ interface JobOutcome {
   result: unknown;
 }
 
+export interface JobProgress {
+  done: number;
+  total: number;
+  label: string;
+}
+
+export type ReportProgress = (progress: JobProgress) => void;
+
 /**
  * Run one unit of generation work against a job row: pending → running →
  * succeeded/failed. Never throws — every failure lands on the job row so the
  * polling client always gets a terminal state.
+ *
+ * `work` may report progress; it is parked in the job's `result` column while
+ * the job runs (overwritten by the real result on success) so the polling
+ * client can show it, and each write refreshes `updatedAt`, which is what the
+ * status route's stale-job detection keys off.
  */
 export async function executeGenerationJob(
   jobId: string,
-  work: () => Promise<JobOutcome>,
+  work: (reportProgress: ReportProgress) => Promise<JobOutcome>,
 ): Promise<void> {
+  const reportProgress: ReportProgress = (progress) => {
+    // Fire-and-forget: progress is cosmetic, never fail the job over it.
+    updateGenerationJob(jobId, { result: { progress } }).catch(() => {});
+  };
   try {
     await updateGenerationJob(jobId, { status: "running" });
-    const outcome = await work();
+    const outcome = await work(reportProgress);
     await updateGenerationJob(jobId, {
       status: "succeeded",
       resultId: outcome.resultId,
@@ -135,23 +158,72 @@ export async function generateStrategyWork(args: {
   };
 }
 
-/** The former body of POST /api/calendar/generate. */
-export async function generateCalendarWork(args: {
-  brand: BrandRow;
-  strategy: StrategyRow;
-  structured: Strategy;
-  userId: string;
-  sessionId?: string | null;
-}): Promise<JobOutcome> {
+/**
+ * The former body of POST /api/calendar/generate, now chunked: one fast
+ * outline call plans every posting slot, then one small call per ~weekly
+ * segment writes that segment's briefs — in parallel, so wall-clock time is
+ * the slowest chunk instead of one giant response that could outlive the
+ * serverless window.
+ */
+export async function generateCalendarWork(
+  args: {
+    brand: BrandRow;
+    strategy: StrategyRow;
+    structured: Strategy;
+    userId: string;
+    sessionId?: string | null;
+  },
+  reportProgress: ReportProgress = () => {},
+): Promise<JobOutcome> {
   const summary = brandSummaryFrom(args.brand);
   const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);
-  const { object: plan } = await generateObject({
-    model: getModel("strategy"),
-    schema: calendarPlanSchema,
-    system: buildCalendarSystemPrompt(summary, todayIso),
-    prompt: buildCalendarGenerationPrompt(args.structured, summary, todayIso),
-  });
+  const model = getModel("strategy");
+
+  reportProgress({ done: 0, total: 1, label: "Planning the calendar…" });
+  const { object: outline } = await withRetry(() =>
+    generateObject({
+      model,
+      schema: calendarOutlineSchema,
+      system: buildCalendarOutlineSystemPrompt(summary, todayIso),
+      prompt: buildCalendarOutlinePrompt(args.structured, summary, todayIso),
+    }),
+  );
+
+  const segmentCount = outline.segments.length;
+  const total = segmentCount + 1;
+  let done = 1;
+  reportProgress({ done, total, label: "Calendar planned — writing briefs…" });
+
+  const chunks = await Promise.all(
+    outline.segments.map(async (segment, i) => {
+      const { object } = await withRetry(() =>
+        generateObject({
+          model,
+          schema: calendarChunkSchema,
+          system: buildCalendarChunkSystemPrompt(summary),
+          prompt: buildCalendarChunkPrompt({
+            strategy: args.structured,
+            segment,
+            segmentNumber: i + 1,
+            segmentCount,
+          }),
+        }),
+      );
+      done += 1;
+      reportProgress({
+        done,
+        total,
+        label: `Writing briefs — week ${done - 1} of ${segmentCount}…`,
+      });
+      return object;
+    }),
+  );
+
+  const plan = {
+    startDate: outline.startDate,
+    items: assembleCalendarItems(outline.segments, chunks),
+  };
 
   // Honor the strategy's timeline via the AI-declared (validated) start date.
   const scheduled = toCalendarRows(plan, resolveStartDate(plan.startDate, now));

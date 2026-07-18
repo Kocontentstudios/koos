@@ -87,7 +87,7 @@ export function LegalPage({
 export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     heading: "Who We Are",
-    body: "KO OS is operated by **KO Content Studios** (“KO”, “we”, “us”), based in Lagos, Nigeria. We are the data controller responsible for the personal data described in this policy.\n\nThis policy explains what we collect, why, how we protect it, and the rights you have. It is written to align with the Nigeria Data Protection Act / NDPR and, where applicable, the EU/UK GDPR.",
+    body: "KO OS is operated by **KO Content Studios** (“KO”, “we”, “us”), based in Nigeria. We are the data controller responsible for the personal data described in this policy.\n\nThis policy explains what we collect, why, how we protect it, and the rights you have. It is written to align with the Nigeria Data Protection Act / NDPR and, where applicable, the EU/UK GDPR.",
   },
   {
     heading: "Information We Collect",
@@ -198,7 +198,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   },
   {
     heading: "Governing Law",
-    body: "These Terms are governed by the laws of the **Federal Republic of Nigeria**, without regard to conflict-of-laws rules. Disputes will be subject to the courts located in Lagos, Nigeria, unless applicable law provides otherwise.",
+    body: "These Terms are governed by the laws of the **Federal Republic of Nigeria**, without regard to conflict-of-laws rules. Disputes will be subject to the courts of the Federal Republic of Nigeria, unless applicable law provides otherwise.",
   },
   {
     heading: "Changes to These Terms",
