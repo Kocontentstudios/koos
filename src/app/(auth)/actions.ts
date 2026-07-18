@@ -14,10 +14,12 @@ import {
 } from "@/lib/auth/google";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { performReset, requestReset } from "@/lib/auth/password-reset";
+import { safeNext } from "@/lib/auth/safe-next";
 import { invalidateUserSessions, startSession } from "@/lib/auth/session";
 import {
   createPasswordResetToken,
   createUser,
+  getOrCreatePersonalWorkspaceId,
   getPasswordResetTokenByHash,
   getUserByEmail,
   markPasswordResetTokenUsed,
@@ -70,7 +72,7 @@ export async function login(formData: FormData) {
 
   await startSession(user.id);
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(safeNext(formData.get("next")) ?? "/dashboard");
 }
 
 export async function signup(formData: FormData) {
@@ -101,6 +103,7 @@ export async function signup(formData: FormData) {
     passwordHash,
     provider: "email",
   });
+  await getOrCreatePersonalWorkspaceId(user.id, user.firstName);
 
   // Fire-and-forget welcome (never throws; must not block first login).
   await sendWelcomeEmail({
@@ -115,7 +118,7 @@ export async function signup(formData: FormData) {
 
   await startSession(user.id);
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(safeNext(formData.get("next")) ?? "/dashboard");
 }
 
 export async function signInWithGoogle() {

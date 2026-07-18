@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { requireBrand } from "@/lib/auth/require-brand";
-import { getDesignTicketsByUser } from "@/lib/db/queries";
+import { getDesignTicketsForMember } from "@/lib/db/queries";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { type TicketListRow, TicketsListClient } from "./tickets-list-client";
 
 export default async function DesignRequestPage() {
-  const { dbUser } = await requireBrand();
-  const rows = await getDesignTicketsByUser(dbUser.id);
+  const { dbUser, workspace } = await requireBrand();
+  const rows = await getDesignTicketsForMember(workspace.id, dbUser.id);
 
   const tickets: TicketListRow[] = rows.map(
     ({ ticket, campaignName, itemTitle }) => ({

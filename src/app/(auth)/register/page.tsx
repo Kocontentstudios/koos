@@ -2,7 +2,8 @@
 
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useActionState, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useActionState, useState, useTransition } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { signInWithGoogle, signup } from "../actions";
@@ -27,7 +28,10 @@ function passwordScore(val: string): number {
 
 type RegisterState = { error?: string } | null;
 
-export default function RegisterPage() {
+function RegisterForm() {
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") ?? "";
+  const invitedEmail = searchParams.get("email") ?? "";
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [password, setPassword] = useState("");
@@ -110,6 +114,7 @@ export default function RegisterPage() {
         )}
 
         <form action={formAction} className="flex flex-col gap-5">
+          {next ? <input type="hidden" name="next" value={next} /> : null}
           {/* Name Row */}
           <div className="flex gap-4">
             <div className="flex-1 flex flex-col gap-1.5">
@@ -158,6 +163,7 @@ export default function RegisterPage() {
               className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
               id="email"
               name="email"
+              defaultValue={invitedEmail}
               placeholder="name@company.com"
               required
               type="email"
@@ -305,7 +311,7 @@ export default function RegisterPage() {
             Already have an account?{" "}
             <Link
               className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
-              href="/login"
+              href={`/login${next ? `?next=${encodeURIComponent(next)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ""}` : ""}`}
             >
               Sign in.
             </Link>
@@ -313,5 +319,13 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
   );
 }

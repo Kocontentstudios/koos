@@ -6,6 +6,7 @@ import {
   designDeliveryEmail,
   designRequestConfirmationEmail,
   designRequestTeamEmail,
+  memberJoinedEmail,
   passwordResetEmail,
   roleChangeEmail,
   STATUS_LABELS,
@@ -13,6 +14,7 @@ import {
   ticketReviewTeamEmail,
   ticketStatusEmail,
   welcomeEmail,
+  workspaceInviteEmail,
 } from "./email-templates";
 
 const REQ: DesignRequestEmailInput = {
@@ -208,5 +210,42 @@ describe("passwordResetEmail", () => {
     expect(html).toContain("https://app/reset-password?token=abc");
     expect(html).toContain("Sam");
     expect(html.toLowerCase()).toContain("hour");
+  });
+});
+
+describe("workspaceInviteEmail", () => {
+  const built = workspaceInviteEmail({
+    inviterName: "Seyi <Owner>",
+    workspaceName: "KO Content Studio",
+    acceptUrl: "https://app/invite/RAWTOKEN",
+    expiresInDays: 7,
+  });
+
+  it("subject names the inviter and workspace", () => {
+    expect(built.subject).toBe(
+      "Seyi <Owner> invited you to join KO Content Studio on KO OS",
+    );
+  });
+
+  it("html carries the accept link, expiry note, and escapes names", () => {
+    expect(built.html).toContain("https://app/invite/RAWTOKEN");
+    expect(built.html).toContain("7 days");
+    expect(built.html).toContain("Seyi &lt;Owner&gt;");
+    expect(built.html).not.toContain("Seyi <Owner>");
+  });
+});
+
+describe("memberJoinedEmail", () => {
+  const built = memberJoinedEmail({
+    memberName: "Ada Obi",
+    memberEmail: "ada@x.com",
+    workspaceName: "KO Content Studio",
+    teamUrl: "https://app/team",
+  });
+
+  it("tells the owner who joined and links the Team page", () => {
+    expect(built.subject).toBe("Ada Obi joined KO Content Studio");
+    expect(built.html).toContain("ada@x.com");
+    expect(built.html).toContain("https://app/team");
   });
 });

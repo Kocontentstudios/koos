@@ -3,8 +3,8 @@ import { strategySchema } from "@/lib/ai/strategy-schema";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  checkBrandAccess,
   createGenerationJob,
-  getBrandById,
   getStrategyById,
 } from "@/lib/db/queries";
 import {
@@ -49,10 +49,18 @@ export async function POST(req: Request) {
   if (!strategy) {
     return Response.json({ error: "Strategy not found" }, { status: 404 });
   }
-  const brand = await getBrandById(strategy.brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Strategy not found" }, { status: 404 });
+  const access = await checkBrandAccess(
+    dbUser.id,
+    strategy.brandId,
+    "manage_content",
+  );
+  if (!access.ok) {
+    return Response.json(
+      { error: "Strategy not found" },
+      { status: access.status },
+    );
   }
+  const brand = access.brand;
   const parsedStrategy = strategySchema.safeParse(strategy.structured);
   if (!parsedStrategy.success) {
     return Response.json(

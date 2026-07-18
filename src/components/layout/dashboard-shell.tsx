@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { AppSidebar } from "./app-sidebar";
 import { SidebarCollapseProvider, useSidebarCollapse } from "./sidebar-context";
 import { TopHeader } from "./top-header";
+import type { WorkspaceInfo } from "./workspace-card";
 
 interface ShellUser {
   firstName: string;
@@ -16,30 +17,40 @@ interface ShellUser {
 
 export function DashboardShell({
   user,
+  workspace,
+  memberships,
   children,
 }: {
   user: ShellUser;
+  workspace: WorkspaceInfo;
+  memberships: WorkspaceInfo[];
   children: React.ReactNode;
 }) {
   return (
     <SidebarCollapseProvider>
-      <ShellInner user={user}>{children}</ShellInner>
+      <ShellInner user={user} workspace={workspace} memberships={memberships}>
+        {children}
+      </ShellInner>
     </SidebarCollapseProvider>
   );
 }
 
 function ShellInner({
   user,
+  workspace,
+  memberships,
   children,
 }: {
   user: ShellUser;
+  workspace: WorkspaceInfo;
+  memberships: WorkspaceInfo[];
   children: React.ReactNode;
 }) {
   const { collapsed } = useSidebarCollapse();
 
   return (
     <div className="flex min-h-screen bg-background">
-      <AppSidebar user={user} />
+      <AppSidebar workspace={workspace} memberships={memberships} />
       <div
         className={cn(
           "flex min-h-screen flex-1 flex-col transition-[margin-left] duration-200",

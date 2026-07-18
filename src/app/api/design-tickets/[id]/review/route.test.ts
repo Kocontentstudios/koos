@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthUser = vi.fn();
 const getDesignTicketById = vi.fn();
-const getBrandById = vi.fn();
+const checkBrandAccess = vi.fn();
 const updateCalendarItemStatus = vi.fn();
 const updateDesignTicket = vi.fn();
 const sendTicketReviewTeamEmail = vi.fn();
@@ -10,7 +10,8 @@ const sendTicketReviewTeamEmail = vi.fn();
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/db/queries", () => ({
   getDesignTicketById: (id: string) => getDesignTicketById(id),
-  getBrandById: (id: string) => getBrandById(id),
+  checkBrandAccess: (userId: string, brandId: string, capability: string) =>
+    checkBrandAccess(userId, brandId, capability),
   updateCalendarItemStatus: (id: string, s: unknown) =>
     updateCalendarItemStatus(id, s),
   updateDesignTicket: (id: string, p: unknown) => updateDesignTicket(id, p),
@@ -53,7 +54,10 @@ describe("customer review route emails", () => {
       },
     });
     getDesignTicketById.mockResolvedValue(ticket);
-    getBrandById.mockResolvedValue({ id: "b1", userId: "u1" });
+    checkBrandAccess.mockResolvedValue({
+      ok: true,
+      brand: { id: "b1", userId: "u1" },
+    });
     updateCalendarItemStatus.mockResolvedValue({});
     updateDesignTicket.mockResolvedValue({ ...ticket, status: "delivered" });
   });
