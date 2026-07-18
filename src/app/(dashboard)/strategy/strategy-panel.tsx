@@ -19,6 +19,8 @@ interface StrategyPanelProps {
   onGenerateCalendar: () => void;
   onEdit: () => void;
   generating: boolean;
+  /** Progress label shown on the button while generating (e.g. "week 2 of 4"). */
+  generatingLabel?: string;
   calendarError: string | null;
   /** Mobile drawer open state (below the lg breakpoint). */
   mobileOpen: boolean;
@@ -146,6 +148,7 @@ function PanelContent({
   onGenerateCalendar,
   onEdit,
   generating,
+  generatingLabel,
   calendarError,
   headerAction,
 }: {
@@ -153,6 +156,7 @@ function PanelContent({
   onGenerateCalendar: () => void;
   onEdit: () => void;
   generating: boolean;
+  generatingLabel?: string;
   calendarError: string | null;
   headerAction: React.ReactNode;
 }) {
@@ -180,7 +184,7 @@ function PanelContent({
             variant="default"
             onClick={onGenerateCalendar}
             loading={generating}
-            loadingText="Generating…"
+            loadingText={generatingLabel ?? "Generating…"}
             className="w-full justify-center"
           >
             <Calendar className="size-4" />
@@ -206,6 +210,7 @@ export function StrategyPanel({
   onGenerateCalendar,
   onEdit,
   generating,
+  generatingLabel,
   calendarError,
   mobileOpen,
   onMobileClose,
@@ -237,6 +242,7 @@ export function StrategyPanel({
             onGenerateCalendar={onGenerateCalendar}
             onEdit={onEdit}
             generating={generating}
+            generatingLabel={generatingLabel}
             calendarError={calendarError}
             headerAction={
               <button
@@ -272,6 +278,7 @@ export function StrategyPanel({
           onGenerateCalendar={onGenerateCalendar}
           onEdit={onEdit}
           generating={generating}
+          generatingLabel={generatingLabel}
           calendarError={calendarError}
           headerAction={
             <button

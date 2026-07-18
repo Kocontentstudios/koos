@@ -596,7 +596,7 @@ export function LandingPage() {
             </div>
             <div className="contact-detail">
               <MapPin size={16} />
-              <span>Lagos, Nigeria</span>
+              <span>Nigeria</span>
             </div>
             <div className="contact-detail">
               <Clock size={16} />
@@ -745,7 +745,7 @@ export function LandingPage() {
               and design-ready assets.
             </p>
             <p className="footer-address">
-              <MapPin size={14} /> Lagos, Nigeria
+              <MapPin size={14} /> Nigeria
             </p>
             <p className="footer-email">
               <Mail size={14} />{" "}

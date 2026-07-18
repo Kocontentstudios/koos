@@ -28,6 +28,7 @@ export function AppSidebar({ user }: { user: UserInfo }) {
   const initials = (user.firstName[0] ?? "") + (user.lastName[0] ?? "");
 
   // Close the mobile drawer whenever the route changes (e.g. after a nav tap).
+  // biome-ignore lint/correctness/useExhaustiveDependencies(pathname): pathname is the intentional trigger — the effect must re-run on every route change even though the callback doesn't read it
   useEffect(() => {
     closeMobile();
   }, [pathname, closeMobile]);

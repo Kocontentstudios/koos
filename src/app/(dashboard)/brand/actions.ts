@@ -63,7 +63,7 @@ export async function saveBrandProfile(
   if (!brand) return { ok: false, error: "Failed to save" };
 
   // First transition into "completed" = the user finished their Brand Brain.
-  if (!existing || existing.onboardingStatus !== "completed") {
+  if (existing?.onboardingStatus !== "completed") {
     await captureServerEvent({
       distinctId: dbUser.id,
       event: "brand_brain_completed",

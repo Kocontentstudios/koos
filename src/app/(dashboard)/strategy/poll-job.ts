@@ -1,9 +1,17 @@
 /** Client-side polling for async generation jobs (/api/jobs/[id]). */
 
+export interface JobProgress {
+  done: number;
+  total: number;
+  label: string;
+}
+
 export interface JobStatusResponse<T> {
   status: "pending" | "running" | "succeeded" | "failed";
   result: T | null;
   error: string | null;
+  /** Worker-reported step, present only while the job runs. */
+  progress?: JobProgress | null;
 }
 
 export interface PollOptions {
@@ -11,6 +19,8 @@ export interface PollOptions {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  /** Called on every poll that carries in-flight progress. */
+  onProgress?: (progress: JobProgress) => void;
 }
 
 const defaultSleep = (ms: number) =>
@@ -28,6 +38,7 @@ export async function pollGenerationJob<T>(
     timeoutMs = 5 * 60 * 1000,
     fetchImpl = fetch,
     sleep = defaultSleep,
+    onProgress,
   }: PollOptions = {},
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -45,6 +56,7 @@ export async function pollGenerationJob<T>(
     if (data.status === "failed") {
       throw new Error(data.error ?? "Generation failed. Please try again.");
     }
+    if (data.progress && onProgress) onProgress(data.progress);
     await sleep(intervalMs);
   }
   throw new Error(
