@@ -39,6 +39,8 @@ export function buildCalendarChunkSystemPrompt(brand: BrandSummary): string {
 
 Write every brief as structured markdown adapted to its content type — not one continuous paragraph. ${BRIEF_STRUCTURES}
 
+Keep each brief complete but tight: every section only as long as it needs to be, typically 120–200 words per brief. Never pad.
+
 Return one entry per slot with slotIndex set to the slot's position in the list you were given (0-based). Do not add, drop, merge, or reorder slots.
 
 ${brandBlock(brand)}`;

@@ -168,6 +168,13 @@ describe("generateCalendarWork", () => {
 
     expect(outcome.resultId).toBe("cal-1");
     expect(generateObject).toHaveBeenCalledTimes(3);
+    // Provider defaults (~4k output tokens) truncate multi-brief JSON into
+    // schema failures — every calendar call must raise the cap explicitly.
+    for (const [callArgs] of generateObject.mock.calls) {
+      expect(
+        (callArgs as { maxOutputTokens: number }).maxOutputTokens,
+      ).toBeGreaterThanOrEqual(16_000);
+    }
     expect(runtime.checkpoint).toMatchObject({ outline: OUTLINE });
     const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
       title: string;
