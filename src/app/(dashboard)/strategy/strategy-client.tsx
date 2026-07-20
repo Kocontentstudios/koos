@@ -5,18 +5,22 @@ import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { PanelLeftOpen, PanelRight, PanelsTopLeft, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ConversationMode } from "@/app/api/chat/ensure-conversation";
 import { Button } from "@/components/ui/button";
 import type { DesignBrief } from "@/lib/ai/design-brief-schema";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Strategy } from "@/lib/ai/strategy-schema";
+import {
+  clearActiveGeneration,
+  startActiveGeneration,
+} from "@/lib/generation/active-job";
+import { pollGenerationJob } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
 import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
 import { DesignBriefPanel } from "./design-brief-panel";
 import { MessageList } from "./message-list";
-import { pollGenerationJob } from "./poll-job";
 import { PromptChips } from "./prompt-chips";
 import {
   type ConversationListItem,
@@ -24,6 +28,16 @@ import {
   type StrategyHistoryItem,
 } from "./strategy-history";
 import { StrategyPanel } from "./strategy-panel";
+
+/** Loader texts shown while waiting for the first server progress update
+    (and between updates once progress stops arriving). */
+const CALENDAR_WAIT_LABELS = [
+  "Generating your calendar…",
+  "Studying your strategy…",
+  "Mapping out posting slots…",
+  "Writing content briefs…",
+  "Almost there — polishing the plan…",
+];
 
 interface StrategyClientProps {
   brandId: string;
@@ -62,6 +76,24 @@ export function StrategyClient({
   const [calendarPending, setCalendarPending] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [calendarProgress, setCalendarProgress] = useState<string | null>(null);
+  // Rotates the loader text between server progress updates, and after 45s
+  // tells the user they're free to leave (the GenerationWatcher will toast).
+  const [calendarWaitTick, setCalendarWaitTick] = useState(0);
+  const [calendarHintVisible, setCalendarHintVisible] = useState(false);
+
+  useEffect(() => {
+    if (!calendarPending) {
+      setCalendarWaitTick(0);
+      setCalendarHintVisible(false);
+      return;
+    }
+    const rotate = setInterval(() => setCalendarWaitTick((n) => n + 1), 5_000);
+    const hint = setTimeout(() => setCalendarHintVisible(true), 45_000);
+    return () => {
+      clearInterval(rotate);
+      clearTimeout(hint);
+    };
+  }, [calendarPending]);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   // Desktop-only: collapse the left history panel to a slim icon rail.
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
@@ -164,6 +196,7 @@ export function StrategyClient({
     setCalendarPending(true);
     setCalendarError(null);
     setCalendarProgress(null);
+    let jobId: string | null = null;
     try {
       await markStrategyActive(strategyId);
       const res = await fetch("/api/calendar/generate", {
@@ -175,13 +208,25 @@ export function StrategyClient({
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Calendar generation failed");
       }
-      const { jobId } = (await res.json()) as { jobId: string };
+      ({ jobId } = (await res.json()) as { jobId: string });
+      // Hand the job to the layout-level GenerationWatcher: it survives
+      // navigation and owns the completion/failure toast, so leaving this
+      // page no longer abandons the generation.
+      startActiveGeneration({ jobId, kind: "calendar" });
       const { calendarId } = await pollGenerationJob<{ calendarId: string }>(
         jobId,
-        { onProgress: (p) => setCalendarProgress(p.label) },
+        {
+          // The watcher's poll (and the server's stale-job detector) bound
+          // the run; this page-local poll only drives the inline loader and
+          // must not declare failure at the old 5-minute mark.
+          timeoutMs: 30 * 60 * 1000,
+          onProgress: (p) => setCalendarProgress(p.label),
+        },
       );
+      clearActiveGeneration(jobId);
       router.push(`/calendar?calendarId=${calendarId}`);
     } catch (err) {
+      if (jobId) clearActiveGeneration(jobId);
       setCalendarError(
         err instanceof Error ? err.message : "An error occurred",
       );
@@ -590,7 +635,15 @@ export function StrategyClient({
             setSummaryOpen(false);
           }}
           generating={calendarPending}
-          generatingLabel={calendarProgress ?? undefined}
+          generatingLabel={
+            calendarProgress ??
+            CALENDAR_WAIT_LABELS[calendarWaitTick % CALENDAR_WAIT_LABELS.length]
+          }
+          generatingHint={
+            calendarHintVisible
+              ? "Your calendar is being generated — you'll be alerted when it's done. Feel free to keep working elsewhere."
+              : null
+          }
           calendarError={calendarError}
           mobileOpen={summaryOpen}
           onMobileClose={() => setSummaryOpen(false)}

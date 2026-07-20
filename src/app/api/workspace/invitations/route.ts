@@ -1,3 +1,4 @@
+import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import {
   createWorkspaceInvitation,
@@ -6,6 +7,7 @@ import {
   getUserByEmail,
 } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
+import { describeMailError } from "@/lib/email";
 import { sendWorkspaceInviteEmail } from "@/lib/notify/workspace";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { createInvitation } from "@/lib/workspace/invitations";
@@ -14,6 +16,8 @@ export async function POST(req: Request) {
   const guard = await guardWorkspaceRoute("manage_team");
   if ("response" in guard) return guard.response;
   const { dbUser, workspace } = guard.ctx;
+  const unverified = requireVerifiedEmail(dbUser);
+  if (unverified) return unverified;
 
   const verdict = await checkRateLimit({
     key: `invite:${dbUser.id}`,
@@ -65,7 +69,7 @@ export async function POST(req: Request) {
     }
     return Response.json({ ok: true });
   } catch (err) {
-    console.error("create invitation failed", err);
+    console.error("create invitation failed", describeMailError(err));
     return Response.json(
       {
         error:
