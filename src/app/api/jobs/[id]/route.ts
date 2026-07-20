@@ -87,7 +87,13 @@ export async function GET(
       console.log(
         `resuming generation job ${job.id} (attempt ${resumeCountFrom(claimed.result)})`,
       );
-      after(() => resumeCalendarJob(claimed));
+      after(() =>
+        resumeCalendarJob(claimed).catch((err) => {
+          // A crash here would otherwise be silent: the job stays "running"
+          // and burns a resume attempt with no trace in the logs.
+          console.error(`resume of generation job ${job.id} crashed`, err);
+        }),
+      );
     }
   }
 
