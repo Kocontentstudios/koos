@@ -1,14 +1,20 @@
+import { after } from "next/server";
 import { getAuthUser } from "@/lib/auth/get-user";
-import { getGenerationJobById, updateGenerationJob } from "@/lib/db/queries";
+import {
+  claimStaleGenerationJob,
+  getGenerationJobById,
+  updateGenerationJob,
+} from "@/lib/db/queries";
+import { resumeCalendarJob } from "@/lib/jobs/run-generation";
+import {
+  resolveStaleAction,
+  resumeCountFrom,
+  staleMsFor,
+} from "@/lib/jobs/stale";
 import { isUuid } from "@/lib/validation/uuid";
 
-/**
- * A pending/running job whose row hasn't been touched for this long is dead —
- * the worker was killed (deploy, serverless timeout) before it could record a
- * terminal state. Healthy calendar runs write progress every few seconds, so
- * this only fires on genuinely orphaned jobs.
- */
-const STALE_JOB_MS = 4 * 60 * 1000;
+// Headroom for a resumed calendar slice kicked off via after().
+export const maxDuration = 300;
 
 const STALLED_ERROR = "Generation stalled. Please try again.";
 
@@ -23,8 +29,14 @@ function progressFrom(result: unknown): unknown {
 /**
  * Poll a generation job's status. Owned jobs only; 404 for anything else so
  * job ids don't leak existence. The `result` payload is included once the
- * job succeeds and matches what the old synchronous route returned; while the
- * job runs, `progress` carries the worker's last reported step.
+ * job succeeds; while the job runs, `progress` carries the worker's last
+ * reported step.
+ *
+ * This route is also the resume driver for checkpointed calendar jobs: when
+ * the worker's heartbeat goes silent (serverless 300s kill, deploy), the
+ * poll atomically claims the job and relaunches the remaining work from its
+ * checkpoint via after() — bounded by MAX_RESUMES, after which the job
+ * fails for real. Non-resumable kinds keep the original stale→fail window.
  */
 export async function GET(
   _req: Request,
@@ -44,8 +56,17 @@ export async function GET(
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
 
-  const running = job.status === "pending" || job.status === "running";
-  if (running && Date.now() - job.updatedAt.getTime() > STALE_JOB_MS) {
+  const action = resolveStaleAction(
+    {
+      kind: job.kind,
+      status: job.status,
+      updatedAt: job.updatedAt,
+      resumeCount: resumeCountFrom(job.result),
+    },
+    Date.now(),
+  );
+
+  if (action === "fail") {
     await updateGenerationJob(job.id, {
       status: "failed",
       error: STALLED_ERROR,
@@ -58,6 +79,19 @@ export async function GET(
     });
   }
 
+  if (action === "resume") {
+    // The staleness condition inside the UPDATE makes concurrent pollers
+    // race safely: only the winner gets a row back and relaunches.
+    const claimed = await claimStaleGenerationJob(job.id, staleMsFor(job.kind));
+    if (claimed) {
+      console.log(
+        `resuming generation job ${job.id} (attempt ${resumeCountFrom(claimed.result)})`,
+      );
+      after(() => resumeCalendarJob(claimed));
+    }
+  }
+
+  const running = job.status === "pending" || job.status === "running";
   return Response.json({
     status: job.status,
     kind: job.kind,
