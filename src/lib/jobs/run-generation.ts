@@ -159,6 +159,12 @@ export async function executeGenerationJob(
     touchGenerationJob(jobId).catch(() => {});
   }, HEARTBEAT_MS);
 
+  const sliceStart = Date.now();
+  const elapsed = () => `${Math.round((Date.now() - sliceStart) / 1000)}s`;
+  console.log(
+    `generation job ${jobId}: slice start (resume ${state.resumeCount}, checkpoint: ${Object.keys(state.checkpoint).join(",") || "empty"})`,
+  );
+
   try {
     await updateGenerationJob(jobId, { status: "running" });
     const outcome = await work(runtime);
@@ -167,11 +173,14 @@ export async function executeGenerationJob(
       resultId: outcome.resultId,
       result: outcome.result,
     });
+    console.log(`generation job ${jobId}: succeeded after ${elapsed()}`);
   } catch (err) {
     if (err instanceof JobPausedError) {
       // Deliberate slice end: keep status "running"; the persisted
       // checkpoint lets the next poll-triggered slice continue.
-      console.log(`generation job ${jobId} paused for resume`);
+      console.log(
+        `generation job ${jobId}: paused for resume after ${elapsed()}`,
+      );
       await persist().catch(() => {});
       return;
     }
@@ -273,18 +282,33 @@ export async function generateCalendarWork(
   const model = getModel("strategy");
 
   let outline = checkpoint.outline;
-  if (!outline) {
+  if (outline) {
+    console.log(
+      `calendar outline reused from checkpoint (${outline.segments.length} segments)`,
+    );
+  } else {
     reportProgress({ done: 0, total: 1, label: "Planning the calendar…" });
-    const { object } = await withRetry(() =>
-      generateObject({
-        model,
-        schema: calendarOutlineSchema,
-        system: buildCalendarOutlineSystemPrompt(summary, todayIso),
-        prompt: buildCalendarOutlinePrompt(args.structured, summary, todayIso),
-      }),
+    const outlineStart = Date.now();
+    const { object } = await withRetry(
+      () =>
+        generateObject({
+          model,
+          schema: calendarOutlineSchema,
+          system: buildCalendarOutlineSystemPrompt(summary, todayIso),
+          prompt: buildCalendarOutlinePrompt(
+            args.structured,
+            summary,
+            todayIso,
+          ),
+        }),
+      3,
+      { label: "calendar outline" },
     );
     outline = object;
     await runtime.saveCheckpoint({ outline });
+    console.log(
+      `calendar outline generated in ${Math.round((Date.now() - outlineStart) / 1000)}s (${outline.segments.length} segments, ${outline.segments.reduce((n, s) => n + s.slots.length, 0)} slots)`,
+    );
   }
   const segments = outline.segments;
   const startDate = outline.startDate;
@@ -306,18 +330,25 @@ export async function generateCalendarWork(
     missing,
     3,
     async (i) => {
-      const { object } = await withRetry(() =>
-        generateObject({
-          model,
-          schema: calendarChunkSchema,
-          system: buildCalendarChunkSystemPrompt(summary),
-          prompt: buildCalendarChunkPrompt({
-            strategy: args.structured,
-            segment: segments[i],
-            segmentNumber: i + 1,
-            segmentCount,
+      const chunkStart = Date.now();
+      const { object } = await withRetry(
+        () =>
+          generateObject({
+            model,
+            schema: calendarChunkSchema,
+            system: buildCalendarChunkSystemPrompt(summary),
+            prompt: buildCalendarChunkPrompt({
+              strategy: args.structured,
+              segment: segments[i],
+              segmentNumber: i + 1,
+              segmentCount,
+            }),
           }),
-        }),
+        3,
+        { label: `calendar chunk ${i + 1}/${segmentCount}` },
+      );
+      console.log(
+        `calendar chunk ${i + 1}/${segmentCount} generated in ${Math.round((Date.now() - chunkStart) / 1000)}s`,
       );
       chunks[String(i)] = object;
       done += 1;
@@ -334,6 +365,9 @@ export async function generateCalendarWork(
   if (Object.keys(chunks).length < segmentCount) {
     // Slice budget hit with segments left: keep the job running and let the
     // next poll-triggered slice pick up the missing chunks.
+    console.log(
+      `calendar slice pausing with ${segmentCount - Object.keys(chunks).length} of ${segmentCount} chunks remaining`,
+    );
     throw new JobPausedError();
   }
 
