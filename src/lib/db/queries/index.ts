@@ -753,6 +753,43 @@ export async function getGenerationJobById(id: string) {
   return row ?? null;
 }
 
+/** Heartbeat: refresh updatedAt so the poll route's stale detection knows
+    the worker is alive during a long model call. */
+export async function touchGenerationJob(id: string) {
+  await db
+    .update(generationJobs)
+    .set({ updatedAt: new Date() })
+    .where(eq(generationJobs.id, id));
+}
+
+/**
+ * Atomically claim a silent, still-running job for a resume attempt. The
+ * staleness condition inside the UPDATE makes concurrent pollers race
+ * safely: exactly one gets the row back (and bumps resumeCount in the jsonb
+ * result), the rest get null and do nothing.
+ */
+export async function claimStaleGenerationJob(id: string, staleMs: number) {
+  const [row] = await db
+    .update(generationJobs)
+    .set({
+      updatedAt: new Date(),
+      result: sql`jsonb_set(
+        coalesce(${generationJobs.result}, '{}'::jsonb),
+        '{resumeCount}',
+        to_jsonb(coalesce((${generationJobs.result}->>'resumeCount')::int, 0) + 1)
+      )`,
+    })
+    .where(
+      and(
+        eq(generationJobs.id, id),
+        inArray(generationJobs.status, ["pending", "running"]),
+        lt(generationJobs.updatedAt, new Date(Date.now() - staleMs)),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
 // ── Rate limiting ───────────────────────────────────────────────────
 
 /**
