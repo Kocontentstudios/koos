@@ -18,20 +18,29 @@ function backoffMs(attempt: number): number {
 /**
  * Retry an AI call that can fail transiently (schema-validation misses,
  * provider throttling/hiccups the SDK didn't retry), backing off between
- * attempts. Rethrows the last error.
+ * attempts. Every failed attempt is logged with its duration — a serverless
+ * kill can erase the final error, so per-attempt logs are the only evidence
+ * of WHY a slice ran long. Rethrows the last error.
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   attempts = 3,
-  { sleep = defaultSleep }: { sleep?: (ms: number) => Promise<void> } = {},
+  {
+    sleep = defaultSleep,
+    label = "ai-call",
+  }: { sleep?: (ms: number) => Promise<void>; label?: string } = {},
 ): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await sleep(backoffMs(i - 1));
+    const startedAt = Date.now();
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
+      console.warn(
+        `${label}: attempt ${i + 1}/${attempts} failed after ${Math.round((Date.now() - startedAt) / 1000)}s — ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   throw lastErr;
