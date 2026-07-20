@@ -22,6 +22,7 @@ import {
   chatMessages,
   designDeliverables,
   designTickets,
+  emailVerificationTokens,
   generationJobs,
   notifications,
   passwordResetTokens,
@@ -68,7 +69,10 @@ export async function updateUserProfile(
 export async function createUser(
   data: Pick<typeof users.$inferInsert, "firstName" | "lastName" | "email"> &
     Partial<
-      Pick<typeof users.$inferInsert, "passwordHash" | "provider" | "avatarUrl">
+      Pick<
+        typeof users.$inferInsert,
+        "passwordHash" | "provider" | "avatarUrl" | "emailVerifiedAt"
+      >
     >,
 ) {
   const [created] = await db.insert(users).values(data).returning();
@@ -158,6 +162,49 @@ export async function markPasswordResetTokenUsed(id: string) {
     .update(passwordResetTokens)
     .set({ usedAt: new Date() })
     .where(eq(passwordResetTokens.id, id));
+}
+
+// ── Email verification ───────────────────────────────────────────────
+
+export async function createEmailVerificationToken(input: {
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}) {
+  return db.transaction(async (tx) => {
+    // One active token per user: a resend supersedes older links.
+    await tx
+      .delete(emailVerificationTokens)
+      .where(eq(emailVerificationTokens.userId, input.userId));
+    const [row] = await tx
+      .insert(emailVerificationTokens)
+      .values(input)
+      .returning();
+    return row;
+  });
+}
+
+export async function getEmailVerificationTokenByHash(tokenHash: string) {
+  const [row] = await db
+    .select()
+    .from(emailVerificationTokens)
+    .where(eq(emailVerificationTokens.tokenHash, tokenHash))
+    .limit(1);
+  return row;
+}
+
+export async function markEmailVerificationTokenUsed(id: string) {
+  await db
+    .update(emailVerificationTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(emailVerificationTokens.id, id));
+}
+
+export async function markEmailVerified(userId: string) {
+  await db
+    .update(users)
+    .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, userId));
 }
 
 // ── Brands ───────────────────────────────────────────────────────────

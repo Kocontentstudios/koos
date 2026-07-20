@@ -32,7 +32,9 @@ describe("strategy generate route", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    getAuthUser.mockResolvedValue({
+      dbUser: { id: "u1", emailVerifiedAt: new Date() },
+    });
     checkBrandAccess.mockResolvedValue({
       ok: true,
       brand: { id: BRAND_ID, userId: "u1", name: "Acme" },
@@ -98,6 +100,19 @@ describe("strategy generate route", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
+    expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unverified email with 403 before any work", async () => {
+    getAuthUser.mockResolvedValue({
+      dbUser: { id: "u1", emailVerifiedAt: null },
+    });
+    const req = new Request("http://x/api/strategy/generate", {
+      method: "POST",
+      body: JSON.stringify({ brandId: BRAND_ID, conversation: "user: hi" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
     expect(createGenerationJob).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,8 @@
+import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import { getInvitationById, rotateInvitationToken } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
+import { describeMailError } from "@/lib/email";
 import { sendWorkspaceInviteEmail } from "@/lib/notify/workspace";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { resendInvitation } from "@/lib/workspace/invitations";
@@ -13,6 +15,8 @@ export async function POST(
   const guard = await guardWorkspaceRoute("manage_team");
   if ("response" in guard) return guard.response;
   const { dbUser, workspace } = guard.ctx;
+  const unverified = requireVerifiedEmail(dbUser);
+  if (unverified) return unverified;
 
   const verdict = await checkRateLimit({
     key: `invite:${dbUser.id}`,
@@ -51,7 +55,7 @@ export async function POST(
     }
     return Response.json({ ok: true });
   } catch (err) {
-    console.error("resend invitation failed", err);
+    console.error("resend invitation failed", describeMailError(err));
     return Response.json(
       { error: "Could not resend the invitation. Please try again." },
       { status: 500 },

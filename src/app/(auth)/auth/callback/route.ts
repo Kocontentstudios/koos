@@ -11,6 +11,7 @@ import {
   createUser,
   getOrCreatePersonalWorkspaceId,
   getUserByEmail,
+  markEmailVerified,
 } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
 import { sendWelcomeEmail } from "@/lib/notify/account";
@@ -60,6 +61,8 @@ export async function GET(request: Request) {
       email: profile.email,
       avatarUrl: profile.avatarUrl,
       provider: "google",
+      // Google already verified the inbox — no confirmation email needed.
+      emailVerifiedAt: new Date(),
     });
     await getOrCreatePersonalWorkspaceId(user.id, user.firstName);
     // Fire-and-forget welcome (never throws; must not block first login).
@@ -72,6 +75,10 @@ export async function GET(request: Request) {
       event: "signed_up",
       properties: { provider: "google" },
     });
+  } else if (!user.emailVerifiedAt) {
+    // Signing in with Google proves ownership of the address, so an
+    // email-provider account that never clicked its link is verified too.
+    await markEmailVerified(user.id);
   }
 
   await startSession(user.id);

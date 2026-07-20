@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { strategySchema } from "@/lib/ai/strategy-schema";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import {
   checkBrandAccess,
   createGenerationJob,
@@ -27,6 +28,8 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const unverified = requireVerifiedEmail(dbUser);
+  if (unverified) return unverified;
 
   const verdict = await checkRateLimit({
     key: `calendar-generate:${dbUser.id}`,

@@ -121,6 +121,10 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   preferences: jsonb("preferences"),
   role: userRoleEnum("role").notNull().default("user"),
+  /** Null until the user confirms their address. Google accounts are
+      verified at creation (Google already verified the inbox); accounts
+      predating the feature were backfilled by migration 0011. */
+  emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -140,6 +144,19 @@ export const sessions = pgTable("sessions", {
 // Single-use password-reset tokens. Stores only the SHA-256 hash of the raw
 // token emailed to the user (same never-store-the-secret rule as sessions).
 export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Single-use email-verification tokens, same shape as password_reset_tokens:
+// only the SHA-256 hash of the emailed token is stored.
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()

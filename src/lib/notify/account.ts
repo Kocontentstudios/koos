@@ -4,6 +4,8 @@ import {
   passwordResetEmail,
   type RoleChangeEmailInput,
   roleChangeEmail,
+  type VerifyEmailInput,
+  verifyEmailEmail,
   type WelcomeEmailInput,
   welcomeEmail,
 } from "@/lib/email-templates";
@@ -32,6 +34,16 @@ export async function sendWelcomeEmail(args: {
   } catch (err) {
     console.error("welcome email failed", { to: args.to, err });
   }
+}
+
+/** Send the email-verification link. THROWS on failure — signup catches and
+ * logs (the account still works), while the resend action surfaces it. */
+export async function sendVerificationEmail(args: {
+  to: string;
+  input: VerifyEmailInput;
+}): Promise<void> {
+  const { subject, html } = verifyEmailEmail(args.input);
+  await sendMail({ to: args.to, subject, html });
 }
 
 /** Send the password-reset link. Never throws. */

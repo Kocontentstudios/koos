@@ -71,7 +71,11 @@ export async function createInvitation(
   }
 
   if (await deps.getPendingInvitationByEmail(input.workspaceId, email)) {
-    return { ok: false, error: "This email has already been invited." };
+    return {
+      ok: false,
+      error:
+        "This email has already been invited — use Resend from the Pending tab.",
+    };
   }
 
   const { token, tokenHash } = generateInviteToken();

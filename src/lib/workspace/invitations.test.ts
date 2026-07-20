@@ -70,7 +70,8 @@ describe("createInvitation", () => {
     const result = await createInvitation(deps, input);
     expect(result).toEqual({
       ok: false,
-      error: "This email has already been invited.",
+      error:
+        "This email has already been invited — use Resend from the Pending tab.",
     });
   });
 
