@@ -9,6 +9,7 @@ import {
   getStrategyById,
 } from "@/lib/db/queries";
 import {
+  CALENDAR_SLICE_BUDGET_MS,
   executeGenerationJob,
   generateCalendarWork,
 } from "@/lib/jobs/run-generation";
@@ -81,17 +82,22 @@ export async function POST(req: Request) {
 
   const sessionId = await getAnalyticsSessionId();
   after(() =>
-    executeGenerationJob(job.id, (reportProgress) =>
-      generateCalendarWork(
-        {
-          brand,
-          strategy,
-          structured: parsedStrategy.data,
-          userId: dbUser.id,
-          sessionId,
-        },
-        reportProgress,
-      ),
+    executeGenerationJob(
+      job.id,
+      (runtime) =>
+        generateCalendarWork(
+          {
+            brand,
+            strategy,
+            structured: parsedStrategy.data,
+            userId: dbUser.id,
+            sessionId,
+          },
+          runtime,
+        ),
+      // Pause before Vercel's 300s kill; the poll route resumes the job
+      // from its checkpoint in a fresh invocation.
+      { softDeadlineMs: CALENDAR_SLICE_BUDGET_MS },
     ),
   );
 

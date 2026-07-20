@@ -42,18 +42,25 @@ export async function withRetry<T>(
  * order in the results. Rejects on the first item failure. Used to pace the
  * per-segment calendar calls so a 90-day plan (~13 segments) doesn't slam
  * the model provider with everything at once and trip throttling.
+ *
+ * When `shouldStop` returns true, workers finish their current item but
+ * take no new ones — skipped slots stay `undefined` in the result. Callers
+ * that stop early must handle the gaps (the calendar job pauses and resumes
+ * from its checkpoint).
  */
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
+  { shouldStop }: { shouldStop?: () => boolean } = {},
+): Promise<(R | undefined)[]> {
+  const results = new Array<R | undefined>(items.length);
   let next = 0;
   const workers = Array.from(
     { length: Math.min(limit, items.length) },
     async () => {
       while (next < items.length) {
+        if (shouldStop?.()) return;
         const i = next++;
         results[i] = await fn(items[i], i);
       }
