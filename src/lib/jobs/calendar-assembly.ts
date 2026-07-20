@@ -5,16 +5,29 @@ import type {
   CalendarSlot,
 } from "@/lib/ai/calendar-schema";
 
+const defaultSleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Exponential backoff with jitter: ~2s, ~8s, ~32s… Bedrock throttling
+    resolves in seconds, so an instant retry lands in the same throttle
+    window and fails identically. */
+function backoffMs(attempt: number): number {
+  return 2000 * 4 ** attempt + Math.random() * 1000;
+}
+
 /**
  * Retry an AI call that can fail transiently (schema-validation misses,
- * provider hiccups the SDK didn't retry). Rethrows the last error.
+ * provider throttling/hiccups the SDK didn't retry), backing off between
+ * attempts. Rethrows the last error.
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  attempts = 2,
+  attempts = 3,
+  { sleep = defaultSleep }: { sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
+    if (i > 0) await sleep(backoffMs(i - 1));
     try {
       return await fn();
     } catch (err) {
@@ -22,6 +35,32 @@ export async function withRetry<T>(
     }
   }
   throw lastErr;
+}
+
+/**
+ * Map over items with at most `limit` calls in flight, preserving input
+ * order in the results. Rejects on the first item failure. Used to pace the
+ * per-segment calendar calls so a 90-day plan (~13 segments) doesn't slam
+ * the model provider with everything at once and trip throttling.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await fn(items[i], i);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 /** Minimal executable brief for a slot whose chunk brief never arrived. */

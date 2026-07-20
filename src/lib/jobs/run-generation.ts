@@ -25,13 +25,18 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { resolveStartDate, toCalendarRows } from "@/lib/calendar/schedule";
 import {
   createCalendar,
+  createNotification,
   createStrategy,
   insertCalendarItems,
   recordUsageEvent,
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
-import { assembleCalendarItems, withRetry } from "@/lib/jobs/calendar-assembly";
+import {
+  assembleCalendarItems,
+  mapWithConcurrency,
+  withRetry,
+} from "@/lib/jobs/calendar-assembly";
 
 type BrandRow = typeof brands.$inferSelect;
 type StrategyRow = typeof strategies.$inferSelect;
@@ -195,8 +200,12 @@ export async function generateCalendarWork(
   let done = 1;
   reportProgress({ done, total, label: "Calendar planned — writing briefs…" });
 
-  const chunks = await Promise.all(
-    outline.segments.map(async (segment, i) => {
+  // Bounded concurrency: ~13 simultaneous calls (90-day plans) trip provider
+  // throttling, which turns into slow retries and blown serverless windows.
+  const chunks = await mapWithConcurrency(
+    outline.segments,
+    3,
+    async (segment, i) => {
       const { object } = await withRetry(() =>
         generateObject({
           model,
@@ -217,7 +226,7 @@ export async function generateCalendarWork(
         label: `Writing briefs — week ${done - 1} of ${segmentCount}…`,
       });
       return object;
-    }),
+    },
   );
 
   const plan = {
@@ -255,6 +264,21 @@ export async function generateCalendarWork(
     kind: "calendar_generated",
     metadata: { calendarId: calendar.id, items: scheduled.rows.length },
   });
+  // Bell notification so completion reaches the user even if every tab with
+  // the watcher is gone. Best-effort: the calendar itself already exists.
+  try {
+    await createNotification({
+      userId: args.userId,
+      type: "system",
+      payload: {
+        kind: "calendar_ready",
+        calendarId: calendar.id,
+        message: "Your content calendar has been generated.",
+      },
+    });
+  } catch (err) {
+    console.error("calendar-ready notification failed", err);
+  }
   await captureServerEvent({
     distinctId: args.userId,
     event: "calendar_generated",

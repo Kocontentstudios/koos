@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { requestVerification } from "@/lib/auth/email-verification";
+import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createGoogleClient,
   GOOGLE_SCOPES,
@@ -17,6 +19,7 @@ import { performReset, requestReset } from "@/lib/auth/password-reset";
 import { safeNext } from "@/lib/auth/safe-next";
 import { invalidateUserSessions, startSession } from "@/lib/auth/session";
 import {
+  createEmailVerificationToken,
   createPasswordResetToken,
   createUser,
   getOrCreatePersonalWorkspaceId,
@@ -26,7 +29,11 @@ import {
   updateUserPassword,
 } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
-import { sendPasswordResetEmail, sendWelcomeEmail } from "@/lib/notify/account";
+import { describeMailError } from "@/lib/email";
+import {
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "@/lib/notify/account";
 import { checkRateLimit, clientIpFrom } from "@/lib/rate-limit";
 import { isValidEmail } from "@/lib/validation/email";
 
@@ -47,6 +54,55 @@ async function throttleByIp(
   return {
     error: `Too many attempts. Please try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
   };
+}
+
+/** Mint a fresh token and email the verification link. Throws on failure. */
+async function sendAccountVerificationEmail(user: {
+  id: string;
+  firstName: string;
+  email: string;
+}) {
+  await requestVerification(
+    {
+      createEmailVerificationToken,
+      sendVerificationEmail,
+      buildVerifyUrl: (token) =>
+        appUrl(`/verify-email/${encodeURIComponent(token)}`),
+    },
+    user,
+  );
+}
+
+/** Re-send the verification link for the signed-in, still-unverified user
+ * (dashboard banner). Rate-limited per user. */
+export async function resendVerificationEmail(): Promise<
+  { ok: true } | { error: string }
+> {
+  const { dbUser } = await getAuthUser();
+  if (!dbUser) return { error: "You need to be signed in." };
+  if (dbUser.emailVerifiedAt) return { ok: true };
+
+  const verdict = await checkRateLimit({
+    key: `resend-verification:${dbUser.id}`,
+    limit: 5,
+    windowSeconds: 3600,
+  });
+  if (!verdict.ok) {
+    return { error: "Too many requests. Please try again in a bit." };
+  }
+
+  try {
+    await sendAccountVerificationEmail(dbUser);
+    return { ok: true };
+  } catch (err) {
+    console.error("verification email failed", {
+      to: dbUser.email,
+      err: describeMailError(err),
+    });
+    return {
+      error: "Could not send the verification email. Please try again.",
+    };
+  }
 }
 
 export async function login(formData: FormData) {
@@ -105,11 +161,16 @@ export async function signup(formData: FormData) {
   });
   await getOrCreatePersonalWorkspaceId(user.id, user.firstName);
 
-  // Fire-and-forget welcome (never throws; must not block first login).
-  await sendWelcomeEmail({
-    to: user.email,
-    input: { firstName: user.firstName, dashboardUrl: appUrl("/dashboard") },
-  });
+  // The verification email doubles as the welcome for email signups. Failure
+  // must not block the account — the dashboard banner offers a resend.
+  try {
+    await sendAccountVerificationEmail(user);
+  } catch (err) {
+    console.error("verification email failed", {
+      to: user.email,
+      err: describeMailError(err),
+    });
+  }
   await captureServerEvent({
     distinctId: user.id,
     event: "signed_up",

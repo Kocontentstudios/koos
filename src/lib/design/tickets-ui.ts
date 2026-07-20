@@ -112,6 +112,9 @@ export function formatNotificationMessage(n: NotificationLike): string {
       return `Your design ticket is now ${status}.`;
     }
     case "system":
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message;
+      }
       return "You have a new notification.";
   }
 }

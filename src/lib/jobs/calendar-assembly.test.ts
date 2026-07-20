@@ -3,6 +3,7 @@ import type { CalendarOutline, CalendarSlot } from "@/lib/ai/calendar-schema";
 import {
   assembleCalendarItems,
   fallbackBrief,
+  mapWithConcurrency,
   withRetry,
 } from "./calendar-assembly";
 
@@ -38,8 +39,67 @@ describe("withRetry", () => {
 
   it("throws the last error once attempts are exhausted", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("still broken"));
-    await expect(withRetry(fn, 3)).rejects.toThrow("still broken");
+    await expect(withRetry(fn, 3, { sleep: async () => {} })).rejects.toThrow(
+      "still broken",
+    );
     expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it("backs off between attempts but not after the last one", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const fn = vi.fn().mockRejectedValue(new Error("throttled"));
+    await expect(withRetry(fn, 3, { sleep })).rejects.toThrow("throttled");
+    // Two waits for three attempts, growing exponentially.
+    expect(sleep).toHaveBeenCalledTimes(2);
+    const [first, second] = sleep.mock.calls.map(([ms]) => ms as number);
+    expect(first).toBeGreaterThanOrEqual(2000);
+    expect(second).toBeGreaterThanOrEqual(8000);
+  });
+
+  it("does not sleep when the first attempt succeeds", async () => {
+    const sleep = vi.fn();
+    await expect(withRetry(async () => "ok", 3, { sleep })).resolves.toBe("ok");
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("preserves input order in the results", async () => {
+    const results = await mapWithConcurrency([3, 1, 2], 2, async (n) => {
+      await new Promise((r) => setTimeout(r, n * 5));
+      return n * 10;
+    });
+    expect(results).toEqual([30, 10, 20]);
+  });
+
+  it("never runs more than the limit at once", async () => {
+    let running = 0;
+    let peak = 0;
+    await mapWithConcurrency(
+      Array.from({ length: 10 }, (_, i) => i),
+      3,
+      async () => {
+        running += 1;
+        peak = Math.max(peak, running);
+        await new Promise((r) => setTimeout(r, 5));
+        running -= 1;
+      },
+    );
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it("rejects when any item fails", async () => {
+    await expect(
+      mapWithConcurrency([1, 2], 2, async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n;
+      }),
+    ).rejects.toThrow("boom");
+  });
+
+  it("handles an empty list", async () => {
+    await expect(mapWithConcurrency([], 3, async () => 1)).resolves.toEqual([]);
   });
 });
 

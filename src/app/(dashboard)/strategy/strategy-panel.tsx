@@ -21,6 +21,8 @@ interface StrategyPanelProps {
   generating: boolean;
   /** Progress label shown on the button while generating (e.g. "week 2 of 4"). */
   generatingLabel?: string;
+  /** Reassurance shown under the button on long runs ("you'll be alerted…"). */
+  generatingHint?: string | null;
   calendarError: string | null;
   /** Mobile drawer open state (below the lg breakpoint). */
   mobileOpen: boolean;
@@ -149,6 +151,7 @@ function PanelContent({
   onEdit,
   generating,
   generatingLabel,
+  generatingHint,
   calendarError,
   headerAction,
 }: {
@@ -157,6 +160,7 @@ function PanelContent({
   onEdit: () => void;
   generating: boolean;
   generatingLabel?: string;
+  generatingHint?: string | null;
   calendarError: string | null;
   headerAction: React.ReactNode;
 }) {
@@ -190,6 +194,14 @@ function PanelContent({
             <Calendar className="size-4" />
             Generate Calendar
           </Button>
+          {generating && generatingHint && (
+            <p
+              role="status"
+              className="rounded-lg bg-[var(--status-progress-bg)] px-3 py-2 text-[13px] text-[var(--status-progress-fg)]"
+            >
+              {generatingHint}
+            </p>
+          )}
           <Button
             variant="secondary"
             onClick={onEdit}
@@ -211,6 +223,7 @@ export function StrategyPanel({
   onEdit,
   generating,
   generatingLabel,
+  generatingHint,
   calendarError,
   mobileOpen,
   onMobileClose,
@@ -243,6 +256,7 @@ export function StrategyPanel({
             onEdit={onEdit}
             generating={generating}
             generatingLabel={generatingLabel}
+            generatingHint={generatingHint}
             calendarError={calendarError}
             headerAction={
               <button
@@ -279,6 +293,7 @@ export function StrategyPanel({
           onEdit={onEdit}
           generating={generating}
           generatingLabel={generatingLabel}
+          generatingHint={generatingHint}
           calendarError={calendarError}
           headerAction={
             <button

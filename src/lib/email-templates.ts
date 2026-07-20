@@ -284,6 +284,23 @@ export function contactFormEmail(i: ContactFormEmailInput): BuiltEmail {
   return { subject: `Contact form — ${i.name}`, html };
 }
 
+export interface VerifyEmailInput {
+  firstName: string;
+  verifyUrl: string;
+}
+
+export function verifyEmailEmail(i: VerifyEmailInput): BuiltEmail {
+  const html = shell(
+    "Confirm your email address",
+    `<p style="font-size:13px">Hi ${escapeHtml(
+      i.firstName,
+    )}, welcome to KO OS! Please confirm your email address to unlock strategy and calendar generation. This link is valid for 24 hours:</p>
+    <p style="margin:16px 0"><a href="${i.verifyUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Verify my email</a></p>
+    <p style="font-size:12px;color:#6b7280">If you didn't create a KO OS account, you can safely ignore this email.</p>`,
+  );
+  return { subject: "Confirm your KO OS email address", html };
+}
+
 export interface PasswordResetEmailInput {
   firstName: string;
   resetUrl: string;
