@@ -300,6 +300,9 @@ export async function generateCalendarWork(
             summary,
             todayIso,
           ),
+          // A 90-day outline is ~80 slots of structured JSON — the provider
+          // default cap (4096 on Bedrock) truncates it into schema failures.
+          maxOutputTokens: 16_000,
         }),
       3,
       { label: "calendar outline" },
@@ -343,6 +346,10 @@ export async function generateCalendarWork(
               segmentNumber: i + 1,
               segmentCount,
             }),
+            // ~9 multi-section briefs per segment blow far past the provider
+            // default output cap, truncating the JSON mid-brief — the cause
+            // of every "response did not match schema" chunk failure.
+            maxOutputTokens: 20_000,
           }),
         3,
         { label: `calendar chunk ${i + 1}/${segmentCount}` },
