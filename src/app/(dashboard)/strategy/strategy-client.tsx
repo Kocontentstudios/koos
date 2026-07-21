@@ -19,6 +19,10 @@ import { pollGenerationJob } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
 import { loadStrategy, markStrategyActive } from "./actions";
 import { ChatInput } from "./chat-input";
+import {
+  DesignBriefCard,
+  type PersistedDesignBrief,
+} from "./design-brief-card";
 import { DesignBriefPanel } from "./design-brief-panel";
 import { MessageList } from "./message-list";
 import { PromptChips } from "./prompt-chips";
@@ -70,7 +74,10 @@ export function StrategyClient({
   const [input, setInput] = useState("");
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [strategyId, setStrategyId] = useState<string | null>(null);
-  const [brief, setBrief] = useState<DesignBrief | null>(null);
+  // Persisted Design Brief Cards for the active conversation, plus which one
+  // is open in the right-hand panel.
+  const [briefs, setBriefs] = useState<PersistedDesignBrief[]>([]);
+  const [activeBriefId, setActiveBriefId] = useState<string | null>(null);
   const [buildPending, setBuildPending] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [calendarPending, setCalendarPending] = useState(false);
@@ -258,15 +265,33 @@ export function StrategyClient({
       const res = await fetch("/api/design-brief/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, conversation }),
+        body: JSON.stringify({ brandId, conversation, conversationId }),
       });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Brief generation failed");
       }
       const { jobId } = (await res.json()) as { jobId: string };
-      const data = await pollGenerationJob<{ brief: DesignBrief }>(jobId);
-      setBrief(data.brief);
+      const data = await pollGenerationJob<{
+        brief: DesignBrief;
+        briefId: string | null;
+      }>(jobId);
+      if (!data.briefId) {
+        throw new Error("The brief could not be saved. Please try again.");
+      }
+      const persisted: PersistedDesignBrief = {
+        id: data.briefId,
+        title: data.brief.title,
+        designType: data.brief.designType,
+        dimensions: data.brief.dimensions ?? null,
+        slides: data.brief.slides ?? null,
+        briefMarkdown: data.brief.briefMarkdown,
+        notes: data.brief.notes ?? null,
+        ticketId: null,
+        createdAt: new Date().toISOString(),
+      };
+      setBriefs((prev) => [...prev, persisted]);
+      setActiveBriefId(persisted.id);
       setPanelCollapsed(false);
       setSummaryOpen(true);
     } catch (err) {
@@ -281,7 +306,8 @@ export function StrategyClient({
     setMessages([]);
     setStrategy(null);
     setStrategyId(null);
-    setBrief(null);
+    setBriefs([]);
+    setActiveBriefId(null);
     setBuildError(null);
     setLoadError(null);
     setHistoryOpen(false);
@@ -301,7 +327,10 @@ export function StrategyClient({
         };
         throw new Error(body.error ?? "Could not load chat.");
       }
-      const data = (await res.json()) as { messages: UIMessage[] };
+      const data = (await res.json()) as {
+        messages: UIMessage[];
+        briefs?: PersistedDesignBrief[];
+      };
       setConversationId(id);
       // Follow the reopened conversation's mode so replies use the right prompt.
       const reopened = conversations.find((c) => c.id === id);
@@ -309,7 +338,9 @@ export function StrategyClient({
       setMessages(data.messages);
       setStrategy(null);
       setStrategyId(null);
-      setBrief(null);
+      // The conversation's saved Design Brief Cards come back with it.
+      setBriefs(data.briefs ?? []);
+      setActiveBriefId(null);
       setBuildError(null);
       setHistoryOpen(false);
     } catch (err) {
@@ -385,8 +416,13 @@ export function StrategyClient({
   };
 
   const isDesignMode = mode === "design";
+  const activeBrief = briefs.find((b) => b.id === activeBriefId) ?? null;
+  // In design mode the button hides while a brief is open in the panel;
+  // closing it ("Refine in chat") re-enables regeneration.
   const showBuildButton =
-    messages.length >= 2 && !(isDesignMode ? brief : strategy) && !isLoading;
+    messages.length >= 2 &&
+    !(isDesignMode ? activeBrief : strategy) &&
+    !isLoading;
   // The reopened chat's saved strategy, offered as a "View Strategy" action.
   const activeConversationStrategyId =
     conversations.find((c) => c.id === conversationId)?.strategyId ?? null;
@@ -535,9 +571,29 @@ export function StrategyClient({
           </div>
         )}
 
-        {/* Messages */}
+        {/* Messages — with this conversation's Design Brief Cards pinned after them */}
         {messages.length > 0 && (
-          <MessageList messages={messages} isLoading={isLoading} />
+          <MessageList
+            messages={messages}
+            isLoading={isLoading}
+            footer={
+              isDesignMode && briefs.length > 0 ? (
+                <div className="flex flex-col gap-2 pl-10">
+                  {briefs.map((b) => (
+                    <DesignBriefCard
+                      key={b.id}
+                      brief={b}
+                      onOpen={(briefId) => {
+                        setActiveBriefId(briefId);
+                        setPanelCollapsed(false);
+                        setSummaryOpen(true);
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : null
+            }
+          />
         )}
 
         {/* Error from useChat */}
@@ -613,14 +669,20 @@ export function StrategyClient({
       {/* Right panel — design brief in design mode, strategy summary otherwise */}
       {isDesignMode ? (
         <DesignBriefPanel
-          brief={brief}
+          brief={activeBrief}
           brandId={brandId}
           collapsed={panelCollapsed}
           onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
-          onEdit={() => {
-            setBrief(null);
+          onClose={() => {
+            // Back to the chat; the brief's card stays for later.
+            setActiveBriefId(null);
             setSummaryOpen(false);
           }}
+          onBriefUpdated={(updated) =>
+            setBriefs((prev) =>
+              prev.map((b) => (b.id === updated.id ? updated : b)),
+            )
+          }
           mobileOpen={summaryOpen}
           onMobileClose={() => setSummaryOpen(false)}
         />

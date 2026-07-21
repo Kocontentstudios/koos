@@ -27,6 +27,7 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { resolveStartDate, toCalendarRows } from "@/lib/calendar/schedule";
 import {
   createCalendar,
+  createDesignBrief,
   createNotification,
   createStrategy,
   getBrandById,
@@ -555,11 +556,14 @@ export async function resumeCalendarJob(job: {
   );
 }
 
-/** Turn a design-request conversation into a structured brief (not persisted —
- * the client reviews it, then submits it as a design ticket). */
+/** Turn a design-request conversation into a structured brief. When the chat
+ * conversation is known, the brief is persisted as a design_briefs row so it
+ * survives the session as an editable Design Brief Card; the client reviews
+ * it, then submits it as a design ticket. */
 export async function generateDesignBriefWork(args: {
   brand: BrandRow;
   conversation: string;
+  conversationId?: string | null;
   userId: string;
   sessionId?: string | null;
 }): Promise<JobOutcome> {
@@ -570,6 +574,21 @@ export async function generateDesignBriefWork(args: {
     system: buildDesignBriefSystemPrompt(summary),
     prompt: buildDesignBriefGenerationPrompt(args.conversation, summary),
   });
+  let briefId: string | null = null;
+  if (args.conversationId) {
+    const row = await createDesignBrief({
+      conversationId: args.conversationId,
+      brandId: args.brand.id,
+      userId: args.userId,
+      title: object.title,
+      designType: object.designType,
+      dimensions: object.dimensions ?? null,
+      slides: object.slides ?? null,
+      briefMarkdown: object.briefMarkdown,
+      notes: object.notes ?? null,
+    });
+    briefId = row.id;
+  }
   await captureServerEvent({
     distinctId: args.userId,
     event: "design_brief_generated",
@@ -579,5 +598,5 @@ export async function generateDesignBriefWork(args: {
       session_id: args.sessionId ?? null,
     },
   });
-  return { result: { brief: object } };
+  return { result: { brief: object, briefId } };
 }

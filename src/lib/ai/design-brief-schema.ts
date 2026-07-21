@@ -17,3 +17,24 @@ export const designBriefSchema = z.object({
 });
 
 export type DesignBrief = z.infer<typeof designBriefSchema>;
+
+/** User edits to a persisted brief (Design Brief Card). Any subset of the
+ * user-editable fields; null clears an optional field; required fields can
+ * be changed but never emptied. ticketId is server-managed, so `strict`
+ * rejects it (and any other stray key) instead of silently dropping it. */
+export const designBriefUpdateSchema = z
+  .object({
+    title: z.string().min(1),
+    designType: z.string().min(1),
+    dimensions: z.string().nullable(),
+    slides: z.number().int().min(2).max(10).nullable(),
+    briefMarkdown: z.string().min(1),
+    notes: z.string().nullable(),
+  })
+  .partial()
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "No fields to update",
+  });
+
+export type DesignBriefUpdate = z.infer<typeof designBriefUpdateSchema>;

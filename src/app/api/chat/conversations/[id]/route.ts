@@ -4,6 +4,7 @@ import {
   checkBrandAccess,
   getConversationById,
   getConversationMessages,
+  listDesignBriefsForConversation,
 } from "@/lib/db/queries";
 import { isUuid } from "@/lib/validation/uuid";
 
@@ -40,7 +41,10 @@ export async function GET(
     );
   }
 
-  const rows = await getConversationMessages(id);
+  const [rows, briefs] = await Promise.all([
+    getConversationMessages(id),
+    listDesignBriefsForConversation(id),
+  ]);
   const messages = rowsToUiMessages(
     rows.map((m) => ({
       id: m.id,
@@ -52,6 +56,8 @@ export async function GET(
   return Response.json({
     id: conversation.id,
     title: conversation.title,
+    mode: conversation.mode,
     messages,
+    briefs,
   });
 }
