@@ -357,9 +357,12 @@ export async function generateCalendarWork(
 
   // Bounded concurrency: too many simultaneous calls trip provider
   // throttling, which turns into slow retries and blown serverless windows.
+  // 5 keeps a 30-day calendar's ~8 units to two waves; withRetry backs off
+  // if Bedrock throttles, and per-unit timings in the logs make a
+  // throttling regression visible.
   await mapWithConcurrency(
     missing,
-    3,
+    5,
     async (unit) => {
       const segment = segments[unit.segIndex];
       const unitSlots = segment.slots.slice(
