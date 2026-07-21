@@ -185,10 +185,18 @@ export async function executeGenerationJob(
       return;
     }
     console.error(`generation job ${jobId} failed`, err);
+    // Raw AI-SDK errors ("No object generated: response did not match
+    // schema.") are log material, not something to show a user.
+    const message =
+      err instanceof Error && err.name === "AI_NoObjectGeneratedError"
+        ? "The AI returned an unusable response. Please try again."
+        : err instanceof Error
+          ? err.message
+          : String(err);
     try {
       await updateGenerationJob(jobId, {
         status: "failed",
-        error: err instanceof Error ? err.message : String(err),
+        error: message,
       });
     } catch (updateErr) {
       console.error(
@@ -248,19 +256,25 @@ export async function generateStrategyWork(args: {
     can finish and the slice can end cleanly with its checkpoint written. */
 export const CALENDAR_SLICE_BUDGET_MS = 240_000;
 
+/** Slots per brief-writing call. Small responses generate fast and are far
+    less likely to come back truncated or as malformed JSON than one call
+    covering a whole ~9-slot segment. */
+const MAX_SLOTS_PER_BRIEF_CALL = 4;
+
 /** What a calendar job parks in the runtime checkpoint between slices. */
 interface CalendarCheckpoint {
   outline?: CalendarOutline;
-  /** Completed chunk per segment index (string keys — jsonb round-trip). */
+  /** Completed briefs per unit ("segIndex:slotStart" keys), slotIndex
+      already segment-relative. */
   chunks?: Record<string, CalendarChunk>;
 }
 
 /**
  * The former body of POST /api/calendar/generate, now chunked AND resumable:
- * one outline call plans every posting slot, then one small call per ~weekly
- * segment writes that segment's briefs (3 at a time to stay under provider
- * throttling). Outline and finished chunks are checkpointed, so when the
- * slice deadline passes with work remaining the job pauses and a later
+ * one outline call plans every posting slot, then small brief-writing calls
+ * of at most MAX_SLOTS_PER_BRIEF_CALL slots each (3 in flight to stay under
+ * provider throttling). Outline and finished units are checkpointed, so when
+ * the slice deadline passes with work remaining the job pauses and a later
  * invocation continues instead of redoing everything — the 300s serverless
  * ceiling stops being fatal.
  */
@@ -315,75 +329,127 @@ export async function generateCalendarWork(
   }
   const segments = outline.segments;
   const startDate = outline.startDate;
-
   const segmentCount = segments.length;
-  const total = segmentCount + 1;
+
+  // Brief-writing is split into units of a few slots each: small JSON
+  // responses generate fast and are far less likely to come back malformed
+  // or truncated than one 9-brief response. Unit key = "segIndex:slotStart";
+  // briefs are stored with segment-relative slotIndex so assembly is
+  // unchanged.
+  const units = segments.flatMap((segment, segIndex) => {
+    const out: Array<{ key: string; segIndex: number; slotStart: number }> = [];
+    for (let s = 0; s < segment.slots.length; s += MAX_SLOTS_PER_BRIEF_CALL) {
+      out.push({ key: `${segIndex}:${s}`, segIndex, slotStart: s });
+    }
+    return out;
+  });
   const chunks: Record<string, CalendarChunk> = { ...checkpoint.chunks };
-  let done = 1 + Object.keys(chunks).length;
-  reportProgress({ done, total, label: "Calendar planned — writing briefs…" });
+  const doneUnits = () => units.filter((u) => u.key in chunks).length;
+  const total = units.length + 1;
+  reportProgress({
+    done: 1 + doneUnits(),
+    total,
+    label: "Calendar planned — writing briefs…",
+  });
 
-  // Only segments this and previous slices haven't finished yet.
-  const missing = segments
-    .map((_, i) => i)
-    .filter((i) => !(String(i) in chunks));
+  // Only units this and previous slices haven't finished yet.
+  const missing = units.filter((u) => !(u.key in chunks));
 
-  // Bounded concurrency: ~13 simultaneous calls (90-day plans) trip provider
+  // Bounded concurrency: too many simultaneous calls trip provider
   // throttling, which turns into slow retries and blown serverless windows.
   await mapWithConcurrency(
     missing,
     3,
-    async (i) => {
-      const chunkStart = Date.now();
-      const { object } = await withRetry(
-        () =>
-          generateObject({
-            model,
-            schema: calendarChunkSchema,
-            system: buildCalendarChunkSystemPrompt(summary),
-            prompt: buildCalendarChunkPrompt({
-              strategy: args.structured,
-              segment: segments[i],
-              segmentNumber: i + 1,
-              segmentCount,
+    async (unit) => {
+      const segment = segments[unit.segIndex];
+      const unitSlots = segment.slots.slice(
+        unit.slotStart,
+        unit.slotStart + MAX_SLOTS_PER_BRIEF_CALL,
+      );
+      const unitStart = Date.now();
+      let object: CalendarChunk;
+      try {
+        ({ object } = await withRetry(
+          () =>
+            generateObject({
+              model,
+              schema: calendarChunkSchema,
+              system: buildCalendarChunkSystemPrompt(summary),
+              prompt: buildCalendarChunkPrompt({
+                strategy: args.structured,
+                segment: { theme: segment.theme, slots: unitSlots },
+                segmentNumber: unit.segIndex + 1,
+                segmentCount,
+              }),
+              // Multi-section briefs blow past the provider default output
+              // cap (4096 on Bedrock); a truncated response fails the schema.
+              maxOutputTokens: 20_000,
             }),
-            // ~9 multi-section briefs per segment blow far past the provider
-            // default output cap, truncating the JSON mid-brief — the cause
-            // of every "response did not match schema" chunk failure.
-            maxOutputTokens: 20_000,
-          }),
-        3,
-        { label: `calendar chunk ${i + 1}/${segmentCount}` },
-      );
+          3,
+          { label: `calendar unit ${unit.key}` },
+        ));
+      } catch (err) {
+        // Every retry failed: give this unit's slots fallback briefs at
+        // assembly instead of sinking the whole calendar. Loud log — the
+        // per-attempt warnings above carry the raw evidence.
+        console.error(
+          `calendar unit ${unit.key} failed permanently — falling back to template briefs`,
+          err instanceof Error ? err.message : err,
+        );
+        object = { briefs: [] };
+      }
       console.log(
-        `calendar chunk ${i + 1}/${segmentCount} generated in ${Math.round((Date.now() - chunkStart) / 1000)}s`,
+        `calendar unit ${unit.key} (${unitSlots.length} slots) finished in ${Math.round((Date.now() - unitStart) / 1000)}s`,
       );
-      chunks[String(i)] = object;
-      done += 1;
+      // Model slotIndex is relative to the slots it saw; remap to the
+      // segment-relative index that assembly expects.
+      chunks[unit.key] = {
+        briefs: object.briefs.map((b) => ({
+          ...b,
+          slotIndex: unit.slotStart + b.slotIndex,
+        })),
+      };
       reportProgress({
-        done,
+        done: 1 + doneUnits(),
         total,
-        label: `Writing briefs — ${Object.keys(chunks).length} of ${segmentCount} weeks done…`,
+        label: `Writing briefs — ${doneUnits()} of ${units.length} done…`,
       });
       await runtime.saveCheckpoint({ chunks });
     },
     { shouldStop: runtime.shouldPause },
   );
 
-  if (Object.keys(chunks).length < segmentCount) {
-    // Slice budget hit with segments left: keep the job running and let the
-    // next poll-triggered slice pick up the missing chunks.
+  if (doneUnits() < units.length) {
+    // Slice budget hit with units left: keep the job running and let the
+    // next poll-triggered slice pick up the missing ones.
     console.log(
-      `calendar slice pausing with ${segmentCount - Object.keys(chunks).length} of ${segmentCount} chunks remaining`,
+      `calendar slice pausing with ${units.length - doneUnits()} of ${units.length} units remaining`,
     );
     throw new JobPausedError();
   }
 
+  // A stray fallback is graceful degradation; briefs failing wholesale means
+  // something systemic (provider/schema) — surface that instead of quietly
+  // delivering a calendar of template briefs.
+  const failedUnits = units.filter(
+    (u) => chunks[u.key]?.briefs.length === 0,
+  ).length;
+  if (failedUnits > units.length / 2) {
+    throw new Error(
+      "Calendar brief generation is failing repeatedly. Please try again.",
+    );
+  }
+
+  // Merge unit briefs back into one chunk per segment for assembly.
+  const perSegment: (CalendarChunk | null)[] = segments.map((_, segIndex) => ({
+    briefs: units
+      .filter((u) => u.segIndex === segIndex)
+      .flatMap((u) => chunks[u.key]?.briefs ?? []),
+  }));
+
   const plan = {
     startDate,
-    items: assembleCalendarItems(
-      segments,
-      segments.map((_, i) => chunks[String(i)] ?? null),
-    ),
+    items: assembleCalendarItems(segments, perSegment),
   };
 
   // Honor the strategy's timeline via the AI-declared (validated) start date.
