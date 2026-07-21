@@ -182,11 +182,11 @@ describe("generateCalendarWork", () => {
     expect(inserted.map((r) => r.title)).toEqual(["Kickoff", "Momentum"]);
   });
 
-  it("skips checkpointed work on resume — outline and finished chunks", async () => {
+  it("skips checkpointed work on resume — outline and finished units", async () => {
     generateObject.mockResolvedValueOnce({ object: CHUNK_1 });
     const runtime = fakeRuntime({
       outline: OUTLINE,
-      chunks: { "0": CHUNK_0 },
+      chunks: { "0:0": CHUNK_0 },
     });
 
     const outcome = await generateCalendarWork(workArgs(), runtime);
@@ -201,6 +201,82 @@ describe("generateCalendarWork", () => {
     expect(inserted).toHaveLength(2);
     expect(inserted[0].brief).toContain("Kickoff brief");
     expect(inserted[1].brief).toContain("Momentum brief");
+  });
+
+  it("splits large segments into ≤4-slot units and remaps slotIndex", async () => {
+    const bigOutline = {
+      startDate: "2026-07-21",
+      segments: [
+        {
+          theme: "Week 1",
+          slots: Array.from({ length: 6 }, (_, i) => slot(i, `Post ${i}`)),
+        },
+      ],
+    } as CalendarOutline;
+    // Unit 0:0 covers slots 0-3, unit 0:4 covers slots 4-5; each model
+    // response uses unit-relative slotIndex.
+    generateObject
+      .mockResolvedValueOnce({
+        object: {
+          briefs: Array.from({ length: 4 }, (_, i) => ({
+            slotIndex: i,
+            brief: `u1-${i}`,
+          })),
+        },
+      })
+      .mockResolvedValueOnce({
+        object: {
+          briefs: [
+            { slotIndex: 0, brief: "u2-0" },
+            { slotIndex: 1, brief: "u2-1" },
+          ],
+        },
+      });
+    const runtime = fakeRuntime({ outline: bigOutline });
+
+    await generateCalendarWork(workArgs(), runtime);
+
+    expect(generateObject).toHaveBeenCalledTimes(2);
+    const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
+      brief: string;
+    }>;
+    expect(inserted.map((r) => r.brief)).toEqual([
+      "u1-0",
+      "u1-1",
+      "u1-2",
+      "u1-3",
+      "u2-0",
+      "u2-1",
+    ]);
+  });
+
+  it("falls back to template briefs when one unit fails every retry", async () => {
+    vi.useFakeTimers();
+    try {
+      generateObject.mockImplementation(async (callArgs: unknown) => {
+        const prompt = (callArgs as { prompt: string }).prompt;
+        if (prompt.includes("Kickoff")) {
+          throw new Error(
+            "No object generated: response did not match schema.",
+          );
+        }
+        return { object: CHUNK_1 };
+      });
+      const runtime = fakeRuntime({ outline: OUTLINE });
+
+      const pending = generateCalendarWork(workArgs(), runtime);
+      await vi.runAllTimersAsync(); // drive the retry backoffs
+      const outcome = await pending;
+
+      expect(outcome.resultId).toBe("cal-1");
+      const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
+        brief: string;
+      }>;
+      expect(inserted[0].brief).toContain("as planned"); // fallback brief
+      expect(inserted[1].brief).toContain("Momentum brief");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("pauses instead of failing when the slice deadline passes", async () => {

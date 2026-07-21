@@ -39,11 +39,31 @@ export async function withRetry<T>(
     } catch (err) {
       lastErr = err;
       console.warn(
-        `${label}: attempt ${i + 1}/${attempts} failed after ${Math.round((Date.now() - startedAt) / 1000)}s — ${err instanceof Error ? err.message : String(err)}`,
+        `${label}: attempt ${i + 1}/${attempts} failed after ${Math.round((Date.now() - startedAt) / 1000)}s — ${describeGenerationError(err)}`,
       );
     }
   }
   throw lastErr;
+}
+
+/**
+ * Expand an AI-call failure into loggable evidence. NoObjectGeneratedError
+ * hides the decisive facts ("did not match schema" can mean truncation,
+ * malformed JSON, or a genuine shape mismatch) in `text`/`cause` — surface
+ * the raw output's length and tail plus the validation cause so remote logs
+ * can distinguish them.
+ */
+export function describeGenerationError(err: unknown): string {
+  const base = err instanceof Error ? err.message : String(err);
+  if (err && typeof err === "object" && "text" in err) {
+    const text = String((err as { text?: unknown }).text ?? "");
+    const cause = (err as { cause?: unknown }).cause;
+    const causeMsg =
+      cause instanceof Error ? ` | cause=${cause.message.slice(0, 300)}` : "";
+    const tail = text.slice(-200).replace(/\s+/g, " ");
+    return `${base} | raw length=${text.length} | tail="${tail}"${causeMsg}`;
+  }
+  return base;
 }
 
 /**
