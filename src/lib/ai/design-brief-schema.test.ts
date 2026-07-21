@@ -3,8 +3,8 @@ import { designBriefSchema } from "./design-brief-schema";
 
 const valid = {
   title: "Summer Sale Carousel",
-  designType: "Instagram Carousel (1080x1080 per slide)",
-  dimensions: "1080x1080",
+  designType: "Instagram Carousel (1080x1350 per slide)",
+  dimensions: "1080x1350",
   slides: 5,
   briefMarkdown: "**Title**\nSummer Sale\n\n**Objective**\nDrive signups",
 };

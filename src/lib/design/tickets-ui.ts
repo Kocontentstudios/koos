@@ -63,8 +63,8 @@ export function defaultDueDate(itemDate: Date): string {
 /** Standard design-type options (from the design-request template), shared by
  * the request form and the AI design-brief generator. */
 export const DESIGN_TYPE_OPTIONS = [
-  "Instagram Carousel (1080x1080 per slide)",
-  "Instagram Post (1080x1080)",
+  "Instagram Carousel (1080x1350 per slide)",
+  "Instagram Post (1080x1350)",
   "Instagram Story (1080x1920)",
   "Instagram Reel Cover (1080x1920)",
   "X/Twitter Post (1200x675)",

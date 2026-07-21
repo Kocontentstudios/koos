@@ -43,7 +43,7 @@ export function buildDesignBriefSystemPrompt(brand: BrandSummary): string {
 
 ${BRIEF_STRUCTURES}
 
-Pick designType from these standard options whenever one fits (keep the exact label): ${DESIGN_TYPE_OPTIONS.join("; ")}. Include pixel dimensions. For carousels set slides (2-10) and write one section per slide.
+Pick designType from these standard options whenever one fits (keep the exact label): ${DESIGN_TYPE_OPTIONS.join("; ")}. Include pixel dimensions; Instagram feed posts and carousel slides default to 1080x1350 portrait unless the user asks otherwise. For carousels set slides (2-10) and write one section per slide.
 
 ${brandBlock(brand)}`;
 }

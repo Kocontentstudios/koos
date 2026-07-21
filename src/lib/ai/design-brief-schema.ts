@@ -6,7 +6,7 @@ export const designBriefSchema = z.object({
   title: z.string().min(1),
   /** Design type label, ideally one of the standard options (with dimensions). */
   designType: z.string().min(1),
-  /** Pixel dimensions, e.g. "1080x1080". */
+  /** Pixel dimensions, e.g. "1080x1350". */
   dimensions: z.string().optional(),
   /** Carousel slide count when the format is a carousel. */
   slides: z.number().int().min(2).max(10).optional(),
