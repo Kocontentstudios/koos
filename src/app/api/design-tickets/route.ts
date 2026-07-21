@@ -5,7 +5,9 @@ import {
   checkBrandAccess,
   createDesignTicket,
   getCalendarItemById,
+  getDesignBriefById,
   recordUsageEvent,
+  updateDesignBrief,
 } from "@/lib/db/queries";
 import { appUrl, sendDesignRequestEmails } from "@/lib/design/notify";
 import { isValidEmail } from "@/lib/validation/email";
@@ -20,6 +22,8 @@ interface Body {
   notes?: string | null;
   dueDate?: string | null;
   deliveryEmail?: string | null;
+  /** Persisted Design Brief Card this submission came from, if any. */
+  briefId?: string | null;
 }
 
 export async function POST(req: Request) {
@@ -70,6 +74,17 @@ export async function POST(req: Request) {
     calendarItemId = item.id;
   }
 
+  // If submitted from a persisted Design Brief Card, verify it belongs to
+  // this brand so the card can record the resulting ticket.
+  let briefId: string | null = null;
+  if (body.briefId) {
+    const briefRow = await getDesignBriefById(body.briefId);
+    if (!briefRow || briefRow.brandId !== brand.id) {
+      return Response.json({ error: "Brief not found" }, { status: 404 });
+    }
+    briefId = briefRow.id;
+  }
+
   try {
     const ticket = await createDesignTicket({
       brandId: brand.id,
@@ -84,6 +99,19 @@ export async function POST(req: Request) {
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       status: "submitted",
     });
+    if (briefId) {
+      // Best-effort back-pointer: the ticket is already created, so a
+      // failure here must not fail the submission.
+      try {
+        await updateDesignBrief(briefId, { ticketId: ticket.id });
+      } catch (err) {
+        console.error("linking design brief to ticket failed", {
+          briefId,
+          ticketId: ticket.id,
+          err,
+        });
+      }
+    }
     await recordUsageEvent({
       userId: dbUser.id,
       brandId: brand.id,

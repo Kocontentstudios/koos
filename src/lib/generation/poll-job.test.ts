@@ -89,6 +89,86 @@ describe("pollGenerationJob", () => {
     expect(onProgress).toHaveBeenCalledWith(progress);
   });
 
+  it("survives transient network errors and still resolves", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "running", result: null, error: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "succeeded",
+          result: { ok: true },
+          error: null,
+        }),
+      );
+    const result = await pollGenerationJob("job-6", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: noSleep,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("survives transient 5xx poll responses", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: "upstream" }, 502))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          status: "succeeded",
+          result: { ok: true },
+          error: null,
+        }),
+      );
+    const result = await pollGenerationJob("job-7", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: noSleep,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("gives up after too many consecutive failed polls", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new TypeError("offline"));
+    await expect(
+      pollGenerationJob("job-8", {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        sleep: noSleep,
+      }),
+    ).rejects.toThrow(/connection/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+  });
+
+  it("a successful poll resets the consecutive-failure count", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn().mockImplementation(() => {
+      calls++;
+      // 9 failures, one good "running" poll, 9 more failures, then success:
+      // never 10 consecutive failures, so polling must keep going.
+      if (calls === 10) {
+        return Promise.resolve(
+          jsonResponse({ status: "running", result: null, error: null }),
+        );
+      }
+      if (calls === 20) {
+        return Promise.resolve(
+          jsonResponse({
+            status: "succeeded",
+            result: { ok: true },
+            error: null,
+          }),
+        );
+      }
+      return Promise.reject(new TypeError("offline"));
+    });
+    const result = await pollGenerationJob("job-9", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: noSleep,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
   it("times out when the job never terminates", async () => {
     const fetchImpl = vi
       .fn()

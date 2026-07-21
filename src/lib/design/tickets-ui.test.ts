@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DESIGN_TYPE_OPTIONS,
   defaultDueDate,
   formatNotificationMessage,
   humanizePriority,
@@ -8,6 +9,16 @@ import {
   matchesTicketFilter,
   priorityRank,
 } from "./tickets-ui";
+
+describe("DESIGN_TYPE_OPTIONS", () => {
+  it("defaults Instagram feed posts and carousels to 1080x1350 portrait", () => {
+    expect(DESIGN_TYPE_OPTIONS).toContain("Instagram Post (1080x1350)");
+    expect(DESIGN_TYPE_OPTIONS).toContain(
+      "Instagram Carousel (1080x1350 per slide)",
+    );
+    expect(DESIGN_TYPE_OPTIONS.join(" ")).not.toContain("1080x1080");
+  });
+});
 
 describe("matchesTicketFilter", () => {
   it("'all' matches every status", () => {

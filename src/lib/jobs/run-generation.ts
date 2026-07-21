@@ -27,6 +27,7 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { resolveStartDate, toCalendarRows } from "@/lib/calendar/schedule";
 import {
   createCalendar,
+  createDesignBrief,
   createNotification,
   createStrategy,
   getBrandById,
@@ -357,9 +358,12 @@ export async function generateCalendarWork(
 
   // Bounded concurrency: too many simultaneous calls trip provider
   // throttling, which turns into slow retries and blown serverless windows.
+  // 5 keeps a 30-day calendar's ~8 units to two waves; withRetry backs off
+  // if Bedrock throttles, and per-unit timings in the logs make a
+  // throttling regression visible.
   await mapWithConcurrency(
     missing,
-    3,
+    5,
     async (unit) => {
       const segment = segments[unit.segIndex];
       const unitSlots = segment.slots.slice(
@@ -552,11 +556,14 @@ export async function resumeCalendarJob(job: {
   );
 }
 
-/** Turn a design-request conversation into a structured brief (not persisted —
- * the client reviews it, then submits it as a design ticket). */
+/** Turn a design-request conversation into a structured brief. When the chat
+ * conversation is known, the brief is persisted as a design_briefs row so it
+ * survives the session as an editable Design Brief Card; the client reviews
+ * it, then submits it as a design ticket. */
 export async function generateDesignBriefWork(args: {
   brand: BrandRow;
   conversation: string;
+  conversationId?: string | null;
   userId: string;
   sessionId?: string | null;
 }): Promise<JobOutcome> {
@@ -567,6 +574,21 @@ export async function generateDesignBriefWork(args: {
     system: buildDesignBriefSystemPrompt(summary),
     prompt: buildDesignBriefGenerationPrompt(args.conversation, summary),
   });
+  let briefId: string | null = null;
+  if (args.conversationId) {
+    const row = await createDesignBrief({
+      conversationId: args.conversationId,
+      brandId: args.brand.id,
+      userId: args.userId,
+      title: object.title,
+      designType: object.designType,
+      dimensions: object.dimensions ?? null,
+      slides: object.slides ?? null,
+      briefMarkdown: object.briefMarkdown,
+      notes: object.notes ?? null,
+    });
+    briefId = row.id;
+  }
   await captureServerEvent({
     distinctId: args.userId,
     event: "design_brief_generated",
@@ -576,5 +598,5 @@ export async function generateDesignBriefWork(args: {
       session_id: args.sessionId ?? null,
     },
   });
-  return { result: { brief: object } };
+  return { result: { brief: object, briefId } };
 }

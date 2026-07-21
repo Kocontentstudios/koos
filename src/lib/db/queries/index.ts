@@ -20,6 +20,7 @@ import {
   calendars,
   chatConversations,
   chatMessages,
+  designBriefs,
   designDeliverables,
   designTickets,
   emailVerificationTokens,
@@ -517,6 +518,55 @@ export async function getCalendarItemById(id: string) {
     .from(calendarItems)
     .where(eq(calendarItems.id, id))
     .limit(1);
+  return row ?? null;
+}
+
+// ── Design Briefs ───────────────────────────────────────────────────
+
+export async function createDesignBrief(
+  data: typeof designBriefs.$inferInsert,
+) {
+  const [row] = await db.insert(designBriefs).values(data).returning();
+  return row;
+}
+
+export async function getDesignBriefById(id: string) {
+  const [row] = await db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listDesignBriefsForConversation(conversationId: string) {
+  return db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.conversationId, conversationId))
+    .orderBy(designBriefs.createdAt);
+}
+
+export async function updateDesignBrief(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designBriefs.$inferInsert,
+      | "title"
+      | "designType"
+      | "dimensions"
+      | "slides"
+      | "briefMarkdown"
+      | "notes"
+      | "ticketId"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designBriefs)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(designBriefs.id, id))
+    .returning();
   return row ?? null;
 }
 

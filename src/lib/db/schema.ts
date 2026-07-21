@@ -396,6 +396,33 @@ export const designTickets = pgTable("design_tickets", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** AI-generated design briefs pinned to a design-mode conversation, so a
+ * brief survives the chat session and can be edited/resubmitted without
+ * regenerating. ticketId records the most recent ticket submitted from it. */
+export const designBriefs = pgTable("design_briefs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => chatConversations.id, { onDelete: "cascade" }),
+  brandId: uuid("brand_id")
+    .notNull()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  designType: text("design_type").notNull(),
+  dimensions: text("dimensions"),
+  slides: integer("slides"),
+  briefMarkdown: text("brief_markdown").notNull(),
+  notes: text("notes"),
+  ticketId: uuid("ticket_id").references(() => designTickets.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const designDeliverables = pgTable("design_deliverables", {
   id: uuid("id").primaryKey().defaultRandom(),
   ticketId: uuid("ticket_id")
