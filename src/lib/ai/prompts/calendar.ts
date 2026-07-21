@@ -21,7 +21,7 @@ Return startDate as YYYY-MM-DD (never before ${todayIso}) and use dayOffset (0 =
 
 Group the slots into consecutive segments of roughly 7 days each, in chronological order, and give each segment a one-line theme drawn from the strategy's themes/phases that will guide that week's content.
 
-Every slot must be specific — never "post something on Instagram". Use realistic cadence drawn from the strategy's posting schedule, vary platforms and content types, and give each slot a concrete title. When a slot will need a visual asset (carousel, reel cover, graphic, blog header), set designRequired=true and give a concrete designType and pixel dimensions; for text-only items (plain captions, emails, polls) set designRequired=false.
+Every slot must be specific — never "post something on Instagram". Use realistic cadence drawn from the strategy's posting schedule, vary platforms and content types, and give each slot a concrete title. When a slot will need a visual asset (carousel, reel cover, graphic, blog header), set designRequired=true and give a concrete designType and pixel dimensions (Instagram feed posts and carousel slides default to 1080x1350 portrait); for text-only items (plain captions, emails, polls) set designRequired=false.
 
 ${brandBlock(brand)}`;
 }

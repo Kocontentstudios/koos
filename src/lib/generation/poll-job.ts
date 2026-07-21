@@ -26,10 +26,20 @@ export interface PollOptions {
 const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** Consecutive failed polls tolerated before giving up. Generation runs
+    server-side, so a network blip on the polling side must not surface as a
+    "generation failed" — only a sustained outage should. */
+const MAX_CONSECUTIVE_FAILURES = 10;
+
+/** A 4xx poll response: retrying cannot help (auth loss, unknown job). */
+class FatalPollError extends Error {}
+
 /**
  * Poll a job until it reaches a terminal state. Resolves with the job's
  * result on success; throws with the job's error (or a timeout message)
- * otherwise.
+ * otherwise. Transient poll failures — network errors and 5xx responses —
+ * are retried until MAX_CONSECUTIVE_FAILURES in a row; 4xx responses are
+ * fatal (auth loss, unknown job).
  */
 export async function pollGenerationJob<T>(
   jobId: string,
@@ -42,13 +52,33 @@ export async function pollGenerationJob<T>(
   }: PollOptions = {},
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
+  let consecutiveFailures = 0;
   while (Date.now() < deadline) {
-    const res = await fetchImpl(`/api/jobs/${jobId}`);
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? "Could not check generation progress");
+    let data: JobStatusResponse<T>;
+    try {
+      const res = await fetchImpl(`/api/jobs/${jobId}`);
+      if (!res.ok) {
+        if (res.status >= 500) throw new Error(`poll got ${res.status}`);
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new FatalPollError(
+          body.error ?? "Could not check generation progress",
+        );
+      }
+      data = (await res.json()) as JobStatusResponse<T>;
+    } catch (err) {
+      if (err instanceof FatalPollError) throw err;
+      consecutiveFailures++;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        throw new Error(
+          "Lost connection while checking generation progress. Generation continues in the background — check back shortly.",
+        );
+      }
+      await sleep(intervalMs);
+      continue;
     }
-    const data = (await res.json()) as JobStatusResponse<T>;
+    consecutiveFailures = 0;
     if (data.status === "succeeded") {
       if (data.result == null) throw new Error("Generation returned no result");
       return data.result;

@@ -2,7 +2,11 @@ import { after } from "next/server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
-import { checkBrandAccess, createGenerationJob } from "@/lib/db/queries";
+import {
+  checkBrandAccess,
+  createGenerationJob,
+  getConversationById,
+} from "@/lib/db/queries";
 import {
   executeGenerationJob,
   generateDesignBriefWork,
@@ -33,24 +37,46 @@ export async function POST(req: Request) {
   });
   if (!verdict.ok) return tooManyRequests(verdict);
 
-  let body: { brandId?: string; conversation?: string };
+  let body: {
+    brandId?: string;
+    conversation?: string;
+    conversationId?: string | null;
+  };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
-  const { brandId, conversation } = body;
+  const { brandId, conversation, conversationId } = body;
   if (!brandId || !conversation || !isUuid(brandId)) {
     return Response.json(
       { error: "Missing or invalid brandId or conversation" },
       { status: 400 },
     );
   }
+  if (conversationId != null && !isUuid(conversationId)) {
+    return Response.json({ error: "Invalid conversationId" }, { status: 400 });
+  }
   const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
   }
   const brand = access.brand;
+
+  // The brief is persisted against the conversation; make sure the id the
+  // client sent is a real conversation of this brand before writing to it.
+  if (conversationId) {
+    const conv = await getConversationById(conversationId);
+    if (!conv) {
+      return Response.json(
+        { error: "Conversation not found" },
+        { status: 404 },
+      );
+    }
+    if (conv.brandId !== brandId) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
 
   const job = await createGenerationJob({
     kind: "design_brief",
@@ -65,6 +91,7 @@ export async function POST(req: Request) {
       generateDesignBriefWork({
         brand,
         conversation,
+        conversationId: conversationId ?? null,
         userId: dbUser.id,
         sessionId,
       }),

@@ -13,6 +13,7 @@ const insertCalendarItems = vi.fn();
 const createNotification = vi.fn();
 const recordUsageEvent = vi.fn();
 const createStrategy = vi.fn();
+const createDesignBrief = vi.fn();
 
 vi.mock("ai", () => ({
   generateObject: (args: unknown) => generateObject(args),
@@ -33,11 +34,13 @@ vi.mock("@/lib/db/queries", () => ({
   createNotification: (data: unknown) => createNotification(data),
   recordUsageEvent: (data: unknown) => recordUsageEvent(data),
   createStrategy: (data: unknown) => createStrategy(data),
+  createDesignBrief: (data: unknown) => createDesignBrief(data),
 }));
 
 import {
   executeGenerationJob,
   generateCalendarWork,
+  generateDesignBriefWork,
   JobPausedError,
   type JobRuntime,
   resumeCalendarJob,
@@ -308,5 +311,50 @@ describe("resumeCalendarJob", () => {
       "job-1",
       expect.objectContaining({ status: "failed" }),
     );
+  });
+});
+
+describe("generateDesignBriefWork", () => {
+  const BRIEF = {
+    title: "Launch Post",
+    designType: "Instagram Post (1080x1350)",
+    dimensions: "1080x1350",
+    briefMarkdown: "**Title**\nLaunch Post",
+  };
+
+  it("persists the brief when a conversationId is provided", async () => {
+    generateObject.mockResolvedValueOnce({ object: BRIEF });
+    createDesignBrief.mockResolvedValue({ id: "brief-1" });
+    const outcome = await generateDesignBriefWork({
+      brand: BRAND,
+      conversation: "user: I need a launch post",
+      conversationId: "conv-1",
+      userId: "u1",
+      sessionId: null,
+    });
+    expect(createDesignBrief).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conv-1",
+        brandId: "b1",
+        userId: "u1",
+        title: "Launch Post",
+        designType: "Instagram Post (1080x1350)",
+        briefMarkdown: "**Title**\nLaunch Post",
+      }),
+    );
+    expect(outcome.result).toMatchObject({ brief: BRIEF, briefId: "brief-1" });
+  });
+
+  it("skips persistence when no conversationId is provided", async () => {
+    generateObject.mockResolvedValueOnce({ object: BRIEF });
+    const outcome = await generateDesignBriefWork({
+      brand: BRAND,
+      conversation: "user: I need a launch post",
+      conversationId: null,
+      userId: "u1",
+      sessionId: null,
+    });
+    expect(createDesignBrief).not.toHaveBeenCalled();
+    expect(outcome.result).toMatchObject({ brief: BRIEF, briefId: null });
   });
 });

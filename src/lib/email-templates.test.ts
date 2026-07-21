@@ -23,8 +23,8 @@ const REQ: DesignRequestEmailInput = {
   requesterEmail: "ada@example.com",
   deliveryEmail: "studio@client.com",
   brandName: "Acme Co",
-  designType: "Instagram Carousel (1080x1080 per slide)",
-  dimensions: "1080x1080",
+  designType: "Instagram Carousel (1080x1350 per slide)",
+  dimensions: "1080x1350",
   slides: 6,
   brief: "Six-slide launch teaser",
   notes: "Use the <blue> brand palette",
@@ -46,7 +46,7 @@ describe("designRequestTeamEmail", () => {
       "studio@client.com",
       "Acme Co",
       "Instagram Carousel",
-      "1080x1080",
+      "1080x1350",
       "6",
       "Six-slide launch teaser",
       "July 10, 2026",
@@ -73,7 +73,7 @@ describe("designRequestConfirmationEmail", () => {
 describe("designDeliveryEmail", () => {
   const input: DesignDeliveryEmailInput = {
     ticketNumber: 124,
-    designType: "Instagram Carousel (1080x1080 per slide)",
+    designType: "Instagram Carousel (1080x1350 per slide)",
     links: [
       { fileName: "slide-1.png", url: "https://r2.test/a?sig=1" },
       { fileName: "slide-2.png", url: "https://r2.test/b?sig=2" },
