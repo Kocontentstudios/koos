@@ -157,6 +157,22 @@ describe("executeGenerationJob", () => {
     );
     expect(paused).toBe(true);
   });
+
+  it("marks a deliberately paused slice as ready to resume", async () => {
+    await executeGenerationJob(
+      "job-1",
+      async () => {
+        throw new JobPausedError();
+      },
+      { softDeadlineMs: 1 },
+    );
+
+    const persisted = vi
+      .mocked(updateGenerationJob)
+      .mock.calls.map(([, patch]) => patch)
+      .findLast((patch) => patch.result !== undefined);
+    expect(persisted?.result).toMatchObject({ paused: true, sliceCount: 1 });
+  });
 });
 
 describe("generateCalendarWork", () => {

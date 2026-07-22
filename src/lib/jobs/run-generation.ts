@@ -110,6 +110,10 @@ export class JobPausedError extends Error {
     like a dead worker to the poll route (stale window is 75s). */
 const HEARTBEAT_MS = 20_000;
 
+/** Backstop against a job that pauses forever without making progress.
+    A 90-day calendar needs 2-3 slices; 10 is far above any real run. */
+const MAX_SLICES = 10;
+
 /**
  * Run one slice of generation work against a job row: pending → running →
  * succeeded/failed, or paused (still "running") when the work hits its slice
@@ -117,9 +121,11 @@ const HEARTBEAT_MS = 20_000;
  * client always gets a terminal state.
  *
  * While running, the job's `result` column holds `{ progress, checkpoint,
- * resumeCount }` (overwritten by the real result on success): progress feeds
- * the client's loader, the checkpoint lets a fresh invocation continue after
- * a serverless timeout, and every write doubles as a heartbeat.
+ * resumeCount, sliceCount, paused }` (overwritten by the real result on
+ * success): progress feeds the client's loader, the checkpoint lets a fresh
+ * invocation continue after a serverless timeout, every write doubles as a
+ * heartbeat, and `paused` lets the poll route resume a deliberate pause
+ * immediately instead of waiting out the stale-worker window.
  */
 export async function executeGenerationJob(
   jobId: string,
@@ -131,6 +137,7 @@ export async function executeGenerationJob(
     progress?: JobProgress;
     checkpoint?: Record<string, unknown>;
     resumeCount?: number;
+    sliceCount?: number;
   };
   // The poll route's atomic claim guarantees a single worker owns the job,
   // so this in-memory copy is the source of truth between writes.
@@ -138,6 +145,8 @@ export async function executeGenerationJob(
     progress: prior.progress ?? null,
     checkpoint: prior.checkpoint ?? {},
     resumeCount: prior.resumeCount ?? 0,
+    sliceCount: (prior.sliceCount ?? 0) + 1,
+    paused: false,
   };
   const persist = () => updateGenerationJob(jobId, { result: state });
 
@@ -177,10 +186,22 @@ export async function executeGenerationJob(
     console.log(`generation job ${jobId}: succeeded after ${elapsed()}`);
   } catch (err) {
     if (err instanceof JobPausedError) {
-      // Deliberate slice end: keep status "running"; the persisted
-      // checkpoint lets the next poll-triggered slice continue.
+      if (state.sliceCount >= MAX_SLICES) {
+        console.error(
+          `generation job ${jobId}: hit the ${MAX_SLICES}-slice ceiling without finishing`,
+        );
+        await updateGenerationJob(jobId, {
+          status: "failed",
+          error: "Generation is taking longer than expected. Please try again.",
+        }).catch(() => {});
+        return;
+      }
+      // Positive evidence the job is ready to continue NOW. Without this the
+      // poll route waits out CALENDAR_STALE_MS (75s) of silence before it
+      // will treat a deliberate handoff as resumable.
+      state.paused = true;
       console.log(
-        `generation job ${jobId}: paused for resume after ${elapsed()}`,
+        `generation job ${jobId}: paused for resume after ${elapsed()} (slice ${state.sliceCount})`,
       );
       await persist().catch(() => {});
       return;
