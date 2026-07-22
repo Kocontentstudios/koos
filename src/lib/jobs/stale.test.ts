@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CALENDAR_STALE_MS,
   DEFAULT_STALE_MS,
+  isPausedForResume,
   MAX_RESUMES,
   resolveStaleAction,
   resumeCountFrom,
@@ -90,5 +91,24 @@ describe("resumeCountFrom", () => {
     expect(resumeCountFrom({})).toBe(0);
     expect(resumeCountFrom({ resumeCount: "3" })).toBe(0);
     expect(resumeCountFrom("junk")).toBe(0);
+  });
+});
+
+describe("isPausedForResume", () => {
+  it("is true when the worker parked a deliberate pause", () => {
+    expect(isPausedForResume({ paused: true })).toBe(true);
+  });
+
+  it("is false once the flag is cleared by a claim", () => {
+    expect(isPausedForResume({ paused: false })).toBe(false);
+  });
+
+  it("is false for a job that never paused", () => {
+    expect(isPausedForResume({ progress: { done: 1, total: 4 } })).toBe(false);
+  });
+
+  it("is false for null or non-object state", () => {
+    expect(isPausedForResume(null)).toBe(false);
+    expect(isPausedForResume("paused")).toBe(false);
   });
 });
