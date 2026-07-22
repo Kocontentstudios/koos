@@ -28,6 +28,9 @@ export default async function AdminLayout({
             </Link>
             {isAdmin && (
               <>
+                <Link href="/admin/brands" className="hover:text-foreground">
+                  Brands
+                </Link>
                 <Link href="/admin/users" className="hover:text-foreground">
                   Users
                 </Link>
