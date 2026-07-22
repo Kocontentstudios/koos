@@ -2,12 +2,17 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
 import {
+  buildQuickRequestConversation,
+  fallbackQuickBrief,
   type QuickRequestInput,
   quickRequestSchema,
 } from "@/lib/design/quick-request";
 import { DESIGN_TYPE_OPTIONS, isCarouselType } from "@/lib/design/tickets-ui";
+import { pollGenerationJob } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
+import { ensureQuickRequestBrand } from "./actions";
 
 const inputCls =
   "w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 py-2 text-[14px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]";
@@ -28,6 +33,23 @@ interface Draft {
 interface QuickRequestFormProps {
   defaultBusinessName: string;
   defaultDeliveryEmail: string;
+}
+
+interface GeneratedBrief {
+  title: string;
+  designType: string;
+  dimensions?: string;
+  slides?: number;
+  briefMarkdown: string;
+  notes?: string;
+}
+
+interface ReviewState {
+  brandId: string;
+  input: QuickRequestInput;
+  brief: GeneratedBrief;
+  /** True when AI polish failed and the raw description is standing in. */
+  degraded: boolean;
 }
 
 function toInput(draft: Draft): unknown {
@@ -59,16 +81,99 @@ export function QuickRequestForm({
     dueDate: "",
   });
   const [error, setError] = useState<string | null>(null);
-  const [accepted, setAccepted] = useState<QuickRequestInput | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [review, setReview] = useState<ReviewState | null>(null);
+  const [ticketNumber, setTicketNumber] = useState<number | null>(null);
 
-  function handleContinue() {
+  async function handleContinue() {
+    if (generating) return;
     const parsed = quickRequestSchema.safeParse(toInput(draft));
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Check your details");
       return;
     }
+    const input = parsed.data;
     setError(null);
-    setAccepted(parsed.data);
+    setGenerating(true);
+    try {
+      const brand = await ensureQuickRequestBrand(input.businessName);
+      if (!brand.ok) {
+        setError(brand.error);
+        return;
+      }
+      let brief: GeneratedBrief;
+      let degraded = false;
+      try {
+        const res = await fetch("/api/design-brief/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brandId: brand.brandId,
+            conversation: buildQuickRequestConversation(input),
+          }),
+        });
+        if (!res.ok) throw new Error("generate request rejected");
+        const { jobId } = (await res.json()) as { jobId: string };
+        const result = await pollGenerationJob<{ brief: GeneratedBrief }>(
+          jobId,
+        );
+        brief = result.brief;
+      } catch {
+        // A model failure must not block a request whose entire premise is
+        // "one design, no setup" — degrade the brief instead.
+        degraded = true;
+        brief = {
+          title: input.designType,
+          designType: input.designType,
+          dimensions: input.dimensions,
+          slides: input.slides,
+          briefMarkdown: fallbackQuickBrief(input),
+        };
+      }
+      setReview({ brandId: brand.brandId, input, brief, degraded });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleSubmit() {
+    if (!review || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/design-tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId: review.brandId,
+          calendarItemId: null,
+          briefId: null,
+          designType: review.brief.designType,
+          dimensions: review.brief.dimensions ?? null,
+          slides: review.brief.slides ?? null,
+          brief: review.brief.briefMarkdown,
+          notes: review.brief.notes ?? null,
+          deliveryEmail: review.input.deliveryEmail ?? null,
+          dueDate: review.input.dueDate ?? null,
+        }),
+      });
+      const data = (await res.json()) as
+        | { ticket: { ticketNumber: number } }
+        | { error: string };
+      if (!res.ok || !("ticket" in data)) {
+        setError(
+          ("error" in data && data.error) ||
+            "Could not submit your request. Please try again.",
+        );
+        return;
+      }
+      setTicketNumber(data.ticket.ticketNumber);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -183,15 +288,44 @@ export function QuickRequestForm({
         variant="default"
         size="lg"
         onClick={handleContinue}
+        loading={generating}
+        loadingText="Building your brief…"
         className="w-full justify-center"
       >
         Continue
       </Button>
 
-      {accepted && (
-        <p className="text-[13px] text-[var(--text-muted)]">
-          Ready to build your brief.
-        </p>
+      {review && (
+        <div className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-surface-1 p-5">
+          <h2 className="text-[16px] font-semibold text-foreground">
+            {review.brief.title}
+          </h2>
+          {review.degraded && (
+            <p className="rounded-lg bg-[var(--status-pending-bg)] px-3 py-2 text-[13px] text-[var(--status-pending-fg)]">
+              We couldn't polish this into a full brief, so we'll send your
+              description as written. The design team will follow up if they
+              need more.
+            </p>
+          )}
+          <Markdown className="text-[13px]">
+            {review.brief.briefMarkdown}
+          </Markdown>
+          {ticketNumber === null ? (
+            <Button
+              variant="default"
+              onClick={handleSubmit}
+              loading={submitting}
+              loadingText="Submitting…"
+              className="w-full justify-center"
+            >
+              Submit Request
+            </Button>
+          ) : (
+            <p className="rounded-lg bg-[var(--status-ready-bg)] px-3 py-2 text-[13px] font-medium text-[var(--status-ready-fg)]">
+              Request KO-{ticketNumber} sent to the KO design team.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
