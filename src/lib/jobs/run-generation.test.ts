@@ -173,6 +173,29 @@ describe("executeGenerationJob", () => {
       .findLast((patch) => patch.result !== undefined);
     expect(persisted?.result).toMatchObject({ paused: true, sliceCount: 1 });
   });
+
+  it("fails a runaway paused job when MAX_SLICES ceiling is hit", async () => {
+    getGenerationJobById.mockResolvedValue({
+      id: "job-1",
+      result: { sliceCount: 9, paused: true, checkpoint: {} },
+    });
+    await executeGenerationJob("job-1", async () => {
+      throw new JobPausedError();
+    });
+
+    expect(updateGenerationJob).toHaveBeenCalledWith(
+      "job-1",
+      expect.objectContaining({
+        status: "failed",
+        error: "Generation is taking longer than expected. Please try again.",
+      }),
+    );
+
+    const pausedCalls = vi
+      .mocked(updateGenerationJob)
+      .mock.calls.filter(([, patch]) => patch.result?.paused);
+    expect(pausedCalls).toHaveLength(0);
+  });
 });
 
 describe("generateCalendarWork", () => {
