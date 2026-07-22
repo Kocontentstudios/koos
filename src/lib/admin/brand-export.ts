@@ -10,11 +10,11 @@ export interface BrandExport {
   createdAt: string;
   updatedAt: string;
   sections: {
-    basics: Pick<
+    basics: Pick<BrandRow, "overview" | "businessType" | "stage">;
+    audience: Pick<
       BrandRow,
-      "overview" | "businessType" | "stage" | "primaryGoal"
+      "targetAudience" | "offer" | "tone" | "primaryGoal"
     >;
-    audience: Pick<BrandRow, "targetAudience" | "offer" | "tone">;
     personality: Pick<BrandRow, "values" | "wordsLove" | "wordsAvoid">;
     visual: Pick<
       BrandRow,
@@ -53,12 +53,12 @@ export function toBrandExport(brand: BrandRow): BrandExport {
         overview: brand.overview,
         businessType: brand.businessType,
         stage: brand.stage,
-        primaryGoal: brand.primaryGoal,
       },
       audience: {
         targetAudience: brand.targetAudience,
         offer: brand.offer,
         tone: brand.tone,
+        primaryGoal: brand.primaryGoal,
       },
       personality: {
         values: brand.values,

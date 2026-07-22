@@ -72,6 +72,12 @@ describe("toBrandExport", () => {
       "https://cdn.example.com/logo.png",
     );
   });
+
+  it("groups primaryGoal with audience, not basics", () => {
+    const out = toBrandExport(brand);
+    expect("primaryGoal" in out.sections.basics).toBe(false);
+    expect(out.sections.audience.primaryGoal).toBe("Grow subscriptions");
+  });
 });
 
 describe("brandExportFilename", () => {
