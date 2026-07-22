@@ -876,6 +876,35 @@ export async function claimStaleGenerationJob(id: string, staleMs: number) {
   return row ?? null;
 }
 
+/**
+ * Atomically claim a job that a worker paused deliberately. Clearing the
+ * flag inside the UPDATE makes concurrent pollers race safely: exactly one
+ * gets the row back. Unlike a stale claim this does NOT bump resumeCount —
+ * MAX_RESUMES bounds genuine worker deaths, and a 90-day calendar
+ * legitimately pauses several times.
+ */
+export async function claimPausedGenerationJob(id: string) {
+  const [row] = await db
+    .update(generationJobs)
+    .set({
+      updatedAt: new Date(),
+      result: sql`jsonb_set(
+        coalesce(${generationJobs.result}, '{}'::jsonb),
+        '{paused}',
+        'false'::jsonb
+      )`,
+    })
+    .where(
+      and(
+        eq(generationJobs.id, id),
+        inArray(generationJobs.status, ["pending", "running"]),
+        sql`${generationJobs.result}->>'paused' = 'true'`,
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
 // ── Rate limiting ───────────────────────────────────────────────────
 
 /**
