@@ -47,7 +47,7 @@ export async function GET(
   }
 
   const contentType = upstream.headers.get("content-type") ?? "";
-  const ext = EXT_BY_TYPE.get(contentType);
+  const ext = EXT_BY_TYPE.get(contentType.toLowerCase());
   if (!ext) {
     return Response.json({ error: "Unsupported logo format" }, { status: 415 });
   }
