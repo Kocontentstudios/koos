@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS citext;--> statement-breakpoint
 CREATE TYPE "public"."asset_type" AS ENUM('logo', 'image', 'document');--> statement-breakpoint
 CREATE TYPE "public"."brand_context_section" AS ENUM('account_info', 'business_overview', 'audience', 'brand_foundation', 'products_services', 'campaign_setup', 'social_media', 'review');--> statement-breakpoint
 CREATE TYPE "public"."calendar_item_status" AS ENUM('draft', 'in_progress', 'ready', 'published');--> statement-breakpoint

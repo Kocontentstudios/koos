@@ -20,8 +20,10 @@ import {
   calendars,
   chatConversations,
   chatMessages,
+  designBriefs,
   designDeliverables,
   designTickets,
+  emailVerificationTokens,
   generationJobs,
   notifications,
   passwordResetTokens,
@@ -68,7 +70,10 @@ export async function updateUserProfile(
 export async function createUser(
   data: Pick<typeof users.$inferInsert, "firstName" | "lastName" | "email"> &
     Partial<
-      Pick<typeof users.$inferInsert, "passwordHash" | "provider" | "avatarUrl">
+      Pick<
+        typeof users.$inferInsert,
+        "passwordHash" | "provider" | "avatarUrl" | "emailVerifiedAt"
+      >
     >,
 ) {
   const [created] = await db.insert(users).values(data).returning();
@@ -160,15 +165,50 @@ export async function markPasswordResetTokenUsed(id: string) {
     .where(eq(passwordResetTokens.id, id));
 }
 
-// ── Brands ───────────────────────────────────────────────────────────
+// ── Email verification ───────────────────────────────────────────────
 
-export async function getBrandsByUserId(userId: string) {
-  return db
-    .select()
-    .from(brands)
-    .where(eq(brands.userId, userId))
-    .orderBy(desc(brands.createdAt));
+export async function createEmailVerificationToken(input: {
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+}) {
+  return db.transaction(async (tx) => {
+    // One active token per user: a resend supersedes older links.
+    await tx
+      .delete(emailVerificationTokens)
+      .where(eq(emailVerificationTokens.userId, input.userId));
+    const [row] = await tx
+      .insert(emailVerificationTokens)
+      .values(input)
+      .returning();
+    return row;
+  });
 }
+
+export async function getEmailVerificationTokenByHash(tokenHash: string) {
+  const [row] = await db
+    .select()
+    .from(emailVerificationTokens)
+    .where(eq(emailVerificationTokens.tokenHash, tokenHash))
+    .limit(1);
+  return row;
+}
+
+export async function markEmailVerificationTokenUsed(id: string) {
+  await db
+    .update(emailVerificationTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(emailVerificationTokens.id, id));
+}
+
+export async function markEmailVerified(userId: string) {
+  await db
+    .update(users)
+    .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+// ── Brands ───────────────────────────────────────────────────────────
 
 export async function getBrandById(id: string) {
   const [brand] = await db
@@ -228,16 +268,6 @@ export async function updateBrand(
   return updated;
 }
 
-export async function getActiveBrandForUser(userId: string) {
-  const [brand] = await db
-    .select()
-    .from(brands)
-    .where(eq(brands.userId, userId))
-    .orderBy(desc(brands.updatedAt))
-    .limit(1);
-  return brand ?? null;
-}
-
 // ── Brand Contexts ───────────────────────────────────────────────────
 
 export async function getAllBrandContexts(brandId: string) {
@@ -288,15 +318,6 @@ export async function upsertBrandContext(
 }
 
 // ── Chat ────────────────────────────────────────────────────────────
-
-export async function getRecentConversations(userId: string, limit = 10) {
-  return db
-    .select()
-    .from(chatConversations)
-    .where(eq(chatConversations.userId, userId))
-    .orderBy(desc(chatConversations.updatedAt))
-    .limit(limit);
-}
 
 export async function getRecentConversationsForBrand(
   brandId: string,
@@ -353,6 +374,13 @@ export async function touchConversation(id: string) {
   await db
     .update(chatConversations)
     .set({ updatedAt: new Date() })
+    .where(eq(chatConversations.id, id));
+}
+
+export async function updateConversationTitle(id: string, title: string) {
+  await db
+    .update(chatConversations)
+    .set({ title, updatedAt: new Date() })
     .where(eq(chatConversations.id, id));
 }
 
@@ -493,6 +521,55 @@ export async function getCalendarItemById(id: string) {
   return row ?? null;
 }
 
+// ── Design Briefs ───────────────────────────────────────────────────
+
+export async function createDesignBrief(
+  data: typeof designBriefs.$inferInsert,
+) {
+  const [row] = await db.insert(designBriefs).values(data).returning();
+  return row;
+}
+
+export async function getDesignBriefById(id: string) {
+  const [row] = await db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listDesignBriefsForConversation(conversationId: string) {
+  return db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.conversationId, conversationId))
+    .orderBy(designBriefs.createdAt);
+}
+
+export async function updateDesignBrief(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designBriefs.$inferInsert,
+      | "title"
+      | "designType"
+      | "dimensions"
+      | "slides"
+      | "briefMarkdown"
+      | "notes"
+      | "ticketId"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designBriefs)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(designBriefs.id, id))
+    .returning();
+  return row ?? null;
+}
+
 // ── Design Tickets ──────────────────────────────────────────────────
 
 export async function createDesignTicket(
@@ -510,22 +587,6 @@ export async function getDesignTicketById(id: string) {
     .where(eq(designTickets.id, id))
     .limit(1);
   return row ?? null;
-}
-
-/** A user's tickets with campaign name + calendar item title for the list/detail. */
-export async function getDesignTicketsByUser(userId: string) {
-  return db
-    .select({
-      ticket: designTickets,
-      campaignName: strategies.name,
-      itemTitle: calendarItems.title,
-    })
-    .from(designTickets)
-    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
-    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(eq(designTickets.userId, userId))
-    .orderBy(desc(designTickets.createdAt));
 }
 
 export async function getDesignTicketForCalendarItem(calendarItemId: string) {
@@ -742,6 +803,43 @@ export async function getGenerationJobById(id: string) {
   return row ?? null;
 }
 
+/** Heartbeat: refresh updatedAt so the poll route's stale detection knows
+    the worker is alive during a long model call. */
+export async function touchGenerationJob(id: string) {
+  await db
+    .update(generationJobs)
+    .set({ updatedAt: new Date() })
+    .where(eq(generationJobs.id, id));
+}
+
+/**
+ * Atomically claim a silent, still-running job for a resume attempt. The
+ * staleness condition inside the UPDATE makes concurrent pollers race
+ * safely: exactly one gets the row back (and bumps resumeCount in the jsonb
+ * result), the rest get null and do nothing.
+ */
+export async function claimStaleGenerationJob(id: string, staleMs: number) {
+  const [row] = await db
+    .update(generationJobs)
+    .set({
+      updatedAt: new Date(),
+      result: sql`jsonb_set(
+        coalesce(${generationJobs.result}, '{}'::jsonb),
+        '{resumeCount}',
+        to_jsonb(coalesce((${generationJobs.result}->>'resumeCount')::int, 0) + 1)
+      )`,
+    })
+    .where(
+      and(
+        eq(generationJobs.id, id),
+        inArray(generationJobs.status, ["pending", "running"]),
+        lt(generationJobs.updatedAt, new Date(Date.now() - staleMs)),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
 // ── Rate limiting ───────────────────────────────────────────────────
 
 /**
@@ -871,3 +969,5 @@ export async function updateAppSettings(data: {
     .returning();
   return row;
 }
+
+export * from "./workspaces";

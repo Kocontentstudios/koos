@@ -1,12 +1,15 @@
 import { after } from "next/server";
 import { strategySchema } from "@/lib/ai/strategy-schema";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import {
+  checkBrandAccess,
   createGenerationJob,
-  getBrandById,
   getStrategyById,
 } from "@/lib/db/queries";
 import {
+  CALENDAR_SLICE_BUDGET_MS,
   executeGenerationJob,
   generateCalendarWork,
 } from "@/lib/jobs/run-generation";
@@ -26,6 +29,8 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const unverified = requireVerifiedEmail(dbUser);
+  if (unverified) return unverified;
 
   const verdict = await checkRateLimit({
     key: `calendar-generate:${dbUser.id}`,
@@ -48,10 +53,18 @@ export async function POST(req: Request) {
   if (!strategy) {
     return Response.json({ error: "Strategy not found" }, { status: 404 });
   }
-  const brand = await getBrandById(strategy.brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Strategy not found" }, { status: 404 });
+  const access = await checkBrandAccess(
+    dbUser.id,
+    strategy.brandId,
+    "manage_content",
+  );
+  if (!access.ok) {
+    return Response.json(
+      { error: "Strategy not found" },
+      { status: access.status },
+    );
   }
+  const brand = access.brand;
   const parsedStrategy = strategySchema.safeParse(strategy.structured);
   if (!parsedStrategy.success) {
     return Response.json(
@@ -67,14 +80,24 @@ export async function POST(req: Request) {
     input: { strategyId: strategy.id },
   });
 
+  const sessionId = await getAnalyticsSessionId();
   after(() =>
-    executeGenerationJob(job.id, () =>
-      generateCalendarWork({
-        brand,
-        strategy,
-        structured: parsedStrategy.data,
-        userId: dbUser.id,
-      }),
+    executeGenerationJob(
+      job.id,
+      (runtime) =>
+        generateCalendarWork(
+          {
+            brand,
+            strategy,
+            structured: parsedStrategy.data,
+            userId: dbUser.id,
+            sessionId,
+          },
+          runtime,
+        ),
+      // Pause before Vercel's 300s kill; the poll route resumes the job
+      // from its checkpoint in a fresh invocation.
+      { softDeadlineMs: CALENDAR_SLICE_BUDGET_MS },
     ),
   );
 

@@ -100,7 +100,7 @@ export function Markdown({
   className?: string;
 }) {
   return (
-    <div className={cn("text-sm", className)}>
+    <div className={cn("min-w-0 break-words text-sm", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {children}
       </ReactMarkdown>

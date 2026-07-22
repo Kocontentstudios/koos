@@ -1,15 +1,19 @@
-import { rowsToUiMessages } from "@/lib/ai/chat-messages";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
-  getConversationMessages,
-  getLatestConversationForBrand,
   getRecentConversationsForBrand,
   getStrategiesByBrand,
 } from "@/lib/db/queries";
 import { StrategyClient } from "./strategy-client";
 
-export default async function StrategyPage() {
+export default async function StrategyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>;
+}) {
   const { dbUser, brand } = await requireBrand();
+  const { mode } = await searchParams;
+  const initialMode =
+    mode === "design" ? ("design" as const) : ("strategy" as const);
 
   const brandContext = {
     brandProfile: [
@@ -29,44 +33,56 @@ export default async function StrategyPage() {
   };
 
   const rawStrategies = await getStrategiesByBrand(brand.id);
-  const pastStrategies = rawStrategies.map((s) => ({
-    id: s.id,
-    name: s.name,
-    updatedAt: s.updatedAt,
-    status: s.status,
-  }));
 
   void dbUser; // used for auth check via requireBrand
 
-  const [latestConversation, recentConversations] = await Promise.all([
-    getLatestConversationForBrand(brand.id),
-    getRecentConversationsForBrand(brand.id),
-  ]);
-  const initialMessages = latestConversation
-    ? rowsToUiMessages(
-        (await getConversationMessages(latestConversation.id)).map((m) => ({
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-      )
-    : [];
+  // Every visit starts a fresh chat; past conversations stay one click away
+  // in the history panel (Recent Chats).
+  const recentConversations = await getRecentConversationsForBrand(brand.id);
+
+  // Latest strategy per chat (rawStrategies is updatedAt-desc) — surfaced as
+  // the chat's "View Strategy" action instead of a separate sidebar list.
+  const latestStrategyIdByConversation = new Map<string, string>();
+  for (const s of rawStrategies) {
+    if (
+      s.conversationId &&
+      !latestStrategyIdByConversation.has(s.conversationId)
+    ) {
+      latestStrategyIdByConversation.set(s.conversationId, s.id);
+    }
+  }
 
   const conversations = recentConversations.map((c) => ({
     id: c.id,
     title: c.title,
     updatedAt: c.updatedAt,
+    mode: c.mode,
+    strategyId: latestStrategyIdByConversation.get(c.id) ?? null,
   }));
+
+  // Anything not reachable through a listed chat (no conversation, chat fell
+  // off the recent list, or superseded by a newer strategy in the same chat)
+  // stays reachable in the sidebar's "Older Strategies" group.
+  const reachableViaChat = new Set(
+    conversations.map((c) => c.strategyId).filter(Boolean),
+  );
+  const olderStrategies = rawStrategies
+    .filter((s) => !reachableViaChat.has(s.id))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      updatedAt: s.updatedAt,
+      status: s.status,
+    }));
 
   return (
     <StrategyClient
       brandId={brand.id}
       brandName={brand.name}
       brandContext={brandContext}
-      pastStrategies={pastStrategies}
+      olderStrategies={olderStrategies}
       conversations={conversations}
-      initialMessages={initialMessages}
-      initialConversationId={latestConversation?.id ?? null}
+      initialMode={initialMode}
     />
   );
 }

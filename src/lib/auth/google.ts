@@ -1,4 +1,5 @@
 import { Google, generateCodeVerifier, generateState } from "arctic";
+import { appUrl } from "@/lib/app-url";
 import { GOOGLE_STATE_COOKIE, GOOGLE_VERIFIER_COOKIE } from "./constants";
 
 export {
@@ -11,8 +12,7 @@ export {
 export const GOOGLE_SCOPES = ["openid", "profile", "email"];
 
 function redirectUri(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  return `${base}/auth/callback`;
+  return appUrl("/auth/callback");
 }
 
 export function createGoogleClient(): Google {

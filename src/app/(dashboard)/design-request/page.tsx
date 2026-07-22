@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { requireBrand } from "@/lib/auth/require-brand";
-import { getDesignTicketsByUser } from "@/lib/db/queries";
+import { getDesignTicketsForMember } from "@/lib/db/queries";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { type TicketListRow, TicketsListClient } from "./tickets-list-client";
 
 export default async function DesignRequestPage() {
-  const { dbUser } = await requireBrand();
-  const rows = await getDesignTicketsByUser(dbUser.id);
+  const { dbUser, workspace } = await requireBrand();
+  const rows = await getDesignTicketsForMember(workspace.id, dbUser.id);
 
   const tickets: TicketListRow[] = rows.map(
     ({ ticket, campaignName, itemTitle }) => ({
@@ -25,13 +25,20 @@ export default async function DesignRequestPage() {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <header className="space-y-1">
-        <h1 className="font-display text-[28px] font-bold text-foreground">
-          Design Tickets
-        </h1>
-        <p className="text-[15px] text-[var(--text-secondary)]">
-          Track all your design requests.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="font-display text-[28px] font-bold text-foreground">
+            Design Tickets
+          </h1>
+          <p className="text-[15px] text-[var(--text-secondary)]">
+            Track all your design requests.
+          </p>
+        </div>
+        <Link href="/strategy?mode=design">
+          <Button variant="default" size="lg">
+            New Request
+          </Button>
+        </Link>
       </header>
 
       {tickets.length === 0 ? (
@@ -39,9 +46,9 @@ export default async function DesignRequestPage() {
           <p className="text-[15px] text-[var(--text-secondary)]">
             You have not requested any designs yet.
           </p>
-          <Link href="/calendar">
+          <Link href="/strategy?mode=design">
             <Button variant="default" size="lg">
-              Go to Calendar
+              Request a Design
             </Button>
           </Link>
         </div>

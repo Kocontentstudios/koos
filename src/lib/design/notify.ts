@@ -36,13 +36,7 @@ export async function getDesignTeamEmail(): Promise<string> {
   ).trim();
 }
 
-/** Absolute app URL for links inside emails. */
-export function appUrl(path: string): string {
-  const base = (
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-  ).replace(/\/$/, "");
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
-}
+export { appUrl } from "@/lib/app-url";
 
 /**
  * Notify the design team and confirm to the requester. Never throws — a mail

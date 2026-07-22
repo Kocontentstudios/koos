@@ -7,6 +7,9 @@ import { Markdown } from "@/components/ui/markdown";
 interface MessageListProps {
   messages: UIMessage[];
   isLoading: boolean;
+  /** Extra content pinned after the messages, inside the scroll area
+      (e.g. design-brief cards in design mode). */
+  footer?: React.ReactNode;
 }
 
 function extractText(msg: UIMessage): string {
@@ -20,7 +23,7 @@ function extractText(msg: UIMessage): string {
   );
 }
 
-export function MessageList({ messages, isLoading }: MessageListProps) {
+export function MessageList({ messages, isLoading, footer }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom when messages change or loading state changes.
@@ -58,7 +61,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
             {/* Bubble — user text is plain; assistant text is markdown. */}
             <div
-              className={`rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
+              className={`min-w-0 break-words rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
                 isUser
                   ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
                   : "bg-surface-1 border-[var(--border)] rounded-tl-sm"
@@ -85,6 +88,8 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
           </div>
         </div>
       )}
+
+      {footer}
 
       <div ref={endRef} />
     </div>

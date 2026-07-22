@@ -19,6 +19,10 @@ interface StrategyPanelProps {
   onGenerateCalendar: () => void;
   onEdit: () => void;
   generating: boolean;
+  /** Progress label shown on the button while generating (e.g. "week 2 of 4"). */
+  generatingLabel?: string;
+  /** Reassurance shown under the button on long runs ("you'll be alerted…"). */
+  generatingHint?: string | null;
   calendarError: string | null;
   /** Mobile drawer open state (below the lg breakpoint). */
   mobileOpen: boolean;
@@ -146,6 +150,8 @@ function PanelContent({
   onGenerateCalendar,
   onEdit,
   generating,
+  generatingLabel,
+  generatingHint,
   calendarError,
   headerAction,
 }: {
@@ -153,6 +159,8 @@ function PanelContent({
   onGenerateCalendar: () => void;
   onEdit: () => void;
   generating: boolean;
+  generatingLabel?: string;
+  generatingHint?: string | null;
   calendarError: string | null;
   headerAction: React.ReactNode;
 }) {
@@ -180,12 +188,20 @@ function PanelContent({
             variant="default"
             onClick={onGenerateCalendar}
             loading={generating}
-            loadingText="Generating…"
+            loadingText={generatingLabel ?? "Generating…"}
             className="w-full justify-center"
           >
             <Calendar className="size-4" />
             Generate Calendar
           </Button>
+          {generating && generatingHint && (
+            <p
+              role="status"
+              className="rounded-lg bg-[var(--status-progress-bg)] px-3 py-2 text-[13px] text-[var(--status-progress-fg)]"
+            >
+              {generatingHint}
+            </p>
+          )}
           <Button
             variant="secondary"
             onClick={onEdit}
@@ -206,6 +222,8 @@ export function StrategyPanel({
   onGenerateCalendar,
   onEdit,
   generating,
+  generatingLabel,
+  generatingHint,
   calendarError,
   mobileOpen,
   onMobileClose,
@@ -237,6 +255,8 @@ export function StrategyPanel({
             onGenerateCalendar={onGenerateCalendar}
             onEdit={onEdit}
             generating={generating}
+            generatingLabel={generatingLabel}
+            generatingHint={generatingHint}
             calendarError={calendarError}
             headerAction={
               <button
@@ -272,6 +292,8 @@ export function StrategyPanel({
           onGenerateCalendar={onGenerateCalendar}
           onEdit={onEdit}
           generating={generating}
+          generatingLabel={generatingLabel}
+          generatingHint={generatingHint}
           calendarError={calendarError}
           headerAction={
             <button

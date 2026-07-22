@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   customType,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -9,6 +10,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -53,6 +55,11 @@ export const messageRoleEnum = pgEnum("message_role", [
   "system",
 ]);
 
+export const conversationModeEnum = pgEnum("conversation_mode", [
+  "strategy",
+  "design",
+]);
+
 export const assetTypeEnum = pgEnum("asset_type", [
   "logo",
   "image",
@@ -60,6 +67,8 @@ export const assetTypeEnum = pgEnum("asset_type", [
 ]);
 
 export const userRoleEnum = pgEnum("user_role", ["user", "designer", "admin"]);
+
+export const workspaceRoleEnum = pgEnum("workspace_role", ["owner", "member"]);
 
 export const strategyStatusEnum = pgEnum("strategy_status", [
   "draft",
@@ -112,6 +121,10 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   preferences: jsonb("preferences"),
   role: userRoleEnum("role").notNull().default("user"),
+  /** Null until the user confirms their address. Google accounts are
+      verified at creation (Google already verified the inbox); accounts
+      predating the feature were backfilled by migration 0011. */
+  emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -141,51 +154,120 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const brands = pgTable("brands", {
+// Single-use email-verification tokens, same shape as password_reset_tokens:
+// only the SHA-256 hash of the emailed token is stored.
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const workspaces = pgTable("workspaces", {
+  id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  onboardingType: onboardingTypeEnum("onboarding_type")
-    .notNull()
-    .default("manual"),
-  onboardingStatus: onboardingStatusEnum("onboarding_status")
-    .notNull()
-    .default("draft"),
-  completionPercentage: integer("completion_percentage").notNull().default(0),
-  overview: text("overview"),
-  businessType: text("business_type"),
-  stage: text("stage"),
-  targetAudience: text("target_audience"),
-  offer: text("offer"),
-  tone: text("tone"),
-  primaryGoal: text("primary_goal"),
-  primaryColor: text("primary_color"),
-  secondaryColor: text("secondary_color"),
-  additionalColors: text("additional_colors").array(),
   logoUrl: text("logo_url"),
-  // Section 3 — Brand Personality
-  values: text("values"),
-  wordsLove: text("words_love"),
-  wordsAvoid: text("words_avoid"),
-  // Section 4 — Visual Identity (extends colors/logoUrl above)
-  hasLogo: boolean("has_logo"),
-  brandStyle: text("brand_style"),
-  // Section 5 — Competitors
-  competitors: text("competitors"),
-  competitorStrengths: text("competitor_strengths"),
-  differentiators: text("differentiators"),
-  // Section 6 — Platforms & Posting
-  platforms: text("platforms").array(),
-  primaryPlatform: text("primary_platform"),
-  postingFrequency: text("posting_frequency"),
-  // Section 7 — Anything Else
-  additionalNotes: text("additional_notes"),
-  helpfulLinks: text("helpful_links"),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: workspaceRoleEnum("role").notNull().default("member"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.workspaceId, t.userId), index().on(t.userId)],
+);
+
+// Single-use invitation tokens. Stores only the SHA-256 hash of the raw token
+// emailed to the invitee (same never-store-the-secret rule as sessions).
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: citext("email").notNull(),
+    role: workspaceRoleEnum("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedById: uuid("invited_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.workspaceId)],
+);
+
+export const brands = pgTable(
+  "brands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    onboardingType: onboardingTypeEnum("onboarding_type")
+      .notNull()
+      .default("manual"),
+    onboardingStatus: onboardingStatusEnum("onboarding_status")
+      .notNull()
+      .default("draft"),
+    completionPercentage: integer("completion_percentage").notNull().default(0),
+    overview: text("overview"),
+    businessType: text("business_type"),
+    stage: text("stage"),
+    targetAudience: text("target_audience"),
+    offer: text("offer"),
+    tone: text("tone"),
+    primaryGoal: text("primary_goal"),
+    primaryColor: text("primary_color"),
+    secondaryColor: text("secondary_color"),
+    additionalColors: text("additional_colors").array(),
+    logoUrl: text("logo_url"),
+    // Section 3 — Brand Personality
+    values: text("values"),
+    wordsLove: text("words_love"),
+    wordsAvoid: text("words_avoid"),
+    // Section 4 — Visual Identity (extends colors/logoUrl above)
+    hasLogo: boolean("has_logo"),
+    brandStyle: text("brand_style"),
+    // Section 5 — Competitors
+    competitors: text("competitors"),
+    competitorStrengths: text("competitor_strengths"),
+    differentiators: text("differentiators"),
+    // Section 6 — Platforms & Posting
+    platforms: text("platforms").array(),
+    primaryPlatform: text("primary_platform"),
+    postingFrequency: text("posting_frequency"),
+    // Section 7 — Anything Else
+    additionalNotes: text("additional_notes"),
+    helpfulLinks: text("helpful_links"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.workspaceId)],
+);
 
 export const brandContexts = pgTable("brand_contexts", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -218,6 +300,7 @@ export const chatConversations = pgTable("chat_conversations", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   title: text("title"),
+  mode: conversationModeEnum("mode").notNull().default("strategy"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -313,6 +396,33 @@ export const designTickets = pgTable("design_tickets", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** AI-generated design briefs pinned to a design-mode conversation, so a
+ * brief survives the chat session and can be edited/resubmitted without
+ * regenerating. ticketId records the most recent ticket submitted from it. */
+export const designBriefs = pgTable("design_briefs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => chatConversations.id, { onDelete: "cascade" }),
+  brandId: uuid("brand_id")
+    .notNull()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  designType: text("design_type").notNull(),
+  dimensions: text("dimensions"),
+  slides: integer("slides"),
+  briefMarkdown: text("brief_markdown").notNull(),
+  notes: text("notes"),
+  ticketId: uuid("ticket_id").references(() => designTickets.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const designDeliverables = pgTable("design_deliverables", {
   id: uuid("id").primaryKey().defaultRandom(),
   ticketId: uuid("ticket_id")
@@ -358,6 +468,7 @@ export const appSettings = pgTable("app_settings", {
 export const generationJobKindEnum = pgEnum("generation_job_kind", [
   "strategy",
   "calendar",
+  "design_brief",
 ]);
 
 export const generationJobStatusEnum = pgEnum("generation_job_status", [
@@ -414,3 +525,23 @@ export const usageEvents = pgTable("usage_events", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).
+   Default-open rule: a member with no rows sees every brand in the
+   workspace; a member with rows sees only those brands. */
+export const memberBrandAccess = pgTable(
+  "member_brand_access",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+  },
+  (t) => [unique().on(t.workspaceId, t.userId, t.brandId)],
+);

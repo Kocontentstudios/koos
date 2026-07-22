@@ -127,7 +127,7 @@ export function CreateBrandForm({
     } catch {
       // Ignore storage errors
     }
-  }, [state]);
+  }, [state, isEditing]);
 
   function handleChange(patch: Partial<CreateBrandState>) {
     setState((prev) => ({ ...prev, ...patch }));

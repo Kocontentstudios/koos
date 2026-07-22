@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
+  DESIGN_TYPE_OPTIONS,
   defaultDueDate,
   formatNotificationMessage,
-  humanizeStatus,
   humanizePriority,
+  humanizeStatus,
   isCarouselType,
   matchesTicketFilter,
   priorityRank,
 } from "./tickets-ui";
+
+describe("DESIGN_TYPE_OPTIONS", () => {
+  it("defaults Instagram feed posts and carousels to 1080x1350 portrait", () => {
+    expect(DESIGN_TYPE_OPTIONS).toContain("Instagram Post (1080x1350)");
+    expect(DESIGN_TYPE_OPTIONS).toContain(
+      "Instagram Carousel (1080x1350 per slide)",
+    );
+    expect(DESIGN_TYPE_OPTIONS.join(" ")).not.toContain("1080x1080");
+  });
+});
 
 describe("matchesTicketFilter", () => {
   it("'all' matches every status", () => {
@@ -96,7 +107,9 @@ describe("formatNotificationMessage — ticket_status", () => {
     expect(
       formatNotificationMessage({
         type: "ticket_status",
-        payload: { message: "Started on your carousel — first draft tomorrow." },
+        payload: {
+          message: "Started on your carousel — first draft tomorrow.",
+        },
       }),
     ).toBe("Started on your carousel — first draft tomorrow.");
   });

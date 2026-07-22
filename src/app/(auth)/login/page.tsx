@@ -2,14 +2,24 @@
 
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useActionState, useEffect, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  Suspense,
+  useActionState,
+  useEffect,
+  useState,
+  useTransition,
+} from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { login, signInWithGoogle } from "../actions";
 
 type LoginState = { error?: string } | null;
 
-export default function LoginPage() {
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") ?? "";
+  const invitedEmail = searchParams.get("email") ?? "";
   const [callbackError, setCallbackError] = useState<string | null>(null);
   const [resetDone, setResetDone] = useState(false);
   const [showPw, setShowPw] = useState(false);
@@ -101,6 +111,7 @@ export default function LoginPage() {
         )}
 
         <form action={formAction} className="flex flex-col gap-5">
+          {next ? <input type="hidden" name="next" value={next} /> : null}
           {/* Email */}
           <div className="flex flex-col gap-1.5">
             <label
@@ -113,6 +124,7 @@ export default function LoginPage() {
               className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
               id="email"
               name="email"
+              defaultValue={invitedEmail}
               placeholder="name@company.com"
               required
               type="email"
@@ -149,7 +161,7 @@ export default function LoginPage() {
                 )}
               </button>
             </div>
-            <div className="flex justify-end -mt-3">
+            <div className="flex justify-end mt-1">
               <Link
                 className="text-xs text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
                 href="/forgot-password"
@@ -244,7 +256,7 @@ export default function LoginPage() {
             Need an account?{" "}
             <Link
               className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
-              href="/register"
+              href={`/register${next ? `?next=${encodeURIComponent(next)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ""}` : ""}`}
             >
               Create one.
             </Link>
@@ -252,5 +264,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

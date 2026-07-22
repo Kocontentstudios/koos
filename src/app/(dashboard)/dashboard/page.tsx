@@ -23,10 +23,13 @@ import {
 import {
   getActiveCalendarForBrand,
   getCalendarItems,
-  getDesignTicketsByUser,
+  getDesignTicketsForMember,
+  getPendingInvitations,
   getStrategiesByBrand,
+  getWorkspaceMembers,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import { InviteTeamCard, TeamOverviewCard } from "./team-cards";
 
 function relativeTime(date: Date, now: Date): string {
   const diffMs = now.getTime() - date.getTime();
@@ -50,13 +53,16 @@ function shortDate(date: Date): string {
 }
 
 export default async function DashboardPage() {
-  const { dbUser, brand } = await requireBrand();
+  const { dbUser, workspace, brand } = await requireBrand();
 
-  const [strategies, ticketRows, calendar] = await Promise.all([
-    getStrategiesByBrand(brand.id),
-    getDesignTicketsByUser(dbUser.id),
-    getActiveCalendarForBrand(brand.id),
-  ]);
+  const [strategies, ticketRows, calendar, teamMembers, pendingInvites] =
+    await Promise.all([
+      getStrategiesByBrand(brand.id),
+      getDesignTicketsForMember(workspace.id, dbUser.id),
+      getActiveCalendarForBrand(brand.id),
+      getWorkspaceMembers(workspace.id),
+      getPendingInvitations(workspace.id),
+    ]);
   const calendarItems = calendar ? await getCalendarItems(calendar.id) : [];
 
   const now = new Date();
@@ -222,8 +228,8 @@ export default async function DashboardPage() {
           icon: Palette,
           tint: "bg-[rgba(151,196,89,0.12)] text-success",
           title: "Request a Design",
-          desc: "Send a brief to the KO design team from any calendar item.",
-          href: "/design-request",
+          desc: "Chat with KO AI to build a design brief and send it to the design team.",
+          href: "/strategy?mode=design",
         }
       : null,
     setupComplete
@@ -257,7 +263,10 @@ export default async function DashboardPage() {
         <div className="mt-6 flex flex-wrap items-center gap-6">
           {setupComplete ? (
             <>
-              <div className="flex items-center gap-3">
+              <Link
+                href="/calendar"
+                className="-m-2 flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/10"
+              >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#85B7EB]">
                   <CalendarDays size={18} />
                 </div>
@@ -269,8 +278,11 @@ export default async function DashboardPage() {
                     Posts this week
                   </span>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
+              </Link>
+              <Link
+                href="/design-request"
+                className="-m-2 flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/10"
+              >
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#85B7EB]">
                   <Palette size={18} />
                 </div>
@@ -282,7 +294,7 @@ export default async function DashboardPage() {
                     Open design tickets
                   </span>
                 </div>
-              </div>
+              </Link>
             </>
           ) : (
             <>
@@ -308,12 +320,14 @@ export default async function DashboardPage() {
               </div>
             </>
           )}
-          <Link
-            href={setup.nextCta.href}
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-white/15 px-5 text-[14px] font-semibold text-white transition-colors hover:bg-white/25"
-          >
-            {setup.nextCta.label} <ArrowRight size={16} />
-          </Link>
+          {!setupComplete && (
+            <Link
+              href={setup.nextCta.href}
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-white/15 px-5 text-[14px] font-semibold text-white transition-colors hover:bg-white/25"
+            >
+              {setup.nextCta.label} <ArrowRight size={16} />
+            </Link>
+          )}
         </div>
       </div>
 
@@ -545,6 +559,19 @@ export default async function DashboardPage() {
           );
         })}
       </div>
+
+      {/* ── Team ── */}
+      {teamMembers.length > 1 || pendingInvites.length > 0 ? (
+        <TeamOverviewCard
+          memberCount={teamMembers.length}
+          pendingCount={pendingInvites.length}
+          names={teamMembers.map((m) =>
+            `${m.user.firstName} ${m.user.lastName}`.trim(),
+          )}
+        />
+      ) : (
+        <InviteTeamCard />
+      )}
 
       {/* ── Activity + Pro tip ── */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">

@@ -10,7 +10,7 @@ export async function POST(
 ) {
   const { dbUser } = await getAuthUser();
   // Only admins may change roles (designers cannot).
-  if (!dbUser || dbUser.role !== "admin") {
+  if (dbUser?.role !== "admin") {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;

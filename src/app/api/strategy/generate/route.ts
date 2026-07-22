@@ -1,6 +1,8 @@
 import { after } from "next/server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
-import { createGenerationJob, getBrandById } from "@/lib/db/queries";
+import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
+import { checkBrandAccess, createGenerationJob } from "@/lib/db/queries";
 import {
   executeGenerationJob,
   generateStrategyWork,
@@ -21,6 +23,8 @@ export async function POST(req: Request) {
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const unverified = requireVerifiedEmail(dbUser);
+  if (unverified) return unverified;
 
   const verdict = await checkRateLimit({
     key: `strategy-generate:${dbUser.id}`,
@@ -49,10 +53,11 @@ export async function POST(req: Request) {
   if (conversationId != null && !isUuid(conversationId)) {
     return Response.json({ error: "Invalid conversationId" }, { status: 400 });
   }
-  const brand = await getBrandById(brandId);
-  if (!brand || brand.userId !== dbUser.id) {
-    return Response.json({ error: "Brand not found" }, { status: 404 });
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) {
+    return Response.json({ error: access.error }, { status: access.status });
   }
+  const brand = access.brand;
 
   const job = await createGenerationJob({
     kind: "strategy",
@@ -61,6 +66,7 @@ export async function POST(req: Request) {
     input: { conversationId: conversationId ?? null },
   });
 
+  const sessionId = await getAnalyticsSessionId();
   after(() =>
     executeGenerationJob(job.id, () =>
       generateStrategyWork({
@@ -68,6 +74,7 @@ export async function POST(req: Request) {
         conversation,
         conversationId: conversationId ?? null,
         userId: dbUser.id,
+        sessionId,
       }),
     ),
   );

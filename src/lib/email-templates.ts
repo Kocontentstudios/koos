@@ -284,6 +284,23 @@ export function contactFormEmail(i: ContactFormEmailInput): BuiltEmail {
   return { subject: `Contact form — ${i.name}`, html };
 }
 
+export interface VerifyEmailInput {
+  firstName: string;
+  verifyUrl: string;
+}
+
+export function verifyEmailEmail(i: VerifyEmailInput): BuiltEmail {
+  const html = shell(
+    "Confirm your email address",
+    `<p style="font-size:13px">Hi ${escapeHtml(
+      i.firstName,
+    )}, welcome to KO OS! Please confirm your email address to unlock strategy and calendar generation. This link is valid for 24 hours:</p>
+    <p style="margin:16px 0"><a href="${i.verifyUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Verify my email</a></p>
+    <p style="font-size:12px;color:#6b7280">If you didn't create a KO OS account, you can safely ignore this email.</p>`,
+  );
+  return { subject: "Confirm your KO OS email address", html };
+}
+
 export interface PasswordResetEmailInput {
   firstName: string;
   resetUrl: string;
@@ -299,4 +316,49 @@ export function passwordResetEmail(i: PasswordResetEmailInput): BuiltEmail {
     <p style="font-size:12px;color:#6b7280;margin-top:16px">If you didn't request this, you can safely ignore this email — your password is unchanged.</p>`,
   );
   return { subject: "Reset your KO OS password", html };
+}
+
+export interface WorkspaceInviteEmailInput {
+  inviterName: string;
+  workspaceName: string;
+  acceptUrl: string;
+  expiresInDays: number;
+}
+
+export function workspaceInviteEmail(i: WorkspaceInviteEmailInput): BuiltEmail {
+  const subject = `${i.inviterName} invited you to join ${i.workspaceName} on KO OS`;
+  const html = shell(
+    `Join ${i.workspaceName} on KO OS`,
+    `<p style="font-size:13px"><strong>${escapeHtml(
+      i.inviterName,
+    )}</strong> invited you to join the <strong>${escapeHtml(
+      i.workspaceName,
+    )}</strong> workspace as a member of their team.</p>
+    <p style="margin:16px 0"><a href="${i.acceptUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Accept invitation</a></p>
+    <p style="font-size:12px;color:#6b7280">This invitation expires in ${i.expiresInDays} days. If you weren't expecting it, you can ignore this email.</p>`,
+  );
+  return { subject, html };
+}
+
+export interface MemberJoinedEmailInput {
+  memberName: string;
+  memberEmail: string;
+  workspaceName: string;
+  teamUrl: string;
+}
+
+export function memberJoinedEmail(i: MemberJoinedEmailInput): BuiltEmail {
+  const subject = `${i.memberName} joined ${i.workspaceName}`;
+  const html = shell(
+    `${i.memberName} joined your workspace`,
+    `<p style="font-size:13px"><strong>${escapeHtml(
+      i.memberName,
+    )}</strong> (${escapeHtml(
+      i.memberEmail,
+    )}) accepted your invitation to <strong>${escapeHtml(
+      i.workspaceName,
+    )}</strong>.</p>
+    <p style="margin-top:16px"><a href="${i.teamUrl}" style="color:#138bc8">Open your Team page →</a></p>`,
+  );
+  return { subject, html };
 }

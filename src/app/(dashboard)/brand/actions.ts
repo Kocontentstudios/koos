@@ -1,12 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
+import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { getActiveWorkspace } from "@/lib/auth/workspace";
 import {
   createBrand,
-  getActiveBrandForUser,
+  getActiveBrandForMember,
   updateBrand,
 } from "@/lib/db/queries";
+import type { brands } from "@/lib/db/schema";
 import { brandProfileSchema } from "./brand-profile-form";
 
 export async function saveBrandProfile(
@@ -14,6 +19,9 @@ export async function saveBrandProfile(
 ): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
   const { dbUser } = await getAuthUser();
   if (!dbUser) return { ok: false, error: "Not authenticated" };
+
+  const { workspace } = await getActiveWorkspace();
+  if (!workspace) redirect("/login");
 
   const parsed = brandProfileSchema.safeParse(raw);
   if (!parsed.success) {
@@ -53,12 +61,32 @@ export async function saveBrandProfile(
     completionPercentage: 100,
   };
 
-  const existing = await getActiveBrandForUser(dbUser.id);
-  const brand = existing
-    ? await updateBrand(existing.id, profile)
-    : await createBrand({ userId: dbUser.id, ...profile });
+  const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
+  let brand: typeof brands.$inferSelect;
+  if (existing) {
+    // Safe without checkBrandAccess: the brand was fetched workspace-scoped via getActiveBrandForMember above, and every role holds manage_content.
+    brand = await updateBrand(existing.id, profile);
+  } else {
+    brand = await createBrand({
+      userId: dbUser.id, // attribution only ("created by")
+      workspaceId: workspace.id,
+      ...profile,
+    });
+  }
 
   if (!brand) return { ok: false, error: "Failed to save" };
+
+  // First transition into "completed" = the user finished their Brand Brain.
+  if (existing?.onboardingStatus !== "completed") {
+    await captureServerEvent({
+      distinctId: dbUser.id,
+      event: "brand_brain_completed",
+      properties: {
+        brand_id: brand.id,
+        session_id: await getAnalyticsSessionId(),
+      },
+    });
+  }
 
   revalidatePath("/brand");
   revalidatePath("/dashboard");
