@@ -73,6 +73,7 @@ describe("toCalendarRows", () => {
         designRequired: true,
         designType: "Reel",
         dimensions: "1080x1920",
+        slotKey: "0:0",
       },
       {
         dayOffset: 0,
@@ -82,6 +83,7 @@ describe("toCalendarRows", () => {
         title: "A2",
         brief: "a2",
         designRequired: false,
+        slotKey: "0:1",
       },
       {
         dayOffset: 0,
@@ -91,6 +93,7 @@ describe("toCalendarRows", () => {
         title: "A1",
         brief: "a1",
         designRequired: false,
+        slotKey: "0:2",
       },
     ],
   };
