@@ -132,6 +132,8 @@ export function QuickRequestForm({
         };
       }
       setReview({ brandId: brand.brandId, input, brief, degraded });
+    } catch {
+      setError("Something went wrong. Please try again.");
     } finally {
       setGenerating(false);
     }

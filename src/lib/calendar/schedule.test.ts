@@ -104,6 +104,7 @@ describe("toCalendarRows", () => {
     expect(endDate.toISOString()).toBe("2026-06-17T00:00:00.000Z");
     expect(rows.map((r) => r.title)).toEqual(["A1", "A2", "B"]);
     expect(rows.map((r) => r.sortOrder)).toEqual([0, 1, 2]);
+    expect(rows.map((r) => r.slotKey)).toEqual(["0:2", "0:1", "0:0"]);
     expect(rows[2].date.toISOString()).toBe("2026-06-17T00:00:00.000Z");
   });
 });
