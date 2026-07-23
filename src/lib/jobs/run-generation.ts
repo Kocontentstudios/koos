@@ -36,6 +36,7 @@ import {
   insertCalendarItems,
   recordUsageEvent,
   touchGenerationJob,
+  updateCalendarItemBriefs,
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
@@ -81,6 +82,8 @@ export interface JobProgress {
   done: number;
   total: number;
   label: string;
+  /** Present once the calendar exists, before briefs are complete. */
+  calendarId?: string;
 }
 
 export type ReportProgress = (progress: JobProgress) => void;
@@ -289,6 +292,10 @@ interface CalendarCheckpoint {
   /** Completed briefs per unit ("segIndex:slotStart" keys), slotIndex
       already segment-relative. */
   chunks?: Record<string, CalendarChunk>;
+  /** Calendar row written straight after the outline pass. */
+  calendarId?: string;
+  /** slotKey -> calendar_items.id, so a finished unit can fill its briefs. */
+  itemIdsBySlotKey?: Record<string, string>;
 }
 
 /**
@@ -353,6 +360,60 @@ export async function generateCalendarWork(
   const startDate = outline.startDate;
   const segmentCount = segments.length;
 
+  // The outline already carries every date, platform, time, title and design
+  // flag. Writing it now makes the calendar usable in ~40s instead of ~5min,
+  // and means a job that later fails still leaves a real schedule behind.
+  let calendarId = checkpoint.calendarId;
+  let itemIdsBySlotKey = checkpoint.itemIdsBySlotKey;
+  if (!calendarId || !itemIdsBySlotKey) {
+    // Passing all-null chunks means every item comes back with a fallback
+    // brief; those are discarded below in favour of an explicit null. The
+    // call is here for its slot fields and slotKeys, not its briefs.
+    const skeleton = {
+      startDate,
+      items: assembleCalendarItems(
+        segments,
+        segments.map(() => null),
+      ),
+    };
+    const scheduled = toCalendarRows(
+      skeleton,
+      resolveStartDate(startDate, now),
+    );
+    const calendar = await createCalendar({
+      brandId: args.brand.id,
+      strategyId: args.strategy.id,
+      startDate: scheduled.startDate,
+      endDate: scheduled.endDate,
+    });
+    const inserted = await insertCalendarItems(
+      scheduled.rows.map((r) => ({
+        calendarId: calendar.id,
+        date: r.date,
+        time: r.time,
+        platform: r.platform,
+        contentType: r.contentType,
+        title: r.title,
+        // Null brief IS the pending state — the column is nullable and the
+        // drawer renders "writing brief" for it.
+        brief: null,
+        designRequired: r.designRequired,
+        designType: r.designType,
+        dimensions: r.dimensions,
+        sortOrder: r.sortOrder,
+      })),
+    );
+    calendarId = calendar.id;
+    itemIdsBySlotKey = Object.fromEntries(
+      // insertCalendarItems returns rows in input order.
+      scheduled.rows.map((r, i) => [r.slotKey, inserted[i].id]),
+    );
+    await runtime.saveCheckpoint({ calendarId, itemIdsBySlotKey });
+    console.log(
+      `calendar ${calendarId} written from outline with ${inserted.length} items (briefs pending)`,
+    );
+  }
+
   // Brief-writing is split into units of a few slots each: small JSON
   // responses generate fast and are far less likely to come back malformed
   // or truncated than one 9-brief response. Unit key = "segIndex:slotStart";
@@ -372,6 +433,7 @@ export async function generateCalendarWork(
     done: 1 + doneUnits(),
     total,
     label: "Calendar planned — writing briefs…",
+    calendarId,
   });
 
   // Only units this and previous slices haven't finished yet.
@@ -434,10 +496,20 @@ export async function generateCalendarWork(
           slotIndex: unit.slotStart + b.slotIndex,
         })),
       };
+      const segmentSlotCount = segment.slots.length;
+      const filled = chunks[unit.key].briefs
+        .filter((b) => b.slotIndex < segmentSlotCount)
+        .map((b) => ({
+          id: itemIdsBySlotKey[`${unit.segIndex}:${b.slotIndex}`],
+          brief: b.brief,
+        }))
+        .filter((u) => Boolean(u.id));
+      await updateCalendarItemBriefs(filled);
       reportProgress({
         done: 1 + doneUnits(),
         total,
         label: `Writing briefs — ${doneUnits()} of ${units.length} done…`,
+        calendarId,
       });
       await runtime.saveCheckpoint({ chunks });
     },
@@ -453,9 +525,30 @@ export async function generateCalendarWork(
     throw new JobPausedError();
   }
 
-  // A stray fallback is graceful degradation; briefs failing wholesale means
-  // something systemic (provider/schema) — surface that instead of quietly
-  // delivering a calendar of template briefs.
+  // Any slot whose unit failed permanently still needs an executable brief.
+  // Filling before the systemic-failure check means the user always ends up
+  // with a complete calendar, even when the job itself reports failure.
+  const perSegment: (CalendarChunk | null)[] = segments.map((_, segIndex) => ({
+    briefs: units
+      .filter((u) => u.segIndex === segIndex)
+      .flatMap((u) => chunks[u.key]?.briefs ?? []),
+  }));
+  const briefedSlotKeys = new Set(
+    segments.flatMap((_, segIndex) =>
+      (perSegment[segIndex]?.briefs ?? []).map(
+        (b) => `${segIndex}:${b.slotIndex}`,
+      ),
+    ),
+  );
+  const fallbacks = assembleCalendarItems(segments, perSegment)
+    .filter((item) => !briefedSlotKeys.has(item.slotKey))
+    .map((item) => ({
+      id: itemIdsBySlotKey[item.slotKey],
+      brief: item.brief,
+    }))
+    .filter((u) => Boolean(u.id));
+  await updateCalendarItemBriefs(fallbacks);
+
   const failedUnits = units.filter(
     (u) => chunks[u.key]?.briefs.length === 0,
   ).length;
@@ -465,47 +558,13 @@ export async function generateCalendarWork(
     );
   }
 
-  // Merge unit briefs back into one chunk per segment for assembly.
-  const perSegment: (CalendarChunk | null)[] = segments.map((_, segIndex) => ({
-    briefs: units
-      .filter((u) => u.segIndex === segIndex)
-      .flatMap((u) => chunks[u.key]?.briefs ?? []),
-  }));
+  const itemCount = Object.keys(itemIdsBySlotKey).length;
 
-  const plan = {
-    startDate,
-    items: assembleCalendarItems(segments, perSegment),
-  };
-
-  // Honor the strategy's timeline via the AI-declared (validated) start date.
-  const scheduled = toCalendarRows(plan, resolveStartDate(plan.startDate, now));
-
-  const calendar = await createCalendar({
-    brandId: args.brand.id,
-    strategyId: args.strategy.id,
-    startDate: scheduled.startDate,
-    endDate: scheduled.endDate,
-  });
-  await insertCalendarItems(
-    scheduled.rows.map((r) => ({
-      calendarId: calendar.id,
-      date: r.date,
-      time: r.time,
-      platform: r.platform,
-      contentType: r.contentType,
-      title: r.title,
-      brief: r.brief,
-      designRequired: r.designRequired,
-      designType: r.designType,
-      dimensions: r.dimensions,
-      sortOrder: r.sortOrder,
-    })),
-  );
   await recordUsageEvent({
     userId: args.userId,
     brandId: args.brand.id,
     kind: "calendar_generated",
-    metadata: { calendarId: calendar.id, items: scheduled.rows.length },
+    metadata: { calendarId, items: itemCount },
   });
   // Bell notification so completion reaches the user even if every tab with
   // the watcher is gone. Best-effort: the calendar itself already exists.
@@ -515,7 +574,7 @@ export async function generateCalendarWork(
       type: "system",
       payload: {
         kind: "calendar_ready",
-        calendarId: calendar.id,
+        calendarId,
         message: "Your content calendar has been generated.",
       },
     });
@@ -527,12 +586,12 @@ export async function generateCalendarWork(
     event: "calendar_generated",
     properties: {
       brand_id: args.brand.id,
-      calendar_id: calendar.id,
-      items: scheduled.rows.length,
+      calendar_id: calendarId,
+      items: itemCount,
       session_id: args.sessionId ?? null,
     },
   });
-  return { resultId: calendar.id, result: { calendarId: calendar.id } };
+  return { resultId: calendarId, result: { calendarId } };
 }
 
 /**

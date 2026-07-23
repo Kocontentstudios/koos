@@ -548,6 +548,20 @@ export async function updateCalendarItem(
   return row;
 }
 
+/** Fill in briefs for items whose slots have finished generating. Sequential
+    rather than a single CASE statement: batches are small (at most 4 slots)
+    and one failed row must not lose the others. */
+export async function updateCalendarItemBriefs(
+  updates: { id: string; brief: string }[],
+): Promise<void> {
+  for (const { id, brief } of updates) {
+    await db
+      .update(calendarItems)
+      .set({ brief, updatedAt: new Date() })
+      .where(eq(calendarItems.id, id));
+  }
+}
+
 export async function getCalendarItemById(id: string) {
   const [row] = await db
     .select()

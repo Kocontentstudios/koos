@@ -10,6 +10,7 @@ const getStrategyById = vi.fn();
 const getBrandById = vi.fn();
 const createCalendar = vi.fn();
 const insertCalendarItems = vi.fn();
+const updateCalendarItemBriefs = vi.fn();
 const createNotification = vi.fn();
 const recordUsageEvent = vi.fn();
 const createStrategy = vi.fn();
@@ -31,6 +32,8 @@ vi.mock("@/lib/db/queries", () => ({
   getBrandById: (id: string) => getBrandById(id),
   createCalendar: (data: unknown) => createCalendar(data),
   insertCalendarItems: (rows: unknown) => insertCalendarItems(rows),
+  updateCalendarItemBriefs: (updates: unknown) =>
+    updateCalendarItemBriefs(updates),
   createNotification: (data: unknown) => createNotification(data),
   recordUsageEvent: (data: unknown) => recordUsageEvent(data),
   createStrategy: (data: unknown) => createStrategy(data),
@@ -105,10 +108,23 @@ beforeEach(() => {
   getGenerationJobById.mockResolvedValue({ id: "job-1", result: null });
   updateGenerationJob.mockResolvedValue({});
   createCalendar.mockResolvedValue({ id: "cal-1" });
-  insertCalendarItems.mockResolvedValue(undefined);
+  // Mirrors insertCalendarItems returning rows in input order: give each an id.
+  insertCalendarItems.mockImplementation(async (rows: object[]) =>
+    rows.map((r, i) => ({ ...r, id: `item-${i}` })),
+  );
+  updateCalendarItemBriefs.mockResolvedValue(undefined);
   createNotification.mockResolvedValue({});
   recordUsageEvent.mockResolvedValue(undefined);
 });
+
+/** Flatten every updateCalendarItemBriefs call into one id -> brief map. */
+function briefUpdatesById(): Record<string, string> {
+  return Object.fromEntries(
+    updateCalendarItemBriefs.mock.calls
+      .flatMap(([updates]) => updates as { id: string; brief: string }[])
+      .map((u) => [u.id, u.brief]),
+  );
+}
 
 describe("executeGenerationJob", () => {
   it("keeps a paused job running instead of failing it", async () => {
@@ -220,8 +236,15 @@ describe("generateCalendarWork", () => {
     expect(runtime.checkpoint).toMatchObject({ outline: OUTLINE });
     const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
       title: string;
+      brief: string | null;
     }>;
     expect(inserted.map((r) => r.title)).toEqual(["Kickoff", "Momentum"]);
+    // The calendar is written from the outline with briefs pending — never
+    // with the model's brief text, which lands later via a separate update.
+    expect(inserted.every((r) => r.brief === null)).toBe(true);
+    const briefs = briefUpdatesById();
+    expect(briefs["item-0"]).toContain("Kickoff brief");
+    expect(briefs["item-1"]).toContain("Momentum brief");
   });
 
   it("skips checkpointed work on resume — outline and finished units", async () => {
@@ -238,11 +261,12 @@ describe("generateCalendarWork", () => {
     expect(outcome.resultId).toBe("cal-1");
     const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
       title: string;
-      brief: string;
+      brief: string | null;
     }>;
     expect(inserted).toHaveLength(2);
-    expect(inserted[0].brief).toContain("Kickoff brief");
-    expect(inserted[1].brief).toContain("Momentum brief");
+    expect(inserted.every((r) => r.brief === null)).toBe(true);
+    // Segment 1's unit ran this slice, so its brief lands via the update path.
+    expect(briefUpdatesById()["item-1"]).toContain("Momentum brief");
   });
 
   it("splits large segments into ≤4-slot units and remaps slotIndex", async () => {
@@ -280,16 +304,15 @@ describe("generateCalendarWork", () => {
 
     expect(generateObject).toHaveBeenCalledTimes(2);
     const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
-      brief: string;
+      brief: string | null;
     }>;
-    expect(inserted.map((r) => r.brief)).toEqual([
-      "u1-0",
-      "u1-1",
-      "u1-2",
-      "u1-3",
-      "u2-0",
-      "u2-1",
-    ]);
+    expect(inserted.every((r) => r.brief === null)).toBe(true);
+    const briefs = briefUpdatesById();
+    expect(
+      ["item-0", "item-1", "item-2", "item-3", "item-4", "item-5"].map(
+        (id) => briefs[id],
+      ),
+    ).toEqual(["u1-0", "u1-1", "u1-2", "u1-3", "u2-0", "u2-1"]);
   });
 
   it("falls back to template briefs when one unit fails every retry", async () => {
@@ -312,10 +335,12 @@ describe("generateCalendarWork", () => {
 
       expect(outcome.resultId).toBe("cal-1");
       const inserted = insertCalendarItems.mock.calls[0][0] as Array<{
-        brief: string;
+        brief: string | null;
       }>;
-      expect(inserted[0].brief).toContain("as planned"); // fallback brief
-      expect(inserted[1].brief).toContain("Momentum brief");
+      expect(inserted.every((r) => r.brief === null)).toBe(true);
+      const briefs = briefUpdatesById();
+      expect(briefs["item-0"]).toContain("as planned"); // fallback brief
+      expect(briefs["item-1"]).toContain("Momentum brief");
     } finally {
       vi.useRealTimers();
     }
@@ -330,7 +355,10 @@ describe("generateCalendarWork", () => {
     );
     // The outline slice still checkpointed before pausing.
     expect(runtime.checkpoint).toMatchObject({ outline: OUTLINE });
-    expect(createCalendar).not.toHaveBeenCalled();
+    // The calendar is written straight after the outline pass — it exists
+    // even though the pause hit before any brief-writing unit ran.
+    expect(createCalendar).toHaveBeenCalledTimes(1);
+    expect(runtime.checkpoint).toMatchObject({ calendarId: "cal-1" });
   });
 });
 
