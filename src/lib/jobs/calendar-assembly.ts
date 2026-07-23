@@ -127,6 +127,7 @@ export function assembleCalendarItems(
     }
     return segment.slots.map((slot, j) => ({
       ...slot,
+      slotKey: `${i}:${j}`,
       brief: briefBySlot.get(j) ?? fallbackBrief(slot),
     }));
   });

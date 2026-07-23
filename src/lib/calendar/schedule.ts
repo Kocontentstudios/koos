@@ -56,6 +56,7 @@ export interface CalendarRow {
   designType?: string;
   dimensions?: string;
   sortOrder: number;
+  slotKey: string;
 }
 
 export interface ScheduledCalendar {
@@ -92,6 +93,7 @@ export function toCalendarRows(
     designType: it.designType,
     dimensions: it.dimensions,
     sortOrder: i,
+    slotKey: it.slotKey,
   }));
 
   const endDate = rows.length

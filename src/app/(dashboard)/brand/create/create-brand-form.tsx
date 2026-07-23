@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Info } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -375,6 +376,22 @@ export function CreateBrandForm({
             )}
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 rounded-2xl border border-[var(--border)] border-l-[3px] border-l-[var(--warning)] bg-surface-1 p-5">
+        <h4 className="text-[15px] font-bold text-foreground">
+          Just need one design right now?
+        </h4>
+        <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-secondary)]">
+          You can request a single design without finishing your brand profile.
+          We'll save what you've entered so far.
+        </p>
+        <Link
+          href="/design-request/quick"
+          className="mt-4 inline-flex h-9 items-center rounded-lg bg-[var(--status-pending-bg)] px-4 text-[13px] font-semibold text-[var(--status-pending-fg)] transition-colors hover:bg-[rgba(212,169,84,0.28)]"
+        >
+          Request a Design
+        </Link>
       </div>
     </div>
   );
