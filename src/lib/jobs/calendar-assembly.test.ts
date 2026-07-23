@@ -172,3 +172,46 @@ describe("assembleCalendarItems", () => {
     expect(items.map((i) => i.brief)).toEqual(["first", "second", "third"]);
   });
 });
+
+describe("assembleCalendarItems slot keys", () => {
+  it("assigns a segment-and-slot key to every item", () => {
+    const segments = [
+      {
+        theme: "Launch",
+        slots: [
+          {
+            dayOffset: 0,
+            time: "9:00 AM",
+            platform: "Instagram",
+            contentType: "post",
+            title: "A",
+            designRequired: false,
+          },
+          {
+            dayOffset: 1,
+            time: "9:00 AM",
+            platform: "Instagram",
+            contentType: "post",
+            title: "B",
+            designRequired: false,
+          },
+        ],
+      },
+      {
+        theme: "Grow",
+        slots: [
+          {
+            dayOffset: 7,
+            time: "9:00 AM",
+            platform: "Instagram",
+            contentType: "post",
+            title: "C",
+            designRequired: false,
+          },
+        ],
+      },
+    ];
+    const items = assembleCalendarItems(segments, [null, null]);
+    expect(items.map((i) => i.slotKey)).toEqual(["0:0", "0:1", "1:0"]);
+  });
+});

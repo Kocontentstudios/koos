@@ -1,12 +1,14 @@
 import { after } from "next/server";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  claimPausedGenerationJob,
   claimStaleGenerationJob,
   getGenerationJobById,
   updateGenerationJob,
 } from "@/lib/db/queries";
 import { resumeCalendarJob } from "@/lib/jobs/run-generation";
 import {
+  isPausedForResume,
   resolveStaleAction,
   resumeCountFrom,
   staleMsFor,
@@ -65,6 +67,31 @@ export async function GET(
     },
     Date.now(),
   );
+
+  // A deliberately paused job is ready now — resume without waiting for it
+  // to look dead. Checked before the stale branch so a pause that also went
+  // silent still takes the cheap path and keeps its resume budget.
+  if (isPausedForResume(job.result)) {
+    const claimed = await claimPausedGenerationJob(job.id);
+    if (claimed) {
+      console.log(`continuing paused generation job ${job.id}`);
+      after(() =>
+        resumeCalendarJob(claimed).catch((err) => {
+          console.error(
+            `continuation of generation job ${job.id} crashed`,
+            err,
+          );
+        }),
+      );
+    }
+    return Response.json({
+      status: job.status,
+      kind: job.kind,
+      result: null,
+      error: null,
+      progress: progressFrom(job.result),
+    });
+  }
 
   if (action === "fail") {
     await updateGenerationJob(job.id, {
