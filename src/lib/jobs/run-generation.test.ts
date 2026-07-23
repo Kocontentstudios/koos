@@ -346,6 +346,28 @@ describe("generateCalendarWork", () => {
     }
   });
 
+  it("skips creating a second calendar when the checkpoint already has one (resume guard)", async () => {
+    const runtime = fakeRuntime({
+      outline: OUTLINE,
+      chunks: { "0:0": CHUNK_0, "1:0": CHUNK_1 },
+      calendarId: "cal-1",
+      itemIdsBySlotKey: { "0:0": "item-0", "1:0": "item-1" },
+    });
+
+    const outcome = await generateCalendarWork(workArgs(), runtime);
+
+    // The calendar and its items already exist from the slice that
+    // checkpointed them — resuming must never write them a second time.
+    expect(createCalendar).not.toHaveBeenCalled();
+    expect(insertCalendarItems).not.toHaveBeenCalled();
+    expect(generateObject).not.toHaveBeenCalled();
+    expect(outcome.resultId).toBe("cal-1");
+    expect(outcome.result).toEqual({ calendarId: "cal-1" });
+    // The fallback/fill pass still runs even though every unit was already
+    // checkpointed.
+    expect(updateCalendarItemBriefs).toHaveBeenCalled();
+  });
+
   it("pauses instead of failing when the slice deadline passes", async () => {
     generateObject.mockResolvedValueOnce({ object: OUTLINE });
     const runtime = fakeRuntime({}, () => true);
