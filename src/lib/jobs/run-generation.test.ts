@@ -382,6 +382,27 @@ describe("generateCalendarWork", () => {
     expect(createCalendar).toHaveBeenCalledTimes(1);
     expect(runtime.checkpoint).toMatchObject({ calendarId: "cal-1" });
   });
+
+  it("fills fallback briefs for unfinished units before pausing", async () => {
+    generateObject.mockResolvedValueOnce({ object: OUTLINE });
+    // shouldPause is true from the start, so mapWithConcurrency's workers
+    // stop before taking either unit — both segments' items are unfinished.
+    const runtime = fakeRuntime({}, () => true);
+
+    await expect(generateCalendarWork(workArgs(), runtime)).rejects.toThrow(
+      JobPausedError,
+    );
+
+    // Both pending items got a fallback brief written before the pause threw,
+    // so a job that later fails terminally still leaves a usable calendar.
+    const briefs = briefUpdatesById();
+    expect(briefs["item-0"]).toContain("Objective");
+    expect(briefs["item-1"]).toContain("Objective");
+    expect(updateCalendarItemBriefs).toHaveBeenCalledWith([
+      { id: "item-0", brief: expect.stringContaining("Objective") },
+      { id: "item-1", brief: expect.stringContaining("Objective") },
+    ]);
+  });
 });
 
 describe("resumeCalendarJob", () => {

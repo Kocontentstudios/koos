@@ -42,6 +42,7 @@ import {
 import type { brands, strategies } from "@/lib/db/schema";
 import {
   assembleCalendarItems,
+  fallbackBrief,
   mapWithConcurrency,
   withRetry,
 } from "@/lib/jobs/calendar-assembly";
@@ -517,6 +518,25 @@ export async function generateCalendarWork(
   );
 
   if (doneUnits() < units.length) {
+    // A resumed slice overwrites these with real briefs; if the job instead
+    // dies terminally (MAX_SLICES or resume-exhaustion), every item still
+    // has a usable brief instead of "brief: null" forever.
+    const stillPending = units
+      .filter((u) => !(u.key in chunks))
+      .flatMap((u) => {
+        const segment = segments[u.segIndex];
+        const unitSlots = segment.slots.slice(
+          u.slotStart,
+          u.slotStart + MAX_SLOTS_PER_BRIEF_CALL,
+        );
+        return unitSlots.map((slot, offset) => {
+          const slotKey = `${u.segIndex}:${u.slotStart + offset}`;
+          return { id: itemIdsBySlotKey[slotKey], brief: fallbackBrief(slot) };
+        });
+      })
+      .filter((u) => Boolean(u.id));
+    await updateCalendarItemBriefs(stillPending);
+
     // Slice budget hit with units left: keep the job running and let the
     // next poll-triggered slice pick up the missing ones.
     console.log(
