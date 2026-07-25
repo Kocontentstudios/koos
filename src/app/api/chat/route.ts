@@ -1,6 +1,7 @@
 import {
   convertToModelMessages,
   generateText,
+  stepCountIs,
   streamText,
   type UIMessage,
 } from "ai";
@@ -9,6 +10,8 @@ import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import { buildChatPrompt } from "@/lib/ai/prompts/chat";
 import { buildDesignRequestChatPrompt } from "@/lib/ai/prompts/design-request";
 import { getModel } from "@/lib/ai/provider";
+import { resolveProviderConfig } from "@/lib/ai/provider-config";
+import { buildBrandTools, providerSupportsTools } from "@/lib/ai/tools";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
@@ -99,16 +102,27 @@ export async function POST(req: Request) {
   const systemPrompt =
     chatMode === "design"
       ? buildDesignRequestChatPrompt(brandContext)
-      : buildChatPrompt(brandContext);
+      // memorySummary wired in Task 11; empty until then
+      : buildChatPrompt({ memorySummary: "" });
   const modelMessages = await convertToModelMessages(messages);
 
   // The just-sent user message is the last item; capture it for persistence.
   const lastUserMessage = messages[messages.length - 1];
 
+  const useTools = providerSupportsTools(
+    resolveProviderConfig("chat").provider,
+  );
+
   const result = streamText({
     model: getModel("chat"),
     system: systemPrompt,
     messages: modelMessages,
+    ...(useTools
+      ? {
+          tools: buildBrandTools({ userId: dbUser.id, brandId }),
+          stopWhen: stepCountIs(6),
+        }
+      : {}),
     // Persist the completed turn once, after the assistant reply is final, so a
     // stream that errors mid-flight never leaves an orphaned user row.
     onFinish: async ({ text }) => {
