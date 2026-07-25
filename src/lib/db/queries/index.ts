@@ -1069,3 +1069,9 @@ export async function updateAppSettings(data: {
 }
 
 export * from "./workspaces";
+
+// TEMPORARY STUB — real implementation lands in Task 10 (brand_memory table + queries).
+// Read tools (Task 3) depend on this import resolving before that table exists.
+export async function getBrandMemory(_brandId: string) {
+  return null;
+}
