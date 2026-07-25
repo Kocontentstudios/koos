@@ -199,7 +199,7 @@ const FOUNDERS: {
     name: "Oluwaseyi Idowu",
     role: "Co-founder & CTO",
     bio: "Architects the technology behind KO OS, ensuring every AI feature and design workflow runs at scale.",
-    image: "/founders/oluwaseyi_idowu.jpg",
+    image: "/founders/oluwaseyi_idowu.jpeg",
     socials: {
       linkedin: "https://www.linkedin.com/in/oluwaseyi-idowu-sunday",
       instagram: "https://www.instagram.com/idowuseyi22",

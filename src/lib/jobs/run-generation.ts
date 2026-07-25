@@ -36,11 +36,13 @@ import {
   insertCalendarItems,
   recordUsageEvent,
   touchGenerationJob,
+  updateCalendarItemBriefs,
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
 import {
   assembleCalendarItems,
+  fallbackBrief,
   mapWithConcurrency,
   withRetry,
 } from "@/lib/jobs/calendar-assembly";
@@ -81,6 +83,8 @@ export interface JobProgress {
   done: number;
   total: number;
   label: string;
+  /** Present once the calendar exists, before briefs are complete. */
+  calendarId?: string;
 }
 
 export type ReportProgress = (progress: JobProgress) => void;
@@ -110,6 +114,10 @@ export class JobPausedError extends Error {
     like a dead worker to the poll route (stale window is 75s). */
 const HEARTBEAT_MS = 20_000;
 
+/** Backstop against a job that pauses forever without making progress.
+    A 90-day calendar needs 2-3 slices; 10 is far above any real run. */
+const MAX_SLICES = 10;
+
 /**
  * Run one slice of generation work against a job row: pending → running →
  * succeeded/failed, or paused (still "running") when the work hits its slice
@@ -117,9 +125,11 @@ const HEARTBEAT_MS = 20_000;
  * client always gets a terminal state.
  *
  * While running, the job's `result` column holds `{ progress, checkpoint,
- * resumeCount }` (overwritten by the real result on success): progress feeds
- * the client's loader, the checkpoint lets a fresh invocation continue after
- * a serverless timeout, and every write doubles as a heartbeat.
+ * resumeCount, sliceCount, paused }` (overwritten by the real result on
+ * success): progress feeds the client's loader, the checkpoint lets a fresh
+ * invocation continue after a serverless timeout, every write doubles as a
+ * heartbeat, and `paused` lets the poll route resume a deliberate pause
+ * immediately instead of waiting out the stale-worker window.
  */
 export async function executeGenerationJob(
   jobId: string,
@@ -131,6 +141,7 @@ export async function executeGenerationJob(
     progress?: JobProgress;
     checkpoint?: Record<string, unknown>;
     resumeCount?: number;
+    sliceCount?: number;
   };
   // The poll route's atomic claim guarantees a single worker owns the job,
   // so this in-memory copy is the source of truth between writes.
@@ -138,6 +149,8 @@ export async function executeGenerationJob(
     progress: prior.progress ?? null,
     checkpoint: prior.checkpoint ?? {},
     resumeCount: prior.resumeCount ?? 0,
+    sliceCount: (prior.sliceCount ?? 0) + 1,
+    paused: false,
   };
   const persist = () => updateGenerationJob(jobId, { result: state });
 
@@ -177,10 +190,22 @@ export async function executeGenerationJob(
     console.log(`generation job ${jobId}: succeeded after ${elapsed()}`);
   } catch (err) {
     if (err instanceof JobPausedError) {
-      // Deliberate slice end: keep status "running"; the persisted
-      // checkpoint lets the next poll-triggered slice continue.
+      if (state.sliceCount >= MAX_SLICES) {
+        console.error(
+          `generation job ${jobId}: hit the ${MAX_SLICES}-slice ceiling without finishing`,
+        );
+        await updateGenerationJob(jobId, {
+          status: "failed",
+          error: "Generation is taking longer than expected. Please try again.",
+        }).catch(() => {});
+        return;
+      }
+      // Positive evidence the job is ready to continue NOW. Without this the
+      // poll route waits out CALENDAR_STALE_MS (75s) of silence before it
+      // will treat a deliberate handoff as resumable.
+      state.paused = true;
       console.log(
-        `generation job ${jobId}: paused for resume after ${elapsed()}`,
+        `generation job ${jobId}: paused for resume after ${elapsed()} (slice ${state.sliceCount})`,
       );
       await persist().catch(() => {});
       return;
@@ -268,6 +293,10 @@ interface CalendarCheckpoint {
   /** Completed briefs per unit ("segIndex:slotStart" keys), slotIndex
       already segment-relative. */
   chunks?: Record<string, CalendarChunk>;
+  /** Calendar row written straight after the outline pass. */
+  calendarId?: string;
+  /** slotKey -> calendar_items.id, so a finished unit can fill its briefs. */
+  itemIdsBySlotKey?: Record<string, string>;
 }
 
 /**
@@ -332,6 +361,60 @@ export async function generateCalendarWork(
   const startDate = outline.startDate;
   const segmentCount = segments.length;
 
+  // The outline already carries every date, platform, time, title and design
+  // flag. Writing it now makes the calendar usable in ~40s instead of ~5min,
+  // and means a job that later fails still leaves a real schedule behind.
+  let calendarId = checkpoint.calendarId;
+  let itemIdsBySlotKey = checkpoint.itemIdsBySlotKey;
+  if (!calendarId || !itemIdsBySlotKey) {
+    // Passing all-null chunks means every item comes back with a fallback
+    // brief; those are discarded below in favour of an explicit null. The
+    // call is here for its slot fields and slotKeys, not its briefs.
+    const skeleton = {
+      startDate,
+      items: assembleCalendarItems(
+        segments,
+        segments.map(() => null),
+      ),
+    };
+    const scheduled = toCalendarRows(
+      skeleton,
+      resolveStartDate(startDate, now),
+    );
+    const calendar = await createCalendar({
+      brandId: args.brand.id,
+      strategyId: args.strategy.id,
+      startDate: scheduled.startDate,
+      endDate: scheduled.endDate,
+    });
+    const inserted = await insertCalendarItems(
+      scheduled.rows.map((r) => ({
+        calendarId: calendar.id,
+        date: r.date,
+        time: r.time,
+        platform: r.platform,
+        contentType: r.contentType,
+        title: r.title,
+        // Null brief IS the pending state — the column is nullable and the
+        // drawer renders "writing brief" for it.
+        brief: null,
+        designRequired: r.designRequired,
+        designType: r.designType,
+        dimensions: r.dimensions,
+        sortOrder: r.sortOrder,
+      })),
+    );
+    calendarId = calendar.id;
+    itemIdsBySlotKey = Object.fromEntries(
+      // insertCalendarItems returns rows in input order.
+      scheduled.rows.map((r, i) => [r.slotKey, inserted[i].id]),
+    );
+    await runtime.saveCheckpoint({ calendarId, itemIdsBySlotKey });
+    console.log(
+      `calendar ${calendarId} written from outline with ${inserted.length} items (briefs pending)`,
+    );
+  }
+
   // Brief-writing is split into units of a few slots each: small JSON
   // responses generate fast and are far less likely to come back malformed
   // or truncated than one 9-brief response. Unit key = "segIndex:slotStart";
@@ -351,6 +434,7 @@ export async function generateCalendarWork(
     done: 1 + doneUnits(),
     total,
     label: "Calendar planned — writing briefs…",
+    calendarId,
   });
 
   // Only units this and previous slices haven't finished yet.
@@ -413,10 +497,20 @@ export async function generateCalendarWork(
           slotIndex: unit.slotStart + b.slotIndex,
         })),
       };
+      const segmentSlotCount = segment.slots.length;
+      const filled = chunks[unit.key].briefs
+        .filter((b) => b.slotIndex < segmentSlotCount)
+        .map((b) => ({
+          id: itemIdsBySlotKey[`${unit.segIndex}:${b.slotIndex}`],
+          brief: b.brief,
+        }))
+        .filter((u) => Boolean(u.id));
+      await updateCalendarItemBriefs(filled);
       reportProgress({
         done: 1 + doneUnits(),
         total,
         label: `Writing briefs — ${doneUnits()} of ${units.length} done…`,
+        calendarId,
       });
       await runtime.saveCheckpoint({ chunks });
     },
@@ -424,6 +518,25 @@ export async function generateCalendarWork(
   );
 
   if (doneUnits() < units.length) {
+    // A resumed slice overwrites these with real briefs; if the job instead
+    // dies terminally (MAX_SLICES or resume-exhaustion), every item still
+    // has a usable brief instead of "brief: null" forever.
+    const stillPending = units
+      .filter((u) => !(u.key in chunks))
+      .flatMap((u) => {
+        const segment = segments[u.segIndex];
+        const unitSlots = segment.slots.slice(
+          u.slotStart,
+          u.slotStart + MAX_SLOTS_PER_BRIEF_CALL,
+        );
+        return unitSlots.map((slot, offset) => {
+          const slotKey = `${u.segIndex}:${u.slotStart + offset}`;
+          return { id: itemIdsBySlotKey[slotKey], brief: fallbackBrief(slot) };
+        });
+      })
+      .filter((u) => Boolean(u.id));
+    await updateCalendarItemBriefs(stillPending);
+
     // Slice budget hit with units left: keep the job running and let the
     // next poll-triggered slice pick up the missing ones.
     console.log(
@@ -432,9 +545,30 @@ export async function generateCalendarWork(
     throw new JobPausedError();
   }
 
-  // A stray fallback is graceful degradation; briefs failing wholesale means
-  // something systemic (provider/schema) — surface that instead of quietly
-  // delivering a calendar of template briefs.
+  // Any slot whose unit failed permanently still needs an executable brief.
+  // Filling before the systemic-failure check means the user always ends up
+  // with a complete calendar, even when the job itself reports failure.
+  const perSegment: (CalendarChunk | null)[] = segments.map((_, segIndex) => ({
+    briefs: units
+      .filter((u) => u.segIndex === segIndex)
+      .flatMap((u) => chunks[u.key]?.briefs ?? []),
+  }));
+  const briefedSlotKeys = new Set(
+    segments.flatMap((_, segIndex) =>
+      (perSegment[segIndex]?.briefs ?? []).map(
+        (b) => `${segIndex}:${b.slotIndex}`,
+      ),
+    ),
+  );
+  const fallbacks = assembleCalendarItems(segments, perSegment)
+    .filter((item) => !briefedSlotKeys.has(item.slotKey))
+    .map((item) => ({
+      id: itemIdsBySlotKey[item.slotKey],
+      brief: item.brief,
+    }))
+    .filter((u) => Boolean(u.id));
+  await updateCalendarItemBriefs(fallbacks);
+
   const failedUnits = units.filter(
     (u) => chunks[u.key]?.briefs.length === 0,
   ).length;
@@ -444,47 +578,13 @@ export async function generateCalendarWork(
     );
   }
 
-  // Merge unit briefs back into one chunk per segment for assembly.
-  const perSegment: (CalendarChunk | null)[] = segments.map((_, segIndex) => ({
-    briefs: units
-      .filter((u) => u.segIndex === segIndex)
-      .flatMap((u) => chunks[u.key]?.briefs ?? []),
-  }));
+  const itemCount = Object.keys(itemIdsBySlotKey).length;
 
-  const plan = {
-    startDate,
-    items: assembleCalendarItems(segments, perSegment),
-  };
-
-  // Honor the strategy's timeline via the AI-declared (validated) start date.
-  const scheduled = toCalendarRows(plan, resolveStartDate(plan.startDate, now));
-
-  const calendar = await createCalendar({
-    brandId: args.brand.id,
-    strategyId: args.strategy.id,
-    startDate: scheduled.startDate,
-    endDate: scheduled.endDate,
-  });
-  await insertCalendarItems(
-    scheduled.rows.map((r) => ({
-      calendarId: calendar.id,
-      date: r.date,
-      time: r.time,
-      platform: r.platform,
-      contentType: r.contentType,
-      title: r.title,
-      brief: r.brief,
-      designRequired: r.designRequired,
-      designType: r.designType,
-      dimensions: r.dimensions,
-      sortOrder: r.sortOrder,
-    })),
-  );
   await recordUsageEvent({
     userId: args.userId,
     brandId: args.brand.id,
     kind: "calendar_generated",
-    metadata: { calendarId: calendar.id, items: scheduled.rows.length },
+    metadata: { calendarId, items: itemCount },
   });
   // Bell notification so completion reaches the user even if every tab with
   // the watcher is gone. Best-effort: the calendar itself already exists.
@@ -494,7 +594,7 @@ export async function generateCalendarWork(
       type: "system",
       payload: {
         kind: "calendar_ready",
-        calendarId: calendar.id,
+        calendarId,
         message: "Your content calendar has been generated.",
       },
     });
@@ -506,12 +606,12 @@ export async function generateCalendarWork(
     event: "calendar_generated",
     properties: {
       brand_id: args.brand.id,
-      calendar_id: calendar.id,
-      items: scheduled.rows.length,
+      calendar_id: calendarId,
+      items: itemCount,
       session_id: args.sessionId ?? null,
     },
   });
-  return { resultId: calendar.id, result: { calendarId: calendar.id } };
+  return { resultId: calendarId, result: { calendarId } };
 }
 
 /**

@@ -32,6 +32,7 @@ import {
   ticketUpdates,
   usageEvents,
   users,
+  workspaces,
 } from "@/lib/db/schema";
 
 // ── Users ───────────────────────────────────────────────────────────
@@ -266,6 +267,41 @@ export async function updateBrand(
     .where(eq(brands.id, id))
     .returning();
   return updated;
+}
+
+/** Every brand in the system for the admin console, newest first. Admin-only
+    by construction: no workspace scoping, so callers must gate on role. */
+export async function listBrandsForAdmin() {
+  const rows = await db
+    .select({
+      brand: brands,
+      ownerEmail: users.email,
+      workspaceName: workspaces.name,
+      ticketCount: count(designTickets.id),
+    })
+    .from(brands)
+    .innerJoin(users, eq(users.id, brands.userId))
+    .innerJoin(workspaces, eq(workspaces.id, brands.workspaceId))
+    .leftJoin(designTickets, eq(designTickets.brandId, brands.id))
+    .groupBy(brands.id, users.email, workspaces.name)
+    .orderBy(desc(brands.createdAt));
+  return rows;
+}
+
+/** One brand with its owner and workspace, for the admin detail page. */
+export async function getBrandForAdmin(id: string) {
+  const [row] = await db
+    .select({
+      brand: brands,
+      ownerEmail: users.email,
+      workspaceName: workspaces.name,
+    })
+    .from(brands)
+    .innerJoin(users, eq(users.id, brands.userId))
+    .innerJoin(workspaces, eq(workspaces.id, brands.workspaceId))
+    .where(eq(brands.id, id))
+    .limit(1);
+  return row ?? null;
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
@@ -510,6 +546,20 @@ export async function updateCalendarItem(
     .where(eq(calendarItems.id, id))
     .returning();
   return row;
+}
+
+/** Fill in briefs for items whose slots have finished generating. Sequential
+    rather than a single CASE statement: batches are small (at most 4 slots)
+    and one failed row must not lose the others. */
+export async function updateCalendarItemBriefs(
+  updates: { id: string; brief: string }[],
+): Promise<void> {
+  for (const { id, brief } of updates) {
+    await db
+      .update(calendarItems)
+      .set({ brief, updatedAt: new Date() })
+      .where(eq(calendarItems.id, id));
+  }
 }
 
 export async function getCalendarItemById(id: string) {
@@ -834,6 +884,35 @@ export async function claimStaleGenerationJob(id: string, staleMs: number) {
         eq(generationJobs.id, id),
         inArray(generationJobs.status, ["pending", "running"]),
         lt(generationJobs.updatedAt, new Date(Date.now() - staleMs)),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Atomically claim a job that a worker paused deliberately. Clearing the
+ * flag inside the UPDATE makes concurrent pollers race safely: exactly one
+ * gets the row back. Unlike a stale claim this does NOT bump resumeCount —
+ * MAX_RESUMES bounds genuine worker deaths, and a 90-day calendar
+ * legitimately pauses several times.
+ */
+export async function claimPausedGenerationJob(id: string) {
+  const [row] = await db
+    .update(generationJobs)
+    .set({
+      updatedAt: new Date(),
+      result: sql`jsonb_set(
+        coalesce(${generationJobs.result}, '{}'::jsonb),
+        '{paused}',
+        'false'::jsonb
+      )`,
+    })
+    .where(
+      and(
+        eq(generationJobs.id, id),
+        inArray(generationJobs.status, ["pending", "running"]),
+        sql`${generationJobs.result}->>'paused' = 'true'`,
       ),
     )
     .returning();

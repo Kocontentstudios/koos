@@ -49,3 +49,17 @@ export function resolveStaleAction(
   if (job.kind !== "calendar") return "fail";
   return job.resumeCount < MAX_RESUMES ? "resume" : "fail";
 }
+
+/**
+ * A worker that ends a slice deliberately parks `paused: true` in the job's
+ * jsonb state. Unlike silence, this is positive evidence that the job is
+ * ready to continue right now, so the poll route resumes it immediately
+ * instead of waiting out the death-detection window.
+ */
+export function isPausedForResume(result: unknown): boolean {
+  return (
+    !!result &&
+    typeof result === "object" &&
+    (result as { paused?: unknown }).paused === true
+  );
+}

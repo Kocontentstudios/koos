@@ -63,5 +63,16 @@ export const calendarPlanSchema = z.object({
 export type CalendarSlot = z.infer<typeof calendarSlotSchema>;
 export type CalendarOutline = z.infer<typeof calendarOutlineSchema>;
 export type CalendarChunk = z.infer<typeof calendarChunkSchema>;
-export type CalendarItemPlan = z.infer<typeof calendarItemPlanSchema>;
-export type CalendarPlan = z.infer<typeof calendarPlanSchema>;
+/** Server-assigned identity for a planned item, stable across the (date,
+ * time) re-sort in toCalendarRows. Never comes from the model — it is how a
+ * finished brief unit finds the rows it belongs to. */
+export type CalendarItemPlan = z.infer<typeof calendarItemPlanSchema> & {
+  slotKey: string;
+};
+
+/** Items carry the server-assigned slotKey, so the plan type cannot be a
+ * plain z.infer of the schema — the schema describes only what the model
+ * returns. */
+export type CalendarPlan = Omit<z.infer<typeof calendarPlanSchema>, "items"> & {
+  items: CalendarItemPlan[];
+};

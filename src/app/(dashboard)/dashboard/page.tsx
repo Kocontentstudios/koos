@@ -223,15 +223,13 @@ export default async function DashboardPage() {
             href: "/strategy",
           }
         : null,
-    setupComplete
-      ? {
-          icon: Palette,
-          tint: "bg-[rgba(151,196,89,0.12)] text-success",
-          title: "Request a Design",
-          desc: "Chat with KO AI to build a design brief and send it to the design team.",
-          href: "/strategy?mode=design",
-        }
-      : null,
+    {
+      icon: Palette,
+      tint: "bg-[rgba(151,196,89,0.12)] text-success",
+      title: "Request a Design",
+      desc: "Chat with KO AI to build a design brief and send it to the design team.",
+      href: "/strategy?mode=design",
+    },
     setupComplete
       ? {
           icon: WandSparkles,

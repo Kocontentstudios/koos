@@ -4,6 +4,8 @@ export interface JobProgress {
   done: number;
   total: number;
   label: string;
+  /** Present once the calendar exists, before briefs are complete. */
+  calendarId?: string;
 }
 
 export interface JobStatusResponse<T> {

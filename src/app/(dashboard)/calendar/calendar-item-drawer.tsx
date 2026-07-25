@@ -207,11 +207,21 @@ export function CalendarItemDrawer({
             </SheetHeader>
 
             <div className="flex flex-col gap-5 px-4 pb-4">
-              {item.brief && (
+              {item.brief ? (
                 <>
                   <Divider />
                   <Section label="Brief">
                     <Markdown className="text-[13px]">{item.brief}</Markdown>
+                  </Section>
+                </>
+              ) : (
+                <>
+                  <Divider />
+                  <Section label="Brief">
+                    <p className="text-[13px] italic text-[var(--text-muted)]">
+                      KO is still writing this brief. It will appear here
+                      shortly — the rest of the item is ready to use now.
+                    </p>
                   </Section>
                 </>
               )}
