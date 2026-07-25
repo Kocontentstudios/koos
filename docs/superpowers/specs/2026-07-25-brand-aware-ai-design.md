@@ -259,8 +259,8 @@ Each phase is independently shippable and testable.
 
 ## 12. Open items to confirm during implementation
 
-- Exact set of `propose_*` actions to ship in 3A v1 (brand fields + design ticket are the
-  clear wins; calendar/strategy proposals can trail if scope tightens).
+- 3A v1 ships **all four** `propose_*` actions: brand fields, design ticket, calendar
+  generation, and strategy (decision locked with the user, 2026-07-25).
 - Whether `list_design_tickets` needs a new `listDesignTicketsForBrand` query (likely yes) and
   `list_brand_assets` a `getBrandAssets` query (confirm during build).
 - Memory summarization cadence (every turn vs. every N turns) — start every-turn, tune if
