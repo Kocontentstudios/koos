@@ -1,12 +1,15 @@
 "use client";
 
 import type { UIMessage } from "@ai-sdk/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { extractProposals } from "@/components/ai/extract-proposals";
+import { ProposalCard } from "@/components/ai/proposal-card";
 import { Markdown } from "@/components/ui/markdown";
 
 interface MessageListProps {
   messages: UIMessage[];
   isLoading: boolean;
+  brandId: string;
   /** Extra content pinned after the messages, inside the scroll area
       (e.g. design-brief cards in design mode). */
   footer?: React.ReactNode;
@@ -23,8 +26,19 @@ function extractText(msg: UIMessage): string {
   );
 }
 
-export function MessageList({ messages, isLoading, footer }: MessageListProps) {
+export function MessageList({
+  messages,
+  isLoading,
+  brandId,
+  footer,
+}: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
+  // Keys ("messageId:index") of proposal cards the user has already
+  // confirmed or dismissed — hidden without touching `messages` itself,
+  // since useChat owns that state.
+  const [resolvedProposals, setResolvedProposals] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Scroll to bottom when messages change or loading state changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages/isLoading are intentional triggers
@@ -42,33 +56,54 @@ export function MessageList({ messages, isLoading, footer }: MessageListProps) {
       {messages.map((msg) => {
         const text = extractText(msg);
         const isUser = msg.role === "user";
+        const proposals = isUser ? [] : extractProposals(msg);
 
         return (
-          <div
-            key={msg.id}
-            className={`flex items-start gap-3 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : ""}`}
-          >
-            {/* Avatar — 28px solid primary for KO, surface for user */}
+          <div key={msg.id} className="space-y-2">
             <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
-                isUser
-                  ? "bg-surface-2 text-foreground"
-                  : "bg-primary text-white"
-              }`}
+              className={`flex items-start gap-3 max-w-[85%] ${isUser ? "ml-auto flex-row-reverse" : ""}`}
             >
-              {isUser ? "U" : "KO"}
+              {/* Avatar — 28px solid primary for KO, surface for user */}
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
+                  isUser
+                    ? "bg-surface-2 text-foreground"
+                    : "bg-primary text-white"
+                }`}
+              >
+                {isUser ? "U" : "KO"}
+              </div>
+
+              {/* Bubble — user text is plain; assistant text is markdown. */}
+              <div
+                className={`min-w-0 break-words rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
+                  isUser
+                    ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
+                    : "bg-surface-1 border-[var(--border)] rounded-tl-sm"
+                }`}
+              >
+                {isUser ? text : <Markdown>{text}</Markdown>}
+              </div>
             </div>
 
-            {/* Bubble — user text is plain; assistant text is markdown. */}
-            <div
-              className={`min-w-0 break-words rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
-                isUser
-                  ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
-                  : "bg-surface-1 border-[var(--border)] rounded-tl-sm"
-              }`}
-            >
-              {isUser ? text : <Markdown>{text}</Markdown>}
-            </div>
+            {proposals.length > 0 && (
+              <div className="flex flex-col gap-2 pl-10">
+                {proposals.map((proposal, i) => {
+                  const key = `${msg.id}:${i}`;
+                  if (resolvedProposals.has(key)) return null;
+                  return (
+                    <ProposalCard
+                      key={key}
+                      proposal={proposal}
+                      brandId={brandId}
+                      onDone={() =>
+                        setResolvedProposals((prev) => new Set(prev).add(key))
+                      }
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}
