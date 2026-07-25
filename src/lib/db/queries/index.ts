@@ -305,7 +305,7 @@ export async function getBrandForAdmin(id: string) {
   return row ?? null;
 }
 
-// ── Brand Assets & Design Tickets ───────────────────────────────────
+// ── Brand Assets ────────────────────────────────────────────────────
 
 export async function getBrandAssets(brandId: string) {
   return db
@@ -313,14 +313,6 @@ export async function getBrandAssets(brandId: string) {
     .from(brandAssets)
     .where(eq(brandAssets.brandId, brandId))
     .orderBy(desc(brandAssets.createdAt));
-}
-
-export async function listDesignTicketsForBrand(brandId: string) {
-  return db
-    .select()
-    .from(designTickets)
-    .where(eq(designTickets.brandId, brandId))
-    .orderBy(desc(designTickets.createdAt));
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
@@ -666,6 +658,14 @@ export async function getDesignTicketForCalendarItem(calendarItemId: string) {
     .orderBy(desc(designTickets.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+export async function listDesignTicketsForBrand(brandId: string) {
+  return db
+    .select()
+    .from(designTickets)
+    .where(eq(designTickets.brandId, brandId))
+    .orderBy(desc(designTickets.createdAt));
 }
 
 export async function updateDesignTicket(
