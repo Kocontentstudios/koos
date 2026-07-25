@@ -7,6 +7,7 @@ import {
   getBrandById,
   getBrandMemory,
   getCalendarItems,
+  getConversationById,
   getConversationMessages,
   getRecentConversationsForBrand,
   getStrategiesByBrand,
@@ -66,7 +67,16 @@ export function buildReadTools(ctx: ToolContext): Record<string, Tool> {
       description: "Read the messages of one prior conversation by id.",
       inputSchema: z.object({ conversationId: z.string().uuid() }),
       execute: ({ conversationId }) =>
-        withBrandAccess(ctx, async () => ({ messages: await getConversationMessages(conversationId) })),
+        withBrandAccess(ctx, async () => {
+          // withBrandAccess only authorizes ctx.brandId; conversationId is
+          // caller-supplied input, so its own brandId must be checked too —
+          // otherwise a user on Brand A can read Brand B's conversations.
+          const conversation = await getConversationById(conversationId);
+          if (!conversation || conversation.brandId !== ctx.brandId) {
+            return { error: "Conversation not found" };
+          }
+          return { messages: await getConversationMessages(conversationId) };
+        }),
     }),
   };
 }
