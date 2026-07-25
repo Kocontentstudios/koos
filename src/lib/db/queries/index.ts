@@ -14,6 +14,7 @@ import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
   appSettings,
+  brandAssets,
   brandContexts,
   brands,
   calendarItems,
@@ -302,6 +303,24 @@ export async function getBrandForAdmin(id: string) {
     .where(eq(brands.id, id))
     .limit(1);
   return row ?? null;
+}
+
+// ── Brand Assets & Design Tickets ───────────────────────────────────
+
+export async function getBrandAssets(brandId: string) {
+  return db
+    .select()
+    .from(brandAssets)
+    .where(eq(brandAssets.brandId, brandId))
+    .orderBy(desc(brandAssets.createdAt));
+}
+
+export async function listDesignTicketsForBrand(brandId: string) {
+  return db
+    .select()
+    .from(designTickets)
+    .where(eq(designTickets.brandId, brandId))
+    .orderBy(desc(designTickets.createdAt));
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
