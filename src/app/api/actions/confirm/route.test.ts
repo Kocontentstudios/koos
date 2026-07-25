@@ -53,7 +53,13 @@ describe("POST /api/actions/confirm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthUser.mockResolvedValue({
-      dbUser: { id: "u1", firstName: "Ada", lastName: "Lovelace", email: "ada@x.com" },
+      dbUser: {
+        id: "u1",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        email: "ada@x.com",
+        emailVerifiedAt: new Date(),
+      },
     });
     checkBrandAccess.mockResolvedValue({
       ok: true,
@@ -152,6 +158,30 @@ describe("POST /api/actions/confirm", () => {
     expect(generateStrategyWork).toHaveBeenCalledWith(
       expect.objectContaining({ conversation: "Grow awareness", conversationId: null }),
     );
+  });
+
+  it("rejects a strategy proposal from an unverified user without creating a job", async () => {
+    getAuthUser.mockResolvedValue({
+      dbUser: {
+        id: "u1",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        email: "ada@x.com",
+        emailVerifiedAt: null,
+      },
+    });
+    const res = await POST(
+      req({
+        brandId: BRAND_ID,
+        proposal: {
+          kind: "strategy",
+          summary: "Q3 plan",
+          data: { name: "Q3 plan", seed: "Grow awareness" },
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(createGenerationJob).not.toHaveBeenCalled();
   });
 
   it("rejects a calendar proposal missing a strategyId without creating a job", async () => {

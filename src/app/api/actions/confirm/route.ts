@@ -4,6 +4,7 @@ import { strategySchema } from "@/lib/ai/strategy-schema";
 import { ProposalSchema } from "@/lib/ai/tools/proposals";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import {
   checkBrandAccess,
   createGenerationJob,
@@ -55,6 +56,18 @@ export async function POST(req: Request) {
     return Response.json({ error: access.error }, { status: access.status });
   }
   const brand = access.brand;
+
+  if (proposal.kind === "strategy" || proposal.kind === "calendar") {
+    const unverified = requireVerifiedEmail(dbUser);
+    if (unverified) return unverified;
+
+    const genVerdict = await checkRateLimit({
+      key: `confirm-generate:${dbUser.id}`,
+      limit: 10,
+      windowSeconds: 3600,
+    });
+    if (!genVerdict.ok) return tooManyRequests(genVerdict);
+  }
 
   switch (proposal.kind) {
     case "brand_fields": {
