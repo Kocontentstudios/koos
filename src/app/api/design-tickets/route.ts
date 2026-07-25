@@ -3,13 +3,10 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   checkBrandAccess,
-  createDesignTicket,
   getCalendarItemById,
   getDesignBriefById,
-  recordUsageEvent,
-  updateDesignBrief,
 } from "@/lib/db/queries";
-import { appUrl, sendDesignRequestEmails } from "@/lib/design/notify";
+import { createTicketFromRequest } from "@/lib/design/ticket-create";
 import { isValidEmail } from "@/lib/validation/email";
 
 interface Body {
@@ -86,38 +83,26 @@ export async function POST(req: Request) {
   }
 
   try {
-    const ticket = await createDesignTicket({
-      brandId: brand.id,
-      userId: dbUser.id,
-      calendarItemId,
-      designType,
-      dimensions: body.dimensions ?? null,
-      slides: body.slides ?? null,
-      brief,
-      notes: body.notes ?? null,
-      deliveryEmail,
-      dueDate: body.dueDate ? new Date(body.dueDate) : null,
-      status: "submitted",
-    });
-    if (briefId) {
-      // Best-effort back-pointer: the ticket is already created, so a
-      // failure here must not fail the submission.
-      try {
-        await updateDesignBrief(briefId, { ticketId: ticket.id });
-      } catch (err) {
-        console.error("linking design brief to ticket failed", {
-          briefId,
-          ticketId: ticket.id,
-          err,
-        });
-      }
-    }
-    await recordUsageEvent({
-      userId: dbUser.id,
-      brandId: brand.id,
-      kind: "design_ticket_created",
-      metadata: { designType, ticketId: ticket.id },
-    });
+    const { ticket } = await createTicketFromRequest(
+      {
+        brandId: brand.id,
+        userId: dbUser.id,
+        calendarItemId,
+        designType,
+        dimensions: body.dimensions ?? null,
+        slides: body.slides ?? null,
+        brief,
+        notes: body.notes ?? null,
+        deliveryEmail,
+        dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        briefId,
+      },
+      {
+        brandName: brand.name,
+        requesterName: `${dbUser.firstName} ${dbUser.lastName}`.trim(),
+        requesterEmail: dbUser.email,
+      },
+    );
     await captureServerEvent({
       distinctId: dbUser.id,
       event: "design_ticket_submitted",
@@ -128,28 +113,6 @@ export async function POST(req: Request) {
         session_id: await getAnalyticsSessionId(),
       },
     });
-    try {
-      await sendDesignRequestEmails({
-        ticketNumber: ticket.ticketNumber,
-        requesterName: `${dbUser.firstName} ${dbUser.lastName}`.trim(),
-        requesterEmail: dbUser.email,
-        deliveryEmail: ticket.deliveryEmail,
-        brandName: brand.name,
-        designType: ticket.designType,
-        dimensions: ticket.dimensions,
-        slides: ticket.slides,
-        brief: ticket.brief,
-        notes: ticket.notes,
-        dueDate: ticket.dueDate,
-        adminUrl: appUrl("/admin/tickets"),
-        ticketUrl: appUrl(`/design-request/${ticket.id}`),
-      });
-    } catch (err) {
-      console.error("design request emails failed", {
-        ticketId: ticket.id,
-        err,
-      });
-    }
     return Response.json({ ticket });
   } catch (err) {
     console.error("create design ticket failed", err);
