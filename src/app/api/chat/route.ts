@@ -6,6 +6,7 @@ import {
   type UIMessage,
 } from "ai";
 import { flattenMessageText } from "@/lib/ai/chat-messages";
+import { buildMemoryBlock, summarizeIntoMemory } from "@/lib/ai/memory";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import { buildChatPrompt } from "@/lib/ai/prompts/chat";
 import { buildDesignRequestChatPrompt } from "@/lib/ai/prompts/design-request";
@@ -102,8 +103,7 @@ export async function POST(req: Request) {
   const systemPrompt =
     chatMode === "design"
       ? buildDesignRequestChatPrompt(brandContext)
-      : // memorySummary wired in Task 11; empty until then
-        buildChatPrompt({ memorySummary: "" });
+      : buildChatPrompt({ memorySummary: await buildMemoryBlock(brandId) });
   const modelMessages = await convertToModelMessages(messages);
 
   // The just-sent user message is the last item; capture it for persistence.
@@ -143,6 +143,17 @@ export async function POST(req: Request) {
       } catch (err) {
         // Persistence failure must not break the user's chat experience.
         console.error("chat persistence failed", err);
+      }
+
+      // Best-effort brand memory update. Runs for both modes so design-mode
+      // conversations still accrue durable brand facts; summarizeIntoMemory
+      // already swallows its own errors.
+      if (lastUserMessage?.role === "user") {
+        await summarizeIntoMemory({
+          brandId,
+          userText: flattenMessageText(lastUserMessage),
+          assistantText: text,
+        });
       }
 
       // First turn of a new conversation: replace the truncated first-message
