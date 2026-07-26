@@ -526,6 +526,17 @@ export const usageEvents = pgTable("usage_events", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/* One evolving row per brand: a rolling summary plus append-only facts,
+   built up from onboarding and conversations for AI context. */
+export const brandMemory = pgTable("brand_memory", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  summary: text("summary").notNull().default(""),
+  facts: jsonb("facts").notNull().default(sql`'[]'::jsonb`),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 /* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).
    Default-open rule: a member with no rows sees every brand in the
    workspace; a member with rows sees only those brands. */

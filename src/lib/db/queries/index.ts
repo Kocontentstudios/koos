@@ -16,6 +16,7 @@ import {
   appSettings,
   brandAssets,
   brandContexts,
+  brandMemory,
   brands,
   calendarItems,
   calendars,
@@ -1070,8 +1071,40 @@ export async function updateAppSettings(data: {
 
 export * from "./workspaces";
 
-// TEMPORARY STUB — real implementation lands in Task 10 (brand_memory table + queries).
-// Read tools (Task 3) depend on this import resolving before that table exists.
-export async function getBrandMemory(_brandId: string) {
-  return null;
+// ── Brand memory ────────────────────────────────────────────────────
+
+export type MemoryFact = { text: string; source: string; createdAt: string };
+
+export async function getBrandMemory(
+  brandId: string,
+): Promise<{ summary: string; facts: MemoryFact[] } | null> {
+  const [row] = await db
+    .select({ summary: brandMemory.summary, facts: brandMemory.facts })
+    .from(brandMemory)
+    .where(eq(brandMemory.brandId, brandId))
+    .limit(1);
+  if (!row) return null;
+  return { summary: row.summary, facts: row.facts as MemoryFact[] };
+}
+
+export async function upsertBrandMemory(
+  brandId: string,
+  data: { summary: string; facts: MemoryFact[] },
+): Promise<void> {
+  await db
+    .insert(brandMemory)
+    .values({
+      brandId,
+      summary: data.summary,
+      facts: data.facts,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: brandMemory.brandId,
+      set: {
+        summary: data.summary,
+        facts: data.facts,
+        updatedAt: new Date(),
+      },
+    });
 }
