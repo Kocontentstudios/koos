@@ -1,11 +1,47 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  type AnnotationShape,
+  addAnnotation,
   checkBrandAccess,
+  getDeliverables,
   getDesignTicketById,
   updateCalendarItemStatus,
   updateDesignTicket,
 } from "@/lib/db/queries";
 import { appUrl, sendTicketReviewTeamEmail } from "@/lib/design/notify";
+
+type ReviewAnnotationInput = {
+  deliverableId: string;
+  shapes: unknown;
+  note?: string;
+};
+
+// Deliverables must belong to the ticket being reviewed, otherwise a caller
+// could smuggle an annotation onto another ticket's deliverable.
+async function persistReviewAnnotations(
+  ticketId: string,
+  authorId: string,
+  annotations: ReviewAnnotationInput[] | undefined,
+) {
+  if (!annotations || annotations.length === 0) return;
+  try {
+    const deliverables = await getDeliverables(ticketId);
+    const validDeliverableIds = new Set(deliverables.map((d) => d.id));
+    for (const annotation of annotations) {
+      if (!validDeliverableIds.has(annotation.deliverableId)) continue;
+      if (!Array.isArray(annotation.shapes)) continue;
+      await addAnnotation({
+        ticketId,
+        deliverableId: annotation.deliverableId,
+        authorId,
+        shapes: annotation.shapes as AnnotationShape[],
+        note: annotation.note,
+      });
+    }
+  } catch (err) {
+    console.error("review: annotation persistence failed", { ticketId, err });
+  }
+}
 
 export async function POST(
   req: Request,
@@ -17,7 +53,11 @@ export async function POST(
   }
   const { id } = await params;
 
-  let body: { action?: "approve" | "revise"; note?: string };
+  let body: {
+    action?: "approve" | "revise";
+    note?: string;
+    annotations?: ReviewAnnotationInput[];
+  };
   try {
     body = await req.json();
   } catch {
@@ -77,6 +117,7 @@ export async function POST(
         ? `${ticket.notes ? `${ticket.notes}\n\n` : ""}Revision: ${note}`
         : ticket.notes,
     });
+    await persistReviewAnnotations(id, dbUser.id, body.annotations);
     await notifyTeamOfReview("revise", note ?? null);
     return Response.json({ ticket: updated });
   }
