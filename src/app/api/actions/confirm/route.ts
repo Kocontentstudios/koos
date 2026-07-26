@@ -20,7 +20,10 @@ import {
 } from "@/lib/jobs/run-generation";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
-const bodySchema = z.object({ brandId: z.string().uuid(), proposal: ProposalSchema });
+const bodySchema = z.object({
+  brandId: z.string().uuid(),
+  proposal: ProposalSchema,
+});
 
 // Headroom for the post-response generation work kicked off via after().
 export const maxDuration = 300;
@@ -74,7 +77,11 @@ export async function POST(req: Request) {
       // No usage_events row: the usage_kind enum has no brand-update value,
       // and adding one is out of this epic's scope.
       await updateBrand(brandId, proposal.data.fields);
-      return Response.json({ ok: true, kind: proposal.kind, resultId: brandId });
+      return Response.json({
+        ok: true,
+        kind: proposal.kind,
+        resultId: brandId,
+      });
     }
 
     case "design_ticket": {
@@ -86,7 +93,11 @@ export async function POST(req: Request) {
           requesterEmail: dbUser.email,
         },
       );
-      return Response.json({ ok: true, kind: proposal.kind, resultId: ticket.id });
+      return Response.json({
+        ok: true,
+        kind: proposal.kind,
+        resultId: ticket.id,
+      });
     }
 
     case "strategy": {
@@ -108,7 +119,10 @@ export async function POST(req: Request) {
           }),
         ),
       );
-      return Response.json({ ok: true, kind: proposal.kind, resultId: job.id }, { status: 202 });
+      return Response.json(
+        { ok: true, kind: proposal.kind, resultId: job.id },
+        { status: 202 },
+      );
     }
 
     case "calendar": {
@@ -159,7 +173,10 @@ export async function POST(req: Request) {
           { softDeadlineMs: CALENDAR_SLICE_BUDGET_MS },
         ),
       );
-      return Response.json({ ok: true, kind: proposal.kind, resultId: job.id }, { status: 202 });
+      return Response.json(
+        { ok: true, kind: proposal.kind, resultId: job.id },
+        { status: 202 },
+      );
     }
   }
 }

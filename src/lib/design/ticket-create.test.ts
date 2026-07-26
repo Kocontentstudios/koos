@@ -14,7 +14,12 @@ describe("createTicketFromRequest", () => {
     const recordUsageEvent = vi.fn().mockResolvedValue(undefined);
     const sendEmails = vi.fn().mockRejectedValue(new Error("smtp down"));
     const res = await createTicketFromRequest(
-      { brandId: "b1", userId: "u1", designType: "Logo", brief: "clean wordmark" },
+      {
+        brandId: "b1",
+        userId: "u1",
+        designType: "Logo",
+        brief: "clean wordmark",
+      },
       {
         createDesignTicket,
         recordUsageEvent,
@@ -56,7 +61,9 @@ describe("createTicketFromRequest", () => {
         requesterEmail: "a@b.co",
       },
     );
-    expect(updateDesignBrief).toHaveBeenCalledWith("brief1", { ticketId: "t2" });
+    expect(updateDesignBrief).toHaveBeenCalledWith("brief1", {
+      ticketId: "t2",
+    });
   });
 
   it("does not throw when the back-link update fails", async () => {
@@ -85,7 +92,9 @@ describe("createTicketFromRequest", () => {
           requesterEmail: "a@b.co",
         },
       ),
-    ).resolves.toEqual({ ticket: { id: "t3", ticketNumber: 7, designType: "Logo" } });
+    ).resolves.toEqual({
+      ticket: { id: "t3", ticketNumber: 7, designType: "Logo" },
+    });
   });
 
   it("skips the back-link update when no briefId is given", async () => {
@@ -96,7 +105,12 @@ describe("createTicketFromRequest", () => {
     const sendEmails = vi.fn().mockResolvedValue(undefined);
     const updateDesignBrief = vi.fn().mockResolvedValue(undefined);
     await createTicketFromRequest(
-      { brandId: "b1", userId: "u1", designType: "Logo", brief: "clean wordmark" },
+      {
+        brandId: "b1",
+        userId: "u1",
+        designType: "Logo",
+        brief: "clean wordmark",
+      },
       {
         createDesignTicket,
         recordUsageEvent,

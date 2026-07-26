@@ -45,10 +45,26 @@ const strategy = z.object({
 });
 
 export const ProposalSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("brand_fields"), summary: z.string(), data: brandFields }),
-  z.object({ kind: z.literal("design_ticket"), summary: z.string(), data: designTicket }),
-  z.object({ kind: z.literal("calendar"), summary: z.string(), data: calendar }),
-  z.object({ kind: z.literal("strategy"), summary: z.string(), data: strategy }),
+  z.object({
+    kind: z.literal("brand_fields"),
+    summary: z.string(),
+    data: brandFields,
+  }),
+  z.object({
+    kind: z.literal("design_ticket"),
+    summary: z.string(),
+    data: designTicket,
+  }),
+  z.object({
+    kind: z.literal("calendar"),
+    summary: z.string(),
+    data: calendar,
+  }),
+  z.object({
+    kind: z.literal("strategy"),
+    summary: z.string(),
+    data: strategy,
+  }),
 ]);
 
 export type Proposal = z.infer<typeof ProposalSchema>;

@@ -102,8 +102,8 @@ export async function POST(req: Request) {
   const systemPrompt =
     chatMode === "design"
       ? buildDesignRequestChatPrompt(brandContext)
-      // memorySummary wired in Task 11; empty until then
-      : buildChatPrompt({ memorySummary: "" });
+      : // memorySummary wired in Task 11; empty until then
+        buildChatPrompt({ memorySummary: "" });
   const modelMessages = await convertToModelMessages(messages);
 
   // The just-sent user message is the last item; capture it for persistence.

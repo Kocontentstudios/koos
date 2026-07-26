@@ -18,7 +18,8 @@ vi.mock("@/lib/rate-limit", () => ({
 vi.mock("@/lib/db/queries", () => ({
   checkBrandAccess: (userId: string, brandId: string, capability: string) =>
     checkBrandAccess(userId, brandId, capability),
-  updateBrand: (brandId: string, fields: unknown) => updateBrand(brandId, fields),
+  updateBrand: (brandId: string, fields: unknown) =>
+    updateBrand(brandId, fields),
   createGenerationJob: (data: unknown) => createGenerationJob(data),
   getStrategyById: (id: string) => getStrategyById(id),
 }));
@@ -76,7 +77,11 @@ describe("POST /api/actions/confirm", () => {
     const res = await POST(
       req({
         brandId: BRAND_ID,
-        proposal: { kind: "brand_fields", summary: "x", data: { fields: { tone: "bold" } } },
+        proposal: {
+          kind: "brand_fields",
+          summary: "x",
+          data: { fields: { tone: "bold" } },
+        },
       }),
     );
     expect(res.status).toBe(404);
@@ -88,7 +93,11 @@ describe("POST /api/actions/confirm", () => {
     const res = await POST(
       req({
         brandId: BRAND_ID,
-        proposal: { kind: "brand_fields", summary: "Set tone", data: { fields: { tone: "bold" } } },
+        proposal: {
+          kind: "brand_fields",
+          summary: "Set tone",
+          data: { fields: { tone: "bold" } },
+        },
       }),
     );
     expect(res.status).toBe(200);
@@ -96,7 +105,9 @@ describe("POST /api/actions/confirm", () => {
   });
 
   it("400s on an invalid proposal", async () => {
-    const res = await POST(req({ brandId: BRAND_ID, proposal: { kind: "nope" } }));
+    const res = await POST(
+      req({ brandId: BRAND_ID, proposal: { kind: "nope" } }),
+    );
     expect(res.status).toBe(400);
   });
 
@@ -153,10 +164,17 @@ describe("POST /api/actions/confirm", () => {
     const body = (await res.json()) as { resultId: string };
     expect(body.resultId).toBe("job-1");
     expect(createGenerationJob).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "strategy", userId: "u1", brandId: BRAND_ID }),
+      expect.objectContaining({
+        kind: "strategy",
+        userId: "u1",
+        brandId: BRAND_ID,
+      }),
     );
     expect(generateStrategyWork).toHaveBeenCalledWith(
-      expect.objectContaining({ conversation: "Grow awareness", conversationId: null }),
+      expect.objectContaining({
+        conversation: "Grow awareness",
+        conversationId: null,
+      }),
     );
   });
 
@@ -229,7 +247,11 @@ describe("POST /api/actions/confirm", () => {
         proposal: {
           kind: "calendar",
           summary: "July calendar",
-          data: { strategyId: STRATEGY_ID, startDate: "2026-08-01", endDate: "2026-08-31" },
+          data: {
+            strategyId: STRATEGY_ID,
+            startDate: "2026-08-01",
+            endDate: "2026-08-31",
+          },
         },
       }),
     );
@@ -259,7 +281,11 @@ describe("POST /api/actions/confirm", () => {
         proposal: {
           kind: "calendar",
           summary: "July calendar",
-          data: { strategyId: STRATEGY_ID, startDate: "2026-08-01", endDate: "2026-08-31" },
+          data: {
+            strategyId: STRATEGY_ID,
+            startDate: "2026-08-01",
+            endDate: "2026-08-31",
+          },
         },
       }),
     );

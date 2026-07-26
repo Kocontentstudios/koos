@@ -1,4 +1,4 @@
-import { tool, type Tool } from "ai";
+import { type Tool, tool } from "ai";
 import { z } from "zod";
 import {
   getActiveCalendarForBrand,
@@ -18,7 +18,8 @@ import { type ToolContext, withBrandAccess } from "./context";
 export function buildReadTools(ctx: ToolContext): Record<string, Tool> {
   return {
     get_brand_profile: tool({
-      description: "Get the active brand's profile fields and saved context sections.",
+      description:
+        "Get the active brand's profile fields and saved context sections.",
       inputSchema: z.object({}),
       execute: () =>
         withBrandAccess(ctx, async () => ({
@@ -29,12 +30,18 @@ export function buildReadTools(ctx: ToolContext): Record<string, Tool> {
     list_brand_assets: tool({
       description: "List the brand's uploaded logos, images and documents.",
       inputSchema: z.object({}),
-      execute: () => withBrandAccess(ctx, async () => ({ assets: await getBrandAssets(ctx.brandId) })),
+      execute: () =>
+        withBrandAccess(ctx, async () => ({
+          assets: await getBrandAssets(ctx.brandId),
+        })),
     }),
     list_strategies: tool({
       description: "List the brand's marketing strategies with status.",
       inputSchema: z.object({}),
-      execute: () => withBrandAccess(ctx, async () => ({ strategies: await getStrategiesByBrand(ctx.brandId) })),
+      execute: () =>
+        withBrandAccess(ctx, async () => ({
+          strategies: await getStrategiesByBrand(ctx.brandId),
+        })),
     }),
     list_calendar_items: tool({
       description: "List content items on the brand's active calendar.",
@@ -48,15 +55,23 @@ export function buildReadTools(ctx: ToolContext): Record<string, Tool> {
     list_design_tickets: tool({
       description: "List the brand's design tickets and their status.",
       inputSchema: z.object({}),
-      execute: () => withBrandAccess(ctx, async () => ({ tickets: await listDesignTicketsForBrand(ctx.brandId) })),
+      execute: () =>
+        withBrandAccess(ctx, async () => ({
+          tickets: await listDesignTicketsForBrand(ctx.brandId),
+        })),
     }),
     recall_memory: tool({
-      description: "Recall durable facts and the running summary remembered about this brand.",
+      description:
+        "Recall durable facts and the running summary remembered about this brand.",
       inputSchema: z.object({}),
-      execute: () => withBrandAccess(ctx, async () => ({ memory: await getBrandMemory(ctx.brandId) })),
+      execute: () =>
+        withBrandAccess(ctx, async () => ({
+          memory: await getBrandMemory(ctx.brandId),
+        })),
     }),
     list_past_conversations: tool({
-      description: "List recent past conversations (titles + dates) for this brand.",
+      description:
+        "List recent past conversations (titles + dates) for this brand.",
       inputSchema: z.object({}),
       execute: () =>
         withBrandAccess(ctx, async () => ({
