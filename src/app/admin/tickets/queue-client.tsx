@@ -3,13 +3,14 @@
 import { Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PriorityBadge } from "@/app/(dashboard)/design-request/priority-badge";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { Button } from "@/components/ui/button";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketPriority, TicketStatus } from "@/lib/design/tickets-ui";
+import { cn } from "@/lib/utils";
 
 export interface QueueRow {
   id: string;
@@ -35,21 +36,89 @@ function formatDate(iso: string | null): string {
   });
 }
 
-export function QueueClient({ queue }: { queue: QueueRow[] }) {
-  if (queue.length === 0) {
-    return (
-      <p className="rounded-xl border border-[var(--border)] bg-surface-1 px-6 py-12 text-center text-[14px] text-[var(--text-secondary)]">
-        The queue is empty. Nice work.
-      </p>
-    );
+type QueueFilter = "all" | "in_progress" | "needs_revision";
+
+/** Tabs cover only statuses the queue query actually loads (submitted,
+ * assigned, in_progress, revision_requested) — no server round-trip needed. */
+const QUEUE_FILTERS: { key: QueueFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "in_progress", label: "In progress" },
+  { key: "needs_revision", label: "Needs revision" },
+];
+
+function matchesQueueFilter(status: TicketStatus, filter: QueueFilter) {
+  switch (filter) {
+    case "all":
+      return true;
+    case "in_progress":
+      return status === "assigned" || status === "in_progress";
+    case "needs_revision":
+      return status === "revision_requested";
   }
+}
+
+export function QueueClient({ queue }: { queue: QueueRow[] }) {
+  const [filter, setFilter] = useState<QueueFilter>("all");
+
+  const revisionCount = useMemo(
+    () => queue.filter((row) => row.status === "revision_requested").length,
+    [queue],
+  );
+
+  const visible = useMemo(
+    () => queue.filter((row) => matchesQueueFilter(row.status, filter)),
+    [queue, filter],
+  );
 
   return (
-    <ul className="flex flex-col gap-3">
-      {queue.map((row) => (
-        <QueueItem key={row.id} row={row} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap gap-2">
+        {QUEUE_FILTERS.map(({ key, label }) => {
+          const active = key === filter;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors",
+                active
+                  ? "bg-surface-2 text-foreground"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground",
+              )}
+            >
+              {label}
+              {key === "needs_revision" && (
+                <span
+                  className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold"
+                  style={{
+                    color: "var(--status-pending-fg)",
+                    backgroundColor:
+                      "color-mix(in srgb, var(--status-pending-fg) 16%, transparent)",
+                  }}
+                >
+                  {revisionCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="rounded-xl border border-[var(--border)] bg-surface-1 px-6 py-12 text-center text-[14px] text-[var(--text-secondary)]">
+          {queue.length === 0
+            ? "The queue is empty. Nice work."
+            : "No tickets in this view."}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {visible.map((row) => (
+            <QueueItem key={row.id} row={row} />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
