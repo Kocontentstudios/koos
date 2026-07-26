@@ -62,6 +62,7 @@ export function useVoiceIo(): UseVoiceIo {
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor || recognitionRef.current) return;
 
+    setTranscript("");
     const recognition = new Ctor();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -72,8 +73,14 @@ export function useVoiceIo(): UseVoiceIo {
         .join(" ");
       setTranscript(spoken);
     };
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
+    recognition.onerror = () => {
+      recognitionRef.current = null; // clear the dead instance so start() can create a fresh one
+      setListening(false);
+    };
+    recognition.onend = () => {
+      recognitionRef.current = null; // clear the dead instance so start() can create a fresh one
+      setListening(false);
+    };
 
     recognitionRef.current = recognition;
     setListening(true);
