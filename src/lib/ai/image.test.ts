@@ -93,6 +93,22 @@ describe("generateBrandImage", () => {
     await expect(generateBrandImage({ prompt: "hi" })).rejects.toThrow(/403/);
   });
 
+  it("throws when the generated image is content-filtered", async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          images: [Buffer.from("x").toString("base64")],
+          finish_reasons: ["CONTENT_FILTERED"],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(generateBrandImage({ prompt: "hi" })).rejects.toThrow(
+      /content filter/i,
+    );
+  });
+
   it("rejects without calling fetch when AWS credentials are missing", async () => {
     delete process.env.AWS_ACCESS_KEY_ID;
     delete process.env.AWS_SECRET_ACCESS_KEY;

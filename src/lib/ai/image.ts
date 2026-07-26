@@ -47,9 +47,22 @@ export async function generateBrandImage({
       `Bedrock image generation failed (${res.status}): ${detail.slice(0, 300)}`,
     );
   }
-  const json = (await res.json()) as { images?: string[] };
+  const json = (await res.json()) as {
+    images?: string[];
+    finish_reasons?: (string | null)[];
+  };
   const b64 = json.images?.[0];
   if (!b64) throw new Error("Bedrock returned no image.");
+  // Bedrock returns HTTP 200 + CONTENT_FILTERED when a prompt trips the content filter.
+  if (
+    json.finish_reasons?.[0] &&
+    typeof json.finish_reasons[0] === "string" &&
+    json.finish_reasons[0].toLowerCase().includes("filter")
+  ) {
+    throw new Error(
+      "Image was blocked by the content filter. Try a different prompt.",
+    );
+  }
   return {
     bytes: Uint8Array.from(Buffer.from(b64, "base64")),
     contentType: "image/png",
