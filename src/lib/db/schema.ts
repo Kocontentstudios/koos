@@ -434,6 +434,26 @@ export const designDeliverables = pgTable("design_deliverables", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const designAnnotations = pgTable(
+  "design_annotations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => designTickets.id, { onDelete: "cascade" }),
+    deliverableId: uuid("deliverable_id")
+      .notNull()
+      .references(() => designDeliverables.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    shapes: jsonb("shapes").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.ticketId)],
+);
+
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

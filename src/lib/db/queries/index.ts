@@ -22,6 +22,7 @@ import {
   calendars,
   chatConversations,
   chatMessages,
+  designAnnotations,
   designBriefs,
   designDeliverables,
   designTickets,
@@ -1107,4 +1108,40 @@ export async function upsertBrandMemory(
         updatedAt: new Date(),
       },
     });
+}
+
+// ── Design annotations ──────────────────────────────────────────────
+
+export type AnnotationShape = {
+  type: "rect" | "path";
+  coords: number[];
+  color: string;
+};
+
+export async function addAnnotation(data: {
+  ticketId: string;
+  deliverableId: string;
+  authorId: string;
+  shapes: AnnotationShape[];
+  note?: string;
+}) {
+  const [inserted] = await db
+    .insert(designAnnotations)
+    .values({
+      ticketId: data.ticketId,
+      deliverableId: data.deliverableId,
+      authorId: data.authorId,
+      shapes: data.shapes,
+      note: data.note,
+    })
+    .returning();
+  return inserted;
+}
+
+export async function getAnnotationsForTicket(ticketId: string) {
+  return db
+    .select()
+    .from(designAnnotations)
+    .where(eq(designAnnotations.ticketId, ticketId))
+    .orderBy(desc(designAnnotations.createdAt));
 }
