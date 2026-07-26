@@ -1139,9 +1139,15 @@ export async function addAnnotation(data: {
 }
 
 export async function getAnnotationsForTicket(ticketId: string) {
-  return db
+  const rows = await db
     .select()
     .from(designAnnotations)
     .where(eq(designAnnotations.ticketId, ticketId))
     .orderBy(desc(designAnnotations.createdAt));
+  // jsonb columns have no schema-level type; the shapes column is only ever
+  // written via addAnnotation's typed input, so this cast just reasserts that.
+  return rows.map((row) => ({
+    ...row,
+    shapes: row.shapes as AnnotationShape[],
+  }));
 }
