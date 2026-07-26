@@ -41,14 +41,23 @@ change. Because Stability image models are us-west-2-first while the app's text 
 us-east-1 (see [[bedrock-production-config]]), Epic 2 introduces a separate **`AI_IMAGE_REGION`**
 (default `us-west-2`).
 
-**Build-time verification required (Task-0 spike):** confirm `@ai-sdk/amazon-bedrock`'s
-`bedrock.imageModel()` + `experimental_generateImage` cleanly supports the Stability model
-IDs in `AI_IMAGE_REGION`. The AI SDK documents Nova Canvas support explicitly; Stability-on-
-Bedrock support is less certain (see vercel/ai#4942). **Fallback if the SDK path is not
-clean:** call Bedrock `InvokeModel` directly (the app already holds AWS SigV4 creds) with the
-Stability request/response schema, behind the same `getImageModel()` interface. If neither is
-viable in time, the pluggable design lets us ship on Nova Canvas short-term (flagged EOL) and
-swap later via env — no code change.
+**Task-0 spike — RESOLVED (2026-07-26).** Inspected the installed `@ai-sdk/amazon-bedrock@4.0.128`:
+`imageModel(modelId)` exists and `experimental_generateImage` is available, BUT the image
+implementation only builds the **Amazon** request body (`taskType` + `textToImageParams` — the
+Nova Canvas/Titan schema). The model-id type is `'amazon.nova-canvas-v1:0' | (string & {})`, so
+it *accepts* a Stability id but would send an Amazon-shaped body to it → failure. Conclusion:
+- The clean SDK path supports **Amazon image models only** (Nova Canvas/Titan — both Legacy).
+- **Active Stability models require direct Bedrock `InvokeModel`** with the Stability
+  request/response schema (`prompt`, `aspect_ratio`, `output_format`; response returns base64).
+**Decision:** implement `generateBrandImage` via **direct `InvokeModel`** (app holds SigV4 creds;
+region = `AI_IMAGE_REGION`) behind a small per-family **adapter** (`stability` today; an `amazon`
+adapter is trivial to add). Default model = Stable Image Core. This keeps it fully pluggable and
+avoids the legacy Amazon-only SDK path.
+
+**Operator dependency (like the text model, see [[bedrock-production-config]]):** Bedrock model
+access for the chosen Stability model must be **enabled in the AWS console for `AI_IMAGE_REGION`
+(us-west-2)** before live generation works. Code + unit tests don't need it (InvokeModel is
+mocked); live QA does.
 
 ## 4. Current-state anchors (reuse, don't rebuild)
 
@@ -159,12 +168,12 @@ AWS SigV4 creds. Documented in the env sample.
   attached image flows into the submitted brief.
 
 ## 11. Phasing
-1. **2-0 (spike):** verify AI SDK Stability-on-Bedrock support vs. direct `InvokeModel`; lock the
-   `getImageModel()` internals. (Small, decides the rest.)
-2. **2-A:** image provider config + `getImageModel`/`generateBrandImage` + prompt composition.
-3. **2-B:** generate endpoint + storage write.
-4. **2-C:** save-as-asset endpoint (+ `addBrandAsset` query) + attach-to-ticket wiring.
-5. **2-D:** the "Generate with AI" UI panel in the design-request flow.
+(2-0 spike DONE — direct `InvokeModel` + Stability adapter; see §3.)
+1. **2-A:** image provider config (`resolveImageConfig`) + `generateBrandImage` (direct
+   InvokeModel, Stability adapter) + brand-aware prompt composition.
+2. **2-B:** generate endpoint + storage write (new `generated` prefix).
+3. **2-C:** save-as-asset endpoint (+ `addBrandAsset` query) + attach-to-ticket wiring.
+4. **2-D:** the "Generate with AI" UI panel in the design-request flow.
 
 ## 12. Open items to confirm during build
 - Final default model pending the Task-0 spike (Stable Image Core assumed; may fall back to
