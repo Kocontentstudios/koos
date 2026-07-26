@@ -317,6 +317,11 @@ export async function getBrandAssets(brandId: string) {
     .orderBy(desc(brandAssets.createdAt));
 }
 
+export async function addBrandAsset(data: typeof brandAssets.$inferInsert) {
+  const [asset] = await db.insert(brandAssets).values(data).returning();
+  return asset;
+}
+
 // ── Brand Contexts ───────────────────────────────────────────────────
 
 export async function getAllBrandContexts(brandId: string) {
