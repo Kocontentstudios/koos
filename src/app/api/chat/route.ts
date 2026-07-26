@@ -10,6 +10,7 @@ import { buildMemoryBlock, summarizeIntoMemory } from "@/lib/ai/memory";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import { buildChatPrompt } from "@/lib/ai/prompts/chat";
 import { buildDesignRequestChatPrompt } from "@/lib/ai/prompts/design-request";
+import { buildOnboardingPrompt } from "@/lib/ai/prompts/onboarding";
 import { getModel } from "@/lib/ai/provider";
 import { resolveProviderConfig } from "@/lib/ai/provider-config";
 import { buildBrandTools, providerSupportsTools } from "@/lib/ai/tools";
@@ -100,18 +101,27 @@ export async function POST(req: Request) {
     });
   }
 
+  // The persisted mode must stay within the conversation_mode enum
+  // (strategy/design only — see chatMode above), but the SYSTEM PROMPT
+  // switches on the raw incoming mode so "onboarding" gets its own
+  // interviewer prompt without needing a DB migration.
   const systemPrompt =
-    chatMode === "design"
+    mode === "design"
       ? buildDesignRequestChatPrompt(brandContext)
-      : buildChatPrompt({ memorySummary: await buildMemoryBlock(brandId) });
+      : mode === "onboarding"
+        ? buildOnboardingPrompt()
+        : buildChatPrompt({ memorySummary: await buildMemoryBlock(brandId) });
   const modelMessages = await convertToModelMessages(messages);
 
   // The just-sent user message is the last item; capture it for persistence.
   const lastUserMessage = messages[messages.length - 1];
 
-  const useTools = providerSupportsTools(
-    resolveProviderConfig("chat").provider,
-  );
+  // Onboarding stays tool-free: the explicit extract-and-confirm flow (Task
+  // 12 + ProposalCard) is what writes brand fields, so keeping this an
+  // unencumbered interview avoids the model reaching for propose_* mid-chat.
+  const useTools =
+    mode !== "onboarding" &&
+    providerSupportsTools(resolveProviderConfig("chat").provider);
 
   const result = streamText({
     model: getModel("chat"),
