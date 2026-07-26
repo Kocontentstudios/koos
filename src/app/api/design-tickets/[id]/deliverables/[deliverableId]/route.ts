@@ -8,9 +8,14 @@ import { getSignedReadUrl } from "@/lib/storage";
 
 /** Redirect to a short-lived signed URL for a deliverable (ownership-checked). */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string; deliverableId: string }> },
 ) {
+  const disposition =
+    new URL(req.url).searchParams.get("disposition") === "attachment"
+      ? "attachment"
+      : "inline";
+
   const { dbUser } = await getAuthUser();
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
@@ -37,8 +42,23 @@ export async function GET(
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Inline viewing stays open; this only blocks the browser "save to disk" path until the user approves the design.
+  if (
+    disposition === "attachment" &&
+    ticket.status !== "delivered" &&
+    !isStaff
+  ) {
+    return Response.json(
+      { error: "Approve the design to download it." },
+      { status: 403 },
+    );
+  }
+
   try {
-    const url = await getSignedReadUrl(deliverable.fileUrl, 300);
+    const url = await getSignedReadUrl(deliverable.fileUrl, 300, {
+      disposition,
+      fileName: deliverable.fileName,
+    });
     return Response.redirect(url, 302);
   } catch (err) {
     console.error("signed url failed", err);

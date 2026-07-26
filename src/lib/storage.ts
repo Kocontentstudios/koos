@@ -84,10 +84,18 @@ export async function getObjectBytes(key: string): Promise<Buffer> {
 export async function getSignedReadUrl(
   key: string,
   expiresInSeconds = 3600,
+  opts?: { disposition?: "inline" | "attachment"; fileName?: string },
 ): Promise<string> {
   return presign(
     client(),
-    new GetObjectCommand({ Bucket: env("R2_BUCKET"), Key: key }),
+    new GetObjectCommand({
+      Bucket: env("R2_BUCKET"),
+      Key: key,
+      ResponseContentDisposition:
+        opts?.disposition === "attachment"
+          ? `attachment; filename="${opts.fileName?.replace(/["\\]/g, "\\$&")}"`
+          : "inline",
+    }),
     { expiresIn: expiresInSeconds },
   );
 }
