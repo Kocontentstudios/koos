@@ -14,6 +14,7 @@ export const STORAGE_PREFIXES = {
   logos: "logos",
   referenceImages: "reference-images",
   deliverables: "deliverables",
+  generated: "generated",
 } as const;
 
 export type StoragePrefix =
