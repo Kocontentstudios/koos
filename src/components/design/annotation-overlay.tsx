@@ -16,10 +16,17 @@ type AnnotationOverlayProps = {
   className?: string;
 };
 
+// Rows come from jsonb with no schema-level guarantee, so a shape saved
+// before server-side validation existed (or written directly to the DB)
+// must not be able to throw during render.
 function shapeToPixelPoints(shape: AnnotationShape, size: Size): Point[] {
+  if (!Array.isArray(shape.coords)) return [];
   const points: Point[] = [];
   for (let i = 0; i + 1 < shape.coords.length; i += 2) {
-    points.push(toPixels({ x: shape.coords[i], y: shape.coords[i + 1] }, size));
+    const x = shape.coords[i];
+    const y = shape.coords[i + 1];
+    if (typeof x !== "number" || typeof y !== "number") continue;
+    points.push(toPixels({ x, y }, size));
   }
   return points;
 }
@@ -83,6 +90,7 @@ export function AnnotationOverlay({
           aria-hidden="true"
         >
           {shapes.map((shape, index) => {
+            if (!shape || !Array.isArray(shape.coords)) return null;
             const points = shapeToPixelPoints(shape, size);
             if (shape.type === "rect") {
               const [p0, p1] = points;
@@ -101,18 +109,21 @@ export function AnnotationOverlay({
                 />
               );
             }
-            return (
-              <polyline
-                // biome-ignore lint/suspicious/noArrayIndexKey: shapes are a static, read-only snapshot with no stable id
-                key={index}
-                points={points.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke={shape.color}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            );
+            if (shape.type === "path") {
+              return (
+                <polyline
+                  // biome-ignore lint/suspicious/noArrayIndexKey: shapes are a static, read-only snapshot with no stable id
+                  key={index}
+                  points={points.map((p) => `${p.x},${p.y}`).join(" ")}
+                  fill="none"
+                  stroke={shape.color}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              );
+            }
+            return null;
           })}
         </svg>
       )}

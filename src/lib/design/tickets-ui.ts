@@ -1,6 +1,8 @@
 /** Pure UI logic for design tickets: status grouping, filters, defaults,
  * and notification payload formatting. Kept framework-free so it's unit-tested. */
 
+import { formatTicketNumber } from "@/lib/ticket-number";
+
 export type TicketStatus =
   | "submitted"
   | "assigned"
@@ -83,6 +85,7 @@ export function isCarouselType(designType: string | null | undefined): boolean {
 
 interface NotificationPayload {
   ticketId?: string;
+  ticketNumber?: number;
   designType?: string;
   count?: number;
   status?: string;
@@ -105,6 +108,11 @@ export function formatNotificationMessage(n: NotificationLike): string {
     case "ticket_status": {
       if (typeof payload.message === "string" && payload.message.trim()) {
         return payload.message;
+      }
+      // Revision requests are also sent to staff, who need to identify the
+      // ticket at a glance rather than assume it's "their" ticket.
+      if (payload.status === "revision_requested" && payload.ticketNumber) {
+        return `Design ticket ${formatTicketNumber(payload.ticketNumber)} needs revision.`;
       }
       const status = payload.status
         ? humanizeStatus(payload.status as TicketStatus)

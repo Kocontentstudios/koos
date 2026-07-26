@@ -18,6 +18,31 @@ type ReviewAnnotationInput = {
   note?: string;
 };
 
+function isFiniteNumberArray(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.every((n) => typeof n === "number" && Number.isFinite(n))
+  );
+}
+
+// A malformed shape (missing coords, odd-length coords, non-numeric coords,
+// unknown type) would throw when the admin overlay renders it, so anything
+// that doesn't match this shape is dropped before it ever reaches storage.
+function isValidAnnotationShape(shape: unknown): shape is AnnotationShape {
+  if (typeof shape !== "object" || shape === null) return false;
+  const { type, coords, color } = shape as Record<string, unknown>;
+  if (type !== "rect" && type !== "path") return false;
+  if (!isFiniteNumberArray(coords) || coords.length % 2 !== 0) return false;
+  if (type === "rect" && coords.length !== 4) return false;
+  if (type === "path" && coords.length < 4) return false;
+  return typeof color === "string";
+}
+
+function filterValidShapes(shapes: unknown): AnnotationShape[] {
+  if (!Array.isArray(shapes)) return [];
+  return shapes.filter(isValidAnnotationShape);
+}
+
 // Deliverables must belong to the ticket being reviewed, otherwise a caller
 // could smuggle an annotation onto another ticket's deliverable.
 async function persistReviewAnnotations(
@@ -31,12 +56,13 @@ async function persistReviewAnnotations(
     const validDeliverableIds = new Set(deliverables.map((d) => d.id));
     for (const annotation of annotations) {
       if (!validDeliverableIds.has(annotation.deliverableId)) continue;
-      if (!Array.isArray(annotation.shapes)) continue;
+      const shapes = filterValidShapes(annotation.shapes);
+      if (shapes.length === 0) continue;
       await addAnnotation({
         ticketId,
         deliverableId: annotation.deliverableId,
         authorId,
-        shapes: annotation.shapes as AnnotationShape[],
+        shapes,
         note: annotation.note,
       });
     }

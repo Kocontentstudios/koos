@@ -148,6 +148,70 @@ describe("customer review route emails", () => {
     expect(addAnnotation).not.toHaveBeenCalled();
   });
 
+  it("drops a malformed shape (missing coords) instead of persisting it", async () => {
+    const res = await POST(
+      req({
+        action: "revise",
+        annotations: [{ deliverableId: "d1", shapes: [{ type: "rect" }] }],
+      }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    expect(addAnnotation).not.toHaveBeenCalled();
+  });
+
+  it("drops a malformed shape (null entry) instead of persisting it", async () => {
+    const res = await POST(
+      req({
+        action: "revise",
+        annotations: [{ deliverableId: "d1", shapes: [null] }],
+      }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    expect(addAnnotation).not.toHaveBeenCalled();
+  });
+
+  it("persists only the annotation on a deliverable that belongs to the ticket in a mixed batch", async () => {
+    const validShapes = [{ type: "rect", coords: [1, 2, 3, 4], color: "#f00" }];
+    const res = await POST(
+      req({
+        action: "revise",
+        annotations: [
+          { deliverableId: "d1", shapes: validShapes, note: "keep" },
+          {
+            deliverableId: "other-ticket-deliverable",
+            shapes: validShapes,
+            note: "drop",
+          },
+        ],
+      }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    expect(addAnnotation).toHaveBeenCalledTimes(1);
+    expect(addAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({ deliverableId: "d1", shapes: validShapes }),
+    );
+  });
+
+  it("still returns 200 when annotation persistence throws", async () => {
+    addAnnotation.mockRejectedValue(new Error("db down"));
+    const res = await POST(
+      req({
+        action: "revise",
+        annotations: [
+          {
+            deliverableId: "d1",
+            shapes: [{ type: "rect", coords: [1, 2, 3, 4], color: "#f00" }],
+          },
+        ],
+      }),
+      params,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("creates in-app notifications for each staff member on revise", async () => {
     updateDesignTicket.mockResolvedValue({
       ...ticket,
