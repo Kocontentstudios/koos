@@ -182,7 +182,18 @@ export default async function TicketDetailPage({
         <TicketUpdatesTimeline updates={updates} />
       </section>
 
-      {status === "ready_for_review" && <ReviewActions ticketId={ticket.id} />}
+      {status === "ready_for_review" && (
+        <ReviewActions
+          ticketId={ticket.id}
+          deliverables={deliverables
+            .filter((d) => IMAGE_RE.test(d.fileName))
+            .map((d) => ({
+              id: d.id,
+              fileName: d.fileName,
+              url: `/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=inline`,
+            }))}
+        />
+      )}
     </div>
   );
 }
