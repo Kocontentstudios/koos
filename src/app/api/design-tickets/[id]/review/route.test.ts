@@ -8,6 +8,8 @@ const updateDesignTicket = vi.fn();
 const sendTicketReviewTeamEmail = vi.fn();
 const getDeliverables = vi.fn();
 const addAnnotation = vi.fn();
+const getStaffUsers = vi.fn();
+const createNotification = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/db/queries", () => ({
@@ -19,6 +21,8 @@ vi.mock("@/lib/db/queries", () => ({
   updateDesignTicket: (id: string, p: unknown) => updateDesignTicket(id, p),
   getDeliverables: (ticketId: string) => getDeliverables(ticketId),
   addAnnotation: (data: unknown) => addAnnotation(data),
+  getStaffUsers: () => getStaffUsers(),
+  createNotification: (data: unknown) => createNotification(data),
 }));
 vi.mock("@/lib/design/notify", () => ({
   appUrl: (p: string) => `https://app${p}`,
@@ -69,6 +73,11 @@ describe("customer review route emails", () => {
       { id: "d2", ticketId: "t1" },
     ]);
     addAnnotation.mockResolvedValue({ id: "a1" });
+    getStaffUsers.mockResolvedValue([
+      { id: "s1", firstName: "Alice", lastName: "Smith", role: "designer" },
+      { id: "s2", firstName: "Bob", lastName: "Jones", role: "admin" },
+    ]);
+    createNotification.mockResolvedValue({ id: "n1" });
   });
 
   it("emails the design team on approve", async () => {
@@ -137,5 +146,45 @@ describe("customer review route emails", () => {
     );
     expect(res.status).toBe(200);
     expect(addAnnotation).not.toHaveBeenCalled();
+  });
+
+  it("creates in-app notifications for each staff member on revise", async () => {
+    updateDesignTicket.mockResolvedValue({
+      ...ticket,
+      status: "revision_requested",
+    });
+    const res = await POST(req({ action: "revise", note: "fix logo" }), params);
+    expect(res.status).toBe(200);
+    expect(createNotification).toHaveBeenCalledTimes(2);
+    expect(createNotification).toHaveBeenNthCalledWith(1, {
+      userId: "s1",
+      type: "ticket_status",
+      payload: {
+        ticketId: "t1",
+        ticketNumber: 12,
+        status: "revision_requested",
+      },
+    });
+    expect(createNotification).toHaveBeenNthCalledWith(2, {
+      userId: "s2",
+      type: "ticket_status",
+      payload: {
+        ticketId: "t1",
+        ticketNumber: 12,
+        status: "revision_requested",
+      },
+    });
+  });
+
+  it("still returns 200 when in-app notification creation fails on revise", async () => {
+    createNotification.mockRejectedValue(new Error("db error"));
+    updateDesignTicket.mockResolvedValue({
+      ...ticket,
+      status: "revision_requested",
+    });
+    const res = await POST(req({ action: "revise", note: "fix logo" }), params);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ticket).toBeDefined();
   });
 });

@@ -3,8 +3,10 @@ import {
   type AnnotationShape,
   addAnnotation,
   checkBrandAccess,
+  createNotification,
   getDeliverables,
   getDesignTicketById,
+  getStaffUsers,
   updateCalendarItemStatus,
   updateDesignTicket,
 } from "@/lib/db/queries";
@@ -119,6 +121,24 @@ export async function POST(
     });
     await persistReviewAnnotations(id, dbUser.id, body.annotations);
     await notifyTeamOfReview("revise", note ?? null);
+    try {
+      const staff = await getStaffUsers();
+      await Promise.allSettled(
+        staff.map((s) =>
+          createNotification({
+            userId: s.id,
+            type: "ticket_status",
+            payload: {
+              ticketId: id,
+              ticketNumber: ticket.ticketNumber,
+              status: "revision_requested",
+            },
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error("revise: in-app notify failed", { ticketId: id, err });
+    }
     return Response.json({ ticket: updated });
   }
 
