@@ -109,7 +109,7 @@ export async function POST(req: Request) {
     mode === "design"
       ? buildDesignRequestChatPrompt(brandContext)
       : mode === "onboarding"
-        ? buildOnboardingPrompt()
+        ? buildOnboardingPrompt(brandContext)
         : buildChatPrompt({ memorySummary: await buildMemoryBlock(brandId) });
   const modelMessages = await convertToModelMessages(messages);
 

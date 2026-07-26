@@ -60,7 +60,6 @@ export function OnboardingClient({
   });
   const isLoading = status === "submitted" || status === "streaming";
 
-  // Live-feed the recognized speech into the input box while listening.
   useEffect(() => {
     if (voice.listening) setInput(voice.transcript);
   }, [voice.listening, voice.transcript]);
@@ -71,15 +70,14 @@ export function OnboardingClient({
     .reverse()
     .find((m) => m.role === "assistant");
   const spokenIdRef = useRef<string | null>(null);
-  // voice.speak is stable across renders; including it would re-fire this
-  // effect on every keystroke-driven render.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: voice.speak is intentionally omitted (see above)
   useEffect(() => {
     if (!voiceModeRef.current || isLoading || !lastAssistantText) return;
     if (spokenIdRef.current === lastAssistantText.id) return;
     spokenIdRef.current = lastAssistantText.id;
     voice.speak(messageText(lastAssistantText));
-  }, [isLoading, lastAssistantText]);
+    // voice.speak is memoized with useCallback([]) in useVoiceIo, so its
+    // reference is stable and including it here doesn't add extra re-runs.
+  }, [isLoading, lastAssistantText, voice.speak]);
 
   function handleSend() {
     const text = input.trim();
@@ -103,14 +101,17 @@ export function OnboardingClient({
 
   async function handleFillProfile() {
     if (extracting) return;
-    const transcript = messages
+    const fullTranscript = messages
       .map((m) => `${m.role}: ${messageText(m)}`)
       .join("\n\n")
       .trim();
-    if (!transcript) {
+    if (!fullTranscript) {
       toast.error("Have a bit of a conversation first, then try again.");
       return;
     }
+    // Mirror the extract route's MAX_TRANSCRIPT_LENGTH cap; keep the tail
+    // since the most recent turns matter most for a long conversation.
+    const transcript = fullTranscript.slice(-8000);
     setExtracting(true);
     setExtractError(null);
     try {

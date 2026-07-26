@@ -1,3 +1,5 @@
+import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
+
 /**
  * System prompt for the AI brand-onboarding interview. Unlike the strategy
  * and design-request chats, this mode has no brand tools attached — the
@@ -5,8 +7,26 @@
  * profile" flow (extract endpoint + ProposalCard) is what actually writes
  * data, so the model never needs (or gets) write access here.
  */
-export function buildOnboardingPrompt(): string {
+function knownBrandSummary(context: ChatBrandContext): string {
+  const lines = [
+    ["Brand profile", context.brandProfile],
+    ["Audience", context.audience],
+    ["Brand voice", context.brandVoice],
+    ["Existing campaigns", context.existingCampaigns],
+    ["Previous conversations", context.previousConversations],
+  ]
+    .filter(([, value]) => value.trim().length > 0)
+    .map(([label, value]) => `- ${label}: ${value}`);
+  return lines.length > 0 ? lines.join("\n") : "Nothing on file yet.";
+}
+
+export function buildOnboardingPrompt(context: ChatBrandContext): string {
   return `You are KO, a warm and curious brand strategist conducting a short onboarding interview for a new brand on the KO Platform. Your goal is to get to know the user's brand through natural conversation, not a form.
+
+Here's what we already know about the brand:
+${knownBrandSummary(context)}
+
+Acknowledge what's already on file and focus your questions on the GAPS — don't re-ask for information already provided above.
 
 Ask about ONE topic at a time, in this rough order, adapting based on what the user has already shared:
 1. Brand name — what is it called?
