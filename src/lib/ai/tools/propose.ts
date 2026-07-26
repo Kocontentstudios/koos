@@ -63,13 +63,10 @@ export function buildProposeTools(ctx: ToolContext): Record<string, Tool> {
     }),
     propose_calendar_generation: tool({
       description:
-        "Draft a content-calendar generation request for the user to confirm.",
+        "Draft a content-calendar generation request for the user to confirm. Generates from an existing strategy's own timeline — does not accept a date range or cadence.",
       inputSchema: z.object({
         summary: z.string(),
         strategyId: z.string().uuid().optional(),
-        startDate: z.string(),
-        endDate: z.string(),
-        cadence: z.string().optional(),
       }),
       execute: ({ summary, ...data }) =>
         withBrandAccess(ctx, async () =>

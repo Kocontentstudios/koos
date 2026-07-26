@@ -60,8 +60,7 @@ describe("propose tools", () => {
     const tools = buildProposeTools(ctx);
     const out = await tools.propose_calendar_generation.execute?.(
       {
-        startDate: "2026-08-01",
-        endDate: "2026-08-31",
+        strategyId: "22222222-2222-4222-8222-222222222222",
         summary: "August calendar",
       },
       { toolCallId: "t", messages: [] },

@@ -16,8 +16,14 @@ const memoryUpdateSchema = z.object({
 });
 
 export async function buildMemoryBlock(brandId: string): Promise<string> {
-  const memory = await getBrandMemory(brandId);
-  return memory?.summary ?? "";
+  try {
+    const memory = await getBrandMemory(brandId);
+    return memory?.summary ?? "";
+  } catch (err) {
+    // Best-effort: a memory-read failure must never break the chat turn.
+    console.error("brand memory read failed", err);
+    return "";
+  }
 }
 
 export async function summarizeIntoMemory({

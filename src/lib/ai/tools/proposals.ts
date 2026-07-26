@@ -34,9 +34,6 @@ const designTicket = z.object({
 
 const calendar = z.object({
   strategyId: z.string().uuid().optional(),
-  startDate: z.string(),
-  endDate: z.string(),
-  cadence: z.string().optional(),
 });
 
 const strategy = z.object({

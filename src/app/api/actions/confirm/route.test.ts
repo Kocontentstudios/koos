@@ -209,7 +209,7 @@ describe("POST /api/actions/confirm", () => {
         proposal: {
           kind: "calendar",
           summary: "July calendar",
-          data: { startDate: "2026-08-01", endDate: "2026-08-31" },
+          data: {},
         },
       }),
     );
@@ -247,11 +247,7 @@ describe("POST /api/actions/confirm", () => {
         proposal: {
           kind: "calendar",
           summary: "July calendar",
-          data: {
-            strategyId: STRATEGY_ID,
-            startDate: "2026-08-01",
-            endDate: "2026-08-31",
-          },
+          data: { strategyId: STRATEGY_ID },
         },
       }),
     );
@@ -281,11 +277,7 @@ describe("POST /api/actions/confirm", () => {
         proposal: {
           kind: "calendar",
           summary: "July calendar",
-          data: {
-            strategyId: STRATEGY_ID,
-            startDate: "2026-08-01",
-            endDate: "2026-08-31",
-          },
+          data: { strategyId: STRATEGY_ID },
         },
       }),
     );

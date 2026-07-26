@@ -25,6 +25,11 @@ describe("memory", () => {
     expect(await buildMemoryBlock("b1")).toBe("");
   });
 
+  it("buildMemoryBlock swallows errors (best-effort)", async () => {
+    vi.mocked(q.getBrandMemory).mockRejectedValue(new Error("db down"));
+    expect(await buildMemoryBlock("b1")).toBe("");
+  });
+
   it("summarizeIntoMemory swallows errors (best-effort)", async () => {
     vi.mocked(q.getBrandMemory).mockRejectedValue(new Error("db down"));
     await expect(
