@@ -14,12 +14,15 @@ import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
   appSettings,
+  brandAssets,
   brandContexts,
+  brandMemory,
   brands,
   calendarItems,
   calendars,
   chatConversations,
   chatMessages,
+  designAnnotations,
   designBriefs,
   designDeliverables,
   designTickets,
@@ -302,6 +305,21 @@ export async function getBrandForAdmin(id: string) {
     .where(eq(brands.id, id))
     .limit(1);
   return row ?? null;
+}
+
+// ── Brand Assets ────────────────────────────────────────────────────
+
+export async function getBrandAssets(brandId: string) {
+  return db
+    .select()
+    .from(brandAssets)
+    .where(eq(brandAssets.brandId, brandId))
+    .orderBy(desc(brandAssets.createdAt));
+}
+
+export async function addBrandAsset(data: typeof brandAssets.$inferInsert) {
+  const [asset] = await db.insert(brandAssets).values(data).returning();
+  return asset;
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
@@ -647,6 +665,14 @@ export async function getDesignTicketForCalendarItem(calendarItemId: string) {
     .orderBy(desc(designTickets.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+export async function listDesignTicketsForBrand(brandId: string) {
+  return db
+    .select()
+    .from(designTickets)
+    .where(eq(designTickets.brandId, brandId))
+    .orderBy(desc(designTickets.createdAt));
 }
 
 export async function updateDesignTicket(
@@ -1050,3 +1076,83 @@ export async function updateAppSettings(data: {
 }
 
 export * from "./workspaces";
+
+// ── Brand memory ────────────────────────────────────────────────────
+
+export type MemoryFact = { text: string; source: string; createdAt: string };
+
+export async function getBrandMemory(
+  brandId: string,
+): Promise<{ summary: string; facts: MemoryFact[] } | null> {
+  const [row] = await db
+    .select({ summary: brandMemory.summary, facts: brandMemory.facts })
+    .from(brandMemory)
+    .where(eq(brandMemory.brandId, brandId))
+    .limit(1);
+  if (!row) return null;
+  return { summary: row.summary, facts: row.facts as MemoryFact[] };
+}
+
+export async function upsertBrandMemory(
+  brandId: string,
+  data: { summary: string; facts: MemoryFact[] },
+): Promise<void> {
+  await db
+    .insert(brandMemory)
+    .values({
+      brandId,
+      summary: data.summary,
+      facts: data.facts,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: brandMemory.brandId,
+      set: {
+        summary: data.summary,
+        facts: data.facts,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+// ── Design annotations ──────────────────────────────────────────────
+
+export type AnnotationShape = {
+  type: "rect" | "path";
+  coords: number[];
+  color: string;
+};
+
+export async function addAnnotation(data: {
+  ticketId: string;
+  deliverableId: string;
+  authorId: string;
+  shapes: AnnotationShape[];
+  note?: string;
+}) {
+  const [inserted] = await db
+    .insert(designAnnotations)
+    .values({
+      ticketId: data.ticketId,
+      deliverableId: data.deliverableId,
+      authorId: data.authorId,
+      shapes: data.shapes,
+      note: data.note,
+    })
+    .returning();
+  return inserted;
+}
+
+export async function getAnnotationsForTicket(ticketId: string) {
+  const rows = await db
+    .select()
+    .from(designAnnotations)
+    .where(eq(designAnnotations.ticketId, ticketId))
+    .orderBy(desc(designAnnotations.createdAt));
+  // jsonb columns have no schema-level type; the shapes column is only ever
+  // written via addAnnotation's typed input, so this cast just reasserts that.
+  return rows.map((row) => ({
+    ...row,
+    shapes: row.shapes as AnnotationShape[],
+  }));
+}

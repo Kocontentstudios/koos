@@ -1,15 +1,26 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { createRef, type RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as pollJob from "@/lib/generation/poll-job";
-import { QuickRequestForm } from "./quick-request-form";
+import {
+  QuickRequestForm,
+  type QuickRequestFormHandle,
+} from "./quick-request-form";
 
 vi.mock("./actions", () => ({
   ensureQuickRequestBrand: vi.fn(async () => ({ ok: true, brandId: "b1" })),
 }));
 
-function renderForm() {
+function renderForm(ref?: RefObject<QuickRequestFormHandle | null>) {
   return render(
     <QuickRequestForm
+      ref={ref}
       defaultBusinessName="Ada Bakes"
       defaultDeliveryEmail="hello@adabakes.com"
     />,
@@ -107,5 +118,37 @@ describe("QuickRequestForm generation", () => {
       screen.getByRole("button", { name: /submit request/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/couldn't polish/i)).toBeInTheDocument();
+  });
+
+  it("threads a reference image attached via the imperative handle into the generation request", async () => {
+    vi.spyOn(pollJob, "pollGenerationJob").mockResolvedValue({
+      brief: {
+        title: "Sourdough Launch",
+        designType: "Instagram Post (1080x1350)",
+        briefMarkdown: "**Objective**\nAnnounce the range.",
+      },
+      briefId: null,
+    });
+    const ref = createRef<QuickRequestFormHandle>();
+
+    renderForm(ref);
+    act(() =>
+      ref.current?.setReferenceImageUrl("https://example.com/generated.png"),
+    );
+    fillValid();
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/announce the range/i)).toBeInTheDocument(),
+    );
+
+    expect(screen.getByText(/reference image attached/i)).toBeInTheDocument();
+    const generateCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => url === "/api/design-brief/generate");
+    const body = JSON.parse(generateCall?.[1]?.body as string);
+    expect(body.conversation).toContain(
+      "Reference image: https://example.com/generated.png",
+    );
   });
 });

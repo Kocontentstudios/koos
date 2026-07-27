@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { getActiveBrandForMember } from "@/lib/db/queries";
-import { QuickRequestForm } from "./quick-request-form";
+import { QuickRequestPanel } from "./quick-request-panel";
 
 /** Deliberately guarded by workspace membership only, never requireBrand:
  * this page exists precisely for users whose brand profile is incomplete. */
@@ -23,9 +23,10 @@ export default async function QuickDesignRequestPage() {
         </p>
       </header>
 
-      <QuickRequestForm
+      <QuickRequestPanel
         defaultBusinessName={brand?.name ?? ""}
         defaultDeliveryEmail={dbUser.email}
+        brandId={brand?.id ?? null}
       />
     </div>
   );

@@ -576,6 +576,7 @@ export function StrategyClient({
           <MessageList
             messages={messages}
             isLoading={isLoading}
+            brandId={brandId}
             footer={
               isDesignMode && briefs.length > 0 ? (
                 <div className="flex flex-col gap-2 pl-10">
