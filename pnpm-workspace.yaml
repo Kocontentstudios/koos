@@ -11,3 +11,17 @@ minimumReleaseAgeExclude:
   - '@posthog/core@1.40.2'
   - posthog-js@1.399.2
   - posthog-node@5.41.0
+  # Browser-support data package (frequent releases); pulled in by the merged
+  # Dependabot bump. Not a vulnerability — accept it past the release-age gate.
+  - baseline-browser-mapping@2.11.4
+# Security overrides: pin patched versions of transitive deps flagged by Dependabot.
+overrides:
+  sharp: ^0.35.0
+  postcss: ^8.5.18
+  dompurify: ^3.4.12
+  js-yaml: ^4.3.0
+  hono: ^4.12.27
+  fast-uri: ^3.1.4
+  # Only 5.0.8 patches GHSA-mh99-v99m-4gvg (no 1.x fix exists); 5.x is a dual
+  # CJS/ESM package so the old minimatch@3 consumer can still require() it.
+  brace-expansion: ^5.0.8
