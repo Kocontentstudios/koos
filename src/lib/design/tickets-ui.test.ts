@@ -121,6 +121,24 @@ describe("formatNotificationMessage — ticket_status", () => {
       }),
     ).toBe("Your design ticket is now In Progress.");
   });
+
+  it("includes the ticket number for a revision-requested notification", () => {
+    expect(
+      formatNotificationMessage({
+        type: "ticket_status",
+        payload: { status: "revision_requested", ticketNumber: 124 },
+      }),
+    ).toBe("Design ticket DT-00124 needs revision.");
+  });
+
+  it("falls back to the generic status sentence when revision-requested has no ticket number", () => {
+    expect(
+      formatNotificationMessage({
+        type: "ticket_status",
+        payload: { status: "revision_requested" },
+      }),
+    ).toBe("Your design ticket is now Revision Requested.");
+  });
 });
 
 describe("humanizeStatus", () => {

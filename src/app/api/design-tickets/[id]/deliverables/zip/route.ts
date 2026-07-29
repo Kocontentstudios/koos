@@ -34,6 +34,13 @@ export async function GET(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (ticket.status !== "delivered" && !isStaff) {
+    return Response.json(
+      { error: "Approve the design to download it." },
+      { status: 403 },
+    );
+  }
+
   const deliverables = await getDeliverables(ticket.id);
   if (deliverables.length === 0) {
     return Response.json({ error: "No deliverables yet" }, { status: 404 });

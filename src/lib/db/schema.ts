@@ -434,6 +434,26 @@ export const designDeliverables = pgTable("design_deliverables", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const designAnnotations = pgTable(
+  "design_annotations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => designTickets.id, { onDelete: "cascade" }),
+    deliverableId: uuid("deliverable_id")
+      .notNull()
+      .references(() => designDeliverables.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    shapes: jsonb("shapes").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.ticketId)],
+);
+
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -524,6 +544,17 @@ export const usageEvents = pgTable("usage_events", {
   kind: usageKindEnum("kind").notNull(),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/* One evolving row per brand: a rolling summary plus append-only facts,
+   built up from onboarding and conversations for AI context. */
+export const brandMemory = pgTable("brand_memory", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  summary: text("summary").notNull().default(""),
+  facts: jsonb("facts").notNull().default(sql`'[]'::jsonb`),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 /* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).

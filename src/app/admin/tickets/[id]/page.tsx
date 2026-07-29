@@ -6,9 +6,12 @@ import {
   TicketUpdatesTimeline,
   type TimelineUpdate,
 } from "@/app/(dashboard)/design-request/ticket-updates-timeline";
+import { AnnotationOverlay } from "@/components/design/annotation-overlay";
 import { Markdown } from "@/components/ui/markdown";
 import { requireRole } from "@/lib/auth/require-role";
 import {
+  type AnnotationShape,
+  getAnnotationsForTicket,
   getBrandById,
   getDeliverables,
   getDesignTicketById,
@@ -40,12 +43,24 @@ export default async function AdminTicketDetailPage({
   const ticket = await getDesignTicketById(id);
   if (!ticket) notFound();
 
-  const [brand, deliverables, updateRows, staff] = await Promise.all([
-    getBrandById(ticket.brandId),
-    getDeliverables(ticket.id),
-    getTicketUpdates(ticket.id),
-    getStaffUsers(),
-  ]);
+  const [brand, deliverables, updateRows, staff, annotationRows] =
+    await Promise.all([
+      getBrandById(ticket.brandId),
+      getDeliverables(ticket.id),
+      getTicketUpdates(ticket.id),
+      getStaffUsers(),
+      getAnnotationsForTicket(ticket.id),
+    ]);
+
+  const annotationsByDeliverable = new Map<
+    string,
+    { shapes: AnnotationShape[]; note: string | null }[]
+  >();
+  for (const row of annotationRows) {
+    const existing = annotationsByDeliverable.get(row.deliverableId) ?? [];
+    existing.push({ shapes: row.shapes, note: row.note });
+    annotationsByDeliverable.set(row.deliverableId, existing);
+  }
 
   const updates: TimelineUpdate[] = updateRows.map((r) => ({
     id: r.update.id,
@@ -104,6 +119,42 @@ export default async function AdminTicketDetailPage({
           {deliverables.length === 1 ? "" : "s"}
         </p>
       </section>
+
+      {annotationsByDeliverable.size > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-[15px] font-semibold text-foreground">
+            Reviewer annotations
+          </h2>
+          {deliverables
+            .filter((d) => annotationsByDeliverable.has(d.id))
+            .map((d) => {
+              const marks = annotationsByDeliverable.get(d.id) ?? [];
+              const shapes = marks.flatMap((m) => m.shapes);
+              const notes = marks
+                .map((m) => m.note)
+                .filter((note): note is string => Boolean(note?.trim()));
+              return (
+                <div key={d.id} className="space-y-2">
+                  <p className="text-[13px] font-medium text-[var(--text-secondary)]">
+                    {d.fileName}
+                  </p>
+                  <AnnotationOverlay
+                    imageUrl={`/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=inline`}
+                    shapes={shapes}
+                  />
+                  {notes.length > 0 && (
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)]">
+                      {notes.map((note, index) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: notes are a static, read-only snapshot with no stable id
+                        <li key={index}>{note}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+        </section>
+      )}
 
       {isAdmin && (
         <section className="space-y-3">
