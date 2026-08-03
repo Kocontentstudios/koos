@@ -231,6 +231,7 @@ export function CalendarClient({
 
       <CalendarItemDrawer
         item={selected}
+        brandId={brand.id}
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         submitted={selected ? submittedSet.has(selected.id) : false}

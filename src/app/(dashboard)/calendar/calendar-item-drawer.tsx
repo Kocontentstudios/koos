@@ -4,6 +4,7 @@ import { Clock, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { GenerateDesignButton } from "@/components/design/generate-design-button";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import {
@@ -25,6 +26,7 @@ import { statusLabel } from "./types";
 
 interface CalendarItemDrawerProps {
   item: CalendarItem | null;
+  brandId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Whether this item already has a design ticket. */
@@ -117,6 +119,7 @@ function draftFromItem(item: CalendarItem): UpdateCalendarItemInput {
 
 export function CalendarItemDrawer({
   item,
+  brandId,
   open,
   onOpenChange,
   submitted,
@@ -283,14 +286,29 @@ export function CalendarItemDrawer({
                   Design Ticket Submitted
                 </Button>
               ) : (
-                <Button
-                  variant="default"
-                  size="lg"
-                  onClick={onRequestDesign}
-                  disabled={!item.designRequired}
-                >
-                  Request Design
-                </Button>
+                <>
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={onRequestDesign}
+                  >
+                    Send to design team
+                  </Button>
+                  {/* designRequired was a planning hint from calendar
+                      generation, never an entitlement — gating the button on
+                      it hid the feature on most items. */}
+                  <GenerateDesignButton
+                    brandId={brandId}
+                    calendarItemId={item.id}
+                    label="Generate with AI"
+                    ticketContext={{
+                      calendarItemId: item.id,
+                      designType: item.designType ?? item.contentType,
+                      dimensions: item.dimensions,
+                      brief: item.brief ?? item.title,
+                    }}
+                  />
+                </>
               )}
             </SheetFooter>
           </>
