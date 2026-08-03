@@ -3,6 +3,7 @@ import {
   count,
   desc,
   eq,
+  gte,
   inArray,
   isNotNull,
   isNull,
@@ -25,6 +26,7 @@ import {
   designAnnotations,
   designBriefs,
   designDeliverables,
+  designGenerations,
   designTickets,
   emailVerificationTokens,
   generationJobs,
@@ -636,6 +638,78 @@ export async function updateDesignBrief(
     .where(eq(designBriefs.id, id))
     .returning();
   return row ?? null;
+}
+
+// ── Design Generations ──────────────────────────────────────────────
+
+export async function createDesignGeneration(
+  data: typeof designGenerations.$inferInsert,
+) {
+  const [row] = await db.insert(designGenerations).values(data).returning();
+  return row;
+}
+
+export async function updateDesignGeneration(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designGenerations.$inferInsert,
+      "imageKey" | "status" | "error" | "width" | "height" | "spec"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designGenerations)
+    .set(data)
+    .where(eq(designGenerations.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function getDesignGenerationById(id: string) {
+  const [row] = await db
+    .select()
+    .from(designGenerations)
+    .where(eq(designGenerations.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listDesignGenerationsForBrand(
+  brandId: string,
+  opts: { limit?: number; briefId?: string; calendarItemId?: string } = {},
+) {
+  const filters = [eq(designGenerations.brandId, brandId)];
+  if (opts.briefId) filters.push(eq(designGenerations.briefId, opts.briefId));
+  if (opts.calendarItemId) {
+    filters.push(eq(designGenerations.calendarItemId, opts.calendarItemId));
+  }
+  return db
+    .select()
+    .from(designGenerations)
+    .where(and(...filters))
+    .orderBy(desc(designGenerations.createdAt))
+    .limit(opts.limit ?? 50);
+}
+
+/** Successful design generations charged to a workspace since `since`.
+ * usage_events has no workspace column, so this joins through the brand. */
+export async function countDesignGenerationsForWorkspace(
+  workspaceId: string,
+  since: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(usageEvents)
+    .innerJoin(brands, eq(usageEvents.brandId, brands.id))
+    .where(
+      and(
+        eq(brands.workspaceId, workspaceId),
+        eq(usageEvents.kind, "design_generated"),
+        gte(usageEvents.createdAt, since),
+      ),
+    );
+  return Number(row?.count ?? 0);
 }
 
 // ── Design Tickets ──────────────────────────────────────────────────
