@@ -9,7 +9,11 @@
  * window.
  */
 
-export type GenerationJobKind = "strategy" | "calendar" | "design_brief";
+export type GenerationJobKind =
+  | "strategy"
+  | "calendar"
+  | "design_brief"
+  | "design_render";
 
 /** Worker heartbeats every ~20s; 75s of silence = at least 3 missed beats. */
 export const CALENDAR_STALE_MS = 75 * 1000;

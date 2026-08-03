@@ -3,9 +3,12 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   checkBrandAccess,
+  getCalendarById,
   getCalendarItemById,
   getDesignBriefById,
+  getDesignGenerationById,
 } from "@/lib/db/queries";
+import { serializeGeneration } from "@/lib/design/serialize";
 import { createTicketFromRequest } from "@/lib/design/ticket-create";
 import { isValidEmail } from "@/lib/validation/email";
 
@@ -21,6 +24,10 @@ interface Body {
   deliveryEmail?: string | null;
   /** Persisted Design Brief Card this submission came from, if any. */
   briefId?: string | null;
+  /** Generated design or upload the designer should work from. */
+  referenceImageUrl?: string | null;
+  /** AI generation this reference came from, verified against the brand. */
+  generationId?: string | null;
 }
 
 export async function POST(req: Request) {
@@ -58,11 +65,13 @@ export async function POST(req: Request) {
     );
   }
 
-  // If linked to a calendar item, make sure it belongs to this brand.
+  // If linked to a calendar item, make sure it belongs to this brand. The
+  // item alone does not carry a brandId — ownership lives on its calendar.
   let calendarItemId: string | null = null;
   if (body.calendarItemId) {
     const item = await getCalendarItemById(body.calendarItemId);
-    if (!item) {
+    const calendar = item ? await getCalendarById(item.calendarId) : null;
+    if (!item || !calendar || calendar.brandId !== brand.id) {
       return Response.json(
         { error: "Calendar item not found" },
         { status: 404 },
@@ -82,6 +91,18 @@ export async function POST(req: Request) {
     briefId = briefRow.id;
   }
 
+  // A generation id is trusted over a caller-supplied URL: resolving it
+  // server-side stops a client pointing a ticket at someone else's asset.
+  let referenceImageUrl = body.referenceImageUrl?.trim() || null;
+  if (body.generationId) {
+    const generation = await getDesignGenerationById(body.generationId);
+    if (!generation || generation.brandId !== brand.id) {
+      return Response.json({ error: "Generation not found" }, { status: 404 });
+    }
+    referenceImageUrl =
+      (await serializeGeneration(generation)).url ?? referenceImageUrl;
+  }
+
   try {
     const { ticket } = await createTicketFromRequest(
       {
@@ -96,6 +117,7 @@ export async function POST(req: Request) {
         deliveryEmail,
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
         briefId,
+        referenceImageUrl,
       },
       {
         brandName: brand.name,

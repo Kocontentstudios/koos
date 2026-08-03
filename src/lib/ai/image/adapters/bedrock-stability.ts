@@ -1,5 +1,10 @@
 import { AwsClient } from "aws4fetch";
-import { resolveImageConfig } from "./image-config";
+import type {
+  GeneratedImage,
+  ImageAdapter,
+  ImageEnv,
+  ImageGenerationInput,
+} from "../types";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -7,17 +12,21 @@ function requireEnv(name: string): string {
   return v;
 }
 
-// Stability text-to-image on Bedrock: request { prompt, mode, aspect_ratio, output_format };
-// response { images: [base64], seeds, finish_reasons }. (Amazon Nova/Titan use a different
-// taskType schema — this adapter targets the active Stability models. See spec §3.)
-export async function generateBrandImage({
+export function isBedrockConfigured(env: ImageEnv = process.env): boolean {
+  return Boolean(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
+}
+
+// Stability text-to-image on Bedrock: request { prompt, mode, aspect_ratio,
+// output_format }; response { images: [base64], seeds, finish_reasons }.
+// (Amazon Nova/Titan use a different taskType schema — this adapter targets
+// the active Stability models.)
+async function generate({
   prompt,
   aspectRatio = "1:1",
-}: {
-  prompt: string;
-  aspectRatio?: string;
-}): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const { model, region } = resolveImageConfig();
+}: ImageGenerationInput): Promise<GeneratedImage> {
+  const model =
+    process.env.AI_IMAGE_MODEL || "stability.stable-image-core-v1:1";
+  const region = process.env.AI_IMAGE_REGION || "us-west-2";
   // aws4fetch infers the SigV4 service from the request host, which would guess
   // "bedrock-runtime" — but Bedrock's actual signing name is "bedrock", so it
   // must be passed explicitly or every request gets SignatureDoesNotMatch.
@@ -68,3 +77,14 @@ export async function generateBrandImage({
     contentType: "image/png",
   };
 }
+
+export const bedrockStabilityAdapter: ImageAdapter = {
+  id: "bedrock-stability",
+  label: "Stability (background plate)",
+  get model() {
+    return process.env.AI_IMAGE_MODEL || "stability.stable-image-core-v1:1";
+  },
+  supportsTextRendering: false,
+  supportsReferenceImages: false,
+  generate,
+};

@@ -7,6 +7,7 @@ import {
   Target,
   Ticket,
   Users,
+  Wand2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -22,6 +23,7 @@ export const MAIN_NAV: NavItem[] = [
   { title: "AI Onboarding", href: "/brand/onboarding", icon: Sparkles },
   { title: "Campaigns", href: "/strategy", icon: Rocket },
   { title: "Calendar", href: "/calendar", icon: Calendar },
+  { title: "Design Studio", href: "/design-studio", icon: Wand2 },
   { title: "Design Tickets", href: "/design-request", icon: Ticket },
   { title: "Team", href: "/team", icon: Users },
 ];
@@ -64,6 +66,13 @@ const PAGE_META: { match: string; meta: PageMeta }[] = [
   {
     match: "/calendar",
     meta: { title: "Calendar", subtitle: "Your content schedule" },
+  },
+  {
+    match: "/design-studio",
+    meta: {
+      title: "Design Studio",
+      subtitle: "Generate branded designs from your brand and briefs",
+    },
   },
   {
     match: "/design-request",

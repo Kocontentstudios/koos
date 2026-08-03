@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { GenerateDesignButton } from "@/components/design/generate-design-button";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { formatTicketNumber } from "@/lib/design/ticket";
@@ -373,8 +374,19 @@ function PanelContent({
                   KO design team.
                 </p>
               )}
+              <GenerateDesignButton
+                brandId={brandId}
+                briefId={brief.id}
+                className="w-full justify-center"
+                ticketContext={{
+                  briefId: brief.id,
+                  designType: brief.designType,
+                  dimensions: brief.dimensions,
+                  brief: brief.briefMarkdown,
+                }}
+              />
               <Button
-                variant="default"
+                variant="secondary"
                 onClick={handleSubmit}
                 loading={submitting}
                 loadingText="Submitting…"

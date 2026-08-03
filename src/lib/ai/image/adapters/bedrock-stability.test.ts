@@ -14,9 +14,12 @@ vi.mock("aws4fetch", () => ({
   }),
 }));
 
-import { generateBrandImage } from "./image";
+import { bedrockStabilityAdapter } from "./bedrock-stability";
 
-describe("generateBrandImage", () => {
+const generateBrandImage = (args: { prompt: string; aspectRatio?: string }) =>
+  bedrockStabilityAdapter.generate(args);
+
+describe("bedrockStabilityAdapter", () => {
   beforeEach(() => {
     mockFetch.mockReset();
     mockAwsClient.mockReset();

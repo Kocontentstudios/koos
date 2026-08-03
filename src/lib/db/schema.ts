@@ -109,6 +109,27 @@ export const usageKindEnum = pgEnum("usage_kind", [
   "strategy_generated",
   "calendar_generated",
   "design_ticket_created",
+  "design_generated",
+]);
+
+export const designGenerationSourceEnum = pgEnum("design_generation_source", [
+  "chat_brief",
+  "calendar_item",
+  "quick",
+  "brand",
+]);
+
+/** composite = AI background plate + server-rendered typography/logo overlay.
+ * native = a text-capable image model renders the whole design in one call. */
+export const designRendererEnum = pgEnum("design_renderer", [
+  "composite",
+  "native",
+]);
+
+export const designGenerationStatusEnum = pgEnum("design_generation_status", [
+  "pending",
+  "succeeded",
+  "failed",
 ]);
 
 export const users = pgTable("users", {
@@ -389,6 +410,9 @@ export const designTickets = pgTable("design_tickets", {
   brief: text("brief").notNull(),
   notes: text("notes"),
   deliveryEmail: text("delivery_email"),
+  /** Generated design or user upload the designer should work from. Previously
+   * this only survived as a line inside `brief`, so it was invisible to queries. */
+  referenceImageUrl: text("reference_image_url"),
   dueDate: timestamp("due_date"),
   status: designTicketStatusEnum("status").notNull().default("submitted"),
   priority: ticketPriorityEnum("priority").notNull().default("normal"),
@@ -422,6 +446,49 @@ export const designBriefs = pgTable("design_briefs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/** One AI design generation. Makes a generation first-class so it has
+ * provenance (which brief/calendar item and which model produced it), a
+ * history surface, and a metering hook — none of which existed when
+ * generated images were written straight to R2 and forgotten. */
+export const designGenerations = pgTable(
+  "design_generations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: designGenerationSourceEnum("source").notNull(),
+    briefId: uuid("brief_id").references(() => designBriefs.id, {
+      onDelete: "set null",
+    }),
+    calendarItemId: uuid("calendar_item_id").references(
+      () => calendarItems.id,
+      { onDelete: "set null" },
+    ),
+    designType: text("design_type"),
+    spec: jsonb("spec").notNull(),
+    renderer: designRendererEnum("renderer").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    imageKey: text("image_key"),
+    /** Stored so the gallery can reserve correct aspect boxes without
+     * parsing the spec jsonb on every render. */
+    width: integer("width"),
+    height: integer("height"),
+    status: designGenerationStatusEnum("status").notNull().default("pending"),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index().on(t.brandId),
+    index().on(t.briefId),
+    index().on(t.calendarItemId),
+  ],
+);
 
 export const designDeliverables = pgTable("design_deliverables", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -489,6 +556,7 @@ export const generationJobKindEnum = pgEnum("generation_job_kind", [
   "strategy",
   "calendar",
   "design_brief",
+  "design_render",
 ]);
 
 export const generationJobStatusEnum = pgEnum("generation_job_status", [

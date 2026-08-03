@@ -17,6 +17,8 @@ export interface CreateTicketFromRequestInput {
   dueDate?: Date | null;
   calendarItemId?: string | null;
   briefId?: string | null;
+  /** Generated design or upload the designer works from. */
+  referenceImageUrl?: string | null;
 }
 
 export interface CreateTicketFromRequestDeps {
@@ -50,6 +52,7 @@ export async function createTicketFromRequest(
     notes: input.notes ?? null,
     deliveryEmail: input.deliveryEmail ?? null,
     dueDate: input.dueDate ?? null,
+    referenceImageUrl: input.referenceImageUrl ?? null,
     status: "submitted",
   });
 

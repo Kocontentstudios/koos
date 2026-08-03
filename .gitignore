@@ -54,8 +54,8 @@ koos_complete/
 docs/ko-os-workspace-team
 commands
 # local scratch / practice material (not shipped)
-/local/
-
+docs/local/
+/qa-reports
 docs/KOOS-Technical-Due-Diligence.pdf
 docs/KOOS-Technical-Due-Diligence.md
 docs/KOOS-Remediation-Checklist.pdf
