@@ -14,6 +14,7 @@ export default async function DesignRequestPage() {
       id: ticket.id,
       ticketNumber: ticket.ticketNumber,
       designType: ticket.designType,
+      title: ticket.title ?? null,
       slides: ticket.slides ?? null,
       status: ticket.status as TicketStatus,
       campaignName: campaignName ?? null,
@@ -34,7 +35,7 @@ export default async function DesignRequestPage() {
             Track all your design requests.
           </p>
         </div>
-        <Link href="/strategy?mode=design">
+        <Link href="/design-request/new">
           <Button variant="default" size="lg">
             New Request
           </Button>
@@ -46,7 +47,7 @@ export default async function DesignRequestPage() {
           <p className="text-[15px] text-[var(--text-secondary)]">
             You have not requested any designs yet.
           </p>
-          <Link href="/strategy?mode=design">
+          <Link href="/design-request/new">
             <Button variant="default" size="lg">
               Request a Design
             </Button>

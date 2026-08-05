@@ -4,6 +4,7 @@
 import { formatTicketNumber } from "@/lib/ticket-number";
 
 export type TicketStatus =
+  | "draft"
   | "submitted"
   | "assigned"
   | "in_progress"
@@ -12,10 +13,16 @@ export type TicketStatus =
   | "revision_requested";
 
 /** Filter tabs shown on the tickets list page. */
-export type TicketFilter = "all" | "submitted" | "in_progress" | "delivered";
+export type TicketFilter =
+  | "all"
+  | "draft"
+  | "submitted"
+  | "in_progress"
+  | "delivered";
 
 export const TICKET_FILTERS: TicketFilter[] = [
   "all",
+  "draft",
   "submitted",
   "in_progress",
   "delivered",
@@ -23,9 +30,10 @@ export const TICKET_FILTERS: TicketFilter[] = [
 
 const FILTER_LABELS: Record<TicketFilter, string> = {
   all: "All",
+  draft: "Drafts",
   submitted: "Submitted",
   in_progress: "In Progress",
-  delivered: "Delivered",
+  delivered: "Completed",
 };
 
 export function ticketFilterLabel(filter: TicketFilter): string {
@@ -40,6 +48,8 @@ export function matchesTicketFilter(
   switch (filter) {
     case "all":
       return true;
+    case "draft":
+      return status === "draft";
     case "submitted":
       return status === "submitted";
     case "in_progress":
@@ -62,19 +72,25 @@ export function defaultDueDate(itemDate: Date): string {
   return due.toISOString().slice(0, 10);
 }
 
-/** Standard design-type options (from the design-request template), shared by
- * the request form and the AI design-brief generator. */
+/** Request-type options from the design-request workflow spec, shared by the
+ * request form, chat design mode, and the AI design-brief generator. */
 export const DESIGN_TYPE_OPTIONS = [
-  "Instagram Carousel (1080x1350 per slide)",
-  "Instagram Post (1080x1350)",
-  "Instagram Story (1080x1920)",
-  "Instagram Reel Cover (1080x1920)",
-  "X/Twitter Post (1200x675)",
-  "LinkedIn Post (1200x627)",
-  "Blog Header (1200x630)",
-  "Email Header (600x200)",
-  "Banner Ad",
-  "Other",
+  "Social Media Post",
+  "Carousel",
+  "Flyer",
+  "Poster",
+  "Banner",
+  "Presentation",
+  "Logo",
+  "Brand Identity",
+  "Business Card",
+  "Packaging",
+  "Video Thumbnail",
+  "Video Editing",
+  "Motion Graphics",
+  "UI/UX Design",
+  "Website Design",
+  "Custom Request",
 ];
 
 /** Carousel design types take a slide count; others don't. */
@@ -128,11 +144,12 @@ export function formatNotificationMessage(n: NotificationLike): string {
 }
 
 const STATUS_LABELS: Record<TicketStatus, string> = {
+  draft: "Draft",
   submitted: "Submitted",
   assigned: "Assigned",
   in_progress: "In Progress",
-  ready_for_review: "Ready for Review",
-  delivered: "Delivered",
+  ready_for_review: "Client Review",
+  delivered: "Completed",
   revision_requested: "Revision Requested",
 };
 
@@ -163,4 +180,16 @@ const PRIORITY_RANK: Record<TicketPriority, number> = {
 /** Lower number = more urgent; sort ascending to surface urgent first. */
 export function priorityRank(p: TicketPriority): number {
   return PRIORITY_RANK[p] ?? 99;
+}
+
+const PRIORITY_ETA: Record<TicketPriority, string> = {
+  urgent: "within 4 business hours",
+  high: "within 12 hours",
+  normal: "within 24 hours",
+  low: "within 48 hours",
+};
+
+/** Response-time promise shown on the submission success screen. */
+export function priorityEta(p: TicketPriority): string {
+  return PRIORITY_ETA[p] ?? PRIORITY_ETA.normal;
 }

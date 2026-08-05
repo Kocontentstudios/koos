@@ -7,6 +7,7 @@ import {
   type TimelineUpdate,
 } from "@/app/(dashboard)/design-request/ticket-updates-timeline";
 import { AnnotationOverlay } from "@/components/design/annotation-overlay";
+import { TicketRequestDetails } from "@/components/design/ticket-request-details";
 import { Markdown } from "@/components/ui/markdown";
 import { requireRole } from "@/lib/auth/require-role";
 import {
@@ -84,7 +85,9 @@ export default async function AdminTicketDetailPage({
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <h1 className="font-display text-2xl font-bold text-foreground">
-            {formatTicketNumber(ticket.ticketNumber)}
+            {ticket.title
+              ? `${formatTicketNumber(ticket.ticketNumber)} — ${ticket.title}`
+              : formatTicketNumber(ticket.ticketNumber)}
           </h1>
           <p className="text-[15px] text-[var(--text-secondary)]">
             {ticket.designType}
@@ -117,8 +120,11 @@ export default async function AdminTicketDetailPage({
         <p className="text-[13px] text-[var(--text-muted)]">
           Due {formatDate(ticket.dueDate)} · {deliverables.length} deliverable
           {deliverables.length === 1 ? "" : "s"}
+          {ticket.priority !== "normal" ? ` · ${ticket.priority} priority` : ""}
         </p>
       </section>
+
+      <TicketRequestDetails ticketId={ticket.id} specs={ticket.specs} />
 
       {annotationsByDeliverable.size > 0 && (
         <section className="space-y-4">

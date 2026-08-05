@@ -13,6 +13,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { DesignTicketSpecs } from "@/lib/design/request-form";
 
 // Human-readable, collision-free design ticket numbers (DT-#####).
 export const designTicketNumberSeq = pgSequence("design_ticket_number_seq", {
@@ -84,6 +85,7 @@ export const calendarItemStatusEnum = pgEnum("calendar_item_status", [
 ]);
 
 export const designTicketStatusEnum = pgEnum("design_ticket_status", [
+  "draft",
   "submitted",
   "assigned",
   "in_progress",
@@ -405,10 +407,14 @@ export const designTickets = pgTable("design_tickets", {
     onDelete: "set null",
   }),
   designType: text("design_type").notNull(),
+  title: text("title"),
   dimensions: text("dimensions"),
   slides: integer("slides"),
   brief: text("brief").notNull(),
   notes: text("notes"),
+  /** Optional structured deliverable specs from the request form; display-only,
+   * so it stays schemaless jsonb rather than dedicated columns. */
+  specs: jsonb("specs").$type<DesignTicketSpecs>(),
   deliveryEmail: text("delivery_email"),
   /** Generated design or user upload the designer should work from. Previously
    * this only survived as a line inside `brief`, so it was invisible to queries. */
@@ -446,6 +452,33 @@ export const designBriefs = pgTable("design_briefs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/** Inbound client uploads and pasted links attached to a design request.
+ * `file` rows carry the file_* columns (fileKey is an R2 object key, read via
+ * signed URLs); `link` rows carry url. Distinct from design_deliverables,
+ * which holds the studio's outbound files. */
+export const designTicketAttachments = pgTable(
+  "design_ticket_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => designTickets.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().$type<"file" | "link">(),
+    category: text("category")
+      .notNull()
+      .default("asset")
+      .$type<"asset" | "reference">(),
+    fileKey: text("file_key"),
+    fileName: text("file_name"),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes"),
+    url: text("url"),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("design_ticket_attachments_ticket_idx").on(t.ticketId)],
+);
 
 /** One AI design generation. Makes a generation first-class so it has
  * provenance (which brief/calendar item and which model produced it), a
