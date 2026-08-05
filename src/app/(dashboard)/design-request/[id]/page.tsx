@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { TicketRequestDetails } from "@/components/design/ticket-request-details";
 import { Markdown } from "@/components/ui/markdown";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
@@ -74,7 +75,9 @@ export default async function TicketDetailPage({
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <h1 className="font-display text-2xl font-bold text-foreground">
-            {formatTicketNumber(ticket.ticketNumber)}
+            {ticket.title
+              ? `${formatTicketNumber(ticket.ticketNumber)} — ${ticket.title}`
+              : formatTicketNumber(ticket.ticketNumber)}
           </h1>
           <p className="text-[15px] text-[var(--text-secondary)]">
             {ticket.designType}
@@ -98,6 +101,8 @@ export default async function TicketDetailPage({
         <Detail label="Submitted">{formatDate(ticket.createdAt)}</Detail>
         <Detail label="Last updated">{formatDate(ticket.updatedAt)}</Detail>
       </section>
+
+      <TicketRequestDetails ticketId={ticket.id} specs={ticket.specs} />
 
       {deliverables.length > 0 &&
         (() => {
