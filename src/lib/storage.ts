@@ -81,6 +81,24 @@ export async function getObjectBytes(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
+/** Short-lived signed PUT URL so the browser uploads directly to R2,
+ * bypassing the serverless request-body size limit. */
+export async function getSignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresInSeconds = 900,
+): Promise<string> {
+  return presign(
+    client(),
+    new PutObjectCommand({
+      Bucket: env("R2_BUCKET"),
+      Key: key,
+      ContentType: contentType,
+    }),
+    { expiresIn: expiresInSeconds },
+  );
+}
+
 /** Short-lived signed GET URL, for private objects. */
 export async function getSignedReadUrl(
   key: string,
