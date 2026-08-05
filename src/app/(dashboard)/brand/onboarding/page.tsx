@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { getActiveBrandForMember } from "@/lib/db/queries";
 import { OnboardingClient } from "./onboarding-client";
 
 export default async function BrandOnboardingPage() {
   const { dbUser } = await getAuthUser();
-  if (!dbUser) redirect("/login");
+  if (!dbUser) redirectToLogin();
 
   const { workspace } = await getActiveWorkspace();
   const brand = workspace

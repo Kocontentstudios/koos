@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import {
   getActiveBrandForMember,
@@ -11,7 +11,7 @@ import { DesignStudioClient } from "./design-studio-client";
  * be reachable from the sidebar even before a brand profile is complete. */
 export default async function DesignStudioPage() {
   const { dbUser, workspace } = await getActiveWorkspace();
-  if (!dbUser || !workspace) redirect("/login");
+  if (!dbUser || !workspace) redirectToLogin();
 
   const brand = await getActiveBrandForMember(workspace.id, dbUser.id);
   const rows = brand

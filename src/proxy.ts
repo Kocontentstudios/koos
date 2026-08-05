@@ -19,8 +19,11 @@ const appPrefixes = [
   "/brand",
   "/calendar",
   "/design-request",
+  "/design-studio",
   "/settings",
   "/strategy",
+  "/team",
+  "/workspace",
   "/admin",
 ];
 // Marketing pages that stay canonical on the root domain.
@@ -32,7 +35,11 @@ const protectedRoutes = [
   "/strategy",
   "/calendar",
   "/design-request",
+  "/design-studio",
   "/settings",
+  "/team",
+  "/workspace",
+  "/admin",
 ];
 const authRoutes = ["/login", "/register"];
 

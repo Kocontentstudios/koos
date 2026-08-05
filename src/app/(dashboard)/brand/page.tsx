@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import {
@@ -80,7 +81,7 @@ function ColorSwatch({ hex, label }: { hex: string; label?: string }) {
 
 export default async function BrandProfilePage() {
   const { dbUser } = await getAuthUser();
-  if (!dbUser) redirect("/login");
+  if (!dbUser) redirectToLogin();
 
   const { workspace } = await getActiveWorkspace();
   const brand = workspace

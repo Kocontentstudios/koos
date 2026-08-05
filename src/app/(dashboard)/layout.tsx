@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { GenerationWatcher } from "@/components/layout/generation-watcher";
 import { VerifyEmailBanner } from "@/components/layout/verify-email-banner";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { getWorkspacesForUser } from "@/lib/db/queries";
 
@@ -13,7 +13,7 @@ export default async function DashboardLayout({
   const { dbUser, workspace, role } = await getActiveWorkspace();
 
   if (!dbUser) {
-    redirect("/login");
+    redirectToLogin();
   }
 
   const memberships = await getWorkspacesForUser(dbUser.id);

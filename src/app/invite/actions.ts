@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { setActiveWorkspaceCookie } from "@/lib/auth/workspace";
 import {
   addWorkspaceMember,
@@ -19,7 +20,7 @@ export async function acceptInviteAction(formData: FormData) {
 
   const { dbUser } = await getAuthUser();
   if (!dbUser)
-    redirect(`/login?next=${encodeURIComponent(`/invite/${token}`)}`);
+    redirectToLogin(`next=${encodeURIComponent(`/invite/${token}`)}`);
 
   const result = await acceptInvitation(
     {
