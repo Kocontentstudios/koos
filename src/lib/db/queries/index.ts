@@ -27,6 +27,7 @@ import {
   designBriefs,
   designDeliverables,
   designGenerations,
+  designTicketAttachments,
   designTickets,
   emailVerificationTokens,
   generationJobs,
@@ -764,6 +765,68 @@ export async function updateDesignTicket(
     .where(eq(designTickets.id, id))
     .returning();
   return row;
+}
+
+export async function updateDraftTicket(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designTickets.$inferInsert,
+      | "title"
+      | "designType"
+      | "brief"
+      | "notes"
+      | "priority"
+      | "specs"
+      | "dueDate"
+      | "dimensions"
+      | "slides"
+      | "brandId"
+      | "status"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designTickets)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(designTickets.id, id), eq(designTickets.status, "draft")))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteDraftTicket(id: string) {
+  const [row] = await db
+    .delete(designTickets)
+    .where(and(eq(designTickets.id, id), eq(designTickets.status, "draft")))
+    .returning();
+  return row ?? null;
+}
+
+// ── Design Ticket Attachments ───────────────────────────────────────
+
+export async function addTicketAttachments(
+  rows: (typeof designTicketAttachments.$inferInsert)[],
+) {
+  if (rows.length === 0) return [];
+  return db.insert(designTicketAttachments).values(rows).returning();
+}
+
+export async function listTicketAttachments(ticketId: string) {
+  return db
+    .select()
+    .from(designTicketAttachments)
+    .where(eq(designTicketAttachments.ticketId, ticketId))
+    .orderBy(designTicketAttachments.createdAt);
+}
+
+export async function replaceTicketAttachments(
+  ticketId: string,
+  rows: (typeof designTicketAttachments.$inferInsert)[],
+) {
+  await db
+    .delete(designTicketAttachments)
+    .where(eq(designTicketAttachments.ticketId, ticketId));
+  return addTicketAttachments(rows);
 }
 
 const QUEUE_STATUSES = [
