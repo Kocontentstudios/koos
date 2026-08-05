@@ -11,6 +11,12 @@ const r2Host = process.env.R2_PUBLIC_BASE_URL
     })()
   : null;
 
+// Presigned uploads PUT straight from the browser to the R2 S3 endpoint
+// (virtual-hosted bucket subdomain), so connect-src must allow that host.
+const r2UploadOrigin = process.env.R2_ACCOUNT_ID
+  ? `https://${process.env.R2_BUCKET ? `${process.env.R2_BUCKET}.` : ""}${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+  : null;
+
 // CSP ships Report-Only so it observes violations without breaking Next's inline
 // runtime, PostHog, or R2 images. Add a report endpoint, then flip to enforcing
 // `Content-Security-Policy` once the report stream is clean.
@@ -24,7 +30,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com",
+  `connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com${r2UploadOrigin ? ` ${r2UploadOrigin}` : ""}`,
   "upgrade-insecure-requests",
 ].join("; ");
 

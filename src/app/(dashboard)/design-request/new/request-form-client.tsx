@@ -146,6 +146,10 @@ export function RequestFormClient({
   const [submitted, setSubmitted] = useState<SubmittedTicket | null>(null);
 
   const isEditingDraft = initialDraft !== null;
+  // Persisting must wait for the restore pass: the save effect otherwise fires
+  // on mount with the empty initial state and wipes the stored draft before
+  // restore reads it.
+  const [hydrated, setHydrated] = useState(isEditingDraft);
 
   // Crash-safety net on top of DB drafts: restore only when not editing a
   // saved draft (the server copy is authoritative there).
@@ -160,16 +164,17 @@ export function RequestFormClient({
     } catch {
       // Ignore parse errors
     }
+    setHydrated(true);
   }, [isEditingDraft]);
 
   useEffect(() => {
-    if (isEditingDraft || submitted) return;
+    if (!hydrated || isEditingDraft || submitted) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // Ignore storage errors
     }
-  }, [state, isEditingDraft, submitted]);
+  }, [state, hydrated, isEditingDraft, submitted]);
 
   function patch(p: Partial<FormState>) {
     setState((prev) => ({ ...prev, ...p }));
