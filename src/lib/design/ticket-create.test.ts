@@ -123,4 +123,123 @@ describe("createTicketFromRequest", () => {
     );
     expect(updateDesignBrief).not.toHaveBeenCalled();
   });
+
+  it("creates a draft without emails or usage events", async () => {
+    const createDesignTicket = vi
+      .fn()
+      .mockResolvedValue({ id: "t5", ticketNumber: 9, designType: "Flyer" });
+    const recordUsageEvent = vi.fn().mockResolvedValue(undefined);
+    const sendEmails = vi.fn().mockResolvedValue(undefined);
+    await createTicketFromRequest(
+      {
+        brandId: "b1",
+        userId: "u1",
+        designType: "Flyer",
+        brief: "wip brief",
+        title: "WIP",
+        saveAsDraft: true,
+      },
+      {
+        createDesignTicket,
+        recordUsageEvent,
+        sendEmails,
+        brandName: "Acme",
+        requesterName: "A B",
+        requesterEmail: "a@b.co",
+      },
+    );
+    expect(createDesignTicket).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "draft", title: "WIP" }),
+    );
+    expect(recordUsageEvent).not.toHaveBeenCalled();
+    expect(sendEmails).not.toHaveBeenCalled();
+  });
+
+  it("passes title, priority, and specs through to the insert", async () => {
+    const createDesignTicket = vi
+      .fn()
+      .mockResolvedValue({ id: "t6", ticketNumber: 10, designType: "Poster" });
+    await createTicketFromRequest(
+      {
+        brandId: "b1",
+        userId: "u1",
+        designType: "Poster",
+        brief: "gig poster",
+        title: "Gig poster",
+        priority: "urgent",
+        specs: { platform: "Print", orientation: "portrait" },
+      },
+      {
+        createDesignTicket,
+        recordUsageEvent: vi.fn().mockResolvedValue(undefined),
+        sendEmails: vi.fn().mockResolvedValue(undefined),
+        brandName: "Acme",
+        requesterName: "A B",
+        requesterEmail: "a@b.co",
+      },
+    );
+    expect(createDesignTicket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "submitted",
+        title: "Gig poster",
+        priority: "urgent",
+        specs: { platform: "Print", orientation: "portrait" },
+      }),
+    );
+  });
+
+  it("persists attachments after ticket creation", async () => {
+    const addAttachments = vi.fn().mockResolvedValue([]);
+    await createTicketFromRequest(
+      {
+        brandId: "b1",
+        userId: "u1",
+        designType: "Flyer",
+        brief: "flyer",
+        attachments: [
+          {
+            kind: "file",
+            key: "reference-images/u1/a.png",
+            fileName: "a.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+            category: "asset",
+          },
+          {
+            kind: "link",
+            url: "https://figma.com/f",
+            category: "reference",
+            note: "grid",
+          },
+        ],
+      },
+      {
+        createDesignTicket: vi
+          .fn()
+          .mockResolvedValue({ id: "t7", ticketNumber: 11, designType: "Flyer" }),
+        recordUsageEvent: vi.fn().mockResolvedValue(undefined),
+        sendEmails: vi.fn().mockResolvedValue(undefined),
+        addAttachments,
+        brandName: "Acme",
+        requesterName: "A B",
+        requesterEmail: "a@b.co",
+      },
+    );
+    expect(addAttachments).toHaveBeenCalledWith([
+      expect.objectContaining({
+        ticketId: "t7",
+        kind: "file",
+        fileKey: "reference-images/u1/a.png",
+        fileName: "a.png",
+        category: "asset",
+      }),
+      expect.objectContaining({
+        ticketId: "t7",
+        kind: "link",
+        url: "https://figma.com/f",
+        category: "reference",
+        note: "grid",
+      }),
+    ]);
+  });
 });

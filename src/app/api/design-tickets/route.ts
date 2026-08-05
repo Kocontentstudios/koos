@@ -8,19 +8,20 @@ import {
   getDesignBriefById,
   getDesignGenerationById,
 } from "@/lib/db/queries";
+import {
+  attachmentKeyBelongsToUser,
+  designRequestSchema,
+  draftRequestSchema,
+} from "@/lib/design/request-form";
 import { serializeGeneration } from "@/lib/design/serialize";
 import { createTicketFromRequest } from "@/lib/design/ticket-create";
 import { isValidEmail } from "@/lib/validation/email";
 
-interface Body {
-  brandId?: string;
+interface LegacyBody {
   calendarItemId?: string | null;
-  designType?: string;
   dimensions?: string | null;
   slides?: number | null;
-  brief?: string;
   notes?: string | null;
-  dueDate?: string | null;
   deliveryEmail?: string | null;
   /** Persisted Design Brief Card this submission came from, if any. */
   briefId?: string | null;
@@ -28,6 +29,8 @@ interface Body {
   referenceImageUrl?: string | null;
   /** AI generation this reference came from, verified against the brand. */
   generationId?: string | null;
+  designType?: string;
+  saveAsDraft?: boolean;
 }
 
 export async function POST(req: Request) {
@@ -36,28 +39,54 @@ export async function POST(req: Request) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  let body: Body;
+  let json: unknown;
   try {
-    body = await req.json();
+    json = await req.json();
   } catch {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
+  const legacy = json as LegacyBody;
+  // Older callers (chat brief panel, calendar modal) send requestType as
+  // designType; normalize before validating against the shared schema.
+  const normalized = {
+    requestType: legacy.designType,
+    ...(json as Record<string, unknown>),
+  };
 
-  const { brandId, designType, brief } = body;
-  if (!brandId || !designType || !brief) {
+  const isDraft = legacy.saveAsDraft === true;
+  const parsed = isDraft
+    ? draftRequestSchema.safeParse(normalized)
+    : designRequestSchema.safeParse(normalized);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    const where = first?.path.join(".");
     return Response.json(
-      { error: "Missing brandId, designType, or brief" },
+      { error: where ? `${where}: ${first.message}` : "Invalid request" },
       { status: 400 },
     );
   }
+  const body = parsed.data;
 
-  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  const access = await checkBrandAccess(
+    dbUser.id,
+    body.brandId,
+    "manage_content",
+  );
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
   }
   const brand = access.brand;
 
-  const deliveryEmail = body.deliveryEmail?.trim() || null;
+  for (const attachment of body.attachments ?? []) {
+    if (
+      attachment.kind === "file" &&
+      !attachmentKeyBelongsToUser(attachment.key, dbUser.id)
+    ) {
+      return Response.json({ error: "Invalid attachment" }, { status: 403 });
+    }
+  }
+
+  const deliveryEmail = legacy.deliveryEmail?.trim() || null;
   if (deliveryEmail && !isValidEmail(deliveryEmail)) {
     return Response.json(
       { error: "Enter a valid delivery email address." },
@@ -68,8 +97,8 @@ export async function POST(req: Request) {
   // If linked to a calendar item, make sure it belongs to this brand. The
   // item alone does not carry a brandId — ownership lives on its calendar.
   let calendarItemId: string | null = null;
-  if (body.calendarItemId) {
-    const item = await getCalendarItemById(body.calendarItemId);
+  if (legacy.calendarItemId) {
+    const item = await getCalendarItemById(legacy.calendarItemId);
     const calendar = item ? await getCalendarById(item.calendarId) : null;
     if (!item || !calendar || calendar.brandId !== brand.id) {
       return Response.json(
@@ -83,8 +112,8 @@ export async function POST(req: Request) {
   // If submitted from a persisted Design Brief Card, verify it belongs to
   // this brand so the card can record the resulting ticket.
   let briefId: string | null = null;
-  if (body.briefId) {
-    const briefRow = await getDesignBriefById(body.briefId);
+  if (legacy.briefId) {
+    const briefRow = await getDesignBriefById(legacy.briefId);
     if (!briefRow || briefRow.brandId !== brand.id) {
       return Response.json({ error: "Brief not found" }, { status: 404 });
     }
@@ -93,9 +122,9 @@ export async function POST(req: Request) {
 
   // A generation id is trusted over a caller-supplied URL: resolving it
   // server-side stops a client pointing a ticket at someone else's asset.
-  let referenceImageUrl = body.referenceImageUrl?.trim() || null;
-  if (body.generationId) {
-    const generation = await getDesignGenerationById(body.generationId);
+  let referenceImageUrl = legacy.referenceImageUrl?.trim() || null;
+  if (legacy.generationId) {
+    const generation = await getDesignGenerationById(legacy.generationId);
     if (!generation || generation.brandId !== brand.id) {
       return Response.json({ error: "Generation not found" }, { status: 404 });
     }
@@ -103,6 +132,7 @@ export async function POST(req: Request) {
       (await serializeGeneration(generation)).url ?? referenceImageUrl;
   }
 
+  const designType = body.requestType ?? legacy.designType ?? "Custom Request";
   try {
     const { ticket } = await createTicketFromRequest(
       {
@@ -110,10 +140,15 @@ export async function POST(req: Request) {
         userId: dbUser.id,
         calendarItemId,
         designType,
-        dimensions: body.dimensions ?? null,
-        slides: body.slides ?? null,
-        brief,
-        notes: body.notes ?? null,
+        title: body.title ?? null,
+        priority: body.priority ?? "normal",
+        specs: body.specs ?? null,
+        attachments: body.attachments ?? [],
+        saveAsDraft: isDraft,
+        dimensions: legacy.dimensions ?? body.specs?.dimensions ?? null,
+        slides: legacy.slides ?? null,
+        brief: body.brief ?? "",
+        notes: legacy.notes ?? null,
         deliveryEmail,
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
         briefId,
@@ -127,7 +162,7 @@ export async function POST(req: Request) {
     );
     await captureServerEvent({
       distinctId: dbUser.id,
-      event: "design_ticket_submitted",
+      event: isDraft ? "design_ticket_draft_saved" : "design_ticket_submitted",
       properties: {
         brand_id: brand.id,
         design_type: designType,

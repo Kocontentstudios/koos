@@ -84,17 +84,25 @@ export const attachmentInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type AttachmentInput = z.infer<typeof attachmentInputSchema>;
 
+/** Server-side submission schema. `title` is nullish because pre-form
+ * surfaces (chat brief panel, calendar modal, quick request) never send one;
+ * the new form enforces it client-side via `formRequestSchema`. */
 export const designRequestSchema = z.object({
   brandId: z.uuid(),
   requestType: z.string().min(1).max(100),
-  title: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(200).nullish(),
   brief: z.string().trim().min(1).max(20000),
-  dueDate: z.iso.date().optional(),
+  dueDate: z.union([z.iso.date(), z.iso.datetime()]).nullish(),
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
-  specs: specsSchema.optional(),
+  specs: specsSchema.nullish(),
   attachments: z.array(attachmentInputSchema).max(MAX_ATTACHMENTS).default([]),
 });
 export type DesignRequestInput = z.infer<typeof designRequestSchema>;
+
+/** Client-side schema for the single-page form, where a title is required. */
+export const formRequestSchema = designRequestSchema.extend({
+  title: z.string().trim().min(1, "Give your project a title.").max(200),
+});
 
 export const draftRequestSchema = designRequestSchema
   .partial()

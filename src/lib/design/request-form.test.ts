@@ -67,6 +67,18 @@ describe("designRequestSchema", () => {
     expect(designRequestSchema.safeParse(bad).success).toBe(false);
   });
 
+  it("accepts a legacy payload (no title, null fields, ISO datetime due date)", () => {
+    const parsed = designRequestSchema.safeParse({
+      brandId: base.brandId,
+      requestType: "Logo",
+      brief: "clean wordmark",
+      dueDate: "2026-08-20T00:00:00.000Z",
+      title: null,
+      specs: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
   it("defaults priority to normal and attachments to empty", () => {
     const parsed = designRequestSchema.parse({
       brandId: base.brandId,
