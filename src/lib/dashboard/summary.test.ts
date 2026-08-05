@@ -11,9 +11,19 @@ describe("ticketCounts", () => {
     ]);
     expect(counts).toEqual({ open: 3, delivered: 1, total: 4 });
   });
-  it("treats everything but delivered as open", () => {
+  it("treats everything but delivered and draft as open", () => {
     expect(isOpenTicket("ready_for_review")).toBe(true);
     expect(isOpenTicket("delivered")).toBe(false);
+    expect(isOpenTicket("draft")).toBe(false);
+  });
+
+  it("excludes drafts from all counts", () => {
+    const counts = ticketCounts([
+      { status: "draft" },
+      { status: "submitted" },
+      { status: "delivered" },
+    ]);
+    expect(counts).toEqual({ open: 1, delivered: 1, total: 2 });
   });
 });
 

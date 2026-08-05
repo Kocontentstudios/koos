@@ -18,6 +18,7 @@ export interface TicketListRow {
   id: string;
   ticketNumber: number;
   designType: string;
+  title: string | null;
   slides: number | null;
   status: TicketStatus;
   campaignName: string | null;
@@ -76,12 +77,17 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
       ) : (
         <ul className="flex flex-col gap-3">
           {visible.map((t) => {
-            const title = t.itemTitle ?? t.designType;
+            const title = t.title ?? t.itemTitle ?? t.designType;
             const delivered = t.status === "delivered";
+            const isDraft = t.status === "draft";
             return (
               <li key={t.id}>
                 <Link
-                  href={`/design-request/${t.id}`}
+                  href={
+                    isDraft
+                      ? `/design-request/new?draft=${t.id}`
+                      : `/design-request/${t.id}`
+                  }
                   className="flex items-start justify-between gap-3 rounded-xl border border-[var(--border)] bg-surface-1 p-5 transition-colors hover:border-[var(--border-accent)] hover:bg-surface-2"
                 >
                   {/* Left region: id → title → campaign → meta */}
@@ -99,7 +105,8 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px] text-[var(--text-muted)]">
                       <span className="inline-flex items-center gap-1.5">
-                        <CalendarDays size={13} /> Submitted{" "}
+                        <CalendarDays size={13} />{" "}
+                        {isDraft ? "Saved" : "Submitted"}{" "}
                         {formatDate(t.createdAt)}
                       </span>
                       {t.dueDate && (

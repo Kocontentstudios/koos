@@ -1,18 +1,14 @@
 // Pure helpers for the dashboard overview. UTC date-only to match storage.
 
+import type { TicketStatus } from "@/lib/design/tickets-ui";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type TicketStatus =
-  | "submitted"
-  | "assigned"
-  | "in_progress"
-  | "ready_for_review"
-  | "delivered"
-  | "revision_requested";
+export type { TicketStatus };
 
-/** A ticket is "open" until it has been delivered. */
+/** A ticket is "open" once submitted and until it has been delivered. */
 export function isOpenTicket(status: TicketStatus): boolean {
-  return status !== "delivered";
+  return status !== "delivered" && status !== "draft";
 }
 
 export function ticketCounts(tickets: { status: TicketStatus }[]): {
@@ -22,11 +18,15 @@ export function ticketCounts(tickets: { status: TicketStatus }[]): {
 } {
   let open = 0;
   let delivered = 0;
+  let total = 0;
   for (const t of tickets) {
+    // Drafts are unsent work-in-progress, not tickets the team owes a response on.
+    if (t.status === "draft") continue;
+    total++;
     if (t.status === "delivered") delivered++;
     else open++;
   }
-  return { open, delivered, total: tickets.length };
+  return { open, delivered, total };
 }
 
 function utcMidnight(d: Date): Date {

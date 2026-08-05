@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
  * Mapped to the shared status tokens: these carry the spec hexes in dark mode
  * and darken for light mode so the badge text stays readable on white. */
 const STATUS_COLOR: Record<TicketStatus, string> = {
+  draft: "var(--text-muted)",
   submitted: "var(--status-pending-fg)",
   assigned: "var(--status-progress-fg)",
   in_progress: "var(--primary)",

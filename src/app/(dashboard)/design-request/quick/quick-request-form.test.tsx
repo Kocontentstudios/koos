@@ -53,7 +53,7 @@ describe("QuickRequestForm", () => {
   it("shows the slides field once a carousel type is selected", () => {
     renderForm();
     fireEvent.change(screen.getByLabelText(/what do you need/i), {
-      target: { value: "Instagram Carousel (1080x1350 per slide)" },
+      target: { value: "Carousel" },
     });
     expect(screen.getByLabelText(/slides/i)).toBeInTheDocument();
   });
