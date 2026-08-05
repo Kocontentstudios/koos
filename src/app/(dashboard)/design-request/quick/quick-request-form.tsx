@@ -85,7 +85,7 @@ export const QuickRequestForm = forwardRef<
 ) {
   const [draft, setDraft] = useState<Draft>({
     businessName: defaultBusinessName,
-    designType: DESIGN_TYPE_OPTIONS[1],
+    designType: DESIGN_TYPE_OPTIONS[0],
     dimensions: "",
     slides: "",
     description: "",
