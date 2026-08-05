@@ -214,9 +214,11 @@ describe("createTicketFromRequest", () => {
         ],
       },
       {
-        createDesignTicket: vi
-          .fn()
-          .mockResolvedValue({ id: "t7", ticketNumber: 11, designType: "Flyer" }),
+        createDesignTicket: vi.fn().mockResolvedValue({
+          id: "t7",
+          ticketNumber: 11,
+          designType: "Flyer",
+        }),
         recordUsageEvent: vi.fn().mockResolvedValue(undefined),
         sendEmails: vi.fn().mockResolvedValue(undefined),
         addAttachments,

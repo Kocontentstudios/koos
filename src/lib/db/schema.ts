@@ -1,5 +1,4 @@
 import { sql } from "drizzle-orm";
-import type { DesignTicketSpecs } from "@/lib/design/request-form";
 import {
   boolean,
   customType,
@@ -14,6 +13,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { DesignTicketSpecs } from "@/lib/design/request-form";
 
 // Human-readable, collision-free design ticket numbers (DT-#####).
 export const designTicketNumberSeq = pgSequence("design_ticket_number_seq", {

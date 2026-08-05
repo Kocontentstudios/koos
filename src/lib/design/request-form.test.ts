@@ -107,9 +107,9 @@ describe("draftRequestSchema", () => {
   });
 
   it("rejects a draft with neither title nor brief", () => {
-    expect(draftRequestSchema.safeParse({ brandId: base.brandId }).success).toBe(
-      false,
-    );
+    expect(
+      draftRequestSchema.safeParse({ brandId: base.brandId }).success,
+    ).toBe(false);
   });
 });
 

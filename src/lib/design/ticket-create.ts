@@ -86,7 +86,10 @@ interface SubmittedTicket {
  * Also fired when a draft is later submitted, so it lives outside creation. */
 export async function submissionSideEffects(
   ticket: SubmittedTicket,
-  input: Pick<CreateTicketFromRequestInput, "userId" | "brandId" | "designType">,
+  input: Pick<
+    CreateTicketFromRequestInput,
+    "userId" | "brandId" | "designType"
+  >,
   deps: CreateTicketFromRequestDeps,
 ) {
   const recordUsageEvent = deps.recordUsageEvent ?? dbRecordUsageEvent;
