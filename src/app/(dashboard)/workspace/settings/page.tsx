@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { countWorkspaceBrands, getWorkspacesForUser } from "@/lib/db/queries";
@@ -6,7 +7,7 @@ import { SettingsClient } from "./settings-client";
 
 export default async function WorkspaceSettingsPage() {
   const { dbUser, workspace, role } = await getActiveWorkspace();
-  if (!dbUser) redirect("/login");
+  if (!dbUser) redirectToLogin();
   if (!can(role, "manage_settings")) redirect("/dashboard");
 
   const [brandCount, memberships] = await Promise.all([
