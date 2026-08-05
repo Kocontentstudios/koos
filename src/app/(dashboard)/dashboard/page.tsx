@@ -9,6 +9,8 @@ import {
   PieChart,
   Sparkles,
   Target,
+  Ticket,
+  Upload,
   WandSparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -230,6 +232,13 @@ export default async function DashboardPage() {
       desc: "Chat with KO AI to build a design brief and send it to the design team.",
       href: "/strategy?mode=design",
     },
+    {
+      icon: Upload,
+      tint: "bg-[rgba(245,158,11,0.12)] text-[#F59E0B]",
+      title: "Upload a Design Request",
+      desc: "Already have a design brief? Paste or upload it and send it directly to the creative team.",
+      href: "/design-request/new",
+    },
     setupComplete
       ? {
           icon: WandSparkles,
@@ -381,8 +390,7 @@ export default async function DashboardPage() {
           <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-[15px] font-bold text-foreground">
-                <Palette size={16} className="text-success" /> Upload a Design
-                Request
+                <Ticket size={16} className="text-success" /> Design Tickets
               </h3>
               <Link
                 href="/design-request"
@@ -391,17 +399,6 @@ export default async function DashboardPage() {
                 View all
               </Link>
             </div>
-            <p className="mb-4 text-[13px] leading-relaxed text-[var(--text-secondary)]">
-              Submit a new design request by typing or pasting your design
-              brief, uploading your files, and sending everything directly to
-              the creative team.
-            </p>
-            <Link
-              href="/design-request/new"
-              className="mb-4 inline-flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-[var(--primary-hover)]"
-            >
-              Upload Request <ArrowRight size={14} />
-            </Link>
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-xl bg-surface-2 p-3 text-center">
                 <div className="text-xl font-bold text-foreground">
