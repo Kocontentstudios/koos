@@ -5,7 +5,6 @@ import {
   Rocket,
   Sparkles,
   Target,
-  Ticket,
   Users,
   Wand2,
 } from "lucide-react";
@@ -24,7 +23,6 @@ export const MAIN_NAV: NavItem[] = [
   { title: "Campaigns", href: "/strategy", icon: Rocket },
   { title: "Calendar", href: "/calendar", icon: Calendar },
   { title: "Design Studio", href: "/design-studio", icon: Wand2 },
-  { title: "Design Tickets", href: "/design-request", icon: Ticket },
   { title: "Team", href: "/team", icon: Users },
 ];
 
