@@ -13,6 +13,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { DesignTicketSpecs } from "@/lib/design/request-form";
 
 // Human-readable, collision-free design ticket numbers (DT-#####).
 export const designTicketNumberSeq = pgSequence("design_ticket_number_seq", {
@@ -84,6 +85,7 @@ export const calendarItemStatusEnum = pgEnum("calendar_item_status", [
 ]);
 
 export const designTicketStatusEnum = pgEnum("design_ticket_status", [
+  "draft",
   "submitted",
   "assigned",
   "in_progress",
@@ -109,6 +111,27 @@ export const usageKindEnum = pgEnum("usage_kind", [
   "strategy_generated",
   "calendar_generated",
   "design_ticket_created",
+  "design_generated",
+]);
+
+export const designGenerationSourceEnum = pgEnum("design_generation_source", [
+  "chat_brief",
+  "calendar_item",
+  "quick",
+  "brand",
+]);
+
+/** composite = AI background plate + server-rendered typography/logo overlay.
+ * native = a text-capable image model renders the whole design in one call. */
+export const designRendererEnum = pgEnum("design_renderer", [
+  "composite",
+  "native",
+]);
+
+export const designGenerationStatusEnum = pgEnum("design_generation_status", [
+  "pending",
+  "succeeded",
+  "failed",
 ]);
 
 export const users = pgTable("users", {
@@ -384,11 +407,18 @@ export const designTickets = pgTable("design_tickets", {
     onDelete: "set null",
   }),
   designType: text("design_type").notNull(),
+  title: text("title"),
   dimensions: text("dimensions"),
   slides: integer("slides"),
   brief: text("brief").notNull(),
   notes: text("notes"),
+  /** Optional structured deliverable specs from the request form; display-only,
+   * so it stays schemaless jsonb rather than dedicated columns. */
+  specs: jsonb("specs").$type<DesignTicketSpecs>(),
   deliveryEmail: text("delivery_email"),
+  /** Generated design or user upload the designer should work from. Previously
+   * this only survived as a line inside `brief`, so it was invisible to queries. */
+  referenceImageUrl: text("reference_image_url"),
   dueDate: timestamp("due_date"),
   status: designTicketStatusEnum("status").notNull().default("submitted"),
   priority: ticketPriorityEnum("priority").notNull().default("normal"),
@@ -423,6 +453,76 @@ export const designBriefs = pgTable("design_briefs", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/** Inbound client uploads and pasted links attached to a design request.
+ * `file` rows carry the file_* columns (fileKey is an R2 object key, read via
+ * signed URLs); `link` rows carry url. Distinct from design_deliverables,
+ * which holds the studio's outbound files. */
+export const designTicketAttachments = pgTable(
+  "design_ticket_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => designTickets.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().$type<"file" | "link">(),
+    category: text("category")
+      .notNull()
+      .default("asset")
+      .$type<"asset" | "reference">(),
+    fileKey: text("file_key"),
+    fileName: text("file_name"),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes"),
+    url: text("url"),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("design_ticket_attachments_ticket_idx").on(t.ticketId)],
+);
+
+/** One AI design generation. Makes a generation first-class so it has
+ * provenance (which brief/calendar item and which model produced it), a
+ * history surface, and a metering hook — none of which existed when
+ * generated images were written straight to R2 and forgotten. */
+export const designGenerations = pgTable(
+  "design_generations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: designGenerationSourceEnum("source").notNull(),
+    briefId: uuid("brief_id").references(() => designBriefs.id, {
+      onDelete: "set null",
+    }),
+    calendarItemId: uuid("calendar_item_id").references(
+      () => calendarItems.id,
+      { onDelete: "set null" },
+    ),
+    designType: text("design_type"),
+    spec: jsonb("spec").notNull(),
+    renderer: designRendererEnum("renderer").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    imageKey: text("image_key"),
+    /** Stored so the gallery can reserve correct aspect boxes without
+     * parsing the spec jsonb on every render. */
+    width: integer("width"),
+    height: integer("height"),
+    status: designGenerationStatusEnum("status").notNull().default("pending"),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index().on(t.brandId),
+    index().on(t.briefId),
+    index().on(t.calendarItemId),
+  ],
+);
+
 export const designDeliverables = pgTable("design_deliverables", {
   id: uuid("id").primaryKey().defaultRandom(),
   ticketId: uuid("ticket_id")
@@ -433,6 +533,26 @@ export const designDeliverables = pgTable("design_deliverables", {
   slideIndex: integer("slide_index"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const designAnnotations = pgTable(
+  "design_annotations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => designTickets.id, { onDelete: "cascade" }),
+    deliverableId: uuid("deliverable_id")
+      .notNull()
+      .references(() => designDeliverables.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    shapes: jsonb("shapes").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.ticketId)],
+);
 
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -469,6 +589,7 @@ export const generationJobKindEnum = pgEnum("generation_job_kind", [
   "strategy",
   "calendar",
   "design_brief",
+  "design_render",
 ]);
 
 export const generationJobStatusEnum = pgEnum("generation_job_status", [
@@ -524,6 +645,17 @@ export const usageEvents = pgTable("usage_events", {
   kind: usageKindEnum("kind").notNull(),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/* One evolving row per brand: a rolling summary plus append-only facts,
+   built up from onboarding and conversations for AI context. */
+export const brandMemory = pgTable("brand_memory", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  summary: text("summary").notNull().default(""),
+  facts: jsonb("facts").notNull().default(sql`'[]'::jsonb`),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 /* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).

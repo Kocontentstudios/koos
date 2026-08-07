@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getAuthUser } from "./get-user";
 import type { Role } from "./roles";
 
@@ -10,7 +11,7 @@ export type { Role };
  */
 export async function requireRole(allowed: Role[]) {
   const { dbUser } = await getAuthUser();
-  if (!dbUser) redirect("/login");
+  if (!dbUser) redirectToLogin();
   if (!allowed.includes(dbUser.role as Role)) redirect("/dashboard");
   return { dbUser };
 }

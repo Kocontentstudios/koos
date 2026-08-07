@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # `ai` and every @ai-sdk/* provider must share one @ai-sdk/provider
+      # spec major: ai v6 resolves provider v3, ai v7 resolves provider v4.
+      # A provider major alone puts specificationVersion "v4" models into
+      # ai v6's LanguageModel/ImageModel unions and fails the build (0d6af8e).
+      # Majors here are a coordinated migration, not an automated bump.
+      # Minor and patch updates — including security fixes — still flow.
+      - dependency-name: "ai"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@ai-sdk/*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

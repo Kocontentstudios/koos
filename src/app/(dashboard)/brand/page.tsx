@@ -5,9 +5,17 @@ import { redirect } from "next/navigation";
 import { Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { hasCompletedBrand } from "@/lib/brand-profile";
-import { getActiveBrandForMember } from "@/lib/db/queries";
+import {
+  getActiveBrandForMember,
+  listDesignGenerationsForBrand,
+} from "@/lib/db/queries";
+import {
+  type SerializedGeneration,
+  serializeGeneration,
+} from "@/lib/design/serialize";
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -73,7 +81,7 @@ function ColorSwatch({ hex, label }: { hex: string; label?: string }) {
 
 export default async function BrandProfilePage() {
   const { dbUser } = await getAuthUser();
-  if (!dbUser) redirect("/login");
+  if (!dbUser) redirectToLogin();
 
   const { workspace } = await getActiveWorkspace();
   const brand = workspace
@@ -82,6 +90,13 @@ export default async function BrandProfilePage() {
   if (!brand || !hasCompletedBrand(brand.onboardingStatus)) {
     redirect("/brand/create");
   }
+
+  const generationRows = await listDesignGenerationsForBrand(brand.id, {
+    limit: 8,
+  });
+  const generations = (
+    await Promise.all(generationRows.map(serializeGeneration))
+  ).filter((g) => g.status === "succeeded");
 
   const additionalColors = brand.additionalColors ?? [];
   const platforms = brand.platforms ?? [];
@@ -338,6 +353,54 @@ export default async function BrandProfilePage() {
               </Fragment>
             ))}
           </div>
+        )}
+      </div>
+
+      <GeneratedDesigns generations={generations} />
+    </div>
+  );
+}
+
+/** First surface in the app that renders generated output outside the
+ * generation flow itself — previously saved designs were invisible. */
+function GeneratedDesigns({
+  generations,
+}: {
+  generations: SerializedGeneration[];
+}) {
+  if (generations.length === 0) return null;
+  return (
+    <div className="mt-6 rounded-xl border border-[var(--border)] p-6 sm:p-8">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="font-display text-[18px] font-bold text-foreground">
+          Generated Designs
+        </h2>
+        <Link
+          href="/design-studio"
+          className="text-[13px] text-[var(--text-muted)] transition-colors hover:text-foreground"
+        >
+          View all in Design Studio
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {generations.map((generation) =>
+          generation.url ? (
+            <a
+              key={generation.id}
+              href={generation.url}
+              download={`design-${generation.id.slice(0, 8)}.png`}
+              className="rounded-lg border border-[var(--border)] transition-colors hover:border-[var(--border-accent)]"
+            >
+              <Image
+                src={generation.url}
+                alt={generation.headline ?? "Generated design"}
+                width={generation.width ?? 1080}
+                height={generation.height ?? 1080}
+                className="w-full rounded-lg"
+                unoptimized
+              />
+            </a>
+          ) : null,
         )}
       </div>
     </div>

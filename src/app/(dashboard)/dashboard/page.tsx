@@ -9,6 +9,8 @@ import {
   PieChart,
   Sparkles,
   Target,
+  Ticket,
+  Upload,
   WandSparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -230,6 +232,13 @@ export default async function DashboardPage() {
       desc: "Chat with KO AI to build a design brief and send it to the design team.",
       href: "/strategy?mode=design",
     },
+    {
+      icon: Upload,
+      tint: "bg-[rgba(245,158,11,0.12)] text-[#F59E0B]",
+      title: "Upload a Design Request",
+      desc: "Already have a design brief? Paste or upload it and send it directly to the creative team.",
+      href: "/design-request/new",
+    },
     setupComplete
       ? {
           icon: WandSparkles,
@@ -381,7 +390,7 @@ export default async function DashboardPage() {
           <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-[15px] font-bold text-foreground">
-                <Palette size={16} className="text-success" /> Design Tickets
+                <Ticket size={16} className="text-success" /> Design Tickets
               </h3>
               <Link
                 href="/design-request"

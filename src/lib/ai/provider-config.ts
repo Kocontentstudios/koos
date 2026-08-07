@@ -65,3 +65,20 @@ export function resolveProviderConfig(
 
   return { provider, model };
 }
+
+export type SttProvider = "browser" | "openai" | "deepgram";
+export type TtsProvider = "browser" | "openai" | "elevenlabs";
+
+export interface ResolvedVoice {
+  stt: SttProvider;
+  tts: TtsProvider;
+}
+
+// Browser Web Speech is the zero-cost default; onboarding voice mode works
+// with no API keys configured.
+export function resolveVoiceConfig(env: Env = process.env): ResolvedVoice {
+  return {
+    stt: (env.AI_STT_PROVIDER || "browser") as SttProvider,
+    tts: (env.AI_TTS_PROVIDER || "browser") as TtsProvider,
+  };
+}

@@ -16,7 +16,6 @@ import {
   buildDesignBriefGenerationPrompt,
   buildDesignBriefSystemPrompt,
 } from "@/lib/ai/prompts/design-request";
-import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import {
   buildStrategistSystemPrompt,
   buildStrategyGenerationPrompt,
@@ -40,6 +39,7 @@ import {
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
+import { brandSummaryFrom } from "@/lib/jobs/brand-summary";
 import {
   assembleCalendarItems,
   fallbackBrief,
@@ -50,27 +50,7 @@ import {
 type BrandRow = typeof brands.$inferSelect;
 type StrategyRow = typeof strategies.$inferSelect;
 
-export function brandSummaryFrom(brand: BrandRow): BrandSummary {
-  return {
-    name: brand.name,
-    overview: brand.overview,
-    businessType: brand.businessType,
-    stage: brand.stage,
-    targetAudience: brand.targetAudience,
-    offer: brand.offer,
-    tone: brand.tone,
-    primaryGoal: brand.primaryGoal,
-    values: brand.values,
-    wordsLove: brand.wordsLove,
-    wordsAvoid: brand.wordsAvoid,
-    brandStyle: brand.brandStyle,
-    competitors: brand.competitors,
-    differentiators: brand.differentiators,
-    platforms: brand.platforms,
-    primaryPlatform: brand.primaryPlatform,
-    postingFrequency: brand.postingFrequency,
-  };
-}
+export { brandSummaryFrom };
 
 interface JobOutcome {
   /** id of a created row (strategy/calendar); omitted for ephemeral results. */

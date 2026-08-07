@@ -14,6 +14,7 @@ export const STORAGE_PREFIXES = {
   logos: "logos",
   referenceImages: "reference-images",
   deliverables: "deliverables",
+  generated: "generated",
 } as const;
 
 export type StoragePrefix =
@@ -80,14 +81,40 @@ export async function getObjectBytes(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
+/** Short-lived signed PUT URL so the browser uploads directly to R2,
+ * bypassing the serverless request-body size limit. */
+export async function getSignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresInSeconds = 900,
+): Promise<string> {
+  return presign(
+    client(),
+    new PutObjectCommand({
+      Bucket: env("R2_BUCKET"),
+      Key: key,
+      ContentType: contentType,
+    }),
+    { expiresIn: expiresInSeconds },
+  );
+}
+
 /** Short-lived signed GET URL, for private objects. */
 export async function getSignedReadUrl(
   key: string,
   expiresInSeconds = 3600,
+  opts?: { disposition?: "inline" | "attachment"; fileName?: string },
 ): Promise<string> {
   return presign(
     client(),
-    new GetObjectCommand({ Bucket: env("R2_BUCKET"), Key: key }),
+    new GetObjectCommand({
+      Bucket: env("R2_BUCKET"),
+      Key: key,
+      ResponseContentDisposition:
+        opts?.disposition === "attachment"
+          ? `attachment; filename="${opts.fileName?.replace(/["\\]/g, "\\$&")}"`
+          : "inline",
+    }),
     { expiresIn: expiresInSeconds },
   );
 }

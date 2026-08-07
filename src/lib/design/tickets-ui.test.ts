@@ -7,16 +7,21 @@ import {
   humanizeStatus,
   isCarouselType,
   matchesTicketFilter,
+  priorityEta,
   priorityRank,
 } from "./tickets-ui";
 
 describe("DESIGN_TYPE_OPTIONS", () => {
-  it("defaults Instagram feed posts and carousels to 1080x1350 portrait", () => {
-    expect(DESIGN_TYPE_OPTIONS).toContain("Instagram Post (1080x1350)");
-    expect(DESIGN_TYPE_OPTIONS).toContain(
-      "Instagram Carousel (1080x1350 per slide)",
-    );
-    expect(DESIGN_TYPE_OPTIONS.join(" ")).not.toContain("1080x1080");
+  it("has the 16 request types from the design-request spec", () => {
+    expect(DESIGN_TYPE_OPTIONS).toHaveLength(16);
+    expect(DESIGN_TYPE_OPTIONS[0]).toBe("Social Media Post");
+    expect(DESIGN_TYPE_OPTIONS).toContain("Carousel");
+    expect(DESIGN_TYPE_OPTIONS).toContain("Brand Identity");
+    expect(DESIGN_TYPE_OPTIONS.at(-1)).toBe("Custom Request");
+  });
+
+  it("keeps carousel detection working on the new names", () => {
+    expect(isCarouselType("Carousel")).toBe(true);
   });
 });
 
@@ -121,12 +126,50 @@ describe("formatNotificationMessage — ticket_status", () => {
       }),
     ).toBe("Your design ticket is now In Progress.");
   });
+
+  it("includes the ticket number for a revision-requested notification", () => {
+    expect(
+      formatNotificationMessage({
+        type: "ticket_status",
+        payload: { status: "revision_requested", ticketNumber: 124 },
+      }),
+    ).toBe("Design ticket DT-00124 needs revision.");
+  });
+
+  it("falls back to the generic status sentence when revision-requested has no ticket number", () => {
+    expect(
+      formatNotificationMessage({
+        type: "ticket_status",
+        payload: { status: "revision_requested" },
+      }),
+    ).toBe("Your design ticket is now Revision Requested.");
+  });
 });
 
 describe("humanizeStatus", () => {
-  it("maps statuses to labels", () => {
-    expect(humanizeStatus("ready_for_review")).toBe("Ready for Review");
+  it("maps statuses to client-facing labels", () => {
+    expect(humanizeStatus("draft")).toBe("Draft");
+    expect(humanizeStatus("ready_for_review")).toBe("Client Review");
+    expect(humanizeStatus("delivered")).toBe("Completed");
     expect(humanizeStatus("revision_requested")).toBe("Revision Requested");
+  });
+});
+
+describe("draft filter", () => {
+  it("matches only drafts in the draft tab, and drafts appear in all", () => {
+    expect(matchesTicketFilter("draft", "draft")).toBe(true);
+    expect(matchesTicketFilter("draft", "all")).toBe(true);
+    expect(matchesTicketFilter("draft", "submitted")).toBe(false);
+    expect(matchesTicketFilter("submitted", "draft")).toBe(false);
+  });
+});
+
+describe("priorityEta", () => {
+  it("maps priorities to SLA copy", () => {
+    expect(priorityEta("urgent")).toBe("within 4 business hours");
+    expect(priorityEta("high")).toBe("within 12 hours");
+    expect(priorityEta("normal")).toBe("within 24 hours");
+    expect(priorityEta("low")).toBe("within 48 hours");
   });
 });
 

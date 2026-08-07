@@ -3,6 +3,7 @@ import {
   count,
   desc,
   eq,
+  gte,
   inArray,
   isNotNull,
   isNull,
@@ -14,14 +15,19 @@ import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
   appSettings,
+  brandAssets,
   brandContexts,
+  brandMemory,
   brands,
   calendarItems,
   calendars,
   chatConversations,
   chatMessages,
+  designAnnotations,
   designBriefs,
   designDeliverables,
+  designGenerations,
+  designTicketAttachments,
   designTickets,
   emailVerificationTokens,
   generationJobs,
@@ -302,6 +308,21 @@ export async function getBrandForAdmin(id: string) {
     .where(eq(brands.id, id))
     .limit(1);
   return row ?? null;
+}
+
+// ── Brand Assets ────────────────────────────────────────────────────
+
+export async function getBrandAssets(brandId: string) {
+  return db
+    .select()
+    .from(brandAssets)
+    .where(eq(brandAssets.brandId, brandId))
+    .orderBy(desc(brandAssets.createdAt));
+}
+
+export async function addBrandAsset(data: typeof brandAssets.$inferInsert) {
+  const [asset] = await db.insert(brandAssets).values(data).returning();
+  return asset;
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
@@ -620,6 +641,78 @@ export async function updateDesignBrief(
   return row ?? null;
 }
 
+// ── Design Generations ──────────────────────────────────────────────
+
+export async function createDesignGeneration(
+  data: typeof designGenerations.$inferInsert,
+) {
+  const [row] = await db.insert(designGenerations).values(data).returning();
+  return row;
+}
+
+export async function updateDesignGeneration(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designGenerations.$inferInsert,
+      "imageKey" | "status" | "error" | "width" | "height" | "spec"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designGenerations)
+    .set(data)
+    .where(eq(designGenerations.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function getDesignGenerationById(id: string) {
+  const [row] = await db
+    .select()
+    .from(designGenerations)
+    .where(eq(designGenerations.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listDesignGenerationsForBrand(
+  brandId: string,
+  opts: { limit?: number; briefId?: string; calendarItemId?: string } = {},
+) {
+  const filters = [eq(designGenerations.brandId, brandId)];
+  if (opts.briefId) filters.push(eq(designGenerations.briefId, opts.briefId));
+  if (opts.calendarItemId) {
+    filters.push(eq(designGenerations.calendarItemId, opts.calendarItemId));
+  }
+  return db
+    .select()
+    .from(designGenerations)
+    .where(and(...filters))
+    .orderBy(desc(designGenerations.createdAt))
+    .limit(opts.limit ?? 50);
+}
+
+/** Successful design generations charged to a workspace since `since`.
+ * usage_events has no workspace column, so this joins through the brand. */
+export async function countDesignGenerationsForWorkspace(
+  workspaceId: string,
+  since: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(usageEvents)
+    .innerJoin(brands, eq(usageEvents.brandId, brands.id))
+    .where(
+      and(
+        eq(brands.workspaceId, workspaceId),
+        eq(usageEvents.kind, "design_generated"),
+        gte(usageEvents.createdAt, since),
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
+
 // ── Design Tickets ──────────────────────────────────────────────────
 
 export async function createDesignTicket(
@@ -649,6 +742,14 @@ export async function getDesignTicketForCalendarItem(calendarItemId: string) {
   return row ?? null;
 }
 
+export async function listDesignTicketsForBrand(brandId: string) {
+  return db
+    .select()
+    .from(designTickets)
+    .where(eq(designTickets.brandId, brandId))
+    .orderBy(desc(designTickets.createdAt));
+}
+
 export async function updateDesignTicket(
   id: string,
   data: Partial<
@@ -664,6 +765,68 @@ export async function updateDesignTicket(
     .where(eq(designTickets.id, id))
     .returning();
   return row;
+}
+
+export async function updateDraftTicket(
+  id: string,
+  data: Partial<
+    Pick<
+      typeof designTickets.$inferInsert,
+      | "title"
+      | "designType"
+      | "brief"
+      | "notes"
+      | "priority"
+      | "specs"
+      | "dueDate"
+      | "dimensions"
+      | "slides"
+      | "brandId"
+      | "status"
+    >
+  >,
+) {
+  const [row] = await db
+    .update(designTickets)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(designTickets.id, id), eq(designTickets.status, "draft")))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteDraftTicket(id: string) {
+  const [row] = await db
+    .delete(designTickets)
+    .where(and(eq(designTickets.id, id), eq(designTickets.status, "draft")))
+    .returning();
+  return row ?? null;
+}
+
+// ── Design Ticket Attachments ───────────────────────────────────────
+
+export async function addTicketAttachments(
+  rows: (typeof designTicketAttachments.$inferInsert)[],
+) {
+  if (rows.length === 0) return [];
+  return db.insert(designTicketAttachments).values(rows).returning();
+}
+
+export async function listTicketAttachments(ticketId: string) {
+  return db
+    .select()
+    .from(designTicketAttachments)
+    .where(eq(designTicketAttachments.ticketId, ticketId))
+    .orderBy(designTicketAttachments.createdAt);
+}
+
+export async function replaceTicketAttachments(
+  ticketId: string,
+  rows: (typeof designTicketAttachments.$inferInsert)[],
+) {
+  await db
+    .delete(designTicketAttachments)
+    .where(eq(designTicketAttachments.ticketId, ticketId));
+  return addTicketAttachments(rows);
 }
 
 const QUEUE_STATUSES = [
@@ -1050,3 +1213,83 @@ export async function updateAppSettings(data: {
 }
 
 export * from "./workspaces";
+
+// ── Brand memory ────────────────────────────────────────────────────
+
+export type MemoryFact = { text: string; source: string; createdAt: string };
+
+export async function getBrandMemory(
+  brandId: string,
+): Promise<{ summary: string; facts: MemoryFact[] } | null> {
+  const [row] = await db
+    .select({ summary: brandMemory.summary, facts: brandMemory.facts })
+    .from(brandMemory)
+    .where(eq(brandMemory.brandId, brandId))
+    .limit(1);
+  if (!row) return null;
+  return { summary: row.summary, facts: row.facts as MemoryFact[] };
+}
+
+export async function upsertBrandMemory(
+  brandId: string,
+  data: { summary: string; facts: MemoryFact[] },
+): Promise<void> {
+  await db
+    .insert(brandMemory)
+    .values({
+      brandId,
+      summary: data.summary,
+      facts: data.facts,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: brandMemory.brandId,
+      set: {
+        summary: data.summary,
+        facts: data.facts,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+// ── Design annotations ──────────────────────────────────────────────
+
+export type AnnotationShape = {
+  type: "rect" | "path";
+  coords: number[];
+  color: string;
+};
+
+export async function addAnnotation(data: {
+  ticketId: string;
+  deliverableId: string;
+  authorId: string;
+  shapes: AnnotationShape[];
+  note?: string;
+}) {
+  const [inserted] = await db
+    .insert(designAnnotations)
+    .values({
+      ticketId: data.ticketId,
+      deliverableId: data.deliverableId,
+      authorId: data.authorId,
+      shapes: data.shapes,
+      note: data.note,
+    })
+    .returning();
+  return inserted;
+}
+
+export async function getAnnotationsForTicket(ticketId: string) {
+  const rows = await db
+    .select()
+    .from(designAnnotations)
+    .where(eq(designAnnotations.ticketId, ticketId))
+    .orderBy(desc(designAnnotations.createdAt));
+  // jsonb columns have no schema-level type; the shapes column is only ever
+  // written via addAnnotation's typed input, so this cast just reasserts that.
+  return rows.map((row) => ({
+    ...row,
+    shapes: row.shapes as AnnotationShape[],
+  }));
+}

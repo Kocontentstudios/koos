@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { getPendingInvitations, getWorkspaceMembers } from "@/lib/db/queries";
@@ -6,7 +6,7 @@ import { TeamClient } from "./team-client";
 
 export default async function TeamPage() {
   const { dbUser, workspace, role } = await getActiveWorkspace();
-  if (!dbUser) redirect("/login");
+  if (!dbUser) redirectToLogin();
 
   const [members, invitations] = await Promise.all([
     getWorkspaceMembers(workspace.id),

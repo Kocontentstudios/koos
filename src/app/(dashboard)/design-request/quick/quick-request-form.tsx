@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import {
@@ -28,11 +28,19 @@ interface Draft {
   description: string;
   deliveryEmail: string;
   dueDate: string;
+  /** Set via the generated-image panel's "use as reference" action. */
+  referenceImageUrl?: string;
 }
 
 interface QuickRequestFormProps {
   defaultBusinessName: string;
   defaultDeliveryEmail: string;
+}
+
+/** Lets the generated-image panel (Task 7) attach a reference without this
+ * form needing to know that panel exists. */
+export interface QuickRequestFormHandle {
+  setReferenceImageUrl: (url: string) => void;
 }
 
 interface GeneratedBrief {
@@ -62,18 +70,22 @@ function toInput(draft: Draft): unknown {
         ? Number(draft.slides)
         : undefined,
     description: draft.description,
+    referenceImageUrl: draft.referenceImageUrl?.trim() || undefined,
     deliveryEmail: draft.deliveryEmail.trim() || undefined,
     dueDate: draft.dueDate.trim() || undefined,
   };
 }
 
-export function QuickRequestForm({
-  defaultBusinessName,
-  defaultDeliveryEmail,
-}: QuickRequestFormProps) {
+export const QuickRequestForm = forwardRef<
+  QuickRequestFormHandle,
+  QuickRequestFormProps
+>(function QuickRequestForm(
+  { defaultBusinessName, defaultDeliveryEmail },
+  ref,
+) {
   const [draft, setDraft] = useState<Draft>({
     businessName: defaultBusinessName,
-    designType: DESIGN_TYPE_OPTIONS[1],
+    designType: DESIGN_TYPE_OPTIONS[0],
     dimensions: "",
     slides: "",
     description: "",
@@ -85,6 +97,11 @@ export function QuickRequestForm({
   const [submitting, setSubmitting] = useState(false);
   const [review, setReview] = useState<ReviewState | null>(null);
   const [ticketNumber, setTicketNumber] = useState<number | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    setReferenceImageUrl: (url: string) =>
+      setDraft((d) => ({ ...d, referenceImageUrl: url })),
+  }));
 
   async function handleContinue() {
     if (generating) return;
@@ -280,6 +297,12 @@ export function QuickRequestForm({
         />
       </div>
 
+      {draft.referenceImageUrl && (
+        <p className="rounded-lg bg-[var(--status-ready-bg)] px-3 py-2 text-[13px] text-[var(--status-ready-fg)]">
+          Reference image attached
+        </p>
+      )}
+
       {error && (
         <p className="rounded-lg bg-[var(--status-error-bg)] px-3 py-2 text-[13px] text-[var(--status-error-fg)]">
           {error}
@@ -331,4 +354,4 @@ export function QuickRequestForm({
       )}
     </div>
   );
-}
+});

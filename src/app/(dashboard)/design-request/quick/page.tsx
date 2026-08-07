@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { getActiveBrandForMember } from "@/lib/db/queries";
 import { QuickRequestForm } from "./quick-request-form";
@@ -7,7 +7,7 @@ import { QuickRequestForm } from "./quick-request-form";
  * this page exists precisely for users whose brand profile is incomplete. */
 export default async function QuickDesignRequestPage() {
   const { dbUser, workspace } = await getActiveWorkspace();
-  if (!dbUser || !workspace) redirect("/login");
+  if (!dbUser || !workspace) redirectToLogin();
 
   const brand = await getActiveBrandForMember(workspace.id, dbUser.id);
 

@@ -17,7 +17,11 @@ import {
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { performReset, requestReset } from "@/lib/auth/password-reset";
 import { safeNext } from "@/lib/auth/safe-next";
-import { invalidateUserSessions, startSession } from "@/lib/auth/session";
+import {
+  deleteSessionCookie,
+  invalidateUserSessions,
+  startSession,
+} from "@/lib/auth/session";
 import {
   createEmailVerificationToken,
   createPasswordResetToken,
@@ -269,5 +273,9 @@ export async function resetPassword(formData: FormData) {
   if (!result.ok) {
     return { error: result.error };
   }
+  // performReset just deleted every session row for this user; the cookie in
+  // this browser now points at nothing and would trip the proxy's
+  // presence-only login bounce into a redirect loop.
+  await deleteSessionCookie();
   redirect("/login?reset=1");
 }

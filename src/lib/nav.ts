@@ -3,9 +3,10 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Rocket,
+  Sparkles,
   Target,
-  Ticket,
   Users,
+  Wand2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -18,9 +19,10 @@ export interface NavItem {
 export const MAIN_NAV: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { title: "Brands", href: "/brand", icon: Target },
+  { title: "AI Onboarding", href: "/brand/onboarding", icon: Sparkles },
   { title: "Campaigns", href: "/strategy", icon: Rocket },
   { title: "Calendar", href: "/calendar", icon: Calendar },
-  { title: "Design Tickets", href: "/design-request", icon: Ticket },
+  { title: "Design Studio", href: "/design-studio", icon: Wand2 },
   { title: "Team", href: "/team", icon: Users },
 ];
 
@@ -34,6 +36,15 @@ const PAGE_META: { match: string; meta: PageMeta }[] = [
   {
     match: "/dashboard",
     meta: { title: "Dashboard", subtitle: "Your brand at a glance" },
+  },
+  {
+    // Must precede the "/brand" entry below — both match /brand/onboarding,
+    // and `find` takes the first hit.
+    match: "/brand/onboarding",
+    meta: {
+      title: "AI Onboarding",
+      subtitle: "Tell KO about your brand — by chat or voice",
+    },
   },
   {
     match: "/brand",
@@ -53,6 +64,13 @@ const PAGE_META: { match: string; meta: PageMeta }[] = [
   {
     match: "/calendar",
     meta: { title: "Calendar", subtitle: "Your content schedule" },
+  },
+  {
+    match: "/design-studio",
+    meta: {
+      title: "Design Studio",
+      subtitle: "Generate branded designs from your brand and briefs",
+    },
   },
   {
     match: "/design-request",

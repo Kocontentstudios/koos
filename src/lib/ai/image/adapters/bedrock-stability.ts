@@ -1,0 +1,90 @@
+import { AwsClient } from "aws4fetch";
+import type {
+  GeneratedImage,
+  ImageAdapter,
+  ImageEnv,
+  ImageGenerationInput,
+} from "../types";
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing ${name} for image generation.`);
+  return v;
+}
+
+export function isBedrockConfigured(env: ImageEnv = process.env): boolean {
+  return Boolean(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
+}
+
+// Stability text-to-image on Bedrock: request { prompt, mode, aspect_ratio,
+// output_format }; response { images: [base64], seeds, finish_reasons }.
+// (Amazon Nova/Titan use a different taskType schema — this adapter targets
+// the active Stability models.)
+async function generate({
+  prompt,
+  aspectRatio = "1:1",
+}: ImageGenerationInput): Promise<GeneratedImage> {
+  const model =
+    process.env.AI_IMAGE_MODEL || "stability.stable-image-core-v1:1";
+  const region = process.env.AI_IMAGE_REGION || "us-west-2";
+  // aws4fetch infers the SigV4 service from the request host, which would guess
+  // "bedrock-runtime" — but Bedrock's actual signing name is "bedrock", so it
+  // must be passed explicitly or every request gets SignatureDoesNotMatch.
+  const aws = new AwsClient({
+    accessKeyId: requireEnv("AWS_ACCESS_KEY_ID"),
+    secretAccessKey: requireEnv("AWS_SECRET_ACCESS_KEY"),
+    ...(process.env.AWS_SESSION_TOKEN
+      ? { sessionToken: process.env.AWS_SESSION_TOKEN }
+      : {}),
+    service: "bedrock",
+    region,
+  });
+  const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(model)}/invoke`;
+  const res = await aws.fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      prompt,
+      mode: "text-to-image",
+      aspect_ratio: aspectRatio,
+      output_format: "png",
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `Bedrock image generation failed (${res.status}): ${detail.slice(0, 300)}`,
+    );
+  }
+  const json = (await res.json()) as {
+    images?: string[];
+    finish_reasons?: (string | null)[];
+  };
+  const b64 = json.images?.[0];
+  if (!b64) throw new Error("Bedrock returned no image.");
+  // Bedrock returns HTTP 200 + CONTENT_FILTERED when a prompt trips the content filter.
+  if (
+    json.finish_reasons?.[0] &&
+    typeof json.finish_reasons[0] === "string" &&
+    json.finish_reasons[0].toLowerCase().includes("filter")
+  ) {
+    throw new Error(
+      "Image was blocked by the content filter. Try a different prompt.",
+    );
+  }
+  return {
+    bytes: Uint8Array.from(Buffer.from(b64, "base64")),
+    contentType: "image/png",
+  };
+}
+
+export const bedrockStabilityAdapter: ImageAdapter = {
+  id: "bedrock-stability",
+  label: "Stability (background plate)",
+  get model() {
+    return process.env.AI_IMAGE_MODEL || "stability.stable-image-core-v1:1";
+  },
+  supportsTextRendering: false,
+  supportsReferenceImages: false,
+  generate,
+};

@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { TicketRequestDetails } from "@/components/design/ticket-request-details";
 import { Markdown } from "@/components/ui/markdown";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
@@ -49,6 +50,7 @@ export default async function TicketDetailPage({
   );
   if (!access.ok) notFound();
 
+  const isStaff = dbUser.role === "designer" || dbUser.role === "admin";
   const deliverables = await getDeliverables(ticket.id);
   const updateRows = await getTicketUpdates(ticket.id);
   const updates: TimelineUpdate[] = updateRows.map((r) => ({
@@ -73,7 +75,9 @@ export default async function TicketDetailPage({
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <h1 className="font-display text-2xl font-bold text-foreground">
-            {formatTicketNumber(ticket.ticketNumber)}
+            {ticket.title
+              ? `${formatTicketNumber(ticket.ticketNumber)} — ${ticket.title}`
+              : formatTicketNumber(ticket.ticketNumber)}
           </h1>
           <p className="text-[15px] text-[var(--text-secondary)]">
             {ticket.designType}
@@ -98,61 +102,103 @@ export default async function TicketDetailPage({
         <Detail label="Last updated">{formatDate(ticket.updatedAt)}</Detail>
       </section>
 
-      {deliverables.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[15px] font-semibold text-foreground">
-              Deliverables
-            </h2>
-            <a
-              href={`/api/design-tickets/${ticket.id}/deliverables/zip`}
-              className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
-            >
-              Download all (ZIP)
-            </a>
-          </div>
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {deliverables.map((d) => {
-              const href = `/api/design-tickets/${ticket.id}/deliverables/${d.id}`;
-              const isImage = IMAGE_RE.test(d.fileName);
-              return (
-                <li
-                  key={d.id}
-                  className="overflow-hidden rounded-xl border border-[var(--border)] bg-surface-1"
-                >
-                  {isImage && (
-                    // biome-ignore lint/performance/noImgElement: src is a redirecting download route, not optimizable by next/image
-                    <img
-                      src={href}
-                      alt={d.fileName}
-                      className="h-40 w-full bg-surface-2 object-contain"
-                    />
-                  )}
-                  <div className="flex items-center justify-between gap-2 p-3">
-                    <span className="truncate text-[13px] text-[var(--text-secondary)]">
-                      {d.fileName}
-                    </span>
-                    <a
-                      href={href}
-                      download
-                      className="shrink-0 text-[13px] font-medium text-primary hover:underline"
+      <TicketRequestDetails ticketId={ticket.id} specs={ticket.specs} />
+
+      {deliverables.length > 0 &&
+        (() => {
+          const canDownload = status === "delivered" || isStaff;
+          return (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-[15px] font-semibold text-foreground">
+                  Deliverables
+                </h2>
+                {canDownload ? (
+                  <a
+                    href={`/api/design-tickets/${ticket.id}/deliverables/zip`}
+                    className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+                  >
+                    Download all (ZIP)
+                  </a>
+                ) : (
+                  <span
+                    title="Approve to download"
+                    className="shrink-0 cursor-not-allowed rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-muted)]"
+                  >
+                    Download all (ZIP)
+                  </span>
+                )}
+              </div>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {deliverables.map((d) => {
+                  const previewHref = `/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=inline`;
+                  const downloadHref = `/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=attachment`;
+                  const isImage = IMAGE_RE.test(d.fileName);
+                  return (
+                    <li
+                      key={d.id}
+                      className="overflow-hidden rounded-xl border border-[var(--border)] bg-surface-1"
                     >
-                      Download
-                    </a>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+                      {isImage && (
+                        // biome-ignore lint/performance/noImgElement: src is a redirecting download route, not optimizable by next/image
+                        <img
+                          src={previewHref}
+                          alt={d.fileName}
+                          className="h-40 w-full bg-surface-2 object-contain"
+                        />
+                      )}
+                      <div className="flex items-center justify-between gap-2 p-3">
+                        <span className="truncate text-[13px] text-[var(--text-secondary)]">
+                          {d.fileName}
+                        </span>
+                        {canDownload ? (
+                          <a
+                            href={downloadHref}
+                            download
+                            className="shrink-0 text-[13px] font-medium text-primary hover:underline"
+                          >
+                            Download
+                          </a>
+                        ) : (
+                          <a
+                            href={previewHref}
+                            title="Approve to download"
+                            className="shrink-0 text-[13px] font-medium text-[var(--text-muted)] hover:underline"
+                          >
+                            View
+                          </a>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              {!canDownload && (
+                <p className="text-[13px] text-[var(--text-muted)]">
+                  Approve to download
+                </p>
+              )}
+            </section>
+          );
+        })()}
 
       <section className="space-y-3">
         <h2 className="text-[15px] font-semibold text-foreground">Updates</h2>
         <TicketUpdatesTimeline updates={updates} />
       </section>
 
-      {status === "ready_for_review" && <ReviewActions ticketId={ticket.id} />}
+      {status === "ready_for_review" && (
+        <ReviewActions
+          ticketId={ticket.id}
+          deliverables={deliverables
+            .filter((d) => IMAGE_RE.test(d.fileName))
+            .map((d) => ({
+              id: d.id,
+              fileName: d.fileName,
+              url: `/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=inline`,
+            }))}
+        />
+      )}
     </div>
   );
 }
