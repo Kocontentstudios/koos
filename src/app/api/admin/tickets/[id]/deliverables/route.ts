@@ -1,11 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
-  addDeliverables,
-  createNotification,
   getDesignTicketById,
   getUserById,
-  updateDesignTicket,
+  recordDeliverableVersion,
 } from "@/lib/db/queries";
 import { appUrl, sendDesignDeliveryEmail } from "@/lib/design/notify";
 import {
@@ -54,7 +52,6 @@ export async function POST(
   }
 
   const rows: {
-    ticketId: string;
     fileUrl: string;
     fileName: string;
     slideIndex: number;
@@ -81,28 +78,19 @@ export async function POST(
         contentType: file.type,
       });
       // Store the object KEY; reads go through short-lived signed URLs.
-      rows.push({
-        ticketId: ticket.id,
-        fileUrl: key,
-        fileName: file.name,
-        slideIndex: i,
-      });
+      rows.push({ fileUrl: key, fileName: file.name, slideIndex: i });
     }
   } catch (err) {
     console.error("deliverable upload failed", err);
     return Response.json({ error: "Upload failed." }, { status: 502 });
   }
 
-  await addDeliverables(rows);
-  await updateDesignTicket(ticket.id, { status: "ready_for_review" });
-  await createNotification({
-    userId: ticket.userId,
-    type: "design_ready",
-    payload: {
-      ticketId: ticket.id,
-      designType: ticket.designType,
-      count: rows.length,
-    },
+  const { version } = await recordDeliverableVersion({
+    ticketId: ticket.id,
+    authorId: dbUser.id,
+    ownerId: ticket.userId,
+    files: rows,
+    designType: ticket.designType,
   });
 
   try {
@@ -121,6 +109,7 @@ export async function POST(
           ticketNumber: ticket.ticketNumber,
           designType: ticket.designType,
           links,
+          version,
           ticketUrl: appUrl(`/design-request/${ticket.id}`),
         },
       });
@@ -132,5 +121,5 @@ export async function POST(
     });
   }
 
-  return Response.json({ ok: true, count: rows.length });
+  return Response.json({ ok: true, count: rows.length, version });
 }

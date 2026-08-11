@@ -18,6 +18,7 @@ export type TicketFilter =
   | "draft"
   | "submitted"
   | "in_progress"
+  | "needs_review"
   | "delivered";
 
 export const TICKET_FILTERS: TicketFilter[] = [
@@ -25,6 +26,7 @@ export const TICKET_FILTERS: TicketFilter[] = [
   "draft",
   "submitted",
   "in_progress",
+  "needs_review",
   "delivered",
 ];
 
@@ -33,7 +35,8 @@ const FILTER_LABELS: Record<TicketFilter, string> = {
   draft: "Drafts",
   submitted: "Submitted",
   in_progress: "In Progress",
-  delivered: "Completed",
+  needs_review: "Needs Your Review",
+  delivered: "Approved",
 };
 
 export function ticketFilterLabel(filter: TicketFilter): string {
@@ -56,12 +59,18 @@ export function matchesTicketFilter(
       return (
         status === "assigned" ||
         status === "in_progress" ||
-        status === "ready_for_review" ||
         status === "revision_requested"
       );
+    case "needs_review":
+      return status === "ready_for_review";
     case "delivered":
       return status === "delivered";
   }
+}
+
+/** Tickets where a design has landed and the client owes a verdict. */
+export function needsClientReview(status: TicketStatus): boolean {
+  return status === "ready_for_review";
 }
 
 /** Default due date for a request = 2 days before the calendar item date.
@@ -148,8 +157,8 @@ const STATUS_LABELS: Record<TicketStatus, string> = {
   submitted: "Submitted",
   assigned: "Assigned",
   in_progress: "In Progress",
-  ready_for_review: "Client Review",
-  delivered: "Completed",
+  ready_for_review: "Delivered — Your Review",
+  delivered: "Approved",
   revision_requested: "Revision Requested",
 };
 
