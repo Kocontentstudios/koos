@@ -5,12 +5,17 @@ import {
   getDeliverables,
   getDesignTicketById,
 } from "@/lib/db/queries";
-import { deliverablesZipName } from "@/lib/design/ticket";
+import {
+  deliverablesZipName,
+  groupDeliverablesByVersion,
+} from "@/lib/design/ticket";
 import { getObjectBytes } from "@/lib/storage";
 
-/** Bundle all of a ticket's deliverables into a single zip download. */
+/** Bundle one delivery round into a zip download, latest round by default.
+ * Zipping every round together would hand the client superseded artwork under
+ * near-identical filenames, with only a "-1" suffix to tell them apart. */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { dbUser } = await getAuthUser();
@@ -18,6 +23,16 @@ export async function GET(
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
   const { id } = await params;
+
+  const versionParam = new URL(req.url).searchParams.get("version");
+  let requestedVersion: number | null = null;
+  if (versionParam !== null) {
+    const parsed = Number(versionParam);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      return Response.json({ error: "Invalid version" }, { status: 400 });
+    }
+    requestedVersion = parsed;
+  }
 
   const ticket = await getDesignTicketById(id);
   if (!ticket) {
@@ -34,22 +49,30 @@ export async function GET(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (ticket.status !== "delivered" && !isStaff) {
+  // Files stay view-only until the client marks the design satisfied, so every
+  // request is driven to an explicit sign-off instead of trailing off after a
+  // silent download. Gating on approvedAt rather than status means a later
+  // correction round reopens the review without revoking earned downloads.
+  if (!ticket.approvedAt && !isStaff) {
     return Response.json(
       { error: "Approve the design to download it." },
       { status: 403 },
     );
   }
 
-  const deliverables = await getDeliverables(ticket.id);
-  if (deliverables.length === 0) {
+  const groups = groupDeliverablesByVersion(await getDeliverables(ticket.id));
+  const group =
+    requestedVersion === null
+      ? groups[0]
+      : groups.find((g) => g.version === requestedVersion);
+  if (!group) {
     return Response.json({ error: "No deliverables yet" }, { status: 404 });
   }
 
   const zip = new JSZip();
   const seen = new Map<string, number>();
   try {
-    for (const d of deliverables) {
+    for (const d of group.items) {
       // De-duplicate identical filenames within the zip.
       const count = seen.get(d.fileName) ?? 0;
       seen.set(d.fileName, count + 1);
@@ -68,7 +91,7 @@ export async function GET(
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${deliverablesZipName(ticket.ticketNumber)}"`,
+      "Content-Disposition": `attachment; filename="${deliverablesZipName(ticket.ticketNumber, group.version)}"`,
     },
   });
 }

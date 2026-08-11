@@ -421,6 +421,9 @@ export const designTickets = pgTable("design_tickets", {
   referenceImageUrl: text("reference_image_url"),
   dueDate: timestamp("due_date"),
   status: designTicketStatusEnum("status").notNull().default("submitted"),
+  /** When the client last signed off. Never cleared — a later correction round
+   * reopens the ticket for review but must not revoke files already earned. */
+  approvedAt: timestamp("approved_at"),
   priority: ticketPriorityEnum("priority").notNull().default("normal"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -523,16 +526,29 @@ export const designGenerations = pgTable(
   ],
 );
 
-export const designDeliverables = pgTable("design_deliverables", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ticketId: uuid("ticket_id")
-    .notNull()
-    .references(() => designTickets.id, { onDelete: "cascade" }),
-  fileUrl: text("file_url").notNull(),
-  fileName: text("file_name").notNull(),
-  slideIndex: integer("slide_index"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const designDeliverables = pgTable(
+  "design_deliverables",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => designTickets.id, { onDelete: "cascade" }),
+    fileUrl: text("file_url").notNull(),
+    fileName: text("file_name").notNull(),
+    /** Position within the upload batch, unique per (ticketId, version). */
+    slideIndex: integer("slide_index"),
+    /** Delivery round. Every revision the studio uploads increments this. */
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("design_deliverables_ticket_version_idx").on(
+      t.ticketId,
+      t.version,
+      t.slideIndex,
+    ),
+  ],
+);
 
 export const designAnnotations = pgTable(
   "design_annotations",
