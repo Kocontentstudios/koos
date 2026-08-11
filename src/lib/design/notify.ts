@@ -7,9 +7,11 @@ import {
   designRequestConfirmationEmail,
   designRequestTeamEmail,
   type TicketProgressEmailInput,
+  type TicketReviewClientEmailInput,
   type TicketReviewTeamEmailInput,
   type TicketStatusEmailInput,
   ticketProgressEmail,
+  ticketReviewClientEmail,
   ticketReviewTeamEmail,
   ticketStatusEmail,
 } from "@/lib/email-templates";
@@ -148,6 +150,25 @@ export async function sendTicketReviewTeamEmail(
     await sendMail({ to: team, subject, html, replyTo: input.requesterEmail });
   } catch (err) {
     console.error("ticket review team email failed", {
+      ticketNumber: input.ticketNumber,
+      err,
+    });
+  }
+}
+
+/** Receipt to the client confirming their approval or revision request. */
+export async function sendTicketReviewClientEmail({
+  to,
+  input,
+}: {
+  to: string;
+  input: TicketReviewClientEmailInput;
+}): Promise<void> {
+  try {
+    const { subject, html } = ticketReviewClientEmail(input);
+    await sendMail({ to, subject, html });
+  } catch (err) {
+    console.error("ticket review client email failed", {
       ticketNumber: input.ticketNumber,
       err,
     });

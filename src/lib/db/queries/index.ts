@@ -856,11 +856,82 @@ export async function getDesignerQueue() {
 
 // ── Design Deliverables ─────────────────────────────────────────────
 
-export async function addDeliverables(
-  rows: (typeof designDeliverables.$inferInsert)[],
-) {
-  if (rows.length === 0) return [];
-  return db.insert(designDeliverables).values(rows).returning();
+/** Record a delivery round: insert the files under the next version number, move
+ * the ticket into review, log the timeline entry and notify the owner — all in
+ * one transaction.
+ *
+ * The `FOR UPDATE` lock on the ticket row is what makes the version number safe.
+ * A designer double-clicking "Upload deliverables" fires two POSTs that would
+ * otherwise both read the same max() and write the same version, interleaving
+ * two batches into one corrupt round.
+ *
+ * An upload onto an already-approved ticket reopens it for review but
+ * deliberately leaves any linked calendar item alone — a published-ready item
+ * shouldn't flip back on a late studio correction. */
+export async function recordDeliverableVersion(input: {
+  ticketId: string;
+  authorId: string;
+  ownerId: string;
+  files: { fileUrl: string; fileName: string; slideIndex: number }[];
+  designType: string;
+}) {
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: designTickets.id })
+      .from(designTickets)
+      .where(eq(designTickets.id, input.ticketId))
+      .for("update");
+
+    const [current] = await tx
+      .select({
+        max: sql<number>`coalesce(max(${designDeliverables.version}), 0)`,
+      })
+      .from(designDeliverables)
+      .where(eq(designDeliverables.ticketId, input.ticketId));
+    const version = Number(current?.max ?? 0) + 1;
+
+    const rows = await tx
+      .insert(designDeliverables)
+      .values(
+        input.files.map((f) => ({
+          ticketId: input.ticketId,
+          fileUrl: f.fileUrl,
+          fileName: f.fileName,
+          slideIndex: f.slideIndex,
+          version,
+        })),
+      )
+      .returning();
+
+    await tx
+      .update(designTickets)
+      .set({ status: "ready_for_review", updatedAt: new Date() })
+      .where(eq(designTickets.id, input.ticketId));
+
+    const count = rows.length;
+    await tx.insert(ticketUpdates).values({
+      ticketId: input.ticketId,
+      authorId: input.authorId,
+      message:
+        version === 1
+          ? `Delivered ${count} file${count === 1 ? "" : "s"} for review.`
+          : `Version ${version} delivered (${count} file${count === 1 ? "" : "s"}) for review.`,
+      newStatus: "ready_for_review",
+    });
+
+    await tx.insert(notifications).values({
+      userId: input.ownerId,
+      type: "design_ready",
+      payload: {
+        ticketId: input.ticketId,
+        designType: input.designType,
+        count,
+        version,
+      },
+    });
+
+    return { version, rows };
+  });
 }
 
 export async function getDeliverables(ticketId: string) {
@@ -868,7 +939,11 @@ export async function getDeliverables(ticketId: string) {
     .select()
     .from(designDeliverables)
     .where(eq(designDeliverables.ticketId, ticketId))
-    .orderBy(designDeliverables.slideIndex, designDeliverables.createdAt);
+    .orderBy(
+      designDeliverables.version,
+      designDeliverables.slideIndex,
+      designDeliverables.createdAt,
+    );
 }
 
 export async function getDeliverableById(id: string) {
@@ -922,18 +997,86 @@ export async function createTicketUpdate(
   return row;
 }
 
-/** A ticket's progress updates, newest first, with the author's name. */
+/** A ticket's progress updates, newest first, with the author's name and role.
+ * The role lets the client view mask staff identities behind one team name
+ * while still attributing the client's own entries to them. */
 export async function getTicketUpdates(ticketId: string) {
   return db
     .select({
       update: ticketUpdates,
       authorFirstName: users.firstName,
       authorLastName: users.lastName,
+      authorRole: users.role,
     })
     .from(ticketUpdates)
     .leftJoin(users, eq(ticketUpdates.authorId, users.id))
     .where(eq(ticketUpdates.ticketId, ticketId))
     .orderBy(desc(ticketUpdates.createdAt));
+}
+
+/** Apply a client's verdict on a delivered design, but only while the ticket is
+ * still awaiting review. The status predicate lives in the UPDATE rather than an
+ * if-statement so a double-submitted approval can't fire the emails, calendar
+ * write and notifications twice — the second caller gets null and the route
+ * answers 409. */
+export async function applyClientReview(input: {
+  ticketId: string;
+  authorId: string;
+  action: "approve" | "revise";
+  note: string | null;
+  version: number | null;
+  staffIds: string[];
+  ticketNumber: number;
+}) {
+  return db.transaction(async (tx) => {
+    const nextStatus =
+      input.action === "approve" ? "delivered" : "revision_requested";
+    const [ticket] = await tx
+      .update(designTickets)
+      .set({
+        status: nextStatus,
+        updatedAt: new Date(),
+        ...(input.action === "approve" ? { approvedAt: new Date() } : {}),
+      })
+      .where(
+        and(
+          eq(designTickets.id, input.ticketId),
+          eq(designTickets.status, "ready_for_review"),
+        ),
+      )
+      .returning();
+    if (!ticket) return null;
+
+    const versionLabel = input.version ? ` version ${input.version}` : "";
+    const [update] = await tx
+      .insert(ticketUpdates)
+      .values({
+        ticketId: input.ticketId,
+        authorId: input.authorId,
+        message:
+          input.action === "approve"
+            ? `Approved${versionLabel}. No further changes requested.`
+            : `Requested a revision on${versionLabel || " this design"}:\n\n${input.note ?? "See the marked-up files."}`,
+        newStatus: nextStatus,
+      })
+      .returning();
+
+    if (input.staffIds.length > 0) {
+      await tx.insert(notifications).values(
+        input.staffIds.map((id) => ({
+          userId: id,
+          type: "ticket_status" as const,
+          payload: {
+            ticketId: input.ticketId,
+            ticketNumber: input.ticketNumber,
+            status: nextStatus,
+          },
+        })),
+      );
+    }
+
+    return { ticket, update };
+  });
 }
 
 /** Atomically apply an optional status change, insert the update row, and
@@ -1282,14 +1425,24 @@ export async function addAnnotation(data: {
 
 export async function getAnnotationsForTicket(ticketId: string) {
   const rows = await db
-    .select()
+    .select({
+      annotation: designAnnotations,
+      version: designDeliverables.version,
+      fileName: designDeliverables.fileName,
+    })
     .from(designAnnotations)
+    .leftJoin(
+      designDeliverables,
+      eq(designAnnotations.deliverableId, designDeliverables.id),
+    )
     .where(eq(designAnnotations.ticketId, ticketId))
     .orderBy(desc(designAnnotations.createdAt));
   // jsonb columns have no schema-level type; the shapes column is only ever
   // written via addAnnotation's typed input, so this cast just reasserts that.
   return rows.map((row) => ({
-    ...row,
-    shapes: row.shapes as AnnotationShape[],
+    ...row.annotation,
+    shapes: row.annotation.shapes as AnnotationShape[],
+    version: row.version ?? 1,
+    fileName: row.fileName ?? "",
   }));
 }

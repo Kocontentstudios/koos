@@ -42,12 +42,10 @@ export async function GET(
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Inline viewing stays open; this only blocks the browser "save to disk" path until the user approves the design.
-  if (
-    disposition === "attachment" &&
-    ticket.status !== "delivered" &&
-    !isStaff
-  ) {
+  // Inline preview stays open so the client can judge the work; only saving it
+  // to disk waits on their sign-off, which is what drives a request to closure.
+  // Once approved the access sticks, even if a later round reopens the ticket.
+  if (disposition === "attachment" && !ticket.approvedAt && !isStaff) {
     return Response.json(
       { error: "Approve the design to download it." },
       { status: 403 },

@@ -25,6 +25,7 @@ const ticket = {
   userId: "u1",
   brandId: "b1",
   status: "ready_for_review",
+  approvedAt: null as Date | null,
 };
 const deliverable = {
   id: "d1",
@@ -63,6 +64,8 @@ describe("GET deliverable download route", () => {
     getSignedReadUrl.mockResolvedValue("https://signed.example/file.png");
   });
 
+  // Downloads wait on sign-off so a request can't quietly end with the client
+  // taking the files and never closing the loop.
   it("blocks download before approval for a non-staff owner", async () => {
     mockOwnerWithAccess();
     mockTicket({ status: "ready_for_review" });
@@ -70,6 +73,26 @@ describe("GET deliverable download route", () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body).toEqual({ error: "Approve the design to download it." });
+  });
+
+  it("unlocks download once the client is satisfied", async () => {
+    mockOwnerWithAccess();
+    mockTicket({ status: "delivered", approvedAt: new Date() });
+    const res = await GET(req("?disposition=attachment"), params);
+    expect(res.status).toBe(302);
+    expect(getSignedReadUrl).toHaveBeenCalledWith(deliverable.fileUrl, 300, {
+      disposition: "attachment",
+      fileName: deliverable.fileName,
+    });
+  });
+
+  // Approval is sticky: a correction round reopens the review but must not
+  // claw back files the client already earned.
+  it("keeps download open when a later round reopens an approved ticket", async () => {
+    mockOwnerWithAccess();
+    mockTicket({ status: "ready_for_review", approvedAt: new Date() });
+    const res = await GET(req("?disposition=attachment"), params);
+    expect(res.status).toBe(302);
   });
 
   it("allows download before approval for staff", async () => {
@@ -107,7 +130,7 @@ describe("GET deliverable download route", () => {
 
   it("allows download once the ticket is delivered", async () => {
     mockOwnerWithAccess();
-    mockTicket({ status: "delivered" });
+    mockTicket({ status: "delivered", approvedAt: new Date() });
     const res = await GET(req("?disposition=attachment"), params);
     expect(res.status).toBe(302);
     expect(getSignedReadUrl).toHaveBeenCalledWith(deliverable.fileUrl, 300, {
