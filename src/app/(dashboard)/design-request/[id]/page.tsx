@@ -10,13 +10,17 @@ import {
   getDesignTicketById,
   getTicketUpdates,
 } from "@/lib/db/queries";
-import { formatTicketNumber } from "@/lib/design/ticket";
+import {
+  formatTicketNumber,
+  groupDeliverablesByVersion,
+} from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { TicketStatusBadge } from "../ticket-status-badge";
 import {
   TicketUpdatesTimeline,
   type TimelineUpdate,
 } from "../ticket-updates-timeline";
+import { DeliverableVersions } from "./deliverable-versions";
 import { ReviewActions } from "./review-actions";
 
 function formatDate(d: Date | null): string {
@@ -52,13 +56,23 @@ export default async function TicketDetailPage({
 
   const isStaff = dbUser.role === "designer" || dbUser.role === "admin";
   const deliverables = await getDeliverables(ticket.id);
+  const versions = groupDeliverablesByVersion(deliverables);
+  const latest = versions[0] ?? null;
   const updateRows = await getTicketUpdates(ticket.id);
+  // Staff stay pseudonymous behind one team name; the client's own entries are
+  // attributed back to them so a revision request doesn't read as studio output.
   const updates: TimelineUpdate[] = updateRows.map((r) => ({
     id: r.update.id,
     message: r.update.message,
     newStatus: r.update.newStatus,
     createdAt: r.update.createdAt,
-    authorName: "KO Design Team",
+    authorName:
+      r.update.authorId === dbUser.id
+        ? "You"
+        : r.authorRole === "designer" || r.authorRole === "admin"
+          ? "KO Design Team"
+          : `${r.authorFirstName ?? ""} ${r.authorLastName ?? ""}`.trim() ||
+            "Client",
   }));
   const status = ticket.status as TicketStatus;
 
@@ -104,93 +118,22 @@ export default async function TicketDetailPage({
 
       <TicketRequestDetails ticketId={ticket.id} specs={ticket.specs} />
 
-      {deliverables.length > 0 &&
-        (() => {
-          const canDownload = status === "delivered" || isStaff;
-          return (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-[15px] font-semibold text-foreground">
-                  Deliverables
-                </h2>
-                {canDownload ? (
-                  <a
-                    href={`/api/design-tickets/${ticket.id}/deliverables/zip`}
-                    className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
-                  >
-                    Download all (ZIP)
-                  </a>
-                ) : (
-                  <span
-                    title="Approve to download"
-                    className="shrink-0 cursor-not-allowed rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-muted)]"
-                  >
-                    Download all (ZIP)
-                  </span>
-                )}
-              </div>
-              <ul className="grid gap-3 sm:grid-cols-2">
-                {deliverables.map((d) => {
-                  const previewHref = `/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=inline`;
-                  const downloadHref = `/api/design-tickets/${ticket.id}/deliverables/${d.id}?disposition=attachment`;
-                  const isImage = IMAGE_RE.test(d.fileName);
-                  return (
-                    <li
-                      key={d.id}
-                      className="overflow-hidden rounded-xl border border-[var(--border)] bg-surface-1"
-                    >
-                      {isImage && (
-                        // biome-ignore lint/performance/noImgElement: src is a redirecting download route, not optimizable by next/image
-                        <img
-                          src={previewHref}
-                          alt={d.fileName}
-                          className="h-40 w-full bg-surface-2 object-contain"
-                        />
-                      )}
-                      <div className="flex items-center justify-between gap-2 p-3">
-                        <span className="truncate text-[13px] text-[var(--text-secondary)]">
-                          {d.fileName}
-                        </span>
-                        {canDownload ? (
-                          <a
-                            href={downloadHref}
-                            download
-                            className="shrink-0 text-[13px] font-medium text-primary hover:underline"
-                          >
-                            Download
-                          </a>
-                        ) : (
-                          <a
-                            href={previewHref}
-                            title="Approve to download"
-                            className="shrink-0 text-[13px] font-medium text-[var(--text-muted)] hover:underline"
-                          >
-                            View
-                          </a>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-              {!canDownload && (
-                <p className="text-[13px] text-[var(--text-muted)]">
-                  Approve to download
-                </p>
-              )}
-            </section>
-          );
-        })()}
+      <DeliverableVersions
+        ticketId={ticket.id}
+        groups={versions}
+        canDownload={ticket.approvedAt !== null || isStaff}
+      />
 
       <section className="space-y-3">
         <h2 className="text-[15px] font-semibold text-foreground">Updates</h2>
         <TicketUpdatesTimeline updates={updates} />
       </section>
 
-      {status === "ready_for_review" && (
+      {status === "ready_for_review" && latest && (
         <ReviewActions
           ticketId={ticket.id}
-          deliverables={deliverables
+          version={latest.version}
+          deliverables={latest.items
             .filter((d) => IMAGE_RE.test(d.fileName))
             .map((d) => ({
               id: d.id,

@@ -20,6 +20,8 @@ export interface DesignDeliveryEmailInput {
   ticketNumber: number;
   designType: string;
   links: Array<{ fileName: string; url: string }>;
+  /** Delivery round; anything past the first is a revision the client asked for. */
+  version: number;
   ticketUrl: string;
 }
 
@@ -119,26 +121,28 @@ export function designDeliveryEmail(i: DesignDeliveryEmailInput): BuiltEmail {
         )}</a></li>`,
     )
     .join("");
+  const isRevision = i.version > 1;
+  const heading = isRevision
+    ? `Revision v${i.version} is ready — ${formatTicketNumber(i.ticketNumber)}`
+    : `Your design is ready — ${formatTicketNumber(i.ticketNumber)}`;
+  const lead = isRevision
+    ? `The revised version of your ${escapeHtml(i.designType)} (v${i.version}) is ready to review. Download links are valid for 7 days:`
+    : `Your ${escapeHtml(i.designType)} is ready. Download links are valid for 7 days:`;
   const html = shell(
-    `Your design is ready — ${formatTicketNumber(i.ticketNumber)}`,
-    `<p style="font-size:13px">Your ${escapeHtml(
-      i.designType,
-    )} is ready. Download links are valid for 7 days:</p>
+    heading,
+    `<p style="font-size:13px">${lead}</p>
     <ul style="padding-left:18px">${items}</ul>
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View in your dashboard →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">Review it in your dashboard →</a></p>`,
   );
-  return {
-    subject: `Your design is ready — ${formatTicketNumber(i.ticketNumber)}`,
-    html,
-  };
+  return { subject: heading, html };
 }
 
 export const STATUS_LABELS = {
   submitted: "Submitted",
   assigned: "Assigned",
   in_progress: "In progress",
-  ready_for_review: "Ready for review",
-  delivered: "Delivered",
+  ready_for_review: "Delivered — your review",
+  delivered: "Approved",
   revision_requested: "Revision requested",
 } as const;
 
@@ -230,6 +234,42 @@ export function ticketReviewTeamEmail(
     subject: `${subjectVerb} — ${formatTicketNumber(i.ticketNumber)}`,
     html,
   };
+}
+
+export interface TicketReviewClientEmailInput {
+  ticketNumber: number;
+  designType: string;
+  action: "approve" | "revise";
+  note: string | null;
+  version: number | null;
+  ticketUrl: string;
+}
+
+/** Receipt sent to the client confirming their own verdict on a delivery. */
+export function ticketReviewClientEmail(
+  i: TicketReviewClientEmailInput,
+): BuiltEmail {
+  const versionLabel = i.version ? ` (v${i.version})` : "";
+  const approved = i.action === "approve";
+  const heading = approved
+    ? `Design approved — ${formatTicketNumber(i.ticketNumber)}`
+    : `Revision requested — ${formatTicketNumber(i.ticketNumber)}`;
+  const body = approved
+    ? `<p style="font-size:13px">Thanks — you marked your <strong>${escapeHtml(
+        i.designType,
+      )}</strong>${versionLabel} as satisfied, so this request is now closed and your files are ready to download.</p>`
+    : `<p style="font-size:13px">We've sent your revision request for the <strong>${escapeHtml(
+        i.designType,
+      )}</strong>${versionLabel} to the design team. They'll upload a new version for you to review.</p>
+    <table style="border-collapse:collapse;width:100%">${
+      i.note ? row("What you asked for", escapeHtml(i.note)) : ""
+    }</table>`;
+  const html = shell(
+    heading,
+    `${body}
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View your request →</a></p>`,
+  );
+  return { subject: heading, html };
 }
 
 export interface RoleChangeEmailInput {

@@ -11,6 +11,7 @@ import {
   roleChangeEmail,
   STATUS_LABELS,
   ticketProgressEmail,
+  ticketReviewClientEmail,
   ticketReviewTeamEmail,
   ticketStatusEmail,
   welcomeEmail,
@@ -78,6 +79,7 @@ describe("designDeliveryEmail", () => {
       { fileName: "slide-1.png", url: "https://r2.test/a?sig=1" },
       { fileName: "slide-2.png", url: "https://r2.test/b?sig=2" },
     ],
+    version: 1,
     ticketUrl: "https://app.test/design-request/abc",
   };
   it("lists every deliverable as a download link", () => {
@@ -87,6 +89,58 @@ describe("designDeliveryEmail", () => {
     expect(html).toContain("https://r2.test/a?sig=1");
     expect(html).toContain("slide-2.png");
     expect(html).toContain("https://r2.test/b?sig=2");
+  });
+
+  it("announces a first delivery without version noise", () => {
+    const { subject } = designDeliveryEmail(input);
+    expect(subject).toContain("Your design is ready");
+    expect(subject).not.toContain("v1");
+  });
+
+  it("frames a later round as the revision the client asked for", () => {
+    const { subject, html } = designDeliveryEmail({ ...input, version: 3 });
+    expect(subject).toContain("Revision v3 is ready");
+    expect(html).toContain("v3");
+  });
+});
+
+describe("ticketReviewClientEmail", () => {
+  const base = {
+    ticketNumber: 124,
+    designType: "Flyer",
+    version: 2,
+    ticketUrl: "https://app.test/design-request/abc",
+  };
+
+  it("confirms an approval and says the request is closed", () => {
+    const { subject, html } = ticketReviewClientEmail({
+      ...base,
+      action: "approve",
+      note: null,
+    });
+    expect(subject).toContain("Design approved");
+    expect(html).toContain("closed");
+    expect(html).toContain("v2");
+  });
+
+  it("echoes the revision note back to the client", () => {
+    const { subject, html } = ticketReviewClientEmail({
+      ...base,
+      action: "revise",
+      note: "Make the logo bigger",
+    });
+    expect(subject).toContain("Revision requested");
+    expect(html).toContain("Make the logo bigger");
+  });
+
+  it("escapes html in the note", () => {
+    const { html } = ticketReviewClientEmail({
+      ...base,
+      action: "revise",
+      note: "<script>alert(1)</script>",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
   });
 });
 
@@ -98,8 +152,8 @@ describe("ticketStatusEmail", () => {
       status: "ready_for_review",
       ticketUrl: "https://app/design-request/42",
     });
-    expect(subject).toContain("Ready for review");
-    expect(html).toContain("Ready for review");
+    expect(subject).toContain("Delivered — your review");
+    expect(html).toContain("Delivered — your review");
     expect(html).toContain("&lt;b&gt;Flyer&lt;/b&gt;");
     expect(html).toContain("https://app/design-request/42");
     expect(html).not.toContain("ready_for_review");

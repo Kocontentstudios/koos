@@ -7,6 +7,7 @@ import {
   humanizeStatus,
   isCarouselType,
   matchesTicketFilter,
+  needsClientReview,
   priorityEta,
   priorityRank,
 } from "./tickets-ui";
@@ -37,18 +38,37 @@ describe("matchesTicketFilter", () => {
     expect(matchesTicketFilter("assigned", "submitted")).toBe(false);
   });
 
-  it("'in_progress' groups assigned/in_progress/ready_for_review/revision_requested", () => {
+  it("'in_progress' groups assigned/in_progress/revision_requested", () => {
     expect(matchesTicketFilter("assigned", "in_progress")).toBe(true);
     expect(matchesTicketFilter("in_progress", "in_progress")).toBe(true);
-    expect(matchesTicketFilter("ready_for_review", "in_progress")).toBe(true);
     expect(matchesTicketFilter("revision_requested", "in_progress")).toBe(true);
     expect(matchesTicketFilter("submitted", "in_progress")).toBe(false);
     expect(matchesTicketFilter("delivered", "in_progress")).toBe(false);
   });
 
+  // A design awaiting the client's verdict is not the studio working — it's the
+  // client holding the ball, so it gets its own tab rather than hiding in one.
+  it("'needs_review' claims ready_for_review out of the in_progress bucket", () => {
+    expect(matchesTicketFilter("ready_for_review", "needs_review")).toBe(true);
+    expect(matchesTicketFilter("ready_for_review", "in_progress")).toBe(false);
+    expect(matchesTicketFilter("revision_requested", "needs_review")).toBe(
+      false,
+    );
+    expect(matchesTicketFilter("delivered", "needs_review")).toBe(false);
+  });
+
   it("'delivered' only matches delivered", () => {
     expect(matchesTicketFilter("delivered", "delivered")).toBe(true);
     expect(matchesTicketFilter("ready_for_review", "delivered")).toBe(false);
+  });
+});
+
+describe("needsClientReview", () => {
+  it("is true only while a delivery is awaiting the client's verdict", () => {
+    expect(needsClientReview("ready_for_review")).toBe(true);
+    expect(needsClientReview("revision_requested")).toBe(false);
+    expect(needsClientReview("delivered")).toBe(false);
+    expect(needsClientReview("in_progress")).toBe(false);
   });
 });
 
@@ -149,8 +169,8 @@ describe("formatNotificationMessage — ticket_status", () => {
 describe("humanizeStatus", () => {
   it("maps statuses to client-facing labels", () => {
     expect(humanizeStatus("draft")).toBe("Draft");
-    expect(humanizeStatus("ready_for_review")).toBe("Client Review");
-    expect(humanizeStatus("delivered")).toBe("Completed");
+    expect(humanizeStatus("ready_for_review")).toBe("Delivered — Your Review");
+    expect(humanizeStatus("delivered")).toBe("Approved");
     expect(humanizeStatus("revision_requested")).toBe("Revision Requested");
   });
 });

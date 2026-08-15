@@ -2,15 +2,26 @@ import { getAuthUser } from "@/lib/auth/get-user";
 import {
   type AnnotationShape,
   addAnnotation,
+  applyClientReview,
   checkBrandAccess,
-  createNotification,
   getDeliverables,
   getDesignTicketById,
   getStaffUsers,
+  getUserById,
   updateCalendarItemStatus,
-  updateDesignTicket,
 } from "@/lib/db/queries";
-import { appUrl, sendTicketReviewTeamEmail } from "@/lib/design/notify";
+import {
+  appUrl,
+  sendTicketReviewClientEmail,
+  sendTicketReviewTeamEmail,
+} from "@/lib/design/notify";
+import {
+  canRequestRevision,
+  groupDeliverablesByVersion,
+  MAX_DELIVERY_ROUNDS,
+} from "@/lib/design/ticket";
+
+const MAX_NOTE_LENGTH = 2000;
 
 type ReviewAnnotationInput = {
   deliverableId: string;
@@ -43,32 +54,31 @@ function filterValidShapes(shapes: unknown): AnnotationShape[] {
   return shapes.filter(isValidAnnotationShape);
 }
 
-// Deliverables must belong to the ticket being reviewed, otherwise a caller
-// could smuggle an annotation onto another ticket's deliverable.
-async function persistReviewAnnotations(
-  ticketId: string,
-  authorId: string,
+// Annotations are only meaningful against the round being reviewed. Scoping to
+// the latest version's ids stops a page left open from an earlier round (or a
+// hand-rolled request) attaching this round's feedback to superseded artwork,
+// where it would render under the wrong round on the admin page.
+function annotationsForLatestVersion(
   annotations: ReviewAnnotationInput[] | undefined,
-) {
-  if (!annotations || annotations.length === 0) return;
-  try {
-    const deliverables = await getDeliverables(ticketId);
-    const validDeliverableIds = new Set(deliverables.map((d) => d.id));
-    for (const annotation of annotations) {
-      if (!validDeliverableIds.has(annotation.deliverableId)) continue;
-      const shapes = filterValidShapes(annotation.shapes);
-      if (shapes.length === 0) continue;
-      await addAnnotation({
-        ticketId,
-        deliverableId: annotation.deliverableId,
-        authorId,
-        shapes,
-        note: annotation.note,
-      });
-    }
-  } catch (err) {
-    console.error("review: annotation persistence failed", { ticketId, err });
+  latestDeliverableIds: Set<string>,
+): { deliverableId: string; shapes: AnnotationShape[]; note?: string }[] {
+  if (!annotations) return [];
+  const valid: {
+    deliverableId: string;
+    shapes: AnnotationShape[];
+    note?: string;
+  }[] = [];
+  for (const annotation of annotations) {
+    if (!latestDeliverableIds.has(annotation.deliverableId)) continue;
+    const shapes = filterValidShapes(annotation.shapes);
+    if (shapes.length === 0) continue;
+    valid.push({
+      deliverableId: annotation.deliverableId,
+      shapes,
+      note: annotation.note,
+    });
   }
+  return valid;
 }
 
 export async function POST(
@@ -92,6 +102,11 @@ export async function POST(
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 
+  if (body.action !== "approve" && body.action !== "revise") {
+    return Response.json({ error: "Unknown action" }, { status: 400 });
+  }
+  const action = body.action;
+
   const ticket = await getDesignTicketById(id);
   if (!ticket) {
     return Response.json({ error: "Ticket not found" }, { status: 404 });
@@ -108,65 +123,118 @@ export async function POST(
     );
   }
 
-  const u = dbUser;
-  async function notifyTeamOfReview(
-    action: "approve" | "revise",
-    note: string | null,
-  ) {
-    try {
-      await sendTicketReviewTeamEmail({
+  const note = body.note?.trim() || null;
+  if (note && note.length > MAX_NOTE_LENGTH) {
+    return Response.json(
+      { error: `Keep your note under ${MAX_NOTE_LENGTH} characters.` },
+      { status: 400 },
+    );
+  }
+
+  const deliverables = await getDeliverables(id);
+  const latest = groupDeliverablesByVersion(deliverables)[0] ?? null;
+  const validAnnotations =
+    action === "revise"
+      ? annotationsForLatestVersion(
+          body.annotations,
+          new Set(latest?.items.map((d) => d.id) ?? []),
+        )
+      : [];
+
+  // A revision with neither a note nor markup tells the designer nothing.
+  if (action === "revise" && !note && validAnnotations.length === 0) {
+    return Response.json(
+      { error: "Tell the designer what needs changing." },
+      { status: 400 },
+    );
+  }
+
+  if (action === "revise" && !canRequestRevision(latest?.version ?? null)) {
+    return Response.json(
+      {
+        error: `This design has had all ${MAX_DELIVERY_ROUNDS} rounds. Mark it satisfied or contact the design team.`,
+      },
+      { status: 409 },
+    );
+  }
+
+  const staff = await getStaffUsers().catch((err) => {
+    console.error("review: staff lookup failed", { ticketId: id, err });
+    return [];
+  });
+
+  const result = await applyClientReview({
+    ticketId: id,
+    authorId: dbUser.id,
+    action,
+    note,
+    version: latest?.version ?? null,
+    staffIds: staff.map((s) => s.id),
+    ticketNumber: ticket.ticketNumber,
+  });
+  if (!result) {
+    return Response.json(
+      { error: "This design isn't awaiting review." },
+      { status: 409 },
+    );
+  }
+
+  if (action === "revise") {
+    for (const annotation of validAnnotations) {
+      try {
+        await addAnnotation({
+          ticketId: id,
+          authorId: dbUser.id,
+          ...annotation,
+        });
+      } catch (err) {
+        console.error("review: annotation persistence failed", {
+          ticketId: id,
+          err,
+        });
+      }
+    }
+  }
+
+  if (action === "approve" && ticket.calendarItemId) {
+    await updateCalendarItemStatus(ticket.calendarItemId, "ready");
+  }
+
+  const requesterName = `${dbUser.firstName} ${dbUser.lastName}`.trim();
+  try {
+    await sendTicketReviewTeamEmail({
+      ticketNumber: ticket.ticketNumber,
+      designType: ticket.designType,
+      action,
+      note,
+      requesterName,
+      requesterEmail: dbUser.email,
+      adminUrl: appUrl(`/admin/tickets/${id}`),
+    });
+  } catch (err) {
+    console.error("review: team email failed", { ticketId: id, err });
+  }
+
+  try {
+    const owner = await getUserById(ticket.userId);
+    const confirmTo = ticket.deliveryEmail || owner?.email || dbUser.email;
+    await sendTicketReviewClientEmail({
+      to: confirmTo,
+      input: {
         ticketNumber: ticket.ticketNumber,
         designType: ticket.designType,
         action,
         note,
-        requesterName: `${u.firstName} ${u.lastName}`.trim(),
-        requesterEmail: u.email,
-        adminUrl: appUrl(`/admin/tickets/${id}`),
-      });
-    } catch (err) {
-      console.error("review: team email failed", { ticketId: id, err });
-    }
-  }
-
-  if (body.action === "approve") {
-    const updated = await updateDesignTicket(id, { status: "delivered" });
-    if (ticket.calendarItemId) {
-      await updateCalendarItemStatus(ticket.calendarItemId, "ready");
-    }
-    await notifyTeamOfReview("approve", null);
-    return Response.json({ ticket: updated });
-  }
-
-  if (body.action === "revise") {
-    const note = body.note?.trim();
-    const updated = await updateDesignTicket(id, {
-      status: "revision_requested",
-      notes: note
-        ? `${ticket.notes ? `${ticket.notes}\n\n` : ""}Revision: ${note}`
-        : ticket.notes,
+        version: latest?.version ?? null,
+        ticketUrl: appUrl(`/design-request/${id}`),
+      },
     });
-    await persistReviewAnnotations(id, dbUser.id, body.annotations);
-    await notifyTeamOfReview("revise", note ?? null);
-    try {
-      const staff = await getStaffUsers();
-      await Promise.allSettled(
-        staff.map((s) =>
-          createNotification({
-            userId: s.id,
-            type: "ticket_status",
-            payload: {
-              ticketId: id,
-              ticketNumber: ticket.ticketNumber,
-              status: "revision_requested",
-            },
-          }),
-        ),
-      );
-    } catch (err) {
-      console.error("revise: in-app notify failed", { ticketId: id, err });
-    }
-    return Response.json({ ticket: updated });
+  } catch (err) {
+    console.error("review: client confirmation email failed", {
+      ticketId: id,
+      err,
+    });
   }
 
-  return Response.json({ error: "Unknown action" }, { status: 400 });
+  return Response.json({ ticket: result.ticket });
 }

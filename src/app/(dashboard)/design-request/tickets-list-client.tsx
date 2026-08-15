@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import {
   matchesTicketFilter,
+  needsClientReview,
   TICKET_FILTERS,
   type TicketStatus,
   ticketFilterLabel,
@@ -46,25 +47,42 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
     [tickets, filter],
   );
 
+  const awaitingReviewCount = useMemo(
+    () => tickets.filter((t) => needsClientReview(t.status)).length,
+    [tickets],
+  );
+
   return (
     <div className="flex flex-col gap-4">
       {/* Filter tabs — bare text buttons per template (design-tickets.html) */}
       <div className="flex flex-wrap gap-2">
         {TICKET_FILTERS.map((f) => {
           const active = f === filter;
+          const badgeCount = f === "needs_review" ? awaitingReviewCount : 0;
           return (
             <button
               key={f}
               type="button"
               onClick={() => setFilter(f)}
               className={cn(
-                "rounded-lg px-4 py-2 text-[13px] font-medium transition-colors",
+                "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors",
                 active
                   ? "bg-surface-2 text-foreground"
                   : "text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground",
               )}
             >
               {ticketFilterLabel(f)}
+              {badgeCount > 0 && (
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-[var(--status-ready-fg)]"
+                  style={{
+                    background:
+                      "color-mix(in srgb, var(--status-ready-fg) 16%, transparent)",
+                  }}
+                >
+                  {badgeCount}
+                </span>
+              )}
             </button>
           );
         })}
@@ -80,6 +98,7 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
             const title = t.title ?? t.itemTitle ?? t.designType;
             const delivered = t.status === "delivered";
             const isDraft = t.status === "draft";
+            const awaitingReview = needsClientReview(t.status);
             return (
               <li key={t.id}>
                 <Link
@@ -88,7 +107,12 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
                       ? `/design-request/new?draft=${t.id}`
                       : `/design-request/${t.id}`
                   }
-                  className="flex items-start justify-between gap-3 rounded-xl border border-[var(--border)] bg-surface-1 p-5 transition-colors hover:border-[var(--border-accent)] hover:bg-surface-2"
+                  className={cn(
+                    "flex items-start justify-between gap-3 rounded-xl border bg-surface-1 p-5 transition-colors hover:border-[var(--border-accent)] hover:bg-surface-2",
+                    awaitingReview
+                      ? "border-[var(--status-ready-fg)]"
+                      : "border-[var(--border)]",
+                  )}
                 >
                   {/* Left region: id → title → campaign → meta */}
                   <div className="min-w-0 flex-1">
