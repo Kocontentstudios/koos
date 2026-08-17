@@ -59,6 +59,14 @@ const KEY_ENV = {
   "openai-compatible": "AI_COMPATIBLE_API_KEY",
 };
 
+function isVertexConfigured() {
+  return Boolean(
+    process.env.GOOGLE_VERTEX_PROJECT &&
+      process.env.GOOGLE_CLIENT_EMAIL &&
+      process.env.GOOGLE_PRIVATE_KEY,
+  );
+}
+
 function resolveProvider(feature) {
   const F = feature.toUpperCase();
   const global = process.env.AI_PROVIDER || "google";
@@ -134,6 +142,23 @@ async function pingProvider(provider) {
       return { status: "fail", detail: `missing ${missing.join(", ")}` };
     }
     return { status: "ok", detail: "AWS credentials present (ping skipped)" };
+  }
+
+  // Google has two credential shapes. Vertex is preferred because only that
+  // surface draws the Google Cloud trial credit, and it uses a service account
+  // rather than an API key, so there is no key to ping.
+  if (provider === "google" && isVertexConfigured()) {
+    const location = process.env.GOOGLE_VERTEX_LOCATION || "global";
+    if (location !== "global") {
+      return {
+        status: "warn",
+        detail: `Vertex location "${location}" — the Gemini 3 line only serves from "global"`,
+      };
+    }
+    return {
+      status: "ok",
+      detail: `Vertex service account on ${process.env.GOOGLE_VERTEX_PROJECT} (ping skipped)`,
+    };
   }
 
   const key = process.env[KEY_ENV[provider]];

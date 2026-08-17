@@ -1,9 +1,9 @@
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
+import { googleLanguageModel } from "./google-transport";
 import { type AiFeature, resolveProviderConfig } from "./provider-config";
 
 const ZAI_BASE_URL = "https://api.z.ai/api/paas/v4";
@@ -38,9 +38,7 @@ export function getModel(feature: AiFeature): LanguageModel {
         model,
       );
     case "google":
-      return createGoogleGenerativeAI({
-        apiKey: requireEnv("GOOGLE_GENERATIVE_AI_API_KEY"),
-      })(model);
+      return googleLanguageModel(model);
     case "zai":
       return createOpenAICompatible({
         name: "zai",
