@@ -15,13 +15,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import sharp from "sharp";
 import {
   DESIGN_EVAL_CASES,
   EVAL_THRESHOLDS,
   expectedPixelRatio,
   RATIO_TOLERANCE,
 } from "./cases";
+import { looksBlank, readPngSize } from "./png";
 
 const args = process.argv.slice(2);
 const only = args.includes("--case") ? args[args.indexOf("--case") + 1] : null;
@@ -76,14 +76,13 @@ for (const testCase of cases) {
     const file = join(outDir, `${testCase.id}.png`);
     writeFileSync(file, image.bytes);
 
-    const meta = await sharp(image.bytes).metadata();
-    const stats = await sharp(image.bytes).stats();
-    const ratio = (meta.width ?? 0) / (meta.height ?? 1);
+    const size = readPngSize(image.bytes);
+    const ratio = size ? size.width / size.height : 0;
     const want = expectedPixelRatio(testCase.aspectRatio);
     const ratioOk = Math.abs(ratio - want) <= RATIO_TOLERANCE;
-    // A frame with no variation is a rendering failure that still returns 200.
-    const notBlank = stats.channels.some((c) => c.stdev > 2);
-    const structural = ratioOk && notBlank && (meta.width ?? 0) > 0;
+    // A flat frame is a rendering failure that still returns HTTP 200.
+    const notBlank = size ? !looksBlank(image.bytes, size) : false;
+    const structural = Boolean(size) && ratioOk && notBlank;
 
     const verdict = await judgeImage(file, testCase.expectedText);
     const legible =
@@ -92,7 +91,7 @@ for (const testCase of cases) {
         : verdict.legible && verdict.spelledCorrectly;
 
     const detail = [
-      `${meta.width}x${meta.height}`,
+      size ? `${size.width}x${size.height}` : `unreadable ${image.contentType}`,
       `ratio ${ratio.toFixed(3)} want ${want.toFixed(3)}${ratioOk ? "" : " MISMATCH"}`,
       notBlank ? "" : "BLANK",
       testCase.expectedText === null
