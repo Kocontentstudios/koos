@@ -1,21 +1,33 @@
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateImage } from "ai";
+import {
+  activeGoogleTransport,
+  type GoogleEnv,
+  googleImageModel,
+  isGoogleConfigured,
+} from "../../google-transport";
 import {
   type GeneratedImage,
   type ImageAdapter,
-  type ImageEnv,
   type ImageGenerationInput,
   toGoogleAspectRatio,
 } from "../types";
 
-const DEFAULT_MODEL = "gemini-3-pro-image-preview";
+/** The GA id. `gemini-3-pro-image-preview` was shut down on Vertex on
+ * 2026-06-25 and 404s there; the GA id serves on both surfaces. */
+const DEFAULT_MODEL = "gemini-3-pro-image";
 
-export function isGoogleConfigured(env: ImageEnv = process.env): boolean {
-  return Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
-}
+export { isGoogleConfigured };
 
 function resolveModel(): string {
   return process.env.AI_DESIGN_GOOGLE_MODEL || DEFAULT_MODEL;
+}
+
+/** Surfaced in the UI so a reviewer can tell which transport rendered a
+ * variant — the two bill to different places. */
+function resolveLabel(env: GoogleEnv = process.env): string {
+  return activeGoogleTransport(env) === "vertex"
+    ? "Nano Banana Pro (Vertex)"
+    : "Nano Banana Pro";
 }
 
 async function generate({
@@ -23,11 +35,8 @@ async function generate({
   aspectRatio = "1:1",
   referenceImages,
 }: ImageGenerationInput): Promise<GeneratedImage> {
-  const google = createGoogleGenerativeAI({
-    apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-  });
   const { image } = await generateImage({
-    model: google.image(resolveModel()),
+    model: googleImageModel(resolveModel()),
     prompt: referenceImages?.length
       ? { images: referenceImages.map((r) => r.bytes), text: prompt }
       : prompt,
@@ -41,7 +50,9 @@ async function generate({
 
 export const googleAdapter: ImageAdapter = {
   id: "google",
-  label: "Nano Banana Pro",
+  get label() {
+    return resolveLabel();
+  },
   get model() {
     return resolveModel();
   },

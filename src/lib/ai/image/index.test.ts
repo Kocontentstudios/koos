@@ -31,6 +31,33 @@ describe("resolveDesignProviders", () => {
   });
 });
 
+describe("Vertex credentials register the Google adapter", () => {
+  const VERTEX = {
+    GOOGLE_VERTEX_PROJECT: "koos-design",
+    GOOGLE_CLIENT_EMAIL: "vercel-vertex@koos-design.iam.gserviceaccount.com",
+    GOOGLE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END",
+  };
+
+  it("configures Google without an AI Studio key present", () => {
+    expect(resolveDesignProviders(VERTEX).map((a) => a.id)).toEqual(["google"]);
+  });
+
+  // The registry is additive: one variant is rendered per configured adapter.
+  // Vertex must switch the existing adapter's transport rather than register a
+  // second id, or every design job would render — and bill — an extra image.
+  it("does not add a second variant when both credential shapes are set", () => {
+    const ids = resolveDesignProviders({
+      ...VERTEX,
+      GOOGLE_GENERATIVE_AI_API_KEY: "g",
+    }).map((a) => a.id);
+    expect(ids).toEqual(["google"]);
+  });
+
+  it("still renders plates when Google is the only configured provider", () => {
+    expect(getPlateAdapter(VERTEX)?.id).toBe("google");
+  });
+});
+
 describe("getNativeAdapters", () => {
   it("excludes the plate model, which cannot render text", () => {
     expect(getNativeAdapters(BEDROCK)).toEqual([]);
