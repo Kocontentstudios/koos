@@ -15,7 +15,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval:design": "tsx src/lib/ai/image/eval/run.mts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "4.0.145",
