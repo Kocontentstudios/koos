@@ -3,22 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
 import { Suspense, useEffect } from "react";
-
-const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
-
-let initialized = false;
-
-function ensureInit() {
-  if (initialized || !KEY) return;
-  posthog.init(KEY, {
-    api_host: HOST,
-    // App-router SPA: we capture pageviews manually on route changes.
-    capture_pageview: false,
-    capture_pageleave: true,
-  });
-  initialized = true;
-}
+import { ensureInit, isAnalyticsEnabled } from "@/lib/analytics/posthog-client";
 
 /** Captures a $pageview on every app-router navigation. */
 function PageviewTracker() {
@@ -26,8 +11,8 @@ function PageviewTracker() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!KEY || !pathname) return;
-    ensureInit();
+    if (!pathname) return;
+    if (!ensureInit()) return;
     let url = window.origin + pathname;
     const qs = searchParams.toString();
     if (qs) url += `?${qs}`;
@@ -41,9 +26,12 @@ function PageviewTracker() {
  * Client-side PostHog. Renders nothing and does nothing unless
  * NEXT_PUBLIC_POSTHOG_KEY is set. useSearchParams requires a Suspense
  * boundary so static rendering isn't forced dynamic.
+ *
+ * Identity is handled separately by PostHogIdentify, which needs a session
+ * and so mounts from the authenticated layouts rather than the root.
  */
 export function PostHogProvider() {
-  if (!KEY) return null;
+  if (!isAnalyticsEnabled()) return null;
   return (
     <Suspense fallback={null}>
       <PageviewTracker />
