@@ -1355,6 +1355,7 @@ export async function updateAppSettings(data: {
   return row;
 }
 
+export * from "./analytics";
 export * from "./workspaces";
 
 // ── Brand memory ────────────────────────────────────────────────────
