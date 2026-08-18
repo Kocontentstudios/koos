@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
+import { StatCard } from "@/app/admin/stat-card";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   getDesignerLoads,
@@ -18,19 +19,6 @@ const OPEN_STATUSES = new Set<string>([
   "ready_for_review",
   "revision_requested",
 ]);
-
-function StatCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-surface-1 p-4">
-      <p className="text-[12px] uppercase tracking-widest text-[var(--text-muted)]">
-        {label}
-      </p>
-      <p className="mt-1 font-display text-2xl font-bold text-foreground">
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
