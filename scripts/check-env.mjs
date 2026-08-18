@@ -5,6 +5,7 @@
  *   - Database     : connectivity + schema initialized
  *   - AI provider  : the configured provider's API key is present and valid
  *   - Cloudflare R2 : credentials present + bucket reachable (HeadBucket)
+ *   - Public env   : no NEXT_PUBLIC_* variable set that the code never reads
  * Google OAuth is checked as a WARNING (presence only) — sign-in still works
  * with email/password if it's absent.
  *
@@ -13,9 +14,16 @@
  * Escape hatches (use sparingly, e.g. offline CI):
  *   SKIP_PREFLIGHT=1   bypass everything
  *   SKIP_DB_CHECK=1    SKIP_AI_CHECK=1   SKIP_R2_CHECK=1   AI_SKIP_PING=1
+ *   SKIP_PUBLIC_ENV_CHECK=1
  */
 
 import postgres from "postgres";
+import {
+  describeOrphan,
+  findMissing,
+  findOrphans,
+  readReferencedNames,
+} from "./public-env-guard.mjs";
 
 const C = {
   reset: "\x1b[0m",
@@ -58,6 +66,14 @@ const KEY_ENV = {
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
   "openai-compatible": "AI_COMPATIBLE_API_KEY",
 };
+
+function isVertexConfigured() {
+  return Boolean(
+    process.env.GOOGLE_VERTEX_PROJECT &&
+      process.env.GOOGLE_CLIENT_EMAIL &&
+      process.env.GOOGLE_PRIVATE_KEY,
+  );
+}
 
 function resolveProvider(feature) {
   const F = feature.toUpperCase();
@@ -134,6 +150,23 @@ async function pingProvider(provider) {
       return { status: "fail", detail: `missing ${missing.join(", ")}` };
     }
     return { status: "ok", detail: "AWS credentials present (ping skipped)" };
+  }
+
+  // Google has two credential shapes. Vertex is preferred because only that
+  // surface draws the Google Cloud trial credit, and it uses a service account
+  // rather than an API key, so there is no key to ping.
+  if (provider === "google" && isVertexConfigured()) {
+    const location = process.env.GOOGLE_VERTEX_LOCATION || "global";
+    if (location !== "global") {
+      return {
+        status: "warn",
+        detail: `Vertex location "${location}" — the Gemini 3 line only serves from "global"`,
+      };
+    }
+    return {
+      status: "ok",
+      detail: `Vertex service account on ${process.env.GOOGLE_VERTEX_PROJECT} (ping skipped)`,
+    };
   }
 
   const key = process.env[KEY_ENV[provider]];
@@ -294,9 +327,55 @@ function checkSmtp() {
   ok("SMTP: Zoho credentials present (auth not verified at build time).");
 }
 
+// ── Public env (NEXT_PUBLIC_*) ───────────────────────────────────────
+
+/* Every NEXT_PUBLIC_* reader in this app degrades to a silent no-op when its
+   variable is missing, so a misspelled name deploys green and collects
+   nothing. NEXT_PUBLIC_POSTHOG_PROJECT_KEY did exactly that in production. */
+async function checkPublicEnv() {
+  if (process.env.SKIP_PUBLIC_ENV_CHECK === "1") {
+    return warn("Public env check skipped.");
+  }
+
+  const referenced = await readReferencedNames(["src", "next.config.ts"]);
+
+  // An empty scan means the walk failed (wrong cwd), not that the app reads
+  // nothing. Failing here would brick every deploy, so degrade to a warning.
+  if (referenced.size === 0) {
+    return warn(
+      "Public env: found no NEXT_PUBLIC_* references in src/ — " +
+        "scan skipped rather than flagging every variable.",
+    );
+  }
+
+  const provided = new Set(Object.keys(process.env));
+
+  for (const name of findMissing({
+    referenced,
+    provided,
+    isProduction: process.env.VERCEL_ENV === "production",
+  })) {
+    warn(`Public env: ${name} is read by the app but unset in production.`);
+  }
+
+  const orphans = findOrphans({ referenced, provided });
+
+  if (!orphans.length) {
+    return ok(
+      `Public env: ${referenced.size} NEXT_PUBLIC_* variables, no orphans.`,
+    );
+  }
+
+  for (const orphan of orphans) {
+    bad(`Public env: ${describeOrphan(orphan, referenced)}`);
+  }
+  failures.push("public-env");
+}
+
 // ── run ──────────────────────────────────────────────────────────────
 
 console.log("Running deploy preflight…\n");
+await checkPublicEnv();
 await checkDb();
 await checkAi();
 await checkR2();

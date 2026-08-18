@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PostHogIdentify } from "@/components/analytics/posthog-identify";
 import { requireRole } from "@/lib/auth/require-role";
 
 export default async function AdminLayout({
@@ -11,6 +12,7 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      <PostHogIdentify userId={dbUser.id} />
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-background/80 px-6 backdrop-blur-xl">
         <div className="flex items-center gap-6">
           <Link
@@ -28,6 +30,9 @@ export default async function AdminLayout({
             </Link>
             {isAdmin && (
               <>
+                <Link href="/admin/analytics" className="hover:text-foreground">
+                  Analytics
+                </Link>
                 <Link href="/admin/brands" className="hover:text-foreground">
                   Brands
                 </Link>

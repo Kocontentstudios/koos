@@ -1,3 +1,4 @@
+import { PostHogIdentify } from "@/components/analytics/posthog-identify";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { GenerationWatcher } from "@/components/layout/generation-watcher";
 import { VerifyEmailBanner } from "@/components/layout/verify-email-banner";
@@ -41,6 +42,7 @@ export default async function DashboardLayout({
         role: m.role,
       }))}
     >
+      <PostHogIdentify userId={dbUser.id} />
       <GenerationWatcher />
       {!dbUser.emailVerifiedAt && <VerifyEmailBanner />}
       {children}
