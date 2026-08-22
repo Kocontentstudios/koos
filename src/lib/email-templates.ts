@@ -362,6 +362,7 @@ export interface WorkspaceInviteEmailInput {
   inviterName: string;
   workspaceName: string;
   acceptUrl: string;
+  roleLabel: string;
   expiresInDays: number;
 }
 
@@ -373,7 +374,7 @@ export function workspaceInviteEmail(i: WorkspaceInviteEmailInput): BuiltEmail {
       i.inviterName,
     )}</strong> invited you to join the <strong>${escapeHtml(
       i.workspaceName,
-    )}</strong> workspace as a member of their team.</p>
+    )}</strong> workspace as a <strong>${escapeHtml(i.roleLabel)}</strong>.</p>
     <p style="margin:16px 0"><a href="${i.acceptUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Accept invitation</a></p>
     <p style="font-size:12px;color:#6b7280">This invitation expires in ${i.expiresInDays} days. If you weren't expecting it, you can ignore this email.</p>`,
   );

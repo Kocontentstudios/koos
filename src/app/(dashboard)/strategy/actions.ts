@@ -43,10 +43,21 @@ export async function loadStrategy(
   }
 }
 
+/**
+ * Server actions are reachable POST endpoints, so this authorizes exactly
+ * like loadStrategy: resolve the caller's brand first, then refuse any
+ * strategy that isn't theirs. `requireBrand()` stays outside the try/catch
+ * because it signals via a thrown NEXT_REDIRECT.
+ */
 export async function markStrategyActive(
   strategyId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { brand } = await requireBrand();
   try {
+    const row = await getStrategyById(strategyId);
+    if (!row || row.brandId !== brand.id) {
+      return { ok: false, error: "Strategy not found." };
+    }
     await updateStrategy(strategyId, { status: "active" });
     return { ok: true };
   } catch (err) {

@@ -19,6 +19,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const brands = [
+  { id: "b1", name: "Acme" },
+  { id: "b2", name: "Globex" },
+];
+
 const members = [
   {
     userId: "owner-1",
@@ -26,13 +31,17 @@ const members = [
     email: "precious@example.com",
     avatarUrl: null,
     role: "owner" as const,
+    brandScope: "all" as const,
+    assignedBrandIds: [] as string[],
   },
   {
     userId: "member-1",
     name: "Sarah Kim",
     email: "sarah@example.com",
     avatarUrl: null,
-    role: "member" as const,
+    role: "contributor" as const,
+    brandScope: "all" as const,
+    assignedBrandIds: [] as string[],
   },
 ];
 
@@ -40,6 +49,9 @@ const invitations = [
   {
     id: "inv-1",
     email: "james@example.com",
+    role: "contributor" as const,
+    brandScope: "all" as const,
+    assignedBrandIds: [] as string[],
     expiresAt: new Date().toISOString(),
   },
 ];
@@ -51,7 +63,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="member-1"
+        viewerRole="contributor"
+        viewerBrandScope="all"
         canManage={false}
+        canInvite={false}
+        canManageBrandAccess={false}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -87,7 +104,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -114,7 +136,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -147,7 +174,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -172,6 +204,8 @@ describe("TeamClient", () => {
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(init.body as string)).toEqual({
       email: "newperson@example.com",
+      role: "contributor",
+      brandIds: [],
     });
   });
 
@@ -189,7 +223,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -219,7 +258,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -242,5 +286,59 @@ describe("TeamClient", () => {
       "/api/workspace/members/member-1",
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+});
+
+describe("TeamClient — a brand-scoped inviter", () => {
+  const scopedProps = {
+    workspaceName: "KO Content Studio",
+    currentUserId: "bm-1",
+    viewerRole: "brand_manager" as const,
+    viewerBrandScope: "assigned" as const,
+    canManage: false,
+    canInvite: true,
+    canManageBrandAccess: false,
+    brands,
+    members,
+    invitations,
+  };
+
+  it("offers only Contributor, never a peer or a superior", async () => {
+    const user = userEvent.setup();
+    render(<TeamClient {...scopedProps} />);
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    expect(await screen.findByText("Contributor")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace Admin")).not.toBeInTheDocument();
+    expect(screen.queryByText("Brand Manager")).not.toBeInTheDocument();
+  });
+
+  /* Escalation guard, mirrored in the UI: a scoped inviter can never send an
+     unscoped invite, so the brand picker is mandatory and cannot be toggled
+     off the way a workspace-wide admin can. */
+  it("forces the brand picker and hides the opt-out toggle", async () => {
+    const user = userEvent.setup();
+    render(<TeamClient {...scopedProps} />);
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    expect(await screen.findByText("Acme")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/limit to specific brands/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("refuses to send with no brand chosen", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TeamClient {...scopedProps} />);
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    await user.type(
+      await screen.findByLabelText(/email address/i),
+      "new@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: /send invitation/i }));
+    expect(
+      await screen.findByText(/choose at least one brand/i),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

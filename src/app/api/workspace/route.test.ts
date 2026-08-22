@@ -29,7 +29,11 @@ import { POST as SWITCH } from "./switch/route";
 
 const WORKSPACE = { id: "w1", name: "Acme", logoUrl: null };
 const OWNER = { dbUser: { id: "u1" }, workspace: WORKSPACE, role: "owner" };
-const MEMBER = { dbUser: { id: "u2" }, workspace: WORKSPACE, role: "member" };
+const MEMBER = {
+  dbUser: { id: "u2" },
+  workspace: WORKSPACE,
+  role: "contributor",
+};
 const SIGNED_OUT = { dbUser: null, workspace: null, role: null };
 
 function patchReq(body: unknown) {
@@ -44,7 +48,7 @@ describe("GET/PATCH/DELETE /api/workspace validation matrix", () => {
     vi.clearAllMocks();
     getWorkspacesForUser.mockResolvedValue([
       { workspaceId: "w1", role: "owner" },
-      { workspaceId: "w2", role: "member" },
+      { workspaceId: "w2", role: "contributor" },
     ]);
   });
 
@@ -61,7 +65,7 @@ describe("GET/PATCH/DELETE /api/workspace validation matrix", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: { id: "w1", name: "Acme", logoUrl: null },
-      role: "member",
+      role: "contributor",
     });
   });
 
@@ -70,7 +74,7 @@ describe("GET/PATCH/DELETE /api/workspace validation matrix", () => {
     const res = await PATCH(patchReq({ name: "New name" }));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
-      error: "Only the workspace owner can change settings.",
+      error: "You need workspace admin access to change settings.",
     });
     expect(updateWorkspace).not.toHaveBeenCalled();
   });

@@ -1,4 +1,5 @@
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
+import { can } from "@/lib/auth/workspace-access";
 import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import { getInvitationById, rotateInvitationToken } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
@@ -12,9 +13,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const guard = await guardWorkspaceRoute("manage_team");
+  const guard = await guardWorkspaceRoute([
+    "manage_team",
+    "invite_contributor",
+  ]);
   if ("response" in guard) return guard.response;
-  const { dbUser, workspace } = guard.ctx;
+  const { dbUser, workspace, role } = guard.ctx;
   const unverified = requireVerifiedEmail(dbUser);
   if (unverified) return unverified;
 
@@ -24,6 +28,20 @@ export async function POST(
     windowSeconds: 3600,
   });
   if (!verdict.ok) return tooManyRequests(verdict);
+
+  /* Someone who can invite but not manage the team (a brand manager) may act
+     only on invitations they sent themselves — otherwise they could resend,
+     and so silently re-open, an admin's invitation. */
+  if (!can(role, "manage_team")) {
+    const invitation = await getInvitationById(id);
+    if (
+      !invitation ||
+      invitation.workspaceId !== workspace.id ||
+      invitation.invitedById !== dbUser.id
+    ) {
+      return Response.json({ error: "Invitation not found" }, { status: 404 });
+    }
+  }
 
   try {
     const result = await resendInvitation(
@@ -37,6 +55,7 @@ export async function POST(
               inviterName: args.inviterName,
               workspaceName: args.workspaceName,
               acceptUrl: args.acceptUrl,
+              roleLabel: args.roleLabel,
               expiresInDays: 7,
             },
           }),

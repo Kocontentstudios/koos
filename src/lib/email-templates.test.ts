@@ -272,7 +272,12 @@ describe("workspaceInviteEmail", () => {
     inviterName: "Seyi <Owner>",
     workspaceName: "KO Content Studio",
     acceptUrl: "https://app/invite/RAWTOKEN",
+    roleLabel: "Brand Manager",
     expiresInDays: 7,
+  });
+
+  it("names the role the invitee will hold", () => {
+    expect(built.html).toContain("Brand Manager");
   });
 
   it("subject names the inviter and workspace", () => {

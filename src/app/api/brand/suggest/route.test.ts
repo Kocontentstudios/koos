@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const getAuthUser = vi.fn();
+const guardWorkspaceRoute = vi.fn();
 const generateObject = vi.fn();
 
-vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
+vi.mock("@/lib/auth/workspace-guard", () => ({
+  guardWorkspaceRoute: (c?: unknown) => guardWorkspaceRoute(c),
+}));
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => ({}) }));
 
@@ -32,14 +34,18 @@ function req(body: unknown) {
 describe("brand suggest route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    guardWorkspaceRoute.mockResolvedValue({
+      ctx: { dbUser: { id: "u1" }, workspace: { id: "w1" }, role: "owner" },
+    });
     generateObject.mockResolvedValue({
       object: { suggestion: "A crisp line." },
     });
   });
 
   it("returns 401 when unauthenticated", async () => {
-    getAuthUser.mockResolvedValue({ dbUser: null });
+    guardWorkspaceRoute.mockResolvedValue({
+      response: Response.json({ error: "Not authenticated" }, { status: 401 }),
+    });
     const res = await POST(
       req({ field: "overview", currentValue: "", context }),
     );

@@ -111,14 +111,17 @@ export async function POST(
   if (!ticket) {
     return Response.json({ error: "Ticket not found" }, { status: 404 });
   }
+  /* Sign-off is a different act from iterating on the work: approving is
+     what unlocks the deliverable downloads, so it needs approve_deliverables.
+     Asking for a revision stays ordinary content work. */
   const access = await checkBrandAccess(
     dbUser.id,
     ticket.brandId,
-    "manage_content",
+    action === "approve" ? "approve_deliverables" : "manage_content",
   );
   if (!access.ok) {
     return Response.json(
-      { error: "Ticket not found" },
+      { error: access.status === 403 ? access.error : "Ticket not found" },
       { status: access.status },
     );
   }

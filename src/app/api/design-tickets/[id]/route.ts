@@ -142,6 +142,17 @@ export async function DELETE(
   if (!draft) {
     return Response.json({ error: "Draft not found" }, { status: 404 });
   }
+  /* Own-draft ownership is not enough on its own: a member removed from the
+     workspace, or narrowed out of this brand, still owns rows they may no
+     longer touch. The capability model decides, as everywhere else. */
+  const access = await checkBrandAccess(
+    dbUser.id,
+    draft.brandId,
+    "manage_content",
+  );
+  if (!access.ok) {
+    return Response.json({ error: access.error }, { status: access.status });
+  }
   await deleteDraftTicket(id);
   return Response.json({ ok: true });
 }
