@@ -13,7 +13,7 @@ vi.mock("@/lib/db/queries", () => ({
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => ({}) }));
 
-import { EXTRACTION_OUTPUT_TOKEN_CAP } from "./extraction";
+import { EXTRACTION_OUTPUT_TOKEN_CAP } from "@/lib/ai/onboarding/extraction";
 import { POST } from "./route";
 
 function req(body: unknown) {

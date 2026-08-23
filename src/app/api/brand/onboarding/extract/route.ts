@@ -1,16 +1,16 @@
 import { generateObject } from "ai";
-import { getModel } from "@/lib/ai/provider";
-import { ProposalSchema } from "@/lib/ai/tools/proposals";
-import { getAuthUser } from "@/lib/auth/get-user";
-import { checkBrandAccess } from "@/lib/db/queries";
-import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import {
   bodySchema,
   EXTRACTION_OUTPUT_TOKEN_CAP,
   extractionSchema,
   omitUnfilled,
   SYSTEM_PROMPT,
-} from "./extraction";
+} from "@/lib/ai/onboarding/extraction";
+import { getModel } from "@/lib/ai/provider";
+import { ProposalSchema } from "@/lib/ai/tools/proposals";
+import { getAuthUser } from "@/lib/auth/get-user";
+import { checkBrandAccess } from "@/lib/db/queries";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
