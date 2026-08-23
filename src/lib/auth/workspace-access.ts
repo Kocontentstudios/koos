@@ -37,8 +37,20 @@ export function isWorkspaceRole(value: unknown): value is WorkspaceRole {
   );
 }
 
+/**
+ * Forward-compatible on purpose. A migration that adds workspace roles runs at
+ * BUILD time, before the new deployment is promoted, so for the length of the
+ * build this code reads roles it has never heard of. A bare `GRANTS[role]`
+ * lookup is `undefined` for those and throws, which would 500 essentially
+ * every authenticated request for every affected member.
+ *
+ * Unknown roles therefore fall back to the LEAST privileged known role: a
+ * member who is mid-migration keeps exactly the access they had, and a role
+ * this build cannot reason about can never be granted more than the floor.
+ */
 export function can(role: WorkspaceRole, capability: Capability): boolean {
-  return GRANTS[role].has(capability);
+  const grants = GRANTS[role] ?? GRANTS.member;
+  return grants.has(capability);
 }
 
 export type AccessDecision =
