@@ -1,6 +1,7 @@
 "use server";
 
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
 import { createBrand, getActiveBrandForMember } from "@/lib/db/queries";
 
 /**
@@ -15,7 +16,7 @@ import { createBrand, getActiveBrandForMember } from "@/lib/db/queries";
 export async function ensureQuickRequestBrand(
   businessName: string,
 ): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
-  const { dbUser, workspace } = await getActiveWorkspace();
+  const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser || !workspace) return { ok: false, error: "Not authenticated" };
 
   const name = businessName.trim();
@@ -23,6 +24,17 @@ export async function ensureQuickRequestBrand(
 
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   if (existing) return { ok: true, brandId: existing.id };
+
+  /* Server actions are reachable POST endpoints, so this is a real brand
+     creation path and needs the same capability as /brand/create. Without it
+     a contributor creates a draft brand here, then upgrades it through
+     saveBrandProfile's `existing` branch — bypassing create_brand entirely. */
+  if (!can(role, "create_brand")) {
+    return {
+      ok: false,
+      error: "You need workspace admin access to add a brand.",
+    };
+  }
 
   const brand = await createBrand({
     userId: dbUser.id,

@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -69,7 +71,17 @@ export const assetTypeEnum = pgEnum("asset_type", [
 
 export const userRoleEnum = pgEnum("user_role", ["user", "designer", "admin"]);
 
-export const workspaceRoleEnum = pgEnum("workspace_role", ["owner", "member"]);
+// Declared in descending privilege: Postgres orders an enum by declaration
+// order, and the member listings sort on this column to surface the most
+// privileged first. Mirrors WORKSPACE_ROLES in src/lib/auth/workspace-access.ts.
+export const workspaceRoleEnum = pgEnum("workspace_role", [
+  "owner",
+  "admin",
+  "brand_manager",
+  "contributor",
+]);
+
+export const brandScopeEnum = pgEnum("brand_scope", ["all", "assigned"]);
 
 export const strategyStatusEnum = pgEnum("strategy_status", [
   "draft",
@@ -211,10 +223,26 @@ export const workspaceMembers = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: workspaceRoleEnum("role").notNull().default("member"),
+    role: workspaceRoleEnum("role").notNull().default("contributor"),
+    brandScope: brandScopeEnum("brand_scope").notNull().default("all"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.workspaceId, t.userId), index().on(t.userId)],
+  /* These CHECKs are the database-side half of the privilege rule: owners and
+     admins are always workspace-wide, brand managers are always
+     assignment-scoped. Modelled here, not just in the migration, so a
+     `drizzle-kit push` cannot quietly drop them. */
+  (t) => [
+    unique().on(t.workspaceId, t.userId),
+    index().on(t.userId),
+    check(
+      "workspace_members_privileged_scope_check",
+      sql`${t.role} NOT IN ('owner', 'admin') OR ${t.brandScope} = 'all'`,
+    ),
+    check(
+      "workspace_members_brand_manager_scope_check",
+      sql`${t.role} <> 'brand_manager' OR ${t.brandScope} = 'assigned'`,
+    ),
+  ],
 );
 
 // Single-use invitation tokens. Stores only the SHA-256 hash of the raw token
@@ -227,7 +255,8 @@ export const workspaceInvitations = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     email: citext("email").notNull(),
-    role: workspaceRoleEnum("role").notNull().default("member"),
+    role: workspaceRoleEnum("role").notNull().default("contributor"),
+    brandScope: brandScopeEnum("brand_scope").notNull().default("all"),
     tokenHash: text("token_hash").notNull().unique(),
     invitedById: uuid("invited_by_id").references(() => users.id, {
       onDelete: "set null",
@@ -236,7 +265,17 @@ export const workspaceInvitations = pgTable(
     acceptedAt: timestamp("accepted_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index().on(t.workspaceId)],
+  (t) => [
+    index().on(t.workspaceId),
+    check(
+      "workspace_invitations_privileged_scope_check",
+      sql`${t.role} NOT IN ('owner', 'admin') OR ${t.brandScope} = 'all'`,
+    ),
+    check(
+      "workspace_invitations_brand_manager_scope_check",
+      sql`${t.role} <> 'brand_manager' OR ${t.brandScope} = 'assigned'`,
+    ),
+  ],
 );
 
 export const brands = pgTable(
@@ -674,9 +713,9 @@ export const brandMemory = pgTable("brand_memory", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-/* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).
-   Default-open rule: a member with no rows sees every brand in the
-   workspace; a member with rows sees only those brands. */
+/* Brand assignments. Only consulted when the membership's brand_scope is
+   'assigned', where an empty list means NO brands. Owners, admins, and
+   workspace-wide contributors ignore this table entirely. */
 export const memberBrandAccess = pgTable(
   "member_brand_access",
   {
@@ -690,6 +729,36 @@ export const memberBrandAccess = pgTable(
     brandId: uuid("brand_id")
       .notNull()
       .references(() => brands.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
-  (t) => [unique().on(t.workspaceId, t.userId, t.brandId)],
+  /* The composite FK makes "grants die with the membership" structural rather
+     than something every delete path has to remember. No extra index: the
+     unique triple already covers (workspace_id, user_id) lookups. */
+  (t) => [
+    unique().on(t.workspaceId, t.userId, t.brandId),
+    foreignKey({
+      name: "mba_membership_fk",
+      columns: [t.workspaceId, t.userId],
+      foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId],
+    }).onDelete("cascade"),
+  ],
+);
+
+/* The brands a pending invitation will grant on acceptance. Rows move into
+   member_brand_access when the invite is accepted, then die with the
+   invitation row. */
+export const workspaceInvitationBrands = pgTable(
+  "workspace_invitation_brands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invitationId: uuid("invitation_id")
+      .notNull()
+      .references(() => workspaceInvitations.id, { onDelete: "cascade" }),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+  },
+  (t) => [unique().on(t.invitationId, t.brandId)],
 );

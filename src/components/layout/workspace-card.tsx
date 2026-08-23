@@ -12,17 +12,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  can,
+  ROLE_LABELS,
+  type WorkspaceRole,
+} from "@/lib/auth/workspace-access";
 import { cn } from "@/lib/utils";
 
 export interface WorkspaceInfo {
   id: string;
   name: string;
   logoUrl: string | null;
-  role: "owner" | "member";
-}
-
-function roleLabel(role: "owner" | "member") {
-  return role === "owner" ? "Owner" : "Member";
+  role: WorkspaceRole;
 }
 
 function WorkspaceAvatar({ ws }: { ws: WorkspaceInfo }) {
@@ -85,7 +86,7 @@ export function WorkspaceCard({
             {active.name}
           </p>
           <p className="truncate text-xs text-[var(--nav-text)]">
-            {roleLabel(active.role)}
+            {ROLE_LABELS[active.role]}
           </p>
         </div>
         <ChevronsUpDown
@@ -103,7 +104,7 @@ export function WorkspaceCard({
             <DropdownMenuItem key={ws.id} onClick={() => switchTo(ws.id)}>
               <span className="flex-1 truncate">{ws.name}</span>
               <span className="text-xs text-muted-foreground">
-                {roleLabel(ws.role)}
+                {ROLE_LABELS[ws.role]}
               </span>
               {ws.id === active.id && <Check size={14} />}
             </DropdownMenuItem>
@@ -113,7 +114,8 @@ export function WorkspaceCard({
         <DropdownMenuItem render={<Link href="/team" />}>
           <Users size={16} /> Team
         </DropdownMenuItem>
-        {active.role === "owner" && (
+        {/* Capability, not a role literal: admins hold manage_settings too. */}
+        {can(active.role, "manage_settings") && (
           <DropdownMenuItem render={<Link href="/workspace/settings" />}>
             <Settings2 size={16} /> Workspace Settings
           </DropdownMenuItem>

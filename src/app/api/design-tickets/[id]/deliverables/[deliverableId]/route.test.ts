@@ -42,7 +42,7 @@ const params = {
 };
 
 function mockOwnerWithAccess() {
-  getAuthUser.mockResolvedValue({ dbUser: { id: "u1", role: "member" } });
+  getAuthUser.mockResolvedValue({ dbUser: { id: "u1", role: "user" } });
   checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b1" } });
 }
 

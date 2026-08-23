@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { TicketRequestDetails } from "@/components/design/ticket-request-details";
 import { Markdown } from "@/components/ui/markdown";
 import { requireBrand } from "@/lib/auth/require-brand";
+import { can } from "@/lib/auth/workspace-access";
 import {
   checkBrandAccess,
   getDeliverables,
@@ -40,7 +41,7 @@ export default async function TicketDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { dbUser } = await requireBrand();
+  const { dbUser, role } = await requireBrand();
   const ticket = await getDesignTicketById(id);
 
   if (!ticket) {
@@ -131,6 +132,7 @@ export default async function TicketDetailPage({
 
       {status === "ready_for_review" && latest && (
         <ReviewActions
+          canApprove={can(role, "approve_deliverables")}
           ticketId={ticket.id}
           version={latest.version}
           deliverables={latest.items

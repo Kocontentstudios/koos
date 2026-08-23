@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { ROLE_LABELS } from "@/lib/auth/workspace-access";
 import { getInvitationByTokenHash } from "@/lib/db/queries";
 import { hashInviteToken } from "@/lib/workspace/invite-token";
 import { AcceptForm } from "./accept-form";
@@ -16,12 +17,29 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 export default async function InvitePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const { token } = await params;
+  const { error } = await searchParams;
   const invite = await getInvitationByTokenHash(hashInviteToken(token));
   const { dbUser } = await getAuthUser();
+
+  if (error === "no-brands") {
+    return (
+      <Shell>
+        <h1 className="mb-2 text-lg font-semibold">
+          There&apos;s nothing to join yet
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          The brands this invitation gave you access to have since been deleted.
+          Ask whoever invited you to send a new invitation.
+        </p>
+      </Shell>
+    );
+  }
 
   if (!invite || invite.acceptedAt) {
     return (
@@ -111,8 +129,13 @@ export default async function InvitePage({
         Join {invite.workspaceName}
       </h1>
       <p className="mb-6 text-sm text-muted-foreground">
-        You'll join as a Member and get access to all of this workspace's brands
-        and content.
+        You&apos;ll join as a{" "}
+        <strong className="font-medium text-foreground">
+          {ROLE_LABELS[invite.role]}
+        </strong>
+        {invite.brandScope === "assigned"
+          ? " with access to the brands you've been assigned."
+          : " with access to this workspace's brands and content."}
       </p>
       <AcceptForm token={token} workspaceName={invite.workspaceName} />
     </Shell>

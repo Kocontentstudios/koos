@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth/get-user";
+import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import {
   isStorageConfigured,
   publicUrl,
@@ -16,10 +16,13 @@ const ALLOWED = new Map<string, string>([
 ]);
 
 export async function POST(request: Request) {
-  const { dbUser } = await getAuthUser();
-  if (!dbUser) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  /* Storage writes are workspace work, not merely signed-in work: gating on
+     the capability keeps a removed member (or a future read-only role) from
+     writing objects. Every current role holds manage_content, so this does
+     not change what a legitimate user can do. */
+  const guard = await guardWorkspaceRoute("manage_content");
+  if ("response" in guard) return guard.response;
+  const { dbUser } = guard.ctx;
   if (!isStorageConfigured()) {
     return NextResponse.json(
       { error: "File storage is not configured." },
