@@ -9,8 +9,15 @@ const createTicketFromRequest = vi.fn();
 const executeGenerationJob = vi.fn();
 const generateStrategyWork = vi.fn();
 const generateCalendarWork = vi.fn();
+const captureServerEvent = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
+vi.mock("@/lib/analytics/posthog-server", () => ({
+  captureServerEvent: (e: unknown) => captureServerEvent(e),
+}));
+vi.mock("@/lib/analytics/session-id", () => ({
+  getAnalyticsSessionId: async () => "sess-1",
+}));
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: async () => ({ ok: true, retryAfterSeconds: 0 }),
   tooManyRequests: () => new Response(null, { status: 429 }),
@@ -64,7 +71,12 @@ describe("POST /api/actions/confirm", () => {
     });
     checkBrandAccess.mockResolvedValue({
       ok: true,
-      brand: { id: BRAND_ID, name: "Acme" },
+      brand: {
+        id: BRAND_ID,
+        name: "Acme",
+        onboardingType: "conversational",
+        onboardingStatus: "draft",
+      },
     });
   });
 
@@ -88,20 +100,89 @@ describe("POST /api/actions/confirm", () => {
     expect(updateBrand).not.toHaveBeenCalled();
   });
 
-  it("applies a confirmed brand_fields proposal", async () => {
-    updateBrand.mockResolvedValue({ id: BRAND_ID });
-    const res = await POST(
+  function confirmFields(fields: Record<string, string>) {
+    return POST(
       req({
         brandId: BRAND_ID,
         proposal: {
           kind: "brand_fields",
-          summary: "Set tone",
-          data: { fields: { tone: "bold" } },
+          summary: "Captured brand",
+          data: { fields },
         },
       }),
     );
+  }
+
+  it("applies a confirmed brand_fields proposal", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    const res = await confirmFields({ tone: "bold" });
     expect(res.status).toBe(200);
-    expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, { tone: "bold" });
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({ tone: "bold" });
+  });
+
+  /* Regression: confirming fields wrote them but left onboardingStatus at
+     "draft", so requireBrand redirected a chat-only user straight back into
+     onboarding forever. There was no way to finish without the manual form. */
+  it("advances a draft to in_progress as fields land", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, {
+      tone: "bold",
+      completionPercentage: 25,
+      onboardingStatus: "in_progress",
+    });
+  });
+
+  it("completes onboarding once every required field is captured", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+    });
+    expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, {
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+      completionPercentage: 100,
+      onboardingStatus: "completed",
+    });
+  });
+
+  it("reports the completion once, tagged with the path the user took", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+    });
+    expect(captureServerEvent).toHaveBeenCalledWith({
+      distinctId: "u1",
+      event: "brand_brain_completed",
+      properties: {
+        brand_id: BRAND_ID,
+        onboarding_type: "conversational",
+        session_id: "sess-1",
+      },
+    });
+  });
+
+  it("does not re-report a brand that was already completed", async () => {
+    checkBrandAccess.mockResolvedValue({
+      ok: true,
+      brand: {
+        id: BRAND_ID,
+        name: "Acme",
+        overview: "x",
+        businessType: "y",
+        stage: "z",
+        onboardingType: "conversational",
+        onboardingStatus: "completed",
+      },
+    });
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(captureServerEvent).not.toHaveBeenCalled();
   });
 
   it("400s on an invalid proposal", async () => {

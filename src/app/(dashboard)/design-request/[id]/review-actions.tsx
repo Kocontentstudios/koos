@@ -27,12 +27,16 @@ export function ReviewActions({
   ticketId,
   version,
   deliverables = [],
+  canApprove,
 }: {
   ticketId: string;
   /** Delivery round under review. Required — it decides whether another
    * revision is still available, so defaulting it would silently mislead. */
   version: number;
   deliverables?: ReviewDeliverable[];
+  /** Sign-off is approve_deliverables, which contributors don't hold. They
+   * can still request revisions, which is ordinary content work. */
+  canApprove: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
@@ -146,16 +150,18 @@ export function ReviewActions({
               Request Revision
             </Button>
           )}
-          <Button
-            variant="default"
-            size="lg"
-            onClick={() => {
-              setError(null);
-              setMode("confirming");
-            }}
-          >
-            Satisfied
-          </Button>
+          {canApprove && (
+            <Button
+              variant="default"
+              size="lg"
+              onClick={() => {
+                setError(null);
+                setMode("confirming");
+              }}
+            >
+              Satisfied
+            </Button>
+          )}
         </div>
       )}
 

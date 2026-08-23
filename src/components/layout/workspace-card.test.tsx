@@ -13,7 +13,7 @@ const member = {
   id: "ws-1",
   name: "Acme Co",
   logoUrl: null,
-  role: "member" as const,
+  role: "contributor" as const,
 };
 
 // Test data for workspace switching (distinct ids)
@@ -27,7 +27,7 @@ const otherWorkspace = {
   id: "ws-b",
   name: "Workspace B",
   logoUrl: null,
-  role: "member" as const,
+  role: "contributor" as const,
 };
 
 describe("WorkspaceCard", () => {
@@ -52,7 +52,7 @@ describe("WorkspaceCard", () => {
     ).toBeInTheDocument();
   });
 
-  it("hides Workspace Settings for a member", async () => {
+  it("hides Workspace Settings for a contributor", async () => {
     const user = userEvent.setup();
     render(
       <WorkspaceCard
@@ -66,6 +66,31 @@ describe("WorkspaceCard", () => {
     expect(
       screen.queryByRole("menuitem", { name: /Workspace Settings/i }),
     ).not.toBeInTheDocument();
+  });
+
+  /* Regression: this menu used to gate on `role === "owner"`, which silently
+     locked admins out of the settings they are entitled to. */
+  it("shows Workspace Settings for a workspace admin", async () => {
+    const user = userEvent.setup();
+    const admin = { ...member, role: "admin" as const };
+    render(
+      <WorkspaceCard collapsed={false} active={admin} memberships={[admin]} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Workspace menu" }));
+    expect(
+      await screen.findByRole("menuitem", { name: /Workspace Settings/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("labels each role with its product name", () => {
+    render(
+      <WorkspaceCard
+        collapsed={false}
+        active={{ ...member, role: "brand_manager" as const }}
+        memberships={[member]}
+      />,
+    );
+    expect(screen.getByText("Brand Manager")).toBeInTheDocument();
   });
 
   describe("workspace switching", () => {

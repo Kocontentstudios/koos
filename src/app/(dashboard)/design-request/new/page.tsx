@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireBrand } from "@/lib/auth/require-brand";
-import { getDesignTicketById, listTicketAttachments } from "@/lib/db/queries";
+import {
+  checkBrandAccess,
+  getDesignTicketById,
+  listTicketAttachments,
+} from "@/lib/db/queries";
 import { getBrandsForMember } from "@/lib/db/queries/workspaces";
 import type { AttachmentInput } from "@/lib/design/request-form";
 import type { TicketPriority } from "@/lib/design/tickets-ui";
@@ -14,6 +18,15 @@ async function loadDraft(
   if (!ticket || ticket.userId !== userId || ticket.status !== "draft") {
     return null;
   }
+  /* Authoring the draft is not enough to keep reading it: a member narrowed
+     out of this brand still owns rows whose brief, specs and attachment keys
+     they may no longer see. Same rule the DELETE route applies. */
+  const access = await checkBrandAccess(
+    userId,
+    ticket.brandId,
+    "manage_content",
+  );
+  if (!access.ok) return null;
   const rows = await listTicketAttachments(ticket.id);
   const attachments: AttachmentInput[] = rows.map((row) =>
     row.kind === "file"

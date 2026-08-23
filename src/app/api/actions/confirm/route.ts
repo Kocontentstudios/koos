@@ -2,9 +2,11 @@ import { after } from "next/server";
 import { z } from "zod";
 import { strategySchema } from "@/lib/ai/strategy-schema";
 import { ProposalSchema } from "@/lib/ai/tools/proposals";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
+import { progressAfterFieldWrite } from "@/lib/brand-profile";
 import {
   checkBrandAccess,
   createGenerationJob,
@@ -76,7 +78,29 @@ export async function POST(req: Request) {
     case "brand_fields": {
       // No usage_events row: the usage_kind enum has no brand-update value,
       // and adding one is out of this epic's scope.
-      await updateBrand(brandId, proposal.data.fields);
+      const { fields } = proposal.data;
+      /* Advance onboarding off the back of what the conversation captured.
+         Confirming fields used to leave the status at "draft", which left a
+         chat-only user permanently redirected back into onboarding. */
+      const progress = progressAfterFieldWrite({ ...brand, ...fields });
+      const wasCompleted = brand.onboardingStatus === "completed";
+      await updateBrand(brandId, { ...fields, ...progress });
+
+      if (!wasCompleted && progress.onboardingStatus === "completed") {
+        const sessionId = await getAnalyticsSessionId();
+        after(() =>
+          captureServerEvent({
+            distinctId: dbUser.id,
+            event: "brand_brain_completed",
+            properties: {
+              brand_id: brandId,
+              onboarding_type: brand.onboardingType,
+              session_id: sessionId,
+            },
+          }),
+        );
+      }
+
       return Response.json({
         ok: true,
         kind: proposal.kind,

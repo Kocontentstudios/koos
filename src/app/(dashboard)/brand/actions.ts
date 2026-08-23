@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
-import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
 import {
+  checkBrandAccess,
   createBrand,
   getActiveBrandForMember,
   updateBrand,
@@ -17,10 +18,8 @@ import { brandProfileSchema } from "./brand-profile-form";
 export async function saveBrandProfile(
   raw: unknown,
 ): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
-  const { dbUser } = await getAuthUser();
+  const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser) return { ok: false, error: "Not authenticated" };
-
-  const { workspace } = await getActiveWorkspace();
   if (!workspace) redirectToLogin();
 
   const parsed = brandProfileSchema.safeParse(raw);
@@ -64,9 +63,24 @@ export async function saveBrandProfile(
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   let brand: typeof brands.$inferSelect;
   if (existing) {
-    // Safe without checkBrandAccess: the brand was fetched workspace-scoped via getActiveBrandForMember above, and every role holds manage_content.
+    /* getActiveBrandForMember already scoped the fetch, but authorize the
+       WRITE explicitly rather than inferring it from the read: the roles that
+       may see a brand and the roles that may edit it are no longer the same
+       set, and this action must not silently widen when that changes. */
+    const access = await checkBrandAccess(
+      dbUser.id,
+      existing.id,
+      "manage_content",
+    );
+    if (!access.ok) return { ok: false, error: access.error };
     brand = await updateBrand(existing.id, profile);
   } else {
+    if (!can(role, "create_brand")) {
+      return {
+        ok: false,
+        error: "You need workspace admin access to add a brand.",
+      };
+    }
     brand = await createBrand({
       userId: dbUser.id, // attribution only ("created by")
       workspaceId: workspace.id,
