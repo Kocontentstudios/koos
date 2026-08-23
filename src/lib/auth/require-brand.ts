@@ -4,6 +4,7 @@ import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getActiveBrandForMember } from "@/lib/db/queries";
+import { resolveOnboardingRoute } from "@/lib/onboarding-route";
 
 export async function requireBrand() {
   const { dbUser, workspace, role } = await getActiveWorkspace();
@@ -13,7 +14,12 @@ export async function requireBrand() {
     /* Only offer brand creation to someone allowed to create one. A
        brand-scoped member with no assignments would otherwise be bounced to
        a page they are forbidden from, with no way out. */
-    redirect(can(role, "create_brand") ? "/brand/create" : "/no-brands");
+    redirect(
+      resolveOnboardingRoute({
+        canCreateBrand: can(role, "create_brand"),
+        onboardingType: brand?.onboardingType,
+      }),
+    );
   }
   return { dbUser, workspace, role, brand };
 }

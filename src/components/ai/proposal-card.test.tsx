@@ -104,4 +104,62 @@ describe("ProposalCard", () => {
     expect(onDone).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+
+  /* This card is a brand-new user's first result in the product. It used to
+     render JSON.stringify of the payload, which is fine for a power user deep
+     in chat and wrong as a first-run experience. */
+  it("labels captured brand fields instead of dumping JSON", () => {
+    render(
+      <ProposalCard
+        brandId="b1"
+        onDone={vi.fn()}
+        proposal={{
+          kind: "brand_fields",
+          summary: "Captured your brand",
+          data: {
+            fields: { targetAudience: "Nigerian women aged 25 to 40" },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Target audience")).toBeInTheDocument();
+    expect(
+      screen.getByText("Nigerian women aged 25 to 40"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/"targetAudience":/)).toBeNull();
+  });
+
+  it("says so plainly when a proposal captured nothing", () => {
+    render(
+      <ProposalCard
+        brandId="b1"
+        onDone={vi.fn()}
+        proposal={{
+          kind: "brand_fields",
+          summary: "Nothing captured",
+          data: { fields: {} },
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(/keep chatting and try again/i),
+    ).toBeInTheDocument();
+  });
+
+  it("still dumps JSON for the power-user proposal kinds", () => {
+    render(
+      <ProposalCard
+        brandId="b1"
+        onDone={vi.fn()}
+        proposal={{
+          kind: "design_ticket",
+          summary: "New ticket",
+          data: { designType: "Launch banner", brief: "A banner" },
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(/"designType": "Launch banner"/),
+    ).toBeInTheDocument();
+  });
 });

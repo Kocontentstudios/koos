@@ -11,6 +11,57 @@ interface ProposalCardProps {
   onDone: (outcome: "confirmed" | "dismissed") => void;
 }
 
+/* brand_fields is the one proposal a brand-new user meets, on their first
+   screen in the product — it gets a readable summary of what was captured.
+   The other kinds stay on the JSON dump: they surface deep in chat for users
+   who already know the shape, and re-presenting them isn't this change. */
+const BRAND_FIELD_LABELS: Record<string, string> = {
+  name: "Brand name",
+  overview: "Overview",
+  businessType: "Business type",
+  stage: "Stage",
+  targetAudience: "Target audience",
+  offer: "Offer",
+  tone: "Tone of voice",
+  primaryGoal: "Primary goal",
+  values: "Values",
+  wordsLove: "Words we love",
+  wordsAvoid: "Words we avoid",
+  brandStyle: "Brand style",
+  competitors: "Competitors",
+  differentiators: "Differentiators",
+  primaryColor: "Primary colour",
+  secondaryColor: "Secondary colour",
+  additionalNotes: "Additional notes",
+};
+
+function CapturedFields({ fields }: { fields: Record<string, unknown> }) {
+  const entries = Object.entries(fields).filter(
+    ([, value]) => typeof value === "string" && value.trim().length > 0,
+  );
+  if (entries.length === 0) {
+    return (
+      <p className="text-[13px] text-[var(--text-secondary)]">
+        Nothing new to save yet — keep chatting and try again.
+      </p>
+    );
+  }
+  return (
+    <dl className="divide-y divide-[var(--border)] rounded-lg bg-surface-2 px-3">
+      {entries.map(([key, value]) => (
+        <div key={key} className="grid gap-0.5 py-2.5 sm:grid-cols-[9rem_1fr]">
+          <dt className="text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            {BRAND_FIELD_LABELS[key] ?? key}
+          </dt>
+          <dd className="min-w-0 break-words text-[13px] leading-relaxed text-foreground">
+            {value as string}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 const KIND_LABELS: Record<Proposal["kind"], string> = {
   brand_fields: "Brand profile update",
   design_ticket: "Design request",
@@ -56,9 +107,13 @@ export function ProposalCard({ proposal, brandId, onDone }: ProposalCardProps) {
           {proposal.summary}
         </p>
       </div>
-      <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 text-[12px] leading-relaxed text-[var(--text-secondary)]">
-        {JSON.stringify(proposal.data, null, 2)}
-      </pre>
+      {proposal.kind === "brand_fields" ? (
+        <CapturedFields fields={proposal.data.fields} />
+      ) : (
+        <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 text-[12px] leading-relaxed text-[var(--text-secondary)]">
+          {JSON.stringify(proposal.data, null, 2)}
+        </pre>
+      )}
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button
           variant="secondary"
