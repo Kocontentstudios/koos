@@ -4,6 +4,7 @@ import {
   can,
   evaluateBrandAccess,
   isWorkspaceRole,
+  type WorkspaceRole,
 } from "./workspace-access";
 
 const ALL: Capability[] = [
@@ -23,6 +24,41 @@ describe("can", () => {
     expect(can("member", "manage_content")).toBe(true);
     for (const c of ALL.filter((c) => c !== "manage_content")) {
       expect(can("member", c)).toBe(false);
+    }
+  });
+});
+
+/* Roles that do not exist in THIS build. A migration adding workspace roles
+   applies at build time, before the new deployment is promoted, so this code
+   reads them for the length of the build. The cast is the point: these values
+   are impossible in the type system and entirely possible in the database. */
+describe("can — roles from a newer migration", () => {
+  const FUTURE = ["contributor", "admin", "brand_manager"] as const;
+
+  it("does not throw", () => {
+    for (const role of FUTURE) {
+      expect(() =>
+        can(role as unknown as WorkspaceRole, "manage_content"),
+      ).not.toThrow();
+    }
+  });
+
+  it("grants them exactly the least-privileged role's capabilities", () => {
+    for (const role of FUTURE) {
+      for (const c of ALL) {
+        expect(
+          can(role as unknown as WorkspaceRole, c),
+          `${role} must match member for ${c}`,
+        ).toBe(can("member", c));
+      }
+    }
+  });
+
+  it("never grants an owner-only capability to a role it cannot reason about", () => {
+    for (const role of FUTURE) {
+      for (const c of ALL.filter((c) => c !== "manage_content")) {
+        expect(can(role as unknown as WorkspaceRole, c)).toBe(false);
+      }
     }
   });
 });
