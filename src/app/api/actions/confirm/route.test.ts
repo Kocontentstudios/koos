@@ -10,6 +10,7 @@ const executeGenerationJob = vi.fn();
 const generateStrategyWork = vi.fn();
 const generateCalendarWork = vi.fn();
 const captureServerEvent = vi.fn();
+const revalidatePath = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/analytics/posthog-server", () => ({
@@ -44,6 +45,9 @@ vi.mock("@/lib/jobs/run-generation", () => ({
 }));
 // Run the post-response work inline so assertions can see it.
 vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
+vi.mock("next/cache", () => ({
+  revalidatePath: (path: string) => revalidatePath(path),
+}));
 
 import { POST } from "./route";
 
@@ -165,6 +169,29 @@ describe("POST /api/actions/confirm", () => {
         session_id: "sess-1",
       },
     });
+  });
+
+  /* The dashboard reads onboardingStatus to decide whether to run the product
+     tour. Without these revalidations it renders the pre-write status and the
+     tour silently never fires. */
+  it("revalidates the pages that read the brand it just wrote", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(revalidatePath).toHaveBeenCalledWith("/brand");
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("tells the client whether the brand is now complete", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    const partial = await confirmFields({ tone: "bold" });
+    expect(await partial.json()).toMatchObject({ brandCompleted: false });
+
+    const complete = await confirmFields({
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+    });
+    expect(await complete.json()).toMatchObject({ brandCompleted: true });
   });
 
   it("does not re-report a brand that was already completed", async () => {

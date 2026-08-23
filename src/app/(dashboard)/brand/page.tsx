@@ -1,4 +1,4 @@
-import { PencilIcon } from "lucide-react";
+import { ArrowRight, PencilIcon } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import {
   getActiveBrandForMember,
@@ -16,6 +17,7 @@ import {
   type SerializedGeneration,
   serializeGeneration,
 } from "@/lib/design/serialize";
+import { resolveOnboardingRoute } from "@/lib/onboarding-route";
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -83,12 +85,20 @@ export default async function BrandProfilePage() {
   const { dbUser } = await getAuthUser();
   if (!dbUser) redirectToLogin();
 
-  const { workspace } = await getActiveWorkspace();
+  const { workspace, role } = await getActiveWorkspace();
   const brand = workspace
     ? await getActiveBrandForMember(workspace.id, dbUser.id)
     : null;
   if (!brand || !hasCompletedBrand(brand.onboardingStatus)) {
-    redirect("/brand/create");
+    /* Resume the path the brand was actually started on. Hard-coding
+       /brand/create used to drop a half-finished conversational brand into the
+       manual form, which is the flow it was chosen to replace. */
+    redirect(
+      resolveOnboardingRoute({
+        canCreateBrand: role ? can(role, "create_brand") : false,
+        onboardingType: brand?.onboardingType,
+      }),
+    );
   }
 
   const generationRows = await listDesignGenerationsForBrand(brand.id, {
@@ -291,12 +301,20 @@ export default async function BrandProfilePage() {
             Your brand information used for AI strategies and design assets
           </p>
         </div>
-        <Link href="/brand/create" className="shrink-0">
-          <Button variant="secondary" size="lg">
-            <PencilIcon aria-hidden="true" />
-            Edit Brand
-          </Button>
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link href="/brand/create">
+            <Button variant="secondary" size="lg">
+              <PencilIcon aria-hidden="true" />
+              Edit Brand
+            </Button>
+          </Link>
+          <Link href="/dashboard">
+            <Button variant="default" size="lg">
+              Continue to Dashboard
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* ---- Unified brand profile card ---- */}
