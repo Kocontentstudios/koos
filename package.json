@@ -16,7 +16,8 @@
     "format": "biome format --write .",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "eval:design": "tsx src/lib/ai/image/eval/run.mts"
+    "eval:design": "tsx src/lib/ai/image/eval/run.mts",
+    "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "4.0.145",

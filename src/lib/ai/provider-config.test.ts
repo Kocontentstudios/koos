@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveProviderConfig } from "./provider-config";
+import { resolveProviderConfig, resolveVoiceConfig } from "./provider-config";
 
 describe("resolveProviderConfig", () => {
   it("defaults to google/gemini-2.5-flash when nothing is set", () => {
@@ -95,5 +95,20 @@ describe("resolveProviderConfig", () => {
         AI_MODEL: "gemini-2.5-flash",
       }),
     ).toEqual({ provider: "google", model: "gemini-2.5-flash" });
+  });
+});
+
+describe("resolveVoiceConfig", () => {
+  it("defaults both to browser so voice onboarding needs no API keys", () => {
+    expect(resolveVoiceConfig({})).toEqual({ stt: "browser", tts: "browser" });
+  });
+
+  it("honors env overrides", () => {
+    expect(
+      resolveVoiceConfig({
+        AI_STT_PROVIDER: "openai",
+        AI_TTS_PROVIDER: "elevenlabs",
+      }),
+    ).toEqual({ stt: "openai", tts: "elevenlabs" });
   });
 });

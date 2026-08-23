@@ -33,6 +33,7 @@ export const providerEnum = pgEnum("provider", ["email", "google"]);
 export const onboardingTypeEnum = pgEnum("onboarding_type", [
   "manual",
   "document",
+  "conversational",
 ]);
 
 export const onboardingStatusEnum = pgEnum("onboarding_status", [
