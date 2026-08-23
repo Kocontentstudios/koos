@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const speak = vi.fn();
@@ -16,6 +16,12 @@ const chatState: { messages: unknown[]; status: string } = {
   status: "ready",
 };
 
+const push = vi.fn();
+const refresh = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, refresh }),
+}));
 vi.mock("@/hooks/use-voice-io", () => ({ useVoiceIo: () => voice }));
 vi.mock("@ai-sdk/react", () => ({
   useChat: () => ({
@@ -118,5 +124,74 @@ describe("OnboardingClient", () => {
     ];
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
     expect(speak).not.toHaveBeenCalled();
+  });
+});
+
+/* The ticket's flow hangs off this hop: onboarding finishes, the user reviews
+   the profile at /brand, and only then reaches the dashboard where the tour
+   fires. Without the redirect the user is left sitting in the chat. */
+describe("OnboardingClient handoff to the brand profile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [
+      {
+        id: "1",
+        role: "user",
+        parts: [{ type: "text", text: "We sell bags" }],
+      },
+    ];
+    chatState.status = "ready";
+  });
+
+  function stubFetch(brandCompleted: boolean) {
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/extract")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            proposal: {
+              kind: "brand_fields",
+              summary: "Captured brand",
+              data: { fields: { overview: "Handwoven bags" } },
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ ok: true, brandCompleted }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  }
+
+  async function captureThenConfirm(brandCompleted: boolean) {
+    stubFetch(brandCompleted);
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /fill my brand profile/i }),
+    );
+    const confirm = await screen.findByRole("button", { name: /confirm/i });
+    fireEvent.click(confirm);
+  }
+
+  it("sends the user to the brand profile once the brand is complete", async () => {
+    await captureThenConfirm(true);
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/brand"));
+    // Without the refresh the profile page can render the pre-write brand.
+    expect(refresh).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("stays in the chat when the capture left the brand incomplete", async () => {
+    // /brand redirects an incomplete brand straight back into onboarding, so
+    // pushing here would bounce the user in a loop.
+    await captureThenConfirm(false);
+    // The confirm resolved (the card is gone) but no navigation followed.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull(),
+    );
+    expect(push).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

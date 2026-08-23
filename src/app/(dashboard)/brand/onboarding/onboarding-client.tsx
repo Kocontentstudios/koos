@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { Mic, MicOff, Send, Sparkles, Square } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ProposalCard } from "@/components/ai/proposal-card";
@@ -34,6 +35,7 @@ export function OnboardingClient({
   brandId,
   brandContext,
 }: OnboardingClientProps) {
+  const router = useRouter();
   const conversationId = useState(() => crypto.randomUUID())[0];
   const [input, setInput] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -212,13 +214,20 @@ export function OnboardingClient({
             <ProposalCard
               proposal={proposal}
               brandId={brandId}
-              onDone={(outcome) => {
+              onDone={(outcome, result) => {
                 setProposal(null);
                 toast[outcome === "confirmed" ? "success" : "message"](
                   outcome === "confirmed"
                     ? "Brand profile updated."
                     : "Dismissed — nothing was changed.",
                 );
+                /* Gate on completion, not on `confirmed`: a partial capture
+                   leaves the brand short of the required fields, and /brand
+                   bounces anything incomplete straight back to onboarding. */
+                if (result?.brandCompleted) {
+                  router.refresh();
+                  router.push("/brand");
+                }
               }}
             />
           </div>

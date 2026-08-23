@@ -74,6 +74,19 @@ export async function updateUserProfile(
   return updated;
 }
 
+/**
+ * Product-tour state, deliberately separate from updateUserProfile: that helper
+ * is the user-editable profile surface, and tour state is not profile data.
+ */
+export async function setUserTourCompletedAt(id: string, at: Date | null) {
+  const [updated] = await db
+    .update(users)
+    .set({ tourCompletedAt: at, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return updated;
+}
+
 export async function createUser(
   data: Pick<typeof users.$inferInsert, "firstName" | "lastName" | "email"> &
     Partial<

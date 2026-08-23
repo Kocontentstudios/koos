@@ -358,6 +358,18 @@ h6 {
   }
 }
 
+/* Product tour: marks the element the current step is pointing at. The ring is
+   drawn with box-shadow so it costs no layout and cannot reflow the sidebar. */
+.koos-tour-highlight {
+  position: relative;
+  z-index: 55;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px var(--primary),
+    0 0 0 6px var(--accent-glow);
+  transition: box-shadow 150ms var(--ease-standard);
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    UTILITY CLASSES (kept intact — colors already align with KO OS palette)
    ─────────────────────────────────────────────────────────────────────────── */

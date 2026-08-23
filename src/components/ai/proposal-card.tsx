@@ -5,10 +5,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { Proposal } from "@/lib/ai/tools/proposals";
 
+/** What /api/actions/confirm reports back about the write it just made. */
+export interface ConfirmResult {
+  brandCompleted: boolean;
+}
+
 interface ProposalCardProps {
   proposal: Proposal;
   brandId: string;
-  onDone: (outcome: "confirmed" | "dismissed") => void;
+  onDone: (outcome: "confirmed" | "dismissed", result?: ConfirmResult) => void;
 }
 
 /* brand_fields is the one proposal a brand-new user meets, on their first
@@ -88,8 +93,11 @@ export function ProposalCard({ proposal, brandId, onDone }: ProposalCardProps) {
         toast.error(data?.error ?? "Something went wrong. Please try again.");
         return;
       }
+      const data = (await res.json().catch(() => null)) as {
+        brandCompleted?: boolean;
+      } | null;
       toast.success("Done — applied successfully.");
-      onDone("confirmed");
+      onDone("confirmed", { brandCompleted: data?.brandCompleted === true });
     } catch {
       toast.error("Network error. Please try again.");
     } finally {

@@ -161,6 +161,10 @@ export const users = pgTable("users", {
       verified at creation (Google already verified the inbox); accounts
       predating the feature were backfilled by migration 0011. */
   emailVerifiedAt: timestamp("email_verified_at"),
+  /** Set once, the first time the user leaves the product tour — finished OR
+      dismissed. Replays from Settings run via ?tour=1 and deliberately do not
+      rewrite it. Accounts predating the tour were backfilled by migration 0021. */
+  tourCompletedAt: timestamp("tour_completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
