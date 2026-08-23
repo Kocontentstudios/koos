@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod";
 import { strategySchema } from "@/lib/ai/strategy-schema";
@@ -101,10 +102,18 @@ export async function POST(req: Request) {
         );
       }
 
+      /* Synchronously, not in after(): the client navigates to /brand and then
+         /dashboard immediately, and both read onboardingStatus. Revalidating
+         after the response returns lets those pages render the pre-write
+         status — which, on the dashboard, silently suppresses the product tour. */
+      revalidatePath("/brand");
+      revalidatePath("/dashboard");
+
       return Response.json({
         ok: true,
         kind: proposal.kind,
         resultId: brandId,
+        brandCompleted: progress.onboardingStatus === "completed",
       });
     }
 

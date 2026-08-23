@@ -14,6 +14,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import Link from "next/link";
+import { ProductTour } from "@/components/tour/product-tour";
 import { requireBrand } from "@/lib/auth/require-brand";
 import { getSetupState } from "@/lib/dashboard/setup-state";
 import {
@@ -31,6 +32,8 @@ import {
   getWorkspaceMembers,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import { TOUR_ANCHORS } from "@/lib/tour/anchors";
+import { evaluateTourGate } from "@/lib/tour/gate";
 import { InviteTeamCard, TeamOverviewCard } from "./team-cards";
 
 function relativeTime(date: Date, now: Date): string {
@@ -54,8 +57,20 @@ function shortDate(date: Date): string {
   });
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tour?: string }>;
+}) {
   const { dbUser, workspace, brand } = await requireBrand();
+  const { tour } = await searchParams;
+
+  const tourGate = evaluateTourGate({
+    tourCompletedAt: dbUser.tourCompletedAt,
+    brandOnboardingStatus: brand.onboardingStatus,
+    pathname: "/dashboard",
+    forced: tour === "1",
+  });
 
   const [strategies, ticketRows, calendar, teamMembers, pendingInvites] =
     await Promise.all([
@@ -252,8 +267,13 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-7">
+      {tourGate.show && <ProductTour startAt={tourGate.startAt} />}
+
       {/* ── Welcome hero ── */}
-      <div className="relative overflow-hidden rounded-[20px] bg-gradient-to-br from-[#00204F] to-[#00162E] p-6 md:p-9">
+      <div
+        data-tour={TOUR_ANCHORS.dashboardHero}
+        className="relative overflow-hidden rounded-[20px] bg-gradient-to-br from-[#00204F] to-[#00162E] p-6 md:p-9"
+      >
         <span className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-[#85B7EB]">
           <Sparkles size={11} /> {setupComplete ? "All set" : "Getting started"}
         </span>
@@ -539,7 +559,10 @@ export default async function DashboardPage() {
       )}
 
       {/* ── Action cards ── */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div
+        data-tour={TOUR_ANCHORS.dashboardActions}
+        className="grid grid-cols-1 gap-4 md:grid-cols-3"
+      >
         {actionCards.map((c) => {
           const Icon = c.icon;
           return (

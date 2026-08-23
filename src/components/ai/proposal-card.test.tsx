@@ -26,7 +26,41 @@ describe("ProposalCard", () => {
       "/api/actions/confirm",
       expect.objectContaining({ method: "POST" }),
     );
-    await waitFor(() => expect(onDone).toHaveBeenCalledWith("confirmed"));
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith("confirmed", {
+        brandCompleted: false,
+      }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  /* The onboarding chat pushes to /brand only when the brand actually reached
+     "completed" — /brand bounces anything incomplete back to onboarding, so a
+     dropped flag here would strand the user in a redirect. */
+  it("passes the brand completion flag through to onDone", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, brandCompleted: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onDone = vi.fn();
+    render(
+      <ProposalCard
+        brandId="b1"
+        onDone={onDone}
+        proposal={{
+          kind: "brand_fields",
+          summary: "Captured brand",
+          data: { fields: { tone: "bold" } },
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith("confirmed", {
+        brandCompleted: true,
+      }),
+    );
     vi.unstubAllGlobals();
   });
 
