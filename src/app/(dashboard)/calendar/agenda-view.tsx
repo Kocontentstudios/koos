@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { groupItemsByDay } from "@/lib/calendar/group";
 import { formatLongDate, itemsFrom } from "@/lib/calendar/labels";
@@ -44,8 +45,14 @@ export function AgendaView({ focused, items, onSelect }: AgendaViewProps) {
                   {item.time ?? "—"}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-foreground">
-                    {item.title}
+                  <span className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
+                    {item.source === "manual" && (
+                      <Pencil
+                        aria-label="Added by you"
+                        className="h-3 w-3 shrink-0 text-[var(--text-muted)]"
+                      />
+                    )}
+                    <span className="truncate">{item.title}</span>
                   </span>
                   <span className="block truncate text-[12px] text-[var(--text-muted)]">
                     {item.platform} · {item.contentType}
