@@ -158,6 +158,10 @@ export function CalendarItemDrawer({
       setEditing(false);
       setDraft(null);
       setConfirmingDelete(false);
+      /* The prop-resync below keys on a CHANGED item id, so reopening the
+         same item would otherwise keep a stale optimistic status and show a
+         value the database never took. */
+      setStatus(item?.status ?? "draft");
     }
     onOpenChange(next);
   }

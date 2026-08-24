@@ -14,6 +14,7 @@ import { AddItemDrawer } from "./add-item-drawer";
 import { AgendaView } from "./agenda-view";
 import { CalendarItemDrawer } from "./calendar-item-drawer";
 import { DayView } from "./day-view";
+import { resolveFocusedDate } from "./focused-date";
 import { MonthView } from "./month-view";
 import { RequestDesignModal } from "./request-design-modal";
 import type {
@@ -102,14 +103,10 @@ export function CalendarClient({
     setCalendarId(id);
   }
 
-  /* ?date= is user-editable, so a garbage value would otherwise make `focused`
-     an Invalid Date and throw out of the add drawer's date seeding. */
-  const focused = useMemo(() => {
-    const parsed = new Date(`${dateKey}T00:00:00Z`);
-    return Number.isNaN(parsed.getTime())
-      ? new Date(`${defaultDate}T00:00:00Z`)
-      : parsed;
-  }, [dateKey, defaultDate]);
+  const focused = useMemo(
+    () => resolveFocusedDate(dateKey, defaultDate),
+    [dateKey, defaultDate],
+  );
 
   // Track the selected item by id and re-derive it from the freshest props,
   // so an edit + router.refresh() updates the open drawer's contents.

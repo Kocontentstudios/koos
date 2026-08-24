@@ -186,6 +186,24 @@ describe("abandoning an edit", () => {
     expect(updateCalendarItemAction).not.toHaveBeenCalled();
   });
 
+  /* The prop-resync keys on a CHANGED item id, so a stale optimistic status
+     survived reopening the SAME item — showing a value the database never
+     took, which is the defect the dismissal fix exists to prevent. */
+  it("drops a stale optimistic status when dismissed", async () => {
+    updateCalendarItemStatusAction.mockResolvedValue({
+      ok: false,
+      error: "Item not found",
+    });
+    setup({ status: "draft" });
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "ready");
+    expect(screen.getByLabelText("Status")).toHaveValue("draft");
+
+    updateCalendarItemStatusAction.mockResolvedValue({ ok: true });
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "published");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByLabelText("Status")).toHaveValue("draft");
+  });
+
   it("drops the draft when dismissed with the close button", async () => {
     setup();
     await userEvent.click(screen.getByRole("button", { name: /Edit details/ }));
