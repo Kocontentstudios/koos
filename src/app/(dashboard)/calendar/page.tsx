@@ -99,10 +99,13 @@ export default async function CalendarPage({
     contentType: it.contentType,
     title: it.title,
     brief: it.brief,
+    caption: it.caption,
+    notes: it.notes,
     designRequired: it.designRequired,
     designType: it.designType,
     dimensions: it.dimensions,
     status: it.status,
+    source: it.source,
   }));
 
   // Picker options across every strategy's calendar, newest first.

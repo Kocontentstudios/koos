@@ -97,6 +97,12 @@ export const calendarItemStatusEnum = pgEnum("calendar_item_status", [
   "published",
 ]);
 
+/** Whether an item came out of calendar generation or the user typed it in. */
+export const calendarItemSourceEnum = pgEnum("calendar_item_source", [
+  "ai",
+  "manual",
+]);
+
 export const designTicketStatusEnum = pgEnum("design_ticket_status", [
   "draft",
   "submitted",
@@ -412,25 +418,36 @@ export const calendars = pgTable("calendars", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const calendarItems = pgTable("calendar_items", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  calendarId: uuid("calendar_id")
-    .notNull()
-    .references(() => calendars.id, { onDelete: "cascade" }),
-  date: timestamp("date").notNull(),
-  time: text("time"),
-  platform: text("platform").notNull(),
-  contentType: text("content_type").notNull(),
-  title: text("title").notNull(),
-  brief: text("brief"),
-  designRequired: boolean("design_required").notNull().default(false),
-  designType: text("design_type"),
-  dimensions: text("dimensions"),
-  status: calendarItemStatusEnum("status").notNull().default("draft"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const calendarItems = pgTable(
+  "calendar_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    calendarId: uuid("calendar_id")
+      .notNull()
+      .references(() => calendars.id, { onDelete: "cascade" }),
+    date: timestamp("date").notNull(),
+    time: text("time"),
+    platform: text("platform").notNull(),
+    contentType: text("content_type").notNull(),
+    title: text("title").notNull(),
+    /** Creative direction — what the post should accomplish. AI-written. */
+    brief: text("brief"),
+    /** The post copy itself, ready to publish. */
+    caption: text("caption"),
+    /** Internal reminders — not part of the post. Still visible to the
+     * in-app assistant, which reads whole rows via list_calendar_items. */
+    notes: text("notes"),
+    designRequired: boolean("design_required").notNull().default(false),
+    designType: text("design_type"),
+    dimensions: text("dimensions"),
+    status: calendarItemStatusEnum("status").notNull().default("draft"),
+    source: calendarItemSourceEnum("source").notNull().default("ai"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.calendarId)],
+);
 
 export const designTickets = pgTable("design_tickets", {
   id: uuid("id").primaryKey().defaultRandom(),

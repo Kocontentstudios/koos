@@ -112,7 +112,10 @@ export async function resolveDesignContext({
       ...base,
       source: "calendar_item",
       title: item.title,
-      briefText: item.brief ?? item.title,
+      /* A manually added entry has no brief by construction (the add form
+         hides it), so falling straight through to the title would brief the
+         model on a headline and silently drop the copy the user wrote. */
+      briefText: item.brief ?? item.caption ?? item.title,
       designType: item.designType ?? item.contentType,
       dimensions: item.dimensions,
       aspectRatio: aspectRatio ?? aspectRatioFromDimensions(item.dimensions),

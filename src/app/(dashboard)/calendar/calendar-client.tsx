@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,11 @@ import {
   formatMonthLabel,
   formatWeekRangeLabel,
 } from "@/lib/calendar/labels";
+import { AddItemDrawer } from "./add-item-drawer";
 import { AgendaView } from "./agenda-view";
 import { CalendarItemDrawer } from "./calendar-item-drawer";
 import { DayView } from "./day-view";
+import { resolveFocusedDate } from "./focused-date";
 import { MonthView } from "./month-view";
 import { RequestDesignModal } from "./request-design-modal";
 import type {
@@ -62,12 +64,21 @@ export function CalendarClient({
     [items],
   );
 
-  // Default focused date = the calendar's start (the generation week has items).
-  const defaultDate = useMemo(
-    () => dayKey(new Date(calendar.startDate)),
-    [calendar.startDate],
-  );
   const today = useMemo(utcToday, []);
+
+  /*
+   * Land on today when the calendar covers it, otherwise on the start. Keying
+   * purely off `startDate` used to mean a single entry placed far in the past
+   * dragged the window back and every later visit opened on an empty month —
+   * widening is one-directional, so nothing walked that back.
+   */
+  const defaultDate = useMemo(() => {
+    const start = new Date(calendar.startDate);
+    const end = new Date(calendar.endDate);
+    const covered =
+      today.getTime() >= start.getTime() && today.getTime() <= end.getTime();
+    return dayKey(covered ? today : start);
+  }, [calendar.startDate, calendar.endDate, today]);
 
   // URL state: ?view=… & ?date=YYYY-MM-DD — shareable / back-button friendly.
   const [view, setView] = useQueryState(
@@ -92,7 +103,10 @@ export function CalendarClient({
     setCalendarId(id);
   }
 
-  const focused = useMemo(() => new Date(`${dateKey}T00:00:00Z`), [dateKey]);
+  const focused = useMemo(
+    () => resolveFocusedDate(dateKey, defaultDate),
+    [dateKey, defaultDate],
+  );
 
   // Track the selected item by id and re-derive it from the freshest props,
   // so an edit + router.refresh() updates the open drawer's contents.
@@ -103,10 +117,17 @@ export function CalendarClient({
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addDate, setAddDate] = useState<Date | null>(null);
 
   function openItem(item: CalendarItem) {
     setSelectedId(item.id);
     setDrawerOpen(true);
+  }
+
+  function openAdd(day: Date) {
+    setAddDate(day);
+    setAddOpen(true);
   }
 
   function openRequestDesign() {
@@ -200,6 +221,15 @@ export function CalendarClient({
               </Button>
             </div>
           )}
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => openAdd(focused)}
+          >
+            <Plus aria-hidden="true" className="h-4 w-4" />
+            New post
+          </Button>
         </div>
       </header>
 
@@ -212,6 +242,7 @@ export function CalendarClient({
             setDateKey(dayKey(day));
             setView("day");
           }}
+          onAddDay={openAdd}
         />
       )}
       {view === "week" && (
@@ -220,10 +251,16 @@ export function CalendarClient({
           items={parsedItems}
           today={today}
           onSelect={openItem}
+          onAddDay={openAdd}
         />
       )}
       {view === "day" && (
-        <DayView focused={focused} items={parsedItems} onSelect={openItem} />
+        <DayView
+          focused={focused}
+          items={parsedItems}
+          onSelect={openItem}
+          onAddDay={openAdd}
+        />
       )}
       {view === "agenda" && (
         <AgendaView focused={focused} items={parsedItems} onSelect={openItem} />
@@ -236,6 +273,13 @@ export function CalendarClient({
         onOpenChange={setDrawerOpen}
         submitted={selected ? submittedSet.has(selected.id) : false}
         onRequestDesign={openRequestDesign}
+      />
+
+      <AddItemDrawer
+        calendarId={calendar.id}
+        date={addDate}
+        open={addOpen}
+        onOpenChange={setAddOpen}
       />
 
       <RequestDesignModal

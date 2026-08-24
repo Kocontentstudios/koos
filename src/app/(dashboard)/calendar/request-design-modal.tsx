@@ -136,7 +136,7 @@ export function RequestDesignModal({
     setDesignType(item.designType ?? "");
     setDimensions(item.dimensions ?? "");
     setSlides("");
-    setBrief(item.brief ?? "");
+    setBrief(item.brief ?? item.caption ?? "");
     setNotes("");
     setDueDate(defaultDueDate(item.date));
     setDeliveryEmail("");

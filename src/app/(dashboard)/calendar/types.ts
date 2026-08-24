@@ -1,5 +1,8 @@
 import type { BadgeStatus } from "@/components/ui/status-badge";
 
+/** Whether KO generated the entry or the user added it by hand. */
+export type CalendarItemSource = "ai" | "manual";
+
 export type CalendarItemStatus = Extract<
   BadgeStatus,
   "draft" | "in_progress" | "ready" | "published"
@@ -14,10 +17,13 @@ export interface SerializedItem {
   contentType: string;
   title: string;
   brief: string | null;
+  caption: string | null;
+  notes: string | null;
   designRequired: boolean;
   designType: string | null;
   dimensions: string | null;
   status: CalendarItemStatus;
+  source: CalendarItemSource;
 }
 
 /** Item after the client parses `date` back to a UTC Date. */
@@ -56,4 +62,8 @@ export function statusLabel(status: CalendarItemStatus): string {
     published: "Published",
   };
   return map[status];
+}
+
+export function sourceLabel(source: CalendarItemSource): string {
+  return source === "manual" ? "Added by you" : "KO generated";
 }

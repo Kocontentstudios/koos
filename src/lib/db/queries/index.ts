@@ -40,6 +40,7 @@ import {
   users,
   workspaces,
 } from "@/lib/db/schema";
+import { widenWindowGuard, widenWindowSet } from "@/lib/db/sql/calendar-window";
 
 // ── Users ───────────────────────────────────────────────────────────
 
@@ -544,6 +545,58 @@ export async function getCalendarItems(calendarId: string) {
     .orderBy(calendarItems.date, calendarItems.sortOrder);
 }
 
+/** Insert one item (the manual-add path; generation bulk-inserts instead). */
+export async function createCalendarItem(
+  row: typeof calendarItems.$inferInsert,
+) {
+  const [created] = await db.insert(calendarItems).values(row).returning();
+  return created;
+}
+
+export async function deleteCalendarItem(id: string) {
+  const [row] = await db
+    .delete(calendarItems)
+    .where(eq(calendarItems.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Widen a calendar's date range so a newly placed item stays reachable.
+ *
+ * LEAST/GREATEST rather than a read-modify-write: two concurrent adds on
+ * either side of the range would otherwise both compute their new bound from
+ * the same stale read, and the second write would clobber the first — leaving
+ * one item outside the very window this exists to keep it inside. The WHERE
+ * guard makes an in-range date a no-op instead of a pointless UPDATE.
+ */
+export async function widenCalendarWindow(calendarId: string, date: Date) {
+  const [row] = await db
+    .update(calendars)
+    .set({ ...widenWindowSet(date), updatedAt: new Date() })
+    .where(and(eq(calendars.id, calendarId), widenWindowGuard(date)))
+    .returning();
+  return row ?? null;
+}
+
+/** Next free slot on a given day, so a new item lands after that day's items
+    rather than tying with the first one at sortOrder 0. */
+export async function nextSortOrderForDate(
+  calendarId: string,
+  date: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ max: sql<number | null>`max(${calendarItems.sortOrder})` })
+    .from(calendarItems)
+    .where(
+      and(
+        eq(calendarItems.calendarId, calendarId),
+        eq(calendarItems.date, date),
+      ),
+    );
+  return (row?.max ?? -1) + 1;
+}
+
 export async function updateCalendarItemStatus(
   id: string,
   status: typeof calendarItems.$inferInsert.status,
@@ -568,6 +621,8 @@ export async function updateCalendarItem(
       | "contentType"
       | "title"
       | "brief"
+      | "caption"
+      | "notes"
       | "designRequired"
       | "designType"
       | "dimensions"
