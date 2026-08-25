@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/queries";
 import { isUuid } from "@/lib/validation/uuid";
 import { CalendarClient } from "./calendar-client";
+import { isPickDesign } from "./pick-mode";
 import type {
   BrandSummary,
   CalendarOption,
@@ -29,10 +30,14 @@ function calendarRangeLabel(startDate: Date, endDate: Date): string {
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ calendarId?: string }>;
+  searchParams: Promise<{ calendarId?: string; pick?: string }>;
 }) {
   const { dbUser, workspace, brand } = await requireBrand();
-  const { calendarId } = await searchParams;
+  const { calendarId, pick } = await searchParams;
+  /* Read on the server rather than through nuqs: calendar-client's query
+     bindings are why that file has no test, and this one needs to stay
+     assertable as a plain prop. */
+  const pickMode = isPickDesign(pick);
 
   // All calendars for the brand (newest first); the URL may pin a specific
   // one, otherwise fall back to the latest. Non-owned ids simply don't match.
@@ -53,7 +58,9 @@ export default async function CalendarPage({
           No calendar yet
         </h1>
         <p className="mb-6 max-w-md text-[15px] text-[var(--text-secondary)]">
-          Generate a content strategy first — your calendar is built from it.
+          {pickMode
+            ? "There are no planned posts to request a design for yet. Build a campaign first — your calendar is generated from it."
+            : "Generate a content strategy first — your calendar is built from it."}
         </p>
         <Link href="/strategy">
           <Button variant="default" size="lg">
@@ -122,6 +129,7 @@ export default async function CalendarPage({
       campaignName={strategy?.name ?? null}
       submittedItemIds={submittedItemIds}
       calendarOptions={calendarOptions}
+      pickMode={pickMode}
     />
   );
 }

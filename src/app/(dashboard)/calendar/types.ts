@@ -54,6 +54,10 @@ export interface BrandSummary {
 
 export type CalendarView = "month" | "week" | "day" | "agenda";
 
+/** The same literals the ?view= query parser accepts, kept beside the type so
+ *  links elsewhere can be checked against them. */
+export const VIEWS: CalendarView[] = ["month", "week", "day", "agenda"];
+
 export function statusLabel(status: CalendarItemStatus): string {
   const map: Record<CalendarItemStatus, string> = {
     draft: "Draft",

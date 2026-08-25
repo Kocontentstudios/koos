@@ -16,19 +16,20 @@ import { CalendarItemDrawer } from "./calendar-item-drawer";
 import { DayView } from "./day-view";
 import { resolveFocusedDate } from "./focused-date";
 import { MonthView } from "./month-view";
+import { PickDesignBanner } from "./pick-design-banner";
+import { resolvePickGuidance } from "./pick-guidance";
 import { RequestDesignModal } from "./request-design-modal";
-import type {
-  BrandSummary,
-  CalendarItem,
-  CalendarOption,
-  CalendarView,
-  SerializedCalendar,
-  SerializedItem,
+import {
+  type BrandSummary,
+  type CalendarItem,
+  type CalendarOption,
+  type CalendarView,
+  type SerializedCalendar,
+  type SerializedItem,
+  VIEWS,
 } from "./types";
 import { ViewToggle } from "./view-toggle";
 import { WeekView } from "./week-view";
-
-const VIEWS: CalendarView[] = ["month", "week", "day", "agenda"];
 
 /** UTC midnight of the current day, for "today" highlighting. */
 function utcToday(): Date {
@@ -45,6 +46,8 @@ interface CalendarClientProps {
   campaignName: string | null;
   submittedItemIds: string[];
   calendarOptions: CalendarOption[];
+  /** Arrived from the Design Tickets chooser to pick an item to request. */
+  pickMode: boolean;
 }
 
 export function CalendarClient({
@@ -54,6 +57,7 @@ export function CalendarClient({
   campaignName,
   submittedItemIds,
   calendarOptions,
+  pickMode,
 }: CalendarClientProps) {
   const submittedSet = useMemo(
     () => new Set(submittedItemIds),
@@ -161,8 +165,17 @@ export function CalendarClient({
 
   const showNav = view !== "agenda";
 
+  /* The banner must only ask for what the CURRENT view allows: month renders
+     items as non-interactive chips, week/day show one window, and agenda hides
+     everything before the focused date. */
+  const pickGuidance = useMemo(
+    () => resolvePickGuidance(view, parsedItems, focused, submittedSet),
+    [view, parsedItems, focused, submittedSet],
+  );
+
   return (
     <div className="flex flex-col gap-4">
+      {pickMode && <PickDesignBanner guidance={pickGuidance} />}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Left: strategy/calendar picker + view switcher (template calendar-header-left). */}
         <div className="flex flex-wrap items-center gap-3">

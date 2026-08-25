@@ -83,6 +83,14 @@ stable for the lifetime of one login) where available.
 | `calendar_generated` | calendar generation job succeeds | `calendar_id`, `items` |
 | `design_brief_generated` | AI design brief job succeeds | `design_type` |
 | `design_ticket_submitted` | design ticket created | `design_type`, `from_calendar_item` |
+| `design_request_start_opened` | Design Tickets chooser opened | `label` (which CTA) |
+| `design_request_start_selected` | a start path chosen in the chooser | `option` (`direct`/`calendar`/`campaign`) |
+
+The two `design_request_start_*` events answer whether design requests actually
+want to begin from the calendar: compare the `calendar` share of
+`design_request_start_selected` against `from_calendar_item` on
+`design_ticket_submitted`. `opened` minus the sum of `selected` is the
+chooser's abandon rate — the evidence for whether it reads as simple.
 
 The pre-existing `usage_events` DB table keeps recording independently.
 
