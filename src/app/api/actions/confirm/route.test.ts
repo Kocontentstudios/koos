@@ -59,6 +59,7 @@ function req(body: unknown) {
 }
 
 const BRAND_ID = "11111111-1111-4111-8111-111111111111";
+const CONVERSATION_ID = "22222222-2222-4222-8222-222222222222";
 const STRATEGY_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("POST /api/actions/confirm", () => {
@@ -284,6 +285,51 @@ describe("POST /api/actions/confirm", () => {
         conversationId: null,
       }),
     );
+  });
+
+  /* Regression: this branch hard-coded conversationId: null, so a campaign
+     confirmed from chat was orphaned from the chat that proposed it — no card
+     on reopen, and no chat to name after the campaign. */
+  it("attaches a chat-born strategy to the chat that proposed it", async () => {
+    createGenerationJob.mockResolvedValue({ id: "job-1" });
+    executeGenerationJob.mockImplementation(
+      async (_id: string, work: () => Promise<unknown>) => {
+        await work();
+      },
+    );
+    generateStrategyWork.mockResolvedValue({ resultId: "s1" });
+
+    const res = await POST(
+      req({
+        brandId: BRAND_ID,
+        conversationId: CONVERSATION_ID,
+        proposal: {
+          kind: "strategy",
+          summary: "Q3 plan",
+          data: { name: "Q3 plan", seed: "Grow awareness" },
+        },
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(generateStrategyWork).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID }),
+    );
+  });
+
+  it("rejects a malformed conversationId instead of silently dropping the link", async () => {
+    const res = await POST(
+      req({
+        brandId: BRAND_ID,
+        conversationId: "not-a-uuid",
+        proposal: {
+          kind: "strategy",
+          summary: "Q3 plan",
+          data: { name: "Q3 plan", seed: "Grow awareness" },
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(createGenerationJob).not.toHaveBeenCalled();
   });
 
   it("rejects a strategy proposal from an unverified user without creating a job", async () => {

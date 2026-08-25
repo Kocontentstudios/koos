@@ -373,6 +373,9 @@ export const chatConversations = pgTable("chat_conversations", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   title: text("title"),
+  /** The user renamed this chat by hand. Locks the title against the AI titler
+   * and against the campaign-name rename on strategy generation. */
+  titleCustom: boolean("title_custom").notNull().default(false),
   mode: conversationModeEnum("mode").notNull().default("strategy"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

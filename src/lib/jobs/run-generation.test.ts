@@ -15,6 +15,7 @@ const createNotification = vi.fn();
 const recordUsageEvent = vi.fn();
 const createStrategy = vi.fn();
 const createDesignBrief = vi.fn();
+const updateConversationTitle = vi.fn();
 
 vi.mock("ai", () => ({
   generateObject: (args: unknown) => generateObject(args),
@@ -38,12 +39,15 @@ vi.mock("@/lib/db/queries", () => ({
   recordUsageEvent: (data: unknown) => recordUsageEvent(data),
   createStrategy: (data: unknown) => createStrategy(data),
   createDesignBrief: (data: unknown) => createDesignBrief(data),
+  updateConversationTitle: (id: string, title: string) =>
+    updateConversationTitle(id, title),
 }));
 
 import {
   executeGenerationJob,
   generateCalendarWork,
   generateDesignBriefWork,
+  generateStrategyWork,
   JobPausedError,
   type JobRuntime,
   resumeCalendarJob,
@@ -466,5 +470,80 @@ describe("generateDesignBriefWork", () => {
     });
     expect(createDesignBrief).not.toHaveBeenCalled();
     expect(outcome.result).toMatchObject({ brief: BRIEF, briefId: null });
+  });
+});
+
+describe("generateStrategyWork", () => {
+  const STRATEGY: Strategy = {
+    campaignName: "Ramadan Gift Bundles",
+    objective: "Sell 500 bundles before Eid",
+    targetAudience: "Lagos professionals",
+    keyMessage: "Give a bundle, not a guess",
+    channels: [{ name: "Instagram", rationale: "reach" }],
+    contentMix: [{ type: "Reel", count: 4 }],
+    timeline: [{ phase: "Launch", dateRange: "Week 1", focus: "orders" }],
+    themes: [{ title: "Generosity", description: "gifting" }],
+    postingSchedule: [{ channel: "Instagram", cadence: "4x weekly" }],
+  };
+
+  const run = (conversationId: string | null) =>
+    generateStrategyWork({
+      brand: BRAND,
+      conversation: "user: ramadan gift bundles",
+      conversationId,
+      userId: "u1",
+      sessionId: null,
+    });
+
+  beforeEach(() => {
+    generateObject.mockResolvedValue({ object: STRATEGY });
+    createStrategy.mockImplementation(async (data) => ({
+      ...data,
+      id: "s1",
+      status: data.status,
+      updatedAt: new Date("2026-08-25T10:00:00.000Z"),
+    }));
+    updateConversationTitle.mockResolvedValue(true);
+  });
+
+  /* Draft, not active: the card's Save action is what commits a campaign, so
+     generating one must not look like the user stood behind it. */
+  it("writes the campaign as a draft attached to its chat", async () => {
+    await run("conv-1");
+    expect(createStrategy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandId: "b1",
+        conversationId: "conv-1",
+        name: "Ramadan Gift Bundles",
+        status: "draft",
+      }),
+    );
+  });
+
+  it("names the chat after the campaign", async () => {
+    await run("conv-1");
+    expect(updateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      "Ramadan Gift Bundles",
+    );
+  });
+
+  it("has no chat to rename when the strategy has none", async () => {
+    await run(null);
+    expect(updateConversationTitle).not.toHaveBeenCalled();
+  });
+
+  it("returns the card the chat pins, so no refetch is needed", async () => {
+    const outcome = await run("conv-1");
+    expect(outcome.result).toMatchObject({
+      strategyId: "s1",
+      card: {
+        id: "s1",
+        campaignName: "Ramadan Gift Bundles",
+        channels: ["Instagram"],
+        phaseCount: 1,
+        status: "draft",
+      },
+    });
   });
 });

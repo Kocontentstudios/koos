@@ -53,6 +53,9 @@
   /* --- Borders & effects -------------------------------------------------- */
   --border: rgba(255, 255, 255, 0.06);
   --border-hover: rgba(255, 255, 255, 0.1);
+  /* A control boundary, not a surface edge: must clear WCAG 1.4.11's 3:1.
+     --border and --border-hover are tuned for surfaces and sit far below it. */
+  --border-control: rgba(255, 255, 255, 0.38);
   --border-accent: rgba(19, 139, 200, 0.4);
   --divider: rgba(255, 255, 255, 0.08);
   --hover: rgba(255, 255, 255, 0.06);
@@ -177,6 +180,8 @@
   --surface-container-highest: #e2e8f0;
   --primary-container: #dbeafe;
 
+  --border-control: #8090a4;
+
   /* White-alpha overlays become invisible on light surfaces → flip to ink-alpha */
   --status-draft-bg: rgba(15, 23, 42, 0.05);
   --hover: rgba(15, 23, 42, 0.05);
@@ -184,6 +189,7 @@
   /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
      amber/red drop below readable contrast on white surfaces. Darken them for
      light mode (the low-alpha tint backgrounds stay legible as-is). */
+  --status-draft-fg: #475569;
   --status-progress-fg: #1f7ab5;
   --status-ready-fg: #4d7c0f;
   --status-pending-fg: #a16207;
@@ -225,6 +231,7 @@
   /* Border tokens */
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
+  --color-border-control: var(--border-control);
   --color-border-accent: var(--border-accent);
   --color-divider: var(--divider);
 
