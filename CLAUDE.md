@@ -69,6 +69,19 @@ The context window is your only control surface over the model. Treat it as a de
 - For cross-cutting concerns (eval harness, prompt library, vision utilities, observability, SEO, schema validation, etc.) grep GitHub in parallel for top candidates. Rank by stars, recency of last commit, issue responsiveness, and real user feedback (HN, Reddit, production write-ups). Return the best option with reasoning, not a list. Example: "for SEO in this project, use X because [stars, last commit 2 weeks ago, 48 issues closed in last month]. Second choice Y. Rejected Z because [last commit 14 months ago]."
 - If two options are equally viable, name the trade-off explicitly and ask Julien. Confusion Protocol applies.
 
+### Every wait gets an affordance
+
+If the user can trigger it and it can take longer than a frame, it says so. No exceptions, and no hand-rolled spinners.
+
+- **Buttons**: `loading` + `loadingText` on `src/components/ui/button.tsx`. It handles the spinner, `disabled` and `aria-busy`. Never `disabled={pending}` alone, and never swap the label by hand.
+- **In a list**: key the pending state to the row (`actingOn === \`revoke:${id}\``), not one shared boolean — otherwise every row claims to be working. `loading` means "I am working"; `disabled` means "wait". They are different signals.
+- **Routes**: every segment resolves a `loading.tsx`. `src/app/loading-coverage.test.tsx` enforces this and renders each one, so a fallback that returns `null` fails.
+- **Placeholders**: `<Skeleton>` only. Never a surface token — `--surface-1` and `--surface-2` are both `#ffffff` in light mode, so `bg-surface-*` is invisible on a card.
+- **Fetched data**: distinguish loading, empty and error. An empty state shown while loading is the app lying to the user.
+- **Announce it**: the container carries `role="status"` and real text. Never `aria-busy` on a live region — it tells assistive tech to withhold the very update the region exists to deliver.
+
+The contract is `docs/KO_OS UI.Specification.md` "Loading & Error States".
+
 ### Search before building
 
 Three layers, in order:

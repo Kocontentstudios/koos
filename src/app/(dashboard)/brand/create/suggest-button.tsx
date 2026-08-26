@@ -3,6 +3,7 @@
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Spinner } from "@/components/ui/spinner";
 import type {
   BrandSuggestContext,
   BrandSuggestField,
@@ -69,13 +70,18 @@ export function SuggestButton({
       type="button"
       onClick={handleClick}
       disabled={loading}
+      aria-busy={loading || undefined}
       aria-label={`${label} with AI`}
       className={cn(
         "inline-flex items-center gap-1 self-start rounded-lg border border-[var(--border)] px-2.5 py-1 text-[12px] font-medium text-primary transition-colors hover:border-[var(--border-accent)] hover:bg-[var(--accent-glow)]",
         loading && "opacity-50 cursor-not-allowed",
       )}
     >
-      <Sparkles className="size-3" aria-hidden="true" />
+      {loading ? (
+        <Spinner className="size-3" />
+      ) : (
+        <Sparkles className="size-3" aria-hidden="true" />
+      )}
       {loading ? "Thinking…" : label}
     </button>
   );
