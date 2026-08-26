@@ -46,7 +46,13 @@ export async function saveBrandProfile(
     brandStyle: v.brandStyle || null,
     primaryColor: v.primaryColor || null,
     secondaryColor: v.secondaryColor || null,
-    additionalColors: v.additionalColors ?? null,
+    /* Empty means "no extra colours", same as platforms below. Writing {}
+       would leave a brand that never had extras looking different in the DB
+       from one that never touched the field. */
+    additionalColors:
+      v.additionalColors && v.additionalColors.length > 0
+        ? v.additionalColors
+        : null,
     logoUrl: v.logoUrl || null,
     competitors: v.competitors || null,
     competitorStrengths: v.competitorStrengths || null,

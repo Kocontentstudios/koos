@@ -17,6 +17,7 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "eval:design": "tsx src/lib/ai/image/eval/run.mts",
+    "eval:design-spec": "tsx src/lib/ai/design-spec/eval/run.mts",
     "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts",
     "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts"
   },

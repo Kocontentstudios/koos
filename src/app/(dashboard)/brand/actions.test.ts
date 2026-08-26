@@ -111,8 +111,11 @@ describe("saveBrandProfile", () => {
   });
 
   /* AC: a brand saved before this feature has no additional_colors value and
-     must keep saving cleanly, writing null rather than an empty array. */
-  it("leaves a legacy two-colour brand unchanged", async () => {
+     must keep saving cleanly, writing null rather than an empty array.
+     The wizard ALWAYS sends the array (brandToFormState maps a null column to
+     []), so [] is the real legacy payload — asserting on an omitted field
+     would have tested a shape the form never produces. */
+  it("writes null, not {}, when a legacy brand is saved untouched", async () => {
     getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
       onboardingStatus: "completed",
@@ -123,10 +126,25 @@ describe("saveBrandProfile", () => {
       ...validInput,
       primaryColor: "#0F172A",
       secondaryColor: "#F97316",
+      additionalColors: [],
     });
 
     expect(updateBrand.mock.calls[0][1]).toMatchObject({
       primaryColor: "#0F172A",
+      additionalColors: null,
+    });
+  });
+
+  it("writes null when the field is omitted entirely", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({ ...validInput, primaryColor: "#0F172A" });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
       additionalColors: null,
     });
   });

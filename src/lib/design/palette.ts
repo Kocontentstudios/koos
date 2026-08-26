@@ -1,3 +1,5 @@
+import { normalizeHex } from "@/lib/validation/hex";
+
 export interface ResolvedPalette {
   background: string;
   foreground: string;
@@ -24,18 +26,9 @@ const NEUTRAL_ACCENT = "#2563EB";
  * defensible — 4.5 is used because subheadlines and CTAs are not. */
 export const MIN_CONTRAST_RATIO = 4.5;
 
-/** Accepts "#abc", "#AABBCC", "abc123" and returns "#AABBCC", or null for
- * anything else (colour names, rgb(), gradients, model hallucinations). */
-export function normalizeHex(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const raw = value.trim().replace(/^#/, "");
-  if (/^[0-9a-fA-F]{3}$/.test(raw)) {
-    const [r, g, b] = raw;
-    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
-  }
-  if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.toUpperCase()}`;
-  return null;
-}
+/* Re-exported so the render pipeline keeps its single import surface; the
+   implementation lives in validation/hex.ts, which the form path also uses. */
+export { normalizeHex };
 
 export function relativeLuminance(hex: string): number {
   const value = normalizeHex(hex) ?? NEUTRAL_DARK;
