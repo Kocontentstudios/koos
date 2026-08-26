@@ -109,9 +109,13 @@ export function DesignStudioClient({
               </button>
             ))}
           </div>
-          <Button onClick={handleGenerate} disabled={design.pending}>
+          <Button
+            onClick={handleGenerate}
+            loading={design.pending}
+            loadingText="Generating…"
+          >
             <Wand2 className="size-4" />
-            {design.pending ? "Generating…" : "Generate Design"}
+            Generate Design
           </Button>
         </div>
       </section>

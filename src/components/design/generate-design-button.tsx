@@ -48,11 +48,12 @@ export function GenerateDesignButton({
       <Button
         variant={variant}
         onClick={start}
-        disabled={design.pending}
+        loading={design.pending}
+        loadingText="Generating…"
         className={className}
       >
         <Wand2 className="size-4" />
-        {design.pending ? "Generating…" : label}
+        {label}
       </Button>
       <DesignPreviewModal
         open={open}

@@ -2,11 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatNotificationMessage } from "@/lib/design/tickets-ui";
 
 interface NotificationItem {
@@ -37,15 +39,16 @@ function timeAgo(iso: string): string {
 export function NotificationBell() {
   const queryClient = useQueryClient();
 
-  const { data } = useQuery<NotificationsResponse>({
-    queryKey: QUERY_KEY,
-    queryFn: async () => {
-      const res = await fetch("/api/notifications");
-      if (!res.ok) throw new Error("Failed to load notifications");
-      return res.json();
-    },
-    refetchInterval: 30_000,
-  });
+  const { data, isPending, isError, isFetching, refetch } =
+    useQuery<NotificationsResponse>({
+      queryKey: QUERY_KEY,
+      queryFn: async () => {
+        const res = await fetch("/api/notifications");
+        if (!res.ok) throw new Error("Failed to load notifications");
+        return res.json();
+      },
+      refetchInterval: 30_000,
+    });
 
   const markRead = useMutation({
     mutationFn: async () => {
@@ -83,7 +86,41 @@ export function NotificationBell() {
         <div className="border-b border-[var(--border)] px-3 py-2 text-[13px] font-semibold text-foreground">
           Notifications
         </div>
-        {items.length === 0 ? (
+        {isPending ? (
+          // Loading is not emptiness. This previously fell through to "You are
+          // all caught up.", telling the user there was nothing to see before
+          // anything had been fetched.
+          // The announcement lives here, not on DropdownMenuContent: the menu
+          // primitive owns its own role and drops an override.
+          <div
+            className="flex flex-col gap-1 py-1"
+            role="status"
+            aria-busy="true"
+            aria-label="Loading notifications"
+          >
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex flex-col gap-1 px-3 py-2">
+                <Skeleton className="h-3 w-48" />
+                <Skeleton className="h-2.5 w-20" />
+              </div>
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
+            <p className="text-[13px] text-[var(--text-secondary)]">
+              Couldn't load notifications.
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={isFetching}
+              loadingText="Retrying…"
+              onClick={() => refetch()}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : items.length === 0 ? (
           <p className="px-3 py-6 text-center text-[13px] text-[var(--text-secondary)]">
             You are all caught up.
           </p>

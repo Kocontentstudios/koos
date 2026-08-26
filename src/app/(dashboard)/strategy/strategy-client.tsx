@@ -16,13 +16,17 @@ import {
   startActiveGeneration,
 } from "@/lib/generation/active-job";
 import { pollGenerationJob } from "@/lib/generation/poll-job";
-import { cn } from "@/lib/utils";
-import { loadStrategy, markStrategyActive } from "./actions";
-import { ChatInput } from "./chat-input";
 import {
-  DesignBriefCard,
-  type PersistedDesignBrief,
-} from "./design-brief-card";
+  type CampaignCard,
+  campaignRecap,
+  isCampaignSaved,
+  nextChatTitle,
+} from "@/lib/strategy/campaign-card";
+import { cn } from "@/lib/utils";
+import { addStrategyRecap, loadStrategy, saveStrategy } from "./actions";
+import { ChatFooterCards } from "./chat-footer-cards";
+import { ChatInput } from "./chat-input";
+import type { PersistedDesignBrief } from "./design-brief-card";
 import { DesignBriefPanel } from "./design-brief-panel";
 import { MessageList } from "./message-list";
 import { PromptChips } from "./prompt-chips";
@@ -52,6 +56,8 @@ interface StrategyClientProps {
   conversations?: ConversationListItem[];
   initialMessages?: UIMessage[];
   initialConversationId?: string | null;
+  /** The campaign card of a server-restored conversation. */
+  initialCampaign?: CampaignCard | null;
   /** "design" opens the workspace in Design Request Mode. */
   initialMode?: ConversationMode;
 }
@@ -64,6 +70,7 @@ export function StrategyClient({
   conversations = [],
   initialMessages = [],
   initialConversationId = null,
+  initialCampaign = null,
   initialMode = "strategy",
 }: StrategyClientProps) {
   const router = useRouter();
@@ -71,9 +78,23 @@ export function StrategyClient({
     () => initialConversationId ?? crypto.randomUUID(),
   );
   const [mode, setMode] = useState<ConversationMode>(initialMode);
+  // The sidebar's chat list is local state so a rename — and the campaign-name
+  // rename that lands with a generated strategy — is visible without a reload.
+  const [chats, setChats] = useState<ConversationListItem[]>(conversations);
   const [input, setInput] = useState("");
   const [strategy, setStrategy] = useState<Strategy | null>(null);
-  const [strategyId, setStrategyId] = useState<string | null>(null);
+  const [strategyId, setStrategyId] = useState<string | null>(
+    initialCampaign?.id ?? null,
+  );
+  // The chat's campaign, pinned under the messages. One per chat: rebuilding
+  // replaces it rather than stacking a second campaign into the same chat.
+  const [campaign, setCampaign] = useState<CampaignCard | null>(
+    initialCampaign,
+  );
+  const [cardPending, setCardPending] = useState<
+    "open" | "save" | "review" | null
+  >(null);
+  const [cardError, setCardError] = useState<string | null>(null);
   // Persisted Design Brief Cards for the active conversation, plus which one
   // is open in the right-hand panel.
   const [briefs, setBriefs] = useState<PersistedDesignBrief[]>([]);
@@ -153,6 +174,45 @@ export function StrategyClient({
     );
   };
 
+  /** Reflect a freshly-built campaign in the sidebar: the chat takes the
+   *  campaign's name (unless the user named it) and gains the Campaign badge. */
+  const applyCampaignToChatList = (
+    card: CampaignCard,
+    newStrategyId: string,
+  ) => {
+    setChats((prev) => {
+      const existing = prev.find((c) => c.id === conversationId);
+      const updated: ConversationListItem = {
+        id: conversationId,
+        title: nextChatTitle(existing, card.campaignName),
+        updatedAt: new Date(),
+        mode,
+        strategyId: newStrategyId,
+        titleCustom: existing?.titleCustom ?? false,
+      };
+      return existing
+        ? prev.map((c) => (c.id === conversationId ? updated : c))
+        : [updated, ...prev];
+    });
+  };
+
+  const handleRenameConversation = async (id: string, title: string) => {
+    try {
+      const res = await fetch(`/api/chat/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) return false;
+      setChats((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title, titleCustom: true } : c)),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleBuildStrategy = async () => {
     setBuildPending(true);
     setBuildError(null);
@@ -186,9 +246,14 @@ export function StrategyClient({
       const data = await pollGenerationJob<{
         strategy: Strategy;
         strategyId: string;
+        card: CampaignCard | null;
       }>(jobId);
       setStrategy(data.strategy);
       setStrategyId(data.strategyId);
+      // A rebuild supersedes the chat's previous campaign in place.
+      setCampaign(data.card);
+      setCardError(null);
+      if (data.card) applyCampaignToChatList(data.card, data.strategyId);
       setPanelCollapsed(false);
       setSummaryOpen(true);
     } catch (err) {
@@ -204,8 +269,11 @@ export function StrategyClient({
     setCalendarError(null);
     setCalendarProgress(null);
     let jobId: string | null = null;
+    setCardError(null);
     try {
-      await markStrategyActive(strategyId);
+      const saved = await saveStrategy(strategyId);
+      if (!saved.ok) throw new Error(saved.error);
+      if (saved.card) setCampaign(saved.card);
       const res = await fetch("/api/calendar/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -234,9 +302,14 @@ export function StrategyClient({
       router.push(`/calendar?calendarId=${calendarId}`);
     } catch (err) {
       if (jobId) clearActiveGeneration(jobId);
-      setCalendarError(
-        err instanceof Error ? err.message : "An error occurred",
-      );
+      const message = err instanceof Error ? err.message : "An error occurred";
+      setCalendarError(message);
+      // The panel renders calendarError only alongside a loaded strategy, and
+      // the card offers Generate Calendar without one — so without this a
+      // failure before a jobId exists (the GenerationWatcher owns failures
+      // only after that) would be completely silent. Only when the panel
+      // cannot show it, or the same message renders twice on desktop.
+      if (!strategy) setCardError(message);
       setCalendarPending(false);
       setCalendarProgress(null);
     }
@@ -306,6 +379,8 @@ export function StrategyClient({
     setMessages([]);
     setStrategy(null);
     setStrategyId(null);
+    setCampaign(null);
+    setCardError(null);
     setBriefs([]);
     setActiveBriefId(null);
     setBuildError(null);
@@ -330,14 +405,19 @@ export function StrategyClient({
       const data = (await res.json()) as {
         messages: UIMessage[];
         briefs?: PersistedDesignBrief[];
+        strategy?: CampaignCard | null;
       };
       setConversationId(id);
       // Follow the reopened conversation's mode so replies use the right prompt.
-      const reopened = conversations.find((c) => c.id === id);
+      const reopened = chats.find((c) => c.id === id);
       if (reopened?.mode) setMode(reopened.mode);
       setMessages(data.messages);
+      // The chat's campaign comes back with it; the panel stays closed until
+      // the user opens the card, so reopening a chat lands on the chat.
       setStrategy(null);
-      setStrategyId(null);
+      setStrategyId(data.strategy?.id ?? null);
+      setCampaign(data.strategy ?? null);
+      setCardError(null);
       // The conversation's saved Design Brief Cards come back with it.
       setBriefs(data.briefs ?? []);
       setActiveBriefId(null);
@@ -350,34 +430,102 @@ export function StrategyClient({
     }
   };
 
-  // Open the current chat's saved strategy in the summary panel WITHOUT
-  // touching the conversation — unlike handleSelectStrategy, which replaces
-  // the chat with a recap (kept for the sidebar's Older Strategies list).
-  const handleViewStrategy = async (id: string) => {
-    if (loadingStrategyId) return;
-    setLoadError(null);
-    setLoadingStrategyId(id);
+  // Card action "Open": show the full strategy in the summary panel without
+  // disturbing the chat.
+  const handleOpenStrategy = async (id: string) => {
+    if (cardPending) return;
+    setCardError(null);
+    // Already loaded: Open's job is to REVEAL the panel, so re-fetching would
+    // burn a round-trip for nothing. Disabling it instead was wrong — the
+    // panel can be collapsed or its mobile drawer closed while the strategy
+    // is still held, and Open is the labelled way back to it.
+    const reveal = () => {
+      setPanelCollapsed(false);
+      setSummaryOpen(true);
+    };
+    if (strategyId === id && strategy) {
+      reveal();
+      return;
+    }
+    setCardPending("open");
     try {
       const res = await loadStrategy(id);
       if (!res.ok) {
-        setLoadError(res.error);
+        setCardError(res.error);
         return;
       }
       setStrategy(res.strategy);
       setStrategyId(id);
-      setPanelCollapsed(false);
-      setSummaryOpen(true);
+      reveal();
     } catch {
-      setLoadError("Could not load strategy.");
+      setCardError("Could not load strategy.");
     } finally {
-      setLoadingStrategyId(null);
+      setCardPending(null);
     }
   };
 
-  // Load a saved strategy into the summary/card and seed the chat with a recap
-  // so the user can keep refining it and rebuild.
-  const handleSelectStrategy = async (id: string) => {
+  // Card action "Review": append KO's recap to the chat so the next turn
+  // refines this campaign. Persisted server-side, so the refinement still
+  // reads in context when the chat is reopened.
+  const handleReviewStrategy = async (id: string) => {
+    if (cardPending) return;
+    setCardError(null);
+    setCardPending("review");
+    try {
+      const res = await addStrategyRecap(id);
+      if (!res.ok) {
+        setCardError(res.error);
+        return;
+      }
+      setMessages([
+        ...messages,
+        {
+          id: res.id,
+          role: "assistant",
+          parts: [{ type: "text", text: res.text }],
+        },
+      ]);
+      setSummaryOpen(false);
+    } catch {
+      setCardError("Could not add the recap to this chat.");
+    } finally {
+      setCardPending(null);
+    }
+  };
+
+  // Card action "Save": commit the campaign. Earlier versions in this chat are
+  // archived server-side, so one chat keeps standing for one campaign.
+  const handleSaveStrategy = async (id: string) => {
+    if (cardPending) return;
+    setCardError(null);
+    setCardPending("save");
+    try {
+      const res = await saveStrategy(id);
+      if (!res.ok) {
+        setCardError(res.error);
+        return;
+      }
+      if (res.card) setCampaign(res.card);
+    } catch {
+      setCardError("Could not save strategy.");
+    } finally {
+      setCardPending(null);
+    }
+  };
+
+  // Sidebar "Older Strategies". A strategy that still has its own chat reopens
+  // that chat; one that doesn't gets a fresh chat seeded with a recap, never
+  // the chat currently on screen — loading an old campaign must not mix into
+  // the campaign the user is working on.
+  const handleSelectStrategy = async (
+    id: string,
+    strategyConversationId?: string | null,
+  ) => {
     if (loadingStrategyId) return;
+    if (strategyConversationId) {
+      await handleSelectConversation(strategyConversationId);
+      return;
+    }
     setLoadError(null);
     setLoadingStrategyId(id);
     try {
@@ -387,22 +535,20 @@ export function StrategyClient({
         return;
       }
       const s = res.strategy;
+      setConversationId(crypto.randomUUID());
       setStrategy(s);
       setStrategyId(id);
-      const recap = [
-        `I've loaded your saved strategy "${s.campaignName}".`,
-        "",
-        `Objective: ${s.objective}`,
-        `Key message: ${s.keyMessage}`,
-        `Channels: ${s.channels.map((c) => c.name).join(", ")}`,
-        "",
-        "Tell me what you'd like to change and I'll refine it, then you can rebuild the strategy.",
-      ].join("\n");
+      // No card: this strategy belongs to no chat, so Save and Review would
+      // have nowhere to write.
+      setCampaign(null);
+      setCardError(null);
+      setBriefs([]);
+      setActiveBriefId(null);
       setMessages([
         {
           id: `loaded-${id}`,
           role: "assistant",
-          parts: [{ type: "text", text: recap }],
+          parts: [{ type: "text", text: campaignRecap(s) }],
         },
       ]);
       setPanelCollapsed(false);
@@ -419,15 +565,20 @@ export function StrategyClient({
   const activeBrief = briefs.find((b) => b.id === activeBriefId) ?? null;
   // In design mode the button hides while a brief is open in the panel;
   // closing it ("Refine in chat") re-enables regeneration.
+  // In strategy mode it stays available once a campaign exists, as a rebuild:
+  // refining a campaign is not starting a new one.
   const showBuildButton =
-    messages.length >= 2 &&
-    !(isDesignMode ? activeBrief : strategy) &&
-    !isLoading;
-  // The reopened chat's saved strategy, offered as a "View Strategy" action.
-  const activeConversationStrategyId =
-    conversations.find((c) => c.id === conversationId)?.strategyId ?? null;
-  const showViewStrategy =
-    !isDesignMode && !!activeConversationStrategyId && !strategy;
+    messages.length >= 2 && !(isDesignMode && activeBrief) && !isLoading;
+  // A chat with a campaign (or a brief) is not empty even before its messages
+  // load, so the pinned cards must not hang off the transcript being non-empty.
+  const hasFooterCards = isDesignMode ? briefs.length > 0 : campaign !== null;
+  const showEmptyState = messages.length === 0 && !hasFooterCards;
+  const showTranscript = messages.length > 0 || hasFooterCards;
+  const buildLabel = isDesignMode
+    ? "Generate Design Brief"
+    : campaign
+      ? "Rebuild Strategy"
+      : `Build Strategy for ${brandName}`;
 
   return (
     <div className="h-[calc(100vh-56px)] flex overflow-hidden -mx-4 -my-6 md:-mx-8 md:-my-8">
@@ -463,10 +614,11 @@ export function StrategyClient({
             onSelect={handleSelectStrategy}
             onNew={handleNewStrategy}
             onCollapse={() => setHistoryCollapsed(true)}
-            conversations={conversations}
+            conversations={chats}
             activeConversationId={conversationId}
             loadingConversationId={loadingConversationId}
             onSelectConversation={handleSelectConversation}
+            onRenameConversation={handleRenameConversation}
           />
         </aside>
       )}
@@ -493,10 +645,11 @@ export function StrategyClient({
           onSelect={handleSelectStrategy}
           onNew={handleNewStrategy}
           onClose={() => setHistoryOpen(false)}
-          conversations={conversations}
+          conversations={chats}
           activeConversationId={conversationId}
           loadingConversationId={loadingConversationId}
           onSelectConversation={handleSelectConversation}
+          onRenameConversation={handleRenameConversation}
         />
       </aside>
 
@@ -535,27 +688,8 @@ export function StrategyClient({
           </div>
         )}
 
-        {/* This chat produced a strategy — open it without disturbing the chat */}
-        {showViewStrategy && activeConversationStrategyId && (
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2">
-            <span className="text-[13px] text-[var(--text-secondary)]">
-              This chat has a saved strategy.
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => handleViewStrategy(activeConversationStrategyId)}
-              loading={loadingStrategyId === activeConversationStrategyId}
-              loadingText="Loading…"
-              aria-label="View this chat's strategy"
-            >
-              View Strategy
-            </Button>
-          </div>
-        )}
-
         {/* Empty state — KO welcome bubble + indented prompt chips */}
-        {messages.length === 0 && (
+        {showEmptyState && (
           <div className="flex-1 overflow-y-auto px-4 py-6">
             <div className="flex items-start gap-3 max-w-[85%]">
               <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
@@ -571,28 +705,33 @@ export function StrategyClient({
           </div>
         )}
 
-        {/* Messages — with this conversation's Design Brief Cards pinned after them */}
-        {messages.length > 0 && (
+        {/* Messages — with this chat's pinned cards after them */}
+        {showTranscript && (
           <MessageList
             messages={messages}
             isLoading={isLoading}
             brandId={brandId}
+            conversationId={conversationId}
             footer={
-              isDesignMode && briefs.length > 0 ? (
-                <div className="flex flex-col gap-2 pl-10">
-                  {briefs.map((b) => (
-                    <DesignBriefCard
-                      key={b.id}
-                      brief={b}
-                      onOpen={(briefId) => {
-                        setActiveBriefId(briefId);
-                        setPanelCollapsed(false);
-                        setSummaryOpen(true);
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : null
+              <ChatFooterCards
+                isDesignMode={isDesignMode}
+                briefs={briefs}
+                onOpenBrief={(briefId) => {
+                  setActiveBriefId(briefId);
+                  setPanelCollapsed(false);
+                  setSummaryOpen(true);
+                }}
+                campaign={campaign}
+                onOpenCampaign={handleOpenStrategy}
+                onReviewCampaign={handleReviewStrategy}
+                onSaveCampaign={handleSaveStrategy}
+                onGenerateCalendar={handleGenerateCalendar}
+                opening={cardPending === "open"}
+                saving={cardPending === "save"}
+                reviewing={cardPending === "review"}
+                generatingCalendar={calendarPending}
+                cardError={cardError}
+              />
             }
           />
         )}
@@ -605,6 +744,8 @@ export function StrategyClient({
               variant="secondary"
               size="sm"
               onClick={() => regenerate()}
+              loading={isLoading}
+              loadingText="Retrying…"
               aria-label="Try again"
             >
               Try Again
@@ -624,6 +765,8 @@ export function StrategyClient({
                   onClick={
                     isDesignMode ? handleGenerateBrief : handleBuildStrategy
                   }
+                  loading={buildPending}
+                  loadingText="Retrying…"
                   aria-label={
                     isDesignMode
                       ? "Retry generate design brief"
@@ -636,7 +779,7 @@ export function StrategyClient({
             )}
             {showBuildButton && (
               <Button
-                variant="default"
+                variant={campaign && !isDesignMode ? "secondary" : "default"}
                 onClick={
                   isDesignMode ? handleGenerateBrief : handleBuildStrategy
                 }
@@ -645,13 +788,13 @@ export function StrategyClient({
                 aria-label={
                   isDesignMode
                     ? "Generate design brief from conversation"
-                    : "Build strategy from conversation"
+                    : campaign
+                      ? "Rebuild strategy from conversation"
+                      : "Build strategy from conversation"
                 }
                 className="self-start"
               >
-                {isDesignMode
-                  ? "Generate Design Brief"
-                  : `Build Strategy for ${brandName}`}
+                {buildLabel}
               </Button>
             )}
           </div>
@@ -690,6 +833,15 @@ export function StrategyClient({
       ) : (
         <StrategyPanel
           strategy={strategy}
+          saved={!campaign || isCampaignSaved(campaign)}
+          onSave={campaign ? () => handleSaveStrategy(campaign.id) : undefined}
+          saving={cardPending === "save"}
+          busy={cardPending !== null || calendarPending}
+          emptyMessage={
+            campaign
+              ? `Choose Open on the ${campaign.campaignName} card to see the full strategy here.`
+              : undefined
+          }
           collapsed={panelCollapsed}
           onToggleCollapsed={() => setPanelCollapsed((c) => !c)}
           onGenerateCalendar={handleGenerateCalendar}

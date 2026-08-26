@@ -742,7 +742,7 @@ Same layout as Login, differences:
 
 ### **Loading & Error States**
 
-* Loading: button text replaced by inline spinner (16px, KO Blue). Button disabled. Width stays fixed — no layout shift.
+* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is disabled and carries `aria-busy`. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
 * Network error: banner appears below the card. Background \#1A3A4A, border-left 3px \#D47575, text \#A7B6C7, padding 12px 16px.
 
@@ -1514,7 +1514,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 | Active | \#0C5F8A | \#FFFFFF | none | none (translateY \+1px) |
 | Disabled | \#1A3A4A | \#6F8599 | none | none |
 | Focus | \#138BC8 | \#FFFFFF | none | 0 0 0 3px rgba(19,139,200,0.15) |
-| Loading | \#138BC8 | transparent | none | Inline spinner replaces text |
+| Loading | \#138BC8 | \#FFFFFF | none | Inline spinner \+ present-participle label (Saving…) |
 
 ### **Secondary (Outline)**
 

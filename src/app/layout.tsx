@@ -12,10 +12,9 @@ import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-// KO OS brand typography (docs/KO_Design_System.docx §2.2):
-// "Brand font: Bricolage Bold pair with Mont Regular."
-//   • Bricolage Grotesque → headings (700 bold, 600 semibold for H3/labels)
-//   • Montserrat          → body (400 regular, 500 medium, 600 labels/buttons)
+// KO OS brand typography (docs/KO_OS UI.Specification.md §9.3):
+//   • Bricolage Grotesque → headings/display (700 bold, 600 semibold for H3/labels)
+//   • Montserrat          → body & UI (400 regular, 500 medium, 600 labels/buttons)
 // Weight discipline: never more than two weights in one view.
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",

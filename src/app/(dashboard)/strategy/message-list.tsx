@@ -10,6 +10,8 @@ interface MessageListProps {
   messages: UIMessage[];
   isLoading: boolean;
   brandId: string;
+  /** Chat a confirmed proposal belongs to. */
+  conversationId?: string;
   /** Extra content pinned after the messages, inside the scroll area
       (e.g. design-brief cards in design mode). */
   footer?: React.ReactNode;
@@ -30,6 +32,7 @@ export function MessageList({
   messages,
   isLoading,
   brandId,
+  conversationId,
   footer,
 }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -96,6 +99,7 @@ export function MessageList({
                       key={key}
                       proposal={proposal}
                       brandId={brandId}
+                      conversationId={conversationId}
                       onDone={() =>
                         setResolvedProposals((prev) => new Set(prev).add(key))
                       }

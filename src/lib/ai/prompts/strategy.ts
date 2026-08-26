@@ -50,5 +50,11 @@ export function buildStrategyGenerationPrompt(
   conversationText: string,
   brand: BrandSummary,
 ): string {
-  return `Based on the conversation below, produce a complete, on-brand content strategy for ${brand.name}. It must include: a catchy campaign name, a measurable objective, the target audience, a single key message, recommended channels (each with a short rationale), a content mix (content type + how many of each), a phased timeline (phase, date range, focus), content themes (title + description), and an optimal posting schedule (channel + cadence). Keep it specific and realistic for this brand.\n\n${brandBlock(brand)}\n\nConversation:\n${conversationText}`;
+  return `Based on the conversation below, produce a complete, on-brand content strategy for ${brand.name}.
+
+This is ONE campaign, focused on one main goal, product, service, offer, event or message. If the conversation mentions several, build the strategy for the one the user settled on and ignore the rest entirely — a separate campaign belongs in a separate chat.
+
+The campaign name is the campaign's identity: it must name that specific focus, in at most 60 characters, and never start with filler like "Campaign for" or "Content strategy for".
+
+It must include: the campaign name, a measurable objective, the target audience, a single key message, recommended channels (each with a short rationale), a content mix (content type + how many of each), a phased timeline (phase, date range, focus), content themes (title + description), and an optimal posting schedule (channel + cadence). Keep it specific and realistic for this brand.\n\n${brandBlock(brand)}\n\nConversation:\n${conversationText}`;
 }

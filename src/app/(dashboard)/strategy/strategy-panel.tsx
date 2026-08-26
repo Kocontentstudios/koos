@@ -14,6 +14,17 @@ import { cn } from "@/lib/utils";
 
 interface StrategyPanelProps {
   strategy: Strategy | null;
+  /** False while the campaign is still a draft, so the panel offers the same
+   * next step the card does instead of quietly committing it. */
+  saved?: boolean;
+  onSave?: () => void;
+  saving?: boolean;
+  /** Any card/panel action is in flight; the handlers refuse a second, so the
+   * controls must look refused rather than swallowing a live click. */
+  busy?: boolean;
+  /** Shown instead of the never-drafted copy when the chat HAS a campaign that
+   * simply is not loaded into the panel yet. */
+  emptyMessage?: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onGenerateCalendar: () => void;
@@ -59,11 +70,18 @@ function AccordionSection({
   );
 }
 
-function PanelBody({ strategy }: { strategy: Strategy | null }) {
+function PanelBody({
+  strategy,
+  emptyMessage,
+}: {
+  strategy: Strategy | null;
+  emptyMessage?: string;
+}) {
   if (!strategy) {
     return (
-      <p className="px-1 py-3 text-[13px] leading-relaxed text-[var(--text-muted)]">
-        Your strategy summary will appear here once KO drafts a plan.
+      <p className="px-1 py-3 text-[13px] leading-relaxed text-[var(--text-secondary)]">
+        {emptyMessage ??
+          "Your strategy summary will appear here once KO drafts a plan."}
       </p>
     );
   }
@@ -147,6 +165,11 @@ function PanelBody({ strategy }: { strategy: Strategy | null }) {
 /** Shared header + scrollable body + footer, used by both desktop aside and mobile drawer. */
 function PanelContent({
   strategy,
+  saved,
+  onSave,
+  saving,
+  busy,
+  emptyMessage,
   onGenerateCalendar,
   onEdit,
   generating,
@@ -156,6 +179,11 @@ function PanelContent({
   headerAction,
 }: {
   strategy: Strategy | null;
+  saved: boolean;
+  onSave?: () => void;
+  saving: boolean;
+  busy: boolean;
+  emptyMessage?: string;
   onGenerateCalendar: () => void;
   onEdit: () => void;
   generating: boolean;
@@ -174,7 +202,7 @@ function PanelContent({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-2">
-        <PanelBody strategy={strategy} />
+        <PanelBody strategy={strategy} emptyMessage={emptyMessage} />
       </div>
 
       {strategy && (
@@ -184,16 +212,35 @@ function PanelContent({
               {calendarError}
             </p>
           )}
-          <Button
-            variant="default"
-            onClick={onGenerateCalendar}
-            loading={generating}
-            loadingText={generatingLabel ?? "Generating…"}
-            className="w-full justify-center"
-          >
-            <Calendar className="size-4" />
-            Generate Calendar
-          </Button>
+          {/* The card's model is draft → Save → Generate Calendar. Offering
+              calendar generation here on a draft would contradict it, and the
+              generation path commits the draft silently. */}
+          {saved ? (
+            <Button
+              variant="secondary"
+              onClick={onGenerateCalendar}
+              loading={generating}
+              loadingText={generatingLabel ?? "Generating…"}
+              disabled={busy}
+              className="w-full justify-center"
+            >
+              <Calendar className="size-4" />
+              Generate Calendar
+            </Button>
+          ) : (
+            onSave && (
+              <Button
+                variant="secondary"
+                onClick={onSave}
+                loading={saving}
+                loadingText="Saving…"
+                disabled={busy}
+                className="w-full justify-center"
+              >
+                Save Campaign
+              </Button>
+            )
+          )}
           {generating && generatingHint && (
             <p
               role="status"
@@ -217,6 +264,11 @@ function PanelContent({
 
 export function StrategyPanel({
   strategy,
+  saved = true,
+  onSave,
+  saving = false,
+  busy = false,
+  emptyMessage,
   collapsed,
   onToggleCollapsed,
   onGenerateCalendar,
@@ -252,6 +304,11 @@ export function StrategyPanel({
         <aside className="hidden w-[320px] shrink-0 flex-col border-l border-[var(--border)] lg:flex">
           <PanelContent
             strategy={strategy}
+            saved={saved}
+            onSave={onSave}
+            saving={saving}
+            busy={busy}
+            emptyMessage={emptyMessage}
             onGenerateCalendar={onGenerateCalendar}
             onEdit={onEdit}
             generating={generating}
@@ -289,6 +346,11 @@ export function StrategyPanel({
       >
         <PanelContent
           strategy={strategy}
+          saved={saved}
+          onSave={onSave}
+          saving={saving}
+          busy={busy}
+          emptyMessage={emptyMessage}
           onGenerateCalendar={onGenerateCalendar}
           onEdit={onEdit}
           generating={generating}

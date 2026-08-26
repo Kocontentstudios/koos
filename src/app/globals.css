@@ -15,6 +15,10 @@
   --background: #000d20;
   --surface-1: #00162e;
   --surface-2: #001f3d;
+  /* Loading placeholders. Deliberately NOT a surface token: --surface-1 and
+     --surface-2 are the same colour in light mode, so a skeleton drawn with
+     either is invisible on the card it sits inside. */
+  --skeleton: rgba(255, 255, 255, 0.09);
   --nav: #00204f;
   /* Sidebar text/surface tokens — constant in BOTH themes (the sidebar stays
      dark navy in light mode too, matching koos_complete/assets/css/app.css and
@@ -53,6 +57,9 @@
   /* --- Borders & effects -------------------------------------------------- */
   --border: rgba(255, 255, 255, 0.06);
   --border-hover: rgba(255, 255, 255, 0.1);
+  /* A control boundary, not a surface edge: must clear WCAG 1.4.11's 3:1.
+     --border and --border-hover are tuned for surfaces and sit far below it. */
+  --border-control: rgba(255, 255, 255, 0.38);
   --border-accent: rgba(19, 139, 200, 0.4);
   --divider: rgba(255, 255, 255, 0.08);
   --hover: rgba(255, 255, 255, 0.06);
@@ -68,8 +75,8 @@
   --ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
 
   /* --- Fonts -------------------------------------------------------------- */
-  /* KO OS brand pairing (docs/KO_Design_System.docx §2.2): Bricolage Grotesque
-     for headings/display, Montserrat for body & UI. */
+  /* KO OS brand pairing (docs/KO_OS UI.Specification.md §9.3): Bricolage
+     Grotesque for headings/display, Montserrat for body & UI. */
   --font-display: var(--font-bricolage);
   --font-ui: var(--font-montserrat);
 
@@ -152,6 +159,11 @@
   --background: #edf1f7;
   --surface-1: #ffffff;
   --surface-2: #ffffff;
+  /* Calibrated against --background (#edf1f7), not just --surface-1: most
+     skeletons sit on the page, not inside a card, and a card-only tuning left
+     those at 1.07:1. This holds ~1.2:1 on the page and ~1.36:1 on a card,
+     matching the dark token's profile. */
+  --skeleton: #d5dee9;
   --accent-glow: rgba(19, 139, 200, 0.12);
 
   /* Text hierarchy */
@@ -177,6 +189,8 @@
   --surface-container-highest: #e2e8f0;
   --primary-container: #dbeafe;
 
+  --border-control: #8090a4;
+
   /* White-alpha overlays become invisible on light surfaces → flip to ink-alpha */
   --status-draft-bg: rgba(15, 23, 42, 0.05);
   --hover: rgba(15, 23, 42, 0.05);
@@ -184,6 +198,7 @@
   /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
      amber/red drop below readable contrast on white surfaces. Darken them for
      light mode (the low-alpha tint backgrounds stay legible as-is). */
+  --status-draft-fg: #475569;
   --status-progress-fg: #1f7ab5;
   --status-ready-fg: #4d7c0f;
   --status-pending-fg: #a16207;
@@ -225,6 +240,7 @@
   /* Border tokens */
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
+  --color-border-control: var(--border-control);
   --color-border-accent: var(--border-accent);
   --color-divider: var(--divider);
 
@@ -261,6 +277,8 @@
   --color-error-foreground: var(--error-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+
+  --color-skeleton: var(--skeleton);
 
   /* Backward-compatible muted tokens */
   --color-muted: var(--muted);
@@ -319,7 +337,7 @@ h3,
 h4,
 h5,
 h6 {
-  /* Brand headings use Bricolage Grotesque (docs/KO_Design_System.docx §2.2). */
+  /* Brand headings use Bricolage Grotesque (docs/KO_OS UI.Specification.md §9.3). */
   font-family: var(--font-display), system-ui, sans-serif;
 }
 
@@ -330,7 +348,7 @@ h6 {
 
 /* Brand pairing utility — the public marketing/auth/legal pages opt in so their
    body copy renders in Montserrat and every heading in Bricolage Grotesque,
-   matching docs/KO_Design_System.docx. Headings are listed explicitly so they
+   matching docs/KO_OS UI.Specification.md §9.3. Headings are listed explicitly so they
    win over any descendant overrides. */
 .font-brand {
   font-family: var(--font-montserrat), system-ui, -apple-system, sans-serif;

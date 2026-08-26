@@ -13,6 +13,9 @@ export interface ConfirmResult {
 interface ProposalCardProps {
   proposal: Proposal;
   brandId: string;
+  /** The chat this proposal was made in. Sent on confirm so a strategy born
+   * in chat stays attached to that chat. */
+  conversationId?: string;
   onDone: (outcome: "confirmed" | "dismissed", result?: ConfirmResult) => void;
 }
 
@@ -74,7 +77,12 @@ const KIND_LABELS: Record<Proposal["kind"], string> = {
   strategy: "Content strategy",
 };
 
-export function ProposalCard({ proposal, brandId, onDone }: ProposalCardProps) {
+export function ProposalCard({
+  proposal,
+  brandId,
+  conversationId,
+  onDone,
+}: ProposalCardProps) {
   const [confirming, setConfirming] = useState(false);
 
   async function handleConfirm() {
@@ -84,7 +92,7 @@ export function ProposalCard({ proposal, brandId, onDone }: ProposalCardProps) {
       const res = await fetch("/api/actions/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, proposal }),
+        body: JSON.stringify({ brandId, proposal, conversationId }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as {

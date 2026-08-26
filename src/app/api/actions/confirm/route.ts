@@ -26,6 +26,10 @@ import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 const bodySchema = z.object({
   brandId: z.string().uuid(),
   proposal: ProposalSchema,
+  /** The chat the proposal was made in. A strategy confirmed here is that
+   * chat's campaign, so it must carry the link the same way the Build
+   * Strategy button does. */
+  conversationId: z.string().uuid().optional(),
 });
 
 // Headroom for the post-response generation work kicked off via after().
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid proposal" }, { status: 400 });
   }
 
-  const { brandId, proposal } = parsed;
+  const { brandId, proposal, conversationId } = parsed;
   const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
@@ -146,7 +150,7 @@ export async function POST(req: Request) {
           generateStrategyWork({
             brand,
             conversation: proposal.data.seed,
-            conversationId: null,
+            conversationId: conversationId ?? null,
             userId: dbUser.id,
             sessionId,
           }),

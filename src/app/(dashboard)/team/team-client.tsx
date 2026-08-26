@@ -277,6 +277,11 @@ export function TeamClient({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  /* Which specific action is running. `pending` is one boolean for the whole
+     component, but Resend/Revoke render per invitation row — keying on it
+     alone would spin every row at once and claim five things are processing
+     when one is. Mirrors admin/tickets/queue-client.tsx. */
+  const [actingOn, setActingOn] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -306,9 +311,10 @@ export function TeamClient({
 
   function run(
     call: () => Promise<string | null>,
-    opts?: { successMessage?: string; after?: () => void },
+    opts?: { successMessage?: string; after?: () => void; key?: string },
   ) {
     setRowError(null);
+    setActingOn(opts?.key ?? null);
     startTransition(async () => {
       const error = await call();
       if (error) {
@@ -319,6 +325,7 @@ export function TeamClient({
         if (opts?.successMessage) toast.success(opts.successMessage);
         router.refresh();
       }
+      setActingOn(null);
     });
   }
 
@@ -528,6 +535,8 @@ export function TeamClient({
                           type="button"
                           variant="ghost"
                           size="sm"
+                          loading={actingOn === `resend:${i.id}`}
+                          loadingText="Resending…"
                           disabled={pending}
                           onClick={() =>
                             run(
@@ -536,7 +545,10 @@ export function TeamClient({
                                   `/api/workspace/invitations/${i.id}/resend`,
                                   { method: "POST" },
                                 ),
-                              { successMessage: "Invitation resent" },
+                              {
+                                successMessage: "Invitation resent",
+                                key: `resend:${i.id}`,
+                              },
                             )
                           }
                           className="text-primary hover:text-primary"
@@ -547,6 +559,8 @@ export function TeamClient({
                           type="button"
                           variant="ghost"
                           size="sm"
+                          loading={actingOn === `revoke:${i.id}`}
+                          loadingText="Revoking…"
                           disabled={pending}
                           onClick={() =>
                             run(
@@ -554,7 +568,10 @@ export function TeamClient({
                                 api(`/api/workspace/invitations/${i.id}`, {
                                   method: "DELETE",
                                 }),
-                              { successMessage: "Invitation revoked" },
+                              {
+                                successMessage: "Invitation revoked",
+                                key: `revoke:${i.id}`,
+                              },
                             )
                           }
                           className="text-[var(--status-error-fg)] hover:text-[var(--status-error-fg)]"
@@ -654,7 +671,12 @@ export function TeamClient({
               >
                 Cancel
               </Button>
-              <Button type="button" disabled={pending} onClick={submitEdit}>
+              <Button
+                type="button"
+                loading={pending}
+                loadingText="Saving…"
+                onClick={submitEdit}
+              >
                 Save changes
               </Button>
             </DialogFooter>
@@ -684,7 +706,8 @@ export function TeamClient({
             </Button>
             <Button
               type="button"
-              disabled={pending}
+              loading={pending}
+              loadingText="Removing…"
               onClick={() => {
                 if (!removeTarget) return;
                 run(
