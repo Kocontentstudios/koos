@@ -2,7 +2,7 @@
 
 import { Check, UploadCloud } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ import {
   isCarouselType,
 } from "@/lib/design/tickets-ui";
 import { isValidEmail } from "@/lib/validation/email";
+import { isPickDesign } from "./pick-mode";
 import type { BrandSummary, CalendarItem } from "./types";
 
 interface RequestDesignModalProps {
@@ -117,6 +118,25 @@ export function RequestDesignModal({
   campaignName,
 }: RequestDesignModalProps) {
   const router = useRouter();
+  const pathname = usePathname();
+
+  /* The ?pick=design banner tells the user to pick an item and send it. Once
+     they have, leaving the param set keeps nagging them to redo the thing they
+     just did — and it survives reloads, which the banner's local dismiss does not.
+     Read the live URL rather than useSearchParams(): this page drives view/date
+     through nuqs shallow updates, which move the URL without re-rendering the
+     hook, so the hook can report params that no longer match the address bar.
+     The replace doubles as the data refresh, so it must not be paired with one. */
+  function clearPickMode(): boolean {
+    const current = new URLSearchParams(window.location.search);
+    if (!isPickDesign(current.get("pick") ?? undefined)) return false;
+    current.delete("pick");
+    const query = current.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+    return true;
+  }
 
   const [designType, setDesignType] = useState("");
   const [dimensions, setDimensions] = useState("");
@@ -130,20 +150,26 @@ export function RequestDesignModal({
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedTicket | null>(null);
 
+  /* Key off the item id, not the item object: calendar-client re-derives items
+     from freshest props, so any refresh hands us a new identity for the same
+     row. Depending on the object wiped `created` the instant the submit
+     refreshed the calendar, replacing the confirmation with a blank form. */
+  const itemId = item?.id ?? null;
+
   // Prefill the form whenever a new item opens the modal.
   useEffect(() => {
     if (!open || !item) return;
     setDesignType(item.designType ?? "");
     setDimensions(item.dimensions ?? "");
     setSlides("");
-    setBrief(item.brief ?? "");
+    setBrief(item.brief ?? item.caption ?? "");
     setNotes("");
     setDueDate(defaultDueDate(item.date));
     setDeliveryEmail("");
     setError(null);
     setCreated(null);
     setSubmitting(false);
-  }, [open, item]);
+  }, [open, itemId]);
 
   async function handleSubmit() {
     if (!item || !brand || submitting) return;
@@ -186,8 +212,9 @@ export function RequestDesignModal({
       }
       setCreated(data.ticket);
       toast.success("Design request submitted");
-      // Reflect the new "submitted" state on the calendar item.
-      router.refresh();
+      // Reflect the new "submitted" state on the calendar item. A refresh
+      // alongside the replace races it and restores the stale URL.
+      if (!clearPickMode()) router.refresh();
     } catch {
       const msg = "Network error. Please try again.";
       setError(msg);

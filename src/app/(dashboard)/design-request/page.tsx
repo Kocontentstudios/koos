@@ -1,8 +1,7 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { requireBrand } from "@/lib/auth/require-brand";
 import { getDesignTicketsForMember } from "@/lib/db/queries";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
+import { StartRequestDialog } from "./start-request-dialog";
 import { type TicketListRow, TicketsListClient } from "./tickets-list-client";
 
 export default async function DesignRequestPage() {
@@ -35,11 +34,7 @@ export default async function DesignRequestPage() {
             Track all your design requests.
           </p>
         </div>
-        <Link href="/design-request/new">
-          <Button variant="default" size="lg">
-            New Request
-          </Button>
-        </Link>
+        <StartRequestDialog label="New Request" />
       </header>
 
       {tickets.length === 0 ? (
@@ -47,11 +42,7 @@ export default async function DesignRequestPage() {
           <p className="text-[15px] text-[var(--text-secondary)]">
             You have not requested any designs yet.
           </p>
-          <Link href="/design-request/new">
-            <Button variant="default" size="lg">
-              Request a Design
-            </Button>
-          </Link>
+          <StartRequestDialog label="Request a Design" />
         </div>
       ) : (
         <TicketsListClient tickets={tickets} />
