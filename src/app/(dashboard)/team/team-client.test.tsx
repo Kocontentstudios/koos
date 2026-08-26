@@ -342,3 +342,90 @@ describe("TeamClient — a brand-scoped inviter", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("TeamClient — per-row pending state", () => {
+  const twoInvites = [
+    invitations[0],
+    {
+      id: "inv-2",
+      email: "ada@example.com",
+      role: "contributor" as const,
+      brandScope: "all" as const,
+      assignedBrandIds: [] as string[],
+      expiresAt: new Date().toISOString(),
+    },
+  ];
+
+  function renderTeam() {
+    render(
+      <TeamClient
+        workspaceName="KO Content Studio"
+        currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
+        canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
+        members={members}
+        invitations={twoInvites}
+      />,
+    );
+  }
+
+  /* Regression: `pending` is one boolean for the whole component, so keying the
+     row buttons on it made every Resend and Revoke spin at once — the UI
+     claiming four things were processing when one was. */
+  it("spins only the invitation row being acted on", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<never>(() => {})),
+    );
+    renderTeam();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    const revokes = await screen.findAllByRole("button", { name: /^revoke$/i });
+    expect(revokes).toHaveLength(2);
+
+    await user.click(revokes[0]);
+
+    // Exactly one button announces work; the other row stays silent.
+    expect(
+      await screen.findAllByRole("button", { name: /revoking…/i }),
+    ).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^revoke$/i })).toHaveLength(
+      1,
+    );
+    // No Resend claims to be resending either.
+    expect(
+      screen.queryByRole("button", { name: /resending…/i }),
+    ).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /* Spinning one row must still lock the others — `loading` says "I am
+     working", `disabled` says "wait"; they are not the same signal. */
+  it("locks every other row while one is in flight", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<never>(() => {})),
+    );
+    renderTeam();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    const revokes = await screen.findAllByRole("button", { name: /^revoke$/i });
+    await user.click(revokes[0]);
+
+    for (const b of screen.getAllByRole("button", { name: /^revoke$/i })) {
+      expect(b).toBeDisabled();
+    }
+    for (const b of screen.getAllByRole("button", { name: /^resend$/i })) {
+      expect(b).toBeDisabled();
+    }
+
+    vi.unstubAllGlobals();
+  });
+});

@@ -744,6 +744,8 @@ export function StrategyClient({
               variant="secondary"
               size="sm"
               onClick={() => regenerate()}
+              loading={isLoading}
+              loadingText="Retrying…"
               aria-label="Try again"
             >
               Try Again
@@ -763,6 +765,8 @@ export function StrategyClient({
                   onClick={
                     isDesignMode ? handleGenerateBrief : handleBuildStrategy
                   }
+                  loading={buildPending}
+                  loadingText="Retrying…"
                   aria-label={
                     isDesignMode
                       ? "Retry generate design brief"

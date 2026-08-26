@@ -171,7 +171,8 @@ export function DesignPreviewModal({
             <Button
               variant="secondary"
               onClick={onRegenerate}
-              disabled={pending}
+              loading={pending}
+              loadingText="Regenerating…"
             >
               <Sparkles className="size-4" />
               Regenerate
@@ -190,10 +191,12 @@ export function DesignPreviewModal({
           ) : null}
           <Button
             onClick={handleSendToTeam}
-            disabled={!selected || sending || pending}
+            loading={sending}
+            loadingText="Sending…"
+            disabled={!selected || pending}
           >
             <Send className="size-4" />
-            {sending ? "Sending…" : "Send to design team"}
+            Send to design team
           </Button>
         </DialogFooter>
       </DialogContent>
