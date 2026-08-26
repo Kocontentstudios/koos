@@ -36,6 +36,7 @@ import {
   recordUsageEvent,
   touchGenerationJob,
   updateCalendarItemBriefs,
+  updateConversationTitle,
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
@@ -46,6 +47,7 @@ import {
   mapWithConcurrency,
   withRetry,
 } from "@/lib/jobs/calendar-assembly";
+import { toCampaignCard } from "@/lib/strategy/campaign-card";
 
 type BrandRow = typeof brands.$inferSelect;
 type StrategyRow = typeof strategies.$inferSelect;
@@ -230,13 +232,20 @@ export async function generateStrategyWork(args: {
     system: buildStrategistSystemPrompt(summary),
     prompt: buildStrategyGenerationPrompt(args.conversation, summary),
   });
+  // Born as a draft: the card's Save action is what commits a campaign, so
+  // "just generated" and "the user stands behind it" stay distinguishable.
   const strategy = await createStrategy({
     brandId: args.brand.id,
     conversationId: args.conversationId,
     name: object.campaignName,
     structured: object,
-    status: "active",
+    status: "draft",
   });
+  // The chat becomes the campaign, so it takes the campaign's name — unless
+  // the user already titled it themselves.
+  if (args.conversationId) {
+    await updateConversationTitle(args.conversationId, object.campaignName);
+  }
   await recordUsageEvent({
     userId: args.userId,
     brandId: args.brand.id,
@@ -254,7 +263,12 @@ export async function generateStrategyWork(args: {
   });
   return {
     resultId: strategy.id,
-    result: { strategy: object, strategyId: strategy.id },
+    result: {
+      strategy: object,
+      strategyId: strategy.id,
+      // The card the chat pins, so the client never refetches to render it.
+      card: toCampaignCard(strategy),
+    },
   };
 }
 

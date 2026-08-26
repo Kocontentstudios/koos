@@ -448,11 +448,34 @@ export async function touchConversation(id: string) {
     .where(eq(chatConversations.id, id));
 }
 
+/**
+ * Automatic titling (the AI titler, and the campaign-name rename on strategy
+ * generation). The titleCustom predicate is part of the WHERE on purpose: a
+ * user rename and a background title write can race, and losing the user's
+ * title is the worse outcome. Returns whether a row was written.
+ */
 export async function updateConversationTitle(id: string, title: string) {
-  await db
+  const written = await db
     .update(chatConversations)
     .set({ title, updatedAt: new Date() })
-    .where(eq(chatConversations.id, id));
+    .where(
+      and(
+        eq(chatConversations.id, id),
+        eq(chatConversations.titleCustom, false),
+      ),
+    )
+    .returning({ id: chatConversations.id });
+  return written.length > 0;
+}
+
+/** A user-typed title. Locks the chat against every automatic title write. */
+export async function renameConversation(id: string, title: string) {
+  const [row] = await db
+    .update(chatConversations)
+    .set({ title, titleCustom: true, updatedAt: new Date() })
+    .where(eq(chatConversations.id, id))
+    .returning();
+  return row ?? null;
 }
 
 // ── Strategies ──────────────────────────────────────────────────────
@@ -469,6 +492,48 @@ export async function getStrategyById(id: string) {
     .where(eq(strategies.id, id))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The campaign card for a chat: its newest strategy that hasn't been
+ * superseded. Archived rows are earlier versions of the same campaign, kept
+ * for history but never shown on the card.
+ */
+export async function getLatestStrategyForConversation(conversationId: string) {
+  const [row] = await db
+    .select()
+    .from(strategies)
+    .where(
+      and(
+        eq(strategies.conversationId, conversationId),
+        ne(strategies.status, "archived"),
+      ),
+    )
+    .orderBy(desc(strategies.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Retire the chat's earlier strategy versions so exactly one campaign stands. */
+export async function archiveSupersededStrategies(
+  conversationId: string,
+  keepId: string,
+) {
+  // updatedAt is deliberately untouched: archiving is a lifecycle flag, not an
+  // edit. Bumping it would sort a superseded version above the campaign that
+  // superseded it wherever strategies are ordered by recency.
+  const archived = await db
+    .update(strategies)
+    .set({ status: "archived" })
+    .where(
+      and(
+        eq(strategies.conversationId, conversationId),
+        ne(strategies.id, keepId),
+        ne(strategies.status, "archived"),
+      ),
+    )
+    .returning({ id: strategies.id });
+  return archived.length;
 }
 
 export async function getStrategiesByBrand(brandId: string) {

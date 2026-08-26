@@ -17,7 +17,8 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "eval:design": "tsx src/lib/ai/image/eval/run.mts",
-    "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts"
+    "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts",
+    "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "4.0.145",
