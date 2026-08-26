@@ -104,8 +104,21 @@ works without this.
 
 ```bash
 pnpm dev        # http://localhost:3000
-pnpm test       # Vitest
+pnpm test       # Vitest — the free gate lane, run on every commit
 pnpm lint       # Biome
+```
+
+### Evals (paid lane)
+
+Each eval makes real model calls, so these are **not** part of `pnpm test`. Run
+the relevant one before shipping a change to its prompt, schema or model, and
+nightly. Each has a README next to its cases.
+
+```bash
+pnpm eval:onboarding   # brand-field extraction from an onboarding chat
+pnpm eval:strategy     # campaign strategy stays focused on one topic
+pnpm eval:design-spec   # the art director uses the brand's colours (text only, cheap)
+pnpm eval:design       # end-to-end image render (renders real images — the priciest)
 ```
 
 ## Build & deploy
