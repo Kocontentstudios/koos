@@ -49,6 +49,7 @@ export interface BrandSummary {
   name: string;
   primaryColor: string | null;
   secondaryColor: string | null;
+  additionalColors: string[] | null;
   logoUrl: string | null;
 }
 

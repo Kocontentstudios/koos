@@ -68,3 +68,31 @@ export function progressAfterFieldWrite(
     onboardingStatus: completionPercentage > 0 ? "in_progress" : "draft",
   };
 }
+
+/** Spec cap: Primary + Secondary + up to 3 more (KO_OS UI.Specification.md:860). */
+export const MAX_ADDITIONAL_COLORS = 3;
+const MAX_COLOR_LENGTH = 40;
+
+/**
+ * Makes a model's free-text colour list safe for the `additional_colors`
+ * text[] column. Never validates hex on purpose: the conversational path
+ * legitimately stores colour names — the onboarding eval asserts primaryColor
+ * contains "green" — and normalising would discard what the user actually said.
+ */
+export function parseAdditionalColors(
+  value: string | string[] | null | undefined,
+): string[] {
+  const raw = Array.isArray(value) ? value : (value ?? "").split(/[,;\n]/);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    const trimmed = String(entry).trim().slice(0, MAX_COLOR_LENGTH);
+    if (trimmed.length === 0) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+    if (out.length === MAX_ADDITIONAL_COLORS) break;
+  }
+  return out;
+}

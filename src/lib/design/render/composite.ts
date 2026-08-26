@@ -7,7 +7,11 @@ import { layoutElement } from "./layouts";
 
 export interface CompositeInput {
   spec: DesignSpec;
-  brand: { primaryColor?: string | null; secondaryColor?: string | null };
+  brand: {
+    primaryColor?: string | null;
+    secondaryColor?: string | null;
+    additionalColors?: (string | null)[] | null;
+  };
   plate: { bytes: Uint8Array; contentType: string } | null;
   logo: { bytes: Uint8Array; contentType: string } | null;
 }

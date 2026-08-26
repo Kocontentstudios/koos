@@ -48,6 +48,9 @@ export const extractionSchema = z.object({
     differentiators: extractedField,
     primaryColor: extractedField,
     secondaryColor: extractedField,
+    additionalColors: extractedField.describe(
+      "Any brand colours beyond the primary and secondary, comma-separated, at most 3. Hex or colour name, whichever the user said. Empty string if none were mentioned.",
+    ),
     additionalNotes: extractedField,
   }),
   summary: z.string(),

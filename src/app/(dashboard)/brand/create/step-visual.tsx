@@ -1,7 +1,8 @@
 "use client";
 
-import { Loader2Icon, UploadCloud } from "lucide-react";
+import { Loader2Icon, Plus, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/ui/file-upload";
 import { Label } from "@/components/ui/label";
 import {
@@ -11,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import { brandStyleOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
 import { ColorField, Field, OtherSelect } from "./fields";
@@ -21,6 +23,11 @@ interface StepProps {
 }
 
 export function StepVisual({ state, onChange }: StepProps) {
+  /* Guarded: localStorage drafts are restored with a raw JSON.parse and a
+     shallow merge, so a corrupted draft can hand us a non-array here. */
+  const additionalColors = Array.isArray(state.additionalColors)
+    ? state.additionalColors
+    : [];
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
@@ -127,6 +134,61 @@ export function StepVisual({ state, onChange }: StepProps) {
             onChange={(hex) => onChange({ secondaryColor: hex })}
           />
         </div>
+
+        {additionalColors.length > 0 && (
+          <div className="flex flex-col gap-3">
+            {additionalColors.map((hex, i) => (
+              // Index key, not the hex: two swatches may hold the same value.
+              <div key={i} className="flex items-center gap-2">
+                <ColorField
+                  id={`additional-color-${i}`}
+                  label={`Additional ${i + 1}`}
+                  value={hex}
+                  onChange={(next) =>
+                    onChange({
+                      additionalColors: additionalColors.map((c, j) =>
+                        j === i ? next : c,
+                      ),
+                    })
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="icon-sm"
+                  aria-label={`Remove additional color ${i + 1}`}
+                  onClick={() =>
+                    onChange({
+                      additionalColors: additionalColors.filter(
+                        (_, j) => j !== i,
+                      ),
+                    })
+                  }
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {additionalColors.length < MAX_ADDITIONAL_COLORS && (
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                onChange({
+                  additionalColors: [...additionalColors, "#138BC8"],
+                })
+              }
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              Add color
+            </Button>
+          </div>
+        )}
       </div>
 
       <OtherSelect

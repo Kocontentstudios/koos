@@ -22,6 +22,7 @@ const brand: BrandSummary = {
   name: "QA Brand",
   primaryColor: null,
   secondaryColor: null,
+  additionalColors: null,
   logoUrl: null,
 };
 
@@ -44,13 +45,13 @@ function makeItem(): CalendarItem {
   };
 }
 
-function renderModal(item: CalendarItem) {
+function renderModal(item: CalendarItem, brandOverride?: BrandSummary) {
   return render(
     <RequestDesignModal
       open
       onOpenChange={vi.fn()}
       item={item}
-      brand={brand}
+      brand={brandOverride ?? brand}
       campaignName="QA Campaign"
     />,
   );
@@ -138,5 +139,36 @@ describe("RequestDesignModal", () => {
 
     expect(replaceMock).not.toHaveBeenCalled();
     expect(refreshMock).toHaveBeenCalled();
+  });
+});
+
+/* The designer works from this panel, so the swatches here ARE the palette
+   handed off with the ticket (KO_OS UI.Specification.md:1289). */
+describe("brand palette swatches", () => {
+  it("shows every additional colour alongside primary and secondary", () => {
+    renderModal(makeItem(), {
+      ...brand,
+      primaryColor: "#0F172A",
+      secondaryColor: "#F97316",
+      additionalColors: ["#22C55E", "#EAB308"],
+    });
+    expect(screen.getByText(/Primary: #0F172A/)).toBeInTheDocument();
+    expect(screen.getByText(/Secondary: #F97316/)).toBeInTheDocument();
+    expect(screen.getByText(/Additional 1: #22C55E/)).toBeInTheDocument();
+    expect(screen.getByText(/Additional 2: #EAB308/)).toBeInTheDocument();
+  });
+
+  it("renders duplicate additional colours as separate swatches", () => {
+    renderModal(makeItem(), {
+      ...brand,
+      additionalColors: ["#22C55E", "#22C55E"],
+    });
+    expect(screen.getByText(/Additional 1: #22C55E/)).toBeInTheDocument();
+    expect(screen.getByText(/Additional 2: #22C55E/)).toBeInTheDocument();
+  });
+
+  it("renders no additional swatches when the column is null", () => {
+    renderModal(makeItem(), { ...brand, primaryColor: "#0F172A" });
+    expect(screen.queryByText(/Additional 1/)).not.toBeInTheDocument();
   });
 });

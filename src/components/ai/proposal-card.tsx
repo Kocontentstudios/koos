@@ -40,6 +40,7 @@ const BRAND_FIELD_LABELS: Record<string, string> = {
   differentiators: "Differentiators",
   primaryColor: "Primary colour",
   secondaryColor: "Secondary colour",
+  additionalColors: "Additional colours",
   additionalNotes: "Additional notes",
 };
 

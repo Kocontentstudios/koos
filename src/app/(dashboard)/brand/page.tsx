@@ -167,8 +167,9 @@ export default async function BrandProfilePage() {
             {brand.secondaryColor && (
               <ColorSwatch hex={brand.secondaryColor} label="Secondary" />
             )}
-            {additionalColors.map((hex) => (
-              <ColorSwatch key={hex} hex={hex} />
+            {/* Index key: two additional colours may hold the same value. */}
+            {additionalColors.map((hex, i) => (
+              <ColorSwatch key={i} hex={hex} label={`Additional ${i + 1}`} />
             ))}
           </div>
         </FieldRow>

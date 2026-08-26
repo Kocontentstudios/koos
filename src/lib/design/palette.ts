@@ -13,6 +13,7 @@ export interface RawPalette {
 interface BrandColors {
   primaryColor?: string | null;
   secondaryColor?: string | null;
+  additionalColors?: (string | null)[] | null;
 }
 
 const NEUTRAL_DARK = "#111111";
@@ -120,10 +121,20 @@ export function resolvePalette(
 ): ResolvedPalette {
   const brandPrimary = normalizeHex(brand.primaryColor);
   const brandSecondary = normalizeHex(brand.secondaryColor);
+  /* Only the accent draws on the extra swatches. Background/foreground stay
+     on primary because ensureReadablePair guarantees the 4.5:1 floor from
+     that one anchor; feeding it a third colour would widen what it has to
+     rescue for no gain. Non-hex entries (the AI path stores colour names)
+     drop out here — the renderer needs a real value. */
+  const brandExtra =
+    (brand.additionalColors ?? [])
+      .map(normalizeHex)
+      .find((c): c is string => c !== null) ?? null;
 
   const accent =
     normalizeHex(raw?.accent) ??
     brandSecondary ??
+    brandExtra ??
     brandPrimary ??
     NEUTRAL_ACCENT;
   const { foreground, background } = ensureReadablePair(

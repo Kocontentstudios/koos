@@ -3,6 +3,7 @@ import {
   brandProfileCompletion,
   hasCompletedBrand,
   PLACEHOLDER_BRAND_NAME,
+  parseAdditionalColors,
   progressAfterFieldWrite,
 } from "./brand-profile";
 
@@ -86,5 +87,47 @@ describe("progressAfterFieldWrite", () => {
       completionPercentage: 75,
       onboardingStatus: "in_progress",
     });
+  });
+});
+
+describe("parseAdditionalColors", () => {
+  it("splits, trims and drops empty entries", () => {
+    expect(parseAdditionalColors(" #AAA , , #BBB ")).toEqual(["#AAA", "#BBB"]);
+  });
+
+  it("returns an array — never the raw string — so the text[] write is safe", () => {
+    expect(Array.isArray(parseAdditionalColors(""))).toBe(true);
+    expect(parseAdditionalColors("")).toEqual([]);
+    expect(parseAdditionalColors(null)).toEqual([]);
+    expect(parseAdditionalColors(undefined)).toEqual([]);
+  });
+
+  it("caps at 3 even when the model ignores the instruction", () => {
+    expect(parseAdditionalColors("a,b,c,d,e")).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps colour names — the AI path stores them, hex is not required", () => {
+    expect(parseAdditionalColors("forest green, cream")).toEqual([
+      "forest green",
+      "cream",
+    ]);
+  });
+
+  it("de-duplicates case-insensitively", () => {
+    expect(parseAdditionalColors("Gold, gold, indigo")).toEqual([
+      "Gold",
+      "indigo",
+    ]);
+  });
+
+  it("accepts an array as well as a string", () => {
+    expect(parseAdditionalColors(["#AAA", "", "#BBB"])).toEqual([
+      "#AAA",
+      "#BBB",
+    ]);
+  });
+
+  it("truncates an absurdly long entry rather than writing it", () => {
+    expect(parseAdditionalColors("x".repeat(200))[0]).toHaveLength(40);
   });
 });
