@@ -407,6 +407,14 @@ export function RequestDesignModal({
                     {brand.secondaryColor && (
                       <Swatch color={brand.secondaryColor} label="Secondary" />
                     )}
+                    {/* Index key: two additional colours may hold the same value. */}
+                    {(brand.additionalColors ?? []).map((hex, i) => (
+                      <Swatch
+                        key={i}
+                        color={hex}
+                        label={`Additional ${i + 1}`}
+                      />
+                    ))}
                   </div>
                 </div>
               )}

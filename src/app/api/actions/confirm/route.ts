@@ -7,7 +7,10 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
-import { progressAfterFieldWrite } from "@/lib/brand-profile";
+import {
+  parseAdditionalColors,
+  progressAfterFieldWrite,
+} from "@/lib/brand-profile";
 import {
   checkBrandAccess,
   createGenerationJob,
@@ -84,12 +87,25 @@ export async function POST(req: Request) {
       // No usage_events row: the usage_kind enum has no brand-update value,
       // and adding one is out of this epic's scope.
       const { fields } = proposal.data;
+      /* additionalColors reaches us as the model's comma-separated string but
+         lands in a text[] column, so it must be parsed before the write. An
+         empty result drops the key rather than writing []: a model answering
+         ", ," must not wipe swatches the user saved by hand in the form. */
+      const { additionalColors: proposedColors, ...rest } = fields;
+      const parsedColors =
+        proposedColors === undefined
+          ? undefined
+          : parseAdditionalColors(proposedColors);
+      const writable =
+        parsedColors && parsedColors.length > 0
+          ? { ...rest, additionalColors: parsedColors }
+          : rest;
       /* Advance onboarding off the back of what the conversation captured.
          Confirming fields used to leave the status at "draft", which left a
          chat-only user permanently redirected back into onboarding. */
-      const progress = progressAfterFieldWrite({ ...brand, ...fields });
+      const progress = progressAfterFieldWrite({ ...brand, ...writable });
       const wasCompleted = brand.onboardingStatus === "completed";
-      await updateBrand(brandId, { ...fields, ...progress });
+      await updateBrand(brandId, { ...writable, ...progress });
 
       if (!wasCompleted && progress.onboardingStatus === "completed") {
         const sessionId = await getAnalyticsSessionId();

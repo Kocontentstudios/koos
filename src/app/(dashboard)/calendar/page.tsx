@@ -82,6 +82,7 @@ export default async function CalendarPage({
     name: brand.name,
     primaryColor: brand.primaryColor,
     secondaryColor: brand.secondaryColor,
+    additionalColors: brand.additionalColors,
     logoUrl: brand.logoUrl,
   };
 

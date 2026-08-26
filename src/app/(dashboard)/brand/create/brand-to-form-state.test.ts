@@ -89,3 +89,18 @@ describe("brandToFormState", () => {
     expect(s.primaryColor).toBe("#138BC8");
   });
 });
+
+describe("brandToFormState additionalColors", () => {
+  it("round-trips a saved palette", () => {
+    const s = brandToFormState(
+      row({ additionalColors: ["#22C55E", "#EAB308"] }),
+    );
+    expect(s.additionalColors).toEqual(["#22C55E", "#EAB308"]);
+  });
+
+  /* AC: existing two-colour brands keep working — a null column must load as
+     an empty list, never as undefined, or step-visual has nothing to map. */
+  it("maps a null column to an empty array", () => {
+    expect(brandToFormState(row({})).additionalColors).toEqual([]);
+  });
+});

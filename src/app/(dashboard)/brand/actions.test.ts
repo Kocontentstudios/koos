@@ -76,6 +76,61 @@ describe("saveBrandProfile", () => {
     expect(res).toEqual({ ok: true, brandId: "existing-brand" });
   });
 
+  it("persists a full additional-colour palette", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({
+      ...validInput,
+      primaryColor: "#0F172A",
+      secondaryColor: "#F97316",
+      additionalColors: ["#22C55E", "#EAB308", "#EC4899"],
+    });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      additionalColors: ["#22C55E", "#EAB308", "#EC4899"],
+    });
+  });
+
+  it("rejects a fourth colour rather than silently truncating", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+
+    const res = await saveBrandProfile({
+      ...validInput,
+      additionalColors: ["#1A1A1A", "#2A2A2A", "#3A3A3A", "#4A4A4A"],
+    });
+
+    expect(res.ok).toBe(false);
+    expect(updateBrand).not.toHaveBeenCalled();
+  });
+
+  /* AC: a brand saved before this feature has no additional_colors value and
+     must keep saving cleanly, writing null rather than an empty array. */
+  it("leaves a legacy two-colour brand unchanged", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({
+      ...validInput,
+      primaryColor: "#0F172A",
+      secondaryColor: "#F97316",
+    });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      primaryColor: "#0F172A",
+      additionalColors: null,
+    });
+  });
+
   it("creates a new brand when the user has none", async () => {
     getActiveBrandForMember.mockResolvedValue(null);
     createBrand.mockResolvedValue({ id: "new-brand" });

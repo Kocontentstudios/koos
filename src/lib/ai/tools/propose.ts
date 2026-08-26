@@ -37,6 +37,12 @@ export function buildProposeTools(ctx: ToolContext): Record<string, Tool> {
           differentiators: z.string().optional(),
           primaryColor: z.string().optional(),
           secondaryColor: z.string().optional(),
+          additionalColors: z
+            .string()
+            .optional()
+            .describe(
+              "Comma-separated list of up to 3 extra brand colours. This REPLACES the saved list — send every colour that should remain.",
+            ),
           additionalNotes: z.string().optional(),
         }),
       }),

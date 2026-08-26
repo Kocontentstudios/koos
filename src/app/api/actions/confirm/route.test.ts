@@ -125,6 +125,42 @@ describe("POST /api/actions/confirm", () => {
     expect(updateBrand.mock.calls[0][1]).toMatchObject({ tone: "bold" });
   });
 
+  /* additional_colors is a Postgres text[] but the model sends a
+     comma-separated string. Writing the raw string would fail inside
+     postgres.js at runtime, where a mocked test would never see it — so
+     assert on the VALUE reaching updateBrand, not just that it was called. */
+  it("parses the model's colour string into an array before writing", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: "terracotta, indigo" });
+    expect(updateBrand.mock.calls[0][1].additionalColors).toEqual([
+      "terracotta",
+      "indigo",
+    ]);
+  });
+
+  it("caps the written colours at three even if the model sends more", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: "a, b, c, d, e" });
+    expect(updateBrand.mock.calls[0][1].additionalColors).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  /* An LLM answering ", ," must not wipe swatches the user saved by hand. */
+  it("drops the key entirely when the parsed list is empty", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: " , , " });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
+  });
+
+  it("leaves the column untouched when the model omits the field", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
+  });
+
   /* Regression: confirming fields wrote them but left onboardingStatus at
      "draft", so requireBrand redirected a chat-only user straight back into
      onboarding forever. There was no way to finish without the manual form. */

@@ -121,3 +121,57 @@ describe("resolvePalette", () => {
     ).toBeGreaterThanOrEqual(MIN_CONTRAST_RATIO);
   });
 });
+
+describe("resolvePalette additional brand colours", () => {
+  it("falls back to the first additional colour when secondary is absent", () => {
+    const p = resolvePalette(null, {
+      primaryColor: "#0F172A",
+      secondaryColor: null,
+      additionalColors: ["#F97316", "#22C55E"],
+    });
+    expect(p.accent).toBe("#F97316");
+  });
+
+  it("prefers secondary over the additional colours", () => {
+    const p = resolvePalette(null, {
+      primaryColor: "#0F172A",
+      secondaryColor: "#F97316",
+      additionalColors: ["#22C55E"],
+    });
+    expect(p.accent).toBe("#F97316");
+  });
+
+  /* The AI path stores names like "forest green"; the renderer needs a real
+     value, so non-hex entries are skipped rather than passed through. */
+  it("skips non-hex entries and uses the first usable one", () => {
+    const p = resolvePalette(null, {
+      primaryColor: "#0F172A",
+      secondaryColor: null,
+      additionalColors: ["forest green", "#22C55E"],
+    });
+    expect(p.accent).toBe("#22C55E");
+  });
+
+  it("still falls back to primary when no additional colour is usable", () => {
+    const p = resolvePalette(null, {
+      primaryColor: "#0F172A",
+      secondaryColor: null,
+      additionalColors: ["forest green"],
+    });
+    expect(p.accent).toBe("#0F172A");
+  });
+
+  it("leaves background and foreground unaffected by additional colours", () => {
+    const withExtra = resolvePalette(null, {
+      primaryColor: "#0F172A",
+      secondaryColor: null,
+      additionalColors: ["#F97316"],
+    });
+    const without = resolvePalette(null, {
+      primaryColor: "#0F172A",
+      secondaryColor: null,
+    });
+    expect(withExtra.background).toBe(without.background);
+    expect(withExtra.foreground).toBe(without.foreground);
+  });
+});

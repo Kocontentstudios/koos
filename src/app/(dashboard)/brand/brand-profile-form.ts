@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
+import { isValidHex } from "@/lib/validation/hex";
+
 /* ──────────────────────────────────────────────────────────────────────────
    Dropdown option sets — labels are the SOURCE OF TRUTH from the
    KO OS Brand Onboarding Form spec (koos_complete). These are stored verbatim
@@ -101,7 +104,14 @@ export const brandProfileSchema = z.object({
   hasLogo: z.boolean().optional(),
   primaryColor: z.string().optional().or(z.literal("")),
   secondaryColor: z.string().optional().or(z.literal("")),
-  additionalColors: z.array(z.string()).optional(),
+  /* Cap and hex-check here, not just in the picker: a client-only limit is
+     not a limit. Primary/secondary stay deliberately unvalidated — the
+     conversational path stores colour names, so a hex rule would make an
+     existing brand un-saveable the next time its owner opens this form. */
+  additionalColors: z
+    .array(z.string().refine(isValidHex, "Enter a valid hex color"))
+    .max(MAX_ADDITIONAL_COLORS)
+    .optional(),
   logoUrl: z.string().optional().or(z.literal("")),
   brandStyle: optionalText,
   // Section 5 — Competitors

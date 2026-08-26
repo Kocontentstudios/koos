@@ -13,6 +13,13 @@ export interface BrandSummary {
   brandStyle?: string | null;
   competitors?: string | null;
   differentiators?: string | null;
+  /* Carried here but deliberately NOT emitted by brandBlock(): of its six
+     consumers only the design prompts can act on colour, and adding lines
+     here would perturb buildStrategyGenerationPrompt, the one prompt the
+     paid eval:strategy suite scores. See brandPalette() in design-spec.ts. */
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+  additionalColors?: string[] | null;
   platforms?: string[] | null;
   primaryPlatform?: string | null;
   postingFrequency?: string | null;

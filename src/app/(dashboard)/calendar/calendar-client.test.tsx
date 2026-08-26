@@ -37,6 +37,7 @@ const brand: BrandSummary = {
   name: "QA Brand",
   primaryColor: null,
   secondaryColor: null,
+  additionalColors: null,
   logoUrl: null,
 };
 
