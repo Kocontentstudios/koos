@@ -69,6 +69,18 @@ The context window is your only control surface over the model. Treat it as a de
 - For cross-cutting concerns (eval harness, prompt library, vision utilities, observability, SEO, schema validation, etc.) grep GitHub in parallel for top candidates. Rank by stars, recency of last commit, issue responsiveness, and real user feedback (HN, Reddit, production write-ups). Return the best option with reasoning, not a list. Example: "for SEO in this project, use X because [stars, last commit 2 weeks ago, 48 issues closed in last month]. Second choice Y. Rejected Z because [last commit 14 months ago]."
 - If two options are equally viable, name the trade-off explicitly and ask Julien. Confusion Protocol applies.
 
+### Which design doc wins
+
+`docs/KO_OS UI.Specification.md` is the single source of truth for colour, typography, spacing and component states. It agrees with `src/app/globals.css`; when it doesn't, that is a bug in one of them — fix both, don't fork a third document.
+
+Everything else under `docs/` is a prototype or a structural reference:
+
+- `docs/koos_complete/` — static reference markup, **gitignored** (present only in a full checkout). Match its layout and component anatomy, not its fonts or colours: it uses Inter, the app ships Bricolage Grotesque + Montserrat.
+- `docs/ko-os-workspace-team/` — Workspace & Team prototype, **gitignored**. Its tokens (`--card-bg #111D32`, Inter) are approximations from screenshots, not the shipped ones.
+- `docs/superpowers/specs/` and `plans/` — dated historical records. Read them for why a decision was made, never as current spec.
+
+The `.docx` design sources were removed on 2026-08-26 after drifting out of agreement with the spec. Don't reintroduce a binary design doc; extend the markdown spec instead.
+
 ### Every wait gets an affordance
 
 If the user can trigger it and it can take longer than a frame, it says so. No exceptions, and no hand-rolled spinners.

@@ -75,8 +75,8 @@
   --ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
 
   /* --- Fonts -------------------------------------------------------------- */
-  /* KO OS brand pairing (docs/KO_Design_System.docx §2.2): Bricolage Grotesque
-     for headings/display, Montserrat for body & UI. */
+  /* KO OS brand pairing (docs/KO_OS UI.Specification.md §9.3): Bricolage
+     Grotesque for headings/display, Montserrat for body & UI. */
   --font-display: var(--font-bricolage);
   --font-ui: var(--font-montserrat);
 
@@ -337,7 +337,7 @@ h3,
 h4,
 h5,
 h6 {
-  /* Brand headings use Bricolage Grotesque (docs/KO_Design_System.docx §2.2). */
+  /* Brand headings use Bricolage Grotesque (docs/KO_OS UI.Specification.md §9.3). */
   font-family: var(--font-display), system-ui, sans-serif;
 }
 
@@ -348,7 +348,7 @@ h6 {
 
 /* Brand pairing utility — the public marketing/auth/legal pages opt in so their
    body copy renders in Montserrat and every heading in Bricolage Grotesque,
-   matching docs/KO_Design_System.docx. Headings are listed explicitly so they
+   matching docs/KO_OS UI.Specification.md §9.3. Headings are listed explicitly so they
    win over any descendant overrides. */
 .font-brand {
   font-family: var(--font-montserrat), system-ui, -apple-system, sans-serif;
