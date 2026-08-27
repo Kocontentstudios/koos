@@ -1212,6 +1212,58 @@ export async function applyClientReview(input: {
   });
 }
 
+/**
+ * A comment from the brand side, inserted and fanned out to staff in one
+ * transaction.
+ *
+ * Deliberately cannot change status. `revision_requested` is reachable only
+ * through applyClientReview, and the staff routes cap themselves to the same
+ * end so nobody can fake one; a comment endpoint that could set status would
+ * quietly undo that. Commenting is also allowed in any status, which is the
+ * point — the client previously had no way to say anything except during a
+ * formal review.
+ */
+export async function postClientTicketComment(input: {
+  ticketId: string;
+  authorId: string;
+  message: string;
+  staffIds: string[];
+  /** Built by the caller, matching postTicketProgressUpdate — formatting is
+      the route's job, not the query layer's. */
+  notificationPayload: typeof notifications.$inferInsert.payload;
+}) {
+  return db.transaction(async (tx) => {
+    const [update] = await tx
+      .insert(ticketUpdates)
+      .values({
+        ticketId: input.ticketId,
+        authorId: input.authorId,
+        message: input.message,
+        newStatus: null,
+      })
+      .returning();
+
+    // Touch the ticket so the queue's "last updated" ordering surfaces a
+    // request the client just commented on.
+    await tx
+      .update(designTickets)
+      .set({ updatedAt: new Date() })
+      .where(eq(designTickets.id, input.ticketId));
+
+    if (input.staffIds.length > 0) {
+      await tx.insert(notifications).values(
+        input.staffIds.map((id) => ({
+          userId: id,
+          type: "ticket_status" as const,
+          payload: input.notificationPayload,
+        })),
+      );
+    }
+
+    return update;
+  });
+}
+
 /** Atomically apply an optional status change, insert the update row, and
  * notify the ticket owner — all in one transaction. */
 export async function postTicketProgressUpdate(input: {
