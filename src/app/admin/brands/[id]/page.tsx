@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { toBrandExport } from "@/lib/admin/brand-export";
 import { requireRole } from "@/lib/auth/require-role";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import { getBrandForAdmin } from "@/lib/db/queries";
 import { isUuid } from "@/lib/validation/uuid";
 
@@ -52,7 +53,7 @@ export default async function AdminBrandDetailPage({
           <p className="mt-1 text-[14px] text-[var(--text-secondary)]">
             {row.ownerEmail} · {row.workspaceName} ·{" "}
             <span className="capitalize">{row.brand.onboardingStatus}</span> (
-            {row.brand.completionPercentage}%)
+            {brandProfileCompletion(row.brand)}%)
           </p>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">

@@ -6,6 +6,7 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import {
   checkBrandAccess,
   createBrand,
@@ -46,7 +47,13 @@ export async function saveBrandProfile(
     brandStyle: v.brandStyle || null,
     primaryColor: v.primaryColor || null,
     secondaryColor: v.secondaryColor || null,
-    additionalColors: v.additionalColors ?? null,
+    /* Empty means "no extra colours", same as platforms below. Writing {}
+       would leave a brand that never had extras looking different in the DB
+       from one that never touched the field. */
+    additionalColors:
+      v.additionalColors && v.additionalColors.length > 0
+        ? v.additionalColors
+        : null,
     logoUrl: v.logoUrl || null,
     competitors: v.competitors || null,
     competitorStrengths: v.competitorStrengths || null,
@@ -57,8 +64,13 @@ export async function saveBrandProfile(
     additionalNotes: v.additionalNotes || null,
     helpfulLinks: v.helpfulLinks || null,
     onboardingStatus: "completed" as const,
-    completionPercentage: 100,
   };
+
+  /* Was hardcoded to 100, so a brand that skipped every optional step still
+     reported a finished profile in the admin directory. The status stays
+     "completed" — the form validates all four required Basics fields before it
+     will submit, and requireBrand gates on that, not on the score. */
+  const completionPercentage = brandProfileCompletion(profile);
 
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   let brand: typeof brands.$inferSelect;
@@ -73,7 +85,10 @@ export async function saveBrandProfile(
       "manage_content",
     );
     if (!access.ok) return { ok: false, error: access.error };
-    brand = await updateBrand(existing.id, profile);
+    brand = await updateBrand(existing.id, {
+      ...profile,
+      completionPercentage,
+    });
   } else {
     if (!can(role, "create_brand")) {
       return {
@@ -85,6 +100,7 @@ export async function saveBrandProfile(
       userId: dbUser.id, // attribution only ("created by")
       workspaceId: workspace.id,
       ...profile,
+      completionPercentage,
     });
   }
 

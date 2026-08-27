@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -51,11 +51,6 @@ export function OnboardingStart() {
           <Sparkles aria-hidden="true" />
           Start with KO
         </Button>
-
-        <p className="mt-3 flex items-center gap-1.5 text-[13px] text-[var(--text-muted)]">
-          <Mic aria-hidden="true" className="h-3.5 w-3.5" />
-          Voice works right in your browser — no setup needed.
-        </p>
 
         <p className="mt-5 text-[13px] text-[var(--text-muted)]">
           Prefer to do it yourself?{" "}

@@ -42,6 +42,57 @@ describe("saveBrandProfile", () => {
     });
   });
 
+  /* KOS-V1-BUG-001: this path hardcoded completionPercentage: 100, so a brand
+     that filled only the required Basics and skipped all six optional steps
+     still reported a finished profile in the admin directory. */
+  it("writes the weighted score, not a hardcoded 100, for a Basics-only save", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile(validInput);
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      completionPercentage: 20,
+      // The gate is unchanged: the form validates all four required fields
+      // before submitting, and requireBrand keys off this, not the score.
+      onboardingStatus: "completed",
+    });
+  });
+
+  it("raises the score as optional sections are filled in", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({
+      ...validInput,
+      platforms: ["Instagram"],
+      primaryPlatform: "Instagram",
+      postingFrequency: "3x per week",
+    });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      completionPercentage: 35,
+      onboardingStatus: "completed",
+    });
+  });
+
+  it("scores a newly created brand the same way", async () => {
+    getActiveBrandForMember.mockResolvedValue(null);
+    createBrand.mockResolvedValue({ id: "new-brand" });
+
+    await saveBrandProfile(validInput);
+
+    expect(createBrand.mock.calls[0][0]).toMatchObject({
+      completionPercentage: 20,
+    });
+  });
+
   it("updates the existing brand even when onboarding is completed", async () => {
     getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
@@ -74,6 +125,79 @@ describe("saveBrandProfile", () => {
       expect.objectContaining({ tone: null, targetAudience: null }),
     );
     expect(res).toEqual({ ok: true, brandId: "existing-brand" });
+  });
+
+  it("persists a full additional-colour palette", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({
+      ...validInput,
+      primaryColor: "#0F172A",
+      secondaryColor: "#F97316",
+      additionalColors: ["#22C55E", "#EAB308", "#EC4899"],
+    });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      additionalColors: ["#22C55E", "#EAB308", "#EC4899"],
+    });
+  });
+
+  it("rejects a fourth colour rather than silently truncating", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+
+    const res = await saveBrandProfile({
+      ...validInput,
+      additionalColors: ["#1A1A1A", "#2A2A2A", "#3A3A3A", "#4A4A4A"],
+    });
+
+    expect(res.ok).toBe(false);
+    expect(updateBrand).not.toHaveBeenCalled();
+  });
+
+  /* AC: a brand saved before this feature has no additional_colors value and
+     must keep saving cleanly, writing null rather than an empty array.
+     The wizard ALWAYS sends the array (brandToFormState maps a null column to
+     []), so [] is the real legacy payload — asserting on an omitted field
+     would have tested a shape the form never produces. */
+  it("writes null, not {}, when a legacy brand is saved untouched", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({
+      ...validInput,
+      primaryColor: "#0F172A",
+      secondaryColor: "#F97316",
+      additionalColors: [],
+    });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      primaryColor: "#0F172A",
+      additionalColors: null,
+    });
+  });
+
+  it("writes null when the field is omitted entirely", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({ ...validInput, primaryColor: "#0F172A" });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      additionalColors: null,
+    });
   });
 
   it("creates a new brand when the user has none", async () => {

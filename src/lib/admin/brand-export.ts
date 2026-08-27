@@ -1,3 +1,4 @@
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import type { brands } from "@/lib/db/schema";
 
 type BrandRow = typeof brands.$inferSelect;
@@ -45,7 +46,7 @@ export function toBrandExport(brand: BrandRow): BrandExport {
     id: brand.id,
     name: brand.name,
     onboardingStatus: brand.onboardingStatus,
-    completionPercentage: brand.completionPercentage,
+    completionPercentage: brandProfileCompletion(brand),
     createdAt: brand.createdAt.toISOString(),
     updatedAt: brand.updatedAt.toISOString(),
     sections: {

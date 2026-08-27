@@ -1,5 +1,6 @@
 import { BRIEF_STRUCTURES } from "@/lib/ai/prompts/brief-structures";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
+import { brandPalette } from "@/lib/ai/prompts/design-spec";
 import { type BrandSummary, brandBlock } from "@/lib/ai/prompts/strategy";
 import { DESIGN_TYPE_OPTIONS } from "@/lib/design/tickets-ui";
 
@@ -45,7 +46,7 @@ ${BRIEF_STRUCTURES}
 
 Pick designType from these standard options whenever one fits (keep the exact label): ${DESIGN_TYPE_OPTIONS.join("; ")}. Include pixel dimensions; Instagram feed posts and carousel slides default to 1080x1350 portrait unless the user asks otherwise. For carousels set slides (2-10) and write one section per slide.
 
-${brandBlock(brand)}`;
+${brandBlock(brand)}${brandPalette(brand)}`;
 }
 
 export function buildDesignBriefGenerationPrompt(

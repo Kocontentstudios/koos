@@ -2,10 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +19,8 @@ interface NotificationItem {
   payload: unknown;
   readAt: string | null;
   createdAt: string;
+  /** Resolved server-side per viewer role; null when there is nothing to open. */
+  href: string | null;
 }
 
 interface NotificationsResponse {
@@ -26,6 +30,8 @@ interface NotificationsResponse {
 
 const QUERY_KEY = ["notifications"];
 
+const ITEM_CLASS = "flex flex-col items-start gap-0.5 px-3 py-2";
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.round(diff / 60000);
@@ -34,6 +40,19 @@ function timeAgo(iso: string): string {
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.round(hrs / 24)}d ago`;
+}
+
+function NotificationBody({ item }: { item: NotificationItem }) {
+  return (
+    <>
+      <span className="text-[13px] text-foreground">
+        {formatNotificationMessage(item)}
+      </span>
+      <span className="text-[11px] text-[var(--text-muted)]">
+        {timeAgo(item.createdAt)}
+      </span>
+    </>
+  );
 }
 
 export function NotificationBell() {
@@ -125,21 +144,25 @@ export function NotificationBell() {
             You are all caught up.
           </p>
         ) : (
-          <ul className="max-h-80 overflow-y-auto py-1">
-            {items.map((n) => (
-              <li
-                key={n.id}
-                className="flex flex-col gap-0.5 px-3 py-2 hover:bg-surface-2"
-              >
-                <span className="text-[13px] text-foreground">
-                  {formatNotificationMessage(n)}
-                </span>
-                <span className="text-[11px] text-[var(--text-muted)]">
-                  {timeAgo(n.createdAt)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="max-h-80 overflow-y-auto py-1">
+            {items.map((n) =>
+              n.href ? (
+                <DropdownMenuItem
+                  key={n.id}
+                  className={`${ITEM_CLASS} cursor-pointer`}
+                  render={<Link href={n.href} />}
+                >
+                  <NotificationBody item={n} />
+                </DropdownMenuItem>
+              ) : (
+                // No target to open. Rendering a menu item here would promise a
+                // navigation that never happens, so it stays inert text.
+                <div key={n.id} className={ITEM_CLASS}>
+                  <NotificationBody item={n} />
+                </div>
+              ),
+            )}
+          </div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

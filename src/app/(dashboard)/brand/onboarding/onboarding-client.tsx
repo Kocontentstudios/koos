@@ -3,9 +3,9 @@
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
-import { Mic, MicOff, Send, Sparkles, Square } from "lucide-react";
+import { Send, Sparkles, Square, Volume2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ProposalCard } from "@/components/ai/proposal-card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,31 @@ function messageText(msg: UIMessage): string {
   );
 }
 
+function ReadAloudButton({
+  isSpeaking,
+  onToggle,
+}: {
+  isSpeaking: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={isSpeaking}
+      aria-label={isSpeaking ? "Stop reading aloud" : "Read aloud"}
+      className="mt-1 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-[var(--text-muted)] transition-colors hover:bg-surface-2 hover:text-foreground"
+    >
+      {isSpeaking ? (
+        <Square aria-hidden="true" className="w-3 h-3" />
+      ) : (
+        <Volume2 aria-hidden="true" className="w-3 h-3" />
+      )}
+      {isSpeaking ? "Stop" : "Read aloud"}
+    </button>
+  );
+}
+
 export function OnboardingClient({
   brandId,
   brandContext,
@@ -43,10 +68,6 @@ export function OnboardingClient({
   const [extractError, setExtractError] = useState<string | null>(null);
 
   const voice = useVoiceIo();
-  // Once the user has engaged voice mode, keep speaking replies aloud even
-  // after they stop talking — that's the expected back-and-forth for a
-  // "voice mode", not just live transcription of the mic.
-  const voiceModeRef = useRef(false);
 
   const transport = useMemo(
     () =>
@@ -62,25 +83,6 @@ export function OnboardingClient({
   });
   const isLoading = status === "submitted" || status === "streaming";
 
-  useEffect(() => {
-    if (voice.listening) setInput(voice.transcript);
-  }, [voice.listening, voice.transcript]);
-
-  // Speak the assistant's latest reply once it finishes streaming, but only
-  // for a session where the user has actually used voice mode.
-  const lastAssistantText = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant");
-  const spokenIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!voiceModeRef.current || isLoading || !lastAssistantText) return;
-    if (spokenIdRef.current === lastAssistantText.id) return;
-    spokenIdRef.current = lastAssistantText.id;
-    voice.speak(messageText(lastAssistantText));
-    // voice.speak is memoized with useCallback([]) in useVoiceIo, so its
-    // reference is stable and including it here doesn't add extra re-runs.
-  }, [isLoading, lastAssistantText, voice.speak]);
-
   function handleSend() {
     const text = input.trim();
     if (!text || isLoading) return;
@@ -89,16 +91,6 @@ export function OnboardingClient({
       { body: { brandContext, brandId, conversationId, mode: "onboarding" } },
     );
     setInput("");
-    if (voice.listening) voice.stop();
-  }
-
-  function toggleMic() {
-    if (voice.listening) {
-      voice.stop();
-      return;
-    }
-    voiceModeRef.current = true;
-    voice.start();
   }
 
   async function handleFillProfile() {
@@ -175,14 +167,26 @@ export function OnboardingClient({
               >
                 {isUser ? "U" : "KO"}
               </div>
-              <div
-                className={`min-w-0 break-words rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
-                  isUser
-                    ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
-                    : "bg-surface-1 border-[var(--border)] rounded-tl-sm"
-                }`}
-              >
-                {isUser ? text : <Markdown>{text}</Markdown>}
+              <div className="min-w-0">
+                <div
+                  className={`min-w-0 break-words rounded-xl border px-4 py-3 text-sm leading-relaxed text-foreground ${
+                    isUser
+                      ? "bg-surface-2 border-[var(--border-accent)] rounded-tr-sm whitespace-pre-line"
+                      : "bg-surface-1 border-[var(--border)] rounded-tl-sm"
+                  }`}
+                >
+                  {isUser ? text : <Markdown>{text}</Markdown>}
+                </div>
+                {!isUser && text.trim() && (
+                  <ReadAloudButton
+                    isSpeaking={voice.speakingId === msg.id}
+                    onToggle={() =>
+                      voice.speakingId === msg.id
+                        ? voice.cancel()
+                        : voice.speak(text, msg.id)
+                    }
+                  />
+                )}
               </div>
             </div>
           );
@@ -269,28 +273,6 @@ export function OnboardingClient({
             aria-label="Message input"
             className="flex-1 min-h-[40px] max-h-[160px] resize-none border-0 bg-transparent py-1 focus-visible:ring-0"
           />
-
-          {voice.supported && (
-            <button
-              type="button"
-              onClick={toggleMic}
-              aria-pressed={voice.listening}
-              aria-label={
-                voice.listening ? "Stop voice input" : "Start voice input"
-              }
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0 ${
-                voice.listening
-                  ? "bg-primary text-white"
-                  : "bg-[rgba(255,255,255,0.1)] text-foreground hover:bg-[rgba(255,255,255,0.15)]"
-              }`}
-            >
-              {voice.listening ? (
-                <MicOff className="w-4 h-4" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
-            </button>
-          )}
 
           {isLoading ? (
             <button

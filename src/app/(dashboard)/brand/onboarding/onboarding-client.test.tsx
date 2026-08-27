@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const speak = vi.fn();
+const cancel = vi.fn();
 const startVoice = vi.fn();
 const voice = {
   supported: false,
@@ -10,6 +11,9 @@ const voice = {
   start: startVoice,
   stop: vi.fn(),
   speak,
+  cancel,
+  speakingId: null as string | null,
+  speaking: false,
 };
 const chatState: { messages: unknown[]; status: string } = {
   messages: [],
@@ -48,13 +52,10 @@ describe("OnboardingClient", () => {
     vi.clearAllMocks();
     voice.supported = false;
     voice.listening = false;
+    voice.speakingId = null;
+    voice.speaking = false;
     chatState.messages = [];
     chatState.status = "ready";
-  });
-
-  it("hides the mic when voice is unsupported", () => {
-    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    expect(screen.queryByRole("button", { name: /mic|voice/i })).toBeNull();
   });
 
   it("shows the Fill my brand profile button", () => {
@@ -64,66 +65,143 @@ describe("OnboardingClient", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the mic when the browser supports voice", () => {
+  /* KOS-V1-BUG-003: the mic rendered but could never work — the app sends
+     Permissions-Policy: microphone=(), which gates the Web Speech API, and the
+     failure was swallowed silently. It stays hidden until a real speech-to-text
+     service is wired up, including where the browser claims support. */
+  it("renders no mic control, even where the browser supports voice", () => {
     voice.supported = true;
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(screen.queryByRole("button", { name: /voice input/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /mic/i })).toBeNull();
+    expect(startVoice).not.toHaveBeenCalled();
+  });
+
+  /* KOS-V1-BUG-004: replies used to be spoken automatically once the mic had
+     been tapped even once, because voiceModeRef was latched on and never
+     cleared. Nothing may speak without a deliberate click. */
+  it("never speaks a finished reply on its own", () => {
+    voice.supported = true;
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when the browser reports voice support", () => {
+    voice.supported = true;
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it("offers a read-aloud control on an assistant reply, not on the user's own", () => {
+    chatState.messages = [
+      {
+        id: "u1",
+        role: "user",
+        parts: [{ type: "text", text: "We sell bags" }],
+      },
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getAllByRole("button", { name: /read aloud/i })).toHaveLength(
+      1,
+    );
+  });
+
+  it("speaks that message, tagged with its id, when read aloud is clicked", () => {
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+
+    expect(speak).toHaveBeenCalledWith("Hello there", "m1");
+  });
+
+  it("turns into a Stop control that cancels the message being spoken", () => {
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    voice.speakingId = "m1";
+    voice.speaking = true;
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    const stopButton = screen.getByRole("button", {
+      name: /stop reading aloud/i,
+    });
+    expect(stopButton).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(stopButton);
+
+    expect(cancel).toHaveBeenCalled();
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  /* Only the speaking message shows Stop. Keying this to one shared boolean
+     would make every reply claim to be the one talking. */
+  it("keeps the other replies on Read aloud while one is speaking", () => {
+    chatState.messages = [
+      { id: "m1", role: "assistant", parts: [{ type: "text", text: "First" }] },
+      {
+        id: "m2",
+        role: "assistant",
+        parts: [{ type: "text", text: "Second" }],
+      },
+    ];
+    voice.speakingId = "m1";
+    voice.speaking = true;
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
     expect(
-      screen.getByRole("button", { name: /start voice input/i }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("button", { name: /stop reading aloud/i }),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: /^read aloud$/i }),
+    ).toHaveLength(1);
   });
 
-  /* The "call" half of the feature: once the user has engaged voice mode, KO
-     reads its replies aloud so the exchange is a conversation, not just
-     dictation into a text box. */
-  it("speaks a finished reply aloud after voice mode is engaged", async () => {
-    voice.supported = true;
-    const { rerender } = render(
-      <OnboardingClient brandId="b1" brandContext={brandContext} />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /start voice input/i }));
-
+  it("offers no read-aloud control on an empty reply", () => {
     chatState.messages = [
-      {
-        id: "m1",
-        role: "assistant",
-        parts: [{ type: "text", text: "Hello there" }],
-      },
-    ];
-    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-
-    expect(speak).toHaveBeenCalledWith("Hello there");
-  });
-
-  it("stays silent when the user never engaged voice mode", () => {
-    voice.supported = true;
-    const { rerender } = render(
-      <OnboardingClient brandId="b1" brandContext={brandContext} />,
-    );
-    chatState.messages = [
-      {
-        id: "m1",
-        role: "assistant",
-        parts: [{ type: "text", text: "Hello there" }],
-      },
-    ];
-    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    expect(speak).not.toHaveBeenCalled();
-  });
-
-  it("does not speak a reply that is still streaming", () => {
-    voice.supported = true;
-    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    fireEvent.click(screen.getByRole("button", { name: /start voice input/i }));
-    chatState.status = "streaming";
-    chatState.messages = [
-      {
-        id: "m1",
-        role: "assistant",
-        parts: [{ type: "text", text: "Partial" }],
-      },
+      { id: "m1", role: "assistant", parts: [{ type: "text", text: "   " }] },
     ];
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    expect(speak).not.toHaveBeenCalled();
+
+    expect(screen.queryByRole("button", { name: /read aloud/i })).toBeNull();
   });
 });
 

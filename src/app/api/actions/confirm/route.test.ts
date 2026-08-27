@@ -125,6 +125,42 @@ describe("POST /api/actions/confirm", () => {
     expect(updateBrand.mock.calls[0][1]).toMatchObject({ tone: "bold" });
   });
 
+  /* additional_colors is a Postgres text[] but the model sends a
+     comma-separated string. Writing the raw string would fail inside
+     postgres.js at runtime, where a mocked test would never see it — so
+     assert on the VALUE reaching updateBrand, not just that it was called. */
+  it("parses the model's colour string into an array before writing", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: "terracotta, indigo" });
+    expect(updateBrand.mock.calls[0][1].additionalColors).toEqual([
+      "terracotta",
+      "indigo",
+    ]);
+  });
+
+  it("caps the written colours at three even if the model sends more", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: "a, b, c, d, e" });
+    expect(updateBrand.mock.calls[0][1].additionalColors).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  /* An LLM answering ", ," must not wipe swatches the user saved by hand. */
+  it("drops the key entirely when the parsed list is empty", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: " , , " });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
+  });
+
+  it("leaves the column untouched when the model omits the field", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
+  });
+
   /* Regression: confirming fields wrote them but left onboardingStatus at
      "draft", so requireBrand redirected a chat-only user straight back into
      onboarding forever. There was no way to finish without the manual form. */
@@ -133,7 +169,8 @@ describe("POST /api/actions/confirm", () => {
     await confirmFields({ tone: "bold" });
     expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, {
       tone: "bold",
-      completionPercentage: 25,
+      // Name (5 of Basics) plus tone (6.25 of Audience), rounded.
+      completionPercentage: 11,
       onboardingStatus: "in_progress",
     });
   });
@@ -149,7 +186,10 @@ describe("POST /api/actions/confirm", () => {
       overview: "Handwoven bags",
       businessType: "Retail",
       stage: "Early-stage",
-      completionPercentage: 100,
+      /* Basics only, so the score is 20 — but the status is still "completed".
+         requireBrand gates on the status, and tying it to the score would lock
+         out every user who left an optional section blank. */
+      completionPercentage: 20,
       onboardingStatus: "completed",
     });
   });

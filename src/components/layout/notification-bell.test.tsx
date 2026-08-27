@@ -131,3 +131,66 @@ describe("NotificationBell", () => {
     );
   });
 });
+
+describe("NotificationBell links", () => {
+  const TICKET = "11111111-2222-3333-4444-555555555555";
+
+  const item = (over: Record<string, unknown> = {}) => ({
+    id: "n1",
+    type: "design_ready",
+    payload: { ticketId: TICKET },
+    readAt: null,
+    createdAt: new Date().toISOString(),
+    href: `/design-request/${TICKET}`,
+    ...over,
+  });
+
+  const stub = (items: unknown[]) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ items, unread: 0 })),
+    );
+
+  it("renders a notification as a link to the href the server resolved", async () => {
+    stub([item()]);
+    renderBell();
+    await openBell();
+
+    const link = await screen.findByRole("menuitem", {
+      name: /Your design is ready for review/,
+    });
+    expect(link).toHaveAttribute("href", `/design-request/${TICKET}`);
+  });
+
+  /* The destination is role-dependent — staff go to the admin queue — and the
+     component must render whatever the server resolved rather than deciding. */
+  it("follows the server's href for a staff viewer", async () => {
+    stub([item({ href: `/admin/tickets/${TICKET}` })]);
+    renderBell();
+    await openBell();
+
+    expect(
+      await screen.findByRole("menuitem", {
+        name: /Your design is ready for review/,
+      }),
+    ).toHaveAttribute("href", `/admin/tickets/${TICKET}`);
+  });
+
+  it("leaves a notification with no target as inert text, not a dead link", async () => {
+    stub([
+      item({
+        type: "system",
+        payload: { message: "Scheduled maintenance tonight." },
+        href: null,
+      }),
+    ]);
+    renderBell();
+    await openBell();
+
+    expect(
+      await screen.findByText("Scheduled maintenance tonight."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
