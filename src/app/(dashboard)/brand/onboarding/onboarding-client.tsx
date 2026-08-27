@@ -3,7 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
-import { Mic, MicOff, Send, Sparkles, Square, Volume2 } from "lucide-react";
+import { Send, Sparkles, Square, Volume2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -83,10 +83,6 @@ export function OnboardingClient({
   });
   const isLoading = status === "submitted" || status === "streaming";
 
-  useEffect(() => {
-    if (voice.listening) setInput(voice.transcript);
-  }, [voice.listening, voice.transcript]);
-
   function handleSend() {
     const text = input.trim();
     if (!text || isLoading) return;
@@ -95,15 +91,6 @@ export function OnboardingClient({
       { body: { brandContext, brandId, conversationId, mode: "onboarding" } },
     );
     setInput("");
-    if (voice.listening) voice.stop();
-  }
-
-  function toggleMic() {
-    if (voice.listening) {
-      voice.stop();
-      return;
-    }
-    voice.start();
   }
 
   async function handleFillProfile() {
@@ -286,28 +273,6 @@ export function OnboardingClient({
             aria-label="Message input"
             className="flex-1 min-h-[40px] max-h-[160px] resize-none border-0 bg-transparent py-1 focus-visible:ring-0"
           />
-
-          {voice.supported && (
-            <button
-              type="button"
-              onClick={toggleMic}
-              aria-pressed={voice.listening}
-              aria-label={
-                voice.listening ? "Stop voice input" : "Start voice input"
-              }
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0 ${
-                voice.listening
-                  ? "bg-primary text-white"
-                  : "bg-[rgba(255,255,255,0.1)] text-foreground hover:bg-[rgba(255,255,255,0.15)]"
-              }`}
-            >
-              {voice.listening ? (
-                <MicOff className="w-4 h-4" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
-            </button>
-          )}
 
           {isLoading ? (
             <button

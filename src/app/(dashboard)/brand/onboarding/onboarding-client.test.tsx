@@ -58,11 +58,6 @@ describe("OnboardingClient", () => {
     chatState.status = "ready";
   });
 
-  it("hides the mic when voice is unsupported", () => {
-    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    expect(screen.queryByRole("button", { name: /mic|voice/i })).toBeNull();
-  });
-
   it("shows the Fill my brand profile button", () => {
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
     expect(
@@ -70,12 +65,16 @@ describe("OnboardingClient", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the mic when the browser supports voice", () => {
+  /* KOS-V1-BUG-003: the mic rendered but could never work — the app sends
+     Permissions-Policy: microphone=(), which gates the Web Speech API, and the
+     failure was swallowed silently. It stays hidden until a real speech-to-text
+     service is wired up, including where the browser claims support. */
+  it("renders no mic control, even where the browser supports voice", () => {
     voice.supported = true;
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    expect(
-      screen.getByRole("button", { name: /start voice input/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /voice input/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /mic/i })).toBeNull();
+    expect(startVoice).not.toHaveBeenCalled();
   });
 
   /* KOS-V1-BUG-004: replies used to be spoken automatically once the mic had
@@ -99,13 +98,11 @@ describe("OnboardingClient", () => {
     expect(speak).not.toHaveBeenCalled();
   });
 
-  it("stays silent even after the mic has been engaged", () => {
+  it("stays silent when the browser reports voice support", () => {
     voice.supported = true;
     const { rerender } = render(
       <OnboardingClient brandId="b1" brandContext={brandContext} />,
     );
-    const mic = screen.queryByRole("button", { name: /start voice input/i });
-    if (mic) fireEvent.click(mic);
 
     chatState.messages = [
       {
