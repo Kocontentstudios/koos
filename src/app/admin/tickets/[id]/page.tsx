@@ -11,7 +11,6 @@ import { TicketRequestDetails } from "@/components/design/ticket-request-details
 import { Markdown } from "@/components/ui/markdown";
 import { requireRole } from "@/lib/auth/require-role";
 import {
-  type AnnotationShape,
   getAnnotationsForTicket,
   getBrandById,
   getDeliverables,
@@ -19,11 +18,7 @@ import {
   getStaffUsers,
   getTicketUpdates,
 } from "@/lib/db/queries";
-import {
-  formatTicketNumber,
-  groupDeliverablesByVersion,
-  latestVersion,
-} from "@/lib/design/ticket";
+import { formatTicketNumber, latestVersion } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { ManagePanel, type StaffOption } from "./manage-panel";
 import { UpdateComposer } from "./update-composer";

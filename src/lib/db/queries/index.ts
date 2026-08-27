@@ -725,6 +725,24 @@ export async function getCalendarItemById(id: string) {
   return row ?? null;
 }
 
+/**
+ * A calendar item together with the brand that owns it.
+ *
+ * calendar_items reaches its brand only through calendars, so a bare
+ * getCalendarItemById cannot be ownership-checked by the caller. Generation
+ * accepted an item id without ever tying it to the requested brand, which let
+ * one brand's item be read into another brand's design context.
+ */
+export async function getCalendarItemForBrand(id: string, brandId: string) {
+  const [row] = await db
+    .select({ item: calendarItems })
+    .from(calendarItems)
+    .innerJoin(calendars, eq(calendars.id, calendarItems.calendarId))
+    .where(and(eq(calendarItems.id, id), eq(calendars.brandId, brandId)))
+    .limit(1);
+  return row?.item ?? null;
+}
+
 // ── Design Briefs ───────────────────────────────────────────────────
 
 export async function createDesignBrief(
@@ -749,6 +767,16 @@ export async function listDesignBriefsForConversation(conversationId: string) {
     .from(designBriefs)
     .where(eq(designBriefs.conversationId, conversationId))
     .orderBy(designBriefs.createdAt);
+}
+
+/** Every brief for a brand, newest first — what the context picker searches. */
+export async function listDesignBriefsForBrand(brandId: string, limit = 50) {
+  return db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.brandId, brandId))
+    .orderBy(desc(designBriefs.createdAt))
+    .limit(limit);
 }
 
 export async function updateDesignBrief(
