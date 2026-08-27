@@ -73,7 +73,9 @@ describe("speechText", () => {
     });
 
     it("unwraps inline code and removes fenced blocks entirely", () => {
-      expect(speechText("Use `npm run dev` today")).toBe("Use npm run dev today");
+      expect(speechText("Use `npm run dev` today")).toBe(
+        "Use npm run dev today",
+      );
       expect(speechText("Before\n```js\nconst a = 1;\n```\nAfter")).toBe(
         "Before\nAfter",
       );

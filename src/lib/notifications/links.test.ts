@@ -7,9 +7,9 @@ const CALENDAR = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 describe("notificationHref", () => {
   describe("ticket notifications", () => {
     it("sends an owner to the dashboard ticket page", () => {
-      expect(notificationHref("design_ready", { ticketId: TICKET }, "user")).toBe(
-        `/design-request/${TICKET}`,
-      );
+      expect(
+        notificationHref("design_ready", { ticketId: TICKET }, "user"),
+      ).toBe(`/design-request/${TICKET}`);
     });
 
     it.each(["admin", "designer"] as const)(
@@ -36,7 +36,12 @@ describe("notificationHref", () => {
       expect(
         notificationHref(
           "design_ready",
-          { ticketId: TICKET, ticketNumber: 42, designType: "flyer", version: 3 },
+          {
+            ticketId: TICKET,
+            ticketNumber: 42,
+            designType: "flyer",
+            version: 3,
+          },
           "user",
         ),
       ).toBe(`/design-request/${TICKET}`);
@@ -44,9 +49,15 @@ describe("notificationHref", () => {
 
     it("returns null when the ticket id is missing or blank", () => {
       expect(notificationHref("design_ready", {}, "user")).toBeNull();
-      expect(notificationHref("ticket_status", { ticketId: "" }, "user")).toBeNull();
-      expect(notificationHref("ticket_status", { ticketId: "   " }, "user")).toBeNull();
-      expect(notificationHref("design_ready", { ticketId: 7 }, "user")).toBeNull();
+      expect(
+        notificationHref("ticket_status", { ticketId: "" }, "user"),
+      ).toBeNull();
+      expect(
+        notificationHref("ticket_status", { ticketId: "   " }, "user"),
+      ).toBeNull();
+      expect(
+        notificationHref("design_ready", { ticketId: 7 }, "user"),
+      ).toBeNull();
     });
   });
 
@@ -70,7 +81,11 @@ describe("notificationHref", () => {
 
     it("returns null for a plain system message with no target", () => {
       expect(
-        notificationHref("system", { message: "Scheduled maintenance." }, "user"),
+        notificationHref(
+          "system",
+          { message: "Scheduled maintenance." },
+          "user",
+        ),
       ).toBeNull();
     });
 

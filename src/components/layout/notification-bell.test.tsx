@@ -146,7 +146,10 @@ describe("NotificationBell links", () => {
   });
 
   const stub = (items: unknown[]) =>
-    vi.stubGlobal("fetch", vi.fn(async () => json({ items, unread: 0 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ items, unread: 0 })),
+    );
 
   it("renders a notification as a link to the href the server resolved", async () => {
     stub([item()]);

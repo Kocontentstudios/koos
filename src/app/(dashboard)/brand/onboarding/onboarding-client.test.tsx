@@ -118,7 +118,11 @@ describe("OnboardingClient", () => {
 
   it("offers a read-aloud control on an assistant reply, not on the user's own", () => {
     chatState.messages = [
-      { id: "u1", role: "user", parts: [{ type: "text", text: "We sell bags" }] },
+      {
+        id: "u1",
+        role: "user",
+        parts: [{ type: "text", text: "We sell bags" }],
+      },
       {
         id: "m1",
         role: "assistant",
@@ -127,9 +131,9 @@ describe("OnboardingClient", () => {
     ];
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
 
-    expect(
-      screen.getAllByRole("button", { name: /read aloud/i }),
-    ).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /read aloud/i })).toHaveLength(
+      1,
+    );
   });
 
   it("speaks that message, tagged with its id, when read aloud is clicked", () => {
@@ -158,7 +162,9 @@ describe("OnboardingClient", () => {
     voice.speaking = true;
     render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
 
-    const stopButton = screen.getByRole("button", { name: /stop reading aloud/i });
+    const stopButton = screen.getByRole("button", {
+      name: /stop reading aloud/i,
+    });
     expect(stopButton).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(stopButton);
 
@@ -171,7 +177,11 @@ describe("OnboardingClient", () => {
   it("keeps the other replies on Read aloud while one is speaking", () => {
     chatState.messages = [
       { id: "m1", role: "assistant", parts: [{ type: "text", text: "First" }] },
-      { id: "m2", role: "assistant", parts: [{ type: "text", text: "Second" }] },
+      {
+        id: "m2",
+        role: "assistant",
+        parts: [{ type: "text", text: "Second" }],
+      },
     ];
     voice.speakingId = "m1";
     voice.speaking = true;
