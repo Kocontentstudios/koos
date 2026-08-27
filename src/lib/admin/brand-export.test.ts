@@ -53,6 +53,27 @@ describe("toBrandExport", () => {
     expect(out.id).toBe("b1");
     expect(out.name).toBe("Ada Bakes");
     expect(out.onboardingStatus).toBe("completed");
+  });
+
+  /* The stored column is stale on every brand written before the weighted
+     formula landed — this fixture carries 100. Computing from the row instead
+     means existing brands read correctly with no migration. Ada has all of
+     Basics (20), Audience (25) and Platforms (15) but only half of Visual
+     Identity (12.5) and no Personality. */
+  it("computes the score from the fields, not the stored column", () => {
+    expect(brand.completionPercentage).toBe(100);
+    expect(toBrandExport(brand).completionPercentage).toBe(73);
+  });
+
+  it("keeps a fully filled brand at 100", () => {
+    const out = toBrandExport({
+      ...brand,
+      secondaryColor: "#FFFFFF",
+      brandStyle: "Rustic",
+      values: "Honest, local",
+      wordsLove: "warm, fresh",
+      wordsAvoid: "mass-produced",
+    } as Parameters<typeof toBrandExport>[0]);
     expect(out.completionPercentage).toBe(100);
   });
 

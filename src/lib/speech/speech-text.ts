@@ -35,7 +35,7 @@ const RULES: [RegExp, string][] = [
   [/\|/g, " "],
   // Emoji, their skin-tone/gender modifiers, and the ZWJ that joins sequences.
   [/\p{Extended_Pictographic}/gu, " "],
-  [/[\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}\u{20E3}]/gu, " "],
+  [/[\u{1F3FB}-\u{1F3FF}]|\u{FE0F}|\u{200D}|\u{20E3}/gu, " "],
   [/[\u{1F1E6}-\u{1F1FF}]/gu, " "],
 ];
 
