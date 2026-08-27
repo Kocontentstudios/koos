@@ -8,6 +8,7 @@ export interface GenerateArgs {
   brandId: string;
   briefId?: string | null;
   calendarItemId?: string | null;
+  attachments?: { type: string; id: string }[];
   freeform?: string | null;
   aspectRatio?: string | null;
 }

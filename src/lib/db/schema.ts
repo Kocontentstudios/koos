@@ -570,6 +570,10 @@ export const designGenerations = pgTable(
       { onDelete: "set null" },
     ),
     designType: text("design_type"),
+    /** Everything the user attached as context, in precedence order. The
+     *  source enum and brief_id/calendar_item_id record only one primary
+     *  reference, so this is what answers "what was this built from". */
+    attachments: jsonb("attachments").notNull().default(sql`'[]'::jsonb`),
     spec: jsonb("spec").notNull(),
     renderer: designRendererEnum("renderer").notNull(),
     provider: text("provider").notNull(),

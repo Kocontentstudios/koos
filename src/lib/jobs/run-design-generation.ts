@@ -155,6 +155,9 @@ export async function generateDesignWork(
       source: context.source,
       briefId: context.briefId,
       calendarItemId: context.calendarItemId,
+      // The source enum records one primary reference; this is the full list
+      // the user actually attached.
+      attachments: context.attachments,
       designType: context.designType,
       spec,
       renderer: entry.renderer,
