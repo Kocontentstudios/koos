@@ -7,33 +7,78 @@ export interface BrandProfileInput {
   offer?: string | null;
   tone?: string | null;
   primaryGoal?: string | null;
+  values?: string | null;
+  wordsLove?: string | null;
+  wordsAvoid?: string | null;
+  brandStyle?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;
   additionalColors?: string[] | null;
   logoUrl?: string | null;
+  platforms?: string[] | null;
+  primaryPlatform?: string | null;
+  postingFrequency?: string | null;
 }
 
 /** Placeholder name a conversational draft is created with, so the NOT NULL
  *  column has a value before the user has said what the brand is called. */
 export const PLACEHOLDER_BRAND_NAME = "Untitled brand";
 
-const REQUIRED_FIELDS: (keyof BrandProfileInput)[] = [
+/** The four fields the manual form marks required and validates at step 1. */
+const REQUIRED_FIELDS = [
   "name",
   "overview",
   "businessType",
   "stage",
-];
+] as const satisfies readonly (keyof BrandProfileInput)[];
 
-/** 0-100 based on the 4 step-1 required fields. */
+/**
+ * Section weights from KOS-V1-BUG-001. They total 100 on their own, which is
+ * why Competitors and Anything Else score nothing: there is no room left for
+ * them, and both are explicitly optional in the form.
+ */
+const SECTIONS = [
+  { weight: 20, fields: REQUIRED_FIELDS },
+  { weight: 25, fields: ["targetAudience", "offer", "tone", "primaryGoal"] },
+  {
+    weight: 25,
+    fields: ["logoUrl", "brandStyle", "primaryColor", "secondaryColor"],
+  },
+  { weight: 15, fields: ["values", "wordsLove", "wordsAvoid"] },
+  { weight: 15, fields: ["platforms", "primaryPlatform", "postingFrequency"] },
+] as const satisfies readonly {
+  weight: number;
+  fields: readonly (keyof BrandProfileInput)[];
+}[];
+
+function isFilled(input: BrandProfileInput, field: keyof BrandProfileInput) {
+  const value = input[field];
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  // The placeholder is ours, not something the user told us — counting it
+  // would report progress for a draft that knows nothing yet.
+  return !(field === "name" && value.trim() === PLACEHOLDER_BRAND_NAME);
+}
+
+/** True once every field the manual form requires has a real value. */
+export function isBasicsComplete(input: BrandProfileInput): boolean {
+  return REQUIRED_FIELDS.every((field) => isFilled(input, field));
+}
+
+/**
+ * 0-100, weighted across the five scored sections.
+ *
+ * This is a reporting number only. It deliberately does NOT decide whether
+ * onboarding is finished: gating on 100% would trap every user who left an
+ * optional section blank outside the dashboard forever. See
+ * progressAfterFieldWrite.
+ */
 export function brandProfileCompletion(input: BrandProfileInput): number {
-  const filled = REQUIRED_FIELDS.filter((f) => {
-    const v = input[f];
-    if (typeof v !== "string" || v.trim().length === 0) return false;
-    // The placeholder is ours, not something the user told us — counting it
-    // would report 25% complete for a draft that knows nothing yet.
-    return !(f === "name" && v.trim() === PLACEHOLDER_BRAND_NAME);
-  }).length;
-  return Math.round((filled / REQUIRED_FIELDS.length) * 100);
+  const score = SECTIONS.reduce((total, section) => {
+    const filled = section.fields.filter((f) => isFilled(input, f)).length;
+    return total + (section.weight * filled) / section.fields.length;
+  }, 0);
+  return Math.round(score);
 }
 
 export function hasCompletedBrand(
@@ -55,12 +100,17 @@ export interface OnboardingProgress {
  * Without this the conversational path is a dead end: /api/actions/confirm
  * wrote the fields but left onboardingStatus at "draft", so requireBrand kept
  * bouncing the user back into onboarding no matter how much they told KO.
+ *
+ * The status gate is the required Basics fields, NOT the percentage. Those
+ * were the same condition while the score counted only those four fields;
+ * once the score spread across five sections they stopped being the same, and
+ * requireBrand redirects on anything short of "completed".
  */
 export function progressAfterFieldWrite(
   merged: BrandProfileInput,
 ): OnboardingProgress {
   const completionPercentage = brandProfileCompletion(merged);
-  if (completionPercentage === 100) {
+  if (isBasicsComplete(merged)) {
     return { completionPercentage, onboardingStatus: "completed" };
   }
   return {

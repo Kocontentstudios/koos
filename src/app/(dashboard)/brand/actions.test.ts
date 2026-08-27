@@ -42,6 +42,57 @@ describe("saveBrandProfile", () => {
     });
   });
 
+  /* KOS-V1-BUG-001: this path hardcoded completionPercentage: 100, so a brand
+     that filled only the required Basics and skipped all six optional steps
+     still reported a finished profile in the admin directory. */
+  it("writes the weighted score, not a hardcoded 100, for a Basics-only save", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile(validInput);
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      completionPercentage: 20,
+      // The gate is unchanged: the form validates all four required fields
+      // before submitting, and requireBrand keys off this, not the score.
+      onboardingStatus: "completed",
+    });
+  });
+
+  it("raises the score as optional sections are filled in", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({
+      ...validInput,
+      platforms: ["Instagram"],
+      primaryPlatform: "Instagram",
+      postingFrequency: "3x per week",
+    });
+
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      completionPercentage: 35,
+      onboardingStatus: "completed",
+    });
+  });
+
+  it("scores a newly created brand the same way", async () => {
+    getActiveBrandForMember.mockResolvedValue(null);
+    createBrand.mockResolvedValue({ id: "new-brand" });
+
+    await saveBrandProfile(validInput);
+
+    expect(createBrand.mock.calls[0][0]).toMatchObject({
+      completionPercentage: 20,
+    });
+  });
+
   it("updates the existing brand even when onboarding is completed", async () => {
     getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
