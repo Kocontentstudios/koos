@@ -30,7 +30,8 @@ interface DesignVariant {
   adapter: ImageAdapter;
 }
 
-async function loadLogoBytes(
+/** Fetches one reference image, from R2 by key where possible. */
+async function loadImageBytes(
   logoUrl: string | null,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   if (!logoUrl) return null;
@@ -47,9 +48,23 @@ async function loadLogoBytes(
       contentType: res.headers.get("content-type") ?? "image/png",
     };
   } catch {
-    // A missing logo degrades the design; it must never fail the generation.
+    // A missing image degrades the design; it must never fail the generation.
     return null;
   }
+}
+
+/** Brand logo first, then whatever the user attached, skipping any that fail. */
+async function loadReferenceImages(
+  logoUrl: string | null,
+  attachedUrls: string[],
+): Promise<{ bytes: Uint8Array; contentType: string }[]> {
+  const loaded = await Promise.all(
+    [logoUrl, ...attachedUrls].map((url) => loadImageBytes(url)),
+  );
+  return loaded.filter(
+    (image): image is { bytes: Uint8Array; contentType: string } =>
+      image !== null,
+  );
 }
 
 function planVariants(): {
@@ -71,6 +86,8 @@ async function renderVariant(
   spec: DesignSpec,
   context: DesignContext,
   logo: { bytes: Uint8Array; contentType: string } | null,
+  /** Logo plus anything the user attached, for models that accept them. */
+  references: { bytes: Uint8Array; contentType: string }[],
 ): Promise<{ bytes: Uint8Array; width?: number; height?: number }> {
   if (variant.renderer === "composite") {
     // A failed plate still yields a design: the layout falls back to a flat
@@ -104,8 +121,8 @@ async function renderVariant(
       Boolean(logo) && variant.adapter.supportsReferenceImages,
     ),
     aspectRatio: spec.aspectRatio,
-    ...(logo && variant.adapter.supportsReferenceImages
-      ? { referenceImages: [logo] }
+    ...(references.length > 0 && variant.adapter.supportsReferenceImages
+      ? { referenceImages: references }
       : {}),
   });
   return { bytes: image.bytes };
@@ -174,7 +191,13 @@ export async function generateDesignWork(
     label: `Rendering ${variants.length} version${variants.length === 1 ? "" : "s"}…`,
   });
 
-  const logo = await loadLogoBytes(context.brand.logoUrl ?? null);
+  const references = await loadReferenceImages(
+    context.brand.logoUrl ?? null,
+    context.referenceUrls,
+  );
+  // The first reference is the logo when there is one, which the composite
+  // renderer overlays directly rather than handing to the model.
+  const logo = context.brand.logoUrl ? (references[0] ?? null) : null;
   const succeeded: string[] = [];
   const failed: string[] = [];
   let done = 1;
@@ -182,7 +205,13 @@ export async function generateDesignWork(
   await Promise.all(
     variants.map(async (variant) => {
       try {
-        const rendered = await renderVariant(variant, spec, context, logo);
+        const rendered = await renderVariant(
+          variant,
+          spec,
+          context,
+          logo,
+          references,
+        );
         const key = `${STORAGE_PREFIXES.generated}/${context.brand.id}/${crypto.randomUUID()}.png`;
         await uploadObject({
           key,

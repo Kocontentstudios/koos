@@ -28,7 +28,10 @@ function ComboboxPopup({ className, ...props }: ComboboxPrimitive.Popup.Props) {
     <ComboboxPrimitive.Popup
       data-slot="combobox-popup"
       className={cn(
-        "z-50 max-h-72 w-(--anchor-width) min-w-64 overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none",
+        /* Sized to its own content, not to the anchor: this popup hangs off a
+         32px icon button, so w-(--anchor-width) would collapse it. Capped
+         against the viewport so it stays on screen on a phone. */
+        "z-50 max-h-72 w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none",
         className,
       )}
       {...props}
