@@ -84,9 +84,12 @@ describe("brandToFormState", () => {
     expect(brandToFormState(row({ hasLogo: null })).hasLogo).toBe("");
   });
 
-  it("falls back to default colors when the row has none", () => {
+  /* A brand with no colour stays empty rather than adopting the swatch's
+     display default, so saving it back does not invent a colour the user never
+     picked. step-visual still shows #138BC8 in the picker. */
+  it("leaves colors empty when the row has none", () => {
     const s = brandToFormState(row({ primaryColor: null }));
-    expect(s.primaryColor).toBe("#138BC8");
+    expect(s.primaryColor).toBe("");
   });
 });
 

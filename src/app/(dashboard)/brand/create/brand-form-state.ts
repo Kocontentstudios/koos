@@ -62,8 +62,12 @@ export const DEFAULT_STATE: CreateBrandState = {
   hasLogo: "",
   brandStyle: "",
   brandStyleOther: "",
-  primaryColor: "#138BC8",
-  secondaryColor: "#FFFFFF",
+  /* Empty, not a seeded hex. step-visual renders the same swatch colour as its
+     display fallback, so pre-filling here only had the effect of saving brand
+     colours the user never chose — which then counted toward the profile
+     completion score for a step they never opened. */
+  primaryColor: "",
+  secondaryColor: "",
   additionalColors: [],
   logoUrl: "",
   competitors: "",
