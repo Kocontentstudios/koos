@@ -11,6 +11,7 @@ import {
   parseAdditionalColors,
   progressAfterFieldWrite,
 } from "@/lib/brand-profile";
+import { toBrandSnapshot } from "@/lib/brand-snapshot";
 import {
   checkBrandAccess,
   createGenerationJob,
@@ -105,7 +106,7 @@ export async function POST(req: Request) {
          chat-only user permanently redirected back into onboarding. */
       const progress = progressAfterFieldWrite({ ...brand, ...writable });
       const wasCompleted = brand.onboardingStatus === "completed";
-      await updateBrand(brandId, { ...writable, ...progress });
+      const updated = await updateBrand(brandId, { ...writable, ...progress });
 
       if (!wasCompleted && progress.onboardingStatus === "completed") {
         const sessionId = await getAnalyticsSessionId();
@@ -134,6 +135,9 @@ export async function POST(req: Request) {
         kind: proposal.kind,
         resultId: brandId,
         brandCompleted: progress.onboardingStatus === "completed",
+        /* The client's copy of the brand predates this write, so the snapshot
+           card is fed from the row we just wrote rather than re-fetched. */
+        snapshot: toBrandSnapshot(updated),
       });
     }
 

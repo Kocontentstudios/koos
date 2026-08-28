@@ -8,6 +8,10 @@ import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { brandProfileCompletion } from "@/lib/brand-profile";
 import {
+  type BrandSnapshotFields,
+  toBrandSnapshot,
+} from "@/lib/brand-snapshot";
+import {
   checkBrandAccess,
   createBrand,
   getActiveBrandForMember,
@@ -18,7 +22,10 @@ import { brandProfileSchema } from "./brand-profile-form";
 
 export async function saveBrandProfile(
   raw: unknown,
-): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; brandId: string; snapshot: BrandSnapshotFields }
+  | { ok: false; error: string }
+> {
   const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser) return { ok: false, error: "Not authenticated" };
   if (!workspace) redirectToLogin();
@@ -120,5 +127,5 @@ export async function saveBrandProfile(
 
   revalidatePath("/brand");
   revalidatePath("/dashboard");
-  return { ok: true, brandId: brand.id };
+  return { ok: true, brandId: brand.id, snapshot: toBrandSnapshot(brand) };
 }
