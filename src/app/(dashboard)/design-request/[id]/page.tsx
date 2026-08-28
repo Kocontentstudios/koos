@@ -1,12 +1,14 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AnnotationRounds } from "@/components/design/annotation-rounds";
 import { TicketRequestDetails } from "@/components/design/ticket-request-details";
 import { Markdown } from "@/components/ui/markdown";
 import { requireBrand } from "@/lib/auth/require-brand";
 import { can } from "@/lib/auth/workspace-access";
 import {
   checkBrandAccess,
+  getAnnotationsForTicket,
   getDeliverables,
   getDesignTicketById,
   getTicketUpdates,
@@ -21,6 +23,7 @@ import {
   TicketUpdatesTimeline,
   type TimelineUpdate,
 } from "../ticket-updates-timeline";
+import { CommentComposer } from "./comment-composer";
 import { DeliverableVersions } from "./deliverable-versions";
 import { ReviewActions } from "./review-actions";
 
@@ -59,7 +62,10 @@ export default async function TicketDetailPage({
   const deliverables = await getDeliverables(ticket.id);
   const versions = groupDeliverablesByVersion(deliverables);
   const latest = versions[0] ?? null;
-  const updateRows = await getTicketUpdates(ticket.id);
+  const [updateRows, annotationRows] = await Promise.all([
+    getTicketUpdates(ticket.id),
+    getAnnotationsForTicket(ticket.id),
+  ]);
   // Staff stay pseudonymous behind one team name; the client's own entries are
   // attributed back to them so a revision request doesn't read as studio output.
   const updates: TimelineUpdate[] = updateRows.map((r) => ({
@@ -125,9 +131,23 @@ export default async function TicketDetailPage({
         canDownload={ticket.approvedAt !== null || isStaff}
       />
 
+      {/* The client drew these during a review but could only ever see them on
+          the admin page, so their own markup was invisible to them. */}
+      <AnnotationRounds
+        ticketId={ticket.id}
+        deliverables={deliverables}
+        annotations={annotationRows}
+        currentVersion={latest?.version ?? null}
+        title="Your markup"
+      />
+
       <section className="space-y-3">
         <h2 className="text-[15px] font-semibold text-foreground">Updates</h2>
         <TicketUpdatesTimeline updates={updates} />
+        {/* Commenting is not gated on status: the review actions only appear
+            while a design awaits review, which left the client unable to say
+            anything during the work or after approving. */}
+        <CommentComposer ticketId={ticket.id} />
       </section>
 
       {status === "ready_for_review" && latest && (

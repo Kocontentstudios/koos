@@ -9,8 +9,10 @@ import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SUPPORTED_ASPECT_RATIOS } from "@/lib/ai/image/types";
+import type { ContextOption } from "@/lib/design/context-search";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
+import { ContextPicker, toAttachmentRefs } from "./context-picker";
 
 const RATIO_LABELS: Record<string, string> = {
   "1:1": "Square",
@@ -32,6 +34,7 @@ export function DesignStudioClient({
 }: DesignStudioClientProps) {
   const promptId = useId();
   const [prompt, setPrompt] = useState("");
+  const [context, setContext] = useState<ContextOption[]>([]);
   const [aspectRatio, setAspectRatio] = useState<string>("4:5");
   const [previewOpen, setPreviewOpen] = useState(false);
   const design = useDesignGeneration();
@@ -46,6 +49,7 @@ export function DesignStudioClient({
     await design.generate({
       brandId,
       freeform: prompt.trim() || null,
+      attachments: toAttachmentRefs(context),
       aspectRatio,
     });
   }
@@ -89,6 +93,17 @@ export function DesignStudioClient({
             Leave blank to generate from your brand profile alone.
           </p>
         </div>
+
+        {/* Attached context saves retyping a brief or calendar post the user
+            has already written elsewhere in KOOS. */}
+        {brandId && (
+          <ContextPicker
+            brandId={brandId}
+            selected={context}
+            onChange={setContext}
+            disabled={design.pending}
+          />
+        )}
 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex gap-2">
