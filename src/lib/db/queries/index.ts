@@ -725,6 +725,24 @@ export async function getCalendarItemById(id: string) {
   return row ?? null;
 }
 
+/**
+ * A calendar item together with the brand that owns it.
+ *
+ * calendar_items reaches its brand only through calendars, so a bare
+ * getCalendarItemById cannot be ownership-checked by the caller. Generation
+ * accepted an item id without ever tying it to the requested brand, which let
+ * one brand's item be read into another brand's design context.
+ */
+export async function getCalendarItemForBrand(id: string, brandId: string) {
+  const [row] = await db
+    .select({ item: calendarItems })
+    .from(calendarItems)
+    .innerJoin(calendars, eq(calendars.id, calendarItems.calendarId))
+    .where(and(eq(calendarItems.id, id), eq(calendars.brandId, brandId)))
+    .limit(1);
+  return row?.item ?? null;
+}
+
 // ── Design Briefs ───────────────────────────────────────────────────
 
 export async function createDesignBrief(
@@ -749,6 +767,16 @@ export async function listDesignBriefsForConversation(conversationId: string) {
     .from(designBriefs)
     .where(eq(designBriefs.conversationId, conversationId))
     .orderBy(designBriefs.createdAt);
+}
+
+/** Every brief for a brand, newest first — what the context picker searches. */
+export async function listDesignBriefsForBrand(brandId: string, limit = 50) {
+  return db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.brandId, brandId))
+    .orderBy(desc(designBriefs.createdAt))
+    .limit(limit);
 }
 
 export async function updateDesignBrief(
@@ -1209,6 +1237,58 @@ export async function applyClientReview(input: {
     }
 
     return { ticket, update };
+  });
+}
+
+/**
+ * A comment from the brand side, inserted and fanned out to staff in one
+ * transaction.
+ *
+ * Deliberately cannot change status. `revision_requested` is reachable only
+ * through applyClientReview, and the staff routes cap themselves to the same
+ * end so nobody can fake one; a comment endpoint that could set status would
+ * quietly undo that. Commenting is also allowed in any status, which is the
+ * point — the client previously had no way to say anything except during a
+ * formal review.
+ */
+export async function postClientTicketComment(input: {
+  ticketId: string;
+  authorId: string;
+  message: string;
+  staffIds: string[];
+  /** Built by the caller, matching postTicketProgressUpdate — formatting is
+      the route's job, not the query layer's. */
+  notificationPayload: typeof notifications.$inferInsert.payload;
+}) {
+  return db.transaction(async (tx) => {
+    const [update] = await tx
+      .insert(ticketUpdates)
+      .values({
+        ticketId: input.ticketId,
+        authorId: input.authorId,
+        message: input.message,
+        newStatus: null,
+      })
+      .returning();
+
+    // Touch the ticket so the queue's "last updated" ordering surfaces a
+    // request the client just commented on.
+    await tx
+      .update(designTickets)
+      .set({ updatedAt: new Date() })
+      .where(eq(designTickets.id, input.ticketId));
+
+    if (input.staffIds.length > 0) {
+      await tx.insert(notifications).values(
+        input.staffIds.map((id) => ({
+          userId: id,
+          type: "ticket_status" as const,
+          payload: input.notificationPayload,
+        })),
+      );
+    }
+
+    return update;
   });
 }
 
