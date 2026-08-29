@@ -15,7 +15,18 @@ import { useVoiceIo } from "@/hooks/use-voice-io";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Proposal } from "@/lib/ai/tools/proposals";
 import type { BrandSnapshotFields } from "@/lib/brand-snapshot";
+import {
+  type ChipPrompt,
+  detectChipPrompt,
+  formatChipSelection,
+} from "@/lib/onboarding/chips";
 import { BrandSnapshotCard } from "../brand-snapshot-card";
+import { saveVisualIdentity } from "./actions";
+import { ChipPicker } from "./chip-picker";
+import {
+  VisualIdentityStep,
+  type VisualIdentityValues,
+} from "./visual-identity-step";
 
 interface OnboardingClientProps {
   brandId: string;
@@ -66,6 +77,12 @@ export function OnboardingClient({
   const conversationId = useState(() => crypto.randomUUID())[0];
   const [input, setInput] = useState("");
   const [snapshot, setSnapshot] = useState<BrandSnapshotFields | null>(null);
+  /* Sits between the conversation and the snapshot: the chat cannot carry a
+     file upload, and the design engine needs a logo and colours more than it
+     needs another paragraph. */
+  const [visualStep, setVisualStep] = useState<BrandSnapshotFields | null>(
+    null,
+  );
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -85,6 +102,25 @@ export function OnboardingClient({
     transport,
   });
   const isLoading = status === "submitted" || status === "streaming";
+
+  /* Chips belong to the question that is still open, so they hang off the
+     final message and only while it is KO's. Once the user answers — by chip
+     or by typing — their turn becomes the last message and these disappear on
+     their own. */
+  const lastMessage = messages[messages.length - 1];
+  const chipPrompt: ChipPrompt | null =
+    !isLoading && lastMessage?.role === "assistant"
+      ? detectChipPrompt(messageText(lastMessage))
+      : null;
+
+  function handleChipSubmit(kind: ChipPrompt, selected: string[]) {
+    const text = formatChipSelection(kind, selected);
+    if (!text) return;
+    sendMessage(
+      { text },
+      { body: { brandContext, brandId, conversationId, mode: "onboarding" } },
+    );
+  }
 
   function handleSend() {
     const text = input.trim();
@@ -142,6 +178,29 @@ export function OnboardingClient({
      talking to a brand that is already written. */
   if (snapshot) {
     return <BrandSnapshotCard brand={snapshot} />;
+  }
+
+  if (visualStep) {
+    return (
+      <VisualIdentityStep
+        brandId={brandId}
+        initial={{
+          logoUrl: visualStep.logoUrl ?? "",
+          primaryColor: visualStep.primaryColor ?? "",
+          secondaryColor: visualStep.secondaryColor ?? "",
+        }}
+        onSkip={() => setSnapshot(visualStep)}
+        onSave={async (values: VisualIdentityValues) => {
+          const result = await saveVisualIdentity(brandId, values);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
+          router.refresh();
+          setSnapshot(result.snapshot);
+        }}
+      />
+    );
   }
 
   return (
@@ -202,6 +261,14 @@ export function OnboardingClient({
           );
         })}
 
+        {chipPrompt && lastMessage && (
+          <ChipPicker
+            key={lastMessage.id}
+            kind={chipPrompt}
+            onSubmit={(selected) => handleChipSubmit(chipPrompt, selected)}
+          />
+        )}
+
         {isLoading && (
           <div className="flex items-start gap-3 max-w-[85%]">
             <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
@@ -243,7 +310,7 @@ export function OnboardingClient({
                      navigating: the user chooses where to go next from the
                      card's own buttons. */
                   router.refresh();
-                  setSnapshot(result.snapshot);
+                  setVisualStep(result.snapshot);
                 }
               }}
             />

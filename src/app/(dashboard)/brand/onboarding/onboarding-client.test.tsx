@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const speak = vi.fn();
@@ -27,11 +28,21 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh }),
 }));
 vi.mock("@/hooks/use-voice-io", () => ({ useVoiceIo: () => voice }));
+/* The component imports a server action, which drags in the db client and its
+   DATABASE_URL check. The client never calls it in these tests. */
+const { saveVisualIdentity } = vi.hoisted(() => ({
+  saveVisualIdentity: vi.fn(),
+}));
+vi.mock("./actions", () => ({
+  saveVisualIdentity: (id: string, v: unknown) => saveVisualIdentity(id, v),
+}));
+// Hoisted so tests can assert what the chat was asked to send.
+const { sendMessage } = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 vi.mock("@ai-sdk/react", () => ({
   useChat: () => ({
     messages: chatState.messages,
     status: chatState.status,
-    sendMessage: vi.fn(),
+    sendMessage,
     stop: vi.fn(),
     error: undefined,
   }),
@@ -272,19 +283,44 @@ describe("OnboardingClient handoff to the brand profile", () => {
 
   /* Previously this pushed straight to /brand. The snapshot now takes that
      moment, and the user chooses where to go from the card's own buttons. */
-  it("shows the brand snapshot once the brand is complete", async () => {
+  /* KOS-V1-FEAT-012 put the visual identity step between the conversation and
+     the snapshot: the chat cannot carry a file upload, and the design engine
+     needs a logo and colours more than another paragraph. */
+  it("asks for visual identity once the brand is complete", async () => {
     await captureThenConfirm(true);
 
-    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
-    expect(screen.getByText("Lagos Loom")).toBeInTheDocument();
+    expect(await screen.findByText("Your visual identity")).toBeInTheDocument();
     // Without the refresh the pages behind it render the pre-write brand.
     expect(refresh).toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 
+  it("leaves the chat behind once the brand is captured", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    expect(screen.queryByLabelText("Message input")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  /* Skipping must not cost the user their snapshot — the brand is already
+     captured, and the visual step is an addition, not a gate. */
+  it("shows the snapshot when the visual step is skipped", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Lagos Loom")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("offers both onward routes from the card, rather than choosing one", async () => {
     await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
     await screen.findByText("Brand Snapshot");
 
     expect(
@@ -296,11 +332,18 @@ describe("OnboardingClient handoff to the brand profile", () => {
     vi.unstubAllGlobals();
   });
 
-  it("leaves the chat behind once the snapshot is shown", async () => {
+  it("shows the snapshot the save returned, not the pre-write brand", async () => {
+    saveVisualIdentity.mockResolvedValue({
+      ok: true,
+      snapshot: { name: "Lagos Loom", primaryColor: "#3A2A1F" },
+    });
     await captureThenConfirm(true);
-    await screen.findByText("Brand Snapshot");
+    await screen.findByText("Your visual identity");
 
-    expect(screen.queryByLabelText("Message input")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("#3A2A1F")).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
@@ -314,5 +357,98 @@ describe("OnboardingClient handoff to the brand profile", () => {
     );
     expect(push).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+/* KOS-V1-FEAT-013: the chips answer KO's question by tapping instead of
+   typing, and the selection has to arrive as a normal user turn so the
+   existing extract-and-confirm flow picks it up unchanged. */
+describe("OnboardingClient voice chips", () => {
+  const assistant = (text: string) => ({
+    id: "m1",
+    role: "assistant",
+    parts: [{ type: "text", text }],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    voice.supported = false;
+    voice.speakingId = null;
+    chatState.status = "ready";
+    chatState.messages = [];
+  });
+
+  it("offers tone chips under a tone question", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use these words" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers avoid chips under a words-to-avoid question", () => {
+    chatState.messages = [assistant("Are there any words to avoid?")];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByRole("button", { name: "Synergy" })).toBeInTheDocument();
+  });
+
+  it("sends the selection as an ordinary user turn", async () => {
+    chatState.messages = [
+      assistant("What tone of voice should the brand have?"),
+    ];
+    const user = userEvent.setup();
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await user.click(screen.getByRole("button", { name: "Bold" }));
+    await user.click(screen.getByRole("button", { name: "Warm" }));
+    await user.click(screen.getByRole("button", { name: "Use these words" }));
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      { text: "Our brand voice is: Bold, Warm." },
+      expect.objectContaining({
+        body: expect.objectContaining({ brandId: "b1", mode: "onboarding" }),
+      }),
+    );
+  });
+
+  /* Chips belong to the question still open. Once the user has answered, their
+     turn is last and the chips must be gone. */
+  it("disappears once the user has replied", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+      { id: "m2", role: "user", parts: [{ type: "text", text: "Bold" }] },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+  });
+
+  it("stays hidden under an unrelated question", () => {
+    chatState.messages = [assistant("Who are you trying to reach?")];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+  });
+
+  it("stays hidden while the reply is still streaming", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+    ];
+    chatState.status = "streaming";
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
   });
 });

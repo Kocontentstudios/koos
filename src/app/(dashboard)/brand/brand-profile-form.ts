@@ -47,6 +47,9 @@ export const primaryGoalOptions = [
   "App Installs / Signups",
 ] as const;
 
+/* Appended, never renamed: brandStyle is stored verbatim as text and read back
+   through splitOther, so renaming an option drops every brand already saved
+   under the old label into the free-text "Other" box. */
 export const brandStyleOptions = [
   "Minimalist",
   "Bold & Vibrant",
@@ -54,6 +57,20 @@ export const brandStyleOptions = [
   "Streetwear / Urban",
   "Luxury / Premium",
   "Playful / Fun",
+  "Editorial",
+  "Modern Tech",
+  OTHER_OPTION,
+] as const;
+
+/** Typography direction. Named styles rather than families: the renderer ships
+ *  three fixed faces, so this steers art direction, not font loading. */
+export const brandFontOptions = [
+  "Modern sans-serif",
+  "Classic serif",
+  "Geometric / technical",
+  "Editorial / high-contrast",
+  "Rounded / friendly",
+  "Handwritten / script",
   OTHER_OPTION,
 ] as const;
 
@@ -114,6 +131,7 @@ export const brandProfileSchema = z.object({
     .optional(),
   logoUrl: z.string().optional().or(z.literal("")),
   brandStyle: optionalText,
+  brandFont: optionalText,
   // Section 5 — Competitors
   competitors: optionalText,
   competitorStrengths: optionalText,

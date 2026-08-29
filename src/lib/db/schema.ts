@@ -171,6 +171,10 @@ export const users = pgTable("users", {
       dismissed. Replays from Settings run via ?tour=1 and deliberately do not
       rewrite it. Accounts predating the tour were backfilled by migration 0021. */
   tourCompletedAt: timestamp("tour_completed_at"),
+  /** Set once, the first time the user acts on the welcome card — "Set Up
+      Your Brand" OR "Maybe later". Accounts predating it were backfilled by
+      migration 0025. */
+  welcomeSeenAt: timestamp("welcome_seen_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -325,6 +329,10 @@ export const brands = pgTable(
     // Section 4 — Visual Identity (extends colors/logoUrl above)
     hasLogo: boolean("has_logo"),
     brandStyle: text("brand_style"),
+    /** Typography preference — a named style, not an uploaded face. The
+        composite renderer loads three fixed families from disk, so a per-brand
+        font file would be a renderer change rather than a column. */
+    brandFont: text("brand_font"),
     // Section 5 — Competitors
     competitors: text("competitors"),
     competitorStrengths: text("competitor_strengths"),

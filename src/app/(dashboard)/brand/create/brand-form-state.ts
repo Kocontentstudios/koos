@@ -25,6 +25,8 @@ export interface CreateBrandState {
   hasLogo: string; // "", "Yes", "No"
   brandStyle: string;
   brandStyleOther: string;
+  brandFont: string;
+  brandFontOther: string;
   primaryColor: string;
   secondaryColor: string;
   additionalColors: string[];
@@ -62,6 +64,8 @@ export const DEFAULT_STATE: CreateBrandState = {
   hasLogo: "",
   brandStyle: "",
   brandStyleOther: "",
+  brandFont: "",
+  brandFontOther: "",
   /* Empty, not a seeded hex. step-visual renders the same swatch colour as its
      display fallback, so pre-filling here only had the effect of saving brand
      colours the user never chose — which then counted toward the profile
