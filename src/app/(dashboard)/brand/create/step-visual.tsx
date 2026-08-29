@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
-import { brandStyleOptions } from "../brand-profile-form";
+import { brandFontOptions, brandStyleOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
 import { ColorField, Field, OtherSelect } from "./fields";
 
@@ -200,6 +200,17 @@ export function StepVisual({ state, onChange }: StepProps) {
         otherValue={state.brandStyleOther}
         onChange={(v) => onChange({ brandStyle: v })}
         onOtherChange={(v) => onChange({ brandStyleOther: v })}
+      />
+
+      <OtherSelect
+        id="brand-font"
+        label="Typography"
+        placeholder="Select a type style..."
+        options={brandFontOptions}
+        value={state.brandFont}
+        otherValue={state.brandFontOther}
+        onChange={(v) => onChange({ brandFont: v })}
+        onOtherChange={(v) => onChange({ brandFontOther: v })}
       />
     </div>
   );

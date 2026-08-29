@@ -21,7 +21,12 @@ import {
   formatChipSelection,
 } from "@/lib/onboarding/chips";
 import { BrandSnapshotCard } from "../brand-snapshot-card";
+import { saveVisualIdentity } from "./actions";
 import { ChipPicker } from "./chip-picker";
+import {
+  VisualIdentityStep,
+  type VisualIdentityValues,
+} from "./visual-identity-step";
 
 interface OnboardingClientProps {
   brandId: string;
@@ -72,6 +77,12 @@ export function OnboardingClient({
   const conversationId = useState(() => crypto.randomUUID())[0];
   const [input, setInput] = useState("");
   const [snapshot, setSnapshot] = useState<BrandSnapshotFields | null>(null);
+  /* Sits between the conversation and the snapshot: the chat cannot carry a
+     file upload, and the design engine needs a logo and colours more than it
+     needs another paragraph. */
+  const [visualStep, setVisualStep] = useState<BrandSnapshotFields | null>(
+    null,
+  );
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -167,6 +178,29 @@ export function OnboardingClient({
      talking to a brand that is already written. */
   if (snapshot) {
     return <BrandSnapshotCard brand={snapshot} />;
+  }
+
+  if (visualStep) {
+    return (
+      <VisualIdentityStep
+        brandId={brandId}
+        initial={{
+          logoUrl: visualStep.logoUrl ?? "",
+          primaryColor: visualStep.primaryColor ?? "",
+          secondaryColor: visualStep.secondaryColor ?? "",
+        }}
+        onSkip={() => setSnapshot(visualStep)}
+        onSave={async (values: VisualIdentityValues) => {
+          const result = await saveVisualIdentity(brandId, values);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
+          router.refresh();
+          setSnapshot(result.snapshot);
+        }}
+      />
+    );
   }
 
   return (
@@ -276,7 +310,7 @@ export function OnboardingClient({
                      navigating: the user chooses where to go next from the
                      card's own buttons. */
                   router.refresh();
-                  setSnapshot(result.snapshot);
+                  setVisualStep(result.snapshot);
                 }
               }}
             />

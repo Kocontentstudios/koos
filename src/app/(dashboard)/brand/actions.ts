@@ -52,6 +52,7 @@ export async function saveBrandProfile(
     wordsAvoid: v.wordsAvoid || null,
     hasLogo: v.hasLogo ?? null,
     brandStyle: v.brandStyle || null,
+    brandFont: v.brandFont || null,
     primaryColor: v.primaryColor || null,
     secondaryColor: v.secondaryColor || null,
     /* Empty means "no extra colours", same as platforms below. Writing {}

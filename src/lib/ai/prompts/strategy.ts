@@ -11,6 +11,7 @@ export interface BrandSummary {
   wordsLove?: string | null;
   wordsAvoid?: string | null;
   brandStyle?: string | null;
+  brandFont?: string | null;
   competitors?: string | null;
   differentiators?: string | null;
   /* Carried here but deliberately NOT emitted by brandBlock(): of its six
@@ -39,6 +40,7 @@ export function brandBlock(b: BrandSummary): string {
     b.wordsLove ? `Words to favor: ${b.wordsLove}` : null,
     b.wordsAvoid ? `Words to avoid: ${b.wordsAvoid}` : null,
     b.brandStyle ? `Visual style: ${b.brandStyle}` : null,
+    b.brandFont ? `Typography: ${b.brandFont}` : null,
     b.competitors ? `Competitors: ${b.competitors}` : null,
     b.differentiators ? `How they differ: ${b.differentiators}` : null,
     b.platforms?.length ? `Active platforms: ${b.platforms.join(", ")}` : null,

@@ -28,6 +28,14 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh }),
 }));
 vi.mock("@/hooks/use-voice-io", () => ({ useVoiceIo: () => voice }));
+/* The component imports a server action, which drags in the db client and its
+   DATABASE_URL check. The client never calls it in these tests. */
+const { saveVisualIdentity } = vi.hoisted(() => ({
+  saveVisualIdentity: vi.fn(),
+}));
+vi.mock("./actions", () => ({
+  saveVisualIdentity: (id: string, v: unknown) => saveVisualIdentity(id, v),
+}));
 // Hoisted so tests can assert what the chat was asked to send.
 const { sendMessage } = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 vi.mock("@ai-sdk/react", () => ({
@@ -275,19 +283,44 @@ describe("OnboardingClient handoff to the brand profile", () => {
 
   /* Previously this pushed straight to /brand. The snapshot now takes that
      moment, and the user chooses where to go from the card's own buttons. */
-  it("shows the brand snapshot once the brand is complete", async () => {
+  /* KOS-V1-FEAT-012 put the visual identity step between the conversation and
+     the snapshot: the chat cannot carry a file upload, and the design engine
+     needs a logo and colours more than another paragraph. */
+  it("asks for visual identity once the brand is complete", async () => {
     await captureThenConfirm(true);
 
-    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
-    expect(screen.getByText("Lagos Loom")).toBeInTheDocument();
+    expect(await screen.findByText("Your visual identity")).toBeInTheDocument();
     // Without the refresh the pages behind it render the pre-write brand.
     expect(refresh).toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 
+  it("leaves the chat behind once the brand is captured", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    expect(screen.queryByLabelText("Message input")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  /* Skipping must not cost the user their snapshot — the brand is already
+     captured, and the visual step is an addition, not a gate. */
+  it("shows the snapshot when the visual step is skipped", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Lagos Loom")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("offers both onward routes from the card, rather than choosing one", async () => {
     await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
     await screen.findByText("Brand Snapshot");
 
     expect(
@@ -299,11 +332,18 @@ describe("OnboardingClient handoff to the brand profile", () => {
     vi.unstubAllGlobals();
   });
 
-  it("leaves the chat behind once the snapshot is shown", async () => {
+  it("shows the snapshot the save returned, not the pre-write brand", async () => {
+    saveVisualIdentity.mockResolvedValue({
+      ok: true,
+      snapshot: { name: "Lagos Loom", primaryColor: "#3A2A1F" },
+    });
     await captureThenConfirm(true);
-    await screen.findByText("Brand Snapshot");
+    await screen.findByText("Your visual identity");
 
-    expect(screen.queryByLabelText("Message input")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("#3A2A1F")).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
