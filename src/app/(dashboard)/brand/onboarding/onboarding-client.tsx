@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useVoiceIo } from "@/hooks/use-voice-io";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Proposal } from "@/lib/ai/tools/proposals";
+import type { BrandSnapshotFields } from "@/lib/brand-snapshot";
+import { BrandSnapshotCard } from "../brand-snapshot-card";
 
 interface OnboardingClientProps {
   brandId: string;
@@ -63,6 +65,7 @@ export function OnboardingClient({
   const router = useRouter();
   const conversationId = useState(() => crypto.randomUUID())[0];
   const [input, setInput] = useState("");
+  const [snapshot, setSnapshot] = useState<BrandSnapshotFields | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -132,6 +135,13 @@ export function OnboardingClient({
     } finally {
       setExtracting(false);
     }
+  }
+
+  /* Replaces the chat entirely once the profile is captured: the conversation
+     is finished, and leaving it behind the card invites the user to keep
+     talking to a brand that is already written. */
+  if (snapshot) {
+    return <BrandSnapshotCard brand={snapshot} />;
   }
 
   return (
@@ -228,9 +238,12 @@ export function OnboardingClient({
                 /* Gate on completion, not on `confirmed`: a partial capture
                    leaves the brand short of the required fields, and /brand
                    bounces anything incomplete straight back to onboarding. */
-                if (result?.brandCompleted) {
+                if (result?.brandCompleted && result.snapshot) {
+                  /* The snapshot replaces the chat in place rather than
+                     navigating: the user chooses where to go next from the
+                     card's own buttons. */
                   router.refresh();
-                  router.push("/brand");
+                  setSnapshot(result.snapshot);
                 }
               }}
             />

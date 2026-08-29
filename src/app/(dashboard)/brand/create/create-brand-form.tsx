@@ -7,7 +7,9 @@ import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { saveBrandProfile } from "@/app/(dashboard)/brand/actions";
 import { Button } from "@/components/ui/button";
+import type { BrandSnapshotFields } from "@/lib/brand-snapshot";
 import { OTHER_OPTION } from "../brand-profile-form";
+import { BrandSnapshotCard } from "../brand-snapshot-card";
 import {
   type CreateBrandState,
   DEFAULT_STATE,
@@ -98,6 +100,7 @@ export function CreateBrandForm({
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [snapshot, setSnapshot] = useState<BrandSnapshotFields | null>(null);
   const [state, setState] = useState<CreateBrandState>(
     initialBrand ?? DEFAULT_STATE,
   );
@@ -229,11 +232,24 @@ export function CreateBrandForm({
         } catch {
           // Ignore
         }
-        router.push(isEditing ? "/brand" : "/strategy");
+        /* Editing an existing brand goes straight back to the profile — the
+           snapshot is a first-completion moment, not a save confirmation. */
+        if (isEditing) {
+          router.push("/brand");
+        } else {
+          router.refresh();
+          setSnapshot(res.snapshot);
+        }
       } else {
         toast.error(res.error);
       }
     });
+  }
+
+  /* Replaces the wizard once the profile is created, so the user lands on the
+     summary rather than being dropped straight into /strategy. */
+  if (snapshot) {
+    return <BrandSnapshotCard brand={snapshot} />;
   }
 
   const meta = STEPS[step];

@@ -237,7 +237,24 @@ describe("OnboardingClient handoff to the brand profile", () => {
       }
       return Promise.resolve({
         ok: true,
-        json: async () => ({ ok: true, brandCompleted }),
+        json: async () => ({
+          ok: true,
+          brandCompleted,
+          snapshot: brandCompleted
+            ? {
+                name: "Lagos Loom",
+                logoUrl: null,
+                overview: "Handwoven aso-oke bags",
+                businessType: "Retail",
+                stage: "Early-stage",
+                targetAudience: "Young professionals",
+                tone: "Elegant, Warm",
+                primaryColor: "#3a2a1f",
+                secondaryColor: null,
+                additionalColors: null,
+              }
+            : undefined,
+        }),
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -253,11 +270,37 @@ describe("OnboardingClient handoff to the brand profile", () => {
     fireEvent.click(confirm);
   }
 
-  it("sends the user to the brand profile once the brand is complete", async () => {
+  /* Previously this pushed straight to /brand. The snapshot now takes that
+     moment, and the user chooses where to go from the card's own buttons. */
+  it("shows the brand snapshot once the brand is complete", async () => {
     await captureThenConfirm(true);
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/brand"));
-    // Without the refresh the profile page can render the pre-write brand.
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Lagos Loom")).toBeInTheDocument();
+    // Without the refresh the pages behind it render the pre-write brand.
     expect(refresh).toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers both onward routes from the card, rather than choosing one", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Brand Snapshot");
+
+    expect(
+      screen.getByRole("link", { name: /go to dashboard/i }),
+    ).toHaveAttribute("href", "/dashboard");
+    expect(
+      screen.getByRole("link", { name: /view full brand profile/i }),
+    ).toHaveAttribute("href", "/brand");
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the chat behind once the snapshot is shown", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Brand Snapshot");
+
+    expect(screen.queryByLabelText("Message input")).toBeNull();
     vi.unstubAllGlobals();
   });
 
