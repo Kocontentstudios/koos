@@ -7,8 +7,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { startConversationalOnboarding } from "./actions";
+import { WelcomeCard } from "./welcome-card";
 
-export function OnboardingStart() {
+export function OnboardingStart({
+  showWelcome = false,
+}: {
+  showWelcome?: boolean;
+}) {
   const router = useRouter();
   const [starting, setStarting] = useState(false);
 
@@ -29,6 +34,7 @@ export function OnboardingStart() {
 
   return (
     <div className="mx-auto flex min-h-[60vh] w-full max-w-lg flex-col justify-center gap-6 py-10">
+      {showWelcome && <WelcomeCard onStart={handleStart} />}
       <div className="flex items-start gap-3">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white">
           KO
@@ -36,8 +42,7 @@ export function OnboardingStart() {
         <div className="rounded-xl rounded-tl-sm border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm leading-relaxed text-foreground">
           Hi! I'm KO. Instead of filling in a long form, let's just talk — I'll
           ask about your brand a question at a time, then fill in your whole
-          profile from what you tell me. You can type, or tap the mic and speak
-          to me.
+          profile from what you tell me.
         </div>
       </div>
 

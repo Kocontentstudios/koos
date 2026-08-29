@@ -88,6 +88,17 @@ export async function setUserTourCompletedAt(id: string, at: Date | null) {
   return updated;
 }
 
+/** First-run welcome state. Separate from the tour for the same reason the
+ *  tour is separate from updateUserProfile: it is lifecycle, not profile. */
+export async function setUserWelcomeSeenAt(id: string, at: Date | null) {
+  const [updated] = await db
+    .update(users)
+    .set({ welcomeSeenAt: at, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return updated;
+}
+
 export async function createUser(
   data: Pick<typeof users.$inferInsert, "firstName" | "lastName" | "email"> &
     Partial<
