@@ -4,7 +4,16 @@ import { revalidatePath } from "next/cache";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { PLACEHOLDER_BRAND_NAME } from "@/lib/brand-profile";
-import { createBrand, getActiveBrandForMember } from "@/lib/db/queries";
+import {
+  type BrandSnapshotFields,
+  toBrandSnapshot,
+} from "@/lib/brand-snapshot";
+import {
+  checkBrandAccess,
+  createBrand,
+  getActiveBrandForMember,
+  updateBrand,
+} from "@/lib/db/queries";
 
 /**
  * Conversational onboarding needs a brandId before the first message: both
@@ -46,4 +55,48 @@ export async function startConversationalOnboarding(): Promise<
 
   revalidatePath("/brand/onboarding");
   return { ok: true, brandId: brand.id };
+}
+
+export interface VisualIdentityInput {
+  logoUrl: string;
+  primaryColor: string;
+  secondaryColor: string;
+  brandStyle: string;
+  brandFont: string;
+}
+
+/**
+ * Saves the visual identity step and returns the brand as it now stands, so
+ * the snapshot card that follows renders the colours and logo just captured
+ * rather than the row the client fetched before this write.
+ *
+ * Blank fields are written as null rather than skipped: clearing a colour has
+ * to be possible, and an empty string in a colour column renders as an
+ * invisible swatch.
+ */
+export async function saveVisualIdentity(
+  brandId: string,
+  input: VisualIdentityInput,
+): Promise<
+  { ok: true; snapshot: BrandSnapshotFields } | { ok: false; error: string }
+> {
+  const { dbUser } = await getActiveWorkspace();
+  if (!dbUser) return { ok: false, error: "Not authenticated" };
+
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) return { ok: false, error: access.error };
+
+  const updated = await updateBrand(brandId, {
+    logoUrl: input.logoUrl.trim() || null,
+    hasLogo: Boolean(input.logoUrl.trim()),
+    primaryColor: input.primaryColor.trim() || null,
+    secondaryColor: input.secondaryColor.trim() || null,
+    brandStyle: input.brandStyle.trim() || null,
+    brandFont: input.brandFont.trim() || null,
+  });
+  if (!updated) return { ok: false, error: "Could not save" };
+
+  revalidatePath("/brand");
+  revalidatePath("/dashboard");
+  return { ok: true, snapshot: toBrandSnapshot(updated) };
 }

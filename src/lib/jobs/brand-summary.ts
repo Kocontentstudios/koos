@@ -22,6 +22,7 @@ export function brandSummaryFrom(brand: BrandRow): BrandSummary {
     wordsLove: brand.wordsLove,
     wordsAvoid: brand.wordsAvoid,
     brandStyle: brand.brandStyle,
+    brandFont: brand.brandFont,
     competitors: brand.competitors,
     differentiators: brand.differentiators,
     primaryColor: brand.primaryColor,

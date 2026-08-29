@@ -329,6 +329,10 @@ export const brands = pgTable(
     // Section 4 — Visual Identity (extends colors/logoUrl above)
     hasLogo: boolean("has_logo"),
     brandStyle: text("brand_style"),
+    /** Typography preference — a named style, not an uploaded face. The
+        composite renderer loads three fixed families from disk, so a per-brand
+        font file would be a renderer change rather than a column. */
+    brandFont: text("brand_font"),
     // Section 5 — Competitors
     competitors: text("competitors"),
     competitorStrengths: text("competitor_strengths"),

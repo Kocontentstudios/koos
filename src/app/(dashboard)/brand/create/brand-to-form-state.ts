@@ -1,5 +1,6 @@
 import type { brands } from "@/lib/db/schema";
 import {
+  brandFontOptions,
   brandStyleOptions,
   businessTypeOptions,
   OTHER_OPTION,
@@ -48,6 +49,7 @@ export function brandToFormState(brand: Brand): CreateBrandState {
     brandStyleOptions,
     OTHER_OPTION,
   );
+  const brandFont = splitOther(brand.brandFont, brandFontOptions, OTHER_OPTION);
   const posting = splitOther(
     brand.postingFrequency,
     postingFrequencyOptions,
@@ -78,6 +80,8 @@ export function brandToFormState(brand: Brand): CreateBrandState {
     hasLogo:
       brand.hasLogo === true ? "Yes" : brand.hasLogo === false ? "No" : "",
     brandStyle: brandStyle.value,
+    brandFont: brandFont.value,
+    brandFontOther: brandFont.other,
     brandStyleOther: brandStyle.other,
     primaryColor: brand.primaryColor ?? DEFAULT_STATE.primaryColor,
     secondaryColor: brand.secondaryColor ?? DEFAULT_STATE.secondaryColor,
