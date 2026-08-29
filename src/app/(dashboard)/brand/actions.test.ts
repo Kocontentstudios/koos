@@ -107,7 +107,7 @@ describe("saveBrandProfile", () => {
       expect.objectContaining({ name: "Acme" }),
     );
     expect(createBrand).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true, brandId: "existing-brand" });
+    expect(res).toMatchObject({ ok: true, brandId: "existing-brand" });
   });
 
   it("persists cleared optional fields as null on edit, not undefined", async () => {
@@ -124,7 +124,7 @@ describe("saveBrandProfile", () => {
       "existing-brand",
       expect.objectContaining({ tone: null, targetAudience: null }),
     );
-    expect(res).toEqual({ ok: true, brandId: "existing-brand" });
+    expect(res).toMatchObject({ ok: true, brandId: "existing-brand" });
   });
 
   it("persists a full additional-colour palette", async () => {
@@ -214,7 +214,7 @@ describe("saveBrandProfile", () => {
       }),
     );
     expect(updateBrand).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: true, brandId: "new-brand" });
+    expect(res).toMatchObject({ ok: true, brandId: "new-brand" });
   });
 });
 
@@ -254,5 +254,60 @@ describe("saveBrandProfile — capability gates", () => {
     const res = await saveBrandProfile(validInput);
     expect(res).toEqual({ ok: false, error: "Brand not found" });
     expect(updateBrand).not.toHaveBeenCalled();
+  });
+});
+
+/* The snapshot card is rendered from the action's response rather than a
+   re-fetch: the client's copy of the brand predates this write. */
+describe("saveBrandProfile snapshot", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b" } });
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1" },
+      workspace: { id: "ws-1" },
+      role: "owner",
+    });
+  });
+
+  it("returns the row it just wrote, not the caller's input", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({
+      id: "existing-brand",
+      name: "Acme",
+      overview: "We help people",
+      tone: "Bold & Direct",
+      primaryColor: "#123456",
+      additionalColors: ["#abcdef"],
+    });
+
+    const res = await saveBrandProfile(validInput);
+
+    expect(res).toMatchObject({
+      ok: true,
+      snapshot: {
+        name: "Acme",
+        overview: "We help people",
+        tone: "Bold & Direct",
+        primaryColor: "#123456",
+        additionalColors: ["#abcdef"],
+      },
+    });
+  });
+
+  it("normalises missing optional fields to null", async () => {
+    getActiveBrandForMember.mockResolvedValue(null);
+    createBrand.mockResolvedValue({ id: "new-brand", name: "Acme" });
+
+    const res = await saveBrandProfile(validInput);
+
+    expect(res).toMatchObject({
+      ok: true,
+      snapshot: { name: "Acme", logoUrl: null, tone: null, stage: null },
+    });
   });
 });

@@ -4,10 +4,14 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { Proposal } from "@/lib/ai/tools/proposals";
+import type { BrandSnapshotFields } from "@/lib/brand-snapshot";
 
 /** What /api/actions/confirm reports back about the write it just made. */
 export interface ConfirmResult {
   brandCompleted: boolean;
+  /** Present once the brand is complete, so the caller can show the snapshot
+   *  without re-fetching a row it just wrote. */
+  snapshot?: BrandSnapshotFields;
 }
 
 interface ProposalCardProps {
@@ -104,9 +108,13 @@ export function ProposalCard({
       }
       const data = (await res.json().catch(() => null)) as {
         brandCompleted?: boolean;
+        snapshot?: BrandSnapshotFields;
       } | null;
       toast.success("Done — applied successfully.");
-      onDone("confirmed", { brandCompleted: data?.brandCompleted === true });
+      onDone("confirmed", {
+        brandCompleted: data?.brandCompleted === true,
+        snapshot: data?.snapshot,
+      });
     } catch {
       toast.error("Network error. Please try again.");
     } finally {
