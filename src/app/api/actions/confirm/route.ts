@@ -1,6 +1,11 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod";
+import { synthesizeBrandGuide } from "@/lib/ai/brand-guide";
+
+/** A write touching any of these is worth re-deriving the voice guide from. */
+const VOICE_FIELDS = ["tone", "wordsLove", "wordsAvoid", "values"] as const;
+
 import { strategySchema } from "@/lib/ai/strategy-schema";
 import { ProposalSchema } from "@/lib/ai/tools/proposals";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
@@ -17,6 +22,7 @@ import {
   createGenerationJob,
   getStrategyById,
   updateBrand,
+  upsertBrandContext,
 } from "@/lib/db/queries";
 import { createTicketFromRequest } from "@/lib/design/ticket-create";
 import {
@@ -107,6 +113,22 @@ export async function POST(req: Request) {
       const progress = progressAfterFieldWrite({ ...brand, ...writable });
       const wasCompleted = brand.onboardingStatus === "completed";
       const updated = await updateBrand(brandId, { ...writable, ...progress });
+
+      /* Deliberately NOT gated on the brand being "completed": that flips on
+         the four required Basics fields, and a conversation can capture a rich
+         voice without ever landing on, say, `stage`. The guide depends on the
+         voice fields, so it keys off those instead.
+
+         Runs after the response — a slow or failed synthesis must not hold up
+         onboarding, and the Codex reads fine without it. */
+      if (VOICE_FIELDS.some((f) => f in writable) && updated.tone?.trim()) {
+        after(async () => {
+          const guide = await synthesizeBrandGuide(updated);
+          if (guide) {
+            await upsertBrandContext(brandId, "brand_foundation", { guide });
+          }
+        });
+      }
 
       if (!wasCompleted && progress.onboardingStatus === "completed") {
         const sessionId = await getAnalyticsSessionId();

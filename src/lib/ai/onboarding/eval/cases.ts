@@ -98,6 +98,43 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
     },
     forbidden: ["name", "stage", "primaryGoal"],
   },
+  {
+    /* KOS-V1-FEAT-013. The chips answer KO by inserting a formatted user turn
+       rather than free prose, so the extractor has to read that shape back out
+       correctly. If formatChipSelection's wording and this drift apart, the
+       user's taps stop reaching their profile and nothing else would catch it. */
+    id: "chip-selections",
+    transcript: [
+      "assistant: Hi! I'm KO. What's the brand called?",
+      "user: Okra Kitchen.",
+      "assistant: Nice. How would you describe your brand's tone?",
+      "user: Our brand voice is: Bold, Warm, Playful.",
+      "assistant: Got it. Any words or phrases to avoid?",
+      "user: Words and phrases to avoid: Synergy, Cheap, Guaranteed.",
+    ].join("\n\n"),
+    expected: {
+      name: { contains: ["okra"] },
+      tone: { contains: ["bold"] },
+      wordsAvoid: { contains: ["synergy"] },
+    },
+    // Nothing in this transcript touches the rest of the profile.
+    forbidden: [
+      "overview",
+      "businessType",
+      "stage",
+      "targetAudience",
+      "offer",
+      "primaryGoal",
+      "values",
+      "wordsLove",
+      "brandStyle",
+      "competitors",
+      "differentiators",
+      "primaryColor",
+      "secondaryColor",
+      "additionalColors",
+    ],
+  },
 ];
 
 /**

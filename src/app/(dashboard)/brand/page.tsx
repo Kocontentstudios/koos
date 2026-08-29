@@ -1,9 +1,9 @@
-import { ArrowRight, PencilIcon } from "lucide-react";
+import { ArrowRight, Download, PencilIcon } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Fragment } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
@@ -302,7 +302,18 @@ export default async function BrandProfilePage() {
             Your brand information used for AI strategies and design assets
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* A plain anchor styled as a button, not a Button inside a Link:
+              this is a file download, so it must stay a real link, and
+              nesting a button in an anchor is invalid content. */}
+          <a
+            href={`/api/brand/codex?brandId=${brand.id}`}
+            download
+            className={buttonVariants({ variant: "secondary", size: "lg" })}
+          >
+            <Download aria-hidden="true" />
+            Brand Codex
+          </a>
           <Link href="/brand/create">
             <Button variant="secondary" size="lg">
               <PencilIcon aria-hidden="true" />

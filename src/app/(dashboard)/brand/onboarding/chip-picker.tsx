@@ -1,0 +1,145 @@
+"use client";
+
+import { Check, Plus } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  type ChipPrompt,
+  MAX_CHIP_SELECTION,
+  VOICE_TONE_CHIPS,
+  WORDS_TO_AVOID_CHIPS,
+} from "@/lib/onboarding/chips";
+import { cn } from "@/lib/utils";
+
+const COPY: Record<
+  ChipPrompt,
+  { options: readonly string[]; placeholder: string; submit: string }
+> = {
+  tone: {
+    options: VOICE_TONE_CHIPS,
+    placeholder: "Add your own word",
+    submit: "Use these words",
+  },
+  avoid: {
+    options: WORDS_TO_AVOID_CHIPS,
+    placeholder: "Add a word to avoid",
+    submit: "Avoid these",
+  },
+};
+
+/**
+ * Multi-select chips offered under an assistant question, so the user answers
+ * by tapping rather than typing. Mirrors PlatformChips' semantics — the same
+ * aria-pressed pill with a check when active — but adds a free-text tag input,
+ * since a brand's own vocabulary will never be fully covered by a fixed list.
+ */
+export function ChipPicker({
+  kind,
+  onSubmit,
+  disabled,
+}: {
+  kind: ChipPrompt;
+  onSubmit: (selected: string[]) => void;
+  disabled?: boolean;
+}) {
+  const { options, placeholder, submit } = COPY[kind];
+  const [selected, setSelected] = useState<string[]>([]);
+  const [custom, setCustom] = useState("");
+
+  const atCap = selected.length >= MAX_CHIP_SELECTION;
+
+  function toggle(word: string) {
+    setSelected((current) =>
+      current.includes(word)
+        ? current.filter((w) => w !== word)
+        : current.length >= MAX_CHIP_SELECTION
+          ? current
+          : [...current, word],
+    );
+  }
+
+  function addCustom() {
+    const word = custom.trim();
+    // Case-insensitive so "bold" cannot sit beside the "Bold" chip.
+    const clash = selected.some((w) => w.toLowerCase() === word.toLowerCase());
+    if (!word || clash || atCap) return;
+    setSelected((current) => [...current, word]);
+    setCustom("");
+  }
+
+  const customAdded = selected.filter(
+    (w) => !options.includes(w as (typeof options)[number]),
+  );
+
+  return (
+    <div className="mt-2 ml-10 flex max-w-[560px] flex-col gap-3">
+      <ul className="flex flex-wrap gap-2">
+        {[...options, ...customAdded].map((word) => {
+          const active = selected.includes(word);
+          return (
+            <li key={word}>
+              <button
+                type="button"
+                disabled={disabled || (!active && atCap)}
+                aria-pressed={active}
+                onClick={() => toggle(word)}
+                className={cn(
+                  "inline-flex min-h-[40px] items-center gap-1.5 rounded-full border px-4 py-2 text-[13px] transition-colors disabled:opacity-40",
+                  active
+                    ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary"
+                    : "border-transparent bg-[rgba(255,255,255,0.06)] text-[var(--text-secondary)] hover:bg-[rgba(19,139,200,0.12)] hover:text-foreground",
+                )}
+              >
+                {active && <Check aria-hidden="true" className="size-3" />}
+                {word}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={custom}
+          disabled={disabled || atCap}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addCustom();
+            }
+          }}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          className="h-9 w-[200px]"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={disabled || atCap || custom.trim().length === 0}
+          onClick={addCustom}
+        >
+          <Plus aria-hidden="true" />
+          Add
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled || selected.length === 0}
+          onClick={() => onSubmit(selected)}
+        >
+          {submit}
+        </Button>
+      </div>
+
+      {atCap && (
+        <p className="text-[12px] text-[var(--text-muted)]">
+          That's {MAX_CHIP_SELECTION} — enough for a clear voice. Deselect one
+          to swap it.
+        </p>
+      )}
+    </div>
+  );
+}
