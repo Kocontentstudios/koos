@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const speak = vi.fn();
@@ -27,11 +28,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh }),
 }));
 vi.mock("@/hooks/use-voice-io", () => ({ useVoiceIo: () => voice }));
+// Hoisted so tests can assert what the chat was asked to send.
+const { sendMessage } = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 vi.mock("@ai-sdk/react", () => ({
   useChat: () => ({
     messages: chatState.messages,
     status: chatState.status,
-    sendMessage: vi.fn(),
+    sendMessage,
     stop: vi.fn(),
     error: undefined,
   }),
@@ -314,5 +317,98 @@ describe("OnboardingClient handoff to the brand profile", () => {
     );
     expect(push).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+/* KOS-V1-FEAT-013: the chips answer KO's question by tapping instead of
+   typing, and the selection has to arrive as a normal user turn so the
+   existing extract-and-confirm flow picks it up unchanged. */
+describe("OnboardingClient voice chips", () => {
+  const assistant = (text: string) => ({
+    id: "m1",
+    role: "assistant",
+    parts: [{ type: "text", text }],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    voice.supported = false;
+    voice.speakingId = null;
+    chatState.status = "ready";
+    chatState.messages = [];
+  });
+
+  it("offers tone chips under a tone question", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use these words" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers avoid chips under a words-to-avoid question", () => {
+    chatState.messages = [assistant("Are there any words to avoid?")];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByRole("button", { name: "Synergy" })).toBeInTheDocument();
+  });
+
+  it("sends the selection as an ordinary user turn", async () => {
+    chatState.messages = [
+      assistant("What tone of voice should the brand have?"),
+    ];
+    const user = userEvent.setup();
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await user.click(screen.getByRole("button", { name: "Bold" }));
+    await user.click(screen.getByRole("button", { name: "Warm" }));
+    await user.click(screen.getByRole("button", { name: "Use these words" }));
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      { text: "Our brand voice is: Bold, Warm." },
+      expect.objectContaining({
+        body: expect.objectContaining({ brandId: "b1", mode: "onboarding" }),
+      }),
+    );
+  });
+
+  /* Chips belong to the question still open. Once the user has answered, their
+     turn is last and the chips must be gone. */
+  it("disappears once the user has replied", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+      { id: "m2", role: "user", parts: [{ type: "text", text: "Bold" }] },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+  });
+
+  it("stays hidden under an unrelated question", () => {
+    chatState.messages = [assistant("Who are you trying to reach?")];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+  });
+
+  it("stays hidden while the reply is still streaming", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+    ];
+    chatState.status = "streaming";
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
   });
 });

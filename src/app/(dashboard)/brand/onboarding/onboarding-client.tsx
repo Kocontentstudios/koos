@@ -15,7 +15,13 @@ import { useVoiceIo } from "@/hooks/use-voice-io";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
 import type { Proposal } from "@/lib/ai/tools/proposals";
 import type { BrandSnapshotFields } from "@/lib/brand-snapshot";
+import {
+  type ChipPrompt,
+  detectChipPrompt,
+  formatChipSelection,
+} from "@/lib/onboarding/chips";
 import { BrandSnapshotCard } from "../brand-snapshot-card";
+import { ChipPicker } from "./chip-picker";
 
 interface OnboardingClientProps {
   brandId: string;
@@ -85,6 +91,25 @@ export function OnboardingClient({
     transport,
   });
   const isLoading = status === "submitted" || status === "streaming";
+
+  /* Chips belong to the question that is still open, so they hang off the
+     final message and only while it is KO's. Once the user answers — by chip
+     or by typing — their turn becomes the last message and these disappear on
+     their own. */
+  const lastMessage = messages[messages.length - 1];
+  const chipPrompt: ChipPrompt | null =
+    !isLoading && lastMessage?.role === "assistant"
+      ? detectChipPrompt(messageText(lastMessage))
+      : null;
+
+  function handleChipSubmit(kind: ChipPrompt, selected: string[]) {
+    const text = formatChipSelection(kind, selected);
+    if (!text) return;
+    sendMessage(
+      { text },
+      { body: { brandContext, brandId, conversationId, mode: "onboarding" } },
+    );
+  }
 
   function handleSend() {
     const text = input.trim();
@@ -201,6 +226,14 @@ export function OnboardingClient({
             </div>
           );
         })}
+
+        {chipPrompt && lastMessage && (
+          <ChipPicker
+            key={lastMessage.id}
+            kind={chipPrompt}
+            onSubmit={(selected) => handleChipSubmit(chipPrompt, selected)}
+          />
+        )}
 
         {isLoading && (
           <div className="flex items-start gap-3 max-w-[85%]">

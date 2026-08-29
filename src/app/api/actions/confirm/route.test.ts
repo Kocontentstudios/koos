@@ -30,6 +30,8 @@ vi.mock("@/lib/db/queries", () => ({
     updateBrand(brandId, fields),
   createGenerationJob: (data: unknown) => createGenerationJob(data),
   getStrategyById: (id: string) => getStrategyById(id),
+  upsertBrandContext: (b: string, sec: string, data: unknown) =>
+    upsertBrandContext(b, sec, data),
 }));
 vi.mock("@/lib/design/ticket-create", () => ({
   createTicketFromRequest: (input: unknown, deps: unknown) =>
@@ -45,6 +47,14 @@ vi.mock("@/lib/jobs/run-generation", () => ({
 }));
 // Run the post-response work inline so assertions can see it.
 vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
+
+const { synthesizeBrandGuide, upsertBrandContext } = vi.hoisted(() => ({
+  synthesizeBrandGuide: vi.fn(),
+  upsertBrandContext: vi.fn(),
+}));
+vi.mock("@/lib/ai/brand-guide", () => ({
+  synthesizeBrandGuide: (b: unknown) => synthesizeBrandGuide(b),
+}));
 vi.mock("next/cache", () => ({
   revalidatePath: (path: string) => revalidatePath(path),
 }));
@@ -477,5 +487,88 @@ describe("POST /api/actions/confirm", () => {
     );
     expect(res.status).toBe(404);
     expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+});
+
+/* KOS-V1-FEAT-013. The guide turns the handful of adjectives the chips capture
+   into rules a copywriter could work from — recording "Bold, Warm" is not a
+   brand voice. */
+describe("brand voice guide synthesis", () => {
+  const GUIDE = { dos: ["a"], donts: ["b"] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    checkBrandAccess.mockResolvedValue({
+      ok: true,
+      brand: { id: BRAND_ID, name: "Okra", onboardingStatus: "draft" },
+    });
+    synthesizeBrandGuide.mockResolvedValue(GUIDE);
+  });
+
+  function confirmVoiceFields(fields: Record<string, string>) {
+    return POST(
+      req({
+        brandId: BRAND_ID,
+        proposal: {
+          kind: "brand_fields",
+          summary: "Captured brand",
+          data: { fields },
+        },
+      }),
+    );
+  }
+
+  async function confirmVoice(fields: Record<string, string>, tone = "Bold") {
+    updateBrand.mockResolvedValue({ id: BRAND_ID, name: "Okra", tone });
+    return confirmVoiceFields(fields);
+  }
+
+  it("stores a guide derived from the row it just wrote", async () => {
+    await confirmVoice({ tone: "Bold, Warm" });
+
+    expect(synthesizeBrandGuide).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "Bold" }),
+    );
+    expect(upsertBrandContext).toHaveBeenCalledWith(
+      BRAND_ID,
+      "brand_foundation",
+      { guide: GUIDE },
+    );
+  });
+
+  it.each(["tone", "wordsLove", "wordsAvoid", "values"])(
+    "re-derives it when %s is written",
+    async (field) => {
+      await confirmVoice({ [field]: "something" });
+      expect(synthesizeBrandGuide).toHaveBeenCalled();
+    },
+  );
+
+  it("leaves it alone when the write touched no voice field", async () => {
+    await confirmVoice({ overview: "We sell meal kits" });
+    expect(synthesizeBrandGuide).not.toHaveBeenCalled();
+  });
+
+  /* A guide needs a voice to expand. Without a tone there is nothing to
+     synthesize from, and the model would invent one. */
+  it("does not run when the brand still has no tone", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID, name: "Okra", tone: null });
+    await confirmVoiceFields({ wordsAvoid: "cheap" });
+    expect(synthesizeBrandGuide).not.toHaveBeenCalled();
+  });
+
+  /* Deliberately not gated on the brand being complete: completion flips on
+     the four Basics fields, and a conversation can capture a rich voice
+     without ever landing on `stage`. */
+  it("runs for an incomplete brand", async () => {
+    await confirmVoice({ tone: "Bold, Warm" });
+    expect(synthesizeBrandGuide).toHaveBeenCalled();
+  });
+
+  it("stores nothing when synthesis fails", async () => {
+    synthesizeBrandGuide.mockResolvedValue(null);
+    await confirmVoice({ tone: "Bold" });
+    expect(upsertBrandContext).not.toHaveBeenCalled();
   });
 });
