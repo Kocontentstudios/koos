@@ -14,8 +14,12 @@ import {
   WandSparkles,
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ProductTour } from "@/components/tour/product-tour";
-import { requireBrand } from "@/lib/auth/require-brand";
+import { redirectToLogin } from "@/lib/auth/redirects";
+import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
+import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getSetupState } from "@/lib/dashboard/setup-state";
 import {
   isOpenTicket,
@@ -24,6 +28,7 @@ import {
   upcomingItems,
 } from "@/lib/dashboard/summary";
 import {
+  getActiveBrandForMember,
   getActiveCalendarForBrand,
   getCalendarItems,
   getDesignTicketsForMember,
@@ -32,8 +37,11 @@ import {
   getWorkspaceMembers,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import { resolveOnboardingRoute } from "@/lib/onboarding-route";
 import { TOUR_ANCHORS } from "@/lib/tour/anchors";
 import { evaluateTourGate } from "@/lib/tour/gate";
+import { evaluateWelcomeGate } from "@/lib/welcome/gate";
+import { LockedDashboard } from "./locked-dashboard";
 import { InviteTeamCard, TeamOverviewCard } from "./team-cards";
 
 function relativeTime(date: Date, now: Date): string {
@@ -62,7 +70,35 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ tour?: string }>;
 }) {
-  const { dbUser, workspace, brand } = await requireBrand();
+  /* Deliberately NOT requireBrand(): this is the one route a brand-less user
+     may look at, so the redirect is replaced by a locked preview. Every other
+     guarded route keeps requireBrand exactly as it is — those pages need brand
+     data to function, and the gate is what guarantees they have it. */
+  const { dbUser, workspace, role } = await getActiveWorkspace();
+  if (!dbUser) redirectToLogin();
+  const activeBrand = await getActiveBrandForMember(workspace.id, dbUser.id);
+
+  if (!hasCompletedBrand(activeBrand?.onboardingStatus)) {
+    /* Someone who cannot create a brand has nothing to unlock here, so they
+       keep the existing dead-end rather than a preview they can never act on. */
+    if (!can(role, "create_brand")) redirect("/no-brands");
+    const welcome = evaluateWelcomeGate({
+      welcomeSeenAt: dbUser.welcomeSeenAt,
+      brandOnboardingStatus: activeBrand?.onboardingStatus,
+    });
+    return (
+      <LockedDashboard
+        showWelcome={welcome.show}
+        firstName={dbUser.firstName ?? "there"}
+        onboardingHref={resolveOnboardingRoute({
+          canCreateBrand: true,
+          onboardingType: activeBrand?.onboardingType,
+        })}
+      />
+    );
+  }
+  const brand = activeBrand;
+
   const { tour } = await searchParams;
 
   const tourGate = evaluateTourGate({
