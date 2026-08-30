@@ -16,7 +16,10 @@ import {
   sortByPrecedence,
 } from "@/lib/design/attachments";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import { type BrandSummary, brandSummaryFrom } from "@/lib/jobs/brand-summary";
+import {
+  type BrandSummary,
+  brandSummaryWithVoice,
+} from "@/lib/jobs/brand-summary";
 import { toCampaignCard } from "@/lib/strategy/campaign-card";
 
 type BrandRow = typeof brands.$inferSelect;
@@ -228,7 +231,7 @@ export async function resolveDesignContext({
 
   return {
     brand,
-    brandSummary: brandSummaryFrom(brand),
+    brandSummary: await brandSummaryWithVoice(brand),
     source: sourceFor(resolved, freeform),
     // Kept for the columns that still record a single primary id.
     briefId: resolved.find((a) => a.type === "brief")?.id ?? null,

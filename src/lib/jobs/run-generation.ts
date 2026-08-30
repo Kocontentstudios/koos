@@ -40,7 +40,10 @@ import {
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
-import { brandSummaryFrom } from "@/lib/jobs/brand-summary";
+import {
+  brandSummaryFrom,
+  brandSummaryWithVoice,
+} from "@/lib/jobs/brand-summary";
 import {
   assembleCalendarItems,
   fallbackBrief,
@@ -225,7 +228,7 @@ export async function generateStrategyWork(args: {
   userId: string;
   sessionId?: string | null;
 }): Promise<JobOutcome> {
-  const summary = brandSummaryFrom(args.brand);
+  const summary = await brandSummaryWithVoice(args.brand);
   const { object } = await generateObject({
     model: getModel("strategy"),
     schema: strategySchema,
@@ -314,7 +317,7 @@ export async function generateCalendarWork(
 ): Promise<JobOutcome> {
   const { reportProgress } = runtime;
   const checkpoint = runtime.checkpoint as CalendarCheckpoint;
-  const summary = brandSummaryFrom(args.brand);
+  const summary = await brandSummaryWithVoice(args.brand);
   const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);
   const model = getModel("strategy");
@@ -661,7 +664,7 @@ export async function generateDesignBriefWork(args: {
   userId: string;
   sessionId?: string | null;
 }): Promise<JobOutcome> {
-  const summary = brandSummaryFrom(args.brand);
+  const summary = await brandSummaryWithVoice(args.brand);
   const { object } = await generateObject({
     model: getModel("strategy"),
     schema: designBriefSchema,

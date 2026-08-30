@@ -83,3 +83,37 @@ export async function synthesizeBrandGuide(
     return null;
   }
 }
+
+/**
+ * The guide as prompt text.
+ *
+ * Only the halves a generator can act on: the tone spectrum and the two rule
+ * lists tell a model how to write, while the example lines show it. Kept
+ * compact because this rides along with every strategy, calendar and design
+ * prompt for a brand that has one.
+ *
+ * Returns null when there is no guide, so callers emit nothing rather than an
+ * empty heading.
+ */
+export function voiceGuideBlock(guide: BrandGuide | null): string | null {
+  if (!guide) return null;
+  const parts = [
+    guide.toneSpectrum.length > 0
+      ? `Tone: ${guide.toneSpectrum.join("; ")}`
+      : null,
+    guide.dos.length > 0 ? `Always: ${guide.dos.join("; ")}` : null,
+    guide.donts.length > 0 ? `Never: ${guide.donts.join("; ")}` : null,
+    guide.writingStyleRules.length > 0
+      ? `Style rules: ${guide.writingStyleRules.join("; ")}`
+      : null,
+    guide.vocabularyGuardrails.length > 0
+      ? `Vocabulary: ${guide.vocabularyGuardrails.join("; ")}`
+      : null,
+    guide.exampleLines.length > 0
+      ? `Sounds like: ${guide.exampleLines.map((l) => `"${l}"`).join(" ")}`
+      : null,
+  ].filter(Boolean);
+  return parts.length > 0
+    ? `Brand voice guide — every line of copy must obey this:\n${parts.join("\n")}`
+    : null;
+}
