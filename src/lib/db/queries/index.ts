@@ -11,6 +11,7 @@ import {
   ne,
   sql,
 } from "drizzle-orm";
+import { brandGuideSchema } from "@/lib/ai/brand-guide";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
@@ -352,6 +353,16 @@ export async function addBrandAsset(data: typeof brandAssets.$inferInsert) {
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
+
+/** The synthesized voice guide, or null when onboarding never produced one.
+ *  Shape-checked on read: it is model output stored as jsonb, and a malformed
+ *  row must not reach a prompt. */
+export async function getBrandVoiceGuide(brandId: string) {
+  const ctx = await getBrandContext(brandId, "brand_foundation");
+  const guide = (ctx?.dataJson as { guide?: unknown } | null)?.guide;
+  const parsed = brandGuideSchema.safeParse(guide);
+  return parsed.success ? parsed.data : null;
+}
 
 export async function getAllBrandContexts(brandId: string) {
   return db

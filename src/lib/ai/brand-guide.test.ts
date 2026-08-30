@@ -4,7 +4,11 @@ const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (a: unknown) => generateObject(a) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
-import { brandGuideSchema, synthesizeBrandGuide } from "@/lib/ai/brand-guide";
+import {
+  brandGuideSchema,
+  synthesizeBrandGuide,
+  voiceGuideBlock,
+} from "@/lib/ai/brand-guide";
 
 const GUIDE = {
   toneSpectrum: ["Warm to cool: warm", "Formal to casual: casual"],
@@ -90,5 +94,42 @@ describe("brandGuideSchema", () => {
       expect(field.safeParse(undefined).success).toBe(false);
       expect(field.safeParse(null).success).toBe(false);
     }
+  });
+});
+
+describe("voiceGuideBlock", () => {
+  it("is null without a guide, so callers emit nothing", () => {
+    expect(voiceGuideBlock(null)).toBeNull();
+  });
+
+  it("renders the rules a generator can act on", () => {
+    const block = voiceGuideBlock(GUIDE) ?? "";
+
+    expect(block).toContain("every line of copy must obey this");
+    expect(block).toContain("Tone: Warm to cool: warm");
+    expect(block).toContain("Always: Lead with craft");
+    expect(block).toContain("Never: Never say cheap");
+    expect(block).toContain("Style rules: Active voice");
+    expect(block).toContain("Vocabulary: Use handwoven");
+    expect(block).toContain('Sounds like: "Woven by hand."');
+  });
+
+  it("skips a section the guide left empty", () => {
+    const block = voiceGuideBlock({ ...GUIDE, exampleLines: [] }) ?? "";
+    expect(block).not.toContain("Sounds like");
+    expect(block).toContain("Always:");
+  });
+
+  it("is null when every section is empty", () => {
+    expect(
+      voiceGuideBlock({
+        toneSpectrum: [],
+        dos: [],
+        donts: [],
+        writingStyleRules: [],
+        vocabularyGuardrails: [],
+        exampleLines: [],
+      }),
+    ).toBeNull();
   });
 });

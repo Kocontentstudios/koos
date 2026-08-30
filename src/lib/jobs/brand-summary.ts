@@ -1,4 +1,6 @@
+import { voiceGuideBlock } from "@/lib/ai/brand-guide";
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
+import { getBrandVoiceGuide } from "@/lib/db/queries";
 import type { brands } from "@/lib/db/schema";
 
 export type { BrandSummary };
@@ -32,4 +34,19 @@ export function brandSummaryFrom(brand: BrandRow): BrandSummary {
     primaryPlatform: brand.primaryPlatform,
     postingFrequency: brand.postingFrequency,
   };
+}
+
+/**
+ * The summary plus the brand's voice guide, for the prompts that write copy.
+ *
+ * Separate from the sync version on purpose: the guide lives in brand_contexts
+ * rather than on the brand row, and most callers of brandSummaryFrom neither
+ * need it nor can await. A brand without a guide gets a summary identical to
+ * the sync one, so no existing prompt changes.
+ */
+export async function brandSummaryWithVoice(
+  brand: BrandRow,
+): Promise<BrandSummary> {
+  const guide = await getBrandVoiceGuide(brand.id);
+  return { ...brandSummaryFrom(brand), voiceGuide: voiceGuideBlock(guide) };
 }
