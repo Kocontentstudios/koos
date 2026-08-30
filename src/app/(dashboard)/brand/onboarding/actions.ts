@@ -63,6 +63,7 @@ export interface VisualIdentityInput {
   secondaryColor: string;
   brandStyle: string;
   brandFont: string;
+  brandFontUrl: string;
 }
 
 /**
@@ -93,6 +94,7 @@ export async function saveVisualIdentity(
     secondaryColor: input.secondaryColor.trim() || null,
     brandStyle: input.brandStyle.trim() || null,
     brandFont: input.brandFont.trim() || null,
+    brandFontUrl: input.brandFontUrl.trim() || null,
   });
   if (!updated) return { ok: false, error: "Could not save" };
 

@@ -23,6 +23,7 @@ export interface BrandExport {
       | "hasLogo"
       | "brandStyle"
       | "brandFont"
+      | "brandFontUrl"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
@@ -72,6 +73,7 @@ export function toBrandExport(brand: BrandRow): BrandExport {
         hasLogo: brand.hasLogo,
         brandStyle: brand.brandStyle,
         brandFont: brand.brandFont,
+        brandFontUrl: brand.brandFontUrl,
         primaryColor: brand.primaryColor,
         secondaryColor: brand.secondaryColor,
         additionalColors: brand.additionalColors,

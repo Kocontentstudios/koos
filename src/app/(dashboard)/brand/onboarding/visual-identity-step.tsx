@@ -20,6 +20,7 @@ export interface VisualIdentityValues {
   secondaryColor: string;
   brandStyle: string;
   brandFont: string;
+  brandFontUrl: string;
 }
 
 const EMPTY: VisualIdentityValues = {
@@ -28,6 +29,7 @@ const EMPTY: VisualIdentityValues = {
   secondaryColor: "",
   brandStyle: "",
   brandFont: "",
+  brandFontUrl: "",
 };
 
 const UPLOAD_FAILED = "Logo upload failed — you can still finish without it.";
@@ -97,6 +99,8 @@ export function VisualIdentityStep({
     ...initial,
   });
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fontFileName, setFontFileName] = useState<string | null>(null);
+  const [fontError, setFontError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -128,6 +132,34 @@ export function VisualIdentityStep({
       set({ logoUrl: "" });
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleFontSelected(file: File) {
+    setFontFileName(file.name);
+    setFontError(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("kind", "font");
+      const res = await fetch("/api/upload", { method: "POST", body });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        // Drop the filename too: a refused font must not sit there looking
+        // attached, and FileUpload only shows the error in its empty state.
+        setFontFileName(null);
+        setFontError(data?.error ?? "Could not upload that font file.");
+        set({ brandFontUrl: "" });
+        return;
+      }
+      const { url } = (await res.json()) as { url: string };
+      set({ brandFontUrl: url });
+    } catch {
+      setFontFileName(null);
+      setFontError("Could not upload that font file.");
+      set({ brandFontUrl: "" });
     }
   }
 
@@ -257,6 +289,26 @@ export function VisualIdentityStep({
             value={values.brandStyle}
             onPick={(brandStyle) => set({ brandStyle })}
           />
+
+          <section className="space-y-2">
+            <Label>Brand font file</Label>
+            <FileUpload
+              accept=".ttf,.otf,.ttc,font/ttf,font/otf"
+              maxSizeMb={5}
+              onFileSelected={handleFontSelected}
+              onRemove={() => {
+                setFontFileName(null);
+                setFontError(null);
+                set({ brandFontUrl: "" });
+              }}
+              fileName={fontFileName}
+              error={fontError}
+            />
+            <p className="text-[12px] text-[var(--text-muted)]">
+              TTF or OTF. Headlines will be set in it. Optional — pick a style
+              below instead and we'll match it.
+            </p>
+          </section>
 
           <OptionRow
             label="Typography"

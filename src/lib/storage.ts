@@ -12,6 +12,7 @@ import { getSignedUrl as presign } from "@aws-sdk/s3-request-presigner";
  */
 export const STORAGE_PREFIXES = {
   logos: "logos",
+  fonts: "fonts",
   referenceImages: "reference-images",
   deliverables: "deliverables",
   generated: "generated",
