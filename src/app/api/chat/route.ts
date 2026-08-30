@@ -25,6 +25,7 @@ import {
   touchConversation,
   updateConversationTitle,
 } from "@/lib/db/queries";
+import { stripPollMarker } from "@/lib/onboarding/chips";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isUuid } from "@/lib/validation/uuid";
 import {
@@ -135,7 +136,12 @@ export async function POST(req: Request) {
       : {}),
     // Persist the completed turn once, after the assistant reply is final, so a
     // stream that errors mid-flight never leaves an orphaned user row.
-    onFinish: async ({ text }) => {
+    onFinish: async ({ text: rawText }) => {
+      /* Stripped HERE, not in a renderer: an onboarding chat is persisted as a
+         strategy conversation, so Recent Chats reopens it and renders the
+         stored content. A marker that survives this line reaches the screen,
+         the memory summary and the title. */
+      const text = stripPollMarker(rawText);
       try {
         if (lastUserMessage?.role === "user") {
           await createMessage({

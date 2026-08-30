@@ -24,6 +24,7 @@ export function brandSummaryFrom(brand: BrandRow): BrandSummary {
     brandStyle: brand.brandStyle,
     brandFont: brand.brandFont,
     competitors: brand.competitors,
+    competitorStrengths: brand.competitorStrengths,
     differentiators: brand.differentiators,
     primaryColor: brand.primaryColor,
     secondaryColor: brand.secondaryColor,

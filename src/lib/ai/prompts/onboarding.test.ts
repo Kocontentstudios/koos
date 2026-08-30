@@ -47,10 +47,11 @@ describe("buildOnboardingPrompt coverage", () => {
     expect(prompt).toMatch(/tone and personality/i);
   });
 
-  /* The chips are matched from KO's own wording, so the prompt has to steer
-     the phrasing or the suggestions never appear. */
-  it("steers the phrasing the chip matcher keys off", () => {
-    expect(prompt).toMatch(/tone, voice or personality/i);
+  /* Tone and words-to-avoid still have a prose fallback in chips.ts, so the
+     prompt keeps naming their vocabulary; the marker is what decides the
+     competitor pair, and prompt-chip-agreement.test.ts pins that. */
+  it("names the vocabulary the tone and avoid fallbacks key off", () => {
+    expect(prompt).toMatch(/tone, voice, personality/i);
     expect(prompt).toMatch(/words or phrases to avoid/i);
   });
 

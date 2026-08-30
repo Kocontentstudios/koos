@@ -43,7 +43,7 @@ worse than a blank, because the form looks done.
 **Invention** is held near zero (max 1 per case) and is the metric that
 matters most. A hallucinated value gets confirmed onto a real brand profile by
 a user who has no reason to doubt it. `sparse-two-facts` exists solely to
-apply that pressure: a transcript with one usable fact and fifteen forbidden
+apply that pressure: a transcript with one usable fact and seventeen forbidden
 fields, which is exactly where a model is most tempted to fill the silence.
 
 ## Adding a case

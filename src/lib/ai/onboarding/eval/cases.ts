@@ -70,6 +70,7 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
       "wordsAvoid",
       "brandStyle",
       "competitors",
+      "competitorStrengths",
       "differentiators",
       "primaryColor",
       "secondaryColor",
@@ -129,7 +130,48 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
       "wordsLove",
       "brandStyle",
       "competitors",
+      "competitorStrengths",
       "differentiators",
+      "primaryColor",
+      "secondaryColor",
+      "additionalColors",
+    ],
+  },
+  {
+    /* KOS-V1-FEAT-016. The two competitor polls produce mirror-image sentences
+       that land in DIFFERENT columns, and the only thing separating them is
+       the field descriptions in extraction.ts. Swapping them is the failure
+       that matters: the strategy prompt then tells the strategist to avoid
+       competing where the brand's own advantage lies. */
+    id: "competitor-poll-directions",
+    transcript: [
+      "assistant: Hi! I'm KO. What's the brand called?",
+      "user: Okra Kitchen.",
+      "assistant: Who else is in the space?",
+      "user: Mostly Cocoa Bloom and The Lagos Pantry.",
+      "assistant: What does your brand do differently or better than them?",
+      "user: What we do better than competitors: Bespoke service, Local expertise.",
+      "assistant: And what are those competitors genuinely good at?",
+      "user: What our competitors are strong at: Bigger budget, Wider reach.",
+    ].join("\n\n"),
+    expected: {
+      name: { contains: ["okra"] },
+      competitors: { contains: ["cocoa bloom"] },
+      differentiators: { contains: ["bespoke"] },
+      competitorStrengths: { contains: ["budget"] },
+    },
+    forbidden: [
+      "overview",
+      "businessType",
+      "stage",
+      "targetAudience",
+      "offer",
+      "tone",
+      "primaryGoal",
+      "values",
+      "wordsLove",
+      "wordsAvoid",
+      "brandStyle",
       "primaryColor",
       "secondaryColor",
       "additionalColors",

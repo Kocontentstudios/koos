@@ -13,6 +13,7 @@ export interface BrandSummary {
   brandStyle?: string | null;
   brandFont?: string | null;
   competitors?: string | null;
+  competitorStrengths?: string | null;
   differentiators?: string | null;
   /* Carried here but deliberately NOT emitted by brandBlock(): of its six
      consumers only the design prompts can act on colour, and adding lines
@@ -43,6 +44,9 @@ export function brandBlock(b: BrandSummary): string {
     b.brandFont ? `Typography: ${b.brandFont}` : null,
     b.competitors ? `Competitors: ${b.competitors}` : null,
     b.differentiators ? `How they differ: ${b.differentiators}` : null,
+    b.competitorStrengths
+      ? `Where competitors are strong: ${b.competitorStrengths}`
+      : null,
     b.platforms?.length ? `Active platforms: ${b.platforms.join(", ")}` : null,
     b.primaryPlatform ? `Primary platform: ${b.primaryPlatform}` : null,
     b.postingFrequency ? `Posting frequency: ${b.postingFrequency}` : null,
@@ -55,6 +59,22 @@ export function buildStrategistSystemPrompt(brand: BrandSummary): string {
   return `You are KO, an expert content strategist for ${brand.name}. Have a short, focused conversation to understand the user's goal: ask about their objective, target audience, the platforms they use, their timeline, and any constraints — one or two questions at a time, not a wall of questions. Be warm, concise, and practical. Ground every suggestion in the brand context below. When you have enough to recommend a plan, summarize your recommendation in prose and tell the user they can click "Build Strategy" to generate a structured content strategy.\n\n${brandBlock(brand)}`;
 }
 
+/* Absent by default, for the same reason brandBlock's lines are: this prompt
+   is the one the paid eval:strategy suite scores, and its cases carry no
+   competitor fields. An unconditional paragraph is pure noise on every
+   baseline. */
+function positioningDirective(brand: BrandSummary): string {
+  const parts = [
+    brand.differentiators
+      ? "Build the key message on how this brand differs rather than on a generic benefit, and pick themes that let that difference show rather than be asserted."
+      : null,
+    brand.competitorStrengths
+      ? "Do not build the campaign around beating competitors where they are strong — aim at the gap that leaves instead."
+      : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? `\n\n${parts.join(" ")}` : "";
+}
+
 export function buildStrategyGenerationPrompt(
   conversationText: string,
   brand: BrandSummary,
@@ -65,5 +85,5 @@ This is ONE campaign, focused on one main goal, product, service, offer, event o
 
 The campaign name is the campaign's identity: it must name that specific focus, in at most 60 characters, and never start with filler like "Campaign for" or "Content strategy for".
 
-It must include: the campaign name, a measurable objective, the target audience, a single key message, recommended channels (each with a short rationale), a content mix (content type + how many of each), a phased timeline (phase, date range, focus), content themes (title + description), and an optimal posting schedule (channel + cadence). Keep it specific and realistic for this brand.\n\n${brandBlock(brand)}\n\nConversation:\n${conversationText}`;
+It must include: the campaign name, a measurable objective, the target audience, a single key message, recommended channels (each with a short rationale), a content mix (content type + how many of each), a phased timeline (phase, date range, focus), content themes (title + description), and an optimal posting schedule (channel + cadence). Keep it specific and realistic for this brand.${positioningDirective(brand)}\n\n${brandBlock(brand)}\n\nConversation:\n${conversationText}`;
 }

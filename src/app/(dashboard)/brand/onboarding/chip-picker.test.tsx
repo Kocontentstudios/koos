@@ -148,4 +148,45 @@ describe("ChipPicker", () => {
       screen.getByRole("button", { name: "Use these words" }),
     ).toBeDisabled();
   });
+
+  /* "That's 6 — enough for a clear voice" is nonsense under a question about
+     what competitors are good at, and the cap message is the only copy in the
+     component that is not per-kind by construction. */
+  it.each([
+    ["tone", /clear voice/i],
+    ["avoid", /no-go list/i],
+    ["differentiation", /sharp positioning/i],
+    ["competitor-strengths", /picture of the field/i],
+  ] as const)("names what %s is enough FOR at the cap", async (kind, copy) => {
+    const user = userEvent.setup();
+    render(<ChipPicker kind={kind} onSubmit={() => {}} />);
+    const chips = screen.getAllByRole("button", { pressed: false });
+    for (const chip of chips.slice(0, MAX_CHIP_SELECTION)) {
+      await user.click(chip);
+    }
+    expect(screen.getByText(copy)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["differentiation", "Higher quality"],
+    ["competitor-strengths", "Bigger budget"],
+  ] as const)("offers the %s options", (kind, option) => {
+    render(<ChipPicker kind={kind} onSubmit={() => {}} />);
+    expect(screen.getByRole("button", { name: option })).toBeInTheDocument();
+  });
+
+  /* Free text is an acceptance criterion: a brand's real edge is usually too
+     specific for a fixed list. */
+  it("accepts a custom competitive advantage", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(<ChipPicker kind="differentiation" onSubmit={onSubmit} />);
+    await user.type(
+      screen.getByLabelText(/add your own advantage/i),
+      "Only cold-pressed in Lagos",
+    );
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+    await user.click(screen.getByRole("button", { name: /that's our edge/i }));
+    expect(onSubmit).toHaveBeenCalledWith(["Only cold-pressed in Lagos"]);
+  });
 });

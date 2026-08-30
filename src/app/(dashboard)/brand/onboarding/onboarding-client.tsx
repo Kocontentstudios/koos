@@ -19,6 +19,7 @@ import {
   type ChipPrompt,
   detectChipPrompt,
   formatChipSelection,
+  stripPollMarker,
 } from "@/lib/onboarding/chips";
 import { BrandSnapshotCard } from "../brand-snapshot-card";
 import { saveVisualIdentity } from "./actions";
@@ -33,7 +34,19 @@ interface OnboardingClientProps {
   brandContext: ChatBrandContext;
 }
 
+/* The poll marker is protocol between the prompt and ChipPicker, never
+   content: it is stripped here so it cannot reach the screen, the read-aloud
+   voice, or the transcript the extractor reads. */
 function messageText(msg: UIMessage): string {
+  /* Assistant turns only, matching rowsToUiMessages: a user who types
+     "[[poll:tone]]" owns those characters, and stripping them from their own
+     bubble shows them something different from what was sent. */
+  return msg.role === "assistant"
+    ? stripPollMarker(rawMessageText(msg))
+    : rawMessageText(msg);
+}
+
+function rawMessageText(msg: UIMessage): string {
   return (
     msg.parts
       ?.filter(
@@ -110,7 +123,7 @@ export function OnboardingClient({
   const lastMessage = messages[messages.length - 1];
   const chipPrompt: ChipPrompt | null =
     !isLoading && lastMessage?.role === "assistant"
-      ? detectChipPrompt(messageText(lastMessage))
+      ? detectChipPrompt(rawMessageText(lastMessage))
       : null;
 
   function handleChipSubmit(kind: ChipPrompt, selected: string[]) {
