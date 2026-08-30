@@ -10,7 +10,10 @@ vi.mock("@/lib/db/queries", () => ({
   checkBrandAccess: (u: string, b: string, c: string) =>
     checkBrandAccess(u, b, c),
 }));
-vi.mock("@/lib/storage", () => ({
+/* Only the bucket read is mocked. storageKeyFrom is the guard these tests
+   exist to exercise, so it runs for real. */
+vi.mock("@/lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage")>()),
   getObjectBytes: (key: string) => getObjectBytes(key),
 }));
 vi.mock("@/lib/ai/logo-colors", () => ({
@@ -69,6 +72,10 @@ describe("POST /api/brand/logo-colors", () => {
     ["a local address", "http://169.254.169.254/latest/meta-data/"],
     ["a file path", "file:///etc/passwd"],
     ["nonsense", "not-a-url"],
+    // A host that merely begins with ours — the substring bypass.
+    ["a lookalike host", `${BASE}.attacker.test/logos/u1/logo.png`],
+    // Matching the origin alone would let this read another tenant's artwork.
+    ["a key outside the logos prefix", `${BASE}/deliverables/other/final.png`],
   ])("refuses %s", async (_label, logoUrl) => {
     const res = await POST(post({ brandId: BRAND_ID, logoUrl }));
 

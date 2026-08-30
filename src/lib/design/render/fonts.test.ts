@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getObjectBytes = vi.fn();
-vi.mock("@/lib/storage", () => ({
+/* Only the bucket read is mocked. storageKeyFrom is the guard these tests
+   exist to exercise, so it runs for real. */
+vi.mock("@/lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage")>()),
   getObjectBytes: (key: string) => getObjectBytes(key),
 }));
 

@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getObjectBytes } from "@/lib/storage";
+import {
+  getObjectBytes,
+  STORAGE_PREFIXES,
+  storageKeyFrom,
+} from "@/lib/storage";
 
 export interface LoadedFont {
   name: string;
@@ -108,11 +112,12 @@ async function loadDefaultFonts(): Promise<LoadedFont[]> {
  *  caller falls back rather than handing it bytes that throw mid-render. */
 async function loadUploadedFont(url: string): Promise<ArrayBuffer | null> {
   try {
-    const base = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
-    // Read from our own bucket by key. The URL reaches here from a brand row,
-    // but that row is user-writable, so it is not a fetch target.
-    if (!base || !url.startsWith(base)) return null;
-    const bytes = await getObjectBytes(url.slice(base.length + 1));
+    /* Pinned to the fonts prefix, not merely to our origin. brandFontUrl is a
+       user-writable column, so without the prefix a brand could point it at
+       another tenant's deliverables and have them read. */
+    const key = storageKeyFrom(url, STORAGE_PREFIXES.fonts);
+    if (!key) return null;
+    const bytes = await getObjectBytes(key);
     const data = new Uint8Array(bytes);
     // The upload route checked this too; re-checked here because a row can
     // outlive the file it points at, and satori throws on a bad signature
