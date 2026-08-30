@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,11 +13,12 @@ import {
 /**
  * First-run greeting, shown over the onboarding start screen.
  *
- * It lives here rather than on the dashboard because a user without a
- * completed brand never reaches the dashboard — requireBrand redirects them
- * to this route before any of it renders. This is where they actually land.
+ * Shown over the locked dashboard, which is where every auth path now ends for
+ * a user without a brand. "Maybe later" simply closes it and leaves them with
+ * the preview underneath; "Set Up Your Brand" walks them into onboarding.
  */
-export function WelcomeCard({ onStart }: { onStart: () => void }) {
+export function WelcomeCard({ onboardingHref }: { onboardingHref: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(true);
 
   /* Both CTAs answer the question, so both close it for good. Fired without
@@ -26,7 +28,7 @@ export function WelcomeCard({ onStart }: { onStart: () => void }) {
     setOpen(false);
     // Act first, record after: what the user asked for must never depend on
     // the telemetry write landing.
-    if (action === "start") onStart();
+    if (action === "start") router.push(onboardingHref);
     try {
       void Promise.resolve(
         fetch("/api/welcome/dismiss", {
