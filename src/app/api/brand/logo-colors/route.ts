@@ -1,9 +1,12 @@
-import { isTrustedStorageUrl } from "@/lib/admin/logo-proxy";
 import { extractLogoColors } from "@/lib/ai/logo-colors";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { checkBrandAccess } from "@/lib/db/queries";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
-import { getObjectBytes } from "@/lib/storage";
+import {
+  getObjectBytes,
+  STORAGE_PREFIXES,
+  storageKeyFrom,
+} from "@/lib/storage";
 import { isUuid } from "@/lib/validation/uuid";
 
 /**
@@ -48,8 +51,11 @@ export async function POST(req: Request) {
     return Response.json({ error: access.error }, { status: access.status });
   }
 
-  const base = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
-  if (!logoUrl || !isTrustedStorageUrl(logoUrl, base) || !base) {
+  /* Pinned to the logos prefix: matching only the origin would still let a
+     caller name a deliverables key and have another tenant's artwork read into
+     a vision call. */
+  const key = storageKeyFrom(logoUrl, STORAGE_PREFIXES.logos);
+  if (!key) {
     return Response.json(
       { error: "Logo must be an uploaded file." },
       { status: 400 },
@@ -58,7 +64,7 @@ export async function POST(req: Request) {
 
   let image: { bytes: Uint8Array; contentType: string };
   try {
-    const bytes = await getObjectBytes(logoUrl.slice(base.length + 1));
+    const bytes = await getObjectBytes(key);
     image = { bytes: new Uint8Array(bytes), contentType: "image/png" };
   } catch {
     return Response.json(

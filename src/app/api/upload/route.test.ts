@@ -15,7 +15,7 @@ vi.mock("@/lib/storage", () => ({
   isStorageConfigured: () => isStorageConfigured(),
   uploadObject: (a: unknown) => uploadObject(a),
   publicUrl: (key: string) => `https://cdn.example.com/${key}`,
-  STORAGE_PREFIXES: { logos: "logos" },
+  STORAGE_PREFIXES: { logos: "logos", fonts: "fonts" },
 }));
 
 import { POST } from "./route";
@@ -118,5 +118,97 @@ describe("POST /api/upload", () => {
     expect(uploadObject.mock.calls[0][0].key).not.toBe(
       uploadObject.mock.calls[1][0].key,
     );
+  });
+});
+
+/* Fonts are validated by signature because a browser's MIME for a font file is
+   unreliable and client-controlled either way. */
+describe("POST /api/upload — fonts", () => {
+  function fontFile(signature: number[], type = "application/octet-stream") {
+    const bytes = new Uint8Array(64);
+    bytes.set(signature, 0);
+    return new File([bytes], "brand.ttf", { type });
+  }
+
+  function uploadFont(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("kind", "font");
+    return new Request("http://x/api/upload", { method: "POST", body });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    guardWorkspaceRoute.mockResolvedValue({ ctx: { dbUser: { id: "u1" } } });
+    isStorageConfigured.mockReturnValue(true);
+    uploadObject.mockResolvedValue(undefined);
+  });
+
+  it.each([
+    ["TrueType", [0x00, 0x01, 0x00, 0x00], "ttf"],
+    ["'true' TrueType", [0x74, 0x72, 0x75, 0x65], "ttf"],
+    ["CFF OpenType", [0x4f, 0x54, 0x54, 0x4f], "otf"],
+    ["a collection", [0x74, 0x74, 0x63, 0x66], "ttc"],
+  ])("accepts %s under the fonts prefix", async (_l, sig, ext) => {
+    const res = await POST(uploadFont(fontFile(sig)));
+
+    expect(res.status).toBe(200);
+    const { key } = await res.json();
+    expect(key).toMatch(new RegExp(`^fonts/u1/\\d+-[0-9a-f]{12}\\.${ext}$`));
+  });
+
+  /* Satori rejects both outright, so accepting them would store a file that
+     can only ever fail at render time. */
+  it.each([
+    ["WOFF", [0x77, 0x4f, 0x46, 0x46]],
+    ["WOFF2", [0x77, 0x4f, 0x46, 0x32]],
+  ])("refuses %s, which satori cannot render", async (_l, sig) => {
+    const res = await POST(uploadFont(fontFile(sig)));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/TTF or OTF/);
+    expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  /* The whole point of checking bytes: a PNG announcing itself as a font gets
+     nowhere. */
+  it("refuses a non-font wearing a font MIME type", async () => {
+    const res = await POST(
+      uploadFont(fontFile([0x89, 0x50, 0x4e, 0x47], "font/ttf")),
+    );
+
+    expect(res.status).toBe(400);
+    expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  it("accepts a real font despite an empty MIME type", async () => {
+    const res = await POST(uploadFont(fontFile([0x00, 0x01, 0x00, 0x00], "")));
+    expect(res.status).toBe(200);
+  });
+
+  /* The client's type is frequently wrong for fonts, and the signature already
+     settled what this is. */
+  it("stores its own content type rather than the client's", async () => {
+    await POST(uploadFont(fontFile([0x00, 0x01, 0x00, 0x00], "text/plain")));
+    expect(uploadObject.mock.calls[0][0].contentType).toBe("font/sfnt");
+  });
+
+  it("still enforces the size cap", async () => {
+    const big = new Uint8Array(5 * 1024 * 1024 + 1);
+    big.set([0x00, 0x01, 0x00, 0x00], 0);
+    const res = await POST(
+      uploadFont(new File([big], "brand.ttf", { type: "font/ttf" })),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  /* An image upload must not start passing signature validation instead. */
+  it("leaves image uploads on the MIME allowlist", async () => {
+    const body = new FormData();
+    body.append("file", fontFile([0x00, 0x01, 0x00, 0x00], "font/ttf"));
+    const res = await POST(
+      new Request("http://x/api/upload", { method: "POST", body }),
+    );
+    expect(res.status).toBe(400);
   });
 });

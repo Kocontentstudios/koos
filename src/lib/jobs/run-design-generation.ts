@@ -17,7 +17,12 @@ import {
 import type { DesignContext } from "@/lib/design/context";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
-import { getObjectBytes, STORAGE_PREFIXES, uploadObject } from "@/lib/storage";
+import {
+  getObjectBytes,
+  STORAGE_PREFIXES,
+  storageKeyFrom,
+  uploadObject,
+} from "@/lib/storage";
 import type { JobRuntime } from "./run-generation";
 
 /** Bedrock's 4096 default truncates structured output mid-JSON, which surfaces
@@ -36,17 +41,19 @@ async function loadImageBytes(
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   if (!logoUrl) return null;
   try {
-    const base = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
-    if (base && logoUrl.startsWith(base)) {
-      const bytes = await getObjectBytes(logoUrl.slice(base.length + 1));
-      return { bytes: new Uint8Array(bytes), contentType: "image/png" };
-    }
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return null;
-    return {
-      bytes: new Uint8Array(await res.arrayBuffer()),
-      contentType: res.headers.get("content-type") ?? "image/png",
-    };
+    /* Our own storage only, and no arbitrary fetch fallback.
+       logo_url and an attached asset's file_url are both user-writable, and
+       this runs server-side inside a job — following whatever they contain
+       would let a brand aim the renderer at a link-local metadata endpoint or
+       any internal host and use the reply as a reference image.
+       Every URL that legitimately reaches here was minted by publicUrl. */
+    const key = storageKeyFrom(logoUrl, [
+      STORAGE_PREFIXES.logos,
+      STORAGE_PREFIXES.referenceImages,
+    ]);
+    if (!key) return null;
+    const bytes = await getObjectBytes(key);
+    return { bytes: new Uint8Array(bytes), contentType: "image/png" };
   } catch {
     // A missing image degrades the design; it must never fail the generation.
     return null;

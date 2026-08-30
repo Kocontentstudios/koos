@@ -279,6 +279,7 @@ export async function updateBrand(
       | "hasLogo"
       | "brandStyle"
       | "brandFont"
+      | "brandFontUrl"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"

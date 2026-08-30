@@ -333,6 +333,9 @@ export const brands = pgTable(
         composite renderer loads three fixed families from disk, so a per-brand
         font file would be a renderer change rather than a column. */
     brandFont: text("brand_font"),
+    /** An uploaded TTF or OTF. Satori rejects WOFF2, so the upload path only
+        accepts the two it can actually render. */
+    brandFontUrl: text("brand_font_url"),
     // Section 5 — Competitors
     competitors: text("competitors"),
     competitorStrengths: text("competitor_strengths"),
