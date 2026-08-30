@@ -6,6 +6,11 @@ import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { getWorkspacesForUser } from "@/lib/db/queries";
 
+/* The verify-email banner's resend action sends mail and runs in this
+   segment, so the budget has to be declared here — see
+   src/lib/mail-route-config.test.ts. */
+export const maxDuration = 60;
+
 export default async function DashboardLayout({
   children,
 }: {

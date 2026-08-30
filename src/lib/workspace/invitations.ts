@@ -52,6 +52,9 @@ export interface CreateInviteDeps {
   ): Promise<string[]>;
   sendInviteEmail(args: InviteEmailArgs): Promise<void>;
   buildAcceptUrl(token: string): string;
+  /** True when the send was abandoned at a deadline, so its outcome is
+      unknown and the token must not be rolled back. */
+  wasAbandoned?(err: unknown): boolean;
 }
 
 export type CreateInviteResult =
@@ -262,9 +265,13 @@ export async function acceptInvitation(
 }
 
 export interface ResendInviteDeps {
+  /* tokenHash is needed to put the previous token back if the resend's send
+     fails after the rotation has already landed. */
   getInvitationById(
     id: string,
-  ): Promise<Omit<InvitationRow, "workspaceName"> | null>;
+  ): Promise<
+    (Omit<InvitationRow, "workspaceName"> & { tokenHash: string }) | null
+  >;
   rotateInvitationToken(
     id: string,
     tokenHash: string,
@@ -272,6 +279,9 @@ export interface ResendInviteDeps {
   ): Promise<void>;
   sendInviteEmail(args: InviteEmailArgs): Promise<void>;
   buildAcceptUrl(token: string): string;
+  /** True when the send was abandoned at a deadline, so its outcome is
+      unknown and the token must not be rolled back. */
+  wasAbandoned?(err: unknown): boolean;
 }
 
 export async function resendInvitation(
@@ -297,12 +307,35 @@ export async function resendInvitation(
     tokenHash,
     new Date(Date.now() + INVITE_TTL_MS),
   );
-  await deps.sendInviteEmail({
-    to: invite.email,
-    acceptUrl: deps.buildAcceptUrl(token),
-    workspaceName: input.workspaceName,
-    inviterName: input.inviterName,
-    roleLabel: ROLE_LABELS[invite.role],
-  });
+  try {
+    await deps.sendInviteEmail({
+      to: invite.email,
+      acceptUrl: deps.buildAcceptUrl(token),
+      workspaceName: input.workspaceName,
+      inviterName: input.inviterName,
+      roleLabel: ROLE_LABELS[invite.role],
+    });
+  } catch (err) {
+    /* Rotation happens first so the link in the new mail is live on arrival,
+       which means a failed send would otherwise kill the working link the
+       invitee already has and replace it with one that was never delivered.
+       Putting the previous token back leaves them no worse off than before.
+       NOT for an abandoned send: the deadline gives up without aborting the
+       socket, so the mail may still arrive carrying the NEW token — restoring
+       the old hash would invalidate a link that was actually delivered. */
+    if (deps.wasAbandoned?.(err)) throw err;
+    await deps
+      .rotateInvitationToken(invite.id, invite.tokenHash, invite.expiresAt)
+      .catch((restoreErr) => {
+        /* Both writes failed, so the invitee's old link is gone and the new
+           one was never delivered. Nothing downstream can detect that, so it
+           has to be said here or it is lost entirely. */
+        console.error(
+          `invitation ${invite.id}: resend failed AND the previous token could not be restored — the invitee now has no working link`,
+          restoreErr,
+        );
+      });
+    throw err;
+  }
   return { ok: true };
 }

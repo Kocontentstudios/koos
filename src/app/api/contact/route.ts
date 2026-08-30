@@ -19,6 +19,11 @@ function contactInbox(): string {
   return (process.env.CONTACT_EMAIL || "hello@kocontentstudios.com").trim();
 }
 
+/* This route sends mail. Vercel's default budget is shorter than the SMTP
+   socket timeout in email.ts, so without this a stalled send is killed before
+   the handler can log or report it. */
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   const verdict = await checkRateLimit({
     key: `contact:${clientIpFrom(req.headers)}`,

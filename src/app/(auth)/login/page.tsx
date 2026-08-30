@@ -267,6 +267,10 @@ function LoginForm() {
   );
 }
 
+/* Auth actions here send verification and password-reset mail; a server
+   action runs in this page's segment, so the budget is declared here. */
+export const maxDuration = 60;
+
 export default function LoginPage() {
   return (
     <Suspense>

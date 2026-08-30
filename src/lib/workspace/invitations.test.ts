@@ -117,6 +117,7 @@ function inviteRow(overrides = {}) {
     brandScope: "all" as const,
     expiresAt: new Date(Date.now() + 60_000),
     acceptedAt: null,
+    tokenHash: "existing-hash",
     ...overrides,
   };
 }
@@ -213,6 +214,34 @@ describe("acceptInvitation", () => {
 });
 
 describe("resendInvitation", () => {
+  /* The rotation lands before the send so the emailed link is live on arrival.
+     If the send then fails, the invitee's existing link must not be collateral
+     damage — they would be left with a dead token and no replacement mail. */
+  it("puts the previous token back when the send fails", async () => {
+    const row = inviteRow();
+    const rotate = vi.fn().mockResolvedValue(undefined);
+    const deps = {
+      getInvitationById: vi.fn().mockResolvedValue(row),
+      rotateInvitationToken: rotate,
+      sendInviteEmail: vi.fn().mockRejectedValue(new Error("smtp down")),
+      buildAcceptUrl: (t: string) => `https://app/invite/${t}`,
+    };
+    await expect(
+      resendInvitation(deps, {
+        invitationId: "inv1",
+        workspaceId: "w1",
+        workspaceName: "KO Content Studio",
+        inviterName: "Seyi",
+      }),
+    ).rejects.toThrow("smtp down");
+
+    expect(rotate).toHaveBeenCalledTimes(2);
+    expect(rotate.mock.calls[0][1]).not.toBe("existing-hash");
+    const [, restoredHash, restoredExpiry] = rotate.mock.calls[1];
+    expect(restoredHash).toBe("existing-hash");
+    expect(restoredExpiry).toBe(row.expiresAt);
+  });
+
   it("rotates the token and re-emails the RAW token", async () => {
     const deps = {
       getInvitationById: vi.fn().mockResolvedValue(inviteRow()),

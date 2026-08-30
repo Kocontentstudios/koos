@@ -46,6 +46,9 @@ async function getOwnDraft(id: string, userId: string) {
  * reachable only through the review endpoint, and the staff routes cap
  * themselves to the same end; accepting a status here would undo that.
  */
+/* submissionSideEffects sends mail; see the note in ../route.ts. */
+export const maxDuration = 60;
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },

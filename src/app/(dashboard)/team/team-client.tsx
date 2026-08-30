@@ -57,16 +57,32 @@ interface PendingInvite {
   expiresAt: string;
 }
 
-async function api(path: string, init?: RequestInit): Promise<string | null> {
+/* A 200 can still carry a warning: an invitation sent from a deployment whose
+   links point at another deployment succeeded and is useless. Every caller
+   goes through `run`, so the warning is surfaced once here rather than being
+   wired per button — the Resend path was silently missing it. */
+interface ApiResult {
+  error: string | null;
+  warning?: string;
+  /** The request failed but wrote a row — the list is stale either way. */
+  saved?: boolean;
+}
+
+async function api(path: string, init?: RequestInit): Promise<ApiResult> {
   const res = await fetch(path, {
     headers: { "content-type": "application/json" },
     ...init,
   });
-  if (res.ok) return null;
   const body = (await res.json().catch(() => null)) as {
     error?: string;
+    warning?: string;
+    saved?: boolean;
   } | null;
-  return body?.error ?? "Something went wrong. Please try again.";
+  if (res.ok) return { error: null, warning: body?.warning };
+  return {
+    error: body?.error ?? "Something went wrong. Please try again.",
+    saved: body?.saved === true,
+  };
 }
 
 function initialsOf(name: string, email: string): string {
@@ -310,19 +326,22 @@ export function TeamClient({
   }
 
   function run(
-    call: () => Promise<string | null>,
+    call: () => Promise<ApiResult>,
     opts?: { successMessage?: string; after?: () => void; key?: string },
   ) {
     setRowError(null);
     setActingOn(opts?.key ?? null);
     startTransition(async () => {
-      const error = await call();
+      const { error, warning } = await call();
       if (error) {
         setRowError(error);
         toast.error(error);
       } else {
         opts?.after?.();
-        if (opts?.successMessage) toast.success(opts.successMessage);
+        // A warning replaces the success toast: the action worked, the result
+        // does not, and a green tick beside it would bury that.
+        if (warning) toast.warning(warning, { duration: 10_000 });
+        else if (opts?.successMessage) toast.success(opts.successMessage);
         router.refresh();
       }
       setActingOn(null);
@@ -362,20 +381,27 @@ export function TeamClient({
       return;
     }
     startTransition(async () => {
-      const error = await api("/api/workspace/invitations", {
-        method: "POST",
-        body: JSON.stringify({
-          email: inviteEmail,
-          role: formRole,
-          brandIds: needsBrands ? formBrandIds : [],
-        }),
-      });
+      const { error, warning, saved } = await api(
+        "/api/workspace/invitations",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: inviteEmail,
+            role: formRole,
+            brandIds: needsBrands ? formBrandIds : [],
+          }),
+        },
+      );
       if (error) {
         setInviteError(error);
+        // The invitation was written even though the email failed; without
+        // this the Pending tab the message points at is empty.
+        if (saved) router.refresh();
       } else {
         setInviteOpen(false);
         setInviteEmail("");
-        toast.success("Invitation sent");
+        if (warning) toast.warning(warning, { duration: 10_000 });
+        else toast.success("Invitation sent");
         router.refresh();
       }
     });

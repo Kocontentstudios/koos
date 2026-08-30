@@ -8,6 +8,9 @@ import { requestPasswordReset } from "../actions";
 
 type ForgotPasswordState = { error?: string; success?: string } | null;
 
+/* The reset request sends mail; see login/page.tsx. */
+export const maxDuration = 60;
+
 export default function ForgotPasswordPage() {
   const [state, formAction, pending] = useActionState<
     ForgotPasswordState,
