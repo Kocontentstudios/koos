@@ -1,9 +1,10 @@
 "use client";
 
 import { Wand2 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
+import { DesignCard } from "@/components/design/design-card";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
@@ -32,11 +33,21 @@ export function DesignStudioClient({
   brandName,
   initialGenerations,
 }: DesignStudioClientProps) {
+  const router = useRouter();
   const promptId = useId();
   const [prompt, setPrompt] = useState("");
   const [context, setContext] = useState<ContextOption[]>([]);
   const [aspectRatio, setAspectRatio] = useState<string>("4:5");
   const [previewOpen, setPreviewOpen] = useState(false);
+  /* A card from the history opens the SAME modal with just that design, so
+     saving always happens behind a preview of what is being saved. Kept
+     separate from the generation run: there is nothing to regenerate here. */
+  const [viewing, setViewing] = useState<SerializedGeneration | null>(null);
+  /* Recorded when a run starts, not inferred from state at close: a second
+     generation that fails clears the first one's results, so reading
+     `generations` on the way out would skip the refresh and leave the designs
+     that DID succeed missing from the grid. */
+  const [ranThisSession, setRanThisSession] = useState(false);
   const design = useDesignGeneration();
 
   const history = design.generations.length
@@ -45,6 +56,8 @@ export function DesignStudioClient({
 
   async function handleGenerate() {
     if (!brandId) return;
+    setViewing(null);
+    setRanThisSession(true);
     setPreviewOpen(true);
     await design.generate({
       brandId,
@@ -146,25 +159,16 @@ export function DesignStudioClient({
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {history.map((generation) =>
-              generation.url ? (
-                <a
-                  key={generation.id}
-                  href={generation.url}
-                  download={`design-${generation.id.slice(0, 8)}.png`}
-                  className="rounded-lg border border-[var(--border)] transition-colors hover:border-[var(--border-accent)]"
-                >
-                  <Image
-                    src={generation.url}
-                    alt={generation.headline ?? "Generated design"}
-                    width={generation.width ?? 1080}
-                    height={generation.height ?? 1080}
-                    className="w-full rounded-lg"
-                    unoptimized
-                  />
-                </a>
-              ) : null,
-            )}
+            {history.map((generation) => (
+              <DesignCard
+                key={generation.id}
+                generation={generation}
+                onOpen={(picked) => {
+                  setViewing(picked);
+                  setPreviewOpen(true);
+                }}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -173,14 +177,28 @@ export function DesignStudioClient({
         open={previewOpen}
         onOpenChange={(next) => {
           setPreviewOpen(next);
-          if (!next) design.reset();
+          if (!next) {
+            /* reset() clears the run's generations, and the grid is now the
+               only route back to a preview — without a refresh the design just
+               made is missing from it until a reload. Only after a run,
+               though: refetching 24 rows and re-signing their URLs to close a
+               preview that changed nothing is pure cost. */
+            /* Only once the run has finished: closing mid-generation would
+               refetch before the job has written anything, and the design
+               would still be missing from the grid. */
+            const hadRun = ranThisSession && !design.pending;
+            setViewing(null);
+            setRanThisSession(false);
+            design.reset();
+            if (hadRun) router.refresh();
+          }
         }}
         brandId={brandId}
-        generations={design.generations}
-        pending={design.pending}
-        progressLabel={design.progressLabel}
-        error={design.error}
-        onRegenerate={handleGenerate}
+        generations={viewing ? [viewing] : design.generations}
+        pending={viewing ? false : design.pending}
+        progressLabel={viewing ? null : design.progressLabel}
+        error={viewing ? null : design.error}
+        onRegenerate={viewing ? undefined : handleGenerate}
       />
     </div>
   );
