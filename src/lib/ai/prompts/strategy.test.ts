@@ -1,64 +1,77 @@
 import { describe, expect, it } from "vitest";
 import {
   type BrandSummary,
-  buildStrategistSystemPrompt,
+  brandBlock,
   buildStrategyGenerationPrompt,
-} from "./strategy";
+} from "@/lib/ai/prompts/strategy";
 
-const brand: BrandSummary = {
+const BRAND: BrandSummary = {
   name: "Lagos Loom",
   overview: "Handwoven aso-oke bags",
-  targetAudience: "Nigerian women 25-40",
-  tone: "Warm and confident",
+  tone: "Bold, Warm",
+  wordsAvoid: "cheap",
 };
 
-describe("buildStrategyGenerationPrompt", () => {
-  const prompt = buildStrategyGenerationPrompt(
-    "user: launching the Ìtàn tote",
-    brand,
-  );
+const GUIDE_BLOCK = [
+  "Brand voice guide — every line of copy must obey this:",
+  "Always: Lead with the craft",
+  "Never: Never say cheap",
+].join("\n");
 
-  it("carries the brand context and the conversation", () => {
-    expect(prompt).toContain("Lagos Loom");
-    expect(prompt).toContain("Handwoven aso-oke bags");
-    expect(prompt).toContain("launching the Ìtàn tote");
+describe("brandBlock", () => {
+  it("carries the brand's attributes", () => {
+    const block = brandBlock(BRAND);
+    expect(block).toContain("Brand: Lagos Loom");
+    expect(block).toContain("Tone of voice: Bold, Warm");
+    expect(block).toContain("Words to avoid: cheap");
   });
 
-  /* One chat = one campaign. Without this instruction the model merges every
-     topic mentioned into a catch-all plan, which is the mixing failure the
-     eval measures. */
-  it("constrains the output to a single campaign focus", () => {
-    expect(prompt).toContain("ONE campaign");
-    expect(prompt).toMatch(
-      /one main goal, product, service, offer, event or message/,
-    );
+  /* This is the guard that matters. brandBlock feeds six prompts, one of which
+     is scored by the paid strategy eval. A brand with no synthesized guide
+     must produce exactly the text it produced before the guide existed, so
+     adding the feature cannot move those scores. */
+  it("is byte-identical for a brand with no voice guide", () => {
+    const withoutField = brandBlock(BRAND);
+    const withNull = brandBlock({ ...BRAND, voiceGuide: null });
+    const withUndefined = brandBlock({ ...BRAND, voiceGuide: undefined });
+
+    expect(withNull).toBe(withoutField);
+    expect(withUndefined).toBe(withoutField);
+    expect(withoutField).not.toContain("voice guide");
   });
 
-  it("states the campaign-name rules the card and sidebar depend on", () => {
-    expect(prompt).toContain("60 characters");
-    expect(prompt).toContain("Campaign for");
+  it("appends the guide when the brand has one", () => {
+    const block = brandBlock({ ...BRAND, voiceGuide: GUIDE_BLOCK });
+
+    expect(block).toContain("every line of copy must obey this");
+    expect(block).toContain("Never: Never say cheap");
+    // Still an addition, not a replacement.
+    expect(block).toContain("Brand: Lagos Loom");
   });
 
-  it("still asks for every field the schema requires", () => {
-    for (const field of [
-      "measurable objective",
-      "target audience",
-      "key message",
-      "channels",
-      "content mix",
-      "timeline",
-      "themes",
-      "posting schedule",
-    ]) {
-      expect(prompt.toLowerCase()).toContain(field.toLowerCase());
-    }
+  /* The guide is a set of rules, not another attribute, so it must not read as
+     one more colon-separated line in the list above it. */
+  it("separates the guide from the attribute list", () => {
+    const block = brandBlock({ ...BRAND, voiceGuide: GUIDE_BLOCK });
+    expect(block).toContain("\n\nBrand voice guide");
   });
 });
 
-describe("buildStrategistSystemPrompt", () => {
-  it("names the brand and points at the Build Strategy action", () => {
-    const system = buildStrategistSystemPrompt(brand);
-    expect(system).toContain("Lagos Loom");
-    expect(system).toContain("Build Strategy");
+describe("buildStrategyGenerationPrompt", () => {
+  it("carries the guide through to the prompt the generator sees", () => {
+    const prompt = buildStrategyGenerationPrompt("some conversation", {
+      ...BRAND,
+      voiceGuide: GUIDE_BLOCK,
+    });
+    expect(prompt).toContain("Never: Never say cheap");
+  });
+
+  it("is unchanged for a brand without one", () => {
+    const withField = buildStrategyGenerationPrompt("some conversation", {
+      ...BRAND,
+      voiceGuide: null,
+    });
+    const without = buildStrategyGenerationPrompt("some conversation", BRAND);
+    expect(withField).toBe(without);
   });
 });

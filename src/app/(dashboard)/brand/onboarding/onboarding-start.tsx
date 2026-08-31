@@ -7,7 +7,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { startConversationalOnboarding } from "./actions";
-import { WelcomeCard } from "./welcome-card";
 
 export function OnboardingStart({
   showWelcome = false,
@@ -34,7 +33,6 @@ export function OnboardingStart({
 
   return (
     <div className="mx-auto flex min-h-[60vh] w-full max-w-lg flex-col justify-center gap-6 py-10">
-      {showWelcome && <WelcomeCard onStart={handleStart} />}
       <div className="flex items-start gap-3">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white">
           KO

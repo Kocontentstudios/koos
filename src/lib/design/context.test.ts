@@ -8,6 +8,8 @@ const getStrategyById = vi.fn();
 const getBrandAssets = vi.fn();
 
 vi.mock("@/lib/db/queries", () => ({
+  // Brands in these tests have no synthesized voice guide.
+  getBrandVoiceGuide: async () => null,
   getBrandById: (id: string) => getBrandById(id),
   getCalendarItemForBrand: (id: string, brandId: string) =>
     getCalendarItemForBrand(id, brandId),

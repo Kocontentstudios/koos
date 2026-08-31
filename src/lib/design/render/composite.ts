@@ -11,6 +11,8 @@ export interface CompositeInput {
     primaryColor?: string | null;
     secondaryColor?: string | null;
     additionalColors?: (string | null)[] | null;
+    /** An uploaded face, used for headlines when it parses. */
+    brandFontUrl?: string | null;
   };
   plate: { bytes: Uint8Array; contentType: string } | null;
   logo: { bytes: Uint8Array; contentType: string } | null;
@@ -42,7 +44,7 @@ export async function renderCompositeDesign({
 }: CompositeInput): Promise<CompositeResult> {
   const canvas = canvasFor(spec.aspectRatio);
   const palette = resolvePalette(spec.palette, brand);
-  const fonts = await loadBrandFonts();
+  const fonts = await loadBrandFonts(brand.brandFontUrl);
 
   const element = layoutElement({
     spec,

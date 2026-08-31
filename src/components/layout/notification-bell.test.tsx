@@ -21,6 +21,14 @@ const openBell = async () => {
   return user;
 };
 
+/* Every test here mounts a Base UI dropdown through a portal and drives it
+   with userEvent. Alone that is well under a second, but the suite runs files
+   in parallel and under that contention this file has been measured timing out
+   against the 5s default — a pass/fail decided by machine load rather than by
+   the code. Bounded generously instead: these are not slow tests, they are
+   tests whose scheduling is not theirs to control. */
+vi.setConfig({ testTimeout: 20_000 });
+
 /** A fetch that stays pending, so the loading branch can be observed. */
 const never = () => new Promise<never>(() => {});
 

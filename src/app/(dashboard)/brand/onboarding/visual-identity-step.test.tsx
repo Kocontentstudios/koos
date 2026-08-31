@@ -203,3 +203,90 @@ describe("VisualIdentityStep", () => {
     });
   });
 });
+
+/* An uploaded face is checked by signature server-side; the client's job is to
+   send it under the right kind and surface the refusal. */
+describe("VisualIdentityStep font upload", () => {
+  const ttf = () =>
+    new File([new Uint8Array([0x00, 0x01, 0x00, 0x00])], "brand.ttf", {
+      type: "font/ttf",
+    });
+
+  it("uploads a font under the font kind", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ url: "https://cdn/fonts/u1/brand.ttf" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderStep();
+
+    const inputs = screen.getAllByTestId("file-input");
+    await user.upload(inputs[inputs.length - 1], ttf());
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = (
+      fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    )[1].body as FormData;
+    expect(body.get("kind")).toBe("font");
+  });
+
+  it("saves the uploaded font URL with the rest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ url: "https://cdn/fonts/u1/brand.ttf" }),
+      })),
+    );
+    const user = userEvent.setup();
+    const { onSave } = renderStep();
+
+    const inputs = screen.getAllByTestId("file-input");
+    await user.upload(inputs[inputs.length - 1], ttf());
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandFontUrl: "https://cdn/fonts/u1/brand.ttf",
+      }),
+    );
+  });
+
+  /* The server rejects a WOFF2 because satori cannot render it; the user has
+     to be told why rather than left with a silently empty field. */
+  it("surfaces the server's reason for refusing a file", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        json: async () => ({
+          error: "That does not look like a TTF or OTF font file.",
+        }),
+      })),
+    );
+    const user = userEvent.setup();
+    renderStep();
+
+    const inputs = screen.getAllByTestId("file-input");
+    await user.upload(inputs[inputs.length - 1], ttf());
+
+    expect(
+      await screen.findByText(/does not look like a TTF or OTF/),
+    ).toBeInTheDocument();
+  });
+
+  /* Typography is optional: the style picker alone is a complete answer. */
+  it("saves without a font file at all", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderStep();
+
+    await user.click(screen.getByRole("button", { name: "Classic serif" }));
+    await user.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ brandFont: "Classic serif", brandFontUrl: "" }),
+    );
+  });
+});
