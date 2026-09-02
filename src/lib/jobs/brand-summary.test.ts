@@ -1,4 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+/* brandSummaryFrom is pure, but its module imports getBrandVoiceGuide, which
+   pulls in the db client and throws without DATABASE_URL. Mocked so this file
+   tests the mapping rather than the environment — the import arrived from dev
+   after this branch was cut, so the test passed here and failed on the merge. */
+vi.mock("@/lib/db/queries", () => ({ getBrandVoiceGuide: vi.fn() }));
+
 import { brandBlock } from "@/lib/ai/prompts/strategy";
 import type { brands } from "@/lib/db/schema";
 import { brandSummaryFrom } from "@/lib/jobs/brand-summary";
