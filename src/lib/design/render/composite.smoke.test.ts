@@ -56,4 +56,20 @@ describe("renderCompositeDesign", () => {
       expect(Array.from(result.bytes.slice(0, 4))).toEqual(PNG_MAGIC);
     }
   }, 120_000);
+
+  /* The only ratio rendered here was 4:5 — the one this change did NOT touch.
+     Landscape moved from 1200x675 to 1344x756, and nothing else in the suite
+     rasterizes at that size, so a regression there would be invisible. */
+  it("renders landscape at its changed canvas size", async () => {
+    const result = await renderCompositeDesign({
+      spec: { ...SPEC, aspectRatio: "16:9" },
+      brand: { primaryColor: "#0F172A", secondaryColor: "#F97316" },
+      plate: null,
+      logo: null,
+    });
+
+    expect(result.width).toBe(1344);
+    expect(result.height).toBe(756);
+    expect(Array.from(result.bytes.subarray(0, 4))).toEqual(PNG_MAGIC);
+  }, 30_000);
 });

@@ -25,10 +25,13 @@ with `sharp`. Asking a model would add cost, latency and variance to a question
 arithmetic already settles. Structural checks must pass at **100%** — a wrong
 aspect ratio is a bug, never model variance.
 
-The aspect-ratio assertion is the sharp end of this: Google's enum has no 4:5,
-so `toGoogleAspectRatio` substitutes 3:4. `expectedPixelRatio` encodes that
-substitution, meaning the eval fails if someone "fixes" the mapping to return a
-0.8 ratio the API will not serve.
+The aspect-ratio assertion is the sharp end of this. The image-model argument
+takes an enum with no 4:5, so `toGoogleAspectRatio` substitutes 3:4 there — but
+the adapter also sends the true ratio in `imageConfig`, which accepts 4:5 and
+whose value replaces the SDK's own. So 4:5 is served as 4:5, and
+`expectedPixelRatio` asserts the requested ratio rather than a substituted one.
+Change what the adapter sends and this expectation has to move with it, or the
+run fails on `portrait-true-ratio` every time.
 
 **Judged.** Whether rendered copy is legible and correctly spelled is a
 genuine judgement call, so it goes to the local Claude Code CLI (`judge.mts`),
