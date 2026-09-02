@@ -1,13 +1,11 @@
 import { requireRole } from "@/lib/auth/require-role";
 import { getAppSettings } from "@/lib/db/queries";
+import { EmailHealthPanel } from "./email-health-panel";
 import { SettingsForm } from "./settings-form";
 
 export default async function AdminSettingsPage() {
   await requireRole(["admin"]);
   const settings = await getAppSettings();
-  const smtpConfigured = Boolean(
-    process.env.ZOHO_SMTP_USER && process.env.ZOHO_SMTP_PASS,
-  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -22,14 +20,7 @@ export default async function AdminSettingsPage() {
 
       <SettingsForm initialDesignTeamEmail={settings?.designTeamEmail ?? ""} />
 
-      <div className="max-w-md rounded-xl border border-[var(--border)] bg-surface-1 p-5">
-        <p className="text-[13px] font-medium text-foreground">Email (SMTP)</p>
-        <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
-          {smtpConfigured
-            ? "Configured. Credentials are managed via environment variables."
-            : "Not configured. Set ZOHO_SMTP_USER / ZOHO_SMTP_PASS in the environment."}
-        </p>
-      </div>
+      <EmailHealthPanel />
     </div>
   );
 }

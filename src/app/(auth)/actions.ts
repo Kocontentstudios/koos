@@ -33,7 +33,7 @@ import {
   updateUserPassword,
 } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
-import { describeMailError } from "@/lib/email";
+import { describeMailError, isMailError, tenantMailMessage } from "@/lib/email";
 import {
   sendPasswordResetEmail,
   sendVerificationEmail,
@@ -103,8 +103,13 @@ export async function resendVerificationEmail(): Promise<
       to: dbUser.email,
       err: describeMailError(err),
     });
+    /* sendAccountVerificationEmail writes the token row before it sends, so a
+       database failure lands in this same catch. Only a tagged mail failure
+       may be described as one. */
     return {
-      error: "Could not send the verification email. Please try again.",
+      error: isMailError(err)
+        ? `${tenantMailMessage(err)} Please try again in a moment.`
+        : "Could not send the verification email. Please try again.",
     };
   }
 }

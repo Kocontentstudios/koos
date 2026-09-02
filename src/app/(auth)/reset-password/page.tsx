@@ -191,6 +191,9 @@ function ResetPasswordForm() {
   );
 }
 
+/* Auth actions in this segment send mail; see login/page.tsx. */
+export const maxDuration = 60;
+
 export default function ResetPasswordPage() {
   return (
     <Suspense>

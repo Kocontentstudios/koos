@@ -9,12 +9,17 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+const { toastMock } = vi.hoisted(() => ({
+  toastMock: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
+
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 afterEach(() => {
   refreshMock.mockClear();
+  toastMock.error.mockClear();
+  toastMock.success.mockClear();
+  toastMock.warning.mockClear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -427,5 +432,112 @@ describe("TeamClient — per-row pending state", () => {
     }
 
     vi.unstubAllGlobals();
+  });
+});
+
+/* A 200 that carries a warning means the action worked and the result does
+   not — an invitation whose link points at another deployment. Both Invite and
+   Resend must surface it; the whole warning path once survived deletion
+   against a green suite because only the server contract was tested. */
+describe("TeamClient — a warning on a successful response", () => {
+  const WRONG_HOST =
+    "The invitation was sent, but this environment builds links for a different deployment, so the link will not work.";
+
+  function renderOwner() {
+    render(
+      <TeamClient
+        workspaceName="KO Content Studio"
+        currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
+        canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
+        members={members}
+        invitations={invitations}
+      />,
+    );
+  }
+
+  function respond(body: unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => body }),
+    );
+  }
+
+  it("warns instead of celebrating when the invitation's link host is wrong", async () => {
+    const user = userEvent.setup();
+    respond({ ok: true, warning: WRONG_HOST });
+    renderOwner();
+
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    await user.type(screen.getByLabelText(/email/i), "new@example.com");
+    await user.click(screen.getByRole("button", { name: /send invitation/i }));
+
+    await waitFor(() =>
+      expect(toastMock.warning).toHaveBeenCalledWith(
+        WRONG_HOST,
+        expect.anything(),
+      ),
+    );
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  /* Resend is the button an owner presses when the invitation did not arrive,
+     so it is the path where a wrong link host matters most. */
+  it("warns on Resend too, not just on Invite", async () => {
+    const user = userEvent.setup();
+    respond({ ok: true, warning: WRONG_HOST });
+    renderOwner();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    await user.click(await screen.findByRole("button", { name: /^resend$/i }));
+
+    await waitFor(() =>
+      expect(toastMock.warning).toHaveBeenCalledWith(
+        WRONG_HOST,
+        expect.anything(),
+      ),
+    );
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  /* The 500 says "the invitation was saved — use Resend from the Pending
+     tab". Without a refresh that tab is empty when the owner looks. */
+  it("refreshes when the invitation was saved despite the email failing", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({
+          saved: true,
+          error: "Our email service did not respond in time.",
+        }),
+      }),
+    );
+    renderOwner();
+
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    await user.type(screen.getByLabelText(/email/i), "new@example.com");
+    await user.click(screen.getByRole("button", { name: /send invitation/i }));
+
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+  });
+
+  it("still celebrates an ordinary success", async () => {
+    const user = userEvent.setup();
+    respond({ ok: true });
+    renderOwner();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    await user.click(await screen.findByRole("button", { name: /^resend$/i }));
+
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith("Invitation resent"),
+    );
+    expect(toastMock.warning).not.toHaveBeenCalled();
   });
 });

@@ -16,9 +16,35 @@
  *   - 553 relaying disallowed: ZOHO_MAIL_FROM is not the authenticated
  *     mailbox (or an authorized alias)
  *   - ETIMEDOUT/ECONNECTION: port 465 blocked or wrong ZOHO_SMTP_HOST
+ *
+ * Also prints the host invite links would resolve to. Sending mail successfully
+ * from staging is only half of a working invitation: a link pointing at the
+ * production host lands the recipient on a deployment where the invitation row
+ * does not exist.
  */
 
 import nodemailer from "nodemailer";
+
+// The type-stripping loader emits this on every run for a .ts file in a
+// package with no "type" field; it is noise ahead of diagnostic output.
+process.removeAllListeners("warning");
+
+// The real resolver, imported rather than reimplemented so the script and the
+// app can never disagree about which host an invite link points at. Requires
+// Node >= 22.18 for unflagged type stripping (see "engines" in package.json);
+// on an older runtime the SMTP checks below still run.
+let appUrlBase = null;
+let linkHostVerdict = null;
+let mailHelpers = null;
+let importFailure = null;
+try {
+  ({ appUrlBase, linkHostVerdict } = await import("../src/lib/app-url.ts"));
+  mailHelpers = await import("../src/lib/email.ts");
+} catch (err) {
+  // Reported rather than swallowed: falling back silently would print
+  // different verdicts from the app's and look like a passing check.
+  importFailure = err;
+}
 
 const C = {
   reset: "\x1b[0m",
@@ -37,12 +63,24 @@ try {
   // rely on ambient env (CI / --env-file)
 }
 
-const host = process.env.ZOHO_SMTP_HOST ?? "smtp.zoho.com";
-const port = Number(process.env.ZOHO_SMTP_PORT) || 465;
-const secure = process.env.ZOHO_SMTP_SECURE !== "false";
-const user = process.env.ZOHO_SMTP_USER;
-const pass = process.env.ZOHO_SMTP_PASS;
-const from = process.env.ZOHO_MAIL_FROM ?? user;
+// The app's own helpers, imported rather than reimplemented, so the script
+// cannot diagnose "wrong password" where the app refuses to connect at all.
+if (importFailure) {
+  bad(
+    "Could not load the app's own helpers, so these checks would disagree with " +
+      `the app: ${importFailure.message}. Node >= 22.18 is required (running ${process.version}).`,
+  );
+  process.exit(1);
+}
+
+const host = mailHelpers?.smtpHost(process.env) ?? "smtp.zoho.com";
+const port = mailHelpers?.smtpPort(process.env) ?? 465;
+const secure = mailHelpers?.smtpSecure(process.env) ?? port === 465;
+const user =
+  mailHelpers?.smtpUser(process.env) ?? process.env.ZOHO_SMTP_USER?.trim();
+const pass =
+  mailHelpers?.smtpPass(process.env) ?? process.env.ZOHO_SMTP_PASS?.trim();
+const from = mailHelpers?.mailFrom(process.env) ?? user;
 
 console.log(`SMTP config: ${C.dim}${host}:${port} secure=${secure}${C.reset}`);
 console.log(
@@ -51,18 +89,38 @@ console.log(
 console.log(
   `Pass: ${pass ? `${C.dim}(set, ${pass.length} chars)${C.reset}` : `${C.red}NOT SET${C.reset}`}`,
 );
-console.log(`From: ${C.dim}${from ?? "(unset)"}${C.reset}\n`);
+console.log(`From: ${C.dim}${from ?? "(unset)"}${C.reset}`);
 
-if (!user || !pass) {
+const inviteBase = appUrlBase ? appUrlBase(process.env) : null;
+const vercelEnv = process.env.VERCEL_ENV ?? "local";
+console.log(
+  inviteBase
+    ? `Invite links: ${C.dim}${inviteBase}/invite/... (env: ${vercelEnv})${C.reset}\n`
+    : `Invite links: ${C.dim}NOT CHECKED — needs Node >= 22.18 (running ${process.version})${C.reset}\n`,
+);
+
+// The same classifier the app and the admin panel use, so the script cannot
+// disagree with what the operator sees in the panel.
+const verdict = linkHostVerdict?.(process.env) ?? null;
+if (verdict?.severity === "wrong") {
+  warn(verdict.message);
+} else if (verdict) {
+  console.log(`${C.dim}Note: ${verdict.message}${C.reset}`);
+}
+
+const missing = mailHelpers?.missingSmtpVars(process.env) ?? [];
+if (missing.length > 0 || !user || !pass) {
   bad(
-    "ZOHO_SMTP_USER and/or ZOHO_SMTP_PASS are missing — every app email fails.",
+    `${missing.join(" and ") || "ZOHO_SMTP_USER / ZOHO_SMTP_PASS"} missing or blank — every app email fails.`,
   );
   process.exit(1);
 }
 if (from && user && from !== user) {
   warn(
-    `ZOHO_MAIL_FROM (${from}) differs from ZOHO_SMTP_USER (${user}) — ` +
-      "Zoho rejects sends unless the From address is an authorized alias of the mailbox.",
+    `ZOHO_MAIL_FROM (${from}) differs from ZOHO_SMTP_USER (${user}) — that is ` +
+      "fine only if it is a REGISTERED Zoho alias of the mailbox. If it is not, " +
+      "connect and auth still succeed and every send is rejected with 553. " +
+      "Use --send to find out.",
   );
 }
 

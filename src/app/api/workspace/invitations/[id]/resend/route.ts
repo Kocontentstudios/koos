@@ -1,15 +1,24 @@
+import { linkHostVerdict, requestHost } from "@/lib/app-url";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import { can } from "@/lib/auth/workspace-access";
 import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import { getInvitationById, rotateInvitationToken } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
-import { describeMailError } from "@/lib/email";
+import {
+  describeMailError,
+  isMailError,
+  retryCanHelp,
+  tenantMailMessage,
+  wasAbandoned,
+} from "@/lib/email";
 import { sendWorkspaceInviteEmail } from "@/lib/notify/workspace";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { resendInvitation } from "@/lib/workspace/invitations";
 
+export const maxDuration = 60;
+
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
@@ -59,6 +68,7 @@ export async function POST(
               expiresInDays: 7,
             },
           }),
+        wasAbandoned,
         buildAcceptUrl: (token) =>
           appUrl(`/invite/${encodeURIComponent(token)}`),
       },
@@ -72,11 +82,32 @@ export async function POST(
     if (!result.ok) {
       return Response.json({ error: "Invitation not found" }, { status: 404 });
     }
-    return Response.json({ ok: true });
+    /* The owner who pressed the button cannot reach the admin Email panel, so
+       a provably wrong link host has to reach them here — reporting plain
+       success would hand them a link that cannot work. An unconfirmable host
+       only goes to the log: a custom staging domain looks identical, and
+       warning on every correct send is how the real case gets ignored. */
+    const verdict = linkHostVerdict(process.env, requestHost(req));
+    if (verdict) {
+      console.warn(`invitation link host: ${verdict.message}`);
+    }
+    return Response.json({
+      ok: true,
+      ...(verdict?.severity === "wrong"
+        ? {
+            warning:
+              "The invitation was sent, but this environment builds links for a different deployment, so the link will not work. Ask an administrator to set the app URL for this environment.",
+          }
+        : {}),
+    });
   } catch (err) {
     console.error("resend invitation failed", describeMailError(err));
     return Response.json(
-      { error: "Could not resend the invitation. Please try again." },
+      {
+        error: isMailError(err)
+          ? `${tenantMailMessage(err)}${retryCanHelp(err) ? " Please try again in a moment." : ""}`
+          : "Could not resend the invitation. Please try again.",
+      },
       { status: 500 },
     );
   }
