@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { BrandProfileInput } from "@/lib/brand-profile";
 import {
   brandProfileCompletion,
   hasCompletedBrand,
@@ -249,5 +250,75 @@ describe("parseAdditionalColors", () => {
 
   it("truncates an absurdly long entry rather than writing it", () => {
     expect(parseAdditionalColors("x".repeat(200))[0]).toHaveLength(40);
+  });
+});
+
+/* Section 5 (Competitors) deliberately scores nothing: the five weights
+   already total 100, so adding the new field to SECTIONS would silently move
+   every existing brand's completion percentage — a reporting number the
+   onboarding gate does not use, but that users see. */
+describe("competitor fields stay outside the score", () => {
+  const basics: BrandProfileInput = {
+    name: "Lagos Loom",
+    overview: "Handwoven bags",
+    businessType: "Retail",
+    stage: "Early",
+  };
+
+  /* BrandProfileInput lists only the fields that score, so the cast is the
+     point: it proves a brand row carrying competitor values still produces the
+     same number. Adding them to the type would be the first step toward
+     adding them to SECTIONS. */
+  const withCompetitors = (extra: Record<string, string>) =>
+    ({ ...basics, ...extra }) as BrandProfileInput;
+
+  it.each(["competitors", "competitorStrengths", "differentiators"])(
+    "filling %s does not move the percentage",
+    (field) => {
+      expect(brandProfileCompletion(withCompetitors({ [field]: "x" }))).toBe(
+        brandProfileCompletion(basics),
+      );
+    },
+  );
+
+  it("does not change whether the basics gate is satisfied", () => {
+    expect(
+      isBasicsComplete(withCompetitors({ competitorStrengths: "x" })),
+    ).toBe(true);
+    expect(
+      isBasicsComplete({
+        overview: "o",
+        competitorStrengths: "x",
+      } as BrandProfileInput),
+    ).toBe(false);
+  });
+
+  /* The five weights total 100 on their own. If a section were added or a
+     weight raised for the competitor fields, a full profile would exceed 100. */
+  it("still tops out at exactly 100", () => {
+    const everythingScored: BrandProfileInput = {
+      ...basics,
+      targetAudience: "a",
+      offer: "o",
+      tone: "t",
+      primaryGoal: "g",
+      logoUrl: "l",
+      brandStyle: "s",
+      primaryColor: "#000",
+      secondaryColor: "#fff",
+      values: "v",
+      wordsLove: "w",
+      wordsAvoid: "x",
+      platforms: ["Instagram"],
+      primaryPlatform: "Instagram",
+      postingFrequency: "Daily",
+    };
+    expect(brandProfileCompletion(everythingScored)).toBe(100);
+    expect(
+      brandProfileCompletion({
+        ...everythingScored,
+        competitorStrengths: "x",
+      } as BrandProfileInput),
+    ).toBe(100);
   });
 });

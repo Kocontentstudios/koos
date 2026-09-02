@@ -53,7 +53,12 @@ describe("isRenderableFont", () => {
   });
 });
 
-describe("loadBrandFonts", () => {
+/* Raised for contention, not for any single case: the slowest here is ~1.8s
+   and the rest are well under a second, but they read the real vendored font
+   files, so under parallel load they tip past the per-test default together.
+   Wide enough to absorb that, narrow enough that a genuine hang in the font
+   fetch still fails rather than hiding. */
+describe("loadBrandFonts", { timeout: 12_000 }, () => {
   it("uses the built-in families when the brand has no font", async () => {
     const fonts = await loadBrandFonts();
 

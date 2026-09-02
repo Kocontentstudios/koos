@@ -44,8 +44,18 @@ export const extractionSchema = z.object({
     wordsLove: extractedField,
     wordsAvoid: extractedField,
     brandStyle: extractedField,
-    competitors: extractedField,
-    differentiators: extractedField,
+    competitors: extractedField.describe(
+      "Who else is in the space, by name. Names only — not what anyone is good at.",
+    ),
+    /* The two below are mirror images and the only other thing separating them
+       is the key name, so each says whose advantage it holds. Without this the
+       model has nothing to go on and can swap them. */
+    competitorStrengths: extractedField.describe(
+      "What the COMPETITORS are good at — their strengths, where they are hard to beat. Never this brand's own advantages.",
+    ),
+    differentiators: extractedField.describe(
+      "What THIS brand does differently or better than its competitors — its own advantages. Never the competitors' strengths.",
+    ),
     primaryColor: extractedField,
     secondaryColor: extractedField,
     additionalColors: extractedField.describe(

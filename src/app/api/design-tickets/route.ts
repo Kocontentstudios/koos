@@ -33,6 +33,11 @@ interface LegacyBody {
   saveAsDraft?: boolean;
 }
 
+/* Sends the design-request emails through createTicketFromRequest. Vercel's
+   default budget is shorter than the SMTP socket timeout in email.ts, so
+   without this a stalled send is killed before it can be logged. */
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   const { dbUser } = await getAuthUser();
   if (!dbUser) {

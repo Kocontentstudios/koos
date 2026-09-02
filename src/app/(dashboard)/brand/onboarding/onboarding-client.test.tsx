@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pollMarker } from "@/lib/onboarding/chips";
 
 const speak = vi.fn();
 const cancel = vi.fn();
@@ -412,6 +413,92 @@ describe("OnboardingClient voice chips", () => {
       { text: "Our brand voice is: Bold, Warm." },
       expect.objectContaining({
         body: expect.objectContaining({ brandId: "b1", mode: "onboarding" }),
+      }),
+    );
+  });
+
+  /* The competitor pair has no prose fallback by design, so the marker is the
+     ONLY thing that makes these two polls appear. Detecting on the stripped
+     text instead of the raw text removes the feature entirely — silently, and
+     with every other test still green. */
+  it("offers our-advantage chips only when the message carries the marker", () => {
+    const asked =
+      "What do you do differently or better than those competitors?";
+    chatState.messages = [assistant(asked)];
+    const { unmount } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+    expect(screen.queryByRole("button", { name: "Higher quality" })).toBeNull();
+    unmount();
+
+    chatState.messages = [
+      assistant(`${asked} ${pollMarker("differentiation")}`),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(
+      screen.getByRole("button", { name: "Higher quality" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers their-strength chips for the mirror question", () => {
+    chatState.messages = [
+      assistant(
+        `What are those competitors good at? ${pollMarker("competitor-strengths")}`,
+      ),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(
+      screen.getByRole("button", { name: "Bigger budget" }),
+    ).toBeInTheDocument();
+    // The opposite poll's options must not be on screen.
+    expect(screen.queryByRole("button", { name: "Higher quality" })).toBeNull();
+  });
+
+  /* The marker is protocol, not content. It must not reach the screen — and
+     messageText also feeds the read-aloud voice and the extractor transcript. */
+  it("never renders the marker", () => {
+    chatState.messages = [
+      assistant(`What sets you apart? ${pollMarker("differentiation")}`),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByText("What sets you apart?")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("[[poll:");
+  });
+
+  /* The message re-renders on every chunk and the prompt puts the marker last,
+     so an arriving marker types itself out on screen — on four of the nine
+     onboarding turns. A whole-message test cannot catch this. */
+  it.each([
+    "[[",
+    "[[p",
+    "[[poll",
+    "[[poll:",
+    "[[poll:diff",
+    "[[poll:differentiati",
+  ])("hides the marker while it is still arriving: %j", (partial) => {
+    chatState.status = "streaming";
+    chatState.messages = [assistant(`What do you do better?\n\n${partial}`)];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(document.body.textContent).not.toContain("[[");
+    expect(screen.getByText("What do you do better?")).toBeInTheDocument();
+  });
+
+  it("sends a differentiation pick as its own sentence", async () => {
+    chatState.messages = [
+      assistant(`What do you do better? ${pollMarker("differentiation")}`),
+    ];
+    const user = userEvent.setup();
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await user.click(screen.getByRole("button", { name: "Bespoke service" }));
+    await user.click(screen.getByRole("button", { name: "That's our edge" }));
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      { text: "What we do better than competitors: Bespoke service." },
+      expect.objectContaining({
+        body: expect.objectContaining({ mode: "onboarding" }),
       }),
     );
   });

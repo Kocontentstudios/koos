@@ -15,6 +15,7 @@ import {
   updateDesignGeneration,
 } from "@/lib/db/queries";
 import type { DesignContext } from "@/lib/design/context";
+import { readPngDimensions } from "@/lib/design/png-dimensions";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
 import {
@@ -88,7 +89,10 @@ function planVariants(): {
   return plan;
 }
 
-async function renderVariant(
+/* Exported for the test that pins the native size read — the wiring is the
+   only place readPngDimensions takes effect, and it is invisible from the
+   outside once a row is written. */
+export async function renderVariant(
   variant: DesignVariant,
   spec: DesignSpec,
   context: DesignContext,
@@ -132,7 +136,16 @@ async function renderVariant(
       ? { referenceImages: references }
       : {}),
   });
-  return { bytes: image.bytes };
+  /* The model sized this one, so the size comes from the file rather than
+     from us. Without it these rows store null and every surface guesses — so
+     a failed read is logged rather than silently restoring that state. */
+  const size = readPngDimensions(image.bytes);
+  if (!size) {
+    console.warn(
+      `native image from ${variant.adapter.id} had no readable PNG size (${image.contentType}); storing without dimensions`,
+    );
+  }
+  return { bytes: image.bytes, ...(size ?? {}) };
 }
 
 /**

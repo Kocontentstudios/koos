@@ -403,3 +403,27 @@ export function memberJoinedEmail(i: MemberJoinedEmailInput): BuiltEmail {
   );
   return { subject, html };
 }
+
+export interface SmtpTestEmailInput {
+  environment: string;
+  inviteLinkBase: string;
+  sentAt: Date;
+}
+
+/** Sent from the admin Email panel to prove SMTP works end to end. Carries the
+    invite link base so the operator can see, in the delivered mail, which host
+    an invitation would actually point at. */
+export function smtpTestEmail(i: SmtpTestEmailInput): BuiltEmail {
+  return {
+    subject: `KO OS SMTP test — ${i.environment}`,
+    html: shell(
+      "SMTP is working",
+      `<p style="font-size:14px">If you are reading this, this deployment can deliver email.</p>
+  <table style="border-collapse:collapse;width:100%">
+    ${row("Environment", escapeHtml(i.environment))}
+    ${row("Invite links resolve to", escapeHtml(i.inviteLinkBase))}
+    ${row("Sent", escapeHtml(i.sentAt.toISOString()))}
+  </table>`,
+    ),
+  };
+}

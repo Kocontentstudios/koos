@@ -196,4 +196,24 @@ describe("ProposalCard", () => {
       screen.getByText(/"designType": "Launch banner"/),
     ).toBeInTheDocument();
   });
+
+  /* This card is the first screen a new user meets. An unlabelled key renders
+     as raw camelCase in uppercase tracking — "COMPETITORSTRENGTHS". */
+  it.each(["competitorStrengths", "differentiators"])(
+    "labels %s in plain words",
+    (field) => {
+      render(
+        <ProposalCard
+          proposal={{
+            kind: "brand_fields",
+            summary: "Captured your positioning.",
+            data: { fields: { [field]: "Bespoke service" } },
+          }}
+          brandId="b1"
+          onDone={() => {}}
+        />,
+      );
+      expect(screen.queryByText(new RegExp(field, "i"))).toBeNull();
+    },
+  );
 });

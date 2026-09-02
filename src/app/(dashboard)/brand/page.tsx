@@ -13,11 +13,9 @@ import {
   getActiveBrandForMember,
   listDesignGenerationsForBrand,
 } from "@/lib/db/queries";
-import {
-  type SerializedGeneration,
-  serializeGeneration,
-} from "@/lib/design/serialize";
+import { serializeGeneration } from "@/lib/design/serialize";
 import { resolveOnboardingRoute } from "@/lib/onboarding-route";
+import { GeneratedDesigns } from "./generated-designs";
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -386,53 +384,7 @@ export default async function BrandProfilePage() {
         )}
       </div>
 
-      <GeneratedDesigns generations={generations} />
-    </div>
-  );
-}
-
-/** First surface in the app that renders generated output outside the
- * generation flow itself — previously saved designs were invisible. */
-function GeneratedDesigns({
-  generations,
-}: {
-  generations: SerializedGeneration[];
-}) {
-  if (generations.length === 0) return null;
-  return (
-    <div className="mt-6 rounded-xl border border-[var(--border)] p-6 sm:p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-display text-[18px] font-bold text-foreground">
-          Generated Designs
-        </h2>
-        <Link
-          href="/design-studio"
-          className="text-[13px] text-[var(--text-muted)] transition-colors hover:text-foreground"
-        >
-          View all in Design Studio
-        </Link>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {generations.map((generation) =>
-          generation.url ? (
-            <a
-              key={generation.id}
-              href={generation.url}
-              download={`design-${generation.id.slice(0, 8)}.png`}
-              className="rounded-lg border border-[var(--border)] transition-colors hover:border-[var(--border-accent)]"
-            >
-              <Image
-                src={generation.url}
-                alt={generation.headline ?? "Generated design"}
-                width={generation.width ?? 1080}
-                height={generation.height ?? 1080}
-                className="w-full rounded-lg"
-                unoptimized
-              />
-            </a>
-          ) : null,
-        )}
-      </div>
+      <GeneratedDesigns brandId={brand.id} generations={generations} />
     </div>
   );
 }

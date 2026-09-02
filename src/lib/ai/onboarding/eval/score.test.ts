@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatChipSelection } from "@/lib/onboarding/chips";
 import {
   EXTRACTION_EVAL_CASES,
   EXTRACTION_EVAL_THRESHOLDS,
@@ -177,5 +178,39 @@ describe("EXTRACTION_EVAL_CASES", () => {
     expect(EXTRACTION_EVAL_THRESHOLDS.maxInventedPerCase).toBeLessThanOrEqual(
       1,
     );
+  });
+});
+
+/* The chip cases exist to prove a tap reaches the right column. They only do
+   that if their transcripts carry the sentences formatChipSelection actually
+   produces — otherwise the eval passes against wording the product never
+   emits, which is worse than no case at all. */
+describe("chip eval transcripts use the real sentences", () => {
+  const byId = new Map(EXTRACTION_EVAL_CASES.map((c) => [c.id, c]));
+
+  it.each([
+    ["chip-selections", "tone", ["Bold", "Warm", "Playful"]],
+    ["chip-selections", "avoid", ["Synergy", "Cheap", "Guaranteed"]],
+    [
+      "competitor-poll-directions",
+      "differentiation",
+      ["Bespoke service", "Local expertise"],
+    ],
+    [
+      "competitor-poll-directions",
+      "competitor-strengths",
+      ["Bigger budget", "Wider reach"],
+    ],
+  ] as const)("%s carries the %s sentence verbatim", (id, kind, picks) => {
+    const transcript = byId.get(id)?.transcript ?? "";
+    expect(transcript).toContain(formatChipSelection(kind, [...picks]));
+  });
+
+  /* The direction is the whole point of the case: if the two expectations
+     were swapped it would still pass while the columns were inverted. */
+  it("expects each poll's answer in its own column", () => {
+    const c = byId.get("competitor-poll-directions");
+    expect(c?.expected.differentiators?.contains).toEqual(["bespoke"]);
+    expect(c?.expected.competitorStrengths?.contains).toEqual(["budget"]);
   });
 });

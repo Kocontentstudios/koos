@@ -17,6 +17,7 @@ export interface CodexBrand {
   secondaryColor?: string | null;
   additionalColors?: string[] | null;
   competitors?: string | null;
+  competitorStrengths?: string | null;
   differentiators?: string | null;
   platforms?: string[] | null;
   primaryPlatform?: string | null;
@@ -106,6 +107,7 @@ export function toBrandCodexMarkdown(
     section("Market", [
       line("Competitors", brand.competitors),
       line("What sets us apart", brand.differentiators),
+      line("Where competitors lead", brand.competitorStrengths),
     ]),
 
     section("Platforms", [

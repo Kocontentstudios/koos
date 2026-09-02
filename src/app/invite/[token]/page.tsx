@@ -15,6 +15,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/* The accept action sends the member-joined email. A server action runs in
+   this page's segment, so the budget has to be declared here. */
+export const maxDuration = 60;
+
 export default async function InvitePage({
   params,
   searchParams,
