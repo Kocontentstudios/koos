@@ -6,7 +6,10 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
-import { brandProfileCompletion } from "@/lib/brand-profile";
+import {
+  brandProfileCompletion,
+  parseAdditionalColors,
+} from "@/lib/brand-profile";
 import {
   type BrandSnapshotFields,
   toBrandSnapshot,
@@ -38,6 +41,7 @@ export async function saveBrandProfile(
     };
   }
   const v = parsed.data;
+  const sanitisedColors = parseAdditionalColors(v.additionalColors);
   const profile = {
     name: v.name,
     overview: v.overview,
@@ -58,11 +62,13 @@ export async function saveBrandProfile(
     secondaryColor: v.secondaryColor || null,
     /* Empty means "no extra colours", same as platforms below. Writing {}
        would leave a brand that never had extras looking different in the DB
-       from one that never touched the field. */
-    additionalColors:
-      v.additionalColors && v.additionalColors.length > 0
-        ? v.additionalColors
-        : null,
+       from one that never touched the field.
+
+       Sanitised here rather than in the form: this is a server action taking
+       unknown input, and it is the last writer of this column that was still
+       trusting its caller. parseAdditionalColors caps the count, bounds each
+       entry and drops blanks — the bound isValidHex used to provide. */
+    additionalColors: sanitisedColors.length > 0 ? sanitisedColors : null,
     logoUrl: v.logoUrl || null,
     competitors: v.competitors || null,
     competitorStrengths: v.competitorStrengths || null,

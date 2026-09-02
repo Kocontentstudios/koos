@@ -3,6 +3,7 @@
 import { Loader2Icon, Plus, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ColorField } from "@/components/ui/color-field";
 import { FileUpload } from "@/components/ui/file-upload";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +16,7 @@ import {
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import { brandFontOptions, brandStyleOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
-import { ColorField, Field, OtherSelect } from "./fields";
+import { Field, OtherSelect } from "./fields";
 
 interface StepProps {
   state: CreateBrandState;
@@ -125,12 +126,14 @@ export function StepVisual({ state, onChange }: StepProps) {
             id="primary-color"
             label="Primary"
             value={state.primaryColor || "#138BC8"}
+            noun="color"
             onChange={(hex) => onChange({ primaryColor: hex })}
           />
           <ColorField
             id="secondary-color"
             label="Secondary"
             value={state.secondaryColor || "#FFFFFF"}
+            noun="color"
             onChange={(hex) => onChange({ secondaryColor: hex })}
           />
         </div>
@@ -144,6 +147,8 @@ export function StepVisual({ state, onChange }: StepProps) {
                   id={`additional-color-${i}`}
                   label={`Additional ${i + 1}`}
                   value={hex}
+                  noun="color"
+                  placeholder="#000000"
                   onChange={(next) =>
                     onChange({
                       additionalColors: additionalColors.map((c, j) =>
@@ -180,7 +185,7 @@ export function StepVisual({ state, onChange }: StepProps) {
               size="sm"
               onClick={() =>
                 onChange({
-                  additionalColors: [...additionalColors, "#138BC8"],
+                  additionalColors: [...additionalColors, ""],
                 })
               }
             >

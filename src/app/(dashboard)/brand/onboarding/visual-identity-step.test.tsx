@@ -10,6 +10,7 @@ vi.mock("sonner", () => ({
   toast: { success: toastSuccess, message: toastMessage, error: vi.fn() },
 }));
 
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import { VisualIdentityStep } from "./visual-identity-step";
 
 const palette = (primary: string | null, secondary: string | null = null) => ({
@@ -288,5 +289,154 @@ describe("VisualIdentityStep font upload", () => {
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ brandFont: "Classic serif", brandFontUrl: "" }),
     );
+  });
+
+  describe("brand colours", () => {
+    it("offers a colour wheel beside each colour field", () => {
+      renderStep();
+      expect(
+        screen.getByRole("button", { name: "Pick Primary colour" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Pick Secondary colour" }),
+      ).toBeInTheDocument();
+    });
+
+    /* The chat stores what the user said. "forest green" reaching this step
+       must survive it — the paid onboarding eval asserts primaryColor
+       contains "green". */
+    it("keeps a colour the conversation captured as a name", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderStep({
+        initial: { primaryColor: "forest green" },
+      });
+
+      expect(screen.getByLabelText("Primary colour")).toHaveValue(
+        "forest green",
+      );
+      await user.click(
+        screen.getByRole("button", { name: /save and finish/i }),
+      );
+
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ primaryColor: "forest green" }),
+      );
+    });
+
+    it("survives a colour name being typed, blurred and saved", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderStep();
+
+      const primary = screen.getByLabelText("Primary colour");
+      await user.click(primary);
+      await user.keyboard("forest green");
+      await user.tab();
+
+      expect(primary).toHaveValue("forest green");
+      await user.click(
+        screen.getByRole("button", { name: /save and finish/i }),
+      );
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ primaryColor: "forest green" }),
+      );
+    });
+
+    it("does not seed a colour the user never chose", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderStep();
+
+      await user.click(screen.getByRole("button", { name: "Add colour" }));
+      await user.click(
+        screen.getByRole("button", { name: /save and finish/i }),
+      );
+
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ additionalColors: [""] }),
+      );
+    });
+
+    it("adds additional colours up to the cap, then stops offering", async () => {
+      const user = userEvent.setup();
+      renderStep();
+
+      const add = () => screen.getByRole("button", { name: "Add colour" });
+      for (let i = 1; i <= MAX_ADDITIONAL_COLORS; i++) {
+        await user.click(add());
+        const row = screen.getByLabelText(`Additional ${i} colour`);
+        expect(row).toBeInTheDocument();
+        await user.type(row, `#00000${i}`);
+        await user.tab();
+      }
+      expect(
+        screen.queryByRole("button", { name: "Add colour" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("removes an additional colour", async () => {
+      const user = userEvent.setup();
+      renderStep();
+
+      await user.click(screen.getByRole("button", { name: "Add colour" }));
+      expect(screen.getByLabelText("Additional 1 colour")).toBeInTheDocument();
+
+      await user.click(
+        screen.getByRole("button", { name: "Remove additional colour 1" }),
+      );
+      expect(screen.queryByLabelText("Additional 1")).not.toBeInTheDocument();
+    });
+
+    /* The chat can write a name into any colour column, so no row on this
+       screen may revert one. */
+    it("keeps a colour name in an additional row", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderStep();
+
+      await user.click(screen.getByRole("button", { name: "Add colour" }));
+      const row = screen.getByLabelText("Additional 1 colour");
+      await user.type(row, "terracotta");
+      await user.tab();
+
+      expect(row).toHaveValue("terracotta");
+      await user.click(
+        screen.getByRole("button", { name: /save and finish/i }),
+      );
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ additionalColors: ["terracotta"] }),
+      );
+    });
+
+    it("keeps a colour name in the primary field", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderStep();
+
+      await user.type(screen.getByLabelText("Primary colour"), "forest green");
+      await user.click(
+        screen.getByRole("button", { name: /save and finish/i }),
+      );
+
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ primaryColor: "forest green" }),
+      );
+    });
+
+    it("saves the additional colours alongside primary and secondary", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderStep({ initial: { primaryColor: "#3A2A1F" } });
+
+      await user.click(screen.getByRole("button", { name: "Add colour" }));
+      const extra = screen.getByLabelText("Additional 1 colour");
+      await user.clear(extra);
+      await user.type(extra, "#22C55E");
+      await user.click(
+        screen.getByRole("button", { name: /save and finish/i }),
+      );
+
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          primaryColor: "#3A2A1F",
+          additionalColors: ["#22C55E"],
+        }),
+      );
+    });
   });
 });

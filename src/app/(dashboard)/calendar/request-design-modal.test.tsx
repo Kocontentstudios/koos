@@ -143,7 +143,7 @@ describe("RequestDesignModal", () => {
 });
 
 /* The designer works from this panel, so the swatches here ARE the palette
-   handed off with the ticket (KO_OS UI.Specification.md:1289). */
+   handed off with the ticket (KO_OS UI.Specification.md:1299). */
 describe("brand palette swatches", () => {
   it("shows every additional colour alongside primary and secondary", () => {
     renderModal(makeItem(), {
