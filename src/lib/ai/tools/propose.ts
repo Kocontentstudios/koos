@@ -34,6 +34,7 @@ export function buildProposeTools(ctx: ToolContext): Record<string, Tool> {
           wordsAvoid: z.string().optional(),
           brandStyle: z.string().optional(),
           competitors: z.string().optional(),
+          competitorStrengths: z.string().optional(),
           differentiators: z.string().optional(),
           primaryColor: z.string().optional(),
           secondaryColor: z.string().optional(),

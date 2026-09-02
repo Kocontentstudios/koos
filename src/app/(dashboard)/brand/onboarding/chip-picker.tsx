@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   type ChipPrompt,
+  COMPETITOR_STRENGTH_CHIPS,
+  DIFFERENTIATION_CHIPS,
   MAX_CHIP_SELECTION,
   VOICE_TONE_CHIPS,
   WORDS_TO_AVOID_CHIPS,
@@ -14,17 +16,38 @@ import { cn } from "@/lib/utils";
 
 const COPY: Record<
   ChipPrompt,
-  { options: readonly string[]; placeholder: string; submit: string }
+  {
+    options: readonly string[];
+    placeholder: string;
+    submit: string;
+    /** Named per kind: "enough for a clear voice" is nonsense under a
+        question about what competitors are good at. */
+    atCapNoun: string;
+  }
 > = {
   tone: {
     options: VOICE_TONE_CHIPS,
     placeholder: "Add your own word",
     submit: "Use these words",
+    atCapNoun: "a clear voice",
   },
   avoid: {
     options: WORDS_TO_AVOID_CHIPS,
     placeholder: "Add a word to avoid",
     submit: "Avoid these",
+    atCapNoun: "a clear no-go list",
+  },
+  differentiation: {
+    options: DIFFERENTIATION_CHIPS,
+    placeholder: "Add your own advantage",
+    submit: "That's our edge",
+    atCapNoun: "sharp positioning",
+  },
+  "competitor-strengths": {
+    options: COMPETITOR_STRENGTH_CHIPS,
+    placeholder: "Add another strength",
+    submit: "That's where they lead",
+    atCapNoun: "a clear picture of the field",
   },
 };
 
@@ -43,7 +66,7 @@ export function ChipPicker({
   onSubmit: (selected: string[]) => void;
   disabled?: boolean;
 }) {
-  const { options, placeholder, submit } = COPY[kind];
+  const { options, placeholder, submit, atCapNoun } = COPY[kind];
   const [selected, setSelected] = useState<string[]>([]);
   const [custom, setCustom] = useState("");
 
@@ -136,8 +159,8 @@ export function ChipPicker({
 
       {atCap && (
         <p className="text-[12px] text-[var(--text-muted)]">
-          That's {MAX_CHIP_SELECTION} — enough for a clear voice. Deselect one
-          to swap it.
+          That's {MAX_CHIP_SELECTION} — enough for {atCapNoun}. Deselect one to
+          swap it.
         </p>
       )}
     </div>

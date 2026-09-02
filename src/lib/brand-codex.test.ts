@@ -134,4 +134,22 @@ describe("brandCodexFilename", () => {
     const name = brandCodexFilename("a".repeat(200));
     expect(name.length).toBeLessThanOrEqual(60 + "-brand-codex.md".length);
   });
+
+  /* The codex is what a brand takes away from onboarding. A question the user
+     answered but that never appears in it reads as the answer being lost. */
+  it("carries both sides of the competitor picture", () => {
+    const codex = toBrandCodexMarkdown(
+      {
+        ...BRAND,
+        competitors: "Cocoa Bloom",
+        differentiators: "Bespoke service",
+        competitorStrengths: "Bigger budget",
+      },
+      GUIDE,
+    );
+    expect(codex).toContain("What sets us apart");
+    expect(codex).toContain("Bespoke service");
+    expect(codex).toContain("Where competitors lead");
+    expect(codex).toContain("Bigger budget");
+  });
 });
