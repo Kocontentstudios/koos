@@ -80,6 +80,7 @@ export const platformOptions = [
   "LinkedIn",
   "YouTube",
   "Facebook",
+  "Email / Newsletter",
   "Other",
 ] as const;
 
@@ -90,9 +91,12 @@ export const primaryPlatformOptions = [
   "LinkedIn",
   "YouTube",
   "Facebook",
+  "Email / Newsletter",
 ] as const;
 
 export const postingFrequencyOptions = [
+  "1–2x / week",
+  "3–4x / week",
   "3x / week",
   "5x / week",
   "Daily",
@@ -141,6 +145,7 @@ export const brandProfileSchema = z.object({
   postingFrequency: optionalText,
   // Section 7 — Anything Else
   additionalNotes: optionalText,
+  websiteUrl: optionalText,
   helpfulLinks: optionalText,
 });
 

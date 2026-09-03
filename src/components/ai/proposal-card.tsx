@@ -27,7 +27,7 @@ interface ProposalCardProps {
    screen in the product — it gets a readable summary of what was captured.
    The other kinds stay on the JSON dump: they surface deep in chat for users
    who already know the shape, and re-presenting them isn't this change. */
-const BRAND_FIELD_LABELS: Record<string, string> = {
+export const BRAND_FIELD_LABELS: Record<string, string> = {
   name: "Brand name",
   overview: "Overview",
   businessType: "Business type",
@@ -46,6 +46,10 @@ const BRAND_FIELD_LABELS: Record<string, string> = {
   primaryColor: "Primary colour",
   secondaryColor: "Secondary colour",
   additionalColors: "Additional colours",
+  platforms: "Active channels",
+  primaryPlatform: "Primary channel",
+  postingFrequency: "Posting frequency",
+  websiteUrl: "Website",
   additionalNotes: "Additional notes",
 };
 

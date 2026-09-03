@@ -290,6 +290,7 @@ export async function updateBrand(
       | "platforms"
       | "primaryPlatform"
       | "postingFrequency"
+      | "websiteUrl"
       | "additionalNotes"
       | "helpfulLinks"
     >

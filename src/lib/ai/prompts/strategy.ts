@@ -25,6 +25,7 @@ export interface BrandSummary {
   platforms?: string[] | null;
   primaryPlatform?: string | null;
   postingFrequency?: string | null;
+  websiteUrl?: string | null;
   /** Pre-rendered by voiceGuideBlock(). Absent for a brand that never
    *  synthesized one, which keeps those prompts byte-identical to before. */
   voiceGuide?: string | null;
@@ -53,6 +54,7 @@ export function brandBlock(b: BrandSummary): string {
     b.platforms?.length ? `Active platforms: ${b.platforms.join(", ")}` : null,
     b.primaryPlatform ? `Primary platform: ${b.primaryPlatform}` : null,
     b.postingFrequency ? `Posting frequency: ${b.postingFrequency}` : null,
+    b.websiteUrl ? `Website: ${b.websiteUrl}` : null,
     // Last, and on its own line: it is a set of rules, not another attribute.
     b.voiceGuide ? `\n${b.voiceGuide}` : null,
   ]

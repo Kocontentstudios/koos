@@ -77,6 +77,7 @@ export async function saveBrandProfile(
     primaryPlatform: v.primaryPlatform || null,
     postingFrequency: v.postingFrequency || null,
     additionalNotes: v.additionalNotes || null,
+    websiteUrl: v.websiteUrl || null,
     helpfulLinks: v.helpfulLinks || null,
     onboardingStatus: "completed" as const,
   };

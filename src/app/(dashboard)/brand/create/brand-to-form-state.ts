@@ -31,7 +31,7 @@ function splitOther(
   return { value: sentinel, other: v };
 }
 
-/** The six selectable platforms (the "Other" entry is not a real platform). */
+/** The selectable platforms (the "Other" entry is not a real platform). */
 const KNOWN_PLATFORMS: readonly string[] = platformOptions.filter(
   (p) => p !== "Other",
 );
@@ -96,6 +96,7 @@ export function brandToFormState(brand: Brand): CreateBrandState {
     postingFrequency: posting.value,
     postingFrequencyOther: posting.other,
     additionalNotes: brand.additionalNotes ?? "",
+    websiteUrl: brand.websiteUrl ?? "",
     helpfulLinks: brand.helpfulLinks ?? "",
   };
 }
