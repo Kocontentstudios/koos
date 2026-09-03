@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
-import { PLACEHOLDER_BRAND_NAME } from "@/lib/brand-profile";
+import {
+  PLACEHOLDER_BRAND_NAME,
+  parseAdditionalColors,
+} from "@/lib/brand-profile";
 import {
   type BrandSnapshotFields,
   toBrandSnapshot,
@@ -64,6 +67,7 @@ export interface VisualIdentityInput {
   brandStyle: string;
   brandFont: string;
   brandFontUrl: string;
+  additionalColors: string[];
 }
 
 /**
@@ -87,11 +91,13 @@ export async function saveVisualIdentity(
   const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
   if (!access.ok) return { ok: false, error: access.error };
 
+  const sanitisedColors = parseAdditionalColors(input.additionalColors);
   const updated = await updateBrand(brandId, {
     logoUrl: input.logoUrl.trim() || null,
     hasLogo: Boolean(input.logoUrl.trim()),
     primaryColor: input.primaryColor.trim() || null,
     secondaryColor: input.secondaryColor.trim() || null,
+    additionalColors: sanitisedColors.length > 0 ? sanitisedColors : null,
     brandStyle: input.brandStyle.trim() || null,
     brandFont: input.brandFont.trim() || null,
     brandFontUrl: input.brandFontUrl.trim() || null,

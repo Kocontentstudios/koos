@@ -1,9 +1,3 @@
-const HEX_RE = /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-
-export function isValidHex(value: string): boolean {
-  return HEX_RE.test(value.trim());
-}
-
 /**
  * Accepts "#abc", "#AABBCC", "abc123" and returns "#AABBCC", or null for
  * anything else (colour names, rgb(), gradients, model hallucinations).

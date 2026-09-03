@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_CHIP_SELECTION } from "@/lib/onboarding/chips";
+import { MAX_CHIP_SELECTION, PLATFORM_CHIPS } from "@/lib/onboarding/chips";
 import { ChipPicker } from "./chip-picker";
 
 beforeEach(() => {
@@ -188,5 +188,58 @@ describe("ChipPicker", () => {
     await user.click(screen.getByRole("button", { name: /^add$/i }));
     await user.click(screen.getByRole("button", { name: /that's our edge/i }));
     expect(onSubmit).toHaveBeenCalledWith(["Only cold-pressed in Lagos"]);
+  });
+});
+
+describe("single-select polls", () => {
+  it("replaces the choice rather than accumulating", async () => {
+    const onSubmit = vi.fn();
+    render(<ChipPicker kind="primary-platform" onSubmit={onSubmit} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Instagram" }));
+    await userEvent.click(screen.getByRole("button", { name: "LinkedIn" }));
+
+    expect(screen.getByRole("button", { name: "Instagram" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "LinkedIn" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("submits the one answer", async () => {
+    const onSubmit = vi.fn();
+    render(<ChipPicker kind="posting-cadence" onSubmit={onSubmit} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Daily" }));
+    await userEvent.click(screen.getByRole("button", { name: /how often/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(["Daily"]);
+  });
+
+  /* The cap message is about running out of room; a single-select poll has
+     room for exactly one by design, which is not the same thing. */
+  it("does not tell a single-select poll it is at capacity", async () => {
+    render(<ChipPicker kind="primary-platform" onSubmit={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Instagram" }));
+    expect(
+      screen.queryByText(/enough for a primary channel/i),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("multi-select platform poll", () => {
+  it("lets a brand pick every channel it is on", async () => {
+    const onSubmit = vi.fn();
+    render(<ChipPicker kind="platforms" onSubmit={onSubmit} />);
+
+    for (const p of PLATFORM_CHIPS) {
+      await userEvent.click(screen.getByRole("button", { name: p }));
+    }
+    await userEvent.click(screen.getByRole("button", { name: /active on/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith([...PLATFORM_CHIPS]);
   });
 });

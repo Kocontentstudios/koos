@@ -22,6 +22,10 @@ export const brandFieldKeys = [
   "primaryColor",
   "secondaryColor",
   "additionalColors",
+  "platforms",
+  "primaryPlatform",
+  "postingFrequency",
+  "websiteUrl",
   "additionalNotes",
 ] as const;
 
@@ -47,6 +51,10 @@ const brandFields = z.object({
       secondaryColor: z.string().optional(),
       // Comma-separated on the wire; parsed to text[] at the confirm boundary.
       additionalColors: z.string().optional(),
+      platforms: z.string().optional(),
+      primaryPlatform: z.string().optional(),
+      postingFrequency: z.string().optional(),
+      websiteUrl: z.string().optional(),
       additionalNotes: z.string().optional(),
     })
     .refine((f) => Object.keys(f).length > 0, "At least one field required"),

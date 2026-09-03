@@ -311,3 +311,52 @@ describe("saveBrandProfile snapshot", () => {
     });
   });
 });
+
+/* saveBrandProfile is a server action taking unknown input, and was the last
+   writer of this column still trusting its caller. Dropping isValidHex from the
+   schema also dropped the incidental length bound it provided, so deleting the
+   parseAdditionalColors call must turn this red. */
+describe("saveBrandProfile additionalColors", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b" } });
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1" },
+      workspace: { id: "ws-1" },
+      role: "owner",
+    });
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      name: "Acme",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand", name: "Acme" });
+  });
+
+  const written = () =>
+    updateBrand.mock.calls[0]?.[1] as { additionalColors: string[] | null };
+
+  it("bounds and de-duplicates what reaches the column", async () => {
+    await saveBrandProfile({
+      ...validInput,
+      additionalColors: ["#22C55E", "#22c55e", "x".repeat(200_000)],
+    });
+    const colors = written().additionalColors;
+    expect(colors).toHaveLength(2);
+    expect(colors?.[0]).toBe("#22C55E");
+    expect(colors?.[1].length).toBeLessThanOrEqual(40);
+  });
+
+  it("writes null rather than an empty array when nothing survives", async () => {
+    await saveBrandProfile({ ...validInput, additionalColors: ["", "  "] });
+    expect(written().additionalColors).toBeNull();
+  });
+
+  it("keeps a colour name the chat captured", async () => {
+    await saveBrandProfile({
+      ...validInput,
+      additionalColors: ["terracotta"],
+    });
+    expect(written().additionalColors).toEqual(["terracotta"]);
+  });
+});

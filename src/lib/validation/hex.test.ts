@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidHex, normalizeHex } from "./hex";
+import { normalizeHex } from "./hex";
 
 describe("normalizeHex", () => {
   it("prefixes a missing #", () => {
@@ -10,15 +10,5 @@ describe("normalizeHex", () => {
   });
   it("returns null for invalid input", () => {
     expect(normalizeHex("nope")).toBeNull();
-  });
-});
-describe("isValidHex", () => {
-  it("accepts #RGB and #RRGGBB (any case)", () => {
-    expect(isValidHex("#fff")).toBe(true);
-    expect(isValidHex("#138BC8")).toBe(true);
-  });
-  it("rejects invalid", () => {
-    expect(isValidHex("#12")).toBe(false);
-    expect(isValidHex("red")).toBe(false);
   });
 });

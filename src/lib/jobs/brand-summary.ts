@@ -34,6 +34,7 @@ export function brandSummaryFrom(brand: BrandRow): BrandSummary {
     platforms: brand.platforms,
     primaryPlatform: brand.primaryPlatform,
     postingFrequency: brand.postingFrequency,
+    websiteUrl: brand.websiteUrl,
   };
 }
 

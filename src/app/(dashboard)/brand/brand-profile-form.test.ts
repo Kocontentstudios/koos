@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseAdditionalColors } from "@/lib/brand-profile";
 import { brandProfileSchema } from "./brand-profile-form";
 
 const base = {
@@ -28,8 +29,12 @@ describe("brandProfileSchema additionalColors", () => {
     );
   });
 
-  it("rejects a non-hex entry from the form path", () => {
-    expect(parse(["#AA0000", "chartreuse"]).success).toBe(false);
+  /* The AI confirm path writes additionalColors through parseAdditionalColors,
+     which never hex-validates, so a brand can legitimately hold "terracotta".
+     Rejecting it here made that brand un-saveable from this form forever — the
+     same trap the primary/secondary exemption below exists to avoid. */
+  it("accepts a non-hex entry so a conversational brand stays saveable", () => {
+    expect(parse(["#AA0000", "chartreuse"]).success).toBe(true);
   });
 
   /* The conversational path writes colour names straight to the DB, so an
@@ -42,5 +47,19 @@ describe("brandProfileSchema additionalColors", () => {
       secondaryColor: "cream",
     });
     expect(res.success).toBe(true);
+  });
+
+  /* The schema bounds the count, not the entry — isValidHex used to cap each
+     one at 7 chars incidentally. saveBrandProfile is a server action taking
+     unknown input, so the length bound has to come from parseAdditionalColors
+     on the server, not from the form. */
+  it("bounds an oversized entry once the server sanitiser runs", () => {
+    const huge = "x".repeat(200_000);
+    const parsed = parse([huge]);
+    expect(parsed.success).toBe(true);
+    const stored = parseAdditionalColors(
+      parsed.success ? parsed.data.additionalColors : [],
+    );
+    expect(stored[0].length).toBeLessThanOrEqual(40);
   });
 });

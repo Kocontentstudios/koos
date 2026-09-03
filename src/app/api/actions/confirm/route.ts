@@ -14,6 +14,7 @@ import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import {
   parseAdditionalColors,
+  parsePlatformList,
   progressAfterFieldWrite,
 } from "@/lib/brand-profile";
 import { toBrandSnapshot } from "@/lib/brand-snapshot";
@@ -98,15 +99,38 @@ export async function POST(req: Request) {
          lands in a text[] column, so it must be parsed before the write. An
          empty result drops the key rather than writing []: a model answering
          ", ," must not wipe swatches the user saved by hand in the form. */
-      const { additionalColors: proposedColors, ...rest } = fields;
+      /* "" means "the conversation did not say", never "clear this". The
+         extraction route already strips it via omitUnfilled; the tool route
+         did not, so a model returning "" for a field the user had filled by
+         hand in the form silently blanked the column. */
+      const stated = Object.fromEntries(
+        Object.entries(fields).filter(
+          ([, v]) => typeof v !== "string" || v.trim().length > 0,
+        ),
+      ) as typeof fields;
+      const {
+        additionalColors: proposedColors,
+        platforms: proposedPlatforms,
+        ...rest
+      } = stated;
       const parsedColors =
         proposedColors === undefined
           ? undefined
           : parseAdditionalColors(proposedColors);
-      const writable =
-        parsedColors && parsedColors.length > 0
-          ? { ...rest, additionalColors: parsedColors }
-          : rest;
+      // Same shape for platforms: a text[] column fed by the model's prose.
+      const parsedPlatforms =
+        proposedPlatforms === undefined
+          ? undefined
+          : parsePlatformList(proposedPlatforms);
+      const writable = {
+        ...rest,
+        ...(parsedColors && parsedColors.length > 0
+          ? { additionalColors: parsedColors }
+          : {}),
+        ...(parsedPlatforms && parsedPlatforms.length > 0
+          ? { platforms: parsedPlatforms }
+          : {}),
+      };
       /* Advance onboarding off the back of what the conversation captured.
          Confirming fields used to leave the status at "draft", which left a
          chat-only user permanently redirected back into onboarding. */

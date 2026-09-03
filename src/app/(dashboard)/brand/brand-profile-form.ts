@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
-import { isValidHex } from "@/lib/validation/hex";
 
 /* ──────────────────────────────────────────────────────────────────────────
    Dropdown option sets — labels are the SOURCE OF TRUTH from the
@@ -81,6 +80,7 @@ export const platformOptions = [
   "LinkedIn",
   "YouTube",
   "Facebook",
+  "Email / Newsletter",
   "Other",
 ] as const;
 
@@ -91,9 +91,12 @@ export const primaryPlatformOptions = [
   "LinkedIn",
   "YouTube",
   "Facebook",
+  "Email / Newsletter",
 ] as const;
 
 export const postingFrequencyOptions = [
+  "1–2x / week",
+  "3–4x / week",
   "3x / week",
   "5x / week",
   "Daily",
@@ -121,14 +124,13 @@ export const brandProfileSchema = z.object({
   hasLogo: z.boolean().optional(),
   primaryColor: z.string().optional().or(z.literal("")),
   secondaryColor: z.string().optional().or(z.literal("")),
-  /* Cap and hex-check here, not just in the picker: a client-only limit is
-     not a limit. Primary/secondary stay deliberately unvalidated — the
-     conversational path stores colour names, so a hex rule would make an
-     existing brand un-saveable the next time its owner opens this form. */
-  additionalColors: z
-    .array(z.string().refine(isValidHex, "Enter a valid hex color"))
-    .max(MAX_ADDITIONAL_COLORS)
-    .optional(),
+  /* Cap here, not just in the picker: a client-only limit is not a limit.
+     No hex rule on any colour field — the conversational path stores colour
+     names (parseAdditionalColors never validates, and the AI confirm path
+     writes through it), so validating would make an existing brand un-saveable
+     the next time its owner opens this form. paletteSwatches already labels a
+     non-hex value instead of painting it. */
+  additionalColors: z.array(z.string()).max(MAX_ADDITIONAL_COLORS).optional(),
   logoUrl: z.string().optional().or(z.literal("")),
   brandStyle: optionalText,
   brandFont: optionalText,
@@ -143,6 +145,7 @@ export const brandProfileSchema = z.object({
   postingFrequency: optionalText,
   // Section 7 — Anything Else
   additionalNotes: optionalText,
+  websiteUrl: optionalText,
   helpfulLinks: optionalText,
 });
 

@@ -75,3 +75,19 @@ describe("buildStrategyGenerationPrompt", () => {
     expect(withField).toBe(without);
   });
 });
+
+/* brandBlock feeds buildStrategyGenerationPrompt, the one prompt the paid
+   eval:strategy suite scores. A new field must contribute nothing at all for a
+   brand that never answered, or every baseline shifts. */
+describe("websiteUrl is absent by default", () => {
+  it("leaves brandBlock byte-identical for a brand with no website", () => {
+    expect(brandBlock({ ...BRAND, websiteUrl: null })).toBe(brandBlock(BRAND));
+    expect(brandBlock({ ...BRAND, websiteUrl: "" })).toBe(brandBlock(BRAND));
+  });
+
+  it("carries the website when the brand has one", () => {
+    expect(
+      brandBlock({ ...BRAND, websiteUrl: "https://lagosloom.com" }),
+    ).toContain("https://lagosloom.com");
+  });
+});
