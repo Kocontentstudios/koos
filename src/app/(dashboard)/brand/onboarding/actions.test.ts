@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getActiveWorkspace = vi.fn();
 const getActiveBrandForMember = vi.fn();
 const createBrand = vi.fn();
+const updateBrand = vi.fn();
+const checkBrandAccess = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/workspace", () => ({
@@ -12,10 +14,13 @@ vi.mock("@/lib/db/queries", () => ({
   getActiveBrandForMember: (w: string, u: string) =>
     getActiveBrandForMember(w, u),
   createBrand: (data: unknown) => createBrand(data),
+  updateBrand: (id: string, patch: unknown) => updateBrand(id, patch),
+  checkBrandAccess: (u: string, b: string, p: string) =>
+    checkBrandAccess(u, b, p),
 }));
 
 import { PLACEHOLDER_BRAND_NAME } from "@/lib/brand-profile";
-import { startConversationalOnboarding } from "./actions";
+import { saveVisualIdentity, startConversationalOnboarding } from "./actions";
 
 describe("startConversationalOnboarding", () => {
   beforeEach(() => {
@@ -83,5 +88,55 @@ describe("startConversationalOnboarding", () => {
     const res = await startConversationalOnboarding();
     expect(res).toEqual({ ok: false, error: "Not authenticated" });
     expect(createBrand).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveVisualIdentity", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1" },
+      workspace: { id: "w1" },
+      role: "owner",
+    });
+    checkBrandAccess.mockResolvedValue({ ok: true });
+    updateBrand.mockResolvedValue({ id: "b1", name: "Acme" });
+  });
+
+  const input = (over: Record<string, unknown> = {}) => ({
+    logoUrl: "",
+    primaryColor: "",
+    secondaryColor: "",
+    brandStyle: "",
+    brandFont: "",
+    brandFontUrl: "",
+    additionalColors: [],
+    ...over,
+  });
+
+  it("writes the additional colours the user picked", async () => {
+    await saveVisualIdentity("b1", input({ additionalColors: ["#22C55E"] }));
+    expect(updateBrand).toHaveBeenCalledWith(
+      "b1",
+      expect.objectContaining({ additionalColors: ["#22C55E"] }),
+    );
+  });
+
+  /* parseAdditionalColors is the sanitiser for the text[] column: it caps the
+     list, drops blanks and dedupes, and deliberately never hex-validates so a
+     colour NAME the conversation captured survives. */
+  it("sanitises the list through parseAdditionalColors", async () => {
+    await saveVisualIdentity(
+      "b1",
+      input({
+        additionalColors: ["#22C55E", "  ", "#22c55e", "forest green", "gold"],
+      }),
+    );
+    expect(updateBrand).toHaveBeenCalledWith(
+      "b1",
+      expect.objectContaining({
+        additionalColors: ["#22C55E", "forest green", "gold"],
+      }),
+    );
   });
 });

@@ -201,6 +201,7 @@ export function OnboardingClient({
           logoUrl: visualStep.logoUrl ?? "",
           primaryColor: visualStep.primaryColor ?? "",
           secondaryColor: visualStep.secondaryColor ?? "",
+          additionalColors: visualStep.additionalColors ?? [],
         }}
         onSkip={() => setSnapshot(visualStep)}
         onSave={async (values: VisualIdentityValues) => {

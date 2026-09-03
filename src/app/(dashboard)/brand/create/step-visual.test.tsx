@@ -21,14 +21,16 @@ describe("StepVisual additional colors", () => {
   it("adds a color to the list", async () => {
     const onChange = renderStep();
     await userEvent.click(addButton());
-    expect(onChange).toHaveBeenCalledWith({ additionalColors: ["#138BC8"] });
+    // Seeded empty, not blue: an untouched row must not persist a colour the
+    // user never chose. saveBrandProfile drops blanks via parseAdditionalColors.
+    expect(onChange).toHaveBeenCalledWith({ additionalColors: [""] });
   });
 
   it("appends rather than replacing when colors already exist", async () => {
     const onChange = renderStep(["#AA0000"]);
     await userEvent.click(addButton());
     expect(onChange).toHaveBeenCalledWith({
-      additionalColors: ["#AA0000", "#138BC8"],
+      additionalColors: ["#AA0000", ""],
     });
   });
 
@@ -85,5 +87,12 @@ describe("StepVisual additional colors", () => {
       />,
     );
     expect(addButton()).toBeInTheDocument();
+  });
+
+  it("names each swatch as a colour picker", () => {
+    renderStep();
+    for (const name of ["Pick Primary color", "Pick Secondary color"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
   });
 });

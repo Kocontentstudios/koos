@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { Plus, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -8,11 +8,11 @@ import {
   brandStyleOptions,
 } from "@/app/(dashboard)/brand/brand-profile-form";
 import { Button } from "@/components/ui/button";
+import { ColorField } from "@/components/ui/color-field";
 import { FileUpload } from "@/components/ui/file-upload";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import { cn } from "@/lib/utils";
-import { normalizeHex } from "@/lib/validation/hex";
 
 export interface VisualIdentityValues {
   logoUrl: string;
@@ -21,6 +21,7 @@ export interface VisualIdentityValues {
   brandStyle: string;
   brandFont: string;
   brandFontUrl: string;
+  additionalColors: string[];
 }
 
 const EMPTY: VisualIdentityValues = {
@@ -30,6 +31,7 @@ const EMPTY: VisualIdentityValues = {
   brandStyle: "",
   brandFont: "",
   brandFontUrl: "",
+  additionalColors: [],
 };
 
 const UPLOAD_FAILED = "Logo upload failed — you can still finish without it.";
@@ -109,6 +111,13 @@ export function VisualIdentityStep({
 
   function set(patch: Partial<VisualIdentityValues>) {
     setValues((current) => ({ ...current, ...patch }));
+  }
+
+  function setColors(next: (current: string[]) => string[]) {
+    setValues((current) => ({
+      ...current,
+      additionalColors: next(current.additionalColors),
+    }));
   }
 
   async function handleFileSelected(file: File) {
@@ -255,6 +264,10 @@ export function VisualIdentityStep({
                 Pick from logo
               </Button>
             </div>
+            {/* Every row on this screen is free text: the chat writes colour
+                NAMES into these columns, so reverting one would discard what
+                the user actually said. The Brand Profile form is the
+                picker-driven surface and normalises instead. */}
             <div className="flex flex-wrap gap-4">
               {(
                 [
@@ -262,25 +275,66 @@ export function VisualIdentityStep({
                   ["secondaryColor", "Secondary"],
                 ] as const
               ).map(([key, label]) => (
-                <div key={key} className="flex items-center gap-2.5">
-                  <span
-                    aria-hidden="true"
-                    className="size-9 shrink-0 rounded-lg border border-[var(--border)]"
-                    style={{
-                      backgroundColor:
-                        normalizeHex(values[key]) ?? "transparent",
-                    }}
-                  />
-                  <Input
-                    value={values[key]}
-                    onChange={(e) => set({ [key]: e.target.value })}
-                    placeholder="#000000"
-                    aria-label={`${label} colour`}
-                    className="w-[120px]"
-                  />
-                </div>
+                <ColorField
+                  key={key}
+                  id={key}
+                  label={label}
+                  value={values[key]}
+                  allowFreeText
+                  placeholder="#000000 or a name"
+                  onChange={(next) => set({ [key]: next })}
+                />
               ))}
             </div>
+
+            {values.additionalColors.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {values.additionalColors.map((colour, i) => (
+                  // Index key, not the colour: two swatches may hold the same value.
+                  <div key={i} className="flex items-center gap-2">
+                    <ColorField
+                      id={`additional-colour-${i}`}
+                      label={`Additional ${i + 1}`}
+                      value={colour}
+                      allowFreeText
+                      placeholder="#000000 or a name"
+                      onChange={(next) =>
+                        setColors((current) =>
+                          current.map((c, j) => (j === i ? next : c)),
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="icon"
+                      size="icon-sm"
+                      aria-label={`Remove additional colour ${i + 1}`}
+                      onClick={() =>
+                        setColors((current) =>
+                          current.filter((_, j) => j !== i),
+                        )
+                      }
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {values.additionalColors.length < MAX_ADDITIONAL_COLORS && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setColors((current) => [...current, ""])}
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  Add colour
+                </Button>
+              </div>
+            )}
           </section>
 
           <OptionRow
