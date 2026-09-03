@@ -15,7 +15,16 @@
 export interface ExtractionEvalCase {
   id: string;
   transcript: string;
-  expected: Record<string, { contains: string[] }>;
+  expected: Record<
+    string,
+    {
+      contains: string[];
+      /* Needles that must be ABSENT. A `contains` anchor alone cannot catch a
+         model that fills two related columns with the same list — every
+         positive anchor still matches. */
+      notContains?: string[];
+    }
+  >;
   forbidden: string[];
 }
 
@@ -75,6 +84,12 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
       "primaryColor",
       "secondaryColor",
       "additionalColors",
+      "platforms",
+      "primaryPlatform",
+      "postingFrequency",
+      "websiteUrl",
+      // A catch-all is where a model dumps prose it could not place.
+      "additionalNotes",
     ],
   },
   {
@@ -129,6 +144,58 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
       "values",
       "wordsLove",
       "brandStyle",
+      "competitors",
+      "competitorStrengths",
+      "differentiators",
+      "primaryColor",
+      "secondaryColor",
+      "additionalColors",
+    ],
+  },
+  {
+    /* KOS-V1-FEAT-017: the three distribution polls. Their sentences all name
+       a channel, so the risk is not invention but crosstalk — the primary
+       channel landing in `platforms`, or the cadence being read as a channel. */
+    id: "distribution-polls",
+    transcript: [
+      "assistant: Hi! I'm KO. What's the brand called?",
+      "user: Okra Kitchen.",
+      "assistant: Which channels are you active on today?",
+      "user: The channels we are active on: Instagram, TikTok, Email / Newsletter.",
+      "assistant: Which of those is your main one?",
+      "user: Our main channel is: Instagram.",
+      "assistant: And how often do you want to post?",
+      "user: We post: 3–4x / week.",
+      "assistant: Got it. Do you have a website?",
+      "user: Yes, https://okrakitchen.ng",
+    ].join("\n\n"),
+    expected: {
+      name: { contains: ["okra"] },
+      /* Anchored on a channel that is in the active list but is NOT the
+         primary one: sharing a needle here would let a model that answered
+         "Instagram" to both score green while dropping the rest. */
+      platforms: { contains: ["tiktok"] },
+      primaryPlatform: {
+        contains: ["instagram"],
+        // One channel, never the list — the other two must not appear here.
+        notContains: ["tiktok", "newsletter"],
+      },
+      // "3–4x" not "3": "3x / week" is a different pill on the same picker.
+      postingFrequency: { contains: ["3–4x"] },
+      websiteUrl: { contains: ["okrakitchen"] },
+    },
+    // Nothing here describes the brand itself.
+    forbidden: [
+      "overview",
+      "businessType",
+      "stage",
+      "targetAudience",
+      "offer",
+      "primaryGoal",
+      "tone",
+      "values",
+      "wordsLove",
+      "wordsAvoid",
       "competitors",
       "competitorStrengths",
       "differentiators",

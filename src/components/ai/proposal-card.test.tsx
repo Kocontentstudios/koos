@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ProposalCard } from "./proposal-card";
+import { brandFieldKeys } from "@/lib/ai/tools/proposals";
+import { BRAND_FIELD_LABELS, ProposalCard } from "./proposal-card";
 
 describe("ProposalCard", () => {
   it("shows the summary and confirms via the endpoint", async () => {
@@ -216,4 +217,14 @@ describe("ProposalCard", () => {
       expect(screen.queryByText(new RegExp(field, "i"))).toBeNull();
     },
   );
+});
+
+/* This card is the only human-review gate on the write path: whatever it fails
+   to label, the user confirms as a raw camelCase key. A field added to
+   brandFieldKeys without a label here is invisible until someone sees
+   "POSTINGFREQUENCY" on their first screen in the product. */
+describe("every proposable field has a human label", () => {
+  it.each([...brandFieldKeys])("%s is labelled", (key) => {
+    expect(BRAND_FIELD_LABELS[key]).toBeTruthy();
+  });
 });

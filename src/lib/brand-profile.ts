@@ -123,6 +123,35 @@ export function progressAfterFieldWrite(
 export const MAX_ADDITIONAL_COLORS = 3;
 const MAX_COLOR_LENGTH = 40;
 
+/** A brand can be on every social plus a newsletter plus a messaging app, so
+ *  this sits well above the picker's option count — it exists to stop a
+ *  run-on answer bloating the column, not to limit real channels. */
+const MAX_PLATFORMS = 20;
+
+/**
+ * Makes a model's free-text channel list safe for the `platforms` text[]
+ * column. Free text on purpose, like the colours: the Brand Profile form's own
+ * platform picker carries an "Other" box, so a channel outside the known list
+ * is a legitimate answer, not a parsing failure.
+ */
+export function parsePlatformList(
+  value: string | string[] | null | undefined,
+): string[] {
+  const raw = Array.isArray(value) ? value : (value ?? "").split(/[,;\n]/);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    const trimmed = String(entry).trim().slice(0, MAX_COLOR_LENGTH);
+    if (trimmed.length === 0) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+    if (out.length === MAX_PLATFORMS) break;
+  }
+  return out;
+}
+
 /**
  * Makes a model's free-text colour list safe for the `additional_colors`
  * text[] column. Never validates hex on purpose: the conversational path

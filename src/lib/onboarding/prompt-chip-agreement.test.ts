@@ -19,6 +19,9 @@ const KINDS: ChipPrompt[] = [
   "avoid",
   "differentiation",
   "competitor-strengths",
+  "platforms",
+  "primary-platform",
+  "posting-cadence",
 ];
 
 const EMPTY_CONTEXT: ChatBrandContext = {
@@ -49,6 +52,9 @@ describe("the onboarding prompt and the chip parser agree", () => {
     [/topic 9[^\n]*\bCOMPETITORS\b/i, "competitor-strengths"],
     [/topic 4[^\n]*tone/i, "tone"],
     [/topic 5[^\n]*avoid/i, "avoid"],
+    [/topic 10[^\n]*channels/i, "platforms"],
+    [/topic 11[^\n]*primary/i, "primary-platform"],
+    [/topic 12[^\n]*often/i, "posting-cadence"],
   ] as const)("the %s line carries the %s marker", (topicLine, kind) => {
     const line = prompt.split("\n").find((l) => topicLine.test(l));
     expect(line).toBeDefined();
@@ -128,5 +134,18 @@ describe("the onboarding prompt and the chip parser agree", () => {
     ])("returns null for %j", (text) => {
       expect(detectChipPrompt(text)).toBeNull();
     });
+  });
+
+  /* The distribution answers feed the calendar generator, so the prompt has to
+     actually ask for them — the ticket's "Reality: no channel or cadence
+     questions were asked". */
+  it("asks for the website as a plain question, with no marker", () => {
+    const line = prompt.split("\n").find((l) => /website/i.test(l));
+    expect(line).toBeDefined();
+    expect(line).not.toMatch(/\[\[poll:/);
+  });
+
+  it.each(["channels", "primary", "often"])("asks about %s", (word) => {
+    expect(prompt.toLowerCase()).toContain(word);
   });
 });

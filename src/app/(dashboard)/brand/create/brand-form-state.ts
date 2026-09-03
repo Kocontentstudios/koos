@@ -43,6 +43,7 @@ export interface CreateBrandState {
   postingFrequencyOther: string;
   // Section 7 — Anything Else
   additionalNotes: string;
+  websiteUrl: string;
   helpfulLinks: string;
 }
 
@@ -83,5 +84,6 @@ export const DEFAULT_STATE: CreateBrandState = {
   postingFrequency: "",
   postingFrequencyOther: "",
   additionalNotes: "",
+  websiteUrl: "",
   helpfulLinks: "",
 };

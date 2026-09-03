@@ -345,6 +345,7 @@ export const brands = pgTable(
     primaryPlatform: text("primary_platform"),
     postingFrequency: text("posting_frequency"),
     // Section 7 — Anything Else
+    websiteUrl: text("website_url"),
     additionalNotes: text("additional_notes"),
     helpfulLinks: text("helpful_links"),
     createdAt: timestamp("created_at").notNull().defaultNow(),

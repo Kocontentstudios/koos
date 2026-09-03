@@ -120,7 +120,10 @@ export default async function BrandProfilePage() {
     brand.competitors || brand.competitorStrengths || brand.differentiators,
   );
   const hasPlatforms = Boolean(
-    platforms.length || brand.primaryPlatform || brand.postingFrequency,
+    platforms.length ||
+      brand.primaryPlatform ||
+      brand.postingFrequency ||
+      brand.websiteUrl,
   );
   const hasNotes = Boolean(brand.additionalNotes || brand.helpfulLinks);
 
@@ -261,6 +264,9 @@ export default async function BrandProfilePage() {
                 <DetailLine label="Posting frequency">
                   {brand.postingFrequency}
                 </DetailLine>
+              )}
+              {brand.websiteUrl && (
+                <DetailLine label="Website">{brand.websiteUrl}</DetailLine>
               )}
             </div>
           </div>

@@ -5,10 +5,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  CADENCE_CHIPS,
   type ChipPrompt,
   COMPETITOR_STRENGTH_CHIPS,
   DIFFERENTIATION_CHIPS,
-  MAX_CHIP_SELECTION,
+  isSingleSelect,
+  maxSelectionFor,
+  PLATFORM_CHIPS,
+  PRIMARY_PLATFORM_CHIPS,
   VOICE_TONE_CHIPS,
   WORDS_TO_AVOID_CHIPS,
 } from "@/lib/onboarding/chips";
@@ -49,6 +53,24 @@ const COPY: Record<
     submit: "That's where they lead",
     atCapNoun: "a clear picture of the field",
   },
+  platforms: {
+    options: PLATFORM_CHIPS,
+    placeholder: "Add another channel",
+    submit: "These are what we're active on",
+    atCapNoun: "a full picture of your channels",
+  },
+  "primary-platform": {
+    options: PRIMARY_PLATFORM_CHIPS,
+    placeholder: "Add another channel",
+    submit: "That's our main one",
+    atCapNoun: "a primary channel",
+  },
+  "posting-cadence": {
+    options: CADENCE_CHIPS,
+    placeholder: "Describe how often",
+    submit: "That's how often we post",
+    atCapNoun: "a cadence",
+  },
 };
 
 /**
@@ -70,16 +92,18 @@ export function ChipPicker({
   const [selected, setSelected] = useState<string[]>([]);
   const [custom, setCustom] = useState("");
 
-  const atCap = selected.length >= MAX_CHIP_SELECTION;
+  const single = isSingleSelect(kind);
+  const max = maxSelectionFor(kind);
+  /* A single-select poll is never "at capacity": it holds exactly one by
+     design, and picking a second swaps it rather than being refused. */
+  const atCap = !single && selected.length >= max;
 
   function toggle(word: string) {
-    setSelected((current) =>
-      current.includes(word)
-        ? current.filter((w) => w !== word)
-        : current.length >= MAX_CHIP_SELECTION
-          ? current
-          : [...current, word],
-    );
+    setSelected((current) => {
+      if (current.includes(word)) return current.filter((w) => w !== word);
+      if (single) return [word];
+      return current.length >= max ? current : [...current, word];
+    });
   }
 
   function addCustom() {
@@ -87,7 +111,7 @@ export function ChipPicker({
     // Case-insensitive so "bold" cannot sit beside the "Bold" chip.
     const clash = selected.some((w) => w.toLowerCase() === word.toLowerCase());
     if (!word || clash || atCap) return;
-    setSelected((current) => [...current, word]);
+    setSelected((current) => (single ? [word] : [...current, word]));
     setCustom("");
   }
 
@@ -159,8 +183,7 @@ export function ChipPicker({
 
       {atCap && (
         <p className="text-[12px] text-[var(--text-muted)]">
-          That's {MAX_CHIP_SELECTION} — enough for {atCapNoun}. Deselect one to
-          swap it.
+          That's {max} — enough for {atCapNoun}. Deselect one to swap it.
         </p>
       )}
     </div>

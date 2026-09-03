@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { extractionSchema } from "@/lib/ai/onboarding/extraction";
 import { formatChipSelection } from "@/lib/onboarding/chips";
 import {
   EXTRACTION_EVAL_CASES,
@@ -201,6 +202,13 @@ describe("chip eval transcripts use the real sentences", () => {
       "competitor-strengths",
       ["Bigger budget", "Wider reach"],
     ],
+    [
+      "distribution-polls",
+      "platforms",
+      ["Instagram", "TikTok", "Email / Newsletter"],
+    ],
+    ["distribution-polls", "primary-platform", ["Instagram"]],
+    ["distribution-polls", "posting-cadence", ["3–4x / week"]],
   ] as const)("%s carries the %s sentence verbatim", (id, kind, picks) => {
     const transcript = byId.get(id)?.transcript ?? "";
     expect(transcript).toContain(formatChipSelection(kind, [...picks]));
@@ -212,5 +220,107 @@ describe("chip eval transcripts use the real sentences", () => {
     const c = byId.get("competitor-poll-directions");
     expect(c?.expected.differentiators?.contains).toEqual(["bespoke"]);
     expect(c?.expected.competitorStrengths?.contains).toEqual(["budget"]);
+  });
+
+  /* Same hazard, different columns: every distribution sentence names a
+     channel, so a swap between platforms and primaryPlatform would still
+     score green while the strategy led with the wrong one. */
+  it("keeps the primary channel out of the active-channels column", () => {
+    const c = byId.get("distribution-polls");
+    /* Different needles on purpose — a shared one cannot see a swap. */
+    expect(c?.expected.platforms?.contains).toEqual(["tiktok"]);
+    expect(c?.expected.primaryPlatform?.contains).toEqual(["instagram"]);
+    expect(c?.expected.platforms?.contains).not.toEqual(
+      c?.expected.primaryPlatform?.contains,
+    );
+  });
+});
+
+/* The gap that let a whole ticket's answers be collected and thrown away: an
+   eval case can name a field the extractor cannot produce, and scoreCase just
+   counts it as missed. Nothing else connects the cases to the schema. */
+describe("every eval expectation is a field the extractor can actually fill", () => {
+  const extractable = new Set(Object.keys(extractionSchema.shape.fields.shape));
+
+  it.each(EXTRACTION_EVAL_CASES.map((c) => [c.id, c] as const))(
+    "%s expects only extractable fields",
+    (_id, c) => {
+      for (const key of Object.keys(c.expected)) {
+        expect(extractable).toContain(key);
+      }
+    },
+  );
+
+  it.each(EXTRACTION_EVAL_CASES.map((c) => [c.id, c] as const))(
+    "%s forbids only extractable fields",
+    (_id, c) => {
+      for (const key of c.forbidden ?? []) {
+        expect(extractable).toContain(key);
+      }
+    },
+  );
+});
+
+/* B3/B4 guards. scoreCase counts `forbidden` hits into `invented`, which is
+   capped at 1 per case — so a duplicated key can flip a green case red on a
+   paid run, and a field nobody forbids anywhere can be invented for free. */
+describe("the forbidden lists are sound", () => {
+  it.each(EXTRACTION_EVAL_CASES.map((c) => [c.id, c] as const))(
+    "%s forbids each field at most once",
+    (_id, c) => {
+      const forbidden = c.forbidden ?? [];
+      expect(new Set(forbidden).size).toBe(forbidden.length);
+    },
+  );
+
+  /* The sparse case is the invention canary — a near-empty transcript is where
+     a model is most tempted to fill columns from nothing. Every extractable
+     field it does not expect must be forbidden there, or a new field arrives
+     with no invention guard at all. */
+  it("guards every extractable field in the sparse case", () => {
+    const sparse = EXTRACTION_EVAL_CASES.find(
+      (c) => c.id === "sparse-two-facts",
+    );
+    if (!sparse) throw new Error("sparse-two-facts case is missing");
+    const covered = new Set([
+      ...Object.keys(sparse.expected),
+      ...(sparse.forbidden ?? []),
+    ]);
+    for (const key of Object.keys(extractionSchema.shape.fields.shape)) {
+      expect(covered).toContain(key);
+    }
+  });
+});
+
+describe("notContains catches crosstalk a positive anchor cannot", () => {
+  const c: ExtractionEvalCase = {
+    id: "x",
+    transcript: "",
+    expected: {
+      platforms: { contains: ["tiktok"] },
+      primaryPlatform: {
+        contains: ["instagram"],
+        notContains: ["tiktok"],
+      },
+    },
+    forbidden: [],
+  };
+
+  it("accepts one channel in the primary column", () => {
+    const s = scoreCase(c, {
+      platforms: "Instagram, TikTok",
+      primaryPlatform: "Instagram",
+    });
+    expect(s.wrongValue).toEqual([]);
+  });
+
+  /* The failure the case exists for: the model copies the whole list into
+     both columns. Every `contains` anchor still matches. */
+  it("rejects the whole list copied into the primary column", () => {
+    const s = scoreCase(c, {
+      platforms: "Instagram, TikTok",
+      primaryPlatform: "Instagram, TikTok",
+    });
+    expect(s.wrongValue).toEqual(["primaryPlatform"]);
   });
 });

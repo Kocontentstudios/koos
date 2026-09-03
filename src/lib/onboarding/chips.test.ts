@@ -5,7 +5,10 @@ import {
   DIFFERENTIATION_CHIPS,
   detectChipPrompt,
   formatChipSelection,
+  isSingleSelect,
   MAX_CHIP_SELECTION,
+  maxSelectionFor,
+  PLATFORM_CHIPS,
   pollMarker,
   stripPollMarker,
   VOICE_TONE_CHIPS,
@@ -436,5 +439,74 @@ describe("chip sets", () => {
       (COMPETITOR_STRENGTH_CHIPS as readonly string[]).includes(chip),
     );
     expect(overlap).toEqual([]);
+  });
+});
+
+describe("platform, primary channel and cadence polls", () => {
+  it("detects each new marker", () => {
+    expect(detectChipPrompt("Which channels? [[poll:platforms]]")).toBe(
+      "platforms",
+    );
+    expect(
+      detectChipPrompt("Which one matters most? [[poll:primary-platform]]"),
+    ).toBe("primary-platform");
+    expect(detectChipPrompt("How often? [[poll:posting-cadence]]")).toBe(
+      "posting-cadence",
+    );
+  });
+
+  it("resolves the aliases a model is likely to reach for", () => {
+    expect(detectChipPrompt("x [[poll:channels]]")).toBe("platforms");
+    expect(detectChipPrompt("x [[poll:cadence]]")).toBe("posting-cadence");
+    expect(detectChipPrompt("x [[poll:posting-frequency]]")).toBe(
+      "posting-cadence",
+    );
+    expect(detectChipPrompt("x [[poll:primary-channel]]")).toBe(
+      "primary-platform",
+    );
+  });
+
+  it("strips the new markers like any other", () => {
+    expect(stripPollMarker("Which channels?\n\n[[poll:platforms]]")).toBe(
+      "Which channels?",
+    );
+  });
+
+  /* The sentences are what the extractor reads back, so they have to name the
+     column they are meant to fill without sounding like a different one. */
+  it("writes a sentence per kind", () => {
+    expect(formatChipSelection("platforms", ["Instagram", "LinkedIn"])).toBe(
+      "The channels we are active on: Instagram, LinkedIn.",
+    );
+    expect(formatChipSelection("primary-platform", ["Instagram"])).toBe(
+      "Our main channel is: Instagram.",
+    );
+    expect(formatChipSelection("posting-cadence", ["3–4x / week"])).toBe(
+      "We post: 3–4x / week.",
+    );
+  });
+
+  /* Single-select: one answer is the whole point of "primary", and a cadence
+     of "Daily and 1-2x / week" is not a cadence. */
+  it("marks the single-answer polls as single-select", () => {
+    expect(isSingleSelect("primary-platform")).toBe(true);
+    expect(isSingleSelect("posting-cadence")).toBe(true);
+    expect(isSingleSelect("platforms")).toBe(false);
+    expect(isSingleSelect("tone")).toBe(false);
+  });
+
+  /* The 6-cap exists because toneBadges renders at most six. A brand on all
+     seven channels should not lose one to a constraint about tone words. */
+  it("lets a brand pick every channel it is on", () => {
+    /* Strictly greater: at exactly the option count, picking every channel
+       trips the cap, which disables the free-text box and tells the user to
+       swap — with nothing left to swap in. */
+    expect(maxSelectionFor("platforms")).toBeGreaterThan(PLATFORM_CHIPS.length);
+    expect(maxSelectionFor("tone")).toBe(MAX_CHIP_SELECTION);
+  });
+
+  it("allows one answer for a single-select poll", () => {
+    expect(maxSelectionFor("primary-platform")).toBe(1);
+    expect(maxSelectionFor("posting-cadence")).toBe(1);
   });
 });

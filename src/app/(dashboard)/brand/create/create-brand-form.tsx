@@ -213,6 +213,7 @@ export function CreateBrandForm({
         "Custom",
       ),
       additionalNotes: state.additionalNotes.trim() || undefined,
+      websiteUrl: state.websiteUrl.trim() || undefined,
       helpfulLinks: state.helpfulLinks.trim() || undefined,
     };
   }

@@ -6,6 +6,7 @@ import {
   isBasicsComplete,
   PLACEHOLDER_BRAND_NAME,
   parseAdditionalColors,
+  parsePlatformList,
   progressAfterFieldWrite,
 } from "./brand-profile";
 
@@ -320,5 +321,51 @@ describe("competitor fields stay outside the score", () => {
         competitorStrengths: "x",
       } as BrandProfileInput),
     ).toBe(100);
+  });
+});
+
+/* The chat hands platforms over as the model's comma-separated prose, but the
+   column is text[]. Same shape as parseAdditionalColors, different bounds:
+   a brand can legitimately be on many channels, so the count is not capped
+   as tightly. */
+describe("parsePlatformList", () => {
+  it("splits, trims and drops blanks", () => {
+    expect(parsePlatformList("Instagram, TikTok , , LinkedIn")).toEqual([
+      "Instagram",
+      "TikTok",
+      "LinkedIn",
+    ]);
+  });
+
+  it("dedupes case-insensitively, keeping what the user said first", () => {
+    expect(parsePlatformList("Instagram, instagram, INSTAGRAM")).toEqual([
+      "Instagram",
+    ]);
+  });
+
+  it("accepts an array as readily as a string", () => {
+    expect(parsePlatformList(["Instagram", "TikTok"])).toEqual([
+      "Instagram",
+      "TikTok",
+    ]);
+  });
+
+  it("always returns an array, never null", () => {
+    expect(parsePlatformList(null)).toEqual([]);
+    expect(parsePlatformList(undefined)).toEqual([]);
+    expect(parsePlatformList("")).toEqual([]);
+    expect(parsePlatformList("  ,  ")).toEqual([]);
+  });
+
+  it("bounds a single entry so a run-on answer cannot bloat the column", () => {
+    const [only] = parsePlatformList("x".repeat(500));
+    expect(only.length).toBeLessThanOrEqual(40);
+  });
+
+  /* A brand on every social plus a newsletter plus WhatsApp is realistic, so
+     the cap has to sit above the picker's own option count. */
+  it("keeps more channels than the picker offers", () => {
+    const many = Array.from({ length: 12 }, (_, i) => `Channel ${i}`);
+    expect(parsePlatformList(many.join(", "))).toHaveLength(12);
   });
 });

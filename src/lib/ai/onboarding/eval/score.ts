@@ -36,10 +36,14 @@ export function scoreCase(
       continue;
     }
     const haystack = value.toLowerCase();
-    const ok = evalCase.expected[key].contains.every((needle) =>
+    const rule = evalCase.expected[key];
+    const hasAll = rule.contains.every((needle) =>
       haystack.includes(needle.toLowerCase()),
     );
-    if (!ok) wrongValue.push(key);
+    const hasNone = (rule.notContains ?? []).every(
+      (needle) => !haystack.includes(needle.toLowerCase()),
+    );
+    if (!hasAll || !hasNone) wrongValue.push(key);
   }
 
   const invented = evalCase.forbidden.filter((key) => filled(fields[key]));

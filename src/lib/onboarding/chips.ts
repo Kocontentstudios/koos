@@ -59,15 +59,40 @@ export const COMPETITOR_STRENGTH_CHIPS = [
   "Household name",
 ] as const;
 
+/* Kept in step with the Brand Profile form's own option lists — the two write
+   the same columns, and chip-vocabulary-agreement.test.ts fails if they drift.
+   The form's "Other"/"Custom" escape hatches are omitted: the picker has its
+   own free-text input, so a chip leading to another text box is a dead end. */
+export const PLATFORM_CHIPS = [
+  "Instagram",
+  "TikTok",
+  "X (Twitter)",
+  "LinkedIn",
+  "YouTube",
+  "Facebook",
+  "Email / Newsletter",
+] as const;
+
+export const PRIMARY_PLATFORM_CHIPS = PLATFORM_CHIPS;
+
+/* The ticket's four, minus "Custom" — the picker's own free-text input is the
+   custom path. "3x / week" and "5x / week" stay in postingFrequencyOptions so
+   splitOther still recognises brands saved under them, but offering those
+   beside "3–4x / week" would be a choice without a difference. */
+export const CADENCE_CHIPS = ["1–2x / week", "3–4x / week", "Daily"] as const;
+
 export type ChipPrompt =
   | "tone"
   | "avoid"
   | "differentiation"
-  | "competitor-strengths";
+  | "competitor-strengths"
+  | "platforms"
+  | "primary-platform"
+  | "posting-cadence";
 
 /** toneBadges renders at most this many before it stops, so selecting more
- *  than this would silently lose the tail on the snapshot card. Applies to
- *  every chip set for consistency; only `tone` is actually constrained by it. */
+ *  than this would silently lose the tail on the snapshot card. The default
+ *  for every kind that has no reason of its own — see maxSelectionFor. */
 export const MAX_CHIP_SELECTION = 6;
 
 /* Deliberately narrow. This runs against arbitrary model prose, and a false
@@ -125,7 +150,7 @@ const POLL_MARKER_ANYWHERE = new RegExp(
 
 /* A marker still arriving. The message renders on every chunk and the prompt
    puts the marker last, so without this the user watches "[[poll:different"
-   type itself out on four of the nine onboarding turns. The optional trailing
+   type itself out on several of the onboarding turns. The optional trailing
    `]` covers the one-character-from-complete state, which the closing `]]`
    pattern above cannot match. */
 /* No leading `[^\S\n]*`: with no `[` to anchor on it forces a full backtrack
@@ -134,15 +159,51 @@ const POLL_MARKER_ANYWHERE = new RegExp(
    `\s+$` trim below already removes that whitespace. */
 const PARTIAL_MARKER_AT_END = /\[\[?(?:p(?:o(?:l(?:l(?::[^\]\n]*\]?)?)?)?)?)?$/;
 
+/** Polls whose answer is one value by definition: "primary" means one, and
+ *  "Daily and 1-2x / week" is not a cadence. */
+const SINGLE_SELECT: ReadonlySet<ChipPrompt> = new Set([
+  "primary-platform",
+  "posting-cadence",
+]);
+
+export function isSingleSelect(kind: ChipPrompt): boolean {
+  return SINGLE_SELECT.has(kind);
+}
+
+/**
+ * How many chips a poll accepts. MAX_CHIP_SELECTION is a tone constraint —
+ * toneBadges renders six — so a brand active on every channel must not lose
+ * one to it.
+ */
+export function maxSelectionFor(kind: ChipPrompt): number {
+  if (isSingleSelect(kind)) return 1;
+  // Above the option count, not equal to it: at exactly the count, picking
+  // every offered channel disables the free-text box and tells the user to
+  // deselect one to swap — with nothing left to swap in.
+  if (kind === "platforms") return PLATFORM_CHIPS.length + 4;
+  return MAX_CHIP_SELECTION;
+}
+
 const MARKER_KINDS: Record<string, ChipPrompt> = {
   tone: "tone",
   avoid: "avoid",
   differentiation: "differentiation",
   "competitor-strengths": "competitor-strengths",
-  /* Aliases for the names the model is most likely to reach for instead: the
-     database column, and the plural of the kind. */
+  platforms: "platforms",
+  "primary-platform": "primary-platform",
+  "posting-cadence": "posting-cadence",
+  /* Aliases for the names the model is most likely to reach for instead of the
+     canonical kind: the database column, the plural, and the words the prompt
+     itself uses for the topic ("channels", "cadence"). */
   differentiators: "differentiation",
   "competitor-strength": "competitor-strengths",
+  channels: "platforms",
+  platform: "platforms",
+  "primary-channel": "primary-platform",
+  primaryplatform: "primary-platform",
+  cadence: "posting-cadence",
+  "posting-frequency": "posting-cadence",
+  frequency: "posting-cadence",
 };
 
 /** The marker as the prompt asks the model to write it. */
@@ -250,5 +311,11 @@ export function formatChipSelection(
       return `What we do better than competitors: ${list}.`;
     case "competitor-strengths":
       return `What our competitors are strong at: ${list}.`;
+    case "platforms":
+      return `The channels we are active on: ${list}.`;
+    case "primary-platform":
+      return `Our main channel is: ${list}.`;
+    case "posting-cadence":
+      return `We post: ${list}.`;
   }
 }

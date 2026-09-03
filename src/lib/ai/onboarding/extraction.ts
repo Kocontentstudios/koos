@@ -61,6 +61,18 @@ export const extractionSchema = z.object({
     additionalColors: extractedField.describe(
       "Any brand colours beyond the primary and secondary, comma-separated, at most 3. Hex or colour name, whichever the user said. Empty string if none were mentioned.",
     ),
+    platforms: extractedField.describe(
+      "Every channel the brand is active on, comma-separated. Empty string if none were named.",
+    ),
+    primaryPlatform: extractedField.describe(
+      "The single channel the brand leads with. One channel only, never a list, even if several were named as active.",
+    ),
+    postingFrequency: extractedField.describe(
+      "How often the brand wants to post, as they said it. Empty string if they did not say.",
+    ),
+    websiteUrl: extractedField.describe(
+      "The brand's website URL exactly as the user gave it. Empty string if they have none or did not say.",
+    ),
     additionalNotes: extractedField,
   }),
   summary: z.string(),

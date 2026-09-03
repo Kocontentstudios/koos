@@ -34,7 +34,7 @@ export interface BrandExport {
     >;
     platforms: Pick<
       BrandRow,
-      "platforms" | "primaryPlatform" | "postingFrequency"
+      "platforms" | "primaryPlatform" | "postingFrequency" | "websiteUrl"
     >;
     additional: Pick<BrandRow, "additionalNotes" | "helpfulLinks">;
   };
@@ -87,6 +87,7 @@ export function toBrandExport(brand: BrandRow): BrandExport {
         platforms: brand.platforms,
         primaryPlatform: brand.primaryPlatform,
         postingFrequency: brand.postingFrequency,
+        websiteUrl: brand.websiteUrl,
       },
       additional: {
         additionalNotes: brand.additionalNotes,

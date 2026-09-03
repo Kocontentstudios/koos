@@ -165,6 +165,54 @@ describe("POST /api/actions/confirm", () => {
     expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
   });
 
+  /* KOS-V1-FEAT-017. platforms is the other text[] column, and it is the one
+     the whole distribution poll exists to fill — the chips are collected as
+     prose and this is the only place that turns them back into a list. */
+  it("parses the model's channel string into an array before writing", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ platforms: "Instagram, TikTok, Email / Newsletter" });
+    expect(updateBrand.mock.calls[0][1].platforms).toEqual([
+      "Instagram",
+      "TikTok",
+      "Email / Newsletter",
+    ]);
+  });
+
+  it("drops the channels key entirely when the parsed list is empty", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ platforms: " , , " });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("platforms");
+  });
+
+  /* The single-answer half of the poll. These are plain text columns, so the
+     only risk is them not arriving at all — which is exactly what happened
+     before they were added to the extraction chain. */
+  it("writes the primary channel and cadence the conversation captured", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({
+      primaryPlatform: "Instagram",
+      postingFrequency: "3–4x / week",
+      websiteUrl: "https://okrakitchen.ng",
+    });
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      primaryPlatform: "Instagram",
+      postingFrequency: "3–4x / week",
+      websiteUrl: "https://okrakitchen.ng",
+    });
+  });
+
+  /* "" is the extractor's "not mentioned" sentinel, not an instruction to
+     clear. Without stripping it, a model answering "" for a field the user
+     filled by hand in the Brand Profile form blanks their column. */
+  it.each(["websiteUrl", "primaryPlatform", "postingFrequency", "tone"])(
+    "does not blank %s when the model answers with an empty string",
+    async (field) => {
+      updateBrand.mockResolvedValue({ id: BRAND_ID });
+      await confirmFields({ [field]: "", name: "Okra" });
+      expect(updateBrand.mock.calls[0][1]).not.toHaveProperty(field);
+    },
+  );
+
   it("leaves the column untouched when the model omits the field", async () => {
     updateBrand.mockResolvedValue({ id: BRAND_ID });
     await confirmFields({ tone: "bold" });

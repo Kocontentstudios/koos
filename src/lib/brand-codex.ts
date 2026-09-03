@@ -22,6 +22,7 @@ export interface CodexBrand {
   platforms?: string[] | null;
   primaryPlatform?: string | null;
   postingFrequency?: string | null;
+  websiteUrl?: string | null;
   additionalNotes?: string | null;
 }
 
@@ -114,6 +115,7 @@ export function toBrandCodexMarkdown(
       listLine("Active on", brand.platforms),
       line("Primary platform", brand.primaryPlatform),
       line("Posting frequency", brand.postingFrequency),
+      line("Website", brand.websiteUrl),
     ]),
 
     section("Notes", [line("Anything else", brand.additionalNotes)]),
