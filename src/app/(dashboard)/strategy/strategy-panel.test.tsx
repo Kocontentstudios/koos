@@ -179,7 +179,12 @@ describe("calendar generation progress", () => {
       calendarProgress: { done: 12, total: 26, label: "Writing briefs…" },
     });
     const [bar] = screen.getAllByRole("progressbar");
-    expect(bar).toHaveAttribute("aria-valuetext", "11 of 25 briefs written");
-    expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
+    // progressbar is a name-from-author role: aria-valuetext supplies a value,
+    // not a name, so without this a reader announces a nameless bar.
+    expect(bar).toHaveAccessibleName("Calendar generation");
+    expect(screen.getAllByText(/11 of 25 briefs written/)[0]).toHaveAttribute(
+      "role",
+      "status",
+    );
   });
 });

@@ -9,12 +9,18 @@
 export interface UnitTiming {
   key: string;
   slots: number;
+  /** The whole withRetry span: attempts plus backoff sleeps. Useless alone —
+   *  read it with `attempts`, or a 300s outlier cannot be told apart from
+   *  three 100s calls, which need opposite fixes. */
   ms: number;
+  attempts: number;
   inputTokens?: number;
   outputTokens?: number;
 }
 
 export interface GenerationSummary {
+  jobId: string;
+  outcome: "complete" | "paused" | "failed";
   outlineMs: number;
   totalMs: number;
   /** Outline is serial and blocking, so this is the ceiling on what
@@ -23,9 +29,11 @@ export interface GenerationSummary {
   unitCount: number;
   slotCount: number;
   concurrency: number;
-  /** How many full passes the concurrency limit produced. Raising the limit
-   *  cannot help a run that is already one wave deep. */
-  waves: number;
+  /** Retried calls. A slow run with retries is a throttling story; a slow run
+   *  without them is a decode story. There is deliberately no "waves" figure:
+   *  mapWithConcurrency is a work-stealing pool, so units/concurrency counts
+   *  passes that never happen. */
+  retriedUnits: number;
   unitMs: {
     p50: number | null;
     p95: number | null;
@@ -34,12 +42,17 @@ export interface GenerationSummary {
     total: number;
   };
   tokens: {
+    /** Units only. The outline is a single call an order of magnitude larger
+     *  than any unit, so folding it in would hide both. */
     input: number;
     output: number;
-    /** Paid on every unit call, and dominated by whatever the prompt re-sends. */
-    inputPerUnit: number;
+    outlineInput: number;
+    outlineOutput: number;
+    /** null, not 0, when the provider reported no usage: "free" and "unknown"
+     *  are different answers to a cost question. */
+    inputPerUnit: number | null;
+    unitsWithUsage: number;
   };
-  logLine: string;
 }
 
 /**
@@ -55,24 +68,32 @@ export function percentile(values: number[], p: number): number | null {
 }
 
 export function summariseGeneration(args: {
+  jobId: string;
+  outcome: "complete" | "paused" | "failed";
   outlineMs: number;
   totalMs: number;
   concurrency: number;
+  outlineTokens?: { input: number; output: number };
   units: UnitTiming[];
 }): GenerationSummary {
-  const { outlineMs, totalMs, concurrency, units } = args;
+  const { jobId, outcome, outlineMs, totalMs, concurrency, units } = args;
+  const outlineTokens = args.outlineTokens ?? { input: 0, output: 0 };
   const durations = units.map((u) => u.ms);
   const input = units.reduce((n, u) => n + (u.inputTokens ?? 0), 0);
   const output = units.reduce((n, u) => n + (u.outputTokens ?? 0), 0);
 
-  const summary: Omit<GenerationSummary, "logLine"> = {
+  const withUsage = units.filter((u) => u.inputTokens !== undefined);
+
+  return {
+    jobId,
+    outcome,
     outlineMs,
     totalMs,
     outlineShare: totalMs > 0 ? outlineMs / totalMs : 0,
     unitCount: units.length,
     slotCount: units.reduce((n, u) => n + u.slots, 0),
     concurrency,
-    waves: concurrency > 0 ? Math.ceil(units.length / concurrency) : 0,
+    retriedUnits: units.filter((u) => u.attempts > 1).length,
     unitMs: {
       p50: percentile(durations, 50),
       p95: percentile(durations, 95),
@@ -83,9 +104,12 @@ export function summariseGeneration(args: {
     tokens: {
       input,
       output,
-      inputPerUnit: units.length ? Math.round(input / units.length) : 0,
+      outlineInput: outlineTokens.input,
+      outlineOutput: outlineTokens.output,
+      inputPerUnit: withUsage.length
+        ? Math.round(input / withUsage.length)
+        : null,
+      unitsWithUsage: withUsage.length,
     },
   };
-
-  return { ...summary, logLine: `calendar-timing ${JSON.stringify(summary)}` };
 }

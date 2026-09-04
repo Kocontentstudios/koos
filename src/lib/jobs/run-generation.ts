@@ -80,6 +80,9 @@ export type ReportProgress = (progress: JobProgress) => void;
 
 /** What resumable work gets from the job runner. */
 export interface JobRuntime {
+  /** Carried so a timing line can be joined to its job — two generations run
+   *  concurrently and interleave in the log. */
+  jobId: string;
   reportProgress: ReportProgress;
   /** Checkpoint persisted by a previous slice (empty object on first run). */
   checkpoint: Record<string, unknown>;
@@ -145,6 +148,7 @@ export async function executeGenerationJob(
 
   const deadline = softDeadlineMs ? Date.now() + softDeadlineMs : null;
   const runtime: JobRuntime = {
+    jobId,
     reportProgress: (progress) => {
       state.progress = progress;
       // Fire-and-forget: progress is cosmetic, never fail the job over it.
@@ -353,18 +357,27 @@ export async function generateCalendarWork(
   const unitTimings: UnitTiming[] = [];
   /* Emitted on every terminal path, pause included — a slice that blew its
      budget is the one worth measuring, and it leaves by throwing. */
+  let timingEmitted = false;
+  /* One line, and everything after the tag is JSON — a consumer greps the tag
+     and pipes the rest to jq. Outcome and jobId live INSIDE the payload:
+     without them, concurrent generations interleave into an unjoinable stream
+     and a parser loses the dimension that matters most. Idempotent, so an
+     inner guard and an outer one cannot double-log. */
   const emitTiming = (outcome: "complete" | "paused" | "failed") => {
-    const timing = summariseGeneration({
-      outlineMs,
-      totalMs: Date.now() - runStart,
-      concurrency: BRIEF_CONCURRENCY,
-      units: unitTimings,
-    });
+    if (timingEmitted) return;
+    timingEmitted = true;
     console.log(
-      `${timing.logLine.replace("calendar-timing ", `calendar-timing ${outcome} `)}`,
-    );
-    console.log(
-      `calendar-timing outline tokens in=${outlineTokens.input} out=${outlineTokens.output}`,
+      `calendar-timing ${JSON.stringify(
+        summariseGeneration({
+          jobId: runtime.jobId,
+          outcome,
+          outlineMs,
+          totalMs: Date.now() - runStart,
+          concurrency: BRIEF_CONCURRENCY,
+          outlineTokens,
+          units: unitTimings,
+        }),
+      )}`,
     );
   };
 
@@ -376,24 +389,35 @@ export async function generateCalendarWork(
   } else {
     reportProgress({ done: 0, total: 1, label: "Planning the calendar…" });
     const outlineStart = Date.now();
-    const { object, usage: outlineUsage } = await withRetry(
-      () =>
-        generateObject({
-          model,
-          schema: calendarOutlineSchema,
-          system: buildCalendarOutlineSystemPrompt(summary, todayIso),
-          prompt: buildCalendarOutlinePrompt(
-            args.structured,
-            summary,
-            todayIso,
-          ),
-          // A 90-day outline is ~80 slots of structured JSON — the provider
-          // default cap (4096 on Bedrock) truncates it into schema failures.
-          maxOutputTokens: 16_000,
-        }),
-      3,
-      { label: "calendar outline" },
-    );
+    let object: CalendarOutline;
+    let outlineUsage:
+      | { inputTokens?: number; outputTokens?: number }
+      | undefined;
+    try {
+      ({ object, usage: outlineUsage } = await withRetry(
+        () =>
+          generateObject({
+            model,
+            schema: calendarOutlineSchema,
+            system: buildCalendarOutlineSystemPrompt(summary, todayIso),
+            prompt: buildCalendarOutlinePrompt(
+              args.structured,
+              summary,
+              todayIso,
+            ),
+            // A 90-day outline is ~80 slots of structured JSON — the provider
+            // default cap (4096 on Bedrock) truncates it into schema failures.
+            maxOutputTokens: 16_000,
+          }),
+        3,
+        { label: "calendar outline" },
+      ));
+    } catch (err) {
+      // Three attempts at a ~60s call plus backoff is the single most
+      // expensive failure here; it must not vanish from the record.
+      emitTiming("failed");
+      throw err;
+    }
     outline = object;
     outlineMs = Date.now() - outlineStart;
     outlineTokens = {
@@ -504,13 +528,19 @@ export async function generateCalendarWork(
       );
       const unitStart = Date.now();
       let object: CalendarChunk;
+      /* Counted in the closure rather than by changing withRetry's signature.
+         Without it `ms` is a retry chain collapsed into one number, and a slow
+         call cannot be told apart from a retrying one — exactly the question
+         the 309s outlier raised and could not answer. */
+      let attempts = 0;
       let unitUsage:
         | { inputTokens?: number; outputTokens?: number }
         | undefined;
       try {
         ({ object, usage: unitUsage } = await withRetry(
-          () =>
-            generateObject({
+          () => {
+            attempts += 1;
+            return generateObject({
               model,
               schema: calendarChunkSchema,
               system: buildCalendarChunkSystemPrompt(summary),
@@ -523,7 +553,8 @@ export async function generateCalendarWork(
               // Multi-section briefs blow past the provider default output
               // cap (4096 on Bedrock); a truncated response fails the schema.
               maxOutputTokens: 20_000,
-            }),
+            });
+          },
           3,
           { label: `calendar unit ${unit.key}` },
         ));
@@ -542,6 +573,7 @@ export async function generateCalendarWork(
         key: unit.key,
         slots: unitSlots.length,
         ms: unitMs,
+        attempts,
         inputTokens: unitUsage?.inputTokens,
         outputTokens: unitUsage?.outputTokens,
       });

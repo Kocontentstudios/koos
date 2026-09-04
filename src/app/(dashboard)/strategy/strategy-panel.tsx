@@ -258,13 +258,13 @@ function PanelContent({
               const total = calendarProgress.total - 1;
               const label = `${done} of ${total} briefs written`;
               return (
-                <div role="status" className="space-y-1.5">
+                <div className="space-y-1.5">
                   <div
                     role="progressbar"
+                    aria-label="Calendar generation"
                     aria-valuenow={done}
                     aria-valuemin={0}
                     aria-valuemax={total}
-                    aria-valuetext={label}
                     className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--status-progress-bg)]"
                   >
                     <div
@@ -272,7 +272,10 @@ function PanelContent({
                       style={{ width: `${Math.round((done / total) * 100)}%` }}
                     />
                   </div>
-                  <p className="text-[12px] text-[var(--text-muted)] tabular-nums">
+                  <p
+                    role="status"
+                    className="text-[12px] text-[var(--text-muted)] tabular-nums"
+                  >
                     {label}
                   </p>
                 </div>

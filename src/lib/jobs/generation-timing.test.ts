@@ -25,93 +25,126 @@ describe("percentile", () => {
     expect(percentile([42], 95)).toBe(42);
     expect(percentile([], 50)).toBeNull();
   });
+
+  it("clamps the ends", () => {
+    const xs = [10, 20, 30];
+    expect(percentile(xs, 0)).toBe(10);
+    expect(percentile(xs, 100)).toBe(30);
+  });
+
+  /* Nearest-rank at n=2 puts p50 on the lower sample. Surprising enough to
+     pin, so nobody "fixes" it into an interpolated value. */
+  it("takes the lower of two samples for p50", () => {
+    expect(percentile([10, 20], 50)).toBe(10);
+  });
 });
 
 describe("summariseGeneration", () => {
   const units = [
-    { key: "0:0", slots: 4, ms: 8_000, inputTokens: 3_000, outputTokens: 900 },
-    { key: "0:4", slots: 4, ms: 12_000, inputTokens: 3_100, outputTokens: 950 },
-    { key: "1:0", slots: 2, ms: 30_000, inputTokens: 2_800, outputTokens: 500 },
+    {
+      key: "0:0",
+      slots: 4,
+      ms: 8_000,
+      attempts: 1,
+      inputTokens: 3_000,
+      outputTokens: 900,
+    },
+    {
+      key: "0:4",
+      slots: 4,
+      ms: 12_000,
+      attempts: 1,
+      inputTokens: 3_100,
+      outputTokens: 950,
+    },
+    {
+      key: "1:0",
+      slots: 2,
+      ms: 30_000,
+      attempts: 3,
+      inputTokens: 2_800,
+      outputTokens: 500,
+    },
   ];
 
-  it("reports the shape an operator needs to set a budget", () => {
-    const s = summariseGeneration({
-      outlineMs: 40_000,
-      totalMs: 95_000,
-      concurrency: 5,
-      units,
-    });
+  const base = {
+    jobId: "job-1",
+    outcome: "complete" as const,
+    outlineMs: 40_000,
+    totalMs: 95_000,
+    concurrency: 5,
+    outlineTokens: { input: 2_894, output: 5_123 },
+    units,
+  };
 
-    expect(s.outlineMs).toBe(40_000);
-    expect(s.totalMs).toBe(95_000);
+  it("reports the shape a budget gets argued from", () => {
+    const s = summariseGeneration(base);
+    expect(s.jobId).toBe("job-1");
+    expect(s.outcome).toBe("complete");
     expect(s.unitCount).toBe(3);
     expect(s.slotCount).toBe(10);
     expect(s.unitMs.p50).toBe(12_000);
     expect(s.unitMs.max).toBe(30_000);
   });
 
-  /* The number that decides whether prompt-trimming or concurrency is the
-     lever: input tokens are paid on every unit call and are dominated by
-     whatever the prompt re-sends. */
-  it("totals tokens and reports the per-call input cost", () => {
-    const s = summariseGeneration({
-      outlineMs: 40_000,
-      totalMs: 95_000,
-      concurrency: 5,
-      units,
-    });
+  /* A slow run WITH retries is a throttling story; a slow run without them is
+     a decode story, and they need opposite fixes. */
+  it("counts units that had to retry", () => {
+    expect(summariseGeneration(base).retriedUnits).toBe(1);
+  });
+
+  it("keeps the outline's tokens separate from the units'", () => {
+    const s = summariseGeneration(base);
     expect(s.tokens.input).toBe(8_900);
-    expect(s.tokens.output).toBe(2_350);
-    expect(s.tokens.inputPerUnit).toBe(Math.round(8_900 / 3));
+    expect(s.tokens.outlineInput).toBe(2_894);
+    expect(s.tokens.outlineOutput).toBe(5_123);
   });
 
-  /* Waves are what concurrency actually buys: 3 units at 5 wide is one wave,
-     and raising the limit cannot help a run that is already one wave deep. */
-  it("derives how many waves the concurrency produced", () => {
-    expect(
-      summariseGeneration({ outlineMs: 0, totalMs: 0, concurrency: 5, units })
-        .waves,
-    ).toBe(1);
-    expect(
-      summariseGeneration({ outlineMs: 0, totalMs: 0, concurrency: 2, units })
-        .waves,
-    ).toBe(2);
-  });
-
-  /* The outline is serial and blocking, so the share it takes is the ceiling
-     on what parallelising the rest can ever win back. */
-  it("reports the outline's share of the run", () => {
+  /* "Free" and "unknown" are different answers to a cost question, and
+     withRetry only returns the last attempt's usage. */
+  it("reports null rather than zero when no usage was reported", () => {
     const s = summariseGeneration({
-      outlineMs: 40_000,
-      totalMs: 100_000,
-      concurrency: 5,
-      units,
+      ...base,
+      units: [{ key: "0:0", slots: 4, ms: 8_000, attempts: 1 }],
     });
-    expect(s.outlineShare).toBeCloseTo(0.4, 5);
+    expect(s.tokens.inputPerUnit).toBeNull();
+    expect(s.tokens.unitsWithUsage).toBe(0);
+  });
+
+  it("averages over only the units that reported usage", () => {
+    const s = summariseGeneration({
+      ...base,
+      units: [
+        { key: "a", slots: 4, ms: 1, attempts: 1, inputTokens: 1_000 },
+        { key: "b", slots: 4, ms: 1, attempts: 3 },
+      ],
+    });
+    expect(s.tokens.inputPerUnit).toBe(1_000);
+    expect(s.tokens.unitsWithUsage).toBe(1);
+  });
+
+  it("reports the outline's share of the run", () => {
+    expect(
+      summariseGeneration({ ...base, totalMs: 100_000 }).outlineShare,
+    ).toBeCloseTo(0.4, 5);
+  });
+
+  it("does not divide by zero on an instant run", () => {
+    expect(summariseGeneration({ ...base, totalMs: 0 }).outlineShare).toBe(0);
   });
 
   it("survives a run with no brief units", () => {
-    const s = summariseGeneration({
-      outlineMs: 40_000,
-      totalMs: 40_000,
-      concurrency: 5,
-      units: [],
-    });
+    const s = summariseGeneration({ ...base, units: [] });
     expect(s.unitCount).toBe(0);
     expect(s.unitMs.p50).toBeNull();
-    expect(s.waves).toBe(0);
+    expect(s.retriedUnits).toBe(0);
   });
 
-  it("renders one machine-readable line for the log", () => {
-    const line = summariseGeneration({
-      outlineMs: 40_000,
-      totalMs: 95_000,
-      concurrency: 5,
-      units,
-    }).logLine;
-    expect(line).toContain("calendar-timing");
+  /* The whole object is the log payload — a consumer strips a fixed prefix and
+     pipes the rest to jq, so it must be serialisable with nothing nested. */
+  it("serialises cleanly", () => {
     expect(() =>
-      JSON.parse(line.replace("calendar-timing ", "")),
+      JSON.parse(JSON.stringify(summariseGeneration(base))),
     ).not.toThrow();
   });
 });
