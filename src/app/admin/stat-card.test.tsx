@@ -58,3 +58,25 @@ describe("StatCard", () => {
     expect(screen.getByText("last 7 days")).toBeInTheDocument();
   });
 });
+
+/* Every number on the dashboard should open the records behind it. The card
+   stays a plain div without an href so the existing usages are untouched. */
+describe("drill-down", () => {
+  it("becomes a link when given an href", () => {
+    render(
+      <StatCard label="Overdue" value={7} href="/admin/tickets?view=overdue" />,
+    );
+    const link = screen.getByRole("link", { name: /Overdue/ });
+    expect(link).toHaveAttribute("href", "/admin/tickets?view=overdue");
+  });
+
+  it("stays a plain card without one", () => {
+    render(<StatCard label="Overdue" value={7} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("keeps the value readable in the link's accessible name", () => {
+    render(<StatCard label="Open tickets" value={42} href="/admin/tickets" />);
+    expect(screen.getByRole("link", { name: /42/ })).toBeInTheDocument();
+  });
+});

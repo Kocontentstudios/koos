@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { StatCard } from "@/app/admin/stat-card";
+import { statusRowHref } from "@/lib/admin/scope";
+import { adminScopeHref, DEFAULT_SCOPE } from "@/lib/admin/scope-params";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   getDesignerLoads,
@@ -59,10 +61,35 @@ export default async function AdminDashboardPage() {
       </header>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Open tickets" value={openCount} />
-        <StatCard label="Overdue" value={overdue} />
-        <StatCard label="Ready for review" value={readyCount} />
-        <StatCard label="Delivered" value={deliveredCount} />
+        <StatCard
+          label="Open tickets"
+          value={openCount}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "open",
+          })}
+        />
+        <StatCard
+          label="Overdue"
+          value={overdue}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "overdue",
+            sort: "overdue:desc",
+          })}
+        />
+        <StatCard
+          label="Ready for review"
+          value={readyCount}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "awaiting_review",
+          })}
+        />
+        <StatCard
+          label="Delivered"
+          value={deliveredCount}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "approved",
+          })}
+        />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
@@ -77,14 +104,16 @@ export default async function AdminDashboardPage() {
               </li>
             ) : (
               byStatus.map((r) => (
-                <li
-                  key={r.status}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <TicketStatusBadge status={r.status as TicketStatus} />
-                  <span className="text-[14px] font-medium text-foreground">
-                    {r.count}
-                  </span>
+                <li key={r.status}>
+                  <Link
+                    href={statusRowHref(r.status as TicketStatus)}
+                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-surface-2"
+                  >
+                    <TicketStatusBadge status={r.status as TicketStatus} />
+                    <span className="text-[14px] font-medium text-foreground">
+                      {r.count}
+                    </span>
+                  </Link>
                 </li>
               ))
             )}
@@ -102,17 +131,22 @@ export default async function AdminDashboardPage() {
               </li>
             ) : (
               loads.map((l) => (
-                <li
-                  key={l.designerId ?? "unassigned"}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <span className="text-[14px] text-foreground">
-                    {`${l.firstName ?? ""} ${l.lastName ?? ""}`.trim() ||
-                      "Unknown"}
-                  </span>
-                  <span className="text-[14px] font-medium text-foreground">
-                    {l.count} active
-                  </span>
+                <li key={l.designerId ?? "unassigned"}>
+                  <Link
+                    href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+                      view: "active",
+                      assignee: l.designerId ?? "unassigned",
+                    })}
+                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-surface-2"
+                  >
+                    <span className="text-[14px] text-foreground">
+                      {`${l.firstName ?? ""} ${l.lastName ?? ""}`.trim() ||
+                        "Unknown"}
+                    </span>
+                    <span className="text-[14px] font-medium text-foreground">
+                      {l.count} active
+                    </span>
+                  </Link>
                 </li>
               ))
             )}

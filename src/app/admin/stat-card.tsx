@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formatPercentChange } from "@/lib/analytics/rollup";
 
 /* Direction is carried by the arrow as well as the colour, so the delta still
@@ -19,16 +20,35 @@ export function StatCard({
   value,
   change,
   caption,
+  href,
 }: {
   label: string;
   value: number | string;
+  /** Where the number opens. Omitted, the card stays a plain div — not every
+   *  figure has records behind it. */
+  href?: string;
   /** Percent change vs the previous period. `null` renders as "—" (no
    *  comparable previous period); omit entirely to hide the delta. */
   change?: number | null;
   caption?: string;
 }) {
+  const className =
+    "block rounded-xl border border-[var(--border)] bg-surface-1 p-4" +
+    (href
+      ? " transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-accent)]"
+      : "");
+  const Wrapper = href
+    ? ({ children }: { children: React.ReactNode }) => (
+        <Link href={href} className={className}>
+          {children}
+        </Link>
+      )
+    : ({ children }: { children: React.ReactNode }) => (
+        <div className={className}>{children}</div>
+      );
+
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-surface-1 p-4">
+    <Wrapper>
       <p className="text-[12px] uppercase tracking-widest text-[var(--text-muted)]">
         {label}
       </p>
@@ -48,6 +68,6 @@ export function StatCard({
       {caption && (
         <p className="mt-1 text-[12px] text-[var(--text-muted)]">{caption}</p>
       )}
-    </div>
+    </Wrapper>
   );
 }

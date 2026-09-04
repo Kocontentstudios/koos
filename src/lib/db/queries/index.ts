@@ -11,6 +11,7 @@ import {
   ne,
   sql,
 } from "drizzle-orm";
+import { DEFAULT_SCOPE } from "@/lib/admin/scope-params";
 import { brandGuideSchema } from "@/lib/ai/brand-guide";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
@@ -42,6 +43,7 @@ import {
   workspaces,
 } from "@/lib/db/schema";
 import { widenWindowGuard, widenWindowSet } from "@/lib/db/sql/calendar-window";
+import { countAdminTickets } from "./admin-tickets";
 
 // ── Users ───────────────────────────────────────────────────────────
 
@@ -1502,17 +1504,17 @@ export async function getTicketCountsByStatus() {
 }
 
 /** Tickets past their due date that are not yet delivered. */
+/**
+ * Deliberately delegates rather than restating the predicate.
+ *
+ * The old query was `dueDate < now AND status != 'delivered'`, which counted
+ * tickets nobody ever submitted and counted approved work the moment a
+ * correction upload moved it off `delivered`. Sharing the definition with the
+ * drill-down is also what stops the card's number disagreeing with the list it
+ * opens — see VIEW_PREDICATES.overdue, which is tested without a database.
+ */
 export async function getOverdueTicketCount() {
-  const [row] = await db
-    .select({ count: count() })
-    .from(designTickets)
-    .where(
-      and(
-        lt(designTickets.dueDate, new Date()),
-        ne(designTickets.status, "delivered"),
-      ),
-    );
-  return row?.count ?? 0;
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "overdue" });
 }
 
 /** User counts grouped by role. */
