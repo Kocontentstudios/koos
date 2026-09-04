@@ -3,7 +3,7 @@
 import { Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PriorityBadge } from "@/app/(dashboard)/design-request/priority-badge";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
@@ -25,6 +25,13 @@ export interface QueueRow {
   campaignName: string | null;
   itemTitle: string | null;
   dueDate: string | null;
+  /** The ticket's own title, when it has one — a design request names itself
+   *  before a calendar item does. */
+  title: string | null;
+  assigneeName: string | null;
+  /** How long past due, already formatted. Null when not overdue: an operator
+   *  reads "3 days", not a timestamp they have to subtract. */
+  overdueFor: string | null;
 }
 
 function formatDate(iso: string | null): string {
@@ -36,84 +43,76 @@ function formatDate(iso: string | null): string {
   });
 }
 
-type QueueFilter = "all" | "in_progress" | "needs_revision";
-
-/** Tabs cover only statuses the queue query actually loads (submitted,
- * assigned, in_progress, revision_requested) — no server round-trip needed. */
-const QUEUE_FILTERS: { key: QueueFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "in_progress", label: "In progress" },
-  { key: "needs_revision", label: "Needs revision" },
-];
-
-function matchesQueueFilter(status: TicketStatus, filter: QueueFilter) {
-  switch (filter) {
-    case "all":
-      return true;
-    case "in_progress":
-      return status === "assigned" || status === "in_progress";
-    case "needs_revision":
-      return status === "revision_requested";
-  }
+export interface QueueFilterLink {
+  key: string;
+  label: string;
+  href: string;
+  active: boolean;
+  count?: number;
 }
 
-export function QueueClient({ queue }: { queue: QueueRow[] }) {
-  const [filter, setFilter] = useState<QueueFilter>("all");
-
-  const revisionCount = useMemo(
-    () => queue.filter((row) => row.status === "revision_requested").length,
-    [queue],
-  );
-
-  const visible = useMemo(
-    () => queue.filter((row) => matchesQueueFilter(row.status, filter)),
-    [queue, filter],
-  );
-
+/**
+ * The filter set lives in the URL, not in component state.
+ *
+ * A drill-down from the dashboard is a link, and a link has to land on a
+ * filtered list. Local state also filters only the rows already fetched, which
+ * on a paginated list quietly searches one page and looks like it worked.
+ */
+export function QueueClient({
+  queue,
+  filters,
+  total,
+  emptyMessage = "No tickets in this view.",
+}: {
+  queue: QueueRow[];
+  filters: QueueFilterLink[];
+  total?: number;
+  emptyMessage?: string;
+}) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
-        {QUEUE_FILTERS.map(({ key, label }) => {
-          const active = key === filter;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setFilter(key)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors",
-                active
-                  ? "bg-surface-2 text-foreground"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground",
-              )}
-            >
-              {label}
-              {key === "needs_revision" && (
-                <span
-                  className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold"
-                  style={{
-                    color: "var(--status-pending-fg)",
-                    backgroundColor:
-                      "color-mix(in srgb, var(--status-pending-fg) 16%, transparent)",
-                  }}
-                >
-                  {revisionCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center gap-2">
+        {filters.map(({ key, label, href, active, count }) => (
+          <Link
+            key={key}
+            href={href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors",
+              active
+                ? "bg-surface-2 text-foreground"
+                : "text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground",
+            )}
+          >
+            {label}
+            {count !== undefined && count > 0 && (
+              <span
+                className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold"
+                style={{
+                  color: "var(--status-pending-fg)",
+                  backgroundColor:
+                    "color-mix(in srgb, var(--status-pending-fg) 16%, transparent)",
+                }}
+              >
+                {count}
+              </span>
+            )}
+          </Link>
+        ))}
+        {total !== undefined && (
+          <span className="ml-auto text-[12px] text-[var(--text-muted)] tabular-nums">
+            {total} {total === 1 ? "ticket" : "tickets"}
+          </span>
+        )}
       </div>
 
-      {visible.length === 0 ? (
+      {queue.length === 0 ? (
         <p className="rounded-xl border border-[var(--border)] bg-surface-1 px-6 py-12 text-center text-[14px] text-[var(--text-secondary)]">
-          {queue.length === 0
-            ? "The queue is empty. Nice work."
-            : "No tickets in this view."}
+          {emptyMessage}
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {visible.map((row) => (
+          {queue.map((row) => (
             <QueueItem key={row.id} row={row} />
           ))}
         </ul>
@@ -211,14 +210,24 @@ function QueueItem({ row }: { row: QueueRow }) {
           <TicketStatusBadge status={row.status} />
           <PriorityBadge priority={row.priority} />
         </div>
-        <span className="text-[12px] text-[var(--text-muted)]">
+        <span className="flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
+          {row.overdueFor && (
+            <span className="rounded-full bg-[var(--status-error-bg)] px-2 py-0.5 font-medium text-[var(--status-error-fg)]">
+              {row.overdueFor} overdue
+            </span>
+          )}
           Due {formatDate(row.dueDate)}
         </span>
       </div>
 
       <div className="mt-2 space-y-0.5">
+        {row.assigneeName !== null && (
+          <p className="text-[12px] text-[var(--text-muted)]">
+            {row.assigneeName || "Unassigned"}
+          </p>
+        )}
         <p className="text-[14px] font-medium text-foreground">
-          {row.designType}
+          {row.title ?? row.designType}
           {row.dimensions ? ` · ${row.dimensions}` : ""}
           {row.slides ? ` · ${row.slides} slides` : ""}
         </p>

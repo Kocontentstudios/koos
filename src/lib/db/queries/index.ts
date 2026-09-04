@@ -1017,31 +1017,6 @@ export async function replaceTicketAttachments(
   return addTicketAttachments(rows);
 }
 
-const QUEUE_STATUSES = [
-  "submitted",
-  "assigned",
-  "in_progress",
-  "revision_requested",
-] as const;
-
-/** Open tickets for the designer/admin queue. */
-export async function getDesignerQueue() {
-  return db
-    .select({
-      ticket: designTickets,
-      campaignName: strategies.name,
-      itemTitle: calendarItems.title,
-      brandName: brands.name,
-    })
-    .from(designTickets)
-    .leftJoin(brands, eq(designTickets.brandId, brands.id))
-    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
-    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(inArray(designTickets.status, [...QUEUE_STATUSES]))
-    .orderBy(desc(designTickets.createdAt));
-}
-
 // ── Design Deliverables ─────────────────────────────────────────────
 
 /** Record a delivery round: insert the files under the next version number, move
@@ -1595,6 +1570,7 @@ export async function updateAppSettings(data: {
   return row;
 }
 
+export * from "./admin-tickets";
 export * from "./analytics";
 export * from "./workspaces";
 

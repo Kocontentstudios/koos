@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { QueueRow } from "./queue-client";
@@ -26,6 +25,9 @@ function row(overrides: Partial<QueueRow>): QueueRow {
     brandName: "Acme",
     campaignName: null,
     itemTitle: null,
+    title: null,
+    assigneeName: null,
+    overdueFor: null,
     dueDate: null,
     ...overrides,
   };
@@ -38,39 +40,93 @@ const QUEUE: QueueRow[] = [
   row({ id: "revision-2", ticketNumber: 104, status: "revision_requested" }),
 ];
 
-describe("QueueClient status tabs", () => {
-  it("shows every row under the All tab", () => {
-    render(<QueueClient queue={QUEUE} />);
-    expect(screen.getByText(formatTicketNumber(101))).toBeInTheDocument();
-    expect(screen.getByText(formatTicketNumber(102))).toBeInTheDocument();
-    expect(screen.getByText(formatTicketNumber(103))).toBeInTheDocument();
-    expect(screen.getByText(formatTicketNumber(104))).toBeInTheDocument();
+const FILTERS = [
+  {
+    key: "open",
+    label: "Open",
+    href: "/admin/tickets?view=open",
+    active: true,
+  },
+  {
+    key: "needs_revision",
+    label: "Needs revision",
+    href: "/admin/tickets?view=needs_revision",
+    active: false,
+    count: 2,
+  },
+];
+
+/* Filtering moved to the URL: a dashboard drill-down is a link, and it has to
+   land on a filtered list rather than a full one the browser then trims. The
+   predicate behind each view is tested without a database in scope.test.ts;
+   what belongs here is that the container renders what it is handed. */
+describe("QueueClient", () => {
+  it("renders every row it is given", () => {
+    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    for (const n of [101, 102, 103, 104]) {
+      expect(screen.getByText(formatTicketNumber(n))).toBeInTheDocument();
+    }
   });
 
-  it("shows a count badge on the Needs revision tab matching revision_requested rows", () => {
-    render(<QueueClient queue={QUEUE} />);
-    const tab = screen.getByRole("button", { name: /needs revision/i });
-    expect(tab).toHaveTextContent("2");
+  it("offers each view as a link, not a local toggle", () => {
+    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    expect(
+      screen.getByRole("link", { name: /needs revision/i }),
+    ).toHaveAttribute("href", "/admin/tickets?view=needs_revision");
   });
 
-  it("filters to only revision_requested rows when Needs revision is selected", async () => {
-    render(<QueueClient queue={QUEUE} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /needs revision/i }),
+  it("marks the active view for assistive tech, not just colour", () => {
+    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    expect(screen.getByRole("link", { name: /open/i })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
-    expect(screen.queryByText(formatTicketNumber(101))).not.toBeInTheDocument();
-    expect(screen.queryByText(formatTicketNumber(102))).not.toBeInTheDocument();
-    expect(screen.getByText(formatTicketNumber(103))).toBeInTheDocument();
-    expect(screen.getByText(formatTicketNumber(104))).toBeInTheDocument();
   });
 
-  it("returns to the full list when All is reselected", async () => {
-    render(<QueueClient queue={QUEUE} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /needs revision/i }),
+  it("shows the count a view carries", () => {
+    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    expect(
+      screen.getByRole("link", { name: /needs revision/i }),
+    ).toHaveTextContent("2");
+  });
+
+  /* The count comes from the server, so it reflects every match — not the
+     page of rows that happens to be loaded. */
+  it("reports a total larger than the rows on screen", () => {
+    render(<QueueClient queue={QUEUE} filters={FILTERS} total={137} />);
+    expect(screen.getByText(/137 tickets/)).toBeInTheDocument();
+  });
+
+  it("says something useful when a view is empty", () => {
+    render(
+      <QueueClient
+        queue={[]}
+        filters={FILTERS}
+        emptyMessage="Nothing is overdue."
+      />,
     );
-    await userEvent.click(screen.getByRole("button", { name: /^all/i }));
-    expect(screen.getByText(formatTicketNumber(101))).toBeInTheDocument();
-    expect(screen.getByText(formatTicketNumber(103))).toBeInTheDocument();
+    expect(screen.getByText("Nothing is overdue.")).toBeInTheDocument();
+  });
+});
+
+describe("overdue rows", () => {
+  it("says how long overdue, not just the due date", () => {
+    render(
+      <QueueClient
+        queue={[row({ id: "late", overdueFor: "3 days" })]}
+        filters={FILTERS}
+      />,
+    );
+    expect(screen.getByText(/3 days overdue/)).toBeInTheDocument();
+  });
+
+  it("names the assignee, or says nobody has it", () => {
+    render(
+      <QueueClient
+        queue={[row({ id: "u", assigneeName: "" })]}
+        filters={FILTERS}
+      />,
+    );
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
   });
 });
