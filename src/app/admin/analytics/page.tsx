@@ -1,23 +1,39 @@
+import Link from "next/link";
 import { StatCard } from "@/app/admin/stat-card";
+import { ADMIN_RANGES } from "@/lib/admin/scope";
+import {
+  type AdminScope,
+  adminScopeHref,
+  DEFAULT_SCOPE,
+  loadAdminScope,
+  USAGE_KINDS,
+} from "@/lib/admin/scope-params";
+import {
+  analyticsFilterFrom,
+  describeWindow,
+  previousWindow,
+} from "@/lib/analytics/filter";
+import { recordsHref } from "@/lib/analytics/records";
 import {
   bucketByPeriod,
   formatDuration,
   median,
   percentChange,
-  splitCurrentAndPrevious,
   toBarPercentages,
 } from "@/lib/analytics/rollup";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   getActiveBrandCount,
-  getApprovalDurationsSince,
-  getSignupsSince,
-  getTicketsSince,
+  getApprovalDurations,
+  getBrandFilterOptions,
+  getSignups,
+  getTickets,
   getTopBrandsByActivity,
-  getUsageEventsSince,
+  getUsageEvents,
 } from "@/lib/db/queries";
+import { humanizeStatus, TICKET_STATUSES } from "@/lib/design/tickets-ui";
+import { AnalyticsFilterBar, type FilterGroup } from "./filter-bar";
 
-const DAY_MS = 86_400_000;
 const TREND_WEEKS = 12;
 
 const KIND_LABELS: Record<string, string> = {
@@ -26,6 +42,13 @@ const KIND_LABELS: Record<string, string> = {
   design_ticket_created: "Design ticket",
   design_generated: "Design image",
 };
+
+/** Adds or removes one value, so a chip is its own toggle. */
+function toggle<T extends string>(current: readonly T[], value: T): T[] {
+  return current.includes(value)
+    ? current.filter((v) => v !== value)
+    : [...current, value];
+}
 
 function Panel({
   title,
@@ -57,17 +80,25 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * One row of a breakdown, optionally opening its own records.
+ *
+ * The whole row is the link, not just the label: the number is what the
+ * operator is reaching for, and a 28px label is a small target.
+ */
 function BarRow({
   label,
   count,
   percent,
+  href,
 }: {
   label: string;
   count: number;
   percent: number;
+  href?: string;
 }) {
-  return (
-    <li className="flex items-center gap-3">
+  const body = (
+    <>
       <span className="w-28 shrink-0 text-[13px] text-[var(--text-secondary)]">
         {label}
       </span>
@@ -77,49 +108,86 @@ function BarRow({
           style={{ width: `${percent}%` }}
         />
       </span>
-      <span className="w-10 shrink-0 text-right text-[13px] font-medium text-foreground">
+      <span className="w-10 shrink-0 text-right text-[13px] font-medium text-foreground tabular-nums">
         {count}
       </span>
+    </>
+  );
+
+  return (
+    <li>
+      {href ? (
+        <Link
+          href={href}
+          className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+        >
+          {body}
+        </Link>
+      ) : (
+        <span className="flex items-center gap-3 px-2 py-1">{body}</span>
+      )}
     </li>
   );
 }
 
-export default async function AdminAnalyticsPage() {
+export default async function AdminAnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireRole(["admin"]);
 
   const now = new Date();
-  const trendStart = new Date(now.getTime() - TREND_WEEKS * 7 * DAY_MS);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY_MS);
-  const fourteenDaysAgo = new Date(now.getTime() - 14 * DAY_MS);
+  const scope = loadAdminScope(await searchParams);
+  /* One filter, every figure. Each card used to carry its own hardcoded window
+     — 7 days, 30 days, 12 weeks — so "all cards update to match the selected
+     range" could not be true of a page where the ranges lived in the JSX. */
+  const filter = analyticsFilterFrom(scope, now);
+  const previous = previousWindow(filter, now);
 
-  const [usage, signups, tickets, activeBrands, topBrands, approvalMs] =
-    await Promise.all([
-      getUsageEventsSince(trendStart),
-      getSignupsSince(fourteenDaysAgo),
-      getTicketsSince(fourteenDaysAgo),
-      getActiveBrandCount(thirtyDaysAgo),
-      getTopBrandsByActivity(thirtyDaysAgo),
-      getApprovalDurationsSince(trendStart),
-    ]);
+  const [
+    usage,
+    signups,
+    tickets,
+    activeBrands,
+    topBrands,
+    approvalMs,
+    brandOptions,
+  ] = await Promise.all([
+    getUsageEvents(filter),
+    getSignups(filter),
+    getTickets(filter),
+    getActiveBrandCount(filter),
+    getTopBrandsByActivity(filter),
+    getApprovalDurations(filter),
+    getBrandFilterOptions(),
+  ]);
+
+  /* The same window, shifted back by its own length — a like-for-like
+     comparison. A 30-day selection compared against the previous 7 days would
+     report growth that is an artefact of the window. Null for "all time",
+     where there is no previous period, and the cards then show no delta at
+     all rather than a meaningless one. */
+  const [prevUsage, prevSignups, prevTickets] = previous
+    ? await Promise.all([
+        getUsageEvents({ ...filter, ...previous }),
+        getSignups({ ...filter, ...previous }),
+        getTickets({ ...filter, ...previous }),
+      ])
+    : [null, null, null];
 
   const usageTimes = usage.map((e) => e.createdAt);
-  const generations = splitCurrentAndPrevious(usageTimes, {
-    now,
-    periodDays: 7,
-  });
-  const newUsers = splitCurrentAndPrevious(
-    signups.map((s) => s.createdAt),
-    { now, periodDays: 7 },
-  );
-  const newTickets = splitCurrentAndPrevious(
-    tickets.map((t) => t.createdAt),
-    { now, periodDays: 7 },
-  );
+  const changeFor = (current: number, prev: unknown[] | null) =>
+    prev === null ? undefined : percentChange(current, prev.length);
 
+  const buckets = Math.min(
+    TREND_WEEKS,
+    Math.max(2, Math.ceil(filter.periodDays / 7)),
+  );
   const trend = bucketByPeriod(usageTimes, {
-    now,
+    now: filter.to ?? now,
     periodDays: 7,
-    periods: TREND_WEEKS,
+    periods: filter.from ? buckets : TREND_WEEKS,
   });
   const trendPercents = toBarPercentages(trend.map((b) => b.count));
 
@@ -132,6 +200,56 @@ export default async function AdminAnalyticsPage() {
   const kindPercents = toBarPercentages(byKind.map(([, n]) => n));
 
   const brandPercents = toBarPercentages(topBrands.map((b) => b.count));
+  const window = describeWindow(filter);
+
+  const href = (patch: Partial<AdminScope>) =>
+    adminScopeHref("/admin/analytics", scope, patch);
+
+  const groups: FilterGroup[] = [
+    {
+      legend: "Date range",
+      choices: ADMIN_RANGES.filter((r) => r !== "custom").map((range) => ({
+        key: range,
+        label:
+          range === "all" ? "All time" : `Last ${range.replace("d", "")} days`,
+        href: href({ range, from: "", to: "", page: 1 }),
+        active: scope.range === range,
+      })),
+    },
+    {
+      legend: "Activity type",
+      choices: USAGE_KINDS.map((kind) => ({
+        key: kind,
+        label: KIND_LABELS[kind] ?? kind,
+        href: href({ kind: toggle(scope.kind, kind), page: 1 }),
+        active: scope.kind.includes(kind),
+      })),
+    },
+    {
+      legend: "Brand",
+      choices: brandOptions.slice(0, 12).map((b) => ({
+        key: b.id,
+        label: b.name,
+        href: href({ brand: scope.brand === b.id ? "" : b.id, page: 1 }),
+        active: scope.brand === b.id,
+      })),
+    },
+    {
+      legend: "Ticket status",
+      choices: TICKET_STATUSES.map((status) => ({
+        key: status,
+        label: humanizeStatus(status),
+        href: href({ status: toggle(scope.status, status), page: 1 }),
+        active: scope.status.includes(status),
+      })),
+    },
+  ];
+
+  const activeCount =
+    (scope.range === DEFAULT_SCOPE.range ? 0 : 1) +
+    (scope.kind.length ? 1 : 0) +
+    (scope.brand ? 1 : 0) +
+    (scope.status.length ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-8">
@@ -145,40 +263,53 @@ export default async function AdminAnalyticsPage() {
         </p>
       </header>
 
+      <AnalyticsFilterBar
+        groups={groups}
+        activeCount={activeCount}
+        clearHref={adminScopeHref("/admin/analytics", DEFAULT_SCOPE)}
+      />
+
+      {/* Every caption is derived from the resolved window. Hardcoded ones
+          ("last 7 days") become lies the moment a filter is applied. */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Generations"
-          value={generations.current}
-          change={percentChange(generations.current, generations.previous)}
-          caption="last 7 days"
+          value={usage.length}
+          change={changeFor(usage.length, prevUsage)}
+          caption={window}
+          href={recordsHref(scope, "generations")}
         />
         <StatCard
           label="Active brands"
           value={activeBrands}
-          caption="last 30 days"
+          caption={window}
+          href={recordsHref(scope, "brands")}
         />
         <StatCard
           label="New users"
-          value={newUsers.current}
-          change={percentChange(newUsers.current, newUsers.previous)}
-          caption="last 7 days"
+          value={signups.length}
+          change={changeFor(signups.length, prevSignups)}
+          caption={window}
+          href={recordsHref(scope, "users")}
         />
         <StatCard
           label="Tickets"
-          value={newTickets.current}
-          change={percentChange(newTickets.current, newTickets.previous)}
-          caption="last 7 days"
+          value={tickets.length}
+          change={changeFor(tickets.length, prevTickets)}
+          caption={window}
+          href={recordsHref(scope, "tickets")}
         />
         <StatCard
           label="Time to approval"
           value={formatDuration(median(approvalMs))}
           caption={`median of ${approvalMs.length} approved`}
+          href={recordsHref(scope, "approvals")}
         />
       </section>
 
       <Panel
         title="Activity"
-        subtitle={`Generations per rolling 7-day window, last ${TREND_WEEKS} weeks.`}
+        subtitle={`Generations per rolling 7-day window, ${window}.`}
       >
         {trend.every((b) => b.count === 0) ? (
           <Empty>No generations recorded in this window.</Empty>
@@ -206,12 +337,14 @@ export default async function AdminAnalyticsPage() {
       </Panel>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {/* The ticket asks for this to be EXPLAINED, not just linked: "By
+            Type" names nothing on its own. */}
         <Panel
           title="By type"
-          subtitle={`What was generated, last ${TREND_WEEKS} weeks.`}
+          subtitle={`What KO OS produced — strategies, calendars, design tickets and generated images — ${window}.`}
         >
           {byKind.length === 0 ? (
-            <Empty>Nothing generated yet.</Empty>
+            <Empty>Nothing generated in this window.</Empty>
           ) : (
             <ul className="flex flex-col gap-3">
               {byKind.map(([kind, n], i) => (
@@ -220,15 +353,18 @@ export default async function AdminAnalyticsPage() {
                   label={KIND_LABELS[kind] ?? kind}
                   count={n}
                   percent={kindPercents[i]}
+                  href={recordsHref(scope, "generations", {
+                    kind: [kind as (typeof USAGE_KINDS)[number]],
+                  })}
                 />
               ))}
             </ul>
           )}
         </Panel>
 
-        <Panel title="Most active brands" subtitle="Last 30 days.">
+        <Panel title="Most active brands" subtitle={`Activity ${window}.`}>
           {topBrands.length === 0 ? (
-            <Empty>No brand activity in the last 30 days.</Empty>
+            <Empty>No brand activity in this window.</Empty>
           ) : (
             <ul className="flex flex-col gap-3">
               {topBrands.map((brand, i) => (
@@ -237,6 +373,9 @@ export default async function AdminAnalyticsPage() {
                   label={brand.name}
                   count={brand.count}
                   percent={brandPercents[i]}
+                  href={recordsHref(scope, "generations", {
+                    brand: brand.brandId,
+                  })}
                 />
               ))}
             </ul>

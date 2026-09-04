@@ -84,8 +84,21 @@ export function BrandsTable({ brands }: { brands: BrandListRow[] }) {
                     ({b.completionPercentage}%)
                   </span>
                 </td>
-                <td className="px-4 py-3 text-[var(--text-secondary)]">
-                  {b.ticketCount}
+                <td className="px-4 py-3">
+                  {/* No `view` param: listBrandsForAdmin counts every ticket
+                      including drafts, so anything narrower would open a list
+                      shorter than the number just clicked. */}
+                  {b.ticketCount > 0 ? (
+                    <Link
+                      href={`/admin/tickets?view=all&brand=${b.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {b.ticketCount}
+                      <span className="sr-only">{` tickets for ${b.name}`}</span>
+                    </Link>
+                  ) : (
+                    <span className="text-[var(--text-secondary)]">0</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-[var(--text-secondary)]">
                   {formatDate(b.createdAt)}

@@ -21,13 +21,12 @@ import {
  * The URL vocabulary shared by every admin drill-down, derived from `scope.ts`
  * so the two cannot drift.
  *
- * Which UI sets what, today: `view`, `status`, `assignee` and `page` come from
- * the dashboard links and the tab bar; `q` from the search box. `brand`,
- * `requester`, `range`, `from`, `to` and `sort` are honoured by the query layer
- * and reachable by URL, but nothing renders a control for them yet —
- * ADMIN-FEAT-005 adds the filter bar and ADMIN-FEAT-006 the brand link. They
- * are here because the grammar has to be one contract across every admin list,
- * not because a later page might want them.
+ * Which UI sets what: `view`, `status`, `assignee` and `page` come from the
+ * dashboard links and the tab bars; `q` from the search boxes; `range`, `from`,
+ * `to`, `brand` and `kind` from the analytics filter bar and the Delivered
+ * Projects date chips. `requester` and `sort` are honoured by the query layer
+ * and reachable by URL without a dedicated control. The grammar is one contract
+ * across every admin list, so a scope means the same thing wherever it lands.
  *
  * Grammar, frozen: multi-values are one comma list (never repeated keys),
  * defaults are omitted from the URL so two routes to the same view produce the
@@ -39,6 +38,31 @@ import {
 /* `delivered` is a real column as of ADMIN-FEAT-002's migration. It was absent
    before that rather than quietly aliased to created_at, which would have
    answered a different question than the one asked. */
+/* The activity types the analytics page filters by — the enum's own values, so
+   a filter cannot name a kind the database has never recorded. Removed while it
+   had no consumer; ADMIN-FEAT-005 is that consumer. */
+export const USAGE_KINDS = [
+  "strategy_generated",
+  "calendar_generated",
+  "design_ticket_created",
+  "design_generated",
+] as const;
+export type UsageKind = (typeof USAGE_KINDS)[number];
+
+/* Which metric's records to show. Declared HERE, not in analytics/records:
+   that module builds hrefs with adminScopeHref, so importing its vocabulary
+   back would be a cycle — and a cycle here does not fail loudly, it leaves the
+   parser holding `undefined` and silently accepting nothing, so every metric
+   resolves to the default. */
+export const RECORD_KINDS = [
+  "generations",
+  "brands",
+  "users",
+  "tickets",
+  "approvals",
+] as const;
+export type RecordKind = (typeof RECORD_KINDS)[number];
+
 export const DATE_ANCHORS = [
   "created",
   "due",
@@ -81,6 +105,11 @@ export const adminScopeParsers = {
   from: parseAsString.withDefault(""),
   to: parseAsString.withDefault(""),
   on: parseAsStringLiteral(DATE_ANCHORS).withDefault("created"),
+  kind: parseAsArrayOf(parseAsStringLiteral(USAGE_KINDS), ",").withDefault([]),
+  /* Which metric's records to show. Only /admin/analytics/records reads it;
+     it lives in the shared grammar so an analytics link carries it alongside
+     the filters rather than assembling a second, parallel URL vocabulary. */
+  metric: parseAsStringLiteral(RECORD_KINDS).withDefault("generations"),
   /* Validated here rather than trusted and sanitised later: the scope object
      is handed straight to the query layer, so it should never carry a field
      name that came off a hand-edited URL. */
@@ -108,6 +137,8 @@ export const DEFAULT_SCOPE: AdminScope = {
   from: "",
   to: "",
   on: "created",
+  kind: [],
+  metric: "generations",
   sort: "",
   page: 1,
 };
