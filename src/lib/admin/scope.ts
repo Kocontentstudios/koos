@@ -26,8 +26,8 @@ export type AdminTicketView = (typeof ADMIN_TICKET_VIEWS)[number];
 export interface ViewPredicate {
   statusIn?: readonly TicketStatus[];
   statusNotIn?: readonly TicketStatus[];
-  /** `only` = signed off, `none` = never signed off, absent = don't care. */
-  approved?: "only" | "none";
+  /** `none` = never signed off, absent = don't care. */
+  approved?: "none";
   overdue?: true;
 }
 
@@ -66,7 +66,6 @@ export function matchesView(
   const p = VIEW_PREDICATES[view];
   if (p.statusIn && !p.statusIn.includes(row.status)) return false;
   if (p.statusNotIn?.includes(row.status)) return false;
-  if (p.approved === "only" && row.approvedAt === null) return false;
   if (p.approved === "none" && row.approvedAt !== null) return false;
   if (p.overdue && overdueMs(row.dueDate, now) === null) return false;
   return true;

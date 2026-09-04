@@ -21,6 +21,14 @@ import {
  * The URL vocabulary shared by every admin drill-down, derived from `scope.ts`
  * so the two cannot drift.
  *
+ * Which UI sets what, today: `view`, `status`, `assignee` and `page` come from
+ * the dashboard links and the tab bar; `q` from the search box. `brand`,
+ * `requester`, `range`, `from`, `to` and `sort` are honoured by the query layer
+ * and reachable by URL, but nothing renders a control for them yet —
+ * ADMIN-FEAT-005 adds the filter bar and ADMIN-FEAT-006 the brand link. They
+ * are here because the grammar has to be one contract across every admin list,
+ * not because a later page might want them.
+ *
  * Grammar, frozen: multi-values are one comma list (never repeated keys),
  * defaults are omitted from the URL so two routes to the same view produce the
  * same link, unknown values fall back instead of erroring, and the params are

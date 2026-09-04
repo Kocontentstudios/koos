@@ -7,7 +7,6 @@ vi.mock("@/lib/db/client", () => ({ db: {} }));
 import {
   ADMIN_TICKET_VIEWS,
   matchesView,
-  PAGE_SIZE,
   VIEW_PREDICATES,
 } from "@/lib/admin/scope";
 import {
@@ -17,8 +16,7 @@ import {
 } from "@/lib/admin/scope-params";
 import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import {
-  DEFAULT_PAGE_SIZE,
-  MAX_PAGE_SIZE,
+  orderFor,
   scopeConditions,
   ticketNumberFor,
   workloadCounts,
@@ -78,8 +76,6 @@ describe("the translator emits the SQL its predicate names", () => {
     }
     if (p.approved === "none")
       expect(sql).toContain('"design_tickets"."approved_at" is null');
-    if (p.approved === "only")
-      expect(sql).toContain('"design_tickets"."approved_at" is not null');
 
     // The direction matters: `>=` here returns every NOT-yet-due ticket.
     if (p.overdue) expect(sql).toContain('"design_tickets"."due_date" <');
@@ -116,7 +112,7 @@ describe("the translator emits the SQL its predicate names", () => {
         const p = VIEW_PREDICATES[view];
         // A status the JS predicate rejects on status alone must appear in the
         // SQL's status list (as an exclusion or an omission from the allow-list).
-        if (!admitted && !p.overdue && p.approved !== "only") {
+        if (!admitted && !p.overdue) {
           if (p.statusNotIn) expect(params).toContain(status);
           else if (p.statusIn) expect(params).not.toContain(status);
         }
@@ -281,15 +277,54 @@ describe("the workload header and the overdue tab agree", () => {
   });
 });
 
-describe("paging contract", () => {
-  /* The pager computes its page count from PAGE_SIZE and the query offsets by
-     the same value. Diverging renders an empty last page under a non-zero
-     total. */
-  it("offsets by the same page size the pager counts with", () => {
-    expect(DEFAULT_PAGE_SIZE).toBe(PAGE_SIZE);
-    expect(DEFAULT_PAGE_SIZE).toBeLessThanOrEqual(MAX_PAGE_SIZE);
+/**
+ * `orderFor` was module-private with `db` mocked, so nothing reached it:
+ * flipping asc/desc listed the LEAST overdue ticket first and left the suite
+ * green, and deleting the `id` tiebreak — whose own comment says removing it
+ * lets paging show a ticket twice and never show another — did too.
+ */
+describe("ordering", () => {
+  const orderSql = (s: AdminScope) =>
+    orderFor(s).map((c) => dialect.sqlToQuery(c).sql);
+
+  it("puts the most overdue ticket first, oldest due date ascending", () => {
+    const [primary] = orderSql(scope({ view: "overdue" }));
+    expect(primary).toContain('"design_tickets"."due_date"');
+    expect(primary).toMatch(/asc$/);
+    expect(primary).not.toMatch(/desc$/);
+  });
+
+  it("puts urgent work first in the working queue", () => {
+    const [primary] = orderSql(scope({ view: "open" }));
+    expect(primary).toContain('"design_tickets"."priority"');
+    // The enum is declared low < normal < high < urgent, so desc is urgent-first.
+    expect(primary).toMatch(/desc$/);
+  });
+
+  it("honours an explicit sort direction on a plain field", () => {
+    expect(orderSql(scope({ sort: "created:asc" }))[0]).toMatch(/asc$/);
+    expect(orderSql(scope({ sort: "created:desc" }))[0]).toMatch(/desc$/);
+  });
+
+  /* Without a total order, rows tying on the sort column come back in whatever
+     order the plan produced, so page 2 can repeat a row and drop another. */
+  it("always ends in a unique tiebreak", () => {
+    for (const view of ADMIN_TICKET_VIEWS) {
+      const clauses = orderSql(scope({ view }));
+      expect(clauses.at(-1)).toBe('"design_tickets"."id" asc');
+    }
+  });
+
+  it("falls back to a secondary sort when the primary is not createdAt", () => {
+    const clauses = orderSql(scope({ view: "overdue" }));
+    expect(clauses).toHaveLength(3);
+    expect(clauses[1]).toContain('"design_tickets"."created_at"');
   });
 });
+
+/* The pager/offset agreement is asserted where it can actually break — against
+   the rendered pager, in app/admin/tickets/page.test.tsx. Restating
+   `DEFAULT_PAGE_SIZE === PAGE_SIZE` here only re-read one line of source. */
 
 describe("the date anchors name real columns", () => {
   /* `delivered` was advertised as an anchor and quietly resolved to created_at,

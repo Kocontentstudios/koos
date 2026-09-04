@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import {
   ADMIN_TICKET_VIEWS,
   type AdminTicketView,
@@ -11,6 +12,7 @@ import {
   overdueMs,
   pageCount,
   resolveWindow,
+  rowActionsFor,
   sortToColumn,
   VIEW_PREDICATES,
 } from "./scope";
@@ -464,5 +466,119 @@ describe("the lateness chip and the overdue count share one definition", () => {
     ] as const) {
       expect(chipShows(ticket({ status, dueDate: past }))).toBe(true);
     }
+  });
+});
+
+/**
+ * Row actions, exhaustively.
+ *
+ * `page.test.tsx` renders three statuses, so two of the four gates were never
+ * reached: dropping the `designerId === null` clause from `claim`, or the
+ * status exclusions from `start`, left the whole suite green. Both are silent
+ * writes — Claim reassigns to the clicker with no confirmation, Start pulls a
+ * ticket out of the client's review queue and emails them about it.
+ */
+describe("rowActionsFor", () => {
+  const UNASSIGNED = null;
+  const ASSIGNED = "11111111-1111-1111-1111-111111111111";
+
+  /* A draft is the client's own unsubmitted request; signed-off work is
+     finished. The studio writes to neither. */
+  it.each(["draft", "delivered"] as const)(
+    "offers no write on a %s ticket",
+    (status) => {
+      for (const designerId of [UNASSIGNED, ASSIGNED]) {
+        expect(rowActionsFor(status, designerId)).toEqual({
+          claim: false,
+          start: false,
+          upload: false,
+          remind: false,
+        });
+      }
+    },
+  );
+
+  /* Claiming takes the ticket for yourself. On an assigned ticket that is
+     silent reassignment away from whoever is carrying it. */
+  it("offers Claim only when nobody is carrying the ticket", () => {
+    expect(rowActionsFor("submitted", UNASSIGNED).claim).toBe(true);
+    expect(rowActionsFor("submitted", ASSIGNED).claim).toBe(false);
+    expect(rowActionsFor("revision_requested", ASSIGNED).claim).toBe(false);
+  });
+
+  /* Work already in progress is not a thing to start; work in review belongs
+     to the CLIENT, and starting it pulls it back out of their queue. */
+  it("does not offer Start on work already underway or in review", () => {
+    expect(rowActionsFor("in_progress", ASSIGNED).start).toBe(false);
+    expect(rowActionsFor("ready_for_review", ASSIGNED).start).toBe(false);
+    expect(rowActionsFor("submitted", ASSIGNED).start).toBe(true);
+    expect(rowActionsFor("assigned", ASSIGNED).start).toBe(true);
+    expect(rowActionsFor("revision_requested", ASSIGNED).start).toBe(true);
+  });
+
+  it("offers Send reminder only where the designer is the blocker", () => {
+    expect(rowActionsFor("in_progress", ASSIGNED).remind).toBe(true);
+    // Nobody to reach.
+    expect(rowActionsFor("in_progress", UNASSIGNED).remind).toBe(false);
+    // Waiting on the client, not the designer.
+    expect(rowActionsFor("ready_for_review", ASSIGNED).remind).toBe(false);
+  });
+
+  it("allows delivery uploads on every live status", () => {
+    for (const status of [
+      "submitted",
+      "assigned",
+      "in_progress",
+      "ready_for_review",
+      "revision_requested",
+    ] as const) {
+      expect(rowActionsFor(status, ASSIGNED).upload).toBe(true);
+    }
+  });
+
+  /* Every status must be decided, not defaulted. */
+  it("answers for every status in the enum", () => {
+    for (const status of TICKET_STATUSES) {
+      const actions = rowActionsFor(status, ASSIGNED);
+      for (const value of Object.values(actions)) {
+        expect(typeof value).toBe("boolean");
+      }
+    }
+  });
+});
+
+/**
+ * The predicate MEANINGS, pinned to literals.
+ *
+ * admin-tickets.test.ts derives its SQL expectations from VIEW_PREDICATES, so
+ * mutating a predicate mutates the expectation with it and the translator
+ * tests stay green. These assertions are the literal counterpart: widening
+ * `approved` to include ready_for_review makes the Delivered card open a
+ * larger list than the number it showed, and must fail here.
+ */
+describe("each view admits exactly the statuses it claims", () => {
+  const admits = (view: Parameters<typeof matchesView>[1]) =>
+    TICKET_STATUSES.filter((status) =>
+      matchesView({ status, approvedAt: null, dueDate: null }, view, NOW),
+    ).sort();
+
+  it.each([
+    ["approved", ["delivered"]],
+    ["awaiting_review", ["ready_for_review"]],
+    ["active", ["assigned", "in_progress", "ready_for_review"]],
+    ["in_progress", ["assigned", "in_progress"]],
+    ["needs_revision", ["revision_requested"]],
+    [
+      "open",
+      [
+        "assigned",
+        "in_progress",
+        "ready_for_review",
+        "revision_requested",
+        "submitted",
+      ],
+    ],
+  ] as const)("%s", (view, expected) => {
+    expect(admits(view)).toEqual([...expected].sort());
   });
 });

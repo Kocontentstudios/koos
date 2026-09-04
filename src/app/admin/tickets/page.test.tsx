@@ -94,10 +94,13 @@ function rowText(): string {
   return document.querySelector("ul > li")?.textContent ?? "";
 }
 
+/* Matched on leading text, not the full accessible name: a tab carrying a
+   count badge reads as "Needs revision1". */
 function tabHref(label: string): string {
-  return (
-    screen.getByRole("link", { name: label }).getAttribute("href") ?? "MISSING"
-  );
+  const link = screen
+    .getAllByRole("link")
+    .find((a) => (a.textContent ?? "").startsWith(label));
+  return link?.getAttribute("href") ?? "MISSING";
 }
 
 /* This page had no test file, which is how a status filter survived a tab
@@ -143,6 +146,22 @@ describe("changing tabs cannot produce an impossible filter", () => {
     await renderPage({ view: "all", assignee: TOLU, brand: BRAND });
     expect(tabHref("Overdue")).toContain(`assignee=${TOLU}`);
     expect(tabHref("Overdue")).toContain(`brand=${BRAND}`);
+  });
+
+  /* The badge on a tab must be counted under exactly what that tab's href
+     opens. Keeping scope.status counted `revision_requested AND draft` — zero,
+     so the badge vanished — and then the click opened the full revision list. */
+  it("counts the needs-revision badge under the scope its own tab opens", async () => {
+    await renderPage({ view: "all", status: "draft" });
+    const badgeCall = countAdminTickets.mock.calls.find(
+      (c) => (c[0] as { view: string }).view === "needs_revision",
+    );
+    expect(badgeCall?.[0]).toMatchObject({
+      view: "needs_revision",
+      status: [],
+      page: 1,
+    });
+    expect(tabHref("Needs revision")).not.toContain("status=");
   });
 
   it("returns to the first page on a view change", async () => {

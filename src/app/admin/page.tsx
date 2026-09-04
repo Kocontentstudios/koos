@@ -17,7 +17,7 @@ import {
   getUserCountsByRole,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import type { TicketStatus } from "@/lib/design/tickets-ui";
+import { TICKET_STATUSES, type TicketStatus } from "@/lib/design/tickets-ui";
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
@@ -47,7 +47,17 @@ export default async function AdminDashboardPage() {
 
   const statusMap = new Map(byStatus.map((r) => [r.status, r.count]));
   // `approved` is statusIn:["delivered"], so the rollup row is already exact.
+  // Pinned by admin/page.test.tsx against VIEW_PREDICATES, not just asserted here.
   const deliveredCount = statusMap.get("delivered") ?? 0;
+
+  /* Zero-filled and in a fixed order. `getTicketCountsByStatus` is a GROUP BY:
+     a status with no tickets produced no row, so BUG-002's "navigation for
+     Draft" existed only while a draft did, and the row order was whatever the
+     planner returned. */
+  const statusRows = TICKET_STATUSES.map((status) => ({
+    status,
+    count: statusMap.get(status) ?? 0,
+  }));
   const totalUsers = byRole.reduce((sum, r) => sum + r.count, 0);
 
   return (
@@ -101,25 +111,19 @@ export default async function AdminDashboardPage() {
             Dashboard Status Overview (Tickets by Status)
           </h2>
           <ul className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-surface-1 p-4">
-            {byStatus.length === 0 ? (
-              <li className="text-[13px] text-[var(--text-secondary)]">
-                No tickets yet.
+            {statusRows.map((r) => (
+              <li key={r.status}>
+                <Link
+                  href={statusRowHref(r.status)}
+                  className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)]"
+                >
+                  <TicketStatusBadge status={r.status} />
+                  <span className="text-[14px] font-medium text-foreground tabular-nums">
+                    {r.count}
+                  </span>
+                </Link>
               </li>
-            ) : (
-              byStatus.map((r) => (
-                <li key={r.status}>
-                  <Link
-                    href={statusRowHref(r.status as TicketStatus)}
-                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)]"
-                  >
-                    <TicketStatusBadge status={r.status as TicketStatus} />
-                    <span className="text-[14px] font-medium text-foreground">
-                      {r.count}
-                    </span>
-                  </Link>
-                </li>
-              ))
-            )}
+            ))}
           </ul>
         </div>
 

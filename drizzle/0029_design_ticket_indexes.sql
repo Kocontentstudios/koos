@@ -1,7 +1,14 @@
--- Every admin drill-down filters and sorts design_tickets: the dashboard's four
--- cards, each status row, the designer workload and the overdue list. Without
--- these each one is a sequential scan plus a sort whose cost grows with the
--- studio's whole history rather than with the rows actually shown.
+-- Index the columns the admin drill-downs FILTER on. Each one earns its place
+-- against a specific query:
+--   due_date              the overdue view filters and orders on it
+--   assigned_designer_id  the designer workload drill-down and its list
+--   status                every status row and every view predicate
+--   created_at            the default ordering of the non-queue views
+--   brand_id              ADMIN-FEAT-006's brand ticket-count link
+--
+-- They do NOT remove the sort. The working queue orders by
+-- (priority DESC, created_at DESC, id ASC) and no composite index matches it;
+-- adding one is a measurement, not a guess, and belongs with real row counts.
 --
 -- IF NOT EXISTS on every statement so a re-run is a no-op: the ledger in
 -- scripts/migrate.mjs is the guard, but this file must also be safe to replay

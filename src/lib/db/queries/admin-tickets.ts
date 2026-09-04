@@ -7,7 +7,6 @@ import {
   gte,
   ilike,
   inArray,
-  isNotNull,
   isNull,
   lt,
   notInArray,
@@ -45,9 +44,7 @@ import { timestampParam } from "@/lib/db/sql/timestamp";
  * database.
  */
 
-/** Hard ceiling regardless of what a caller asks for: this list is unbounded
- *  by nature and the page it feeds shows one PAGE_SIZE at a time. */
-export const MAX_PAGE_SIZE = 200;
+/** One page at a time, matching what the pager counts with. */
 export const DEFAULT_PAGE_SIZE = PAGE_SIZE;
 
 const MAX_INT4 = 2_147_483_647;
@@ -81,7 +78,6 @@ export function viewConditions(view: AdminTicketView, now: Date): SQL[] {
   if (p.statusIn) parts.push(inArray(designTickets.status, [...p.statusIn]));
   if (p.statusNotIn)
     parts.push(notInArray(designTickets.status, [...p.statusNotIn]));
-  if (p.approved === "only") parts.push(isNotNull(designTickets.approvedAt));
   if (p.approved === "none") parts.push(isNull(designTickets.approvedAt));
   if (p.overdue) parts.push(lt(designTickets.dueDate, timestampParam(now)));
   return parts;
@@ -167,7 +163,7 @@ const SORT_COLUMNS = {
  * the sort column come back in whatever order the plan produced, so paging can
  * show the same ticket twice and never show another.
  */
-function orderFor(scope: AdminScope): SQL[] {
+export function orderFor(scope: AdminScope): SQL[] {
   const spec = sortToColumn(scope.sort || defaultSortKeyFor(scope.view));
   const column = SORT_COLUMNS[spec.field];
   const direction = spec.direction === "asc" ? asc : desc;
@@ -195,24 +191,17 @@ const rowShape = {
   brandName: brands.name,
   campaignName: strategies.name,
   itemTitle: calendarItems.title,
-  requesterId: designTickets.userId,
-  requesterEmail: requester.email,
   designerId: designTickets.assignedDesignerId,
   designerFirstName: designer.firstName,
   designerLastName: designer.lastName,
   designerEmail: designer.email,
 };
 
-export type AdminTicketRow = Awaited<
-  ReturnType<typeof listAdminTickets>
->[number];
-
 export async function listAdminTickets(
   scope: AdminScope,
-  opts: { now?: Date; limit?: number } = {},
+  opts: { now?: Date } = {},
 ) {
   const now = opts.now ?? new Date();
-  const limit = Math.min(opts.limit ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   const conditions = scopeConditions(scope, now);
 
   return db
@@ -226,8 +215,8 @@ export async function listAdminTickets(
     .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(...orderFor(scope))
-    .limit(limit)
-    .offset((scope.page - 1) * limit);
+    .limit(DEFAULT_PAGE_SIZE)
+    .offset((scope.page - 1) * DEFAULT_PAGE_SIZE);
 }
 
 export async function countAdminTickets(

@@ -66,6 +66,12 @@ function displayName(
   return `${first ?? ""} ${last ?? ""}`.trim() || (email ?? "");
 }
 
+/* KOS-ADMIN-FEAT-001 asks for this view "connected to the Dashboard and
+   Analytics". The Dashboard half is here. The Analytics half lands with
+   ADMIN-FEAT-005/003/007, which put a scope on the analytics page and make its
+   cards link — there is nothing to link INTO from a page that has no filter
+   state yet, so building it here would ship a link that ignores the filters it
+   is supposed to carry. */
 export default async function AdminTicketsPage({
   searchParams,
 }: {
@@ -86,9 +92,15 @@ export default async function AdminTicketsPage({
   const [rows, total, revisionCount, assignees, workload] = await Promise.all([
     listAdminTickets(scope, { now }),
     countAdminTickets(scope, { now }),
-    // Counted under the CURRENT scope, so the badge matches the list its tab
-    // opens rather than a global figure the click then contradicts.
-    countAdminTickets({ ...scope, view: "needs_revision", page: 1 }, { now }),
+    /* Counted under exactly what its own tab href opens — including the
+       `status: []` clear. Keeping scope.status here counted
+       `revision_requested AND draft` (zero, so the badge vanished) and then
+       opened the full revision list: the same count-vs-list drift these
+       tickets exist to remove. */
+    countAdminTickets(
+      { ...scope, view: "needs_revision", status: [], page: 1 },
+      { now },
+    ),
     canAssign ? getStaffUsers() : Promise.resolve([]),
     workloadFor(scope.assignee, now),
   ]);

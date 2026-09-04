@@ -5,6 +5,7 @@ const getDesignTicketById = vi.fn();
 const getUserById = vi.fn();
 const getBrandById = vi.fn();
 const createNotification = vi.fn();
+const releaseRateLimit = vi.fn();
 const checkRateLimit = vi.fn();
 const sendTicketReminderEmail = vi.fn();
 
@@ -14,6 +15,7 @@ vi.mock("@/lib/db/queries", () => ({
   getUserById: (id: string) => getUserById(id),
   getBrandById: (id: string) => getBrandById(id),
   createNotification: (d: unknown) => createNotification(d),
+  releaseRateLimit: (k: string) => releaseRateLimit(k),
 }));
 vi.mock("@/lib/rate-limit", async () => {
   const actual =
@@ -59,6 +61,7 @@ beforeEach(() => {
   getUserById.mockResolvedValue({ id: "d1", email: "designer@koos.test" });
   getBrandById.mockResolvedValue({ id: "b1", name: "Acme" });
   createNotification.mockResolvedValue({ id: "n1" });
+  releaseRateLimit.mockResolvedValue(undefined);
   checkRateLimit.mockResolvedValue({ ok: true, retryAfterSeconds: 0 });
   sendTicketReminderEmail.mockResolvedValue(undefined);
 });
@@ -174,6 +177,31 @@ describe("the cooling-off guard", () => {
     checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 10 });
     await call();
     expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  /* The window is reserved BEFORE the write it protects, so a failed write has
+     to hand it back — otherwise the failure silently blocks every retry for six
+     hours behind a message claiming the reminder already went out. */
+  it("hands the window back when the notification cannot be written", async () => {
+    createNotification.mockRejectedValue(new Error("db down"));
+    const res = await call();
+    expect(res.status).toBe(500);
+    expect(releaseRateLimit).toHaveBeenCalledWith("ticket-remind:t1");
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Nothing was sent"),
+    });
+  });
+
+  it("does not release the window on a successful send", async () => {
+    await call();
+    expect(releaseRateLimit).not.toHaveBeenCalled();
+  });
+
+  /* A failed release must not turn a reported failure into a crash. */
+  it("survives the release itself failing", async () => {
+    createNotification.mockRejectedValue(new Error("db down"));
+    releaseRateLimit.mockRejectedValue(new Error("still down"));
+    expect((await call()).status).toBe(500);
   });
 
   /* An unassigned ticket is refused before the limiter, so a misdirected click

@@ -512,10 +512,10 @@ export const designTickets = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  /* Every admin drill-down filters and sorts this table. Without these the
-     dashboard's four cards and each list behind them are a sequential scan plus
-     a sort, which grows with the studio's whole history rather than with the
-     rows actually shown. */
+  /* The columns the admin drill-downs FILTER on — see
+     drizzle/0029_design_ticket_indexes.sql for what each one serves. They do
+     not remove the sort: the working queue's ORDER BY is composite and no
+     index here matches it. */
   (t) => [
     index("design_tickets_status_idx").on(t.status),
     index("design_tickets_due_date_idx").on(t.dueDate),

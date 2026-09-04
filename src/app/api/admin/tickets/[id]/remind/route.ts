@@ -5,6 +5,7 @@ import {
   getBrandById,
   getDesignTicketById,
   getUserById,
+  releaseRateLimit,
 } from "@/lib/db/queries";
 import { appUrl, sendTicketReminderEmail } from "@/lib/design/notify";
 import { formatTicketNumber } from "@/lib/design/ticket";
@@ -73,8 +74,9 @@ export async function POST(
      guard, and a busy designer's reminder row falls out of any bounded recent
      window long before the cooling-off period is up. Keyed on the TICKET so a
      nudge about one ticket never suppresses a nudge about another. */
+  const limiterKey = `ticket-remind:${ticket.id}`;
   const verdict = await checkRateLimit({
-    key: `ticket-remind:${ticket.id}`,
+    key: limiterKey,
     limit: 1,
     windowSeconds: COOLING_OFF_SECONDS,
   });
@@ -108,14 +110,20 @@ export async function POST(
       },
     });
   } catch (err) {
-    /* The window is already consumed and cannot be handed back, so the next
-       six hours would otherwise tell the operator a reminder went out when
-       none did. Say what actually happened. */
+    /* The window was reserved before the write, so a failed write has to hand
+       it back. Otherwise every retry for the next six hours is refused with
+       "a reminder already went out" — which would be false. */
     console.error("ticket reminder notification failed", { id, err });
+    await releaseRateLimit(limiterKey).catch((releaseErr) => {
+      console.error("ticket reminder limiter release failed", {
+        id,
+        releaseErr,
+      });
+    });
     return Response.json(
       {
         error:
-          "The reminder could not be recorded. Nothing was sent — try again later.",
+          "The reminder could not be recorded. Nothing was sent — try again.",
       },
       { status: 500 },
     );

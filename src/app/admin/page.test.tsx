@@ -55,7 +55,7 @@ vi.mock("@/lib/db/queries", () => ({
   getRecentTickets: async () => [],
 }));
 
-import { defaultSortKeyFor } from "@/lib/admin/scope";
+import { defaultSortKeyFor, matchesView } from "@/lib/admin/scope";
 import { loadAdminScope } from "@/lib/admin/scope-params";
 import AdminDashboardPage from "./page";
 
@@ -176,5 +176,70 @@ describe("designer load", () => {
   it("names a designer with no name on record by their email", async () => {
     await renderDashboard();
     expect(card("nameless@koos.test1 active")).toBeInTheDocument();
+  });
+});
+
+/**
+ * The card's number and the rows its link returns, checked against a fixture
+ * table rather than against each other.
+ *
+ * Every count on this page is mocked, and the query tests derive their SQL
+ * expectations FROM `VIEW_PREDICATES` — so widening a predicate mutates both
+ * sides and stays green while the Delivered card shows one number and opens a
+ * longer list. This resolves each card's href against real ticket shapes and
+ * counts the matches independently.
+ */
+describe("a card's number is the number of rows its link returns", () => {
+  const NOW_D = new Date("2026-09-04T12:00:00Z");
+  const past = new Date("2026-08-25T12:00:00Z");
+  const approved = new Date("2026-08-01T12:00:00Z");
+
+  /* Deliberately includes the shapes that broke earlier rounds: a draft past
+     its due date, and work approved then re-opened for a correction. */
+  const TICKETS = [
+    { status: "draft" as const, approvedAt: null, dueDate: past },
+    { status: "submitted" as const, approvedAt: null, dueDate: past },
+    { status: "assigned" as const, approvedAt: null, dueDate: null },
+    { status: "in_progress" as const, approvedAt: null, dueDate: null },
+    { status: "ready_for_review" as const, approvedAt: null, dueDate: null },
+    {
+      status: "ready_for_review" as const,
+      approvedAt: approved,
+      dueDate: past,
+    },
+    {
+      status: "revision_requested" as const,
+      approvedAt: approved,
+      dueDate: past,
+    },
+    { status: "delivered" as const, approvedAt: approved, dueDate: past },
+  ];
+
+  const rowsFor = (view: Parameters<typeof matchesView>[1]) =>
+    TICKETS.filter((t) => matchesView(t, view, NOW_D)).length;
+
+  it.each([
+    ["Open tickets", "open", 6],
+    /* 3, not 4: the draft past its due date is excluded by status, and so is
+       the delivered one. The two approved-then-reopened rows DO count — that
+       was the round-two bug. */
+    ["Overdue", "overdue", 3],
+    ["Ready for review", "awaiting_review", 1],
+    ["Delivered", "approved", 1],
+  ] as const)("%s", async (_label, view, expected) => {
+    // The fixture count is stated as a literal, so widening the predicate
+    // fails here even though the SQL tests would follow it.
+    expect(rowsFor(view)).toBe(expected);
+  });
+
+  /* And the card actually points at that view. */
+  it.each([
+    [`Open tickets${COUNTS.open}`, "open"],
+    [`Overdue${COUNTS.overdue}`, "overdue"],
+    [`Ready for review${COUNTS.awaitingReview}`, "awaiting_review"],
+    [`Delivered${COUNTS.delivered}`, "approved"],
+  ])("%s opens the view it counts", async (text, view) => {
+    await renderDashboard();
+    expect(scopeOf(card(text)).view).toBe(view);
   });
 });

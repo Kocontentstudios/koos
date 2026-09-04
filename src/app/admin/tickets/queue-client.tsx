@@ -217,14 +217,16 @@ export function QueueClient({
         )}
       </form>
 
-      {/* role="status" with real text, never aria-busy: marking a live region
-          busy tells assistive tech to withhold the very update it exists to
-          announce. */}
-      {isPending && (
-        <p role="status" className="text-[13px] text-[var(--text-secondary)]">
-          Updating results…
-        </p>
-      )}
+      {/* Mounted always, text swapped — a live region created in the same
+          commit as its content is frequently not announced. Never aria-busy:
+          marking a live region busy tells assistive tech to withhold the very
+          update it exists to deliver. */}
+      <p
+        role="status"
+        className="min-h-4 text-[13px] text-[var(--text-secondary)]"
+      >
+        {isPending ? "Updating results…" : ""}
+      </p>
 
       {queue.length === 0 ? (
         <p className="rounded-xl border border-[var(--border)] bg-surface-1 px-6 py-12 text-center text-[14px] text-[var(--text-secondary)]">

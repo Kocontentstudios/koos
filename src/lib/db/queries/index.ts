@@ -1471,6 +1471,19 @@ export async function hitRateLimit(key: string, windowSeconds: number) {
   };
 }
 
+/**
+ * Hand a consumed window back.
+ *
+ * A caller that reserves the window BEFORE doing the work it is protecting has
+ * to release it when that work fails, or the failure silently blocks every
+ * retry for the rest of the window — and the block reports itself as "already
+ * done". Compensating action, not a general-purpose reset: only the caller
+ * that just consumed this key may call it.
+ */
+export async function releaseRateLimit(key: string) {
+  await db.delete(rateLimits).where(eq(rateLimits.key, key));
+}
+
 // ── Admin dashboard ─────────────────────────────────────────────────
 
 /** Ticket counts grouped by status. */

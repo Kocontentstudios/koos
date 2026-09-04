@@ -444,6 +444,17 @@ describe("search", () => {
     expect(setQuery).toHaveBeenCalledWith({ q: null, page: null });
   });
 
+  /* The affordance for a server round-trip. A region mounted at the same
+     moment as its text is the case assistive tech misses. */
+  it("keeps the live region mounted before there is anything to announce", () => {
+    renderQueue();
+    const region = screen.getByRole("status");
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent("");
+    // aria-busy on a live region tells AT to withhold the update it exists for.
+    expect(region).not.toHaveAttribute("aria-busy");
+  });
+
   it("offers no Clear button when nothing is searched", () => {
     renderQueue();
     expect(screen.queryByRole("button", { name: /clear/i })).toBeNull();
