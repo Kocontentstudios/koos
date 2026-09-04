@@ -50,13 +50,16 @@ function item(over: Partial<CalendarItem> = {}): CalendarItem {
   };
 }
 
-function setup(over: Partial<CalendarItem> = {}) {
+function setup(
+  over: Partial<CalendarItem> = {},
+  opts: { open?: boolean } = {},
+) {
   const onOpenChange = vi.fn();
   render(
     <CalendarItemDrawer
       item={item(over)}
       brandId="b1"
-      open
+      open={opts.open ?? true}
       onOpenChange={onOpenChange}
       submitted={false}
       onRequestDesign={vi.fn()}
@@ -290,6 +293,43 @@ describe("a brief still being written", () => {
   it("stops once the brief has arrived", () => {
     vi.useFakeTimers();
     setup({ brief: "The brief", source: "ai" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  /* A closed drawer keeps its selection — calendar-client holds selectedId and
+     "Request Design" deliberately closes the drawer while keeping it — so an
+     ungated poll refetches a 90-day route every 8s behind the user's back. */
+  it("does not poll while the drawer is closed", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" }, { open: false });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  /* A job resumes up to three times at 240s a slice, so a brief can legitimately
+     arrive ~16 minutes in. */
+  it("keeps polling past the five-minute mark", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    vi.advanceTimersByTime(6 * 60_000);
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("eventually stops rather than polling forever", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    vi.advanceTimersByTime(17 * 60_000);
     refresh.mockClear();
 
     vi.advanceTimersByTime(60_000);

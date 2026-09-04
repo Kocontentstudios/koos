@@ -37,9 +37,13 @@ import { sourceLabel, statusLabel } from "./types";
 /** Long enough not to hammer the server, short enough that a brief landing
  *  mid-read shows up without a reload. */
 const BRIEF_POLL_MS = 8_000;
-/** A brief still missing after this is a failed unit, which fell back to a
- *  template — polling further would spin forever on a drawer left open. */
-const BRIEF_POLL_LIMIT_MS = 5 * 60_000;
+/**
+ * A generation may legitimately span several slices: CALENDAR_SLICE_BUDGET_MS
+ * is 240s and a job resumes up to MAX_RESUMES times, so a brief can arrive ~16
+ * minutes in. Stopping at five gave up two-thirds of the way through the real
+ * window and left the drawer promising a brief that had already been written.
+ */
+const BRIEF_POLL_LIMIT_MS = 16 * 60_000;
 
 interface CalendarItemDrawerProps {
   item: CalendarItem | null;
@@ -117,7 +121,7 @@ export function CalendarItemDrawer({
      already navigable, so without this a user has to reload by hand. Bounded:
      a brief that never arrives is a failed unit, not something to poll for
      forever. */
-  const awaitingBrief = item?.source === "ai" && !item.brief;
+  const awaitingBrief = open && item?.source === "ai" && !item.brief;
   useEffect(() => {
     if (!awaitingBrief) return;
     let elapsed = 0;
@@ -127,6 +131,9 @@ export function CalendarItemDrawer({
         clearInterval(id);
         return;
       }
+      // A backgrounded tab has nobody reading it; refetching a 90-day route
+      // every 8s in the background is pure server load.
+      if (document.hidden) return;
       router.refresh();
     }, BRIEF_POLL_MS);
     return () => clearInterval(id);

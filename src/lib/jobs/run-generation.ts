@@ -294,14 +294,16 @@ const MAX_SLOTS_PER_BRIEF_CALL = 4;
  *   5 wide → 198s total, unit p50 27.7s, p95 38s, slowest 57s
  *   8 wide → 397s total, unit p50 22.4s, p95 46s, slowest 309s
  *
- * Going wider does exactly what the wave arithmetic predicts to the median and
- * the opposite of what it predicts to the total: per-call latency improves,
- * the tail collapses. Two units failed schema validation on the 8-wide run and
- * one retry chain ran 309s on its own, which is the shape of Bedrock
- * throttling — the whole run then waits on the worst straggler.
+ * Going wider improved the median call by 19% and blew up the tail: the
+ * slowest unit went 57s -> 309s, two units failed schema validation, and
+ * summed model time rose 599s -> 837s for comparable work. The run then waits
+ * on the worst straggler, so the total doubled despite fewer waves.
  *
- * Do not raise this again without re-running the measurement; the wave count
- * is not the thing that bounds this job.
+ * Caveats worth keeping, because the constant is set on them: n=1 per arm, the
+ * two runs had different slot counts (79 vs 84), and token counts were only
+ * captured for the 5-wide arm — so this is "5 is the known-good default"
+ * rather than a settled causal finding. Re-measure both arms before changing
+ * it; the wave count is demonstrably not what bounds this job.
  */
 const BRIEF_CONCURRENCY = 5;
 
@@ -349,6 +351,22 @@ export async function generateCalendarWork(
   let outlineMs = 0;
   let outlineTokens = { input: 0, output: 0 };
   const unitTimings: UnitTiming[] = [];
+  /* Emitted on every terminal path, pause included — a slice that blew its
+     budget is the one worth measuring, and it leaves by throwing. */
+  const emitTiming = (outcome: "complete" | "paused" | "failed") => {
+    const timing = summariseGeneration({
+      outlineMs,
+      totalMs: Date.now() - runStart,
+      concurrency: BRIEF_CONCURRENCY,
+      units: unitTimings,
+    });
+    console.log(
+      `${timing.logLine.replace("calendar-timing ", `calendar-timing ${outcome} `)}`,
+    );
+    console.log(
+      `calendar-timing outline tokens in=${outlineTokens.input} out=${outlineTokens.output}`,
+    );
+  };
 
   let outline = checkpoint.outline;
   if (outline) {
@@ -519,13 +537,19 @@ export async function generateCalendarWork(
         );
         object = { briefs: [] };
       }
+      const unitMs = Date.now() - unitStart;
       unitTimings.push({
         key: unit.key,
         slots: unitSlots.length,
-        ms: Date.now() - unitStart,
+        ms: unitMs,
         inputTokens: unitUsage?.inputTokens,
         outputTokens: unitUsage?.outputTokens,
       });
+      /* Kept alongside the summary: the summary only lands at the end of a
+         slice, and a run killed mid-slice still needs per-unit evidence. */
+      console.log(
+        `calendar unit ${unit.key} (${unitSlots.length} slots) finished in ${Math.round(unitMs / 1000)}s`,
+      );
       // Model slotIndex is relative to the slots it saw; remap to the
       // segment-relative index that assembly expects.
       chunks[unit.key] = {
@@ -579,6 +603,7 @@ export async function generateCalendarWork(
     console.log(
       `calendar slice pausing with ${units.length - doneUnits()} of ${units.length} units remaining`,
     );
+    emitTiming("paused");
     throw new JobPausedError();
   }
 
@@ -610,6 +635,7 @@ export async function generateCalendarWork(
     (u) => chunks[u.key]?.briefs.length === 0,
   ).length;
   if (failedUnits > units.length / 2) {
+    emitTiming("failed");
     throw new Error(
       "Calendar brief generation is failing repeatedly. Please try again.",
     );
@@ -619,16 +645,7 @@ export async function generateCalendarWork(
 
   /* One machine-readable line per slice. The prose logs above are for spotting
      a stall; this is what a budget gets argued from. */
-  const timing = summariseGeneration({
-    outlineMs,
-    totalMs: Date.now() - runStart,
-    concurrency: BRIEF_CONCURRENCY,
-    units: unitTimings,
-  });
-  console.log(timing.logLine);
-  console.log(
-    `calendar-timing outline tokens in=${outlineTokens.input} out=${outlineTokens.output}`,
-  );
+  emitTiming("complete");
 
   await recordUsageEvent({
     userId: args.userId,

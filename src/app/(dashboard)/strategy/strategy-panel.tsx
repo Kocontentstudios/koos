@@ -245,31 +245,39 @@ function PanelContent({
               </Button>
             )
           )}
-          {/* Real counts from the server, or no bar at all. A determinate bar
-              parked at zero is a worse lie than a spinner. */}
-          {generating && calendarProgress && calendarProgress.total > 0 && (
-            <div className="space-y-1.5">
-              <div
-                role="progressbar"
-                aria-valuenow={calendarProgress.done}
-                aria-valuemin={0}
-                aria-valuemax={calendarProgress.total}
-                aria-label="Calendar generation progress"
-                className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--status-progress-bg)]"
-              >
-                <div
-                  className="h-full rounded-full bg-[var(--status-progress-fg)] transition-[width] duration-500"
-                  style={{
-                    width: `${Math.round((calendarProgress.done / calendarProgress.total) * 100)}%`,
-                  }}
-                />
-              </div>
-              <p className="text-[12px] text-[var(--text-muted)] tabular-nums">
-                {calendarProgress.done} of {calendarProgress.total} briefs
-                written
-              </p>
-            </div>
-          )}
+          {/* The server counts the outline as step 1 of total, so briefs are
+              total-1 and done-1. During planning that is 0 of 0 and no bar
+              shows — a determinate bar parked at zero is a worse lie than a
+              spinner, and "0 of 1 briefs written" during a 60s outline is
+              worse still. */}
+          {generating &&
+            calendarProgress &&
+            calendarProgress.total > 1 &&
+            (() => {
+              const done = Math.max(calendarProgress.done - 1, 0);
+              const total = calendarProgress.total - 1;
+              const label = `${done} of ${total} briefs written`;
+              return (
+                <div role="status" className="space-y-1.5">
+                  <div
+                    role="progressbar"
+                    aria-valuenow={done}
+                    aria-valuemin={0}
+                    aria-valuemax={total}
+                    aria-valuetext={label}
+                    className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--status-progress-bg)]"
+                  >
+                    <div
+                      className="h-full rounded-full bg-[var(--status-progress-fg)] transition-[width] duration-500"
+                      style={{ width: `${Math.round((done / total) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[12px] text-[var(--text-muted)] tabular-nums">
+                    {label}
+                  </p>
+                </div>
+              );
+            })()}
           {generating && generatingHint && (
             <p
               role="status"

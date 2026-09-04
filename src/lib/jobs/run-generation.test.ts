@@ -549,3 +549,70 @@ describe("generateStrategyWork", () => {
     });
   });
 });
+
+/* A slice that blew its budget leaves by throwing JobPausedError, and that is
+   precisely the run worth measuring — the timing summary must not sit after
+   the throw where the perf-critical path never reaches it. */
+describe("generation timing reaches every terminal path", () => {
+  it("logs a timing line when the slice pauses", async () => {
+    generateObject.mockResolvedValueOnce({ object: OUTLINE });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(
+        generateCalendarWork(
+          workArgs(),
+          fakeRuntime({}, () => true),
+        ),
+      ).rejects.toThrow(JobPausedError);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => l.startsWith("calendar-timing paused"))).toBe(
+        true,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs a timing line on a completed run", async () => {
+    generateObject
+      .mockResolvedValueOnce({ object: OUTLINE })
+      .mockResolvedValueOnce({ object: CHUNK_0 })
+      .mockResolvedValueOnce({ object: CHUNK_1 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await generateCalendarWork(workArgs(), fakeRuntime());
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => l.startsWith("calendar-timing complete"))).toBe(
+        true,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+/* The measurement that set BRIEF_CONCURRENCY is only worth recording if
+   something enforces it — "do not raise this without re-measuring" in a
+   comment is prose. The summary reports the same constant the worker pool is
+   given, so raising one without the other turns this red. */
+describe("brief concurrency is pinned to the measured value", () => {
+  it("reports the width the run actually used", async () => {
+    generateObject
+      .mockResolvedValueOnce({ object: OUTLINE })
+      .mockResolvedValueOnce({ object: CHUNK_0 })
+      .mockResolvedValueOnce({ object: CHUNK_1 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await generateCalendarWork(workArgs(), fakeRuntime());
+      const line = log.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.startsWith("calendar-timing complete"));
+      expect(line).toBeDefined();
+      expect(
+        JSON.parse(String(line).replace(/^calendar-timing \w+ /, "")),
+      ).toMatchObject({ concurrency: 5 });
+    } finally {
+      log.mockRestore();
+    }
+  });
+});

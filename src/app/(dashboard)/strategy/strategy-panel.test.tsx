@@ -125,36 +125,61 @@ describe("StrategyPanel", () => {
   });
 });
 
-/* The server computes {done, total} for every finished brief unit and the
-   client used to keep only the label, so a 3-minute wait showed five canned
-   sentences on rotation. Real counts, or nothing. */
+/* Shapes taken from run-generation.ts, not invented: the outline counts as
+   step 1, so total is units.length + 1 and done is 1 + finished units. A
+   fixture like {done:12,total:25} cannot occur and hides the off-by-one. */
 describe("calendar generation progress", () => {
-  it("shows how many briefs are done once the server says", () => {
+  it("counts briefs, not the outline step", () => {
+    // 25 brief units, 11 finished.
     renderPanel({
       saved: true,
       generating: true,
-      calendarProgress: { done: 12, total: 25, label: "Writing briefs…" },
+      calendarProgress: { done: 12, total: 26, label: "Writing briefs…" },
     });
-    // The panel renders twice — desktop aside and mobile drawer.
     const [bar] = screen.getAllByRole("progressbar");
-    expect(bar).toHaveAttribute("aria-valuenow", "12");
+    expect(bar).toHaveAttribute("aria-valuenow", "11");
     expect(bar).toHaveAttribute("aria-valuemax", "25");
-    expect(screen.getAllByText(/12 of 25/)[0]).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/11 of 25 briefs written/)[0],
+    ).toBeInTheDocument();
   });
 
-  /* Before the first unit lands there is nothing true to show, so the bar
-     stays away rather than sitting at a fake zero. */
-  it("shows no bar before the first progress arrives", () => {
+  it("reaches exactly the total when every brief is written", () => {
+    renderPanel({
+      saved: true,
+      generating: true,
+      calendarProgress: { done: 26, total: 26, label: "Done" },
+    });
+    expect(
+      screen.getAllByText(/25 of 25 briefs written/)[0],
+    ).toBeInTheDocument();
+  });
+
+  /* The planning phase is ~30% of the run and emits {done:0,total:1}. A bar
+     there reads "0 of 1 briefs written" at 0% for a minute, which is exactly
+     the lie the bar exists to avoid. */
+  it("shows no bar during the outline phase", () => {
+    renderPanel({
+      saved: true,
+      generating: true,
+      calendarProgress: { done: 0, total: 1, label: "Planning the calendar…" },
+    });
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("shows no bar before any progress arrives", () => {
     renderPanel({ saved: true, generating: true });
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
-  it("does not claim progress on a total of zero", () => {
+  it("announces the count as it advances", () => {
     renderPanel({
       saved: true,
       generating: true,
-      calendarProgress: { done: 0, total: 0, label: "Planning…" },
+      calendarProgress: { done: 12, total: 26, label: "Writing briefs…" },
     });
-    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    const [bar] = screen.getAllByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuetext", "11 of 25 briefs written");
+    expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
   });
 });
