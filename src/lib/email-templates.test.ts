@@ -11,6 +11,7 @@ import {
   roleChangeEmail,
   STATUS_LABELS,
   ticketProgressEmail,
+  ticketReminderEmail,
   ticketReviewClientEmail,
   ticketReviewTeamEmail,
   ticketStatusEmail,
@@ -306,5 +307,66 @@ describe("memberJoinedEmail", () => {
     expect(built.subject).toBe("Ada Obi joined KO Content Studio");
     expect(built.html).toContain("ada@x.com");
     expect(built.html).toContain("https://app/team");
+  });
+});
+
+/* The reminder email had no tests at all, so the one thing its own docstring
+   says it exists to do — "state how late it is rather than a due date, because
+   an operator sends this when something has slipped" — was unpinned. Collapsing
+   the heading to a bare "Reminder — DT-0012" passed the full suite, and the
+   subject line is the whole point of the message. */
+describe("ticketReminderEmail", () => {
+  const base = {
+    ticketNumber: 12,
+    designType: "Flyer",
+    brandName: "Acme Co",
+    overdueFor: "3 days",
+    dueDate: "Sep 1, 2026",
+    ticketUrl: "https://app/admin/tickets/t1",
+  };
+
+  it("leads with how late the ticket is", () => {
+    const { subject, html } = ticketReminderEmail(base);
+    expect(subject).toBe("DT-00012 is 3 days overdue");
+    expect(html).toContain("3 days");
+  });
+
+  it("uses the same sentence for the subject and the heading", () => {
+    const { subject, html } = ticketReminderEmail(base);
+    expect(html).toContain(subject);
+  });
+
+  /* A ticket can be nudged before it is late — then there is no lateness to
+     state and the subject must not invent one. */
+  it("falls back to a plain reminder when nothing has slipped", () => {
+    const { subject } = ticketReminderEmail({ ...base, overdueFor: null });
+    expect(subject).toBe("Reminder — DT-00012");
+    expect(subject).not.toMatch(/overdue/);
+  });
+
+  /* formatOverdue returns "less than an hour", never "just now", precisely
+     because every caller concatenates it into this sentence. */
+  it("reads as a duration for a freshly-late ticket", () => {
+    const { subject } = ticketReminderEmail({
+      ...base,
+      overdueFor: "less than an hour",
+    });
+    expect(subject).toBe("DT-00012 is less than an hour overdue");
+    expect(subject).not.toMatch(/just now/);
+  });
+
+  it("names the brand and links the ticket", () => {
+    const { html } = ticketReminderEmail(base);
+    expect(html).toContain("Acme Co");
+    expect(html).toContain(base.ticketUrl);
+  });
+
+  it("escapes a brand name that carries markup", () => {
+    const { html } = ticketReminderEmail({
+      ...base,
+      brandName: "<script>alert(1)</script>",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
   });
 });

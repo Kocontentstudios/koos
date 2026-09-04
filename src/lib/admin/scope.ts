@@ -51,10 +51,12 @@ export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
      under-report exactly the work clients are sitting on, and made the card
      disagree with the status row for one status. */
   awaiting_review: { statusIn: ["ready_for_review"] },
-  /* `delivered` means the files are with the client; `approved` means the
-     client signed off. They are different sets and diverge on any correction
-     round: recordDeliverableVersion sets ready_for_review on every upload and
-     never clears approvedAt. */
+  /* `delivered` IS the signed-off state — applyClientReview sets the status
+     and approvedAt in one statement, and STATUS_LABELS renders it "Approved".
+     The view is named for the operator's word, not the enum's. It keys on
+     status rather than approvedAt because approvedAt is never cleared: a
+     correction round after sign-off moves the ticket OUT of this set while
+     keeping the timestamp. */
   approved: { statusIn: ["delivered"] },
 };
 

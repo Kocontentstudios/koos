@@ -21,6 +21,11 @@ const COUNTS = {
   delivered: 23,
 };
 
+/* The Approved STATUS ROW reads the rollup; the Delivered CARD reads its own
+   query. They are given different numbers so a card silently falling back to
+   the rollup fails here. */
+const DELIVERED_ROLLUP = COUNTS.delivered + 5;
+
 vi.mock("@/lib/db/queries", () => ({
   getTicketCountsByStatus: async () => [
     { status: "submitted", count: 11 },
@@ -29,11 +34,14 @@ vi.mock("@/lib/db/queries", () => ({
        ticket IS awaiting review — the card and the status row are two routes
        to one answer and must not disagree. */
     { status: "ready_for_review", count: COUNTS.awaitingReview },
-    { status: "delivered", count: COUNTS.delivered },
+    /* Deliberately DIFFERENT from the Delivered card's own count: the card
+       must read its own query, not this rollup row. */
+    { status: "delivered", count: DELIVERED_ROLLUP },
   ],
   getOpenTicketCount: async () => COUNTS.open,
   getOverdueTicketCount: async () => COUNTS.overdue,
   getAwaitingReviewCount: async () => COUNTS.awaitingReview,
+  getApprovedTicketCount: async () => COUNTS.delivered,
   getUserCountsByRole: async () => [{ role: "admin", count: 2 }],
   getDesignerLoads: async () => [
     {
@@ -140,6 +148,11 @@ describe("every card opens the records behind its own number", () => {
   it("Delivered", async () => {
     await renderDashboard();
     expect(scopeOf(card(`Delivered${COUNTS.delivered}`)).view).toBe("approved");
+    /* Reading the rollup row instead of its own query is the fallback this
+       guards: the two are deliberately different numbers here. */
+    expect(screen.getAllByRole("link").map((l) => l.textContent)).not.toContain(
+      `Delivered${DELIVERED_ROLLUP}`,
+    );
   });
 });
 
@@ -162,10 +175,12 @@ describe("the status overview", () => {
     expect(
       scopeOf(card(`Delivered — Your Review${COUNTS.awaitingReview}`)).status,
     ).toEqual(["ready_for_review"]);
-    expect(scopeOf(card("Approved23")).status).toEqual(["delivered"]);
+    expect(scopeOf(card(`Approved${DELIVERED_ROLLUP}`)).status).toEqual([
+      "delivered",
+    ]);
     /* A status row must not inherit the queue's default view, which excludes
        drafts and delivered work — that made these two open an empty list. */
-    expect(scopeOf(card("Approved23")).view).toBe("all");
+    expect(scopeOf(card(`Approved${DELIVERED_ROLLUP}`)).view).toBe("all");
   });
 
   /* No dashboard link may point at a segment nobody built. A green test suite

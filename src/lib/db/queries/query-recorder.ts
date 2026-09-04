@@ -15,12 +15,29 @@ import { PgDialect } from "drizzle-orm/pg-core";
  */
 export interface RecordedQuery {
   select?: Record<string, unknown>;
+  /** Each projected key mapped to "table.column" — see `sources`. */
+  sources: Record<string, string>;
   from?: string;
   joins: string[];
   where?: { sql: string; params: unknown[] };
   orderBy: string[];
+  groupBy: string[];
   limit?: number;
   offset?: number;
+}
+
+/**
+ * Where each projected key actually comes from.
+ *
+ * Recording only the column NAME cannot catch a swapped source: `brands.name`
+ * and `strategies.name` are both called "name", so an assertion on the name
+ * alone passes while every row prints the campaign where the brand belongs.
+ */
+function sourceOf(column: unknown): string {
+  const col = column as { name?: string; table?: unknown };
+  if (typeof col?.name !== "string") return "?";
+  const table = col.table ? tableNameOf(col.table) : "?";
+  return `${table}.${col.name}`;
 }
 
 const dialect = new PgDialect();
@@ -37,7 +54,12 @@ function tableNameOf(table: unknown): string {
 
 /** Returns the fake plus the record it fills in as the builder runs. */
 export function recordingDb(rows: unknown[] = []) {
-  const recorded: RecordedQuery = { joins: [], orderBy: [] };
+  const recorded: RecordedQuery = {
+    joins: [],
+    orderBy: [],
+    groupBy: [],
+    sources: {},
+  };
 
   const chain = {
     from(table: unknown) {
@@ -70,7 +92,8 @@ export function recordingDb(rows: unknown[] = []) {
       recorded.offset = n;
       return chain;
     },
-    groupBy() {
+    groupBy(...columns: unknown[]) {
+      recorded.groupBy = columns.map(sourceOf);
       return chain;
     },
     // biome-ignore lint/suspicious/noThenProperty: drizzle's query builder is itself thenable — that is how `await db.select()...` runs — so a stand-in has to be one too.
@@ -80,8 +103,15 @@ export function recordingDb(rows: unknown[] = []) {
   };
 
   const db = {
+    delete(table: unknown) {
+      recorded.from = tableNameOf(table);
+      return chain;
+    },
     select(shape?: Record<string, unknown>) {
       recorded.select = shape;
+      recorded.sources = Object.fromEntries(
+        Object.entries(shape ?? {}).map(([key, col]) => [key, sourceOf(col)]),
+      );
       return chain;
     },
   };

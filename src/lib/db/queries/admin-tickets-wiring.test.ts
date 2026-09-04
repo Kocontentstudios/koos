@@ -75,25 +75,43 @@ describe("listAdminTickets", () => {
   });
 
   /* Every column the row mapping reads has to be projected, and has to come
-     from the column it claims: swapping title for brief, or brandName for a
-     campaign name, was invisible. */
-  it("projects each column from its own source", async () => {
+     from the TABLE it claims. Asserting the column name alone cannot catch a
+     swapped source: brands.name and strategies.name are both called "name", so
+     the queue would print the campaign where the brand belongs and the
+     assertion would still pass. */
+  it("projects each column from its own table", async () => {
     await listAdminTickets(scope(), { now: NOW });
-    const select = rec.recorded.select ?? {};
-    const nameOf = (key: string) =>
-      (select[key] as { name?: string } | undefined)?.name;
+    expect(rec.recorded.sources).toMatchObject({
+      id: "design_tickets.id",
+      ticketNumber: "design_tickets.ticket_number",
+      title: "design_tickets.title",
+      brief: "design_tickets.brief",
+      designType: "design_tickets.design_type",
+      dimensions: "design_tickets.dimensions",
+      slides: "design_tickets.slides",
+      status: "design_tickets.status",
+      priority: "design_tickets.priority",
+      dueDate: "design_tickets.due_date",
+      approvedAt: "design_tickets.approved_at",
+      brandId: "design_tickets.brand_id",
+      brandName: "brands.name",
+      campaignName: "strategies.name",
+      itemTitle: "calendar_items.title",
+      designerId: "design_tickets.assigned_designer_id",
+      designerFirstName: "designer.first_name",
+      designerLastName: "designer.last_name",
+      designerEmail: "designer.email",
+    });
+  });
 
-    expect(nameOf("title")).toBe("title");
-    expect(nameOf("brief")).toBe("brief");
-    expect(nameOf("designType")).toBe("design_type");
-    expect(nameOf("dueDate")).toBe("due_date");
-    expect(nameOf("status")).toBe("status");
-    expect(nameOf("priority")).toBe("priority");
-    expect(nameOf("approvedAt")).toBe("approved_at");
-    expect(nameOf("designerId")).toBe("assigned_designer_id");
-    expect(nameOf("brandName")).toBe("name");
-    expect(nameOf("campaignName")).toBe("name");
-    expect(nameOf("itemTitle")).toBe("title");
+  /* The two that are indistinguishable by column name. */
+  it("does not confuse the brand name with the campaign name", async () => {
+    await listAdminTickets(scope(), { now: NOW });
+    expect(rec.recorded.sources.brandName).toBe("brands.name");
+    expect(rec.recorded.sources.campaignName).toBe("strategies.name");
+    expect(rec.recorded.sources.brandName).not.toBe(
+      rec.recorded.sources.campaignName,
+    );
   });
 
   /* The pager counts pages with PAGE_SIZE; the query has to offset by the same
@@ -201,5 +219,36 @@ describe("getWorkloadForDesigner", () => {
       "active",
       "overdue",
     ]);
+  });
+
+  /* The fragments are asserted elsewhere; this pins the MAPPING. Returning
+     `active: row.overdue` renders "2 active · 7 overdue" for a designer
+     carrying 7 and 2, and every SQL assertion still passes. */
+  it("returns each count under its own name", async () => {
+    rec = recordingDb([{ active: 7, overdue: 2 }]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    expect(await getWorkloadForDesigner(DESIGNER, NOW)).toEqual({
+      active: 7,
+      overdue: 2,
+    });
+  });
+
+  /* Postgres returns count(*) as a string over the wire. */
+  it("coerces the aggregate strings to numbers", async () => {
+    rec = recordingDb([{ active: "7", overdue: "2" }]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    expect(await getWorkloadForDesigner(DESIGNER, NOW)).toEqual({
+      active: 7,
+      overdue: 2,
+    });
+  });
+
+  it("reports zeroes when the designer has nothing", async () => {
+    rec = recordingDb([]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    expect(await getWorkloadForDesigner(DESIGNER, NOW)).toEqual({
+      active: 0,
+      overdue: 0,
+    });
   });
 });

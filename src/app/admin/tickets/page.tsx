@@ -199,14 +199,33 @@ export default async function AdminTicketsPage({
         workload={workload}
         assignees={staff}
         canAssign={canAssign}
-        emptyMessage={
-          scope.page > pages && total > 0
-            ? `Page ${scope.page} is past the end of this list.`
-            : (EMPTY_FOR[scope.view] ?? "No tickets in this view.")
-        }
+        emptyMessage={emptyMessageFor(scope, pages, total)}
       />
     </div>
   );
+}
+
+/**
+ * What an empty list means, which depends on WHY it is empty.
+ *
+ * `EMPTY_FOR` speaks for a whole view, so using it under a search or an
+ * assignee filter told an admin "The queue is empty. Nice work." while 41 open
+ * tickets sat behind the filter. A narrowed list that comes back empty is a
+ * statement about the filter, never about the queue.
+ */
+function emptyMessageFor(
+  scope: AdminScope,
+  pages: number,
+  total: number,
+): string {
+  if (scope.page > pages && total > 0) {
+    return `Page ${scope.page} is past the end of this list.`;
+  }
+  if (scope.q.trim()) return `Nothing matches "${scope.q.trim()}".`;
+  if (scope.status.length || scope.assignee || scope.brand) {
+    return "Nothing matches these filters.";
+  }
+  return EMPTY_FOR[scope.view] ?? "No tickets in this view.";
 }
 
 /** What the operator is looking at, in the words the dashboard used. */

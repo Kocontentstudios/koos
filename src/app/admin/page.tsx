@@ -8,6 +8,7 @@ import {
 } from "@/lib/admin/scope-params";
 import { requireRole } from "@/lib/auth/require-role";
 import {
+  getApprovedTicketCount,
   getAwaitingReviewCount,
   getDesignerLoads,
   getOpenTicketCount,
@@ -34,21 +35,27 @@ export default async function AdminDashboardPage() {
      summing the status rollup to something that looks close. A card whose
      number disagrees with its own drill-down is the bug this ticket exists to
      fix, so the agreement is structural, not arithmetic. */
-  const [byStatus, openCount, overdue, readyCount, byRole, loads, recent] =
-    await Promise.all([
-      getTicketCountsByStatus(),
-      getOpenTicketCount(),
-      getOverdueTicketCount(),
-      getAwaitingReviewCount(),
-      getUserCountsByRole(),
-      getDesignerLoads(),
-      getRecentTickets(8),
-    ]);
+  const [
+    byStatus,
+    openCount,
+    overdue,
+    readyCount,
+    deliveredCount,
+    byRole,
+    loads,
+    recent,
+  ] = await Promise.all([
+    getTicketCountsByStatus(),
+    getOpenTicketCount(),
+    getOverdueTicketCount(),
+    getAwaitingReviewCount(),
+    getApprovedTicketCount(),
+    getUserCountsByRole(),
+    getDesignerLoads(),
+    getRecentTickets(8),
+  ]);
 
   const statusMap = new Map(byStatus.map((r) => [r.status, r.count]));
-  // `approved` is statusIn:["delivered"], so the rollup row is already exact.
-  // Pinned by admin/page.test.tsx against VIEW_PREDICATES, not just asserted here.
-  const deliveredCount = statusMap.get("delivered") ?? 0;
 
   /* Zero-filled and in a fixed order. `getTicketCountsByStatus` is a GROUP BY:
      a status with no tickets produced no row, so BUG-002's "navigation for

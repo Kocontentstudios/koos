@@ -61,6 +61,42 @@ describe("StatCard", () => {
 
 /* Every number on the dashboard should open the records behind it. The card
    stays a plain div without an href so the existing usages are untouched. */
+/* CLAUDE.md: every bug fix ships the test that would have caught it. The ring
+   was --border-accent, measured 1.79:1 dark and 1.65:1 light against WCAG
+   1.4.11's 3:1; --border-control is 3.52:1 / 3.26:1 and globals.css says so on
+   the token itself. Because `outline` is set explicitly the UA default is
+   suppressed, so this ring IS the only focus indicator on the card. */
+describe("focus indicator", () => {
+  it("uses the token tuned for control contrast", () => {
+    render(<StatCard label="Overdue" value={6} href="/admin/tickets" />);
+    const cls = screen.getByRole("link").className;
+    expect(cls).toContain("focus-visible:outline-[var(--border-control)]");
+  });
+
+  it("does not use a surface-tuned token that fails 3:1", () => {
+    render(<StatCard label="Overdue" value={6} href="/admin/tickets" />);
+    const cls = screen.getByRole("link").className;
+    expect(cls).not.toContain("outline-[var(--border-accent)]");
+    expect(cls).not.toContain("outline-[var(--border)]");
+  });
+
+  /* A ring drawn on the card's own edge is harder to see than one offset from
+     it, and the card sits directly on the page background. */
+  it("offsets the ring from the card edge", () => {
+    render(<StatCard label="Overdue" value={6} href="/admin/tickets" />);
+    expect(screen.getByRole("link").className).toContain(
+      "focus-visible:outline-offset-2",
+    );
+  });
+
+  it("draws no focus ring on a card that is not a link", () => {
+    render(<StatCard label="Overdue" value={6} />);
+    expect(screen.getByText("Overdue").parentElement?.className).not.toContain(
+      "focus-visible:outline",
+    );
+  });
+});
+
 describe("drill-down", () => {
   it("becomes a link when given an href", () => {
     render(

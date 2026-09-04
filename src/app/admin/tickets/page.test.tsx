@@ -330,6 +330,33 @@ describe("what each view says when it is empty", () => {
     expect(screen.getByText(expected)).toBeInTheDocument();
   });
 
+  /* A narrowed list coming back empty is a statement about the FILTER. Saying
+     "The queue is empty. Nice work." to someone who searched "zzzz" while 41
+     open tickets exist is the same lie, one dimension over. */
+  it("blames the search, not the queue", async () => {
+    await renderPage({ view: "open", q: "zzzz" }, [], 0);
+    expect(screen.getByText(/nothing matches "zzzz"/i)).toBeInTheDocument();
+    expect(screen.queryByText(/nice work/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["a status filter", { view: "open", status: "draft" }],
+    ["an assignee filter", { view: "open", assignee: TOLU }],
+    ["a brand filter", { view: "open", brand: BRAND }],
+  ])("blames %s rather than the queue", async (_label, params) => {
+    await renderPage(params, [], 0);
+    expect(
+      screen.getByText(/nothing matches these filters/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/nice work/i)).not.toBeInTheDocument();
+  });
+
+  /* Past the end still wins: that is a paging mistake, not an empty filter. */
+  it("prefers the past-the-end message over a filter message", async () => {
+    await renderPage({ view: "open", q: "zzzz", page: "99" }, [], 137);
+    expect(screen.getByText(/past the end/i)).toBeInTheDocument();
+  });
+
   it("gives each view a distinct message", async () => {
     const seen = new Set<string>();
     for (const view of [

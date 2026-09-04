@@ -1510,16 +1510,22 @@ export async function getOverdueTicketCount() {
 }
 
 /**
- * Work genuinely waiting on a client, for the Ready for Review card.
+ * Work waiting on a client, for the Ready for Review card.
  *
- * Not `getTicketCountsByStatus().ready_for_review`: a ticket the client already
- * approved goes back to `ready_for_review` on a correction upload and keeps its
- * approvedAt, so the raw status count is larger than the list the card opens.
- * The card and its drill-down must resolve the same predicate or the number
- * lies about the page behind it.
+ * This resolves the SAME predicate as the list the card opens, rather than
+ * reading the status rollup. Today those give the same number —
+ * `awaiting_review` is exactly `status = 'ready_for_review'` — so this is not
+ * paid for a difference that exists now. It is paid so the two cannot drift:
+ * the predicate lives in one place, and a future clause added there reaches
+ * the card and its drill-down together instead of only one of them.
  */
 export async function getAwaitingReviewCount() {
   return countAdminTickets({ ...DEFAULT_SCOPE, view: "awaiting_review" });
+}
+
+/** Client-approved work, for the Delivered card. Same reasoning as above. */
+export async function getApprovedTicketCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "approved" });
 }
 
 /** Tickets in the working queue: everything but drafts and delivered work. */
