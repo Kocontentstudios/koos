@@ -11,6 +11,7 @@ import {
   ne,
   sql,
 } from "drizzle-orm";
+import { DEFAULT_SCOPE } from "@/lib/admin/scope-params";
 import { brandGuideSchema } from "@/lib/ai/brand-guide";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
@@ -42,6 +43,7 @@ import {
   workspaces,
 } from "@/lib/db/schema";
 import { widenWindowGuard, widenWindowSet } from "@/lib/db/sql/calendar-window";
+import { countAdminTickets, viewConditions } from "./admin-tickets";
 
 // ── Users ───────────────────────────────────────────────────────────
 
@@ -143,6 +145,9 @@ export async function getStaffUsers() {
       id: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
+      /* first_name is NOT NULL but may be empty, and a roster entry reading as
+         a UUID prefix identifies nobody. */
+      email: users.email,
       role: users.role,
     })
     .from(users)
@@ -1015,31 +1020,6 @@ export async function replaceTicketAttachments(
   return addTicketAttachments(rows);
 }
 
-const QUEUE_STATUSES = [
-  "submitted",
-  "assigned",
-  "in_progress",
-  "revision_requested",
-] as const;
-
-/** Open tickets for the designer/admin queue. */
-export async function getDesignerQueue() {
-  return db
-    .select({
-      ticket: designTickets,
-      campaignName: strategies.name,
-      itemTitle: calendarItems.title,
-      brandName: brands.name,
-    })
-    .from(designTickets)
-    .leftJoin(brands, eq(designTickets.brandId, brands.id))
-    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
-    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(inArray(designTickets.status, [...QUEUE_STATUSES]))
-    .orderBy(desc(designTickets.createdAt));
-}
-
 // ── Design Deliverables ─────────────────────────────────────────────
 
 /** Record a delivery round: insert the files under the next version number, move
@@ -1491,6 +1471,19 @@ export async function hitRateLimit(key: string, windowSeconds: number) {
   };
 }
 
+/**
+ * Hand a consumed window back.
+ *
+ * A caller that reserves the window BEFORE doing the work it is protecting has
+ * to release it when that work fails, or the failure silently blocks every
+ * retry for the rest of the window — and the block reports itself as "already
+ * done". Compensating action, not a general-purpose reset: only the caller
+ * that just consumed this key may call it.
+ */
+export async function releaseRateLimit(key: string) {
+  await db.delete(rateLimits).where(eq(rateLimits.key, key));
+}
+
 // ── Admin dashboard ─────────────────────────────────────────────────
 
 /** Ticket counts grouped by status. */
@@ -1501,18 +1494,43 @@ export async function getTicketCountsByStatus() {
     .groupBy(designTickets.status);
 }
 
-/** Tickets past their due date that are not yet delivered. */
+/**
+ * Tickets past their due date that are still live work.
+ *
+ * Deliberately delegates rather than restating the predicate.
+ *
+ * The old query was `dueDate < now AND status != 'delivered'`, which counted
+ * tickets nobody ever submitted and counted approved work the moment a
+ * correction upload moved it off `delivered`. Sharing the definition with the
+ * drill-down is also what stops the card's number disagreeing with the list it
+ * opens — see VIEW_PREDICATES.overdue, which is tested without a database.
+ */
 export async function getOverdueTicketCount() {
-  const [row] = await db
-    .select({ count: count() })
-    .from(designTickets)
-    .where(
-      and(
-        lt(designTickets.dueDate, new Date()),
-        ne(designTickets.status, "delivered"),
-      ),
-    );
-  return row?.count ?? 0;
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "overdue" });
+}
+
+/**
+ * Work waiting on a client, for the Ready for Review card.
+ *
+ * This resolves the SAME predicate as the list the card opens, rather than
+ * reading the status rollup. Today those give the same number —
+ * `awaiting_review` is exactly `status = 'ready_for_review'` — so this is not
+ * paid for a difference that exists now. It is paid so the two cannot drift:
+ * the predicate lives in one place, and a future clause added there reaches
+ * the card and its drill-down together instead of only one of them.
+ */
+export async function getAwaitingReviewCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "awaiting_review" });
+}
+
+/** Client-approved work, for the Delivered card. Same reasoning as above. */
+export async function getApprovedTicketCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "approved" });
+}
+
+/** Tickets in the working queue: everything but drafts and delivered work. */
+export async function getOpenTicketCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "open" });
 }
 
 /** User counts grouped by role. */
@@ -1525,26 +1543,39 @@ export async function getUserCountsByRole() {
 
 /** Active (assigned/in_progress/ready_for_review) ticket load per designer. */
 export async function getDesignerLoads() {
-  return db
-    .select({
-      designerId: designTickets.assignedDesignerId,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      count: count(),
-    })
-    .from(designTickets)
-    .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
-    .where(
-      and(
-        isNotNull(designTickets.assignedDesignerId),
-        inArray(designTickets.status, [
-          "assigned",
-          "in_progress",
-          "ready_for_review",
-        ]),
-      ),
-    )
-    .groupBy(designTickets.assignedDesignerId, users.firstName, users.lastName);
+  return (
+    db
+      .select({
+        /* Non-null by the isNotNull guard below. Stated here so callers can link
+         straight to ?assignee=<id> instead of re-checking what the WHERE
+         clause already guarantees. */
+        designerId: sql<string>`${designTickets.assignedDesignerId}`,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        /* first_name is NOT NULL but may be empty, so a designer can render as
+         "". The drill-down header falls back to the email; this row has to
+         fall back to the same thing or the two name the same person
+         differently. */
+        email: users.email,
+        count: count(),
+      })
+      .from(designTickets)
+      .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
+      /* Derived, not restated: this count is what the drill-down's `active`
+       view opens, so a literal here could drift from the list it links to. */
+      .where(
+        and(
+          isNotNull(designTickets.assignedDesignerId),
+          ...viewConditions("active", new Date()),
+        ),
+      )
+      .groupBy(
+        designTickets.assignedDesignerId,
+        users.firstName,
+        users.lastName,
+        users.email,
+      )
+  );
 }
 
 /** Most recently created tickets, with brand name. */
@@ -1593,6 +1624,7 @@ export async function updateAppSettings(data: {
   return row;
 }
 
+export * from "./admin-tickets";
 export * from "./analytics";
 export * from "./workspaces";
 

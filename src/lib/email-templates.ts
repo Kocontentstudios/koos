@@ -427,3 +427,35 @@ export function smtpTestEmail(i: SmtpTestEmailInput): BuiltEmail {
     ),
   };
 }
+
+export interface TicketReminderEmailInput {
+  ticketNumber: number;
+  designType: string;
+  brandName: string | null;
+  /** Already phrased ("3 days"); null when the ticket is not yet late. */
+  overdueFor: string | null;
+  dueDate: string | null;
+  ticketUrl: string;
+}
+
+/**
+ * A nudge to the designer carrying a ticket. Deliberately states how late it
+ * is rather than a due date — an operator sends this because something has
+ * slipped, and the designer should not have to work that out.
+ */
+export function ticketReminderEmail(i: TicketReminderEmailInput): BuiltEmail {
+  const heading = i.overdueFor
+    ? `${formatTicketNumber(i.ticketNumber)} is ${i.overdueFor} overdue`
+    : `Reminder — ${formatTicketNumber(i.ticketNumber)}`;
+  const html = shell(
+    heading,
+    `<p style="font-size:13px">A reminder about your <strong>${escapeHtml(
+      i.designType,
+    )}</strong> ticket${i.brandName ? ` for ${escapeHtml(i.brandName)}` : ""}.</p>
+    <table style="border-collapse:collapse;width:100%">${
+      i.overdueFor ? row("Overdue by", escapeHtml(i.overdueFor)) : ""
+    }${i.dueDate ? row("Due", escapeHtml(i.dueDate)) : ""}</table>
+    <p style="margin-top:16px"><a href="${escapeHtml(i.ticketUrl)}" style="color:#138bc8">Open the ticket →</a></p>`,
+  );
+  return { subject: heading, html };
+}

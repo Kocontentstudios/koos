@@ -464,46 +464,66 @@ export const calendarItems = pgTable(
   (t) => [index().on(t.calendarId)],
 );
 
-export const designTickets = pgTable("design_tickets", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ticketNumber: integer("ticket_number")
-    .notNull()
-    .unique()
-    .default(sql`nextval('design_ticket_number_seq')`),
-  calendarItemId: uuid("calendar_item_id").references(() => calendarItems.id, {
-    onDelete: "set null",
-  }),
-  brandId: uuid("brand_id")
-    .notNull()
-    .references(() => brands.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  assignedDesignerId: uuid("assigned_designer_id").references(() => users.id, {
-    onDelete: "set null",
-  }),
-  designType: text("design_type").notNull(),
-  title: text("title"),
-  dimensions: text("dimensions"),
-  slides: integer("slides"),
-  brief: text("brief").notNull(),
-  notes: text("notes"),
-  /** Optional structured deliverable specs from the request form; display-only,
-   * so it stays schemaless jsonb rather than dedicated columns. */
-  specs: jsonb("specs").$type<DesignTicketSpecs>(),
-  deliveryEmail: text("delivery_email"),
-  /** Generated design or user upload the designer should work from. Previously
-   * this only survived as a line inside `brief`, so it was invisible to queries. */
-  referenceImageUrl: text("reference_image_url"),
-  dueDate: timestamp("due_date"),
-  status: designTicketStatusEnum("status").notNull().default("submitted"),
-  /** When the client last signed off. Never cleared — a later correction round
-   * reopens the ticket for review but must not revoke files already earned. */
-  approvedAt: timestamp("approved_at"),
-  priority: ticketPriorityEnum("priority").notNull().default("normal"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const designTickets = pgTable(
+  "design_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketNumber: integer("ticket_number")
+      .notNull()
+      .unique()
+      .default(sql`nextval('design_ticket_number_seq')`),
+    calendarItemId: uuid("calendar_item_id").references(
+      () => calendarItems.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    assignedDesignerId: uuid("assigned_designer_id").references(
+      () => users.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    designType: text("design_type").notNull(),
+    title: text("title"),
+    dimensions: text("dimensions"),
+    slides: integer("slides"),
+    brief: text("brief").notNull(),
+    notes: text("notes"),
+    /** Optional structured deliverable specs from the request form; display-only,
+     * so it stays schemaless jsonb rather than dedicated columns. */
+    specs: jsonb("specs").$type<DesignTicketSpecs>(),
+    deliveryEmail: text("delivery_email"),
+    /** Generated design or user upload the designer should work from. Previously
+     * this only survived as a line inside `brief`, so it was invisible to queries. */
+    referenceImageUrl: text("reference_image_url"),
+    dueDate: timestamp("due_date"),
+    status: designTicketStatusEnum("status").notNull().default("submitted"),
+    /** When the client last signed off. Never cleared — a later correction round
+     * reopens the ticket for review but must not revoke files already earned. */
+    approvedAt: timestamp("approved_at"),
+    priority: ticketPriorityEnum("priority").notNull().default("normal"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  /* The columns the admin drill-downs FILTER on — see
+     drizzle/0029_design_ticket_indexes.sql for what each one serves. They do
+     not remove the sort: the working queue's ORDER BY is composite and no
+     index here matches it. */
+  (t) => [
+    index("design_tickets_status_idx").on(t.status),
+    index("design_tickets_due_date_idx").on(t.dueDate),
+    index("design_tickets_assigned_designer_idx").on(t.assignedDesignerId),
+    index("design_tickets_created_at_idx").on(t.createdAt),
+    index("design_tickets_brand_idx").on(t.brandId),
+  ],
+);
 
 /** AI-generated design briefs pinned to a design-mode conversation, so a
  * brief survives the chat session and can be edited/resubmitted without
