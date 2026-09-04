@@ -15,8 +15,6 @@ export const ADMIN_TICKET_VIEWS = [
   "open",
   "active",
   "overdue",
-  "draft",
-  "submitted",
   "in_progress",
   "needs_revision",
   "awaiting_review",
@@ -51,8 +49,6 @@ export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
     approved: "none",
     overdue: true,
   },
-  draft: { statusIn: ["draft"] },
-  submitted: { statusIn: ["submitted"] },
   in_progress: { statusIn: ["assigned", "in_progress"] },
   needs_revision: { statusIn: ["revision_requested"] },
   awaiting_review: { statusIn: ["ready_for_review"], approved: "none" },
@@ -105,12 +101,18 @@ export function formatOverdue(ms: number): string {
   return "just now";
 }
 
-/* Approved and awaiting-review work belongs on Delivered Projects; everything
-   else is a plain status filter on the ticket list. */
+/**
+ * Where a Status Overview row opens.
+ *
+ * A plain status filter, deliberately: the number beside the row comes from
+ * `getTicketCountsByStatus`, which groups on the raw status, so any richer view
+ * here would open a list that disagrees with the count the operator clicked.
+ *
+ * ADMIN-FEAT-002 re-points `delivered` and `ready_for_review` at Delivered
+ * Projects once that page exists; until then this must not link to a route the
+ * app does not serve.
+ */
 export function statusRowHref(status: TicketStatus): string {
-  if (status === "delivered") return "/admin/delivered?view=approved";
-  if (status === "ready_for_review")
-    return "/admin/delivered?view=awaiting_review";
   return `/admin/tickets?status=${status}`;
 }
 
@@ -124,7 +126,9 @@ export const ADMIN_RANGES = [
 ] as const;
 export type AdminRange = (typeof ADMIN_RANGES)[number];
 
-const PRESET_DAYS: Record<string, number> = {
+type PresetRange = Exclude<AdminRange, "all" | "custom">;
+
+const PRESET_DAYS: Record<PresetRange, number> = {
   "7d": 7,
   "15d": 15,
   "30d": 30,
@@ -132,11 +136,16 @@ const PRESET_DAYS: Record<string, number> = {
 };
 
 /**
- * Resolves a range to explicit UTC boundaries.
+ * Resolves a range to an absolute window.
  *
- * Takes the custom bounds as STRINGS and never routes them through a local
- * Date: the server renders in its own zone, so building a boundary from a
- * parsed local date puts the window a day out for anyone not on UTC.
+ * A CUSTOM range snaps to UTC day boundaries; the presets are rolling offsets
+ * from `now` and make no claim to a day boundary. Custom bounds are taken as
+ * STRINGS and never routed through a local Date: the server renders in its own
+ * zone, so parsing "2026-07-19" locally puts the window a day out for anyone
+ * not on UTC.
+ *
+ * `to` is EXCLUSIVE. Callers must compare with `<`, never `<=`, or a range
+ * stated "to the 25th" swallows the 26th.
  */
 export function resolveWindow(args: {
   range: AdminRange;
@@ -148,15 +157,22 @@ export function resolveWindow(args: {
   if (range === "custom") {
     const a = utcDay(from);
     const b = utcDay(to);
+    // Half-open input is an answerable question ("since the 19th"), so honour
+    // the bound given rather than silently substituting a 30-day window.
     if (a && b) {
       const [lo, hi] = a <= b ? [a, b] : [b, a];
-      // Exclusive upper bound: a range "to the 25th" includes all of the 25th.
-      return { from: lo, to: new Date(hi.getTime() + DAY) };
+      return { from: lo, to: endOfUtcDay(hi) };
     }
+    if (a) return { from: a, to: now };
+    if (b) return { from: null, to: endOfUtcDay(b) };
     return windowOfDays(30, now);
   }
   if (range === "all") return { from: null, to: now };
-  return windowOfDays(PRESET_DAYS[range] ?? 30, now);
+  return windowOfDays(PRESET_DAYS[range], now);
+}
+
+function endOfUtcDay(day: Date): Date {
+  return new Date(day.getTime() + DAY);
 }
 
 function windowOfDays(days: number, now: Date) {
@@ -172,7 +188,8 @@ function utcDay(value: string | undefined): Date | null {
 export interface SortSpec {
   field: "createdAt" | "dueDate" | "updatedAt" | "ticketNumber" | "priority";
   direction: "asc" | "desc";
-  nulls?: "last";
+  /** The sort's meaning fixes its direction, so a `:desc` suffix is ignored. */
+  fixedDirection?: true;
 }
 
 const SORT_FIELDS: Record<string, SortSpec> = {
@@ -180,13 +197,34 @@ const SORT_FIELDS: Record<string, SortSpec> = {
   updated: { field: "updatedAt", direction: "desc" },
   ticket: { field: "ticketNumber", direction: "desc" },
   priority: { field: "priority", direction: "desc" },
-  due: { field: "dueDate", direction: "asc", nulls: "last" },
-  /* "Most overdue" is the oldest due date, and a ticket with no due date is
-     not the most overdue thing in the list. */
-  overdue: { field: "dueDate", direction: "asc", nulls: "last" },
+  due: { field: "dueDate", direction: "asc", fixedDirection: true },
+  /* "Most overdue" is the oldest due date, ascending. Postgres already sorts
+     NULLs last on ASC, which is what we want: a ticket with no due date is not
+     the most overdue thing in the list. */
+  overdue: { field: "dueDate", direction: "asc", fixedDirection: true },
 };
 
 const DEFAULT_SORT: SortSpec = { field: "createdAt", direction: "desc" };
+
+/**
+ * What a view sorts by when the URL does not say.
+ *
+ * The working queue is read top-down to decide what to pick up next, so urgent
+ * work has to surface without the designer sorting first. An overdue list is
+ * read the same way for a different reason: the latest ticket is the one that
+ * needs a call today.
+ */
+const DEFAULT_SORT_KEY: Partial<Record<AdminTicketView, string>> = {
+  open: "priority",
+  in_progress: "priority",
+  needs_revision: "priority",
+  active: "priority",
+  overdue: "overdue",
+};
+
+export function defaultSortKeyFor(view: AdminTicketView): string {
+  return DEFAULT_SORT_KEY[view] ?? "created";
+}
 
 /** Whether a `field:dir` string names a sort the query layer will honour. */
 export function isSortable(value: string): boolean {
@@ -202,10 +240,18 @@ export function sortToColumn(value: string): SortSpec {
   if (direction !== "asc" && direction !== "desc") return spec;
   // `overdue` and `due` encode their own direction; asking for the other one
   // still means "by due date", so only the plain fields honour the suffix.
-  return spec.nulls ? spec : { ...spec, direction };
+  return spec.fixedDirection ? spec : { ...spec, direction };
 }
 
+/** Rows per page. The pager, the query layer and the offset all read this. */
+export const PAGE_SIZE = 50;
+
 export const MAX_PAGE = 1000;
+
+/** Always at least 1: an empty list is page 1 of 1, never page 1 of 0. */
+export function pageCount(total: number, pageSize = PAGE_SIZE): number {
+  return Math.max(1, Math.ceil(total / pageSize));
+}
 
 export function clampPage(value: number): number {
   if (!Number.isFinite(value)) return 1;

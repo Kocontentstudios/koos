@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ADMIN_TICKET_VIEWS } from "./scope";
 import { adminScopeHref, DEFAULT_SCOPE, loadAdminScope } from "./scope-params";
 
 const parse = (qs: string) => loadAdminScope(new URLSearchParams(qs));
@@ -94,6 +95,31 @@ describe("building a link from a scope", () => {
     expect(back.range).toBe("7d");
     expect(back.status).toEqual(["submitted"]);
     expect(back.kind).toEqual(["design_generated"]);
+  });
+
+  /* The bug this pins: with `all` as the parser default, the serializer
+     dropped ?view=all from the href, the page read the bare URL back as the
+     default, and an explicit "All" click landed on Open. Drafts and delivered
+     tickets were then unreachable from the tab bar. Every view has to survive
+     the round trip the tab bar actually performs. */
+  it.each([...ADMIN_TICKET_VIEWS])(
+    "round-trips ?view=%s through a tab link",
+    (view) => {
+      const href = adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+        view,
+        page: 1,
+      });
+      const back = loadAdminScope(
+        new URLSearchParams(href.split("?")[1] ?? ""),
+      );
+      expect(back.view).toBe(view);
+    },
+  );
+
+  /* The bare queue URL is the working queue, not everything ever filed. */
+  it("reads the bare ticket URL as the open queue", () => {
+    expect(parse("").view).toBe("open");
+    expect(DEFAULT_SCOPE.view).toBe("open");
   });
 
   it("writes multi-values as one comma list, not repeated keys", () => {

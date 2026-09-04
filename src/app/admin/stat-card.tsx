@@ -32,23 +32,17 @@ export function StatCard({
   change?: number | null;
   caption?: string;
 }) {
+  /* --hover, not a surface token: --surface-1 and --surface-2 are both #ffffff
+     in light mode, so hover:bg-surface-2 leaves the card with no feedback at
+     all — and the feedback IS the feature here. */
   const className =
     "block rounded-xl border border-[var(--border)] bg-surface-1 p-4" +
     (href
-      ? " transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-accent)]"
+      ? " transition-colors hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-accent)]"
       : "");
-  const Wrapper = href
-    ? ({ children }: { children: React.ReactNode }) => (
-        <Link href={href} className={className}>
-          {children}
-        </Link>
-      )
-    : ({ children }: { children: React.ReactNode }) => (
-        <div className={className}>{children}</div>
-      );
 
-  return (
-    <Wrapper>
+  const body = (
+    <>
       <p className="text-[12px] uppercase tracking-widest text-[var(--text-muted)]">
         {label}
       </p>
@@ -68,6 +62,14 @@ export function StatCard({
       {caption && (
         <p className="mt-1 text-[12px] text-[var(--text-muted)]">{caption}</p>
       )}
-    </Wrapper>
+    </>
+  );
+
+  return href ? (
+    <Link href={href} className={className}>
+      {body}
+    </Link>
+  ) : (
+    <div className={className}>{body}</div>
   );
 }

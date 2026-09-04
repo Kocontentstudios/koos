@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import type { QueueRow } from "./queue-client";
+import type { Assignee, QueueRow } from "./queue-client";
 import { QueueClient } from "./queue-client";
 
 vi.mock("next/navigation", () => ({
@@ -12,6 +12,14 @@ vi.mock("next/navigation", () => ({
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+
+vi.mock("nuqs", () => ({
+  useQueryStates: () => [{ q: "", page: 1 }, vi.fn()],
+}));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function row(overrides: Partial<QueueRow>): QueueRow {
   return {
@@ -27,7 +35,8 @@ function row(overrides: Partial<QueueRow>): QueueRow {
     campaignName: null,
     itemTitle: null,
     title: null,
-    assigneeName: null,
+    designerId: null,
+    assigneeName: "",
     overdueFor: null,
     dueDate: null,
     ...overrides,
@@ -42,12 +51,7 @@ const QUEUE: QueueRow[] = [
 ];
 
 const FILTERS = [
-  {
-    key: "open",
-    label: "Open",
-    href: "/admin/tickets?view=open",
-    active: true,
-  },
+  { key: "open", label: "Open", href: "/admin/tickets", active: true },
   {
     key: "needs_revision",
     label: "Needs revision",
@@ -57,100 +61,231 @@ const FILTERS = [
   },
 ];
 
+const STAFF: Assignee[] = [
+  { id: "d1", name: "Tolu A", role: "designer" },
+  { id: "d2", name: "Bimpe O", role: "designer" },
+];
+
+function renderQueue(props: Partial<Parameters<typeof QueueClient>[0]> = {}) {
+  return render(
+    <QueueClient
+      queue={QUEUE}
+      filters={FILTERS}
+      page={1}
+      pages={1}
+      prevHref={null}
+      nextHref={null}
+      workload={null}
+      assignees={[]}
+      canAssign={false}
+      {...props}
+    />,
+  );
+}
+
 /* Filtering moved to the URL: a dashboard drill-down is a link, and it has to
    land on a filtered list rather than a full one the browser then trims. The
    predicate behind each view is tested without a database in scope.test.ts;
    what belongs here is that the container renders what it is handed. */
 describe("QueueClient", () => {
   it("renders every row it is given", () => {
-    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    renderQueue();
     for (const n of [101, 102, 103, 104]) {
       expect(screen.getByText(formatTicketNumber(n))).toBeInTheDocument();
     }
   });
 
   it("offers each view as a link, not a local toggle", () => {
-    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    renderQueue();
     expect(
       screen.getByRole("link", { name: /needs revision/i }),
     ).toHaveAttribute("href", "/admin/tickets?view=needs_revision");
   });
 
   it("marks the active view for assistive tech, not just colour", () => {
-    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
+    renderQueue();
     expect(screen.getByRole("link", { name: /open/i })).toHaveAttribute(
       "aria-current",
       "page",
     );
   });
 
-  it("shows the count a view carries", () => {
-    render(<QueueClient queue={QUEUE} filters={FILTERS} />);
-    expect(
-      screen.getByRole("link", { name: /needs revision/i }),
-    ).toHaveTextContent("2");
-  });
-
   /* The count comes from the server, so it reflects every match — not the
      page of rows that happens to be loaded. */
   it("reports a total larger than the rows on screen", () => {
-    render(<QueueClient queue={QUEUE} filters={FILTERS} total={137} />);
+    renderQueue({ total: 137 });
     expect(screen.getByText(/137 tickets/)).toBeInTheDocument();
   });
 
   it("says something useful when a view is empty", () => {
-    render(
-      <QueueClient
-        queue={[]}
-        filters={FILTERS}
-        emptyMessage="Nothing is overdue."
-      />,
-    );
+    renderQueue({ queue: [], emptyMessage: "Nothing is overdue." });
     expect(screen.getByText("Nothing is overdue.")).toBeInTheDocument();
+  });
+});
+
+/* Every one of these was dropped when the queue moved to a URL-driven scope:
+   the page kept rendering, so nothing failed, and the row simply carried less
+   information than it had the day before. */
+describe("the row keeps the context a designer works from", () => {
+  it("shows the brief preview", () => {
+    renderQueue({
+      queue: [row({ id: "b", brief: "Launch teaser, 3 panels" })],
+    });
+    expect(screen.getByText("Launch teaser, 3 panels")).toBeInTheDocument();
+  });
+
+  it("shows the deliverable spec, not just the type", () => {
+    renderQueue({
+      queue: [
+        row({
+          id: "c",
+          designType: "Carousel",
+          dimensions: "1080×1350",
+          slides: 8,
+        }),
+      ],
+    });
+    expect(
+      screen.getByText("Carousel · 1080×1350 · 8 slides"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the campaign and calendar item behind the ticket", () => {
+    renderQueue({
+      queue: [
+        row({
+          id: "d",
+          brandName: "Acme",
+          campaignName: "Q4 Launch",
+          itemTitle: "Teaser 1",
+        }),
+      ],
+    });
+    expect(screen.getByText("Acme · Q4 Launch · Teaser 1")).toBeInTheDocument();
   });
 });
 
 describe("overdue rows", () => {
   it("says how long overdue, not just the due date", () => {
-    render(
-      <QueueClient
-        queue={[row({ id: "late", overdueFor: "3 days" })]}
-        filters={FILTERS}
-      />,
-    );
+    renderQueue({ queue: [row({ id: "late", overdueFor: "3 days" })] });
     expect(screen.getByText(/3 days overdue/)).toBeInTheDocument();
   });
 
   it("names the assignee, or says nobody has it", () => {
-    render(
-      <QueueClient
-        queue={[row({ id: "u", assigneeName: "" })]}
-        filters={FILTERS}
-      />,
-    );
+    renderQueue({ queue: [row({ id: "u", assigneeName: "" })] });
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
+  });
+});
+
+describe("assign and reassign", () => {
+  it("offers the roster to someone who can complete the change", () => {
+    renderQueue({
+      queue: [row({ id: "a", designerId: "d1", assigneeName: "Tolu A" })],
+      assignees: STAFF,
+      canAssign: true,
+    });
+    const select = screen.getByRole("combobox", { name: /assign/i });
+    expect(select).toHaveValue("d1");
+    expect(screen.getByRole("option", { name: "Bimpe O" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Unassigned" }),
+    ).toBeInTheDocument();
+  });
+
+  /* /manage refuses reassignment for a designer, so offering the control to
+     one is an action that can only fail. */
+  it("is hidden from a designer, who cannot complete it", () => {
+    renderQueue({
+      queue: [row({ id: "a", designerId: "d1" })],
+      assignees: [],
+      canAssign: false,
+    });
+    expect(
+      screen.queryByRole("combobox", { name: /assign/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("posts the chosen designer to the manage route", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderQueue({
+      queue: [row({ id: "tk-9", designerId: null })],
+      assignees: STAFF,
+      canAssign: true,
+    });
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /assign/i }),
+      "d2",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/tickets/tk-9/manage",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ assignedDesignerId: "d2" }),
+      }),
+    );
+  });
+
+  /* Unassigning is a real intent, and the route reads null — not "" — as it. */
+  it("sends null when the ticket is unassigned", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderQueue({
+      queue: [row({ id: "tk-9", designerId: "d1" })],
+      assignees: STAFF,
+      canAssign: true,
+    });
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /assign/i }),
+      "",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/tickets/tk-9/manage",
+      expect.objectContaining({
+        body: JSON.stringify({ assignedDesignerId: null }),
+      }),
+    );
   });
 });
 
 describe("send reminder", () => {
   it("is offered only when someone is carrying the ticket", () => {
-    const { unmount } = render(
-      <QueueClient
-        queue={[row({ id: "a", assigneeName: "Tolu A" })]}
-        filters={FILTERS}
-      />,
-    );
+    const { unmount } = renderQueue({
+      queue: [row({ id: "a", designerId: "d1", assigneeName: "Tolu A" })],
+    });
     expect(
       screen.getByRole("button", { name: /send reminder/i }),
     ).toBeInTheDocument();
     unmount();
 
-    render(
-      <QueueClient
-        queue={[row({ id: "b", assigneeName: "" })]}
-        filters={FILTERS}
-      />,
-    );
+    renderQueue({ queue: [row({ id: "b", designerId: null })] });
+    expect(
+      screen.queryByRole("button", { name: /send reminder/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  /* A designer whose first and last name are both null renders as "", so
+     gating on the display name silently removed the action from a genuinely
+     assigned ticket. */
+  it("is offered to a designer with no name on record", () => {
+    renderQueue({
+      queue: [row({ id: "a", designerId: "d1", assigneeName: "" })],
+    });
+    expect(
+      screen.getByRole("button", { name: /send reminder/i }),
+    ).toBeInTheDocument();
+  });
+
+  /* Work in review is waiting on the CLIENT. Nudging the designer there tells
+     the operator the wrong person is late. */
+  it("is not offered while the ticket sits with the client", () => {
+    renderQueue({
+      queue: [row({ id: "a", designerId: "d1", status: "ready_for_review" })],
+    });
     expect(
       screen.queryByRole("button", { name: /send reminder/i }),
     ).not.toBeInTheDocument();
@@ -169,15 +304,12 @@ describe("send reminder", () => {
           }),
       ),
     );
-    render(
-      <QueueClient
-        queue={[
-          row({ id: "a", ticketNumber: 201, assigneeName: "Tolu A" }),
-          row({ id: "b", ticketNumber: 202, assigneeName: "Bimpe O" }),
-        ]}
-        filters={FILTERS}
-      />,
-    );
+    renderQueue({
+      queue: [
+        row({ id: "a", ticketNumber: 201, designerId: "d1" }),
+        row({ id: "b", ticketNumber: 202, designerId: "d2" }),
+      ],
+    });
 
     const [first, second] = screen.getAllByRole("button", {
       name: /send reminder|sending/i,
@@ -188,6 +320,79 @@ describe("send reminder", () => {
     expect(second).not.toHaveAttribute("data-loading", "true");
 
     release(new Response("{}", { status: 200 }));
-    vi.unstubAllGlobals();
+  });
+});
+
+describe("pagination", () => {
+  /* Without a pager the overdue drill-down truncated at one page and the rows
+     past it were reachable only by hand-editing the URL. */
+  it("offers a way forward when there is more than one page", () => {
+    renderQueue({
+      total: 137,
+      page: 2,
+      pages: 3,
+      prevHref: "/admin/tickets?page=1",
+      nextHref: "/admin/tickets?page=3",
+    });
+    expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /previous/i })).toHaveAttribute(
+      "href",
+      "/admin/tickets?page=1",
+    );
+    expect(screen.getByRole("link", { name: /next/i })).toHaveAttribute(
+      "href",
+      "/admin/tickets?page=3",
+    );
+  });
+
+  it("does not render a pager for a single page", () => {
+    renderQueue({ total: 4, page: 1, pages: 1 });
+    expect(
+      screen.queryByRole("navigation", { name: /pagination/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("disables the edge rather than linking nowhere", () => {
+    renderQueue({
+      total: 137,
+      page: 1,
+      pages: 3,
+      prevHref: null,
+      nextHref: "/admin/tickets?page=2",
+    });
+    expect(screen.queryByRole("link", { name: /previous/i })).toBeNull();
+    expect(screen.getByText(/previous/i)).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+});
+
+describe("the designer drill-down says whose list it is", () => {
+  /* "assigned tickets AND workload". Without the header the page is a filtered
+     table that never names the person it is filtered to. */
+  it("names the designer and what they are carrying", () => {
+    renderQueue({
+      workload: { name: "Tolu A", active: 7, overdue: 2 },
+    });
+    expect(screen.getByText("Tolu A")).toBeInTheDocument();
+    expect(screen.getByText("7 active")).toBeInTheDocument();
+    expect(screen.getByText("2 overdue")).toBeInTheDocument();
+  });
+
+  it("says nothing about overdue work when there is none", () => {
+    renderQueue({ workload: { name: "Tolu A", active: 7, overdue: 0 } });
+    expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("search", () => {
+  /* Server-side by construction: a paginated list filtered in the browser
+     searches the visible page and looks like it worked. */
+  it("offers a labelled search input", () => {
+    renderQueue();
+    expect(
+      screen.getByRole("searchbox", { name: /search tickets/i }),
+    ).toBeInTheDocument();
   });
 });

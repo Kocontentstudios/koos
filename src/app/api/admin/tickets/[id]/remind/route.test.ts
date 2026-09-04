@@ -5,7 +5,7 @@ const getDesignTicketById = vi.fn();
 const getUserById = vi.fn();
 const getBrandById = vi.fn();
 const createNotification = vi.fn();
-const getNotifications = vi.fn();
+const checkRateLimit = vi.fn();
 const sendTicketReminderEmail = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
@@ -14,8 +14,17 @@ vi.mock("@/lib/db/queries", () => ({
   getUserById: (id: string) => getUserById(id),
   getBrandById: (id: string) => getBrandById(id),
   createNotification: (d: unknown) => createNotification(d),
-  getNotifications: (u: string, l?: number) => getNotifications(u, l),
 }));
+vi.mock("@/lib/rate-limit", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/rate-limit")>(
+      "@/lib/rate-limit",
+    );
+  return {
+    ...actual,
+    checkRateLimit: (p: unknown) => checkRateLimit(p),
+  };
+});
 vi.mock("@/lib/design/notify", () => ({
   appUrl: (p: string) => `https://app${p}`,
   sendTicketReminderEmail: (a: unknown) => sendTicketReminderEmail(a),
@@ -50,7 +59,7 @@ beforeEach(() => {
   getUserById.mockResolvedValue({ id: "d1", email: "designer@koos.test" });
   getBrandById.mockResolvedValue({ id: "b1", name: "Acme" });
   createNotification.mockResolvedValue({ id: "n1" });
-  getNotifications.mockResolvedValue([]);
+  checkRateLimit.mockResolvedValue({ ok: true, retryAfterSeconds: 0 });
   sendTicketReminderEmail.mockResolvedValue(undefined);
 });
 
@@ -100,29 +109,81 @@ describe("POST /api/admin/tickets/[id]/remind", () => {
     expect(sendTicketReminderEmail).not.toHaveBeenCalled();
   });
 
-  /* The email path already swallows its own errors; the notification is the
-     durable half, so the action still reports success. */
-  it("still records the notification when the email fails", async () => {
-    sendTicketReminderEmail.mockRejectedValue(new Error("smtp down"));
-    const res = await call();
-    expect(res.status).toBe(200);
-    expect(createNotification).toHaveBeenCalled();
+  /* The notification is the durable half and is written first, so a mail
+     outage still leaves the designer something to see in the product.
+     sendTicketReminderEmail's "never throws" contract is what makes the
+     unguarded await safe — see notify.test.ts, which pins it. */
+  it("records the notification before attempting the email", async () => {
+    const order: string[] = [];
+    createNotification.mockImplementation(async () => {
+      order.push("notification");
+    });
+    sendTicketReminderEmail.mockImplementation(async () => {
+      order.push("email");
+    });
+    await call();
+    expect(order).toEqual(["notification", "email"]);
   });
 
-  /* An operator clicking twice should not send twice; the guard is the
-     notification the first click wrote. */
-  it("does not send a second reminder within the cooling-off window", async () => {
-    /* Read back from the notification the first click wrote — module state
-       would not survive a second serverless instance. */
-    getNotifications.mockResolvedValue([
-      {
-        type: "ticket_status",
-        payload: { reminder: true, ticketId: "t1" },
-        createdAt: new Date(NOW.getTime() - 60_000),
-      },
-    ]);
+  it("formats the due date the way the rest of the product does", async () => {
+    await call();
+    const arg = sendTicketReminderEmail.mock.calls[0][0] as {
+      input: { dueDate: string | null };
+    };
+    // Not toDateString()'s "Tue Sep 01 2026".
+    expect(arg.input.dueDate).toBe("Sep 1, 2026");
+  });
+});
+
+/* An operator clicking twice should not send twice — and neither should two
+   operators, or two tabs. */
+describe("the cooling-off guard", () => {
+  it("is keyed on the ticket, so one nudge never suppresses another", async () => {
+    await call();
+    expect(checkRateLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "ticket-remind:t1", limit: 1 }),
+    );
+  });
+
+  it("holds for six hours", async () => {
+    await call();
+    const policy = checkRateLimit.mock.calls[0][0] as {
+      windowSeconds: number;
+    };
+    expect(policy.windowSeconds).toBe(6 * 60 * 60);
+  });
+
+  it("refuses a second reminder inside the window", async () => {
+    checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 1800 });
     const res = await call();
     expect(res.status).toBe(429);
     expect(sendTicketReminderEmail).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  /* A bare 429 leaves the UI guessing. The client is told when to come back. */
+  it("says how long to wait", async () => {
+    checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 1800 });
+    const res = await call();
+    expect(res.headers.get("Retry-After")).toBe("1800");
+  });
+
+  /* Checked BEFORE anything is written, or a rejected second click still
+     leaves a notification behind. */
+  it("runs before the ticket is touched", async () => {
+    checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 10 });
+    await call();
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  /* An unassigned ticket is refused before the limiter, so a misdirected click
+     never burns the window for a nudge that would have been valid. */
+  it("does not consume the window on an unassigned ticket", async () => {
+    getDesignTicketById.mockResolvedValue({
+      ...ticket,
+      assignedDesignerId: null,
+    });
+    await call();
+    expect(checkRateLimit).not.toHaveBeenCalled();
   });
 });

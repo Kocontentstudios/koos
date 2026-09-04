@@ -5,7 +5,9 @@ import { statusRowHref } from "@/lib/admin/scope";
 import { adminScopeHref, DEFAULT_SCOPE } from "@/lib/admin/scope-params";
 import { requireRole } from "@/lib/auth/require-role";
 import {
+  getAwaitingReviewCount,
   getDesignerLoads,
+  getOpenTicketCount,
   getOverdueTicketCount,
   getRecentTickets,
   getTicketCountsByStatus,
@@ -13,14 +15,6 @@ import {
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
-
-const OPEN_STATUSES = new Set<string>([
-  "submitted",
-  "assigned",
-  "in_progress",
-  "ready_for_review",
-  "revision_requested",
-]);
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
@@ -33,19 +27,23 @@ function formatDate(d: Date): string {
 export default async function AdminDashboardPage() {
   await requireRole(["designer", "admin"]);
 
-  const [byStatus, overdue, byRole, loads, recent] = await Promise.all([
-    getTicketCountsByStatus(),
-    getOverdueTicketCount(),
-    getUserCountsByRole(),
-    getDesignerLoads(),
-    getRecentTickets(8),
-  ]);
+  /* Each card resolves the SAME predicate as the list it opens, rather than
+     summing the status rollup to something that looks close. A card whose
+     number disagrees with its own drill-down is the bug this ticket exists to
+     fix, so the agreement is structural, not arithmetic. */
+  const [byStatus, openCount, overdue, readyCount, byRole, loads, recent] =
+    await Promise.all([
+      getTicketCountsByStatus(),
+      getOpenTicketCount(),
+      getOverdueTicketCount(),
+      getAwaitingReviewCount(),
+      getUserCountsByRole(),
+      getDesignerLoads(),
+      getRecentTickets(8),
+    ]);
 
   const statusMap = new Map(byStatus.map((r) => [r.status, r.count]));
-  const openCount = byStatus
-    .filter((r) => OPEN_STATUSES.has(r.status))
-    .reduce((sum, r) => sum + r.count, 0);
-  const readyCount = statusMap.get("ready_for_review") ?? 0;
+  // `approved` is statusIn:["delivered"], so the rollup row is already exact.
   const deliveredCount = statusMap.get("delivered") ?? 0;
   const totalUsers = byRole.reduce((sum, r) => sum + r.count, 0);
 
@@ -95,7 +93,7 @@ export default async function AdminDashboardPage() {
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-3">
           <h2 className="text-[15px] font-semibold text-foreground">
-            Tickets by status
+            Dashboard Status Overview (Tickets by Status)
           </h2>
           <ul className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-surface-1 p-4">
             {byStatus.length === 0 ? (
@@ -107,7 +105,7 @@ export default async function AdminDashboardPage() {
                 <li key={r.status}>
                   <Link
                     href={statusRowHref(r.status as TicketStatus)}
-                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-surface-2"
+                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)]"
                   >
                     <TicketStatusBadge status={r.status as TicketStatus} />
                     <span className="text-[14px] font-medium text-foreground">
@@ -131,13 +129,13 @@ export default async function AdminDashboardPage() {
               </li>
             ) : (
               loads.map((l) => (
-                <li key={l.designerId ?? "unassigned"}>
+                <li key={l.designerId}>
                   <Link
                     href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
                       view: "active",
-                      assignee: l.designerId ?? "unassigned",
+                      assignee: l.designerId,
                     })}
-                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-surface-2"
+                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)]"
                   >
                     <span className="text-[14px] text-foreground">
                       {`${l.firstName ?? ""} ${l.lastName ?? ""}`.trim() ||

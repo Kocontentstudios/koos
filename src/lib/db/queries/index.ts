@@ -1492,6 +1492,24 @@ export async function getOverdueTicketCount() {
   return countAdminTickets({ ...DEFAULT_SCOPE, view: "overdue" });
 }
 
+/**
+ * Work genuinely waiting on a client, for the Ready for Review card.
+ *
+ * Not `getTicketCountsByStatus().ready_for_review`: a ticket the client already
+ * approved goes back to `ready_for_review` on a correction upload and keeps its
+ * approvedAt, so the raw status count is larger than the list the card opens.
+ * The card and its drill-down must resolve the same predicate or the number
+ * lies about the page behind it.
+ */
+export async function getAwaitingReviewCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "awaiting_review" });
+}
+
+/** Tickets in the working queue: everything but drafts and delivered work. */
+export async function getOpenTicketCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "open" });
+}
+
 /** User counts grouped by role. */
 export async function getUserCountsByRole() {
   return db
@@ -1504,7 +1522,10 @@ export async function getUserCountsByRole() {
 export async function getDesignerLoads() {
   return db
     .select({
-      designerId: designTickets.assignedDesignerId,
+      /* Non-null by the isNotNull guard below. Stated here so callers can link
+         straight to ?assignee=<id> instead of re-checking what the WHERE
+         clause already guarantees. */
+      designerId: sql<string>`${designTickets.assignedDesignerId}`,
       firstName: users.firstName,
       lastName: users.lastName,
       count: count(),

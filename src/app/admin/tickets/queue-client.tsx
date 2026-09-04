@@ -3,11 +3,13 @@
 import { Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useRef, useState } from "react";
+import { useQueryStates } from "nuqs";
+import { useId, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { PriorityBadge } from "@/app/(dashboard)/design-request/priority-badge";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { Button } from "@/components/ui/button";
+import { adminScopeParsers } from "@/lib/admin/scope-params";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketPriority, TicketStatus } from "@/lib/design/tickets-ui";
 import { cn } from "@/lib/utils";
@@ -28,10 +30,26 @@ export interface QueueRow {
   /** The ticket's own title, when it has one — a design request names itself
    *  before a calendar item does. */
   title: string | null;
-  assigneeName: string | null;
+  /** The assignment itself. Actions gate on THIS, never on the display name: a
+   *  designer with no first or last name renders as "" and would silently lose
+   *  every action that only fires on an assigned ticket. */
+  designerId: string | null;
+  assigneeName: string;
   /** How long past due, already formatted. Null when not overdue: an operator
    *  reads "3 days", not a timestamp they have to subtract. */
   overdueFor: string | null;
+}
+
+export interface Assignee {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export interface WorkloadHeader {
+  name: string;
+  active: number;
+  overdue: number;
 }
 
 function formatDate(iso: string | null): string {
@@ -51,6 +69,13 @@ export interface QueueFilterLink {
   count?: number;
 }
 
+/* Derived from the shared vocabulary rather than redeclared, so the search box
+   cannot drift from the grammar the server parses. */
+const searchParsers = {
+  q: adminScopeParsers.q,
+  page: adminScopeParsers.page,
+};
+
 /**
  * The filter set lives in the URL, not in component state.
  *
@@ -62,15 +87,61 @@ export function QueueClient({
   queue,
   filters,
   total,
+  page,
+  pages,
+  prevHref,
+  nextHref,
+  workload,
+  assignees,
+  canAssign,
   emptyMessage = "No tickets in this view.",
 }: {
   queue: QueueRow[];
   filters: QueueFilterLink[];
   total?: number;
+  page: number;
+  pages: number;
+  prevHref: string | null;
+  nextHref: string | null;
+  workload: WorkloadHeader | null;
+  assignees: Assignee[];
+  canAssign: boolean;
   emptyMessage?: string;
 }) {
+  /* shallow:false means each search is a real server round-trip, so it needs a
+     real affordance. The transition's pending flag drives it. */
+  const [isPending, startTransition] = useTransition();
+  const [{ q }, setQuery] = useQueryStates(searchParsers, {
+    shallow: false,
+    startTransition,
+  });
+  const [draft, setDraft] = useState(q);
+  const searchId = useId();
+
+  function submitSearch(e: React.FormEvent) {
+    e.preventDefault();
+    // Back to page 1: the old offset is meaningless against a new result set.
+    setQuery({ q: draft.trim() || null, page: null });
+  }
+
   return (
     <div className="flex flex-col gap-4">
+      {workload && (
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-xl border border-[var(--border)] bg-surface-1 px-4 py-3">
+          <span className="text-[15px] font-semibold text-foreground">
+            {workload.name}
+          </span>
+          <span className="text-[13px] text-[var(--text-secondary)] tabular-nums">
+            {workload.active} active
+          </span>
+          {workload.overdue > 0 && (
+            <span className="text-[13px] font-medium text-[var(--status-error-fg)] tabular-nums">
+              {workload.overdue} overdue
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {filters.map(({ key, label, href, active, count }) => (
           <Link
@@ -79,8 +150,10 @@ export function QueueClient({
             aria-current={active ? "page" : undefined}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors",
+              /* Not bg-surface-2: it is #ffffff in light mode, so the active
+                 tab would be indistinguishable from the page behind it. */
               active
-                ? "bg-surface-2 text-foreground"
+                ? "bg-[var(--hover)] text-foreground ring-1 ring-[var(--border-accent)]"
                 : "text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground",
             )}
           >
@@ -106,24 +179,118 @@ export function QueueClient({
         )}
       </div>
 
+      <form onSubmit={submitSearch} className="flex items-center gap-2">
+        <label htmlFor={searchId} className="sr-only">
+          Search tickets
+        </label>
+        <input
+          id={searchId}
+          type="search"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Ticket number, title, brief, brand or requester"
+          className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-foreground placeholder:text-[var(--text-muted)] focus:border-primary focus:outline-none"
+        />
+        <Button type="submit" variant="secondary" size="lg" loading={isPending}>
+          Search
+        </Button>
+        {q && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="lg"
+            onClick={() => {
+              setDraft("");
+              setQuery({ q: null, page: null });
+            }}
+          >
+            Clear
+          </Button>
+        )}
+      </form>
+
+      {/* role="status" with real text, never aria-busy: marking a live region
+          busy tells assistive tech to withhold the very update it exists to
+          announce. */}
+      {isPending && (
+        <p role="status" className="text-[13px] text-[var(--text-secondary)]">
+          Updating results…
+        </p>
+      )}
+
       {queue.length === 0 ? (
         <p className="rounded-xl border border-[var(--border)] bg-surface-1 px-6 py-12 text-center text-[14px] text-[var(--text-secondary)]">
           {emptyMessage}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul
+          className={cn(
+            "flex flex-col gap-3 transition-opacity",
+            isPending && "opacity-60",
+          )}
+        >
           {queue.map((row) => (
-            <QueueItem key={row.id} row={row} />
+            <QueueItem
+              key={row.id}
+              row={row}
+              assignees={assignees}
+              canAssign={canAssign}
+            />
           ))}
         </ul>
+      )}
+
+      {pages > 1 && (
+        <nav
+          aria-label="Pagination"
+          className="flex items-center justify-between gap-3"
+        >
+          <PagerLink href={prevHref}>← Previous</PagerLink>
+          <span className="text-[12px] text-[var(--text-muted)] tabular-nums">
+            Page {page} of {pages}
+          </span>
+          <PagerLink href={nextHref}>Next →</PagerLink>
+        </nav>
       )}
     </div>
   );
 }
 
-function QueueItem({ row }: { row: QueueRow }) {
+function PagerLink({
+  href,
+  children,
+}: {
+  href: string | null;
+  children: React.ReactNode;
+}) {
+  const className =
+    "inline-flex h-9 items-center rounded-[10px] border border-[var(--border)] px-3 text-[13px] font-semibold";
+  if (!href) {
+    return (
+      <span aria-disabled="true" className={cn(className, "opacity-40")}>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <Link href={href} className={cn(className, "hover:bg-[var(--hover)]")}>
+      {children}
+    </Link>
+  );
+}
+
+function QueueItem({
+  row,
+  assignees,
+  canAssign,
+}: {
+  row: QueueRow;
+  assignees: Assignee[];
+  canAssign: boolean;
+}) {
   const router = useRouter();
   const fileId = useId();
+  const assignId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +349,18 @@ function QueueItem({ row }: { row: QueueRow }) {
       "Ticket started",
     );
 
+  const assign = (designerId: string) =>
+    action(
+      "assign",
+      () =>
+        fetch(`/api/admin/tickets/${row.id}/manage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignedDesignerId: designerId || null }),
+        }),
+      designerId ? "Ticket assigned" : "Ticket unassigned",
+    );
+
   function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -221,11 +400,9 @@ function QueueItem({ row }: { row: QueueRow }) {
       </div>
 
       <div className="mt-2 space-y-0.5">
-        {row.assigneeName !== null && (
-          <p className="text-[12px] text-[var(--text-muted)]">
-            {row.assigneeName || "Unassigned"}
-          </p>
-        )}
+        <p className="text-[12px] text-[var(--text-muted)]">
+          {row.assigneeName || "Unassigned"}
+        </p>
         <p className="text-[14px] font-medium text-foreground">
           {row.title ?? row.designType}
           {row.dimensions ? ` · ${row.dimensions}` : ""}
@@ -251,9 +428,38 @@ function QueueItem({ row }: { row: QueueRow }) {
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {/* Only where it means something: nudging an unassigned ticket has
-            nobody to reach, and the route refuses it. */}
-        {row.assigneeName ? (
+        {canAssign && (
+          <span className="inline-flex items-center gap-1.5">
+            <label htmlFor={assignId} className="sr-only">
+              {`Assign ${formatTicketNumber(row.ticketNumber)}`}
+            </label>
+            <select
+              id={assignId}
+              value={row.designerId ?? ""}
+              disabled={pending !== null}
+              onChange={(e) => assign(e.target.value)}
+              className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[13px] text-foreground focus:border-primary focus:outline-none disabled:opacity-50"
+            >
+              <option value="">Unassigned</option>
+              {assignees.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            {pending === "assign" && (
+              <Loader2Icon
+                className="size-4 animate-spin text-[var(--text-muted)]"
+                aria-hidden="true"
+              />
+            )}
+          </span>
+        )}
+
+        {/* Only where the designer is actually the blocker. An unassigned
+            ticket has nobody to reach, and work sitting in review is waiting on
+            the CLIENT — nudging the designer there says the wrong thing. */}
+        {row.designerId && row.status !== "ready_for_review" ? (
           <Button
             variant="secondary"
             size="lg"

@@ -4,11 +4,11 @@ import {
   createNotification,
   getBrandById,
   getDesignTicketById,
-  getNotifications,
   getUserById,
 } from "@/lib/db/queries";
 import { appUrl, sendTicketReminderEmail } from "@/lib/design/notify";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 /* This route sends mail. Vercel's default budget is shorter than the SMTP
    socket timeout in email.ts, so without this a stalled send is killed before
@@ -16,7 +16,15 @@ import { formatTicketNumber } from "@/lib/design/ticket";
 export const maxDuration = 60;
 
 /** Two clicks in quick succession are one intent, not two nudges. */
-const COOLING_OFF_MS = 6 * 60 * 60 * 1000;
+const COOLING_OFF_SECONDS = 6 * 60 * 60;
+
+function formatDueDate(d: Date): string {
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export async function POST(
   _req: Request,
@@ -42,24 +50,17 @@ export async function POST(
     );
   }
 
-  /* Read from the notification the last reminder wrote, not from module
-     state: every serverless instance has its own memory, so an in-process
-     guard lets a second instance send the same nudge seconds later. */
-  const recent = await getNotifications(ticket.assignedDesignerId, 20);
-  const alreadyNudged = recent.some(
-    (n) =>
-      n.type === "ticket_status" &&
-      (n.payload as { ticketId?: string; reminder?: boolean } | null)
-        ?.reminder === true &&
-      (n.payload as { ticketId?: string } | null)?.ticketId === ticket.id &&
-      Date.now() - n.createdAt.getTime() < COOLING_OFF_MS,
-  );
-  if (alreadyNudged) {
-    return Response.json(
-      { error: "A reminder for this ticket was already sent recently." },
-      { status: 429 },
-    );
-  }
+  /* One atomic upsert per ticket, not a read-then-write over recent
+     notifications: two admins clicking at once both pass a check-then-act
+     guard, and a busy designer's reminder row falls out of any bounded recent
+     window long before the cooling-off period is up. Keyed on the TICKET so a
+     nudge about one ticket never suppresses a nudge about another. */
+  const verdict = await checkRateLimit({
+    key: `ticket-remind:${ticket.id}`,
+    limit: 1,
+    windowSeconds: COOLING_OFF_SECONDS,
+  });
+  if (!verdict.ok) return tooManyRequests(verdict);
 
   const [designer, brand] = await Promise.all([
     getUserById(ticket.assignedDesignerId),
@@ -78,7 +79,6 @@ export async function POST(
     userId: ticket.assignedDesignerId,
     type: "ticket_status",
     payload: {
-      // Marks this row as a reminder so the cooling-off check can find it.
       reminder: true,
       ticketId: ticket.id,
       ticketNumber: ticket.ticketNumber,
@@ -90,7 +90,7 @@ export async function POST(
   });
 
   if (designer?.email) {
-    // Never throws by contract, but the action must not fail on a nudge.
+    // Never throws by contract (notify.ts), and logs its own failures.
     await sendTicketReminderEmail({
       to: designer.email,
       input: {
@@ -98,11 +98,9 @@ export async function POST(
         designType: ticket.designType,
         brandName: brand?.name ?? null,
         overdueFor,
-        dueDate: ticket.dueDate ? ticket.dueDate.toDateString() : null,
+        dueDate: ticket.dueDate ? formatDueDate(ticket.dueDate) : null,
         ticketUrl,
       },
-    }).catch((err) => {
-      console.error("ticket reminder email failed", { id, err });
     });
   }
 

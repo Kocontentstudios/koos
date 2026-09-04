@@ -1,12 +1,17 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import {
   ADMIN_TICKET_VIEWS,
   type AdminTicketView,
   clampPage,
+  defaultSortKeyFor,
   formatOverdue,
   isSortable,
   matchesView,
   overdueMs,
+  pageCount,
   resolveWindow,
   sortToColumn,
   statusRowHref,
@@ -37,8 +42,9 @@ describe("the view vocabulary is exhaustive", () => {
 });
 
 describe("ticket language maps onto the enum", () => {
-  /* The dashboard counts "open" with its own inline Set. If these two ever
-     disagree, the card's number stops matching the list it opens. */
+  /* The dashboard's Open card resolves this same predicate through
+     getOpenTicketCount, so the card's number and the list it opens cannot
+     disagree. This pins what the predicate means. */
   it("open is every status except draft and delivered", () => {
     const open = [
       "submitted",
@@ -73,8 +79,20 @@ describe("ticket language maps onto the enum", () => {
 
   /* There is no `approved` status — approval is a nullable timestamp, and
      `delivered` is what the UI already labels "Approved". */
-  it("approved and completed are the same predicate", () => {
-    expect(VIEW_PREDICATES.completed).toEqual(VIEW_PREDICATES.approved);
+  it("approved and completed select the same tickets", () => {
+    const shapes: Row[] = [
+      ticket({ status: "draft" }),
+      ticket({ status: "in_progress" }),
+      ticket({ status: "ready_for_review" }),
+      ticket({ status: "delivered" }),
+      ticket({ status: "delivered", approvedAt: new Date("2026-08-01") }),
+      ticket({ status: "revision_requested" }),
+    ];
+    for (const r of shapes) {
+      expect(matchesView(r, "completed", NOW)).toBe(
+        matchesView(r, "approved", NOW),
+      );
+    }
     expect(matchesView(ticket({ status: "delivered" }), "approved", NOW)).toBe(
       true,
     );
@@ -197,21 +215,28 @@ describe("overdue", () => {
 });
 
 describe("status rows link somewhere that can serve them", () => {
-  it("sends approved and awaiting-review work to Delivered Projects", () => {
-    expect(statusRowHref("delivered")).toContain("/admin/delivered");
-    expect(statusRowHref("ready_for_review")).toContain("/admin/delivered");
+  /* A status row's number is grouped on the raw status, so its link has to be
+     the plain status filter or the list contradicts the count that was
+     clicked. */
+  it("opens exactly the status it names", () => {
+    for (const s of TICKET_STATUSES) {
+      expect(statusRowHref(s)).toBe(`/admin/tickets?status=${s}`);
+    }
   });
 
-  it("sends every other status to the ticket list", () => {
-    for (const s of [
-      "draft",
-      "submitted",
-      "assigned",
-      "in_progress",
-      "revision_requested",
-    ] as const) {
-      expect(statusRowHref(s)).toContain("/admin/tickets");
-      expect(statusRowHref(s)).toContain(s);
+  /* The regression this exists to stop: a href pointing at a segment nobody
+     built, which ships green and 404s on the first click. */
+  it("never points at a route the app does not serve", () => {
+    const segments = readdirSync(join(process.cwd(), "src/app/admin"), {
+      withFileTypes: true,
+    })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+
+    for (const s of TICKET_STATUSES) {
+      const path = statusRowHref(s).split("?")[0] ?? "";
+      const segment = path.replace("/admin/", "").split("/")[0] ?? "";
+      expect(segments).toContain(segment);
     }
   });
 });
@@ -241,8 +266,45 @@ describe("the date window", () => {
     expect(w.from?.toISOString()).toBe("2026-07-19T00:00:00.000Z");
   });
 
-  it("falls back to the preset when a custom range is incomplete", () => {
+  /* "Since the 19th" is an answerable question. Substituting 30 days answers a
+     different one without telling anybody. */
+  it("honours a custom range with only a start", () => {
+    const w = resolveWindow({
+      range: "custom",
+      from: "2026-07-19",
+      to: "",
+      now: NOW,
+    });
+    expect(w.from?.toISOString()).toBe("2026-07-19T00:00:00.000Z");
+    expect(w.to).toEqual(NOW);
+  });
+
+  it("honours a custom range with only an end", () => {
+    const w = resolveWindow({
+      range: "custom",
+      from: "",
+      to: "2026-07-25",
+      now: NOW,
+    });
+    expect(w.from).toBeNull();
+    expect(w.to.toISOString()).toBe("2026-07-26T00:00:00.000Z");
+  });
+
+  it("falls back to the preset only when neither bound is given", () => {
     const w = resolveWindow({ range: "custom", from: "", to: "", now: NOW });
+    expect(w.from?.toISOString()).toBe(
+      new Date(NOW.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    );
+  });
+
+  /* A malformed bound is not a bound. It must not be read as one. */
+  it("ignores a bound that is not a calendar day", () => {
+    const w = resolveWindow({
+      range: "custom",
+      from: "19-07-2026",
+      to: "",
+      now: NOW,
+    });
     expect(w.from?.toISOString()).toBe(
       new Date(NOW.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     );
@@ -274,12 +336,19 @@ describe("sorting and paging never reach SQL unchecked", () => {
 
   /* "how long overdue" is the due date read backwards, and a ticket with no
      due date is not the most overdue thing in the list. */
-  it("sorts most-overdue first by due date, nulls last", () => {
+  it("sorts most-overdue first by due date, ignoring a contrary suffix", () => {
     expect(sortToColumn("overdue:desc")).toEqual({
       field: "dueDate",
       direction: "asc",
-      nulls: "last",
+      fixedDirection: true,
     });
+  });
+
+  /* Plain fields DO honour the suffix — the lock is specific to sorts whose
+     name already states a direction. */
+  it("honours the suffix on a plain field", () => {
+    expect(sortToColumn("created:asc").direction).toBe("asc");
+    expect(sortToColumn("ticket:asc").direction).toBe("asc");
   });
 
   it("falls back rather than trusting a hand-edited URL", () => {
@@ -338,4 +407,59 @@ describe("isSortable gates what reaches the query layer", () => {
     "createdAt; DROP TABLE",
     "created:sideways",
   ])("rejects %s", (v) => expect(isSortable(v)).toBe(false));
+});
+
+describe("paging", () => {
+  /* An empty list is page 1 of 1. "Page 1 of 0" is a pager describing a page
+     that cannot exist. */
+  it("never reports fewer than one page", () => {
+    expect(pageCount(0)).toBe(1);
+    expect(pageCount(0, 10)).toBe(1);
+  });
+
+  it("counts partial pages", () => {
+    expect(pageCount(50, 50)).toBe(1);
+    expect(pageCount(51, 50)).toBe(2);
+    expect(pageCount(137, 50)).toBe(3);
+  });
+});
+
+describe("a view sorts by what its reader is looking for", () => {
+  /* The regression: switching the queue to a URL-driven scope silently
+     replaced the priority ordering with created-desc, so a designer opening
+     the queue no longer saw urgent work first. */
+  it("puts urgent work first in the working queue", () => {
+    for (const view of [
+      "open",
+      "in_progress",
+      "needs_revision",
+      "active",
+    ] as const) {
+      expect(defaultSortKeyFor(view)).toBe("priority");
+      expect(sortToColumn(defaultSortKeyFor(view))).toEqual({
+        field: "priority",
+        direction: "desc",
+      });
+    }
+  });
+
+  it("puts the latest ticket first in the overdue list", () => {
+    expect(sortToColumn(defaultSortKeyFor("overdue"))).toEqual({
+      field: "dueDate",
+      direction: "asc",
+      fixedDirection: true,
+    });
+  });
+
+  it("falls back to newest-first everywhere else", () => {
+    expect(sortToColumn(defaultSortKeyFor("all")).field).toBe("createdAt");
+  });
+
+  /* Every default must survive the same gate a hand-typed URL does, or a view
+     can ship a sort the query layer silently discards. */
+  it("only names sorts the query layer accepts", () => {
+    for (const view of ADMIN_TICKET_VIEWS) {
+      expect(isSortable(defaultSortKeyFor(view))).toBe(true);
+    }
+  });
 });

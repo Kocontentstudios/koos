@@ -34,16 +34,18 @@ export const USAGE_KINDS = [
   "design_generated",
 ] as const;
 
-export const DATE_ANCHORS = [
-  "created",
-  "due",
-  "delivered",
-  "approved",
-] as const;
+/* No `delivered` anchor: `design_tickets` has no delivered_at column, and
+   quietly anchoring it to created_at would answer a different question than the
+   one asked. ADMIN-FEAT-002 adds the column and the anchor together. */
+export const DATE_ANCHORS = ["created", "due", "approved"] as const;
 
 export const adminScopeParsers = {
+  /* `open`, not `all`: the bare /admin/tickets URL is the working queue, and a
+     default of `all` forced a coercion that swallowed an explicit ?view=all —
+     the serializer drops values equal to the default, so the All tab round-
+     tripped straight back to Open and drafts became unreachable. */
   view: parseAsStringLiteral(ADMIN_TICKET_VIEWS).withDefault(
-    "all" as AdminTicketView,
+    "open" as AdminTicketView,
   ),
   status: parseAsArrayOf(
     parseAsStringLiteral(TICKET_STATUSES),
@@ -75,7 +77,7 @@ export type AdminScope = {
 };
 
 export const DEFAULT_SCOPE: AdminScope = {
-  view: "all",
+  view: "open",
   status: [],
   assignee: "",
   brand: "",
