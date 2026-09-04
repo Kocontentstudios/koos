@@ -162,12 +162,30 @@ describe("every scope key reaches the query", () => {
     );
   });
 
-  it("searches title, brief, brand and requester", () => {
+  /* Every field the ticket names, and every name the UI shows a person under:
+     matching a person on email alone means typing the name rendered in their
+     own column returns nothing. */
+  it.each([
+    ['"design_tickets"."title"', "title"],
+    ['"design_tickets"."brief"', "brief"],
+    ['"brands"."name"', "brand"],
+    ['"requester"."email"', "requester email"],
+    ['"requester"."first_name"', "requester first name"],
+    ['"requester"."last_name"', "requester last name"],
+    ['"designer"."email"', "designer email"],
+    ['"designer"."first_name"', "designer first name"],
+    ['"designer"."last_name"', "designer last name"],
+  ])("searches %s (%s)", (column) => {
+    expect(sqlFor(scope({ q: "logo" }))).toContain(`${column} ilike`);
+  });
+
+  it("searches both people by name, not just one", () => {
     const sql = sqlFor(scope({ q: "logo" }));
-    expect(sql).toContain('"design_tickets"."title" ilike');
-    expect(sql).toContain('"design_tickets"."brief" ilike');
-    expect(sql).toContain('"brands"."name" ilike');
-    expect(sql).toContain('"requester"."email" ilike');
+    for (const person of ["requester", "designer"]) {
+      for (const field of ["first_name", "last_name", "email"]) {
+        expect(sql).toContain(`"${person}"."${field}" ilike`);
+      }
+    }
   });
 
   /* `%` and `_` are ilike wildcards: unescaped, a search for "50%" matched

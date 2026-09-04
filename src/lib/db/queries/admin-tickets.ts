@@ -138,10 +138,13 @@ export function scopeConditions(scope: AdminScope, now: Date): SQL[] {
       ilike(designTickets.title, like),
       ilike(designTickets.brief, like),
       ilike(brands.name, like),
+      /* Both people, by every name the UI shows them under. The Delivered
+         Projects table renders "Cara Client", so matching the requester on
+         email alone meant typing the name in the column you are reading
+         returned nothing. */
       ilike(requester.email, like),
-      /* ADMIN-FEAT-002 asks for search by designer/assignee. The designer join
-         is always present — the row renders the assignee — so this costs no
-         extra join. */
+      ilike(requester.firstName, like),
+      ilike(requester.lastName, like),
       ilike(designer.email, like),
       ilike(designer.firstName, like),
       ilike(designer.lastName, like),
@@ -162,6 +165,8 @@ const SORT_COLUMNS = {
   dueDate: designTickets.dueDate,
   ticketNumber: designTickets.ticketNumber,
   priority: designTickets.priority,
+  deliveredAt: designTickets.deliveredAt,
+  approvedAt: designTickets.approvedAt,
 } as const;
 
 /**
@@ -327,12 +332,18 @@ const deliveredRowShape = {
   designerLastName: designer.lastName,
   designerEmail: designer.email,
   /* The fallback behind deliveredDateOf: a row written between the backfill
-     and the deploy that started populating the column. */
+     and the deploy that started populating the column.
+     .mapWith is load-bearing, not decoration. A raw `sql` fragment is decoded
+     with noopDecoder, so postgres-js hands back the WIRE STRING while a real
+     column goes through mapFromDriverValue and arrives as a Date — and the
+     `sql<Date>` generic is unchecked, so nothing complains. Without this,
+     formatDate calls .toLocaleDateString on a string and throws, 500ing the
+     whole route. Same class as the write-side footgun timestamp.ts documents. */
   firstDeliverableAt: sql<Date | null>`(
     select min(${designDeliverables.createdAt})
     from ${designDeliverables}
     where ${designDeliverables.ticketId} = ${designTickets.id}
-  )`,
+  )`.mapWith(designTickets.deliveredAt),
 };
 
 export async function listDeliveredProjects(

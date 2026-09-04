@@ -1,4 +1,5 @@
 import {
+  type AdminRange,
   type AdminTicketView,
   deliveredDateOf,
   PAGE_SIZE,
@@ -16,6 +17,7 @@ import { humanizeStatus, type TicketStatus } from "@/lib/design/tickets-ui";
 import {
   DeliveredClient,
   type DeliveredFilter,
+  type DeliveredRange,
   type DeliveredRow,
 } from "./delivered-client";
 
@@ -36,6 +38,17 @@ const FILTERS: { view: AdminTicketView; label: string }[] = [
   { view: "delivered", label: "All delivered" },
   { view: "awaiting_review", label: "Awaiting review" },
   { view: "approved", label: "Approved / completed" },
+];
+
+/* The ticket asks for search "by … and date". Anchored on the delivery date,
+   which is the date this page is about — `on` is pinned rather than offered,
+   because a Delivered Projects filter that silently measured creation date
+   would answer a different question. */
+const RANGES: { range: AdminRange; label: string }[] = [
+  { range: "all", label: "Any time" },
+  { range: "7d", label: "Last 7 days" },
+  { range: "30d", label: "Last 30 days" },
+  { range: "90d", label: "Last 90 days" },
 ];
 
 const EMPTY_FOR: Partial<Record<AdminTicketView, string>> = {
@@ -75,7 +88,9 @@ export default async function AdminDeliveredPage({
   const view: AdminTicketView = FILTERS.some((f) => f.view === raw.view)
     ? raw.view
     : "delivered";
-  const scope: AdminScope = { ...raw, view };
+  /* `on` is pinned: every date control here is about delivery, so a stale or
+     hand-edited ?on= must not make the range mean something else. */
+  const scope: AdminScope = { ...raw, view, on: "delivered" };
 
   const now = new Date();
   const [rows, total] = await Promise.all([
@@ -116,6 +131,17 @@ export default async function AdminDeliveredPage({
     active: view === v,
   }));
 
+  const ranges: DeliveredRange[] = RANGES.map(({ range, label }) => ({
+    key: range,
+    label,
+    href: adminScopeHref("/admin/delivered", scope, {
+      range,
+      on: "delivered",
+      page: 1,
+    }),
+    active: scope.range === range,
+  }));
+
   const pages = pageCount(total, PAGE_SIZE);
 
   return (
@@ -132,6 +158,7 @@ export default async function AdminDeliveredPage({
       <DeliveredClient
         rows={projects}
         filters={filters}
+        ranges={ranges}
         total={total}
         page={scope.page}
         pages={pages}

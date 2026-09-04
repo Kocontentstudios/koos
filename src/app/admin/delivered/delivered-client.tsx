@@ -30,6 +30,14 @@ export interface DeliveredFilter {
   active: boolean;
 }
 
+/** A date window, anchored on the delivery date this page is about. */
+export interface DeliveredRange {
+  key: string;
+  label: string;
+  href: string;
+  active: boolean;
+}
+
 const searchParsers = {
   q: adminScopeParsers.q,
   page: adminScopeParsers.page,
@@ -38,7 +46,7 @@ const searchParsers = {
 /**
  * Delivered work, as a table.
  *
- * Eight columns is a table, not a card list — the operator is scanning for one
+ * Nine columns is a table, not a card list — the operator is scanning for one
  * ticket across many, and a card grid makes that a reading task instead of a
  * scanning one. It scrolls inside its own container so the page never scrolls
  * sideways.
@@ -46,6 +54,7 @@ const searchParsers = {
 export function DeliveredClient({
   rows,
   filters,
+  ranges,
   total,
   page,
   pages,
@@ -55,6 +64,7 @@ export function DeliveredClient({
 }: {
   rows: DeliveredRow[];
   filters: DeliveredFilter[];
+  ranges: DeliveredRange[];
   total: number;
   page: number;
   pages: number;
@@ -93,10 +103,35 @@ export function DeliveredClient({
             {label}
           </Link>
         ))}
-        <span className="ml-auto text-[12px] text-[var(--text-muted)] tabular-nums">
+        <span className="ml-auto text-[12px] text-[var(--text-secondary)] tabular-nums">
           {total} {total === 1 ? "project" : "projects"}
         </span>
       </div>
+
+      {/* "Search by … and date" — the ticket asks for it by name. Anchored on
+          the delivery date rather than creation, because that is the date this
+          page is about. */}
+      <fieldset className="flex flex-wrap items-center gap-2 border-0 p-0">
+        <legend className="sr-only">Filter by delivery date</legend>
+        <span className="text-[12px] text-[var(--text-secondary)]">
+          Delivered:
+        </span>
+        {ranges.map(({ key, label, href, active }) => (
+          <Link
+            key={key}
+            href={href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors",
+              active
+                ? "bg-[var(--hover)] text-foreground ring-1 ring-[var(--border-accent)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground",
+            )}
+          >
+            {label}
+          </Link>
+        ))}
+      </fieldset>
 
       <form
         onSubmit={(e) => {
@@ -154,7 +189,10 @@ export function DeliveredClient({
         >
           <table className="w-full min-w-[52rem] border-collapse text-[13px]">
             <thead>
-              <tr className="border-b border-[var(--border)] text-left text-[12px] uppercase tracking-wide text-[var(--text-muted)]">
+              {/* --text-secondary, not --text-muted: the latter is 3.40:1 on
+                  white and these are 12px, which WCAG 1.4.3 treats as normal
+                  text needing 4.5:1. */}
+              <tr className="border-b border-[var(--border)] text-left text-[12px] uppercase tracking-wide text-[var(--text-secondary)]">
                 <th className="px-4 py-3 font-medium">Ticket</th>
                 <th className="px-4 py-3 font-medium">Project</th>
                 <th className="px-4 py-3 font-medium">Brand</th>
@@ -174,7 +212,9 @@ export function DeliveredClient({
                   key={row.id}
                   className="border-t border-[var(--border)] text-foreground"
                 >
-                  <td className="whitespace-nowrap px-4 py-3 text-[var(--text-muted)] tabular-nums">
+                  {/* The ticket ID is one of the nine required fields; it must
+                      not be the least readable text on the page. */}
+                  <td className="whitespace-nowrap px-4 py-3 text-[var(--text-secondary)] tabular-nums">
                     {formatTicketNumber(row.ticketNumber)}
                   </td>
                   <td className="px-4 py-3">{row.title}</td>
@@ -198,7 +238,7 @@ export function DeliveredClient({
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     {/* Names the ticket, so a screen reader hears which row's
-                        link this is rather than nine identical "View ticket"s. */}
+                        link this is rather than a page of identical "View"s. */}
                     <Link
                       href={`/admin/tickets/${row.id}`}
                       className="font-semibold text-primary hover:underline"
@@ -222,7 +262,7 @@ export function DeliveredClient({
           className="flex items-center justify-between gap-3"
         >
           <PagerLink href={prevHref}>← Previous</PagerLink>
-          <span className="text-[12px] text-[var(--text-muted)] tabular-nums">
+          <span className="text-[12px] text-[var(--text-secondary)] tabular-nums">
             Page {page} of {pages}
           </span>
           <PagerLink href={nextHref}>Next →</PagerLink>

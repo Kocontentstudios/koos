@@ -185,7 +185,14 @@ function utcDay(value: string | undefined): Date | null {
 }
 
 export interface SortSpec {
-  field: "createdAt" | "dueDate" | "updatedAt" | "ticketNumber" | "priority";
+  field:
+    | "createdAt"
+    | "dueDate"
+    | "updatedAt"
+    | "ticketNumber"
+    | "priority"
+    | "deliveredAt"
+    | "approvedAt";
   direction: "asc" | "desc";
   /** The sort's meaning fixes its direction, so a `:desc` suffix is ignored. */
   fixedDirection?: true;
@@ -193,6 +200,11 @@ export interface SortSpec {
 
 const SORT_FIELDS: Record<string, SortSpec> = {
   created: { field: "createdAt", direction: "desc" },
+  /* Newest delivery first. Delivered Projects is read to answer "what have we
+     shipped lately", which creation date answers wrongly: a January ticket
+     delivered yesterday belongs above a last-week ticket delivered last week. */
+  delivered: { field: "deliveredAt", direction: "desc" },
+  approved: { field: "approvedAt", direction: "desc" },
   updated: { field: "updatedAt", direction: "desc" },
   ticket: { field: "ticketNumber", direction: "desc" },
   priority: { field: "priority", direction: "desc" },
@@ -214,6 +226,9 @@ const DEFAULT_SORT: SortSpec = { field: "createdAt", direction: "desc" };
  * overdue ticket, and that is the one that needs a call today.
  */
 const DEFAULT_SORT_KEY: Partial<Record<AdminTicketView, string>> = {
+  delivered: "delivered",
+  awaiting_review: "delivered",
+  approved: "approved",
   open: "priority",
   in_progress: "priority",
   needs_revision: "priority",
@@ -339,7 +354,24 @@ export const VIEW_LABELS: Record<AdminTicketView, string> = {
  */
 export function deliveredDateOf(row: {
   deliveredAt: Date | null;
-  firstDeliverableAt?: Date | null;
+  firstDeliverableAt?: Date | string | null;
 }): Date | null {
-  return row.deliveredAt ?? row.firstDeliverableAt ?? null;
+  return asDate(row.deliveredAt) ?? asDate(row.firstDeliverableAt);
+}
+
+/**
+ * Belt and braces on the decoder.
+ *
+ * `firstDeliverableAt` comes from a raw `sql` fragment, which drizzle decodes
+ * with noopDecoder unless `.mapWith` is applied — so a missing `.mapWith`
+ * silently yields the wire STRING, and the `sql<Date>` generic does not catch
+ * it. The query layer applies `.mapWith`; this makes the failure a blank cell
+ * rather than a TypeError that 500s the whole route.
+ */
+function asDate(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  if (value instanceof Date)
+    return Number.isNaN(value.getTime()) ? null : value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

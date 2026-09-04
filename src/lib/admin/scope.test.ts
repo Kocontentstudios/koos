@@ -640,6 +640,26 @@ describe("deliveredDateOf", () => {
     ).toBe(FALLBACK);
   });
 
+  /* The value the postgres-js driver ACTUALLY returns for a raw sql field
+     without .mapWith — a wire string, not a Date. Writing this fixture as
+     `new Date(...)` is why the original test passed against code that threw
+     `d.toLocaleDateString is not a function` and 500'd the route. */
+  it("accepts the wire string a raw sql field can yield", () => {
+    const d = deliveredDateOf({
+      deliveredAt: null,
+      firstDeliverableAt: "2026-07-04 12:00:00",
+    });
+    expect(d).toBeInstanceOf(Date);
+    expect(d?.toISOString()).toContain("2026-07-04");
+  });
+
+  it("refuses a value that is not a date at all", () => {
+    expect(
+      deliveredDateOf({ deliveredAt: null, firstDeliverableAt: "not a date" }),
+    ).toBeNull();
+    expect(deliveredDateOf({ deliveredAt: new Date("nonsense") })).toBeNull();
+  });
+
   it("is null when nothing has been delivered", () => {
     expect(
       deliveredDateOf({ deliveredAt: null, firstDeliverableAt: null }),

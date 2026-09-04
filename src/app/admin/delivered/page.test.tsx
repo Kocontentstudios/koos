@@ -19,6 +19,7 @@ vi.mock("@/lib/db/queries", () => ({
   countAdminTickets: (...a: unknown[]) => countAdminTickets(...a),
 }));
 
+import { defaultSortKeyFor } from "@/lib/admin/scope";
 import AdminDeliveredPage from "./page";
 
 beforeEach(() => {
@@ -114,14 +115,24 @@ describe("dates", () => {
 
   /* deliveredDateOf's fallback: a row written between the backfill and the
      deploy that started populating the column. */
+  /* The fixture is the WIRE STRING, which is what postgres-js returns for a
+     raw sql field. A `new Date(...)` fixture here passed against code that
+     threw on the real value and took the whole route down with it. */
   it("falls back to the first deliverable when the column is empty", async () => {
     await renderPage({}, [
       project({
         deliveredAt: null,
-        firstDeliverableAt: new Date("2026-07-04T12:00:00Z"),
+        firstDeliverableAt: "2026-07-04 12:00:00",
       }),
     ]);
     expect(rowText()).toMatch(/Jul 4, 2026/);
+  });
+
+  it("renders a blank cell rather than crashing on an undecodable value", async () => {
+    await renderPage({}, [
+      project({ deliveredAt: null, firstDeliverableAt: "not a date" }),
+    ]);
+    expect(rowText()).toContain("—");
   });
 
   it("shows a dash when neither is known", async () => {
@@ -192,12 +203,28 @@ describe("the page is only ever about delivered work", () => {
     expect(scope.status).toEqual(["ready_for_review"]);
   });
 
-  /* The list and the count must be asked the same question. */
-  it("counts the same scope it lists", async () => {
-    await renderPage({ view: "approved", q: "acme" });
+  /* The list and the count must be asked the same question — tested with a
+     view the page COERCES, so the count receiving the raw scope is visible.
+     With `approved` (already a page view) the coercion is a no-op and handing
+     the count `raw` passed: it would have printed a total for every ticket in
+     the system above a delivered-only table. */
+  it.each([
+    ["a coerced view", { view: "all", status: "delivered" }],
+    ["a page view", { view: "approved", q: "acme" }],
+    ["a search", { q: "acme" }],
+    ["a date window", { range: "7d" }],
+  ])("counts the same scope it lists under %s", async (_label, params) => {
+    await renderPage(params);
     expect(listDeliveredProjects.mock.calls[0]?.[0]).toEqual(
       countAdminTickets.mock.calls[0]?.[0],
     );
+  });
+
+  it("counts a coerced view, never the raw one", async () => {
+    await renderPage({ view: "all", status: "delivered" });
+    const counted = countAdminTickets.mock.calls[0]?.[0] as { view: string };
+    expect(counted.view).toBe("delivered");
+    expect(counted.view).not.toBe("all");
   });
 });
 
@@ -257,5 +284,157 @@ describe("paging", () => {
     expect(
       screen.getByRole("link", { name: /previous/i }).getAttribute("href"),
     ).toContain("page=3");
+  });
+
+  /* total:4 gives pages:1, so `pages > 1` is false and the `|| page > pages`
+     branch is the only reason a pager renders. With a multi-page total that
+     branch is never the reason and deleting it stays green. */
+  it("still offers a way back from past the end of a single-page list", async () => {
+    await renderPage({ page: "99" }, [], 4);
+    expect(
+      screen.getByRole("navigation", { name: /pagination/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /previous/i })).toBeInTheDocument();
+  });
+});
+
+describe("a row always has a name", () => {
+  /* `title` is nullable — a ticket filed from a calendar item has none — so
+     the Project column would render blank without the fallback. */
+  it("falls back to the design type when the ticket has no title", async () => {
+    await renderPage({}, [
+      project({ title: null, designType: "Instagram Carousel" }),
+    ]);
+    expect(rowText()).toContain("Instagram Carousel");
+  });
+});
+
+describe("an empty list names the most specific reason", () => {
+  /* A search inside a filtered view is empty because of the SEARCH — that is
+     the term the operator just typed and the one they can correct. */
+  it("blames the search ahead of the filters", async () => {
+    await renderPage({ q: "zzzz", assignee: TOLU, range: "7d" }, [], 0);
+    expect(screen.getByText(/nothing matches "zzzz"/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/nothing matches these filters/i),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("the date filter the ticket asks for", () => {
+  it("offers a delivery-date window", async () => {
+    await renderPage();
+    for (const label of [
+      "Any time",
+      "Last 7 days",
+      "Last 30 days",
+      "Last 90 days",
+    ]) {
+      expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  /* Anchored on delivery, not creation. A Delivered Projects filter that
+     silently measured creation date would answer a different question. */
+  it("anchors the window on the delivery date", async () => {
+    await renderPage();
+    const href =
+      screen.getByRole("link", { name: "Last 30 days" }).getAttribute("href") ??
+      "";
+    expect(href).toContain("range=30d");
+    expect(href).toContain("on=delivered");
+  });
+
+  it("pins the anchor even against a hand-edited URL", async () => {
+    await renderPage({ range: "7d", on: "created" });
+    const scope = listDeliveredProjects.mock.calls[0]?.[0] as { on: string };
+    expect(scope.on).toBe("delivered");
+  });
+
+  it("marks the active window", async () => {
+    await renderPage({ range: "7d" });
+    expect(screen.getByRole("link", { name: "Last 7 days" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  /* An empty date-filtered list is a statement about the window. */
+  it("blames the window rather than the studio's output", async () => {
+    await renderPage({ range: "7d" }, [], 0);
+    expect(
+      screen.getByText(/nothing matches these filters/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ordering", () => {
+  /* Read to answer "what have we shipped lately", which creation date answers
+     wrongly: a January ticket delivered yesterday belongs above a last-week
+     ticket delivered last week. */
+  it("sorts by delivery date, not creation date", async () => {
+    await renderPage();
+    const scope = listDeliveredProjects.mock.calls[0]?.[0] as { view: string };
+    expect(defaultSortKeyFor(scope.view as never)).toBe("delivered");
+  });
+
+  it("sorts the approved chip by approval date", async () => {
+    await renderPage({ view: "approved" });
+    expect(defaultSortKeyFor("approved")).toBe("approved");
+  });
+});
+
+describe("people are named, never blank", () => {
+  /* first_name and last_name are NOT NULL but permit the EMPTY STRING, so a
+     real user can have no display name — the seeded nameless designer proves
+     it. Without the email fallback the cell renders blank and the row looks
+     like it belongs to nobody. */
+  it("falls back to the email for a designer with no name", async () => {
+    await renderPage({}, [
+      project({
+        designerFirstName: "",
+        designerLastName: "",
+        designerEmail: "nameless@koos.test",
+      }),
+    ]);
+    expect(rowText()).toContain("nameless@koos.test");
+  });
+
+  it("falls back to the email for a requester with no name", async () => {
+    await renderPage({}, [
+      project({
+        requesterFirstName: "",
+        requesterLastName: "",
+        requesterEmail: "silent@koos.test",
+      }),
+    ]);
+    expect(rowText()).toContain("silent@koos.test");
+  });
+
+  /* Genuinely unassigned is a different statement from "we cannot name them". */
+  it("says Unassigned when nobody is carrying it", async () => {
+    await renderPage({}, [
+      project({
+        designerId: null,
+        designerFirstName: "",
+        designerLastName: "",
+        designerEmail: null,
+      }),
+    ]);
+    expect(rowText()).toContain("Unassigned");
+  });
+});
+
+describe("the header count is the whole result set", () => {
+  /* It comes from countAdminTickets, not from the rows on screen — that is the
+     difference between "137 projects" and "50 projects" on page one. */
+  it("reports the total, not the page", async () => {
+    await renderPage({}, [project()], 137);
+    expect(screen.getByText(/137 projects/)).toBeInTheDocument();
+  });
+
+  it("says project, singular, for one", async () => {
+    await renderPage({}, [project()], 1);
+    expect(screen.getByText(/^1 project$/)).toBeInTheDocument();
   });
 });

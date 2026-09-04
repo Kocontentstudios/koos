@@ -359,8 +359,11 @@ describe("listDeliveredProjects", () => {
     expect(join?.kind).toBe("left");
   });
 
-  /* Left joins throughout: a delivered ticket with no assigned designer, or
-     whose brand was removed, still belongs in the list. */
+  /* Left joins throughout. The one that can actually miss is the designer:
+     assigned_designer_id is nullable with ON DELETE SET NULL, so unassigned
+     delivered work must still list. brand_id and user_id are notNull with
+     cascade — those joins cannot miss, and LEFT is simply the honest default
+     rather than a claim about missing rows. */
   it("never narrows the result set with an inner join", async () => {
     await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
     for (const join of rec.recorded.joins) expect(join.kind).toBe("left");
