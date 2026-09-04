@@ -16,6 +16,7 @@ import {
   startActiveGeneration,
 } from "@/lib/generation/active-job";
 import { pollGenerationJob } from "@/lib/generation/poll-job";
+import type { JobProgress } from "@/lib/jobs/run-generation";
 import {
   type CampaignCard,
   campaignRecap,
@@ -103,7 +104,9 @@ export function StrategyClient({
   const [buildError, setBuildError] = useState<string | null>(null);
   const [calendarPending, setCalendarPending] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
-  const [calendarProgress, setCalendarProgress] = useState<string | null>(null);
+  const [calendarProgress, setCalendarProgress] = useState<JobProgress | null>(
+    null,
+  );
   // Rotates the loader text between server progress updates, and after 45s
   // tells the user they're free to leave (the GenerationWatcher will toast).
   const [calendarWaitTick, setCalendarWaitTick] = useState(0);
@@ -295,7 +298,7 @@ export function StrategyClient({
           // the run; this page-local poll only drives the inline loader and
           // must not declare failure at the old 5-minute mark.
           timeoutMs: 30 * 60 * 1000,
-          onProgress: (p) => setCalendarProgress(p.label),
+          onProgress: (p) => setCalendarProgress(p),
         },
       );
       clearActiveGeneration(jobId);
@@ -851,9 +854,10 @@ export function StrategyClient({
           }}
           generating={calendarPending}
           generatingLabel={
-            calendarProgress ??
+            calendarProgress?.label ??
             CALENDAR_WAIT_LABELS[calendarWaitTick % CALENDAR_WAIT_LABELS.length]
           }
+          calendarProgress={calendarProgress}
           generatingHint={
             calendarHintVisible
               ? "Your calendar is being generated — you'll be alerted when it's done. Feel free to keep working elsewhere."

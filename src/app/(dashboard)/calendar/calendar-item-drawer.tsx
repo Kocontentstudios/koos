@@ -2,7 +2,7 @@
 
 import { Clock, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { GenerateDesignButton } from "@/components/design/generate-design-button";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,13 @@ import {
 import { draftFromItem, ItemFormFields } from "./item-form";
 import type { CalendarItem, CalendarItemStatus } from "./types";
 import { sourceLabel, statusLabel } from "./types";
+
+/** Long enough not to hammer the server, short enough that a brief landing
+ *  mid-read shows up without a reload. */
+const BRIEF_POLL_MS = 8_000;
+/** A brief still missing after this is a failed unit, which fell back to a
+ *  template — polling further would spin forever on a drawer left open. */
+const BRIEF_POLL_LIMIT_MS = 5 * 60_000;
 
 interface CalendarItemDrawerProps {
   item: CalendarItem | null;
@@ -104,6 +111,26 @@ export function CalendarItemDrawer({
   onRequestDesign,
 }: CalendarItemDrawerProps) {
   const router = useRouter();
+
+  /* The placeholder below promises the brief "will appear here shortly", and
+     nothing else refreshes this view — briefs stream in after the calendar is
+     already navigable, so without this a user has to reload by hand. Bounded:
+     a brief that never arrives is a failed unit, not something to poll for
+     forever. */
+  const awaitingBrief = item?.source === "ai" && !item.brief;
+  useEffect(() => {
+    if (!awaitingBrief) return;
+    let elapsed = 0;
+    const id = setInterval(() => {
+      elapsed += BRIEF_POLL_MS;
+      if (elapsed > BRIEF_POLL_LIMIT_MS) {
+        clearInterval(id);
+        return;
+      }
+      router.refresh();
+    }, BRIEF_POLL_MS);
+    return () => clearInterval(id);
+  }, [awaitingBrief, router]);
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<CalendarItemStatus>(
     item?.status ?? "draft",

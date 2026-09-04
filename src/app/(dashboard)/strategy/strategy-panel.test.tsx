@@ -124,3 +124,37 @@ describe("StrategyPanel", () => {
     }
   });
 });
+
+/* The server computes {done, total} for every finished brief unit and the
+   client used to keep only the label, so a 3-minute wait showed five canned
+   sentences on rotation. Real counts, or nothing. */
+describe("calendar generation progress", () => {
+  it("shows how many briefs are done once the server says", () => {
+    renderPanel({
+      saved: true,
+      generating: true,
+      calendarProgress: { done: 12, total: 25, label: "Writing briefs…" },
+    });
+    // The panel renders twice — desktop aside and mobile drawer.
+    const [bar] = screen.getAllByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuenow", "12");
+    expect(bar).toHaveAttribute("aria-valuemax", "25");
+    expect(screen.getAllByText(/12 of 25/)[0]).toBeInTheDocument();
+  });
+
+  /* Before the first unit lands there is nothing true to show, so the bar
+     stays away rather than sitting at a fake zero. */
+  it("shows no bar before the first progress arrives", () => {
+    renderPanel({ saved: true, generating: true });
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("does not claim progress on a total of zero", () => {
+    renderPanel({
+      saved: true,
+      generating: true,
+      calendarProgress: { done: 0, total: 0, label: "Planning…" },
+    });
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+});

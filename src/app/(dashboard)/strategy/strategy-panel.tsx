@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Strategy } from "@/lib/ai/strategy-schema";
+import type { JobProgress } from "@/lib/jobs/run-generation";
 import { cn } from "@/lib/utils";
 
 interface StrategyPanelProps {
@@ -34,6 +35,7 @@ interface StrategyPanelProps {
   generatingLabel?: string;
   /** Reassurance shown under the button on long runs ("you'll be alerted…"). */
   generatingHint?: string | null;
+  calendarProgress?: JobProgress | null;
   calendarError: string | null;
   /** Mobile drawer open state (below the lg breakpoint). */
   mobileOpen: boolean;
@@ -175,6 +177,7 @@ function PanelContent({
   generating,
   generatingLabel,
   generatingHint,
+  calendarProgress,
   calendarError,
   headerAction,
 }: {
@@ -189,6 +192,7 @@ function PanelContent({
   generating: boolean;
   generatingLabel?: string;
   generatingHint?: string | null;
+  calendarProgress?: JobProgress | null;
   calendarError: string | null;
   headerAction: React.ReactNode;
 }) {
@@ -241,6 +245,31 @@ function PanelContent({
               </Button>
             )
           )}
+          {/* Real counts from the server, or no bar at all. A determinate bar
+              parked at zero is a worse lie than a spinner. */}
+          {generating && calendarProgress && calendarProgress.total > 0 && (
+            <div className="space-y-1.5">
+              <div
+                role="progressbar"
+                aria-valuenow={calendarProgress.done}
+                aria-valuemin={0}
+                aria-valuemax={calendarProgress.total}
+                aria-label="Calendar generation progress"
+                className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--status-progress-bg)]"
+              >
+                <div
+                  className="h-full rounded-full bg-[var(--status-progress-fg)] transition-[width] duration-500"
+                  style={{
+                    width: `${Math.round((calendarProgress.done / calendarProgress.total) * 100)}%`,
+                  }}
+                />
+              </div>
+              <p className="text-[12px] text-[var(--text-muted)] tabular-nums">
+                {calendarProgress.done} of {calendarProgress.total} briefs
+                written
+              </p>
+            </div>
+          )}
           {generating && generatingHint && (
             <p
               role="status"
@@ -276,6 +305,7 @@ export function StrategyPanel({
   generating,
   generatingLabel,
   generatingHint,
+  calendarProgress,
   calendarError,
   mobileOpen,
   onMobileClose,
@@ -314,6 +344,7 @@ export function StrategyPanel({
             generating={generating}
             generatingLabel={generatingLabel}
             generatingHint={generatingHint}
+            calendarProgress={calendarProgress}
             calendarError={calendarError}
             headerAction={
               <button
@@ -356,6 +387,7 @@ export function StrategyPanel({
           generating={generating}
           generatingLabel={generatingLabel}
           generatingHint={generatingHint}
+          calendarProgress={calendarProgress}
           calendarError={calendarError}
           headerAction={
             <button

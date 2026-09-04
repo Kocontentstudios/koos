@@ -272,3 +272,39 @@ describe("delete", () => {
     expect(deleteCalendarItemAction).not.toHaveBeenCalled();
   });
 });
+
+/* The placeholder promises the brief "will appear here shortly", and nothing
+   ever refreshed — a user who opened the calendar while generation was still
+   running had to reload the page by hand to see it. */
+describe("a brief still being written", () => {
+  it("refreshes while an AI item has no brief yet", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("stops once the brief has arrived", () => {
+    vi.useFakeTimers();
+    setup({ brief: "The brief", source: "ai" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  /* A manual entry never had a brief, so polling for one would spin forever. */
+  it("does not poll for a manual entry", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "manual" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});

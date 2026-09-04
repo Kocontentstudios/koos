@@ -50,6 +50,10 @@ import {
   mapWithConcurrency,
   withRetry,
 } from "@/lib/jobs/calendar-assembly";
+import {
+  summariseGeneration,
+  type UnitTiming,
+} from "@/lib/jobs/generation-timing";
 import { toCampaignCard } from "@/lib/strategy/campaign-card";
 
 type BrandRow = typeof brands.$inferSelect;
@@ -284,6 +288,23 @@ export const CALENDAR_SLICE_BUDGET_MS = 240_000;
     covering a whole ~9-slot segment. */
 const MAX_SLOTS_PER_BRIEF_CALL = 4;
 
+/**
+ * Measured, not guessed. 5 is where this sits after two real 90-day runs:
+ *
+ *   5 wide → 198s total, unit p50 27.7s, p95 38s, slowest 57s
+ *   8 wide → 397s total, unit p50 22.4s, p95 46s, slowest 309s
+ *
+ * Going wider does exactly what the wave arithmetic predicts to the median and
+ * the opposite of what it predicts to the total: per-call latency improves,
+ * the tail collapses. Two units failed schema validation on the 8-wide run and
+ * one retry chain ran 309s on its own, which is the shape of Bedrock
+ * throttling — the whole run then waits on the worst straggler.
+ *
+ * Do not raise this again without re-running the measurement; the wave count
+ * is not the thing that bounds this job.
+ */
+const BRIEF_CONCURRENCY = 5;
+
 /** What a calendar job parks in the runtime checkpoint between slices. */
 interface CalendarCheckpoint {
   outline?: CalendarOutline;
@@ -322,6 +343,13 @@ export async function generateCalendarWork(
   const todayIso = now.toISOString().slice(0, 10);
   const model = getModel("strategy");
 
+  /* KOS-V1-BUG-009 measurement. Collected per slice; a resumed run reports its
+     own slice, which is the unit that has to fit inside the 240s budget. */
+  const runStart = Date.now();
+  let outlineMs = 0;
+  let outlineTokens = { input: 0, output: 0 };
+  const unitTimings: UnitTiming[] = [];
+
   let outline = checkpoint.outline;
   if (outline) {
     console.log(
@@ -330,7 +358,7 @@ export async function generateCalendarWork(
   } else {
     reportProgress({ done: 0, total: 1, label: "Planning the calendar…" });
     const outlineStart = Date.now();
-    const { object } = await withRetry(
+    const { object, usage: outlineUsage } = await withRetry(
       () =>
         generateObject({
           model,
@@ -349,6 +377,11 @@ export async function generateCalendarWork(
       { label: "calendar outline" },
     );
     outline = object;
+    outlineMs = Date.now() - outlineStart;
+    outlineTokens = {
+      input: outlineUsage?.inputTokens ?? 0,
+      output: outlineUsage?.outputTokens ?? 0,
+    };
     await runtime.saveCheckpoint({ outline });
     console.log(
       `calendar outline generated in ${Math.round((Date.now() - outlineStart) / 1000)}s (${outline.segments.length} segments, ${outline.segments.reduce((n, s) => n + s.slots.length, 0)} slots)`,
@@ -444,7 +477,7 @@ export async function generateCalendarWork(
   // throttling regression visible.
   await mapWithConcurrency(
     missing,
-    5,
+    BRIEF_CONCURRENCY,
     async (unit) => {
       const segment = segments[unit.segIndex];
       const unitSlots = segment.slots.slice(
@@ -453,8 +486,11 @@ export async function generateCalendarWork(
       );
       const unitStart = Date.now();
       let object: CalendarChunk;
+      let unitUsage:
+        | { inputTokens?: number; outputTokens?: number }
+        | undefined;
       try {
-        ({ object } = await withRetry(
+        ({ object, usage: unitUsage } = await withRetry(
           () =>
             generateObject({
               model,
@@ -483,9 +519,13 @@ export async function generateCalendarWork(
         );
         object = { briefs: [] };
       }
-      console.log(
-        `calendar unit ${unit.key} (${unitSlots.length} slots) finished in ${Math.round((Date.now() - unitStart) / 1000)}s`,
-      );
+      unitTimings.push({
+        key: unit.key,
+        slots: unitSlots.length,
+        ms: Date.now() - unitStart,
+        inputTokens: unitUsage?.inputTokens,
+        outputTokens: unitUsage?.outputTokens,
+      });
       // Model slotIndex is relative to the slots it saw; remap to the
       // segment-relative index that assembly expects.
       chunks[unit.key] = {
@@ -576,6 +616,19 @@ export async function generateCalendarWork(
   }
 
   const itemCount = Object.keys(itemIdsBySlotKey).length;
+
+  /* One machine-readable line per slice. The prose logs above are for spotting
+     a stall; this is what a budget gets argued from. */
+  const timing = summariseGeneration({
+    outlineMs,
+    totalMs: Date.now() - runStart,
+    concurrency: BRIEF_CONCURRENCY,
+    units: unitTimings,
+  });
+  console.log(timing.logLine);
+  console.log(
+    `calendar-timing outline tokens in=${outlineTokens.input} out=${outlineTokens.output}`,
+  );
 
   await recordUsageEvent({
     userId: args.userId,
