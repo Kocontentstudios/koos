@@ -1,7 +1,4 @@
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import {
   ADMIN_TICKET_VIEWS,
   type AdminTicketView,
@@ -14,7 +11,6 @@ import {
   pageCount,
   resolveWindow,
   sortToColumn,
-  statusRowHref,
   VIEW_PREDICATES,
 } from "./scope";
 
@@ -79,25 +75,6 @@ describe("ticket language maps onto the enum", () => {
 
   /* There is no `approved` status — approval is a nullable timestamp, and
      `delivered` is what the UI already labels "Approved". */
-  it("approved and completed select the same tickets", () => {
-    const shapes: Row[] = [
-      ticket({ status: "draft" }),
-      ticket({ status: "in_progress" }),
-      ticket({ status: "ready_for_review" }),
-      ticket({ status: "delivered" }),
-      ticket({ status: "delivered", approvedAt: new Date("2026-08-01") }),
-      ticket({ status: "revision_requested" }),
-    ];
-    for (const r of shapes) {
-      expect(matchesView(r, "completed", NOW)).toBe(
-        matchesView(r, "approved", NOW),
-      );
-    }
-    expect(matchesView(ticket({ status: "delivered" }), "approved", NOW)).toBe(
-      true,
-    );
-  });
-
   it("delivered covers work with the client, approved or not", () => {
     for (const status of ["ready_for_review", "delivered"] as const) {
       expect(matchesView(ticket({ status }), "delivered", NOW)).toBe(true);
@@ -169,13 +146,12 @@ describe("overdue", () => {
     ).toBe(false);
   });
 
-  /* Nor one the client already signed off, which the same query counts the
-     moment a correction upload moves it off `delivered`. */
-  it("does not count work already approved", () => {
+  /* Signed-off work is excluded by its STATUS, not by approvedAt. */
+  it("does not count work sitting at delivered", () => {
     expect(
       matchesView(
         ticket({
-          status: "in_progress",
+          status: "delivered",
           dueDate: past,
           approvedAt: new Date("2026-08-01"),
         }),
@@ -183,6 +159,28 @@ describe("overdue", () => {
         NOW,
       ),
     ).toBe(false);
+  });
+
+  /* The regression this replaces an inverted assertion for. approvedAt is
+     NEVER cleared (schema.ts), so gating on it meant a ticket that was once
+     approved could not be overdue again — ever. A client asks for a change
+     after sign-off, the studio sets a new due date, the date passes, and the
+     ticket is invisible in the one view whose job is to surface exactly
+     that. */
+  it("counts a ticket reopened after sign-off and now past its new date", () => {
+    for (const status of ["revision_requested", "in_progress"] as const) {
+      expect(
+        matchesView(
+          ticket({
+            status,
+            dueDate: past,
+            approvedAt: new Date("2026-08-01"),
+          }),
+          "overdue",
+          NOW,
+        ),
+      ).toBe(true);
+    }
   });
 
   it("does not count a future or absent due date", () => {
@@ -214,33 +212,6 @@ describe("overdue", () => {
   });
 });
 
-describe("status rows link somewhere that can serve them", () => {
-  /* A status row's number is grouped on the raw status, so its link has to be
-     the plain status filter or the list contradicts the count that was
-     clicked. */
-  it("opens exactly the status it names", () => {
-    for (const s of TICKET_STATUSES) {
-      expect(statusRowHref(s)).toBe(`/admin/tickets?status=${s}`);
-    }
-  });
-
-  /* The regression this exists to stop: a href pointing at a segment nobody
-     built, which ships green and 404s on the first click. */
-  it("never points at a route the app does not serve", () => {
-    const segments = readdirSync(join(process.cwd(), "src/app/admin"), {
-      withFileTypes: true,
-    })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-
-    for (const s of TICKET_STATUSES) {
-      const path = statusRowHref(s).split("?")[0] ?? "";
-      const segment = path.replace("/admin/", "").split("/")[0] ?? "";
-      expect(segments).toContain(segment);
-    }
-  });
-});
-
 describe("the date window", () => {
   /* Parsed from the strings, never `new Date()`: the server renders in its own
      zone, so building the boundary from a Date makes the range land a day out
@@ -253,7 +224,7 @@ describe("the date window", () => {
       now: NOW,
     });
     expect(w.from?.toISOString()).toBe("2026-07-19T00:00:00.000Z");
-    expect(w.to.toISOString()).toBe("2026-07-26T00:00:00.000Z");
+    expect(w.to?.toISOString()).toBe("2026-07-26T00:00:00.000Z");
   });
 
   it("swaps a reversed custom range rather than returning nothing", () => {
@@ -287,7 +258,7 @@ describe("the date window", () => {
       now: NOW,
     });
     expect(w.from).toBeNull();
-    expect(w.to.toISOString()).toBe("2026-07-26T00:00:00.000Z");
+    expect(w.to?.toISOString()).toBe("2026-07-26T00:00:00.000Z");
   });
 
   it("falls back to the preset only when neither bound is given", () => {
@@ -317,12 +288,16 @@ describe("the date window", () => {
     ["90d", 90],
   ] as const)("resolves %s to that many days back", (range, days) => {
     const w = resolveWindow({ range, now: NOW });
-    if (!w.from) throw new Error(`${range} should be a bounded window`);
+    if (!w.from || !w.to) throw new Error(`${range} should be bounded`);
     expect(w.to.getTime() - w.from.getTime()).toBe(days * 24 * 60 * 60 * 1000);
   });
 
-  it("returns an unbounded window for all", () => {
-    expect(resolveWindow({ range: "all", now: NOW }).from).toBeNull();
+  /* Unbounded at BOTH ends. A `to` of `now` here reads as a real upper bound
+     to the consumer, which then hides every future due date. */
+  it("returns a window unbounded at both ends for all", () => {
+    const w = resolveWindow({ range: "all", now: NOW });
+    expect(w.from).toBeNull();
+    expect(w.to).toBeNull();
   });
 });
 
@@ -443,7 +418,7 @@ describe("a view sorts by what its reader is looking for", () => {
     }
   });
 
-  it("puts the latest ticket first in the overdue list", () => {
+  it("puts the most overdue ticket first, by oldest due date", () => {
     expect(sortToColumn(defaultSortKeyFor("overdue"))).toEqual({
       field: "dueDate",
       direction: "asc",
@@ -460,6 +435,43 @@ describe("a view sorts by what its reader is looking for", () => {
   it("only names sorts the query layer accepts", () => {
     for (const view of ADMIN_TICKET_VIEWS) {
       expect(isSortable(defaultSortKeyFor(view))).toBe(true);
+    }
+  });
+});
+
+describe("the lateness chip and the overdue count share one definition", () => {
+  /* Found by clicking the page, not by a test: a draft past its due date wore
+     a "9 days overdue" chip in the All list while the Overdue card correctly
+     excluded it. An operator reading 6 on the dashboard and 7 chips in the
+     list has no way to tell which number is lying. The row must resolve the
+     same predicate the card counts. */
+  const past = new Date("2026-08-25T12:00:00Z");
+
+  function chipShows(row: Parameters<typeof matchesView>[0]): boolean {
+    return (
+      matchesView(row, "overdue", NOW) && overdueMs(row.dueDate, NOW) !== null
+    );
+  }
+
+  it("shows no chip on a draft that is past its date", () => {
+    expect(chipShows(ticket({ status: "draft", dueDate: past }))).toBe(false);
+  });
+
+  it("shows no chip on delivered work that is past its date", () => {
+    expect(chipShows(ticket({ status: "delivered", dueDate: past }))).toBe(
+      false,
+    );
+  });
+
+  it("shows the chip on live work that is past its date", () => {
+    for (const status of [
+      "submitted",
+      "assigned",
+      "in_progress",
+      "ready_for_review",
+      "revision_requested",
+    ] as const) {
+      expect(chipShows(ticket({ status, dueDate: past }))).toBe(true);
     }
   });
 });

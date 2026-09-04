@@ -75,7 +75,7 @@ export function ticketNumberFor(query: string): number | null {
 const requester = alias(users, "requester");
 const designer = alias(users, "designer");
 
-function viewConditions(view: AdminTicketView, now: Date): SQL[] {
+export function viewConditions(view: AdminTicketView, now: Date): SQL[] {
   const p = VIEW_PREDICATES[view];
   const parts: SQL[] = [];
   if (p.statusIn) parts.push(inArray(designTickets.status, [...p.statusIn]));
@@ -87,12 +87,17 @@ function viewConditions(view: AdminTicketView, now: Date): SQL[] {
   return parts;
 }
 
+/** `%` and `_` are ilike wildcards, so a search for "50%" matched every row. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 /** Whether the scope's text search needs the joined brand/requester columns. */
 function needsSearchJoins(scope: AdminScope): boolean {
   return scope.q.trim().length > 0;
 }
 
-function scopeConditions(scope: AdminScope, now: Date): SQL[] {
+export function scopeConditions(scope: AdminScope, now: Date): SQL[] {
   const parts = viewConditions(scope.view, now);
 
   // Narrows WITHIN the view rather than replacing it, so a status row's link
@@ -119,18 +124,18 @@ function scopeConditions(scope: AdminScope, now: Date): SQL[] {
     to: scope.to,
     now,
   });
-  if (window.from) {
-    parts.push(gte(anchor, timestampParam(window.from)));
-    // `to` is exclusive by contract — see resolveWindow.
-    parts.push(lt(anchor, timestampParam(window.to)));
-  }
+  if (window.from) parts.push(gte(anchor, timestampParam(window.from)));
+  // Independently: an end-only custom range has no lower bound, and guarding
+  // this on `window.from` dropped its upper bound with it. `to` is exclusive
+  // by contract — see resolveWindow.
+  if (window.to) parts.push(lt(anchor, timestampParam(window.to)));
 
   /* Server-side on purpose: filtering a paginated list in the browser searches
      only the rows already on screen, which looks like a working feature and is
      a correctness bug. */
   const term = scope.q.trim();
   if (term) {
-    const like = `%${term}%`;
+    const like = `%${escapeLike(term)}%`;
     const clauses = [
       ilike(designTickets.title, like),
       ilike(designTickets.brief, like),
@@ -195,6 +200,7 @@ const rowShape = {
   designerId: designTickets.assignedDesignerId,
   designerFirstName: designer.firstName,
   designerLastName: designer.lastName,
+  designerEmail: designer.email,
 };
 
 export type AdminTicketRow = Awaited<
@@ -256,14 +262,20 @@ export async function getWorkloadForDesigner(
   designerId: string,
   now = new Date(),
 ) {
-  const active = viewConditions("active", now);
-  const overdue = viewConditions("overdue", now);
+  /* Both counts are filters over the SAME designer-scoped rows, not one nested
+     inside the other. Computing overdue within the `active` narrowing made the
+     header report 0 while the Overdue tab directly beneath it listed the
+     ticket — `overdue` also covers submitted and revision_requested work,
+     which `active` does not. */
   const [row] = await db
     .select({
-      active: count(),
-      overdue: sql<number>`count(*) filter (where ${and(...overdue)})`,
+      active: sql<number>`count(*) filter (where ${and(...viewConditions("active", now))})`,
+      overdue: sql<number>`count(*) filter (where ${and(...viewConditions("overdue", now))})`,
     })
     .from(designTickets)
-    .where(and(eq(designTickets.assignedDesignerId, designerId), ...active));
-  return { active: row?.active ?? 0, overdue: Number(row?.overdue ?? 0) };
+    .where(eq(designTickets.assignedDesignerId, designerId));
+  return {
+    active: Number(row?.active ?? 0),
+    overdue: Number(row?.overdue ?? 0),
+  };
 }

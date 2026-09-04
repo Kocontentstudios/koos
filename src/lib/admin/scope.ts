@@ -20,7 +20,6 @@ export const ADMIN_TICKET_VIEWS = [
   "awaiting_review",
   "delivered",
   "approved",
-  "completed",
   "reopened",
 ] as const;
 
@@ -34,27 +33,25 @@ export interface ViewPredicate {
   overdue?: true;
 }
 
-/* `delivered` means the files are with the client; `approved` means the client
-   signed off. They are different sets and diverge on any correction round:
-   recordDeliverableVersion sets ready_for_review on every upload and never
-   clears approvedAt. */
-const APPROVED: ViewPredicate = { statusIn: ["delivered"] };
-
 export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
   all: {},
   open: { statusNotIn: ["draft", "delivered"] },
   active: { statusIn: ["assigned", "in_progress", "ready_for_review"] },
-  overdue: {
-    statusNotIn: ["draft", "delivered"],
-    approved: "none",
-    overdue: true,
-  },
+  /* No approved_at clause. approvedAt is never cleared (schema.ts), so
+     "has ever been approved" is not "is finished": a signed-off ticket sent
+     back for a revision with a new due date is live work again. Excluding it
+     hid the tickets most likely to have slipped from the one view whose job is
+     to surface them. Finished work is already excluded by `delivered`. */
+  overdue: { statusNotIn: ["draft", "delivered"], overdue: true },
   in_progress: { statusIn: ["assigned", "in_progress"] },
   needs_revision: { statusIn: ["revision_requested"] },
   awaiting_review: { statusIn: ["ready_for_review"], approved: "none" },
   delivered: { statusIn: ["ready_for_review", "delivered"] },
-  approved: APPROVED,
-  completed: APPROVED,
+  /* `delivered` means the files are with the client; `approved` means the
+     client signed off. They are different sets and diverge on any correction
+     round: recordDeliverableVersion sets ready_for_review on every upload and
+     never clears approvedAt. */
+  approved: { statusIn: ["delivered"] },
   reopened: { statusNotIn: ["delivered"], approved: "only" },
 };
 
@@ -101,21 +98,6 @@ export function formatOverdue(ms: number): string {
   return "just now";
 }
 
-/**
- * Where a Status Overview row opens.
- *
- * A plain status filter, deliberately: the number beside the row comes from
- * `getTicketCountsByStatus`, which groups on the raw status, so any richer view
- * here would open a list that disagrees with the count the operator clicked.
- *
- * ADMIN-FEAT-002 re-points `delivered` and `ready_for_review` at Delivered
- * Projects once that page exists; until then this must not link to a route the
- * app does not serve.
- */
-export function statusRowHref(status: TicketStatus): string {
-  return `/admin/tickets?status=${status}`;
-}
-
 export const ADMIN_RANGES = [
   "7d",
   "15d",
@@ -152,7 +134,7 @@ export function resolveWindow(args: {
   from?: string;
   to?: string;
   now: Date;
-}): { from: Date | null; to: Date } {
+}): { from: Date | null; to: Date | null } {
   const { range, from, to, now } = args;
   if (range === "custom") {
     const a = utcDay(from);
@@ -167,7 +149,9 @@ export function resolveWindow(args: {
     if (b) return { from: null, to: endOfUtcDay(b) };
     return windowOfDays(30, now);
   }
-  if (range === "all") return { from: null, to: now };
+  // Unbounded at BOTH ends: `to: now` would hide every future due date the
+  // moment a caller anchored on `due`.
+  if (range === "all") return { from: null, to: null };
   return windowOfDays(PRESET_DAYS[range], now);
 }
 
@@ -211,8 +195,8 @@ const DEFAULT_SORT: SortSpec = { field: "createdAt", direction: "desc" };
  *
  * The working queue is read top-down to decide what to pick up next, so urgent
  * work has to surface without the designer sorting first. An overdue list is
- * read the same way for a different reason: the latest ticket is the one that
- * needs a call today.
+ * read the same way for a different reason: the oldest due date is the most
+ * overdue ticket, and that is the one that needs a call today.
  */
 const DEFAULT_SORT_KEY: Partial<Record<AdminTicketView, string>> = {
   open: "priority",

@@ -8,15 +8,33 @@ import {
 } from "@/lib/db/queries";
 import { appUrl, sendTicketReminderEmail } from "@/lib/design/notify";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /* This route sends mail. Vercel's default budget is shorter than the SMTP
    socket timeout in email.ts, so without this a stalled send is killed before
    the handler can log or report it. */
 export const maxDuration = 60;
 
-/** Two clicks in quick succession are one intent, not two nudges. */
+/** How long one nudge speaks for. A designer chased twice in a morning stops
+ *  reading the chases. */
 const COOLING_OFF_SECONDS = 6 * 60 * 60;
+
+/* The shared tooManyRequests() says "wait a moment", which is true of a
+   per-minute limit and misleading about six hours: the operator waits, clicks,
+   sees the same sentence and concludes the button is broken. Say what actually
+   happened and when they can try again. */
+function alreadyNudged(retryAfterSeconds: number): Response {
+  const hours = Math.ceil(retryAfterSeconds / 3600);
+  return Response.json(
+    {
+      error: `A reminder for this ticket already went out. You can send another in ${hours} ${hours === 1 ? "hour" : "hours"}.`,
+    },
+    {
+      status: 429,
+      headers: { "Retry-After": String(retryAfterSeconds) },
+    },
+  );
+}
 
 function formatDueDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
@@ -60,7 +78,7 @@ export async function POST(
     limit: 1,
     windowSeconds: COOLING_OFF_SECONDS,
   });
-  if (!verdict.ok) return tooManyRequests(verdict);
+  if (!verdict.ok) return alreadyNudged(verdict.retryAfterSeconds);
 
   const [designer, brand] = await Promise.all([
     getUserById(ticket.assignedDesignerId),

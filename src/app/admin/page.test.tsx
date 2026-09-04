@@ -1,6 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+/* Real uuids: `assignee` is validated at the parser because it is compared
+   against a uuid column, so a placeholder id is dropped exactly as a
+   hand-edited URL would be. */
+const TOLU = "11111111-1111-1111-1111-111111111111";
+const NAMELESS = "33333333-3333-3333-3333-333333333333";
+
 vi.mock("@/lib/auth/require-role", () => ({
   requireRole: async () => ({ dbUser: { id: "a1", role: "admin" } }),
 }));
@@ -29,7 +35,22 @@ vi.mock("@/lib/db/queries", () => ({
   getAwaitingReviewCount: async () => COUNTS.awaitingReview,
   getUserCountsByRole: async () => [{ role: "admin", count: 2 }],
   getDesignerLoads: async () => [
-    { designerId: "d1", firstName: "Tolu", lastName: "A", count: 5 },
+    {
+      designerId: TOLU,
+      firstName: "Tolu",
+      lastName: "A",
+      email: "t@k",
+      count: 5,
+    },
+    // first_name is NOT NULL but may be empty. This row used to read "Unknown"
+    // on the card while the drill-down header named the same person by email.
+    {
+      designerId: NAMELESS,
+      firstName: "",
+      lastName: "",
+      email: "nameless@koos.test",
+      count: 1,
+    },
   ],
   getRecentTickets: async () => [],
 }));
@@ -115,17 +136,16 @@ describe("the status overview", () => {
 
   it("opens each status it lists", async () => {
     await renderDashboard();
-    expect(card("Submitted11").getAttribute("href")).toBe(
-      "/admin/tickets?status=submitted",
-    );
+    expect(scopeOf(card("Submitted11")).status).toEqual(["submitted"]);
     /* Both of these used to point at /admin/delivered, a route that does not
        exist on this branch. ADMIN-FEAT-002 re-points them once it does. */
-    expect(card("Delivered — Your Review9").getAttribute("href")).toBe(
-      "/admin/tickets?status=ready_for_review",
-    );
-    expect(card("Approved23").getAttribute("href")).toBe(
-      "/admin/tickets?status=delivered",
-    );
+    expect(scopeOf(card("Delivered — Your Review9")).status).toEqual([
+      "ready_for_review",
+    ]);
+    expect(scopeOf(card("Approved23")).status).toEqual(["delivered"]);
+    /* A status row must not inherit the queue's default view, which excludes
+       drafts and delivered work — that made these two open an empty list. */
+    expect(scopeOf(card("Approved23")).view).toBe("all");
   });
 
   /* No dashboard link may point at a segment nobody built. A green test suite
@@ -144,6 +164,13 @@ describe("designer load", () => {
     await renderDashboard();
     const scope = scopeOf(card("Tolu A5 active"));
     expect(scope.view).toBe("active");
-    expect(scope.assignee).toBe("d1");
+    expect(scope.assignee).toBe(TOLU);
+  });
+
+  /* Naming the same designer two different ways in two places reads as two
+     people. Both the card and the drill-down header fall back to the email. */
+  it("names a designer with no name on record by their email", async () => {
+    await renderDashboard();
+    expect(card("nameless@koos.test1 active")).toBeInTheDocument();
   });
 });

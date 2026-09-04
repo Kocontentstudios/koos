@@ -43,7 +43,7 @@ import {
   workspaces,
 } from "@/lib/db/schema";
 import { widenWindowGuard, widenWindowSet } from "@/lib/db/sql/calendar-window";
-import { countAdminTickets } from "./admin-tickets";
+import { countAdminTickets, viewConditions } from "./admin-tickets";
 
 // ── Users ───────────────────────────────────────────────────────────
 
@@ -145,6 +145,9 @@ export async function getStaffUsers() {
       id: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
+      /* first_name is NOT NULL but may be empty, and a roster entry reading as
+         a UUID prefix identifies nobody. */
+      email: users.email,
       role: users.role,
     })
     .from(users)
@@ -1478,8 +1481,9 @@ export async function getTicketCountsByStatus() {
     .groupBy(designTickets.status);
 }
 
-/** Tickets past their due date that are not yet delivered. */
 /**
+ * Tickets past their due date that are still live work.
+ *
  * Deliberately delegates rather than restating the predicate.
  *
  * The old query was `dueDate < now AND status != 'delivered'`, which counted
@@ -1520,29 +1524,39 @@ export async function getUserCountsByRole() {
 
 /** Active (assigned/in_progress/ready_for_review) ticket load per designer. */
 export async function getDesignerLoads() {
-  return db
-    .select({
-      /* Non-null by the isNotNull guard below. Stated here so callers can link
+  return (
+    db
+      .select({
+        /* Non-null by the isNotNull guard below. Stated here so callers can link
          straight to ?assignee=<id> instead of re-checking what the WHERE
          clause already guarantees. */
-      designerId: sql<string>`${designTickets.assignedDesignerId}`,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      count: count(),
-    })
-    .from(designTickets)
-    .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
-    .where(
-      and(
-        isNotNull(designTickets.assignedDesignerId),
-        inArray(designTickets.status, [
-          "assigned",
-          "in_progress",
-          "ready_for_review",
-        ]),
-      ),
-    )
-    .groupBy(designTickets.assignedDesignerId, users.firstName, users.lastName);
+        designerId: sql<string>`${designTickets.assignedDesignerId}`,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        /* first_name is NOT NULL but may be empty, so a designer can render as
+         "". The drill-down header falls back to the email; this row has to
+         fall back to the same thing or the two name the same person
+         differently. */
+        email: users.email,
+        count: count(),
+      })
+      .from(designTickets)
+      .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
+      /* Derived, not restated: this count is what the drill-down's `active`
+       view opens, so a literal here could drift from the list it links to. */
+      .where(
+        and(
+          isNotNull(designTickets.assignedDesignerId),
+          ...viewConditions("active", new Date()),
+        ),
+      )
+      .groupBy(
+        designTickets.assignedDesignerId,
+        users.firstName,
+        users.lastName,
+        users.email,
+      )
+  );
 }
 
 /** Most recently created tickets, with brand name. */

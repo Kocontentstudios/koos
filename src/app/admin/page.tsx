@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { StatCard } from "@/app/admin/stat-card";
-import { statusRowHref } from "@/lib/admin/scope";
-import { adminScopeHref, DEFAULT_SCOPE } from "@/lib/admin/scope-params";
+import {
+  adminScopeHref,
+  DEFAULT_SCOPE,
+  statusRowHref,
+} from "@/lib/admin/scope-params";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   getAwaitingReviewCount,
@@ -71,7 +74,9 @@ export default async function AdminDashboardPage() {
           value={overdue}
           href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
             view: "overdue",
-            sort: "overdue:desc",
+            // No :desc suffix — "overdue" already fixes its direction, and a
+            // shareable URL should not state one the list will not honour.
+            sort: "overdue",
           })}
         />
         <StatCard
@@ -139,7 +144,7 @@ export default async function AdminDashboardPage() {
                   >
                     <span className="text-[14px] text-foreground">
                       {`${l.firstName ?? ""} ${l.lastName ?? ""}`.trim() ||
-                        "Unknown"}
+                        (l.email ?? "Unknown")}
                     </span>
                     <span className="text-[14px] font-medium text-foreground">
                       {l.count} active

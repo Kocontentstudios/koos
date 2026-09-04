@@ -240,7 +240,9 @@ export function QueueClient({
         </ul>
       )}
 
-      {pages > 1 && (
+      {/* Also when `page > pages`: someone who edited the URL past the end
+          needs a way back, and hiding the pager there left only the URL bar. */}
+      {(pages > 1 || page > pages) && (
         <nav
           aria-label="Pagination"
           className="flex items-center justify-between gap-3"

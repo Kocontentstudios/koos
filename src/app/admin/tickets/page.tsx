@@ -1,6 +1,7 @@
 import {
   type AdminTicketView,
   formatOverdue,
+  matchesView,
   overdueMs,
   PAGE_SIZE,
   pageCount,
@@ -42,8 +43,20 @@ const EMPTY_FOR: Partial<Record<AdminTicketView, string>> = {
   awaiting_review: "Nothing is waiting on a client.",
 };
 
-function fullName(first: string | null, last: string | null): string {
-  return `${first ?? ""} ${last ?? ""}`.trim();
+/**
+ * How a person is named on screen.
+ *
+ * `first_name` is NOT NULL but may be empty, so a real user can have no
+ * display name at all. Falling back to the email keeps a genuinely assigned
+ * ticket from reading "Unassigned" and keeps the roster from offering a UUID
+ * prefix as a person.
+ */
+function displayName(
+  first: string | null,
+  last: string | null,
+  email: string | null,
+): string {
+  return `${first ?? ""} ${last ?? ""}`.trim() || (email ?? "");
 }
 
 export default async function AdminTicketsPage({
@@ -74,7 +87,21 @@ export default async function AdminTicketsPage({
   ]);
 
   const queue: QueueRow[] = rows.map((r) => {
-    const late = overdueMs(r.dueDate, now);
+    /* Through the predicate, not raw date arithmetic. A draft past its due
+       date is not overdue — the Overdue card excludes it — and a row wearing
+       the lateness chip anyway reads as a ticket the dashboard forgot to
+       count. The chip and the number resolve the same definition. */
+    const late = matchesView(
+      {
+        status: r.status as TicketStatus,
+        approvedAt: r.approvedAt,
+        dueDate: r.dueDate,
+      },
+      "overdue",
+      now,
+    )
+      ? overdueMs(r.dueDate, now)
+      : null;
     return {
       id: r.id,
       ticketNumber: r.ticketNumber,
@@ -90,7 +117,11 @@ export default async function AdminTicketsPage({
       title: r.title ?? null,
       dueDate: r.dueDate ? r.dueDate.toISOString() : null,
       designerId: r.designerId ?? null,
-      assigneeName: fullName(r.designerFirstName, r.designerLastName),
+      assigneeName: displayName(
+        r.designerFirstName,
+        r.designerLastName,
+        r.designerEmail,
+      ),
       overdueFor: late === null ? null : formatOverdue(late),
     };
   });
@@ -108,7 +139,7 @@ export default async function AdminTicketsPage({
   const pages = pageCount(total, PAGE_SIZE);
   const staff: Assignee[] = assignees.map((u) => ({
     id: u.id,
-    name: fullName(u.firstName, u.lastName) || u.id.slice(0, 8),
+    name: displayName(u.firstName, u.lastName, u.email),
     role: u.role,
   }));
 
@@ -132,7 +163,11 @@ export default async function AdminTicketsPage({
         pages={pages}
         prevHref={
           scope.page > 1
-            ? adminScopeHref("/admin/tickets", scope, { page: scope.page - 1 })
+            ? adminScopeHref("/admin/tickets", scope, {
+                // From past the end, step back to the last real page rather
+                // than into another empty one.
+                page: Math.min(scope.page - 1, pages),
+              })
             : null
         }
         nextHref={
@@ -171,7 +206,7 @@ async function workloadFor(
   ]);
   if (!person) return null;
   return {
-    name: fullName(person.firstName, person.lastName) || person.email,
+    name: displayName(person.firstName, person.lastName, person.email),
     active: load.active,
     overdue: load.overdue,
   };

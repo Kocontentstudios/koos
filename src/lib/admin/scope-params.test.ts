@@ -1,8 +1,19 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ADMIN_TICKET_VIEWS } from "./scope";
-import { adminScopeHref, DEFAULT_SCOPE, loadAdminScope } from "./scope-params";
+import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
+import { ADMIN_TICKET_VIEWS, matchesView } from "./scope";
+import {
+  adminScopeHref,
+  DEFAULT_SCOPE,
+  loadAdminScope,
+  statusRowHref,
+} from "./scope-params";
 
 const parse = (qs: string) => loadAdminScope(new URLSearchParams(qs));
+
+const BRAND = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
+const DESIGNER = "11111111-1111-1111-1111-111111111111";
 
 describe("reading a scope off the URL", () => {
   it("falls back to the defaults for an empty query", () => {
@@ -11,12 +22,12 @@ describe("reading a scope off the URL", () => {
 
   it("reads the whole vocabulary", () => {
     const s = parse(
-      "view=overdue&status=submitted,assigned&assignee=unassigned&brand=b1&q=DT-124&range=custom&from=2026-07-19&to=2026-07-25&on=due&page=3",
+      `view=overdue&status=submitted,assigned&assignee=unassigned&brand=${BRAND}&q=DT-124&range=custom&from=2026-07-19&to=2026-07-25&on=due&page=3`,
     );
     expect(s.view).toBe("overdue");
     expect(s.status).toEqual(["submitted", "assigned"]);
     expect(s.assignee).toBe("unassigned");
-    expect(s.brand).toBe("b1");
+    expect(s.brand).toBe(BRAND);
     expect(s.q).toBe("DT-124");
     expect(s.range).toBe("custom");
     expect(s.from).toBe("2026-07-19");
@@ -27,11 +38,17 @@ describe("reading a scope off the URL", () => {
 
   /* A hand-edited or stale URL is data, not a crash. Every unknown value falls
      back rather than throwing a 500 on a page an admin bookmarked. */
+  /* Every one of these reaches SQL. A brand or assignee that is not a uuid is
+     a query ERROR in Postgres, not a miss, so `?brand=acme` threw out of the
+     server component into the error boundary. */
   it.each([
     ["view=nonsense", "view"],
     ["range=forever", "range"],
     ["on=whenever", "on"],
     ["sort=createdAt;DROP TABLE", "sort"],
+    ["brand=acme", "brand"],
+    ["assignee=not-a-uuid", "assignee"],
+    ["requester=1 OR 1=1", "requester"],
   ])("drops junk in %s rather than erroring", (qs, key) => {
     const s = parse(qs) as Record<string, unknown>;
     expect(s[key]).toEqual((DEFAULT_SCOPE as Record<string, unknown>)[key]);
@@ -62,8 +79,8 @@ describe("building a link from a scope", () => {
     const scope = {
       ...DEFAULT_SCOPE,
       view: "overdue" as const,
-      brand: "b1",
-      assignee: "u9",
+      brand: BRAND,
+      assignee: DESIGNER,
       range: "7d" as const,
       status: ["submitted" as const],
       page: 2,
@@ -80,21 +97,21 @@ describe("building a link from a scope", () => {
   it("carries the whole scope and changes only what was patched", () => {
     const scope = {
       ...DEFAULT_SCOPE,
-      brand: "b1",
-      assignee: "u9",
+      brand: BRAND,
+      assignee: DESIGNER,
       range: "7d" as const,
       status: ["submitted" as const],
     };
-    const href = adminScopeHref("/admin/analytics/records", scope, {
-      kind: ["design_generated"],
+    const href = adminScopeHref("/admin/tickets", scope, {
+      view: "overdue",
     });
     const back = loadAdminScope(new URLSearchParams(href.split("?")[1]));
 
-    expect(back.brand).toBe("b1");
-    expect(back.assignee).toBe("u9");
+    expect(back.brand).toBe(BRAND);
+    expect(back.assignee).toBe(DESIGNER);
     expect(back.range).toBe("7d");
     expect(back.status).toEqual(["submitted"]);
-    expect(back.kind).toEqual(["design_generated"]);
+    expect(back.view).toBe("overdue");
   });
 
   /* The bug this pins: with `all` as the parser default, the serializer
@@ -129,5 +146,61 @@ describe("building a link from a scope", () => {
     });
     expect(href).toContain("status=submitted,assigned");
     expect(href.match(/status=/g)).toHaveLength(1);
+  });
+});
+
+describe("a status row opens exactly the tickets it counted", () => {
+  /* The bug this exists to stop, found by clicking the page rather than by any
+     unit test: the href was hand-built as `?status=delivered`, so it inherited
+     whatever the parser's default view was. When that default became `open`
+     — NOT IN (draft, delivered) — the link resolved to an empty set and the
+     Approved row showed 1 but opened 0.
+
+     Asserting the RESOLVED SCOPE rather than the string is what makes this
+     catchable: the defect was entirely in what the URL meant, not how it
+     looked. */
+  it.each([...TICKET_STATUSES])(
+    "resolves ?status=%s to a scope that can return that status",
+    (status) => {
+      const scope = loadAdminScope(
+        new URLSearchParams(statusRowHref(status).split("?")[1] ?? ""),
+      );
+      expect(scope.status).toEqual([status]);
+
+      const row = { status, approvedAt: null, dueDate: null };
+      expect(matchesView(row, scope.view, new Date())).toBe(true);
+    },
+  );
+
+  it("never points at a route the app does not serve", () => {
+    const segments = readdirSync(join(process.cwd(), "src/app/admin"), {
+      withFileTypes: true,
+    })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+
+    for (const status of TICKET_STATUSES) {
+      const path = statusRowHref(status).split("?")[0] ?? "";
+      const segment = path.replace("/admin/", "").split("/")[0] ?? "";
+      expect(segments).toContain(segment);
+    }
+  });
+});
+
+describe("uuid params never reach a uuid column malformed", () => {
+  it("keeps a real uuid", () => {
+    expect(parse(`brand=${BRAND}`).brand).toBe(BRAND);
+    expect(parse(`assignee=${DESIGNER}`).assignee).toBe(DESIGNER);
+  });
+
+  /* The one non-uuid value the query layer understands: it maps to
+     `assigned_designer_id IS NULL`, never to a comparison. */
+  it("keeps the unassigned sentinel", () => {
+    expect(parse("assignee=unassigned").assignee).toBe("unassigned");
+  });
+
+  it("does not extend the sentinel to the other uuid params", () => {
+    expect(parse("brand=unassigned").brand).toBe("");
+    expect(parse("requester=unassigned").requester).toBe("");
   });
 });
