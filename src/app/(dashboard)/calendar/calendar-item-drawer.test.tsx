@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const updateCalendarItemAction = vi.fn();
 const deleteCalendarItemAction = vi.fn();
@@ -50,13 +50,16 @@ function item(over: Partial<CalendarItem> = {}): CalendarItem {
   };
 }
 
-function setup(over: Partial<CalendarItem> = {}) {
+function setup(
+  over: Partial<CalendarItem> = {},
+  opts: { open?: boolean } = {},
+) {
   const onOpenChange = vi.fn();
   render(
     <CalendarItemDrawer
       item={item(over)}
       brandId="b1"
-      open
+      open={opts.open ?? true}
       onOpenChange={onOpenChange}
       submitted={false}
       onRequestDesign={vi.fn()}
@@ -270,5 +273,109 @@ describe("delete", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(deleteCalendarItemAction).not.toHaveBeenCalled();
+  });
+});
+
+/* The placeholder promises the brief "will appear here shortly", and nothing
+   ever refreshed — a user who opened the calendar while generation was still
+   running had to reload the page by hand to see it. */
+describe("a brief still being written", () => {
+  /* Without this, one failed assertion leaves fake timers installed and every
+     userEvent test later in the file hangs to the suite timeout. */
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("refreshes while an AI item has no brief yet", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("stops once the brief has arrived", () => {
+    vi.useFakeTimers();
+    setup({ brief: "The brief", source: "ai" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  /* A closed drawer keeps its selection — calendar-client holds selectedId and
+     "Request Design" deliberately closes the drawer while keeping it — so an
+     ungated poll refetches a 90-day route every 8s behind the user's back. */
+  it("does not poll while the drawer is closed", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" }, { open: false });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  /* A job resumes up to three times at 240s a slice, so a brief can legitimately
+     arrive ~16 minutes in. */
+  it("keeps polling past the five-minute mark", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    vi.advanceTimersByTime(6 * 60_000);
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("eventually stops rather than polling forever", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    vi.advanceTimersByTime(31 * 60_000);
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  /* The app tells users to "keep working elsewhere" while a calendar
+     generates, so backgrounding the tab is the expected path — not an edge
+     case. Time spent hidden must not spend the budget. */
+  it("does not poll or spend its budget while the tab is hidden", () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    setup({ brief: null, source: "ai" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(40 * 60_000);
+    expect(refresh).not.toHaveBeenCalled();
+
+    // Budget intact: it resumes on return rather than having expired unseen.
+    hidden.mockReturnValue(false);
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("refreshes as soon as the tab becomes visible again", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "ai" });
+    refresh.mockClear();
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  /* A manual entry never had a brief, so polling for one would spin forever. */
+  it("does not poll for a manual entry", () => {
+    vi.useFakeTimers();
+    setup({ brief: null, source: "manual" });
+    refresh.mockClear();
+
+    vi.advanceTimersByTime(60_000);
+    expect(refresh).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

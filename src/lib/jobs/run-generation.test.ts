@@ -90,6 +90,7 @@ function fakeRuntime(
   shouldPause: () => boolean = () => false,
 ): JobRuntime {
   return {
+    jobId: "job-1",
     reportProgress: vi.fn(),
     checkpoint,
     saveCheckpoint: vi.fn(async (partial: Record<string, unknown>) => {
@@ -547,5 +548,70 @@ describe("generateStrategyWork", () => {
         status: "draft",
       },
     });
+  });
+});
+
+/** Everything after the tag is JSON — that is the format's whole promise, so
+ *  the tests read it the way a log consumer would. */
+function timingPayload(log: { mock: { calls: unknown[][] } }) {
+  const line = log.mock.calls
+    .map((c) => String(c[0]))
+    .find((l) => l.startsWith("calendar-timing "));
+  if (!line) throw new Error("no calendar-timing line was logged");
+  return JSON.parse(line.slice("calendar-timing ".length));
+}
+
+/* A slice that blew its budget leaves by throwing JobPausedError, and that is
+   precisely the run worth measuring — the timing summary must not sit after
+   the throw where the perf-critical path never reaches it. */
+describe("generation timing reaches every terminal path", () => {
+  it("logs a timing line when the slice pauses", async () => {
+    generateObject.mockResolvedValueOnce({ object: OUTLINE });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(
+        generateCalendarWork(
+          workArgs(),
+          fakeRuntime({}, () => true),
+        ),
+      ).rejects.toThrow(JobPausedError);
+      expect(timingPayload(log)).toMatchObject({ outcome: "paused" });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs a timing line on a completed run", async () => {
+    generateObject
+      .mockResolvedValueOnce({ object: OUTLINE })
+      .mockResolvedValueOnce({ object: CHUNK_0 })
+      .mockResolvedValueOnce({ object: CHUNK_1 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await generateCalendarWork(workArgs(), fakeRuntime());
+      expect(timingPayload(log)).toMatchObject({ outcome: "complete" });
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+/* A change-detector, deliberately. Both the pool and the summary read the same
+   constant, so this cannot catch them diverging — what it catches is the
+   constant moving at all, which is the point: the measurement behind 5 has to
+   be redone before that number changes, and a comment saying so is prose. */
+describe("brief concurrency is pinned to the measured value", () => {
+  it("still runs at the width the measurement was taken at", async () => {
+    generateObject
+      .mockResolvedValueOnce({ object: OUTLINE })
+      .mockResolvedValueOnce({ object: CHUNK_0 })
+      .mockResolvedValueOnce({ object: CHUNK_1 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await generateCalendarWork(workArgs(), fakeRuntime());
+      expect(timingPayload(log)).toMatchObject({ concurrency: 5 });
+    } finally {
+      log.mockRestore();
+    }
   });
 });

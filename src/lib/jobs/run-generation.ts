@@ -50,6 +50,10 @@ import {
   mapWithConcurrency,
   withRetry,
 } from "@/lib/jobs/calendar-assembly";
+import {
+  summariseGeneration,
+  type UnitTiming,
+} from "@/lib/jobs/generation-timing";
 import { toCampaignCard } from "@/lib/strategy/campaign-card";
 
 type BrandRow = typeof brands.$inferSelect;
@@ -76,6 +80,9 @@ export type ReportProgress = (progress: JobProgress) => void;
 
 /** What resumable work gets from the job runner. */
 export interface JobRuntime {
+  /** Carried so a timing line can be joined to its job — two generations run
+   *  concurrently and interleave in the log. */
+  jobId: string;
   reportProgress: ReportProgress;
   /** Checkpoint persisted by a previous slice (empty object on first run). */
   checkpoint: Record<string, unknown>;
@@ -141,6 +148,7 @@ export async function executeGenerationJob(
 
   const deadline = softDeadlineMs ? Date.now() + softDeadlineMs : null;
   const runtime: JobRuntime = {
+    jobId,
     reportProgress: (progress) => {
       state.progress = progress;
       // Fire-and-forget: progress is cosmetic, never fail the job over it.
@@ -284,6 +292,25 @@ export const CALENDAR_SLICE_BUDGET_MS = 240_000;
     covering a whole ~9-slot segment. */
 const MAX_SLOTS_PER_BRIEF_CALL = 4;
 
+/**
+ * Measured, not guessed. 5 is where this sits after two real 90-day runs:
+ *
+ *   5 wide → 198s total, unit p50 27.7s, p95 38s, slowest 57s
+ *   8 wide → 397s total, unit p50 22.4s, p95 46s, slowest 309s
+ *
+ * Going wider improved the median call by 19% and blew up the tail: the
+ * slowest unit went 57s -> 309s, two units failed schema validation, and
+ * summed model time rose 599s -> 837s for comparable work. The run then waits
+ * on the worst straggler, so the total doubled despite fewer waves.
+ *
+ * Caveats worth keeping, because the constant is set on them: n=1 per arm, the
+ * two runs had different slot counts (79 vs 84), and token counts were only
+ * captured for the 5-wide arm — so this is "5 is the known-good default"
+ * rather than a settled causal finding. Re-measure both arms before changing
+ * it; the wave count is demonstrably not what bounds this job.
+ */
+const BRIEF_CONCURRENCY = 5;
+
 /** What a calendar job parks in the runtime checkpoint between slices. */
 interface CalendarCheckpoint {
   outline?: CalendarOutline;
@@ -322,6 +349,38 @@ export async function generateCalendarWork(
   const todayIso = now.toISOString().slice(0, 10);
   const model = getModel("strategy");
 
+  /* KOS-V1-BUG-009 measurement. Collected per slice; a resumed run reports its
+     own slice, which is the unit that has to fit inside the 240s budget. */
+  const runStart = Date.now();
+  let outlineMs = 0;
+  let outlineTokens = { input: 0, output: 0 };
+  const unitTimings: UnitTiming[] = [];
+  /* Emitted on every terminal path, pause included — a slice that blew its
+     budget is the one worth measuring, and it leaves by throwing. */
+  let timingEmitted = false;
+  /* One line, and everything after the tag is JSON — a consumer greps the tag
+     and pipes the rest to jq. Outcome and jobId live INSIDE the payload:
+     without them, concurrent generations interleave into an unjoinable stream
+     and a parser loses the dimension that matters most. Idempotent, so an
+     inner guard and an outer one cannot double-log. */
+  const emitTiming = (outcome: "complete" | "paused" | "failed") => {
+    if (timingEmitted) return;
+    timingEmitted = true;
+    console.log(
+      `calendar-timing ${JSON.stringify(
+        summariseGeneration({
+          jobId: runtime.jobId,
+          outcome,
+          outlineMs,
+          totalMs: Date.now() - runStart,
+          concurrency: BRIEF_CONCURRENCY,
+          outlineTokens,
+          units: unitTimings,
+        }),
+      )}`,
+    );
+  };
+
   let outline = checkpoint.outline;
   if (outline) {
     console.log(
@@ -330,25 +389,41 @@ export async function generateCalendarWork(
   } else {
     reportProgress({ done: 0, total: 1, label: "Planning the calendar…" });
     const outlineStart = Date.now();
-    const { object } = await withRetry(
-      () =>
-        generateObject({
-          model,
-          schema: calendarOutlineSchema,
-          system: buildCalendarOutlineSystemPrompt(summary, todayIso),
-          prompt: buildCalendarOutlinePrompt(
-            args.structured,
-            summary,
-            todayIso,
-          ),
-          // A 90-day outline is ~80 slots of structured JSON — the provider
-          // default cap (4096 on Bedrock) truncates it into schema failures.
-          maxOutputTokens: 16_000,
-        }),
-      3,
-      { label: "calendar outline" },
-    );
+    let object: CalendarOutline;
+    let outlineUsage:
+      | { inputTokens?: number; outputTokens?: number }
+      | undefined;
+    try {
+      ({ object, usage: outlineUsage } = await withRetry(
+        () =>
+          generateObject({
+            model,
+            schema: calendarOutlineSchema,
+            system: buildCalendarOutlineSystemPrompt(summary, todayIso),
+            prompt: buildCalendarOutlinePrompt(
+              args.structured,
+              summary,
+              todayIso,
+            ),
+            // A 90-day outline is ~80 slots of structured JSON — the provider
+            // default cap (4096 on Bedrock) truncates it into schema failures.
+            maxOutputTokens: 16_000,
+          }),
+        3,
+        { label: "calendar outline" },
+      ));
+    } catch (err) {
+      // Three attempts at a ~60s call plus backoff is the single most
+      // expensive failure here; it must not vanish from the record.
+      emitTiming("failed");
+      throw err;
+    }
     outline = object;
+    outlineMs = Date.now() - outlineStart;
+    outlineTokens = {
+      input: outlineUsage?.inputTokens ?? 0,
+      output: outlineUsage?.outputTokens ?? 0,
+    };
     await runtime.saveCheckpoint({ outline });
     console.log(
       `calendar outline generated in ${Math.round((Date.now() - outlineStart) / 1000)}s (${outline.segments.length} segments, ${outline.segments.reduce((n, s) => n + s.slots.length, 0)} slots)`,
@@ -444,7 +519,7 @@ export async function generateCalendarWork(
   // throttling regression visible.
   await mapWithConcurrency(
     missing,
-    5,
+    BRIEF_CONCURRENCY,
     async (unit) => {
       const segment = segments[unit.segIndex];
       const unitSlots = segment.slots.slice(
@@ -453,10 +528,19 @@ export async function generateCalendarWork(
       );
       const unitStart = Date.now();
       let object: CalendarChunk;
+      /* Counted in the closure rather than by changing withRetry's signature.
+         Without it `ms` is a retry chain collapsed into one number, and a slow
+         call cannot be told apart from a retrying one — exactly the question
+         the 309s outlier raised and could not answer. */
+      let attempts = 0;
+      let unitUsage:
+        | { inputTokens?: number; outputTokens?: number }
+        | undefined;
       try {
-        ({ object } = await withRetry(
-          () =>
-            generateObject({
+        ({ object, usage: unitUsage } = await withRetry(
+          () => {
+            attempts += 1;
+            return generateObject({
               model,
               schema: calendarChunkSchema,
               system: buildCalendarChunkSystemPrompt(summary),
@@ -469,7 +553,8 @@ export async function generateCalendarWork(
               // Multi-section briefs blow past the provider default output
               // cap (4096 on Bedrock); a truncated response fails the schema.
               maxOutputTokens: 20_000,
-            }),
+            });
+          },
           3,
           { label: `calendar unit ${unit.key}` },
         ));
@@ -483,8 +568,19 @@ export async function generateCalendarWork(
         );
         object = { briefs: [] };
       }
+      const unitMs = Date.now() - unitStart;
+      unitTimings.push({
+        key: unit.key,
+        slots: unitSlots.length,
+        ms: unitMs,
+        attempts,
+        inputTokens: unitUsage?.inputTokens,
+        outputTokens: unitUsage?.outputTokens,
+      });
+      /* Kept alongside the summary: the summary only lands at the end of a
+         slice, and a run killed mid-slice still needs per-unit evidence. */
       console.log(
-        `calendar unit ${unit.key} (${unitSlots.length} slots) finished in ${Math.round((Date.now() - unitStart) / 1000)}s`,
+        `calendar unit ${unit.key} (${unitSlots.length} slots) finished in ${Math.round(unitMs / 1000)}s`,
       );
       // Model slotIndex is relative to the slots it saw; remap to the
       // segment-relative index that assembly expects.
@@ -539,6 +635,7 @@ export async function generateCalendarWork(
     console.log(
       `calendar slice pausing with ${units.length - doneUnits()} of ${units.length} units remaining`,
     );
+    emitTiming("paused");
     throw new JobPausedError();
   }
 
@@ -570,12 +667,17 @@ export async function generateCalendarWork(
     (u) => chunks[u.key]?.briefs.length === 0,
   ).length;
   if (failedUnits > units.length / 2) {
+    emitTiming("failed");
     throw new Error(
       "Calendar brief generation is failing repeatedly. Please try again.",
     );
   }
 
   const itemCount = Object.keys(itemIdsBySlotKey).length;
+
+  /* One machine-readable line per slice. The prose logs above are for spotting
+     a stall; this is what a budget gets argued from. */
+  emitTiming("complete");
 
   await recordUsageEvent({
     userId: args.userId,

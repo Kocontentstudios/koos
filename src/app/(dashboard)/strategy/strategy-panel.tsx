@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Strategy } from "@/lib/ai/strategy-schema";
+import type { JobProgress } from "@/lib/jobs/run-generation";
 import { cn } from "@/lib/utils";
 
 interface StrategyPanelProps {
@@ -34,6 +35,7 @@ interface StrategyPanelProps {
   generatingLabel?: string;
   /** Reassurance shown under the button on long runs ("you'll be alerted…"). */
   generatingHint?: string | null;
+  calendarProgress?: JobProgress | null;
   calendarError: string | null;
   /** Mobile drawer open state (below the lg breakpoint). */
   mobileOpen: boolean;
@@ -175,6 +177,7 @@ function PanelContent({
   generating,
   generatingLabel,
   generatingHint,
+  calendarProgress,
   calendarError,
   headerAction,
 }: {
@@ -189,6 +192,7 @@ function PanelContent({
   generating: boolean;
   generatingLabel?: string;
   generatingHint?: string | null;
+  calendarProgress?: JobProgress | null;
   calendarError: string | null;
   headerAction: React.ReactNode;
 }) {
@@ -241,6 +245,42 @@ function PanelContent({
               </Button>
             )
           )}
+          {/* The server counts the outline as step 1 of total, so briefs are
+              total-1 and done-1. During planning that is 0 of 0 and no bar
+              shows — a determinate bar parked at zero is a worse lie than a
+              spinner, and "0 of 1 briefs written" during a 60s outline is
+              worse still. */}
+          {generating &&
+            calendarProgress &&
+            calendarProgress.total > 1 &&
+            (() => {
+              const done = Math.max(calendarProgress.done - 1, 0);
+              const total = calendarProgress.total - 1;
+              const label = `${done} of ${total} briefs written`;
+              return (
+                <div className="space-y-1.5">
+                  <div
+                    role="progressbar"
+                    aria-label="Calendar generation"
+                    aria-valuenow={done}
+                    aria-valuemin={0}
+                    aria-valuemax={total}
+                    className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--status-progress-bg)]"
+                  >
+                    <div
+                      className="h-full rounded-full bg-[var(--status-progress-fg)] transition-[width] duration-500"
+                      style={{ width: `${Math.round((done / total) * 100)}%` }}
+                    />
+                  </div>
+                  <p
+                    role="status"
+                    className="text-[12px] text-[var(--text-muted)] tabular-nums"
+                  >
+                    {label}
+                  </p>
+                </div>
+              );
+            })()}
           {generating && generatingHint && (
             <p
               role="status"
@@ -276,6 +316,7 @@ export function StrategyPanel({
   generating,
   generatingLabel,
   generatingHint,
+  calendarProgress,
   calendarError,
   mobileOpen,
   onMobileClose,
@@ -314,6 +355,7 @@ export function StrategyPanel({
             generating={generating}
             generatingLabel={generatingLabel}
             generatingHint={generatingHint}
+            calendarProgress={calendarProgress}
             calendarError={calendarError}
             headerAction={
               <button
@@ -356,6 +398,7 @@ export function StrategyPanel({
           generating={generating}
           generatingLabel={generatingLabel}
           generatingHint={generatingHint}
+          calendarProgress={calendarProgress}
           calendarError={calendarError}
           headerAction={
             <button
