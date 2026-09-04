@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
@@ -172,18 +172,25 @@ describe("a status row opens exactly the tickets it counted", () => {
     },
   );
 
+  /* The WHOLE path, not just its first segment: /admin/tickets/nonexistent
+     shares a segment with a real route and 404s all the same. A directory with
+     a page.tsx is a route; anything else is not. */
   it("never points at a route the app does not serve", () => {
-    const segments = readdirSync(join(process.cwd(), "src/app/admin"), {
-      withFileTypes: true,
-    })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+    const appDir = join(process.cwd(), "src/app");
+
+    function isRoute(pathname: string): boolean {
+      const dir = join(appDir, pathname);
+      return (
+        existsSync(join(dir, "page.tsx")) || existsSync(join(dir, "page.ts"))
+      );
+    }
 
     for (const status of TICKET_STATUSES) {
-      const path = statusRowHref(status).split("?")[0] ?? "";
-      const segment = path.replace("/admin/", "").split("/")[0] ?? "";
-      expect(segments).toContain(segment);
+      const pathname = statusRowHref(status).split("?")[0] ?? "";
+      expect(isRoute(pathname)).toBe(true);
     }
+    // The check itself must be able to fail.
+    expect(isRoute("/admin/definitely-not-a-route")).toBe(false);
   });
 });
 

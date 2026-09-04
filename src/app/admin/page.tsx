@@ -73,10 +73,10 @@ export default async function AdminDashboardPage() {
           label="Overdue"
           value={overdue}
           href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            /* No explicit sort: defaultSortKeyFor("overdue") already orders
+               most-overdue-first, and a redundant param rides the tab bar into
+               views that have their own default. */
             view: "overdue",
-            // No :desc suffix — "overdue" already fixes its direction, and a
-            // shareable URL should not state one the list will not honour.
-            sort: "overdue",
           })}
         />
         <StatCard

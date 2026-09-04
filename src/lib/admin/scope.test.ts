@@ -6,6 +6,7 @@ import {
   defaultSortKeyFor,
   formatOverdue,
   isSortable,
+  lateChipFor,
   matchesView,
   overdueMs,
   pageCount,
@@ -75,15 +76,6 @@ describe("ticket language maps onto the enum", () => {
 
   /* There is no `approved` status — approval is a nullable timestamp, and
      `delivered` is what the UI already labels "Approved". */
-  it("delivered covers work with the client, approved or not", () => {
-    for (const status of ["ready_for_review", "delivered"] as const) {
-      expect(matchesView(ticket({ status }), "delivered", NOW)).toBe(true);
-    }
-    expect(
-      matchesView(ticket({ status: "in_progress" }), "delivered", NOW),
-    ).toBe(false);
-  });
-
   /* recordDeliverableVersion sets ready_for_review on EVERY upload and never
      clears approvedAt, so a correction round after sign-off lands here. */
   it("awaiting_review excludes work the client already approved", () => {
@@ -101,23 +93,6 @@ describe("ticket language maps onto the enum", () => {
           approvedAt: new Date("2026-08-01"),
         }),
         "awaiting_review",
-        NOW,
-      ),
-    ).toBe(false);
-  });
-
-  it("reopened is the approved-then-moved-on set", () => {
-    expect(
-      matchesView(
-        ticket({ status: "in_progress", approvedAt: new Date("2026-08-01") }),
-        "reopened",
-        NOW,
-      ),
-    ).toBe(true);
-    expect(
-      matchesView(
-        ticket({ status: "delivered", approvedAt: new Date("2026-08-01") }),
-        "reopened",
         NOW,
       ),
     ).toBe(false);
@@ -208,7 +183,7 @@ describe("overdue", () => {
     expect(formatOverdue(day)).toBe("1 day");
     expect(formatOverdue(5 * 60 * 60 * 1000)).toBe("5 hours");
     expect(formatOverdue(90 * 60 * 1000)).toBe("1 hour");
-    expect(formatOverdue(30 * 1000)).toBe("just now");
+    expect(formatOverdue(30 * 1000)).toBe("less than an hour");
   });
 });
 
@@ -384,6 +359,23 @@ describe("isSortable gates what reaches the query layer", () => {
   ])("rejects %s", (v) => expect(isSortable(v)).toBe(false));
 });
 
+/* Every caller concatenates " overdue". A value that does not read as a
+   duration there ships to a designer as an email SUBJECT LINE. */
+describe("lateness reads as a duration in the sentence that carries it", () => {
+  it.each([
+    30 * 1000,
+    59 * 60 * 1000,
+    3 * 60 * 60 * 1000,
+    5 * 24 * 60 * 60 * 1000,
+  ])("reads correctly at %ims", (ms) => {
+    const sentence = `DT-0012 is ${formatOverdue(ms)} overdue`;
+    expect(sentence).not.toMatch(/is just now overdue/);
+    expect(sentence).toMatch(
+      /^DT-0012 is (less than an hour|\d+ (hour|hours|day|days)) overdue$/,
+    );
+  });
+});
+
 describe("paging", () => {
   /* An empty list is page 1 of 1. "Page 1 of 0" is a pager describing a page
      that cannot exist. */
@@ -447,11 +439,10 @@ describe("the lateness chip and the overdue count share one definition", () => {
      same predicate the card counts. */
   const past = new Date("2026-08-25T12:00:00Z");
 
-  function chipShows(row: Parameters<typeof matchesView>[0]): boolean {
-    return (
-      matchesView(row, "overdue", NOW) && overdueMs(row.dueDate, NOW) !== null
-    );
-  }
+  /* Drives the SHIPPED function. Re-implementing the gate here is what let a
+     previous version of this block pass while the page had no gate at all. */
+  const chipShows = (row: Parameters<typeof matchesView>[0]) =>
+    lateChipFor(row, NOW) !== null;
 
   it("shows no chip on a draft that is past its date", () => {
     expect(chipShows(ticket({ status: "draft", dueDate: past }))).toBe(false);

@@ -1,12 +1,15 @@
 import {
   type AdminTicketView,
-  formatOverdue,
-  matchesView,
-  overdueMs,
+  lateChipFor,
   PAGE_SIZE,
   pageCount,
+  VIEW_LABELS,
 } from "@/lib/admin/scope";
-import { adminScopeHref, loadAdminScope } from "@/lib/admin/scope-params";
+import {
+  type AdminScope,
+  adminScopeHref,
+  loadAdminScope,
+} from "@/lib/admin/scope-params";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   countAdminTickets,
@@ -15,7 +18,11 @@ import {
   getWorkloadForDesigner,
   listAdminTickets,
 } from "@/lib/db/queries";
-import type { TicketPriority, TicketStatus } from "@/lib/design/tickets-ui";
+import {
+  humanizeStatus,
+  type TicketPriority,
+  type TicketStatus,
+} from "@/lib/design/tickets-ui";
 import {
   type Assignee,
   QueueClient,
@@ -87,21 +94,6 @@ export default async function AdminTicketsPage({
   ]);
 
   const queue: QueueRow[] = rows.map((r) => {
-    /* Through the predicate, not raw date arithmetic. A draft past its due
-       date is not overdue — the Overdue card excludes it — and a row wearing
-       the lateness chip anyway reads as a ticket the dashboard forgot to
-       count. The chip and the number resolve the same definition. */
-    const late = matchesView(
-      {
-        status: r.status as TicketStatus,
-        approvedAt: r.approvedAt,
-        dueDate: r.dueDate,
-      },
-      "overdue",
-      now,
-    )
-      ? overdueMs(r.dueDate, now)
-      : null;
     return {
       id: r.id,
       ticketNumber: r.ticketNumber,
@@ -122,21 +114,36 @@ export default async function AdminTicketsPage({
         r.designerLastName,
         r.designerEmail,
       ),
-      overdueFor: late === null ? null : formatOverdue(late),
+      overdueFor: lateChipFor(
+        {
+          status: r.status as TicketStatus,
+          approvedAt: r.approvedAt,
+          dueDate: r.dueDate,
+        },
+        now,
+      ),
     };
   });
 
   const filters: QueueFilterLink[] = VIEWS.map(({ view, label }) => ({
     key: view,
     label,
-    // Carries the whole scope and patches one key, so a view change never
-    // silently drops a brand or assignee filter the user applied.
-    href: adminScopeHref("/admin/tickets", scope, { view, page: 1 }),
+    /* Carries the scope and patches the view — but CLEARS `status`. A status
+       narrows within a view, so keeping it across a tab click produced
+       `NOT IN (draft, delivered) AND = delivered`: zero rows under the message
+       "The queue is empty. Nice work." while 41 open tickets existed. Brand
+       and assignee are orthogonal and still ride along. */
+    href: adminScopeHref("/admin/tickets", scope, {
+      view,
+      status: [],
+      page: 1,
+    }),
     active: scope.view === view,
     count: view === "needs_revision" ? revisionCount : undefined,
   }));
 
   const pages = pageCount(total, PAGE_SIZE);
+  const statusLabels = scope.status.map(humanizeStatus);
   const staff: Assignee[] = assignees.map((u) => ({
     id: u.id,
     name: displayName(u.firstName, u.lastName, u.email),
@@ -149,9 +156,11 @@ export default async function AdminTicketsPage({
         <h1 className="font-display text-2xl font-bold text-foreground">
           Design Queue
         </h1>
+        {/* Says what this list IS. `approved` and `active` have no tab, so
+            without it those two drill-downs arrive as unexplained rows with
+            nothing highlighted. */}
         <p className="text-[14px] text-[var(--text-secondary)]">
-          Every ticket the studio is carrying, and everything the dashboard
-          links to.
+          {describeScope(scope, statusLabels)}
         </p>
       </header>
 
@@ -186,6 +195,14 @@ export default async function AdminTicketsPage({
       />
     </div>
   );
+}
+
+/** What the operator is looking at, in the words the dashboard used. */
+function describeScope(scope: AdminScope, statusLabels: string[]): string {
+  const parts = [VIEW_LABELS[scope.view]];
+  if (statusLabels.length) parts.push(`status: ${statusLabels.join(", ")}`);
+  if (scope.q) parts.push(`matching "${scope.q}"`);
+  return parts.join(" · ");
 }
 
 /**

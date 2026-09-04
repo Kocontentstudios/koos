@@ -258,6 +258,14 @@ export async function countAdminTickets(
  * here, so the header can never claim a different "active" than the list it
  * sits above.
  */
+/** The two aggregates, separated from the query so both are testable. */
+export function workloadCounts(now: Date) {
+  return {
+    active: sql<number>`count(*) filter (where ${and(...viewConditions("active", now))})`,
+    overdue: sql<number>`count(*) filter (where ${and(...viewConditions("overdue", now))})`,
+  };
+}
+
 export async function getWorkloadForDesigner(
   designerId: string,
   now = new Date(),
@@ -267,11 +275,9 @@ export async function getWorkloadForDesigner(
      header report 0 while the Overdue tab directly beneath it listed the
      ticket — `overdue` also covers submitted and revision_requested work,
      which `active` does not. */
+  const counts = workloadCounts(now);
   const [row] = await db
-    .select({
-      active: sql<number>`count(*) filter (where ${and(...viewConditions("active", now))})`,
-      overdue: sql<number>`count(*) filter (where ${and(...viewConditions("overdue", now))})`,
-    })
+    .select(counts)
     .from(designTickets)
     .where(eq(designTickets.assignedDesignerId, designerId));
   return {

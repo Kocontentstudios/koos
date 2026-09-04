@@ -18,9 +18,7 @@ export const ADMIN_TICKET_VIEWS = [
   "in_progress",
   "needs_revision",
   "awaiting_review",
-  "delivered",
   "approved",
-  "reopened",
 ] as const;
 
 export type AdminTicketView = (typeof ADMIN_TICKET_VIEWS)[number];
@@ -46,13 +44,11 @@ export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
   in_progress: { statusIn: ["assigned", "in_progress"] },
   needs_revision: { statusIn: ["revision_requested"] },
   awaiting_review: { statusIn: ["ready_for_review"], approved: "none" },
-  delivered: { statusIn: ["ready_for_review", "delivered"] },
   /* `delivered` means the files are with the client; `approved` means the
      client signed off. They are different sets and diverge on any correction
      round: recordDeliverableVersion sets ready_for_review on every upload and
      never clears approvedAt. */
   approved: { statusIn: ["delivered"] },
-  reopened: { statusNotIn: ["delivered"], approved: "only" },
 };
 
 export interface ViewableTicket {
@@ -85,7 +81,14 @@ export function overdueMs(dueDate: Date | null, now: Date): number | null {
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-/** Lateness the way an operator says it, not a duration library's answer. */
+/**
+ * Lateness the way an operator says it, not a duration library's answer.
+ *
+ * Every caller concatenates " overdue" — the chip, the in-app notification and
+ * the reminder email's subject line — so this must read as a DURATION in that
+ * sentence. "just now" produced "DT-0012 is just now overdue" in a subject
+ * line, which is how every overdue ticket read for its first hour.
+ */
 export function formatOverdue(ms: number): string {
   if (ms >= DAY) {
     const days = Math.floor(ms / DAY);
@@ -95,7 +98,7 @@ export function formatOverdue(ms: number): string {
     const hours = Math.floor(ms / HOUR);
     return `${hours} ${hours === 1 ? "hour" : "hours"}`;
   }
-  return "just now";
+  return "less than an hour";
 }
 
 export const ADMIN_RANGES = [
@@ -241,3 +244,71 @@ export function clampPage(value: number): number {
   if (!Number.isFinite(value)) return 1;
   return Math.min(Math.max(Math.trunc(value), 1), MAX_PAGE);
 }
+
+/**
+ * Which row actions the studio may take on a ticket, by status.
+ *
+ * The queue used to be hard-restricted to four statuses, so the action block
+ * never had to ask. Driving it from the URL put drafts and signed-off work on
+ * the same page — and `/api/admin/tickets/[id]/status` has no transition
+ * guard, so "Start" on an approved ticket silently reopens it and emails the
+ * client that work they already signed off is now in progress. A draft is the
+ * client's own unsubmitted request; the studio has no business touching it at
+ * all.
+ */
+export interface RowActions {
+  claim: boolean;
+  start: boolean;
+  upload: boolean;
+  remind: boolean;
+}
+
+/** Work the studio is carrying: not an unsubmitted draft, not signed off. */
+const LIVE_STATUSES: readonly TicketStatus[] = [
+  "submitted",
+  "assigned",
+  "in_progress",
+  "ready_for_review",
+  "revision_requested",
+];
+
+export function rowActionsFor(
+  status: TicketStatus,
+  designerId: string | null,
+): RowActions {
+  const live = LIVE_STATUSES.includes(status);
+  return {
+    claim: live && designerId === null,
+    // Already in progress is not a thing to start.
+    start: live && status !== "in_progress" && status !== "ready_for_review",
+    upload: live,
+    /* Only where the designer is actually the blocker. Nobody to reach on an
+       unassigned ticket, and work in review is waiting on the CLIENT. */
+    remind: live && designerId !== null && status !== "ready_for_review",
+  };
+}
+
+/**
+ * How late a row should say it is, or null for no chip.
+ *
+ * Through the predicate, not raw arithmetic: a draft past its due date is not
+ * overdue — the Overdue card excludes it — and a row wearing the chip anyway
+ * reads as a ticket the dashboard forgot to count.
+ */
+export function lateChipFor(row: ViewableTicket, now: Date): string | null {
+  if (!matchesView(row, "overdue", now)) return null;
+  const ms = overdueMs(row.dueDate, now);
+  return ms === null ? null : formatOverdue(ms);
+}
+
+/** What the list is showing, said in the operator's language. */
+export const VIEW_LABELS: Record<AdminTicketView, string> = {
+  all: "All tickets",
+  open: "Open tickets",
+  active: "Active work",
+  overdue: "Overdue tickets",
+  in_progress: "In progress",
+  needs_revision: "Needs revision",
+  awaiting_review: "Awaiting client review",
+  approved: "Approved work",
+};

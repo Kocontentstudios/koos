@@ -55,6 +55,7 @@ vi.mock("@/lib/db/queries", () => ({
   getRecentTickets: async () => [],
 }));
 
+import { defaultSortKeyFor } from "@/lib/admin/scope";
 import { loadAdminScope } from "@/lib/admin/scope-params";
 import AdminDashboardPage from "./page";
 
@@ -99,8 +100,11 @@ describe("every card opens the records behind its own number", () => {
     await renderDashboard();
     const scope = scopeOf(card(`Overdue${COUNTS.overdue}`));
     expect(scope.view).toBe("overdue");
-    // Most overdue first: the point of the drill-down is triage.
-    expect(scope.sort).toContain("overdue");
+    /* No explicit sort in the URL: the view's own default already orders
+       most-overdue-first, and a redundant param rides the tab bar into views
+       that have a different default. */
+    expect(scope.sort).toBe("");
+    expect(defaultSortKeyFor("overdue")).toBe("overdue");
   });
 
   /* The exact drift this ticket exists to fix: the card counted the raw

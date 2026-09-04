@@ -13,12 +13,20 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+/* Captures the setter so the search behaviour is actually exercised. Stubbing
+   it to a no-op made the whole search block assert only that an <input> has a
+   label — the trim, the page reset and the pending region were untested. */
+const setQuery = vi.fn();
+let queryState = { q: "", page: 1 };
+
 vi.mock("nuqs", () => ({
-  useQueryStates: () => [{ q: "", page: 1 }, vi.fn()],
+  useQueryStates: () => [queryState, setQuery],
 }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setQuery.mockClear();
+  queryState = { q: "", page: 1 };
 });
 
 function row(overrides: Partial<QueueRow>): QueueRow {
@@ -386,13 +394,82 @@ describe("the designer drill-down says whose list it is", () => {
   });
 });
 
+/* Server-side by construction: a paginated list filtered in the browser
+   searches the visible page and looks like it worked. */
 describe("search", () => {
-  /* Server-side by construction: a paginated list filtered in the browser
-     searches the visible page and looks like it worked. */
   it("offers a labelled search input", () => {
     renderQueue();
     expect(
       screen.getByRole("searchbox", { name: /search tickets/i }),
     ).toBeInTheDocument();
+  });
+
+  it("submits the term to the URL, not to local filtering", async () => {
+    renderQueue();
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: /search tickets/i }),
+      "logo",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^search$/i }));
+    expect(setQuery).toHaveBeenCalledWith({ q: "logo", page: null });
+  });
+
+  /* The old offset is meaningless against a new result set: without the reset,
+     searching from page 3 lands on page 3 of two pages of results. */
+  it("returns to the first page on a new search", async () => {
+    queryState = { q: "", page: 3 };
+    renderQueue({ page: 3, pages: 4 });
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: /search tickets/i }),
+      "logo",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^search$/i }));
+    expect(setQuery.mock.calls[0]?.[0]).toMatchObject({ page: null });
+  });
+
+  it("treats a whitespace-only term as no search", async () => {
+    renderQueue();
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: /search tickets/i }),
+      "   ",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^search$/i }));
+    expect(setQuery).toHaveBeenCalledWith({ q: null, page: null });
+  });
+
+  it("offers a way out of an active search", async () => {
+    queryState = { q: "logo", page: 1 };
+    renderQueue();
+    await userEvent.click(screen.getByRole("button", { name: /clear/i }));
+    expect(setQuery).toHaveBeenCalledWith({ q: null, page: null });
+  });
+
+  it("offers no Clear button when nothing is searched", () => {
+    renderQueue();
+    expect(screen.queryByRole("button", { name: /clear/i })).toBeNull();
+  });
+
+  /* Back/Forward changes the URL without touching local state, so the box kept
+     showing a term the results no longer carried. */
+  it("follows the URL when the query changes underneath it", () => {
+    queryState = { q: "logo", page: 1 };
+    const { rerender } = renderQueue();
+    expect(screen.getByRole("searchbox")).toHaveValue("logo");
+
+    queryState = { q: "", page: 1 };
+    rerender(
+      <QueueClient
+        queue={QUEUE}
+        filters={FILTERS}
+        page={1}
+        pages={1}
+        prevHref={null}
+        nextHref={null}
+        workload={null}
+        assignees={[]}
+        canAssign={false}
+      />,
+    );
+    expect(screen.getByRole("searchbox")).toHaveValue("");
   });
 });

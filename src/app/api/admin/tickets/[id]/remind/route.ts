@@ -93,19 +93,33 @@ export async function POST(
   /* The in-app notification is the durable half: it survives a bounced or
      blocked send, and it is what the designer sees next time they are in the
      product. The email is what reaches someone who is not. */
-  await createNotification({
-    userId: ticket.assignedDesignerId,
-    type: "ticket_status",
-    payload: {
-      reminder: true,
-      ticketId: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      designType: ticket.designType,
-      message: overdueFor
-        ? `${formatTicketNumber(ticket.ticketNumber)} is ${overdueFor} overdue.`
-        : `Reminder about ${formatTicketNumber(ticket.ticketNumber)}.`,
-    },
-  });
+  try {
+    await createNotification({
+      userId: ticket.assignedDesignerId,
+      type: "ticket_status",
+      payload: {
+        reminder: true,
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        designType: ticket.designType,
+        message: overdueFor
+          ? `${formatTicketNumber(ticket.ticketNumber)} is ${overdueFor} overdue.`
+          : `Reminder about ${formatTicketNumber(ticket.ticketNumber)}.`,
+      },
+    });
+  } catch (err) {
+    /* The window is already consumed and cannot be handed back, so the next
+       six hours would otherwise tell the operator a reminder went out when
+       none did. Say what actually happened. */
+    console.error("ticket reminder notification failed", { id, err });
+    return Response.json(
+      {
+        error:
+          "The reminder could not be recorded. Nothing was sent — try again later.",
+      },
+      { status: 500 },
+    );
+  }
 
   if (designer?.email) {
     // Never throws by contract (notify.ts), and logs its own failures.

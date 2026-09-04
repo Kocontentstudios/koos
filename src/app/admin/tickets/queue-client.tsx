@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { PriorityBadge } from "@/app/(dashboard)/design-request/priority-badge";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { Button } from "@/components/ui/button";
+import { rowActionsFor } from "@/lib/admin/scope";
 import { adminScopeParsers } from "@/lib/admin/scope-params";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { TicketPriority, TicketStatus } from "@/lib/design/tickets-ui";
@@ -117,6 +118,13 @@ export function QueueClient({
   });
   const [draft, setDraft] = useState(q);
   const searchId = useId();
+  /* Back/Forward changes `q` without touching local state, leaving the box
+     showing a term the URL and the results no longer carry. */
+  const [lastQ, setLastQ] = useState(q);
+  if (q !== lastQ) {
+    setLastQ(q);
+    setDraft(q);
+  }
 
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -296,6 +304,9 @@ function QueueItem({
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /* The list now spans every status, including drafts and signed-off work.
+     Offering Start on an approved ticket reopens it and emails the client. */
+  const can = rowActionsFor(row.status, row.designerId);
 
   async function action(
     label: string,
@@ -458,10 +469,7 @@ function QueueItem({
           </span>
         )}
 
-        {/* Only where the designer is actually the blocker. An unassigned
-            ticket has nobody to reach, and work sitting in review is waiting on
-            the CLIENT — nudging the designer there says the wrong thing. */}
-        {row.designerId && row.status !== "ready_for_review" ? (
+        {can.remind ? (
           <Button
             variant="secondary"
             size="lg"
@@ -482,50 +490,61 @@ function QueueItem({
             Send reminder
           </Button>
         ) : null}
-        <Button
-          variant="secondary"
-          size="lg"
-          loading={pending === "claim"}
-          loadingText="Claiming…"
-          disabled={pending !== null}
-          onClick={claim}
-        >
-          Claim
-        </Button>
-        <Button
-          variant="secondary"
-          size="lg"
-          loading={pending === "start"}
-          loadingText="Starting…"
-          disabled={pending !== null}
-          onClick={start}
-        >
-          Start
-        </Button>
-        <label
-          htmlFor={fileId}
-          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[var(--border-accent)] px-2.5 text-[13px] font-semibold text-foreground hover:bg-[rgba(19,139,200,0.08)] aria-disabled:pointer-events-none aria-disabled:opacity-50"
-          aria-disabled={pending !== null}
-        >
-          {pending === "upload" ? (
-            <>
-              <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-              Uploading…
-            </>
-          ) : (
-            "Upload deliverables"
-          )}
-        </label>
-        <input
-          id={fileId}
-          ref={fileRef}
-          type="file"
-          multiple
-          accept=".png,.jpg,.jpeg,.webp,.pdf,.zip"
-          disabled={pending !== null}
-          onChange={onFiles}
-          className="sr-only"
-        />
+        {can.claim && (
+          <Button
+            variant="secondary"
+            size="lg"
+            loading={pending === "claim"}
+            loadingText="Claiming…"
+            disabled={pending !== null}
+            onClick={claim}
+          >
+            Claim
+          </Button>
+        )}
+        {can.start && (
+          <Button
+            variant="secondary"
+            size="lg"
+            loading={pending === "start"}
+            loadingText="Starting…"
+            disabled={pending !== null}
+            onClick={start}
+          >
+            Start
+          </Button>
+        )}
+        {can.upload && (
+          <>
+            <label
+              htmlFor={fileId}
+              className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[var(--border-accent)] px-2.5 text-[13px] font-semibold text-foreground hover:bg-[rgba(19,139,200,0.08)] aria-disabled:pointer-events-none aria-disabled:opacity-50"
+              aria-disabled={pending !== null}
+            >
+              {pending === "upload" ? (
+                <>
+                  <Loader2Icon
+                    className="size-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                  Uploading…
+                </>
+              ) : (
+                "Upload deliverables"
+              )}
+            </label>
+            <input
+              id={fileId}
+              ref={fileRef}
+              type="file"
+              multiple
+              accept=".png,.jpg,.jpeg,.webp,.pdf,.zip"
+              disabled={pending !== null}
+              onChange={onFiles}
+              className="sr-only"
+            />
+          </>
+        )}
         <Link
           href={`/admin/tickets/${row.id}`}
           className="inline-flex h-9 items-center rounded-[10px] px-2.5 text-[13px] font-semibold text-primary hover:underline"
