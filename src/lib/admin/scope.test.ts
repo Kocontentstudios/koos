@@ -80,24 +80,36 @@ describe("ticket language maps onto the enum", () => {
      `delivered` is what the UI already labels "Approved". */
   /* recordDeliverableVersion sets ready_for_review on EVERY upload and never
      clears approvedAt, so a correction round after sign-off lands here. */
-  it("awaiting_review excludes work the client already approved", () => {
-    expect(
-      matchesView(
-        ticket({ status: "ready_for_review" }),
-        "awaiting_review",
-        NOW,
-      ),
-    ).toBe(true);
-    expect(
-      matchesView(
-        ticket({
-          status: "ready_for_review",
-          approvedAt: new Date("2026-08-01"),
-        }),
-        "awaiting_review",
-        NOW,
-      ),
-    ).toBe(false);
+  /* The inverse of what this used to assert. recordDeliverableVersion sets
+     ready_for_review on EVERY upload and notifies the client, so a correction
+     round genuinely IS awaiting review — and approvedAt still holds the FIRST
+     sign-off, which says nothing about the round now in front of them.
+     Excluding it hid exactly the work clients were sitting on, and made the
+     card disagree with the status row for one status. */
+  it("awaiting_review includes a correction round after an earlier sign-off", () => {
+    for (const approvedAt of [null, new Date("2026-08-01")]) {
+      expect(
+        matchesView(
+          ticket({ status: "ready_for_review", approvedAt }),
+          "awaiting_review",
+          NOW,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  /* And it is exactly the raw status, so the card and the status row for that
+     status are two routes to one number. */
+  it("awaiting_review is exactly the ready_for_review status", () => {
+    for (const status of TICKET_STATUSES) {
+      expect(
+        matchesView(
+          { status, approvedAt: null, dueDate: null },
+          "awaiting_review",
+          NOW,
+        ),
+      ).toBe(status === "ready_for_review");
+    }
   });
 });
 
@@ -489,6 +501,7 @@ describe("rowActionsFor", () => {
     (status) => {
       for (const designerId of [UNASSIGNED, ASSIGNED]) {
         expect(rowActionsFor(status, designerId)).toEqual({
+          assign: false,
           claim: false,
           start: false,
           upload: false,

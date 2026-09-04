@@ -443,7 +443,7 @@ function QueueItem({
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {canAssign && (
+        {canAssign && can.assign && (
           <span className="inline-flex items-center gap-1.5">
             <label htmlFor={assignId} className="sr-only">
               {`Assign ${formatTicketNumber(row.ticketNumber)}`}

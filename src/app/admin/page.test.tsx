@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /* Real uuids: `assignee` is validated at the parser because it is compared
@@ -24,10 +24,11 @@ const COUNTS = {
 vi.mock("@/lib/db/queries", () => ({
   getTicketCountsByStatus: async () => [
     { status: "submitted", count: 11 },
-    // Larger than awaitingReview on purpose: a ticket approved and then
-    // re-uploaded is ready_for_review again and keeps its approvedAt, so the
-    // raw status count is the WRONG number for the card.
-    { status: "ready_for_review", count: 9 },
+    /* Equal to awaitingReview, and that agreement is the point. A correction
+       round sets ready_for_review AND notifies the client, so a re-uploaded
+       ticket IS awaiting review — the card and the status row are two routes
+       to one answer and must not disagree. */
+    { status: "ready_for_review", count: COUNTS.awaitingReview },
     { status: "delivered", count: COUNTS.delivered },
   ],
   getOpenTicketCount: async () => COUNTS.open,
@@ -57,6 +58,7 @@ vi.mock("@/lib/db/queries", () => ({
 
 import { defaultSortKeyFor, matchesView } from "@/lib/admin/scope";
 import { loadAdminScope } from "@/lib/admin/scope-params";
+import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import AdminDashboardPage from "./page";
 
 /* The view a link actually resolves to, not the substring it happens to
@@ -75,6 +77,20 @@ async function renderDashboard() {
 /* Matched on rendered text rather than the accessible name: the pairing under
    test is "which label sits on which number", and comparing the link's own
    text states that without depending on how the a11y name is assembled. */
+/* A status row, found by its href rather than its label: the label comes from
+   STATUS_LABELS and the point of these assertions is the routing. */
+function statusCard(status: string): HTMLElement {
+  const found = screen
+    .getAllByRole("link")
+    .filter((l) => (l.getAttribute("href") ?? "").includes(`status=${status}`));
+  if (found.length !== 1) {
+    throw new Error(
+      `expected one row linking to status=${status}, found ${found.length}`,
+    );
+  }
+  return found[0] as HTMLElement;
+}
+
 function card(text: string) {
   const found = screen
     .getAllByRole("link")
@@ -108,7 +124,7 @@ describe("every card opens the records behind its own number", () => {
   });
 
   /* The exact drift this ticket exists to fix: the card counted the raw
-     `ready_for_review` status (9) while the link opened `awaiting_review` (7),
+     `ready_for_review` status while the link opened a narrower predicate,
      so clicking 9 showed 7 rows. */
   it("Ready for review counts the same set its link opens", async () => {
     await renderDashboard();
@@ -143,9 +159,9 @@ describe("the status overview", () => {
     expect(scopeOf(card("Submitted11")).status).toEqual(["submitted"]);
     /* Both of these used to point at /admin/delivered, a route that does not
        exist on this branch. ADMIN-FEAT-002 re-points them once it does. */
-    expect(scopeOf(card("Delivered — Your Review9")).status).toEqual([
-      "ready_for_review",
-    ]);
+    expect(
+      scopeOf(card(`Delivered — Your Review${COUNTS.awaitingReview}`)).status,
+    ).toEqual(["ready_for_review"]);
     expect(scopeOf(card("Approved23")).status).toEqual(["delivered"]);
     /* A status row must not inherit the queue's default view, which excludes
        drafts and delivered work — that made these two open an empty list. */
@@ -224,7 +240,10 @@ describe("a card's number is the number of rows its link returns", () => {
        the delivered one. The two approved-then-reopened rows DO count — that
        was the round-two bug. */
     ["Overdue", "overdue", 3],
-    ["Ready for review", "awaiting_review", 1],
+    /* 2, not 1: the second is approved-then-reopened. approvedAt records the
+       FIRST sign-off and is never cleared, so it says nothing about the round
+       now in front of the client. */
+    ["Ready for review", "awaiting_review", 2],
     ["Delivered", "approved", 1],
   ] as const)("%s", async (_label, view, expected) => {
     // The fixture count is stated as a literal, so widening the predicate
@@ -241,5 +260,40 @@ describe("a card's number is the number of rows its link returns", () => {
   ])("%s opens the view it counts", async (text, view) => {
     await renderDashboard();
     expect(scopeOf(card(text)).view).toBe(view);
+  });
+});
+
+describe("the status overview is zero-filled", () => {
+  /* BUG-002 names seven statuses that must have navigation.
+     getTicketCountsByStatus is a GROUP BY, so without the fill a status with no
+     tickets renders no row at all — "navigation for Draft" existed only while a
+     draft did. The mock returns rows for three statuses; all seven must show. */
+  it("renders every status in the enum, present or not", async () => {
+    await renderDashboard();
+    for (const status of TICKET_STATUSES) {
+      expect(scopeOf(statusCard(status)).status).toEqual([status]);
+    }
+  });
+
+  it("shows a real zero rather than omitting the row", async () => {
+    await renderDashboard();
+    // `assigned` has no row in the mocked rollup.
+    expect(statusCard("assigned").textContent).toMatch(/0$/);
+  });
+
+  /* Whatever the planner returns, the operator sees the same order twice. */
+  it("orders the rows the same way every render", async () => {
+    await renderDashboard();
+    const first = screen
+      .getAllByRole("link")
+      .map((l) => l.getAttribute("href"))
+      .filter((h) => h?.includes("status="));
+    cleanup();
+    await renderDashboard();
+    const second = screen
+      .getAllByRole("link")
+      .map((l) => l.getAttribute("href"))
+      .filter((h) => h?.includes("status="));
+    expect(second).toEqual(first);
   });
 });

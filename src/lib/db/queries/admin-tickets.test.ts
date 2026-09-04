@@ -193,7 +193,10 @@ describe("every scope key reaches the query", () => {
 
 describe("the date window is applied at both ends", () => {
   const lower = '"design_tickets"."created_at" >=';
-  const upper = '"design_tickets"."created_at" <';
+  /* Trailing space matters: `toContain('"created_at" <')` also matches `<=`,
+     so the exclusive-upper-bound contract went unchecked. A `<=` here makes a
+     range stated "to the 25th" swallow the 26th. */
+  const upper = '"design_tickets"."created_at" < ';
 
   it("applies both bounds of a preset range", () => {
     const sql = sqlFor(scope({ range: "7d" }));
@@ -222,6 +225,16 @@ describe("the date window is applied at both ends", () => {
     const sql = sqlFor(scope({ range: "custom", to: "2026-07-25" }));
     expect(sql).toContain(upper);
     expect(sql).not.toContain(lower);
+  });
+
+  it("keeps the upper bound exclusive", () => {
+    for (const s of [
+      scope({ range: "7d" }),
+      scope({ range: "custom", from: "2026-07-19", to: "2026-07-25" }),
+      scope({ range: "custom", to: "2026-07-25" }),
+    ]) {
+      expect(sqlFor(s)).not.toContain('"design_tickets"."created_at" <=');
+    }
   });
 
   /* `all` must bound NOTHING. An upper bound of `now` hides every future due
@@ -319,6 +332,21 @@ describe("ordering", () => {
     const clauses = orderSql(scope({ view: "overdue" }));
     expect(clauses).toHaveLength(3);
     expect(clauses[1]).toContain('"design_tickets"."created_at"');
+  });
+
+  /* And does NOT repeat it when createdAt is already the primary — a column
+     named twice in one ORDER BY is noise the planner has to discard. */
+  it("does not repeat the primary column as its own secondary", () => {
+    const clauses = orderSql(scope({ view: "all", sort: "created:desc" }));
+    expect(clauses).toHaveLength(2);
+    expect(clauses[0]).toContain('"design_tickets"."created_at"');
+    expect(clauses[1]).toBe('"design_tickets"."id" asc');
+  });
+
+  /* No ORDER BY may name a column twice, whatever the view. */
+  it.each([...ADMIN_TICKET_VIEWS])("%s names each column once", (view) => {
+    const columns = orderSql(scope({ view })).map((c) => c.split(" ")[0]);
+    expect(new Set(columns).size).toBe(columns.length);
   });
 });
 

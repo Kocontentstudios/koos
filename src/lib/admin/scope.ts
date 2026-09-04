@@ -43,7 +43,14 @@ export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
   overdue: { statusNotIn: ["draft", "delivered"], overdue: true },
   in_progress: { statusIn: ["assigned", "in_progress"] },
   needs_revision: { statusIn: ["revision_requested"] },
-  awaiting_review: { statusIn: ["ready_for_review"], approved: "none" },
+  /* No approved_at clause, for the same reason `overdue` has none. A
+     correction round sets ready_for_review AND notifies the client
+     (recordDeliverableVersion), so a re-uploaded ticket genuinely IS awaiting
+     review — and approvedAt still carries the FIRST sign-off, which is not a
+     statement about the round now in front of them. Gating on it made the card
+     under-report exactly the work clients are sitting on, and made the card
+     disagree with the status row for one status. */
+  awaiting_review: { statusIn: ["ready_for_review"] },
   /* `delivered` means the files are with the client; `approved` means the
      client signed off. They are different sets and diverge on any correction
      round: recordDeliverableVersion sets ready_for_review on every upload and
@@ -260,6 +267,8 @@ export interface RowActions {
   start: boolean;
   upload: boolean;
   remind: boolean;
+  /** Reassignment is still a write to the client's ticket. */
+  assign: boolean;
 }
 
 /** Work the studio is carrying: not an unsubmitted draft, not signed off. */
@@ -277,6 +286,7 @@ export function rowActionsFor(
 ): RowActions {
   const live = LIVE_STATUSES.includes(status);
   return {
+    assign: live,
     claim: live && designerId === null,
     // Already in progress is not a thing to start.
     start: live && status !== "in_progress" && status !== "ready_for_review",

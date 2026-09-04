@@ -1,4 +1,4 @@
-import { formatOverdue, overdueMs } from "@/lib/admin/scope";
+import { lateChipFor, rowActionsFor } from "@/lib/admin/scope";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
   createNotification,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/queries";
 import { appUrl, sendTicketReminderEmail } from "@/lib/design/notify";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 /* This route sends mail. Vercel's default budget is shorter than the SMTP
@@ -37,6 +38,23 @@ function alreadyNudged(retryAfterSeconds: number): Response {
   );
 }
 
+/** Why the nudge was refused, in the operator's terms. */
+function reasonNotToRemind(
+  status: TicketStatus,
+  designerId: string | null,
+): string {
+  /* Status first: telling someone to assign a DRAFT is advice that would not
+     help, because assigning it still leaves nothing to work on. */
+  if (status === "draft")
+    return "This is an unsubmitted draft. There is nothing for a designer to work on yet.";
+  if (status === "delivered")
+    return "This ticket is signed off, so there is nothing to remind anyone about.";
+  if (!designerId) return "Assign the ticket before sending a reminder.";
+  if (status === "ready_for_review")
+    return "This ticket is with the client for review — the designer is not the one holding it up.";
+  return "This ticket is not active work, so there is nothing to remind anyone about.";
+}
+
 function formatDueDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
     month: "short",
@@ -60,11 +78,25 @@ export async function POST(
     return Response.json({ error: "Ticket not found" }, { status: 404 });
   }
 
-  /* Nobody is carrying it, so there is nobody to nudge. Saying so beats
-     doing nothing and reporting success. */
-  if (!ticket.assignedDesignerId) {
+  /* The same gate the row renders, resolved again here. A client-side gate is
+     a UI convenience, not a guarantee: without this a POST for a draft or for
+     signed-off work returned 200 and told the designer their finished ticket
+     was nine days overdue — as an email SUBJECT LINE. */
+  const allowed = rowActionsFor(
+    ticket.status as TicketStatus,
+    ticket.assignedDesignerId,
+  );
+  /* Narrowed for the compiler as well as the reader: `remind` is only true
+     when a designer is carrying the ticket. */
+  const designerId = ticket.assignedDesignerId;
+  if (!allowed.remind || !designerId) {
     return Response.json(
-      { error: "Assign the ticket before sending a reminder." },
+      {
+        error: reasonNotToRemind(
+          ticket.status as TicketStatus,
+          ticket.assignedDesignerId,
+        ),
+      },
       { status: 409 },
     );
   }
@@ -83,13 +115,21 @@ export async function POST(
   if (!verdict.ok) return alreadyNudged(verdict.retryAfterSeconds);
 
   const [designer, brand] = await Promise.all([
-    getUserById(ticket.assignedDesignerId),
+    getUserById(designerId),
     ticket.brandId ? getBrandById(ticket.brandId) : Promise.resolve(null),
   ]);
 
   const now = new Date();
-  const late = overdueMs(ticket.dueDate, now);
-  const overdueFor = late === null ? null : formatOverdue(late);
+  /* Through the predicate, not raw arithmetic — a draft past its due date is
+     not overdue, and this string becomes an email subject. */
+  const overdueFor = lateChipFor(
+    {
+      status: ticket.status as TicketStatus,
+      approvedAt: ticket.approvedAt,
+      dueDate: ticket.dueDate,
+    },
+    now,
+  );
   const ticketUrl = appUrl(`/admin/tickets/${ticket.id}`);
 
   /* The in-app notification is the durable half: it survives a bounced or
@@ -97,7 +137,7 @@ export async function POST(
      product. The email is what reaches someone who is not. */
   try {
     await createNotification({
-      userId: ticket.assignedDesignerId,
+      userId: designerId,
       type: "ticket_status",
       payload: {
         reminder: true,

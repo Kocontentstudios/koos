@@ -74,6 +74,15 @@ describe("POST /api/admin/tickets/[id]/remind", () => {
     expect(createNotification).not.toHaveBeenCalled();
   });
 
+  /* Both staff roles, deliberately. Reassignment is admin-only because it
+     rewrites who owns the work; a nudge is not, and a designer working the
+     queue is the person most likely to send one. */
+  it.each(["admin", "designer"])("allows a %s", async (role) => {
+    getAuthUser.mockResolvedValue({ dbUser: { id: "s1", role } });
+    expect((await call()).status).toBe(200);
+    expect(createNotification).toHaveBeenCalled();
+  });
+
   it("404s an unknown ticket", async () => {
     getDesignTicketById.mockResolvedValue(null);
     expect((await call("nope")).status).toBe(404);
@@ -169,6 +178,78 @@ describe("the cooling-off guard", () => {
     checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 1800 });
     const res = await call();
     expect(res.headers.get("Retry-After")).toBe("1800");
+  });
+
+  /* Rounded UP. 30 minutes left floors to "in 0 hours", which reads as "try
+     again now" and is the opposite of what the limiter will do. */
+  it("never tells the operator to retry in zero hours", async () => {
+    for (const retryAfterSeconds of [1, 60, 1800, 3599]) {
+      checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds });
+      const body = (await (await call()).json()) as { error: string };
+      expect(body.error).toContain("in 1 hour.");
+      expect(body.error).not.toContain("in 0 hour");
+    }
+  });
+
+  it("counts the remaining hours up, not down", async () => {
+    checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 3601 });
+    const body = (await (await call()).json()) as { error: string };
+    expect(body.error).toContain("in 2 hours.");
+  });
+});
+
+/* The gate the row renders, enforced again server-side. A client-side gate is
+   a UI convenience: a POST straight at the route bypasses it entirely. */
+describe("the status gate", () => {
+  it.each([
+    ["draft", /unsubmitted draft/i],
+    ["delivered", /signed off/i],
+    ["ready_for_review", /with the client/i],
+  ])("refuses a %s ticket and says why", async (status, expected) => {
+    getDesignTicketById.mockResolvedValue({ ...ticket, status });
+    const res = await call();
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(expected);
+    expect(sendTicketReminderEmail).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  /* Status is checked before assignment: "assign it first" is advice that
+     would not help on a draft, because assigning still leaves nothing to do. */
+  it("explains an unassigned draft by its status, not its assignment", async () => {
+    getDesignTicketById.mockResolvedValue({
+      ...ticket,
+      status: "draft",
+      assignedDesignerId: null,
+    });
+    const body = (await (await call()).json()) as { error: string };
+    expect(body.error).toMatch(/unsubmitted draft/i);
+    expect(body.error).not.toMatch(/assign the ticket/i);
+  });
+
+  it("does not burn the cooling-off window on a refused status", async () => {
+    getDesignTicketById.mockResolvedValue({ ...ticket, status: "draft" });
+    await call();
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  /* The lateness string becomes an email SUBJECT. Computing it with raw
+     arithmetic told a designer their finished ticket was nine days overdue. */
+  it("never claims lateness for a status that cannot be overdue", async () => {
+    getDesignTicketById.mockResolvedValue({
+      ...ticket,
+      status: "revision_requested",
+      dueDate: new Date("2026-08-26T12:00:00Z"),
+    });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(
+      (
+        sendTicketReminderEmail.mock.calls[0][0] as {
+          input: { overdueFor: string };
+        }
+      ).input.overdueFor,
+    ).toBe("9 days");
   });
 
   /* Checked BEFORE anything is written, or a rejected second click still

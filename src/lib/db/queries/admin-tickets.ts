@@ -204,15 +204,23 @@ export async function listAdminTickets(
   const now = opts.now ?? new Date();
   const conditions = scopeConditions(scope, now);
 
-  return db
+  const base = db
     .select(rowShape)
     .from(designTickets)
     .leftJoin(brands, eq(designTickets.brandId, brands.id))
     .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
     .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
     .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .leftJoin(requester, eq(designTickets.userId, requester.id))
-    .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id))
+    .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id));
+
+  /* The requester join widens the text search and nothing else — no column of
+     it is projected. Every drill-down that is not a search should not pay for
+     it, the same reasoning countAdminTickets already applies. */
+  const query = needsSearchJoins(scope)
+    ? base.leftJoin(requester, eq(designTickets.userId, requester.id))
+    : base;
+
+  return query
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(...orderFor(scope))
     .limit(DEFAULT_PAGE_SIZE)

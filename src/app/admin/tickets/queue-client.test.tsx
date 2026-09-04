@@ -331,6 +331,44 @@ describe("send reminder", () => {
   });
 });
 
+describe("the assign control while a write is in flight", () => {
+  /* Two writes to one ticket from one row is a lost update. The select has to
+     go disabled with everything else. */
+  it("disables the select while the row is acting", async () => {
+    let release: (r: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((r) => {
+            release = r;
+          }),
+      ),
+    );
+    renderQueue({
+      queue: [row({ id: "a", designerId: "d1" })],
+      assignees: STAFF,
+      canAssign: true,
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /send reminder/i }),
+    );
+    expect(screen.getByRole("combobox", { name: /assign/i })).toBeDisabled();
+
+    release(new Response("{}", { status: 200 }));
+  });
+
+  it("leaves it enabled when nothing is in flight", () => {
+    renderQueue({
+      queue: [row({ id: "a", designerId: "d1" })],
+      assignees: STAFF,
+      canAssign: true,
+    });
+    expect(screen.getByRole("combobox", { name: /assign/i })).toBeEnabled();
+  });
+});
+
 describe("pagination", () => {
   /* Without a pager the overdue drill-down truncated at one page and the rows
      past it were reachable only by hand-editing the URL. */
@@ -358,6 +396,25 @@ describe("pagination", () => {
     expect(
       screen.queryByRole("navigation", { name: /pagination/i }),
     ).not.toBeInTheDocument();
+  });
+
+  /* Past the end there is no Next and no rows, so hiding the pager leaves the
+     URL bar as the only way back into the list. */
+  it("still renders the pager past the last page", () => {
+    renderQueue({
+      queue: [],
+      total: 137,
+      page: 99,
+      pages: 3,
+      prevHref: "/admin/tickets?page=3",
+      nextHref: null,
+    });
+    expect(
+      screen.getByRole("navigation", { name: /pagination/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /previous/i }).getAttribute("href"),
+    ).toContain("page=3");
   });
 
   it("disables the edge rather than linking nowhere", () => {
