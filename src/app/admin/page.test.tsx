@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -183,14 +185,40 @@ describe("the status overview", () => {
     expect(scopeOf(card(`Approved${DELIVERED_ROLLUP}`)).view).toBe("all");
   });
 
-  /* No dashboard link may point at a segment nobody built. A green test suite
-     plus a 404 on the first click is the failure mode this closes. */
+  /* No dashboard link may point at a route nobody built — a green suite plus a
+     404 on the first click is the failure this closes. Resolved against the
+     filesystem rather than a hardcoded prefix: hardcoding one made this fail
+     the moment Delivered Projects gave two status rows a second destination. */
   it("never links outside the routes that exist", async () => {
     await renderDashboard();
+    const appDir = join(process.cwd(), "src/app");
+    const isRoute = (pathname: string) =>
+      existsSync(join(appDir, pathname, "page.tsx")) ||
+      existsSync(join(appDir, pathname, "page.ts"));
+
     for (const link of screen.getAllByRole("link")) {
-      const href = link.getAttribute("href") ?? "";
-      expect(href.startsWith("/admin/tickets")).toBe(true);
+      const pathname = (link.getAttribute("href") ?? "").split("?")[0] ?? "";
+      // Ticket detail is a dynamic segment; its parent route is what exists.
+      if (/^\/admin\/tickets\/[^/]+$/.test(pathname)) continue;
+      expect(isRoute(pathname), `${pathname} has no page file`).toBe(true);
     }
+
+    // The check itself must be able to fail.
+    expect(isRoute("/admin/definitely-not-a-route")).toBe(false);
+  });
+
+  /* Delivered and approved work has left the queue, so those two rows go to
+     Delivered Projects — that page exists as of ADMIN-FEAT-002. */
+  it("sends work that has left the queue to Delivered Projects", async () => {
+    await renderDashboard();
+    expect(
+      card(`Delivered — Your Review${COUNTS.awaitingReview}`).getAttribute(
+        "href",
+      ),
+    ).toContain("/admin/delivered");
+    expect(card(`Approved${DELIVERED_ROLLUP}`).getAttribute("href")).toContain(
+      "/admin/delivered",
+    );
   });
 });
 

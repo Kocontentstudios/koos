@@ -508,6 +508,10 @@ export const designTickets = pgTable(
     /** When the client last signed off. Never cleared — a later correction round
      * reopens the ticket for review but must not revoke files already earned. */
     approvedAt: timestamp("approved_at"),
+    /** When the studio FIRST delivered. Set once, on version 1: a correction
+     * round is not a new delivery, and overwriting it would make an old ticket
+     * look freshly delivered every time it was revised. */
+    deliveredAt: timestamp("delivered_at"),
     priority: ticketPriorityEnum("priority").notNull().default("normal"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -521,6 +525,7 @@ export const designTickets = pgTable(
     index("design_tickets_due_date_idx").on(t.dueDate),
     index("design_tickets_assigned_designer_idx").on(t.assignedDesignerId),
     index("design_tickets_created_at_idx").on(t.createdAt),
+    index("design_tickets_delivered_at_idx").on(t.deliveredAt),
     index("design_tickets_brand_idx").on(t.brandId),
   ],
 );

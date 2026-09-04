@@ -29,6 +29,7 @@ import {
   brands,
   calendarItems,
   calendars,
+  designDeliverables,
   designTickets,
   strategies,
   users,
@@ -112,6 +113,7 @@ export function scopeConditions(scope: AdminScope, now: Date): SQL[] {
   const anchor = {
     created: designTickets.createdAt,
     due: designTickets.dueDate,
+    delivered: designTickets.deliveredAt,
     approved: designTickets.approvedAt,
   }[scope.on];
   const window = resolveWindow({
@@ -137,6 +139,12 @@ export function scopeConditions(scope: AdminScope, now: Date): SQL[] {
       ilike(designTickets.brief, like),
       ilike(brands.name, like),
       ilike(requester.email, like),
+      /* ADMIN-FEAT-002 asks for search by designer/assignee. The designer join
+         is always present — the row renders the assignee — so this costs no
+         extra join. */
+      ilike(designer.email, like),
+      ilike(designer.firstName, like),
+      ilike(designer.lastName, like),
     ];
     const ticketNumber = ticketNumberFor(term);
     if (ticketNumber !== null)
@@ -187,6 +195,7 @@ const rowShape = {
   createdAt: designTickets.createdAt,
   updatedAt: designTickets.updatedAt,
   approvedAt: designTickets.approvedAt,
+  deliveredAt: designTickets.deliveredAt,
   brandId: designTickets.brandId,
   brandName: brands.name,
   campaignName: strategies.name,
@@ -237,10 +246,16 @@ export async function countAdminTickets(
      including the dashboard's Overdue card, which runs on every render — has no
      business paying for two of them. */
   const base = db.select({ count: count() }).from(designTickets);
+  /* Every table the search clauses REFERENCE, not a subset. `q` matches on the
+     designer as well as the brand and requester, and joining two of the three
+     makes Postgres reject the whole query — a 500 on the search box, not a
+     miss. admin-tickets-wiring.test.ts asserts this by reading the compiled
+     WHERE rather than by listing tables here. */
   const query = needsSearchJoins(scope)
     ? base
         .leftJoin(brands, eq(designTickets.brandId, brands.id))
         .leftJoin(requester, eq(designTickets.userId, requester.id))
+        .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id))
     : base;
   const [row] = await query.where(
     conditions.length ? and(...conditions) : undefined,
@@ -281,4 +296,60 @@ export async function getWorkloadForDesigner(
     active: Number(row?.active ?? 0),
     overdue: Number(row?.overdue ?? 0),
   };
+}
+
+/**
+ * Delivered Projects: work the studio has handed over at least once.
+ *
+ * A separate projection rather than a flag on `listAdminTickets`, because this
+ * page needs the REQUESTER — "requester/client when available" is one of its
+ * required columns — and the queue deliberately does not pay for that join.
+ * The filtering, ordering and paging are the shared ones, so a scope means the
+ * same thing on both pages.
+ */
+const deliveredRowShape = {
+  id: designTickets.id,
+  ticketNumber: designTickets.ticketNumber,
+  title: designTickets.title,
+  designType: designTickets.designType,
+  status: designTickets.status,
+  deliveredAt: designTickets.deliveredAt,
+  approvedAt: designTickets.approvedAt,
+  createdAt: designTickets.createdAt,
+  brandId: designTickets.brandId,
+  brandName: brands.name,
+  requesterId: designTickets.userId,
+  requesterFirstName: requester.firstName,
+  requesterLastName: requester.lastName,
+  requesterEmail: requester.email,
+  designerId: designTickets.assignedDesignerId,
+  designerFirstName: designer.firstName,
+  designerLastName: designer.lastName,
+  designerEmail: designer.email,
+  /* The fallback behind deliveredDateOf: a row written between the backfill
+     and the deploy that started populating the column. */
+  firstDeliverableAt: sql<Date | null>`(
+    select min(${designDeliverables.createdAt})
+    from ${designDeliverables}
+    where ${designDeliverables.ticketId} = ${designTickets.id}
+  )`,
+};
+
+export async function listDeliveredProjects(
+  scope: AdminScope,
+  opts: { now?: Date } = {},
+) {
+  const now = opts.now ?? new Date();
+  const conditions = scopeConditions(scope, now);
+
+  return db
+    .select(deliveredRowShape)
+    .from(designTickets)
+    .leftJoin(brands, eq(designTickets.brandId, brands.id))
+    .leftJoin(requester, eq(designTickets.userId, requester.id))
+    .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(...orderFor(scope))
+    .limit(DEFAULT_PAGE_SIZE)
+    .offset((scope.page - 1) * DEFAULT_PAGE_SIZE);
 }

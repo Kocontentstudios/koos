@@ -1071,7 +1071,14 @@ export async function recordDeliverableVersion(input: {
 
     await tx
       .update(designTickets)
-      .set({ status: "ready_for_review", updatedAt: new Date() })
+      .set({
+        status: "ready_for_review",
+        updatedAt: new Date(),
+        /* Only the FIRST round. A revision is not a new delivery, and
+           overwriting this would make a months-old ticket look freshly
+           delivered on every correction. */
+        ...(version === 1 ? { deliveredAt: new Date() } : {}),
+      })
       .where(eq(designTickets.id, input.ticketId));
 
     const count = rows.length;

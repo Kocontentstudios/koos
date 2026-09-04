@@ -18,6 +18,7 @@ export const ADMIN_TICKET_VIEWS = [
   "in_progress",
   "needs_revision",
   "awaiting_review",
+  "delivered",
   "approved",
 ] as const;
 
@@ -51,6 +52,9 @@ export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
      under-report exactly the work clients are sitting on, and made the card
      disagree with the status row for one status. */
   awaiting_review: { statusIn: ["ready_for_review"] },
+  /* Everything the studio has handed over at least once, whether or not the
+     client has answered — the base set of the Delivered Projects page. */
+  delivered: { statusIn: ["ready_for_review", "delivered"] },
   /* `delivered` IS the signed-off state — applyClientReview sets the status
      and approvedAt in one statement, and STATUS_LABELS renders it "Approved".
      The view is named for the operator's word, not the enum's. It keys on
@@ -321,5 +325,21 @@ export const VIEW_LABELS: Record<AdminTicketView, string> = {
   in_progress: "In progress",
   needs_revision: "Needs revision",
   awaiting_review: "Awaiting client review",
+  delivered: "Delivered work",
   approved: "Approved work",
 };
+
+/**
+ * When the studio first handed this ticket over.
+ *
+ * `deliveredAt` is the column; the fallback covers a row written between the
+ * migration's backfill and the deploy that started populating it. Read through
+ * one function so the fallback can be deleted in one place once no such row can
+ * exist.
+ */
+export function deliveredDateOf(row: {
+  deliveredAt: Date | null;
+  firstDeliverableAt?: Date | null;
+}): Date | null {
+  return row.deliveredAt ?? row.firstDeliverableAt ?? null;
+}

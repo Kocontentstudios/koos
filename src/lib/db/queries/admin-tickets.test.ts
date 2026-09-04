@@ -355,21 +355,34 @@ describe("ordering", () => {
    `DEFAULT_PAGE_SIZE === PAGE_SIZE` here only re-read one line of source. */
 
 describe("the date anchors name real columns", () => {
-  /* `delivered` was advertised as an anchor and quietly resolved to created_at,
-     because design_tickets has no delivered_at column. A named anchor that
-     answers a different question is worse than a missing one — ADMIN-FEAT-002
-     adds the column and the anchor in the same change. */
-  it("offers no anchor without a column behind it", () => {
-    expect([...DATE_ANCHORS]).not.toContain("delivered");
-    expect(DEFAULT_SCOPE.on).toBe("created");
+  /* `delivered` was once advertised as an anchor while resolving to created_at,
+     which answered a different question silently. It was removed until
+     ADMIN-FEAT-002 added the column. Rather than assert its absence, assert the
+     property that mattered: every advertised anchor filters on the column it
+     names. */
+  const COLUMN_FOR: Record<string, string> = {
+    created: '"design_tickets"."created_at"',
+    due: '"design_tickets"."due_date"',
+    delivered: '"design_tickets"."delivered_at"',
+    approved: '"design_tickets"."approved_at"',
+  };
+
+  it.each([...DATE_ANCHORS])("%s filters on its own column", (on) => {
+    const sql = sqlFor(scope({ range: "7d", on }));
+    expect(sql).toContain(`${COLUMN_FOR[on]} >=`);
+    for (const [other, column] of Object.entries(COLUMN_FOR)) {
+      if (other === on) continue;
+      expect(sql).not.toContain(`${column} >=`);
+    }
   });
 
-  it("resolves every advertised anchor", () => {
-    for (const on of DATE_ANCHORS) {
-      expect(() =>
-        scopeConditions(scope({ range: "7d", on }), NOW),
-      ).not.toThrow();
-    }
+  it("names a column for every anchor it advertises", () => {
+    for (const on of DATE_ANCHORS) expect(COLUMN_FOR[on]).toBeDefined();
+    expect(Object.keys(COLUMN_FOR).sort()).toEqual([...DATE_ANCHORS].sort());
+  });
+
+  it("defaults to created", () => {
+    expect(DEFAULT_SCOPE.on).toBe("created");
   });
 });
 
