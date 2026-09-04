@@ -33,20 +33,28 @@ describe("getDesignerLoads", () => {
   /* Postgres requires every non-aggregated projected column in the GROUP BY.
      Adding `email` to the projection without adding it here is error 42803 at
      runtime — a green suite and a dead dashboard. */
+  /* `sources` records a Column as `table.column` and a projected sql fragment
+     as compiled SQL, so comparing the two needs a normal form. designerId is
+     projected as a fragment and grouped as a Column — the same column, two
+     spellings. */
+  const columnsIn = (value: string) =>
+    Array.from(value.matchAll(/"?([a-z_]+)"?\."?([a-z_]+)"?/g)).map(
+      (m) => `${m[1]}.${m[2]}`,
+    );
+
   it("groups by every non-aggregated column it projects", async () => {
     await getDesignerLoads();
-    const aggregates = new Set(["count"]);
-    const projected = Object.keys(rec.recorded.sources).filter(
-      (k) => !aggregates.has(k),
-    );
-    for (const key of projected) {
-      const source = rec.recorded.sources[key] ?? "";
-      // designerId is the grouped ticket column, projected through a sql<>.
-      if (source === "?") continue;
-      expect(
-        rec.recorded.groupBy,
-        `${key} (${source}) is projected but not grouped`,
-      ).toContain(source);
+    const grouped = new Set(rec.recorded.groupBy.flatMap(columnsIn));
+
+    for (const [key, source] of Object.entries(rec.recorded.sources)) {
+      // count() is an aggregate; it names no column.
+      if (key === "count") continue;
+      for (const column of columnsIn(source)) {
+        expect(
+          grouped,
+          `${key} projects ${column}, which is not in the GROUP BY`,
+        ).toContain(column);
+      }
     }
   });
 
@@ -72,9 +80,6 @@ describe("getDesignerLoads", () => {
     expect(rec.recorded.groupBy).toContain("users.email");
   });
 
-  /* The count must resolve the SAME predicate as `?view=active`, which is
-     where the row links. A literal here, or a different view, is the
-     count-vs-list drift this epic exists to remove. */
   it("counts the active view, not everything", async () => {
     await getDesignerLoads();
     const params = rec.recorded.where?.params ?? [];

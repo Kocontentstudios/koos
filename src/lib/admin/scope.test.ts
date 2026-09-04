@@ -5,6 +5,7 @@ import {
   type AdminTicketView,
   clampPage,
   defaultSortKeyFor,
+  deliveredDateOf,
   formatOverdue,
   isSortable,
   lateChipFor,
@@ -618,5 +619,94 @@ describe("every view says what it is", () => {
     expect(VIEW_LABELS.open).toBe("Open tickets");
     expect(VIEW_LABELS.all).toBe("All tickets");
     expect(VIEW_LABELS.open).not.toBe(VIEW_LABELS.all);
+  });
+});
+
+describe("deliveredDateOf", () => {
+  const COLUMN = new Date("2026-08-24T12:00:00Z");
+  const FALLBACK = new Date("2026-07-04T12:00:00Z");
+
+  it("prefers the column", () => {
+    expect(
+      deliveredDateOf({ deliveredAt: COLUMN, firstDeliverableAt: FALLBACK }),
+    ).toBe(COLUMN);
+  });
+
+  /* The fallback covers a row written between the migration's backfill and the
+     deploy that started populating the column. */
+  it("falls back to the first deliverable", () => {
+    expect(
+      deliveredDateOf({ deliveredAt: null, firstDeliverableAt: FALLBACK }),
+    ).toBe(FALLBACK);
+  });
+
+  /* The value the postgres-js driver ACTUALLY returns for a raw sql field
+     without .mapWith — a wire string, not a Date. Writing this fixture as
+     `new Date(...)` is why the original test passed against code that threw
+     `d.toLocaleDateString is not a function` and 500'd the route. */
+  it("accepts the wire string a raw sql field can yield", () => {
+    const d = deliveredDateOf({
+      deliveredAt: null,
+      firstDeliverableAt: "2026-07-04 12:00:00",
+    });
+    expect(d).toBeInstanceOf(Date);
+    /* Compared in the host's own zone: a bare "YYYY-MM-DD HH:MM:SS" parses
+       locally, so asserting the UTC date fails on any host at UTC+13 or +14. */
+    expect(
+      d?.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+    ).toBe("Jul 4, 2026");
+  });
+
+  it("refuses a value that is not a date at all", () => {
+    expect(
+      deliveredDateOf({ deliveredAt: null, firstDeliverableAt: "not a date" }),
+    ).toBeNull();
+    expect(deliveredDateOf({ deliveredAt: new Date("nonsense") })).toBeNull();
+  });
+
+  it("is null when nothing has been delivered", () => {
+    expect(
+      deliveredDateOf({ deliveredAt: null, firstDeliverableAt: null }),
+    ).toBeNull();
+    expect(deliveredDateOf({ deliveredAt: null })).toBeNull();
+  });
+});
+
+describe("the delivered view", () => {
+  /* The base set of Delivered Projects: everything handed over at least once,
+     whether or not the client has answered. */
+  it("covers work with the client, answered or not", () => {
+    for (const status of ["ready_for_review", "delivered"] as const) {
+      expect(matchesView(ticket({ status }), "delivered", NOW)).toBe(true);
+    }
+  });
+
+  it("excludes work that has never left the studio", () => {
+    for (const status of [
+      "draft",
+      "submitted",
+      "assigned",
+      "in_progress",
+      "revision_requested",
+    ] as const) {
+      expect(matchesView(ticket({ status }), "delivered", NOW)).toBe(false);
+    }
+  });
+
+  /* Its two chips partition it: nothing delivered is in neither, and nothing
+     is in both. */
+  it("is exactly awaiting_review plus approved", () => {
+    for (const status of TICKET_STATUSES) {
+      const row = { status, approvedAt: null, dueDate: null };
+      const inBase = matchesView(row, "delivered", NOW);
+      const inChips =
+        matchesView(row, "awaiting_review", NOW) ||
+        matchesView(row, "approved", NOW);
+      expect(inChips).toBe(inBase);
+    }
   });
 });

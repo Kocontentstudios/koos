@@ -18,6 +18,7 @@ export const ADMIN_TICKET_VIEWS = [
   "in_progress",
   "needs_revision",
   "awaiting_review",
+  "delivered",
   "approved",
 ] as const;
 
@@ -51,6 +52,9 @@ export const VIEW_PREDICATES: Record<AdminTicketView, ViewPredicate> = {
      under-report exactly the work clients are sitting on, and made the card
      disagree with the status row for one status. */
   awaiting_review: { statusIn: ["ready_for_review"] },
+  /* Everything the studio has handed over at least once, whether or not the
+     client has answered — the base set of the Delivered Projects page. */
+  delivered: { statusIn: ["ready_for_review", "delivered"] },
   /* `delivered` IS the signed-off state — applyClientReview sets the status
      and approvedAt in one statement, and STATUS_LABELS renders it "Approved".
      The view is named for the operator's word, not the enum's. It keys on
@@ -181,7 +185,17 @@ function utcDay(value: string | undefined): Date | null {
 }
 
 export interface SortSpec {
-  field: "createdAt" | "dueDate" | "updatedAt" | "ticketNumber" | "priority";
+  /** Postgres puts NULLs FIRST on DESC. A date that is absent is not the most
+   *  recent one, so any descending date sort has to say otherwise. */
+  nullsLast?: true;
+  field:
+    | "createdAt"
+    | "dueDate"
+    | "updatedAt"
+    | "ticketNumber"
+    | "priority"
+    | "deliveredAt"
+    | "approvedAt";
   direction: "asc" | "desc";
   /** The sort's meaning fixes its direction, so a `:desc` suffix is ignored. */
   fixedDirection?: true;
@@ -189,6 +203,15 @@ export interface SortSpec {
 
 const SORT_FIELDS: Record<string, SortSpec> = {
   created: { field: "createdAt", direction: "desc" },
+  /* Newest delivery first. Delivered Projects is read to answer "what have we
+     shipped lately", which creation date answers wrongly: a January ticket
+     delivered yesterday belongs above a last-week ticket delivered last week. */
+  /* nullsLast is load-bearing: DESC defaults to NULLS FIRST in Postgres, and
+     a ticket with no delivery date is reachable — ManagePanel can set the
+     status to `delivered` without any upload — so without it the top of
+     Delivered Projects is reserved for the rows with no date at all. */
+  delivered: { field: "deliveredAt", direction: "desc", nullsLast: true },
+  approved: { field: "approvedAt", direction: "desc", nullsLast: true },
   updated: { field: "updatedAt", direction: "desc" },
   ticket: { field: "ticketNumber", direction: "desc" },
   priority: { field: "priority", direction: "desc" },
@@ -209,7 +232,14 @@ const DEFAULT_SORT: SortSpec = { field: "createdAt", direction: "desc" };
  * read the same way for a different reason: the oldest due date is the most
  * overdue ticket, and that is the one that needs a call today.
  */
+/* No `awaiting_review` entry, deliberately. This map is shared with the QUEUE
+   page, where that view is a tab and has always sorted newest-created-first.
+   Delivered Projects wants a delivery-date order for the same view, so it sets
+   its own default rather than changing this one — a per-view default cannot
+   serve two pages that mean different things by it. */
 const DEFAULT_SORT_KEY: Partial<Record<AdminTicketView, string>> = {
+  delivered: "delivered",
+  approved: "approved",
   open: "priority",
   in_progress: "priority",
   needs_revision: "priority",
@@ -321,5 +351,39 @@ export const VIEW_LABELS: Record<AdminTicketView, string> = {
   in_progress: "In progress",
   needs_revision: "Needs revision",
   awaiting_review: "Awaiting client review",
+  delivered: "Delivered work",
   approved: "Approved work",
 };
+
+/**
+ * When the studio first handed this ticket over.
+ *
+ * `deliveredAt` is the column; the fallback covers a row written between the
+ * migration's backfill and the deploy that started populating it. Read through
+ * one function so the fallback can be deleted in one place once no such row can
+ * exist.
+ */
+export function deliveredDateOf(row: {
+  deliveredAt: Date | null;
+  firstDeliverableAt?: Date | string | null;
+}): Date | null {
+  return asDate(row.deliveredAt) ?? asDate(row.firstDeliverableAt);
+}
+
+/**
+ * Accepts whatever the row actually carries.
+ *
+ * `firstDeliverableAt` comes from a raw `sql` fragment. The query layer applies
+ * `.mapWith` so it arrives as a Date; this keeps a plain string — from a caller
+ * that forgets, or a fixture — from reaching `toLocaleDateString`, which throws
+ * on one. It cannot rescue the timezone: a string decoded here parses in the
+ * server's zone, so the DATE will be right only if `.mapWith` did its job.
+ * That correctness lives in the query, and admin-tickets-wiring.test.ts pins it.
+ */
+function asDate(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  if (value instanceof Date)
+    return Number.isNaN(value.getTime()) ? null : value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}

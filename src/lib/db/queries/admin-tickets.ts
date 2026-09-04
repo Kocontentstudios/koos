@@ -29,6 +29,7 @@ import {
   brands,
   calendarItems,
   calendars,
+  designDeliverables,
   designTickets,
   strategies,
   users,
@@ -112,6 +113,7 @@ export function scopeConditions(scope: AdminScope, now: Date): SQL[] {
   const anchor = {
     created: designTickets.createdAt,
     due: designTickets.dueDate,
+    delivered: designTickets.deliveredAt,
     approved: designTickets.approvedAt,
   }[scope.on];
   const window = resolveWindow({
@@ -136,7 +138,16 @@ export function scopeConditions(scope: AdminScope, now: Date): SQL[] {
       ilike(designTickets.title, like),
       ilike(designTickets.brief, like),
       ilike(brands.name, like),
+      /* Both people, by every name the UI shows them under. The Delivered
+         Projects table renders "Cara Client", so matching the requester on
+         email alone meant typing the name in the column you are reading
+         returned nothing. */
       ilike(requester.email, like),
+      ilike(requester.firstName, like),
+      ilike(requester.lastName, like),
+      ilike(designer.email, like),
+      ilike(designer.firstName, like),
+      ilike(designer.lastName, like),
     ];
     const ticketNumber = ticketNumberFor(term);
     if (ticketNumber !== null)
@@ -154,6 +165,8 @@ const SORT_COLUMNS = {
   dueDate: designTickets.dueDate,
   ticketNumber: designTickets.ticketNumber,
   priority: designTickets.priority,
+  deliveredAt: designTickets.deliveredAt,
+  approvedAt: designTickets.approvedAt,
 } as const;
 
 /**
@@ -167,7 +180,15 @@ export function orderFor(scope: AdminScope): SQL[] {
   const spec = sortToColumn(scope.sort || defaultSortKeyFor(scope.view));
   const column = SORT_COLUMNS[spec.field];
   const direction = spec.direction === "asc" ? asc : desc;
-  const clauses: SQL[] = [direction(column)];
+  /* Branched rather than interpolated: `nulls last` is a literal here, and the
+     direction never reaches sql.raw, so no part of an ORDER BY is built from
+     anything a URL can influence. */
+  const primary = spec.nullsLast
+    ? spec.direction === "asc"
+      ? sql`${column} asc nulls last`
+      : sql`${column} desc nulls last`
+    : direction(column);
+  const clauses: SQL[] = [primary];
   if (spec.field !== "createdAt") clauses.push(desc(designTickets.createdAt));
   clauses.push(asc(designTickets.id));
   return clauses;
@@ -237,10 +258,16 @@ export async function countAdminTickets(
      including the dashboard's Overdue card, which runs on every render — has no
      business paying for two of them. */
   const base = db.select({ count: count() }).from(designTickets);
+  /* Every table the search clauses REFERENCE, not a subset. `q` matches on the
+     designer as well as the brand and requester, and joining two of the three
+     makes Postgres reject the whole query — a 500 on the search box, not a
+     miss. admin-tickets-wiring.test.ts asserts this by reading the compiled
+     WHERE rather than by listing tables here. */
   const query = needsSearchJoins(scope)
     ? base
         .leftJoin(brands, eq(designTickets.brandId, brands.id))
         .leftJoin(requester, eq(designTickets.userId, requester.id))
+        .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id))
     : base;
   const [row] = await query.where(
     conditions.length ? and(...conditions) : undefined,
@@ -281,4 +308,67 @@ export async function getWorkloadForDesigner(
     active: Number(row?.active ?? 0),
     overdue: Number(row?.overdue ?? 0),
   };
+}
+
+/**
+ * Delivered Projects: work the studio has handed over at least once.
+ *
+ * A separate projection rather than a flag on `listAdminTickets`, because this
+ * page needs the REQUESTER — "requester/client when available" is one of its
+ * required columns — and the queue deliberately does not pay for that join.
+ * The filtering, ordering and paging are the shared ones, so a scope means the
+ * same thing on both pages.
+ */
+const deliveredRowShape = {
+  id: designTickets.id,
+  ticketNumber: designTickets.ticketNumber,
+  title: designTickets.title,
+  designType: designTickets.designType,
+  status: designTickets.status,
+  deliveredAt: designTickets.deliveredAt,
+  approvedAt: designTickets.approvedAt,
+  brandName: brands.name,
+  requesterFirstName: requester.firstName,
+  requesterLastName: requester.lastName,
+  requesterEmail: requester.email,
+  /* Read by the row mapping to tell "we cannot name them" from "nobody has
+     it" — the only nullable of the three people columns. */
+  designerId: designTickets.assignedDesignerId,
+  designerFirstName: designer.firstName,
+  designerLastName: designer.lastName,
+  designerEmail: designer.email,
+  /* The fallback behind deliveredDateOf: a row written between the backfill
+     and the deploy that started populating the column.
+     .mapWith is load-bearing. A raw `sql` fragment is decoded with
+     noopDecoder, so postgres-js returns the WIRE STRING while a real column
+     goes through mapFromDriverValue and arrives as a Date — and the
+     `sql<Date>` generic is unchecked, so nothing complains. The string then
+     parses in the SERVER's timezone rather than UTC, which shifts the delivery
+     date by the offset: measured on a UTC+14 host, the same row renders
+     "Jul 4" without this and "Jul 5" with it. A wrong day, silently, not a
+     crash. Same class as the write-side footgun timestamp.ts documents. */
+  firstDeliverableAt: sql<Date | null>`(
+    select min(${designDeliverables.createdAt})
+    from ${designDeliverables}
+    where ${designDeliverables.ticketId} = ${designTickets.id}
+  )`.mapWith(designTickets.deliveredAt),
+};
+
+export async function listDeliveredProjects(
+  scope: AdminScope,
+  opts: { now?: Date } = {},
+) {
+  const now = opts.now ?? new Date();
+  const conditions = scopeConditions(scope, now);
+
+  return db
+    .select(deliveredRowShape)
+    .from(designTickets)
+    .leftJoin(brands, eq(designTickets.brandId, brands.id))
+    .leftJoin(requester, eq(designTickets.userId, requester.id))
+    .leftJoin(designer, eq(designTickets.assignedDesignerId, designer.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(...orderFor(scope))
+    .limit(DEFAULT_PAGE_SIZE)
+    .offset((scope.page - 1) * DEFAULT_PAGE_SIZE);
 }

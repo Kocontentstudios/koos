@@ -36,10 +36,15 @@ import {
  * makes "preserve the active filters" a property of the builder rather than a
  * decision each link has to remember.
  */
-/* No `delivered` anchor: `design_tickets` has no delivered_at column, and
-   quietly anchoring it to created_at would answer a different question than the
-   one asked. ADMIN-FEAT-002 adds the column and the anchor together. */
-export const DATE_ANCHORS = ["created", "due", "approved"] as const;
+/* `delivered` is a real column as of ADMIN-FEAT-002's migration. It was absent
+   before that rather than quietly aliased to created_at, which would have
+   answered a different question than the one asked. */
+export const DATE_ANCHORS = [
+  "created",
+  "due",
+  "delivered",
+  "approved",
+] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -144,12 +149,17 @@ export function adminScopeHref(
  * an empty list under a non-zero count. Built through the serializer so the
  * scope is stated rather than inherited.
  *
- * ADMIN-FEAT-002 re-points `delivered` and `ready_for_review` at Delivered
- * Projects once that page exists; until then this must not link to a route the
- * app does not serve.
+ * The two states that have left the queue go to Delivered Projects instead —
+ * that page is where completed work is findable again, which is the whole
+ * point of ADMIN-FEAT-002. Their counts still come from the same rollup, so
+ * both carry `view: "all"` for the same reason.
  */
 export function statusRowHref(status: TicketStatus): string {
-  return adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+  const pathname =
+    status === "delivered" || status === "ready_for_review"
+      ? "/admin/delivered"
+      : "/admin/tickets";
+  return adminScopeHref(pathname, DEFAULT_SCOPE, {
     view: "all",
     status: [status],
   });

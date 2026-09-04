@@ -22,10 +22,12 @@ vi.mock("@/lib/db/client", () => ({ db: dbProxy }));
 
 import { PAGE_SIZE, VIEW_PREDICATES } from "@/lib/admin/scope";
 import { type AdminScope, DEFAULT_SCOPE } from "@/lib/admin/scope-params";
+import { designTickets } from "@/lib/db/schema";
 import {
   countAdminTickets,
   getWorkloadForDesigner,
   listAdminTickets,
+  listDeliveredProjects,
 } from "./admin-tickets";
 
 const NOW = new Date("2026-09-04T12:00:00Z");
@@ -220,6 +222,7 @@ describe("countAdminTickets", () => {
     const tables = rec.recorded.joins.map((j) => j.table);
     expect(tables).toContain("brands");
     expect(tables).toContain("requester");
+    expect(tables).toContain("designer");
   });
 
   it("does not page — a count is over the whole set", async () => {
@@ -276,5 +279,166 @@ describe("getWorkloadForDesigner", () => {
       active: 0,
       overdue: 0,
     });
+  });
+});
+
+/**
+ * A query may not reference a table it has not joined.
+ *
+ * Postgres rejects the whole statement, so this is a 500 on the page rather
+ * than a wrong answer. It happened by adding a designer clause to the shared
+ * search and updating the join gating in only one of the two consumers —
+ * derived here rather than listed, so the next clause added to
+ * `scopeConditions` cannot reintroduce it.
+ */
+describe("every referenced table is joined", () => {
+  const TABLES = [
+    "brands",
+    "requester",
+    "designer",
+    "calendar_items",
+    "calendars",
+    "strategies",
+  ];
+
+  const referenced = (sql: string) =>
+    TABLES.filter((t) => sql.includes(`"${t}".`));
+
+  it.each([
+    ["a text search", { q: "logo" }],
+    ["a brand filter", { brand: "3aac081f-cae5-446c-af3a-eaa2dfc3f916" }],
+    ["a plain view", {}],
+    ["a status filter", { status: ["delivered" as const] }],
+  ])("listAdminTickets under %s", async (_label, patch) => {
+    await listAdminTickets(scope(patch), { now: NOW });
+    const joined = rec.recorded.joins.map((j) => j.table);
+    for (const table of referenced(rec.recorded.where?.sql ?? "")) {
+      expect(joined, `${table} is referenced but not joined`).toContain(table);
+    }
+  });
+
+  it.each([
+    ["a text search", { q: "logo" }],
+    ["a plain view", {}],
+  ])("countAdminTickets under %s", async (_label, patch) => {
+    await countAdminTickets(scope(patch), { now: NOW });
+    const joined = rec.recorded.joins.map((j) => j.table);
+    for (const table of referenced(rec.recorded.where?.sql ?? "")) {
+      expect(joined, `${table} is referenced but not joined`).toContain(table);
+    }
+  });
+
+  it("listDeliveredProjects under a text search", async () => {
+    await listDeliveredProjects(scope({ q: "logo" }), { now: NOW });
+    const joined = rec.recorded.joins.map((j) => j.table);
+    for (const table of referenced(rec.recorded.where?.sql ?? "")) {
+      expect(joined, `${table} is referenced but not joined`).toContain(table);
+    }
+  });
+});
+
+describe("listDeliveredProjects", () => {
+  /* Its own projection rather than a flag on listAdminTickets, because this
+     page needs the REQUESTER — a required column — and the queue deliberately
+     does not pay for that join. */
+  it("projects the requester the queue does not", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    expect(rec.recorded.sources).toMatchObject({
+      requesterFirstName: "requester.first_name",
+      requesterLastName: "requester.last_name",
+      requesterEmail: "requester.email",
+      designerFirstName: "designer.first_name",
+      deliveredAt: "design_tickets.delivered_at",
+      approvedAt: "design_tickets.approved_at",
+    });
+  });
+
+  /* The migration-window fallback. Four separate mutations used to survive
+     here — deleting the field, dropping .mapWith, min→max, and correlating on
+     the wrong key — because the recorder reported a non-Column projection as
+     "?" and toMatchObject skipped the key entirely. */
+  it("reads the FIRST delivery, correlated on the ticket", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    const fragment = rec.recorded.sources.firstDeliverableAt ?? "";
+
+    expect(fragment).toContain("min(");
+    expect(fragment).not.toContain("max(");
+    expect(fragment).toContain('"design_deliverables"."created_at"');
+    // Correlated on the ticket, not on the deliverable's own id.
+    expect(fragment).toContain(
+      '"design_deliverables"."ticket_id" = "design_tickets"."id"',
+    );
+  });
+
+  /* A raw sql fragment is decoded with noopDecoder unless .mapWith is applied,
+     so without it the field arrives as the wire string in the server's own
+     timezone rather than a Date — a delivery date silently off by the UTC
+     offset, which renders as the wrong DAY either side of midnight. */
+  it("decodes the fallback as a date, not a wire string", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    const shape = rec.recorded.select ?? {};
+    const field = shape.firstDeliverableAt as { decoder?: unknown } | undefined;
+    expect(field?.decoder).toBe(designTickets.deliveredAt);
+  });
+
+  it("joins the requester unconditionally, unlike the queue", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    const join = rec.recorded.joins.find((j) => j.table === "requester");
+    expect(join?.on).toContain('"design_tickets"."user_id"');
+    expect(join?.kind).toBe("left");
+  });
+
+  /* Left joins throughout. The one that can actually miss is the designer:
+     assigned_designer_id is nullable with ON DELETE SET NULL, so unassigned
+     delivered work must still list. brand_id and user_id are notNull with
+     cascade — those joins cannot miss, and LEFT is simply the honest default
+     rather than a claim about missing rows. */
+  it("never narrows the result set with an inner join", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    for (const join of rec.recorded.joins) expect(join.kind).toBe("left");
+  });
+
+  it("filters, orders and pages like every other admin list", async () => {
+    await listDeliveredProjects(scope({ view: "approved", page: 2 }), {
+      now: NOW,
+    });
+    expect(rec.recorded.where?.params).toContain("delivered");
+    expect(rec.recorded.orderBy.at(-1)).toBe('"design_tickets"."id" asc');
+    expect(rec.recorded.limit).toBe(PAGE_SIZE);
+    expect(rec.recorded.offset).toBe(PAGE_SIZE);
+  });
+
+  /* The count the page shows comes from countAdminTickets, so the two must be
+     asked the same question or the header contradicts the table. */
+  it("asks the same question the count does", async () => {
+    await listDeliveredProjects(scope({ view: "approved", q: "acme" }), {
+      now: NOW,
+    });
+    const listWhere = rec.recorded.where?.sql;
+
+    rec = recordingDb([]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    await countAdminTickets(scope({ view: "approved", q: "acme" }), {
+      now: NOW,
+    });
+    expect(listWhere).toBe(rec.recorded.where?.sql);
+  });
+});
+
+describe("the delivered date anchor", () => {
+  /* Unit 03 had to drop this anchor because no column stood behind it; the
+     migration in this unit adds one. Anchoring it to created_at would answer a
+     different question than the one asked. */
+  it("filters on delivered_at, not created_at", async () => {
+    await listDeliveredProjects(
+      scope({ view: "delivered", range: "7d", on: "delivered" }),
+      { now: NOW },
+    );
+    expect(rec.recorded.where?.sql).toContain(
+      '"design_tickets"."delivered_at" >=',
+    );
+    expect(rec.recorded.where?.sql).not.toContain(
+      '"design_tickets"."created_at" >=',
+    );
   });
 });

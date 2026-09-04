@@ -159,6 +159,26 @@ describe("a status row opens exactly the tickets it counted", () => {
      Asserting the RESOLVED SCOPE rather than the string is what makes this
      catchable: the defect was entirely in what the URL meant, not how it
      looked. */
+  /* Delivered and approved work has left the queue, so those two rows open
+     Delivered Projects — the whole point of ADMIN-FEAT-002. Everything else
+     stays on the ticket list. */
+  it("sends work that has left the queue to Delivered Projects", () => {
+    expect(statusRowHref("delivered")).toContain("/admin/delivered");
+    expect(statusRowHref("ready_for_review")).toContain("/admin/delivered");
+  });
+
+  it("keeps live work on the ticket list", () => {
+    for (const status of [
+      "draft",
+      "submitted",
+      "assigned",
+      "in_progress",
+      "revision_requested",
+    ] as const) {
+      expect(statusRowHref(status)).toContain("/admin/tickets");
+    }
+  });
+
   it.each([...TICKET_STATUSES])(
     "resolves ?status=%s to a scope that can return that status",
     (status) => {

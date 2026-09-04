@@ -162,12 +162,30 @@ describe("every scope key reaches the query", () => {
     );
   });
 
-  it("searches title, brief, brand and requester", () => {
+  /* Every field the ticket names, and every name the UI shows a person under:
+     matching a person on email alone means typing the name rendered in their
+     own column returns nothing. */
+  it.each([
+    ['"design_tickets"."title"', "title"],
+    ['"design_tickets"."brief"', "brief"],
+    ['"brands"."name"', "brand"],
+    ['"requester"."email"', "requester email"],
+    ['"requester"."first_name"', "requester first name"],
+    ['"requester"."last_name"', "requester last name"],
+    ['"designer"."email"', "designer email"],
+    ['"designer"."first_name"', "designer first name"],
+    ['"designer"."last_name"', "designer last name"],
+  ])("searches %s (%s)", (column) => {
+    expect(sqlFor(scope({ q: "logo" }))).toContain(`${column} ilike`);
+  });
+
+  it("searches both people by name, not just one", () => {
     const sql = sqlFor(scope({ q: "logo" }));
-    expect(sql).toContain('"design_tickets"."title" ilike');
-    expect(sql).toContain('"design_tickets"."brief" ilike');
-    expect(sql).toContain('"brands"."name" ilike');
-    expect(sql).toContain('"requester"."email" ilike');
+    for (const person of ["requester", "designer"]) {
+      for (const field of ["first_name", "last_name", "email"]) {
+        expect(sql).toContain(`"${person}"."${field}" ilike`);
+      }
+    }
   });
 
   /* `%` and `_` are ilike wildcards: unescaped, a search for "50%" matched
@@ -343,6 +361,39 @@ describe("ordering", () => {
     expect(clauses[1]).toBe('"design_tickets"."id" asc');
   });
 
+  /* Delivered Projects is read to answer "what have we shipped lately", which
+     creation date answers wrongly: a January ticket delivered yesterday belongs
+     above a last-week ticket delivered last week. */
+  it("sorts delivered work by delivery date, newest first", () => {
+    const [primary] = orderSql(scope({ view: "delivered" }));
+    expect(primary).toContain('"design_tickets"."delivered_at"');
+    expect(primary).toContain("desc");
+  });
+
+  /* Postgres puts NULLs FIRST on DESC, and a ticket with no delivery date is
+     reachable — ManagePanel can set the status to `delivered` with no upload —
+     so without this the top of the page is reserved for rows with no date. */
+  it.each(["delivered", "approved"] as const)(
+    "puts %s rows with no date last, not first",
+    (view) => {
+      const [primary] = orderSql(scope({ view }));
+      expect(primary).toContain("nulls last");
+    },
+  );
+
+  /* The QUEUE's Awaiting review tab is untouched by this unit: it sorted
+     newest-created-first before and must still. DEFAULT_SORT_KEY is shared, so
+     giving that view a delivery-date default here silently re-sorted a page
+     this change does not own — and by a date that only ever records the FIRST
+     round, so a ticket re-delivered yesterday sank below one first delivered
+     last week. Delivered Projects sets its own default instead. */
+  it("leaves the queue's awaiting-review order alone", () => {
+    const [primary] = orderSql(scope({ view: "awaiting_review" }));
+    expect(primary).toContain('"design_tickets"."created_at"');
+    expect(primary).not.toContain('"design_tickets"."delivered_at"');
+    expect(primary).not.toContain('"design_tickets"."updated_at"');
+  });
+
   /* No ORDER BY may name a column twice, whatever the view. */
   it.each([...ADMIN_TICKET_VIEWS])("%s names each column once", (view) => {
     const columns = orderSql(scope({ view })).map((c) => c.split(" ")[0]);
@@ -355,21 +406,34 @@ describe("ordering", () => {
    `DEFAULT_PAGE_SIZE === PAGE_SIZE` here only re-read one line of source. */
 
 describe("the date anchors name real columns", () => {
-  /* `delivered` was advertised as an anchor and quietly resolved to created_at,
-     because design_tickets has no delivered_at column. A named anchor that
-     answers a different question is worse than a missing one — ADMIN-FEAT-002
-     adds the column and the anchor in the same change. */
-  it("offers no anchor without a column behind it", () => {
-    expect([...DATE_ANCHORS]).not.toContain("delivered");
-    expect(DEFAULT_SCOPE.on).toBe("created");
+  /* `delivered` was once advertised as an anchor while resolving to created_at,
+     which answered a different question silently. It was removed until
+     ADMIN-FEAT-002 added the column. Rather than assert its absence, assert the
+     property that mattered: every advertised anchor filters on the column it
+     names. */
+  const COLUMN_FOR: Record<string, string> = {
+    created: '"design_tickets"."created_at"',
+    due: '"design_tickets"."due_date"',
+    delivered: '"design_tickets"."delivered_at"',
+    approved: '"design_tickets"."approved_at"',
+  };
+
+  it.each([...DATE_ANCHORS])("%s filters on its own column", (on) => {
+    const sql = sqlFor(scope({ range: "7d", on }));
+    expect(sql).toContain(`${COLUMN_FOR[on]} >=`);
+    for (const [other, column] of Object.entries(COLUMN_FOR)) {
+      if (other === on) continue;
+      expect(sql).not.toContain(`${column} >=`);
+    }
   });
 
-  it("resolves every advertised anchor", () => {
-    for (const on of DATE_ANCHORS) {
-      expect(() =>
-        scopeConditions(scope({ range: "7d", on }), NOW),
-      ).not.toThrow();
-    }
+  it("names a column for every anchor it advertises", () => {
+    for (const on of DATE_ANCHORS) expect(COLUMN_FOR[on]).toBeDefined();
+    expect(Object.keys(COLUMN_FOR).sort()).toEqual([...DATE_ANCHORS].sort());
+  });
+
+  it("defaults to created", () => {
+    expect(DEFAULT_SCOPE.on).toBe("created");
   });
 });
 

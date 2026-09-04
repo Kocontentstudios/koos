@@ -28,6 +28,9 @@ export default async function AdminLayout({
             <Link href="/admin/tickets" className="hover:text-foreground">
               Queue
             </Link>
+            <Link href="/admin/delivered" className="hover:text-foreground">
+              Delivered
+            </Link>
             {isAdmin && (
               <>
                 <Link href="/admin/analytics" className="hover:text-foreground">

@@ -43,6 +43,7 @@ import {
   workspaces,
 } from "@/lib/db/schema";
 import { widenWindowGuard, widenWindowSet } from "@/lib/db/sql/calendar-window";
+import { deliveryPatchFor } from "@/lib/design/delivery";
 import { countAdminTickets, viewConditions } from "./admin-tickets";
 
 // ── Users ───────────────────────────────────────────────────────────
@@ -1071,7 +1072,7 @@ export async function recordDeliverableVersion(input: {
 
     await tx
       .update(designTickets)
-      .set({ status: "ready_for_review", updatedAt: new Date() })
+      .set(deliveryPatchFor(version, new Date()))
       .where(eq(designTickets.id, input.ticketId));
 
     const count = rows.length;
