@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /* Real uuids: `assignee` is validated at the parser because it is compared
@@ -296,19 +296,17 @@ describe("the status overview is zero-filled", () => {
     expect(statusCard("assigned").textContent).toMatch(/0$/);
   });
 
-  /* Whatever the planner returns, the operator sees the same order twice. */
-  it("orders the rows the same way every render", async () => {
+  /* Pinned to the enum, not to a second render of the same pure component —
+     that comparison could not fail. getTicketCountsByStatus is a GROUP BY with
+     no ORDER BY, so without the fill the row order is whatever the planner
+     happened to return. */
+  it("orders the rows by the enum, not by the query", async () => {
     await renderDashboard();
-    const first = screen
+    const rendered = screen
       .getAllByRole("link")
-      .map((l) => l.getAttribute("href"))
-      .filter((h) => h?.includes("status="));
-    cleanup();
-    await renderDashboard();
-    const second = screen
-      .getAllByRole("link")
-      .map((l) => l.getAttribute("href"))
-      .filter((h) => h?.includes("status="));
-    expect(second).toEqual(first);
+      .map((l) => l.getAttribute("href") ?? "")
+      .filter((h) => h.includes("status="))
+      .map((h) => h.split("status=")[1]);
+    expect(rendered).toEqual([...TICKET_STATUSES]);
   });
 });

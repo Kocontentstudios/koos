@@ -23,10 +23,25 @@ vi.mock("nuqs", () => ({
   useQueryStates: () => [queryState, setQuery],
 }));
 
+/* The pending flag lives inside the component via useTransition, and a real
+   transition settles before an assertion can observe it. */
+let pendingOverride = false;
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof import("react")>("react");
+  return {
+    ...actual,
+    useTransition: () => {
+      const [, start] = actual.useTransition();
+      return [pendingOverride, start] as const;
+    },
+  };
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   setQuery.mockClear();
   queryState = { q: "", page: 1 };
+  pendingOverride = false;
 });
 
 function row(overrides: Partial<QueueRow>): QueueRow {
@@ -400,21 +415,23 @@ describe("pagination", () => {
 
   /* Past the end there is no Next and no rows, so hiding the pager leaves the
      URL bar as the only way back into the list. */
-  it("still renders the pager past the last page", () => {
+  /* pages:1 on purpose. With pages:3 the `pages > 1` half is already true and
+     the `|| page > pages` branch this test names is never reached — deleting
+     it left the suite green. ?page=99 on a four-ticket queue is the real case,
+     and hiding the pager there leaves only the URL bar. */
+  it("still renders the pager past the last page of a single-page list", () => {
     renderQueue({
       queue: [],
-      total: 137,
+      total: 4,
       page: 99,
-      pages: 3,
-      prevHref: "/admin/tickets?page=3",
+      pages: 1,
+      prevHref: "/admin/tickets",
       nextHref: null,
     });
     expect(
       screen.getByRole("navigation", { name: /pagination/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /previous/i }).getAttribute("href"),
-    ).toContain("page=3");
+    expect(screen.getByRole("link", { name: /previous/i })).toBeInTheDocument();
   });
 
   it("disables the edge rather than linking nowhere", () => {
@@ -510,6 +527,26 @@ describe("search", () => {
     expect(region).toHaveTextContent("");
     // aria-busy on a live region tells AT to withhold the update it exists for.
     expect(region).not.toHaveAttribute("aria-busy");
+  });
+
+  /* And that it actually SPEAKS. Asserting only the empty state let the
+     announcement be deleted outright while the test stayed green — the region
+     would be permanently silent and CLAUDE.md's "announce it" rule unenforced.
+     useTransition is forced pending because the flag is internal to the
+     component and a real transition settles before an assertion can see it. */
+  it("announces the wait while a search is in flight", async () => {
+    pendingOverride = true;
+    renderQueue();
+    const region = screen.getByRole("status");
+    expect(region).toHaveTextContent(/updating results/i);
+    // Still never aria-busy: that would suppress the very announcement.
+    expect(region).not.toHaveAttribute("aria-busy");
+  });
+
+  it("dims the stale rows while they are being replaced", () => {
+    pendingOverride = true;
+    renderQueue();
+    expect(document.querySelector("ul")?.className).toContain("opacity-60");
   });
 
   it("offers no Clear button when nothing is searched", () => {

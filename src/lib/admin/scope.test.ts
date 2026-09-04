@@ -14,6 +14,7 @@ import {
   resolveWindow,
   rowActionsFor,
   sortToColumn,
+  VIEW_LABELS,
   VIEW_PREDICATES,
 } from "./scope";
 
@@ -593,5 +594,29 @@ describe("each view admits exactly the statuses it claims", () => {
     ],
   ] as const)("%s", (view, expected) => {
     expect(admits(view)).toEqual([...expected].sort());
+  });
+});
+
+describe("every view says what it is", () => {
+  /* `approved` and `active` have no tab, so this label is the only thing on
+     the page naming the list an operator just arrived at. */
+  it("labels every view in the vocabulary", () => {
+    expect(Object.keys(VIEW_LABELS).sort()).toEqual(
+      [...ADMIN_TICKET_VIEWS].sort(),
+    );
+  });
+
+  it("gives each view a distinct label", () => {
+    const labels = Object.values(VIEW_LABELS);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  /* The open queue is not "All tickets" — that is a different view with a
+     different count, and mislabelling it tells the operator the queue holds
+     drafts and delivered work. */
+  it("does not call the open queue everything", () => {
+    expect(VIEW_LABELS.open).toBe("Open tickets");
+    expect(VIEW_LABELS.all).toBe("All tickets");
+    expect(VIEW_LABELS.open).not.toBe(VIEW_LABELS.all);
   });
 });

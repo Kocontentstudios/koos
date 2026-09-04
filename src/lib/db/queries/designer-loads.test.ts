@@ -50,6 +50,22 @@ describe("getDesignerLoads", () => {
     }
   });
 
+  /* `designerId` is projected from design_tickets, so the href stays correct
+     while the NAME comes from the join. Joining on user_id makes the row read
+     "Bola Client — 5 active" and link to Tolu's list, whose header then names
+     Tolu. The one thing that decides whose name it is was untested. */
+  it("takes the name from the assigned designer, not the requester", async () => {
+    await getDesignerLoads();
+    const join = rec.recorded.joins.find((j) => j.table === "users");
+    expect(join?.on).toContain('"design_tickets"."assigned_designer_id"');
+    expect(join?.on).not.toContain('"design_tickets"."user_id"');
+  });
+
+  it("does not narrow the count with an inner join", async () => {
+    await getDesignerLoads();
+    for (const join of rec.recorded.joins) expect(join.kind).toBe("left");
+  });
+
   it("projects the email the card falls back to", async () => {
     await getDesignerLoads();
     expect(rec.recorded.sources.email).toBe("users.email");

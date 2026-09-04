@@ -36,15 +36,18 @@ export function StatCard({
      --hover, not a surface token, because --surface-1 and --surface-2 are both
      #ffffff in light mode and hover:bg-surface-2 leaves the card with no
      feedback at all — and the feedback IS the feature here.
-     --border-control, not --border-accent, for the focus ring: setting
-     `outline` explicitly suppresses the UA default, so this ring IS the
-     indicator and has to clear WCAG 1.4.11's 3:1. --border-accent is
-     rgba(19,139,200,0.4), which composites to ~1.7:1 on both grounds.
-     globals.css says so on the token itself. */
+     --primary for the focus ring. Setting `outline` explicitly suppresses the
+     UA default, so this ring IS the indicator and has to clear WCAG 1.4.11's
+     3:1. The offset is what decides which ground to measure against: with
+     outline-offset the ring sits on --background, NOT on the card. Measured
+     there, --border-control is 2.88:1 in light mode (it is tuned against the
+     card, where it is 3.26:1) and --border-accent is ~1.7:1 on both. --primary
+     is 3.34:1 light / 5.15:1 dark on --background. Change the offset and this
+     measurement has to be redone. */
   const className =
     "block rounded-xl border border-[var(--border)] bg-surface-1 p-4" +
     (href
-      ? " transition-colors hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-control)]"
+      ? " transition-colors hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
       : "");
 
   const body = (

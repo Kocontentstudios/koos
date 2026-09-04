@@ -222,16 +222,35 @@ function emptyMessageFor(
     return `Page ${scope.page} is past the end of this list.`;
   }
   if (scope.q.trim()) return `Nothing matches "${scope.q.trim()}".`;
-  if (scope.status.length || scope.assignee || scope.brand) {
-    return "Nothing matches these filters.";
-  }
+  if (isNarrowed(scope)) return "Nothing matches these filters.";
   return EMPTY_FOR[scope.view] ?? "No tickets in this view.";
+}
+
+/**
+ * Whether anything beyond the view is narrowing the list.
+ *
+ * Every param the query layer honours, not a subset: `requester` and the date
+ * window are URL-reachable (see scope-params) and omitting them reproduced the
+ * same false all-clear one param over.
+ */
+function isNarrowed(scope: AdminScope): boolean {
+  return Boolean(
+    scope.status.length ||
+      scope.assignee ||
+      scope.brand ||
+      scope.requester ||
+      scope.range !== "all",
+  );
 }
 
 /** What the operator is looking at, in the words the dashboard used. */
 function describeScope(scope: AdminScope, statusLabels: string[]): string {
   const parts = [VIEW_LABELS[scope.view]];
   if (statusLabels.length) parts.push(`status: ${statusLabels.join(", ")}`);
+  if (scope.assignee) parts.push("one designer");
+  if (scope.brand) parts.push("one brand");
+  if (scope.requester) parts.push("one requester");
+  if (scope.range !== "all") parts.push(`last ${scope.range}`);
   if (scope.q) parts.push(`matching "${scope.q}"`);
   return parts.join(" · ");
 }

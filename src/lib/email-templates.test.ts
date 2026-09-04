@@ -361,6 +361,17 @@ describe("ticketReminderEmail", () => {
     expect(html).toContain(base.ticketUrl);
   });
 
+  /* Server-constructed today, so not exploitable — but it was the one
+     un-escaped interpolation in a file where every sibling value is escaped,
+     and "not reachable yet" is not a property of the template. */
+  it("escapes the ticket URL like every other value", () => {
+    const { html } = ticketReminderEmail({
+      ...base,
+      ticketUrl: 'https://app/t/1"><script>alert(1)</script>',
+    });
+    expect(html).not.toContain("<script>");
+  });
+
   it("escapes a brand name that carries markup", () => {
     const { html } = ticketReminderEmail({
       ...base,

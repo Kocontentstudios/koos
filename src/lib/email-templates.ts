@@ -455,7 +455,7 @@ export function ticketReminderEmail(i: TicketReminderEmailInput): BuiltEmail {
     <table style="border-collapse:collapse;width:100%">${
       i.overdueFor ? row("Overdue by", escapeHtml(i.overdueFor)) : ""
     }${i.dueDate ? row("Due", escapeHtml(i.dueDate)) : ""}</table>
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">Open the ticket →</a></p>`,
+    <p style="margin-top:16px"><a href="${escapeHtml(i.ticketUrl)}" style="color:#138bc8">Open the ticket →</a></p>`,
   );
   return { subject: heading, html };
 }

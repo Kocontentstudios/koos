@@ -8,17 +8,19 @@ import { PgDialect } from "drizzle-orm/pg-core";
  * replacing `.where(conditions)` with `.where(undefined)` — which returns every
  * ticket in the database from every drill-down — passed the entire suite.
  *
- * This is not a database. It captures the chain, compiles the parts that
- * compile, and lets a test assert on what the builder actually asked for.
- * Correctness of the SQL against real rows is still not provable in the gate
- * lane; that the builder asked the right question now is.
+ * This is not a database. It captures the chain — including each join's KIND
+ * and compiled ON condition, and the source table of every projected column,
+ * because those are the parts a table name alone cannot distinguish — and lets
+ * a test assert on what the builder actually asked for. Correctness of the SQL
+ * against real rows is still not provable in the gate lane; that the builder
+ * asked the right question now is.
  */
 export interface RecordedQuery {
   select?: Record<string, unknown>;
   /** Each projected key mapped to "table.column" — see `sources`. */
   sources: Record<string, string>;
   from?: string;
-  joins: string[];
+  joins: RecordedJoin[];
   where?: { sql: string; params: unknown[] };
   orderBy: string[];
   groupBy: string[];
@@ -40,6 +42,20 @@ function sourceOf(column: unknown): string {
   return `${table}.${col.name}`;
 }
 
+/**
+ * A join, including the two things that decide whether it is the RIGHT join.
+ *
+ * Recording only the table name cannot see a wrong ON condition or a wrong
+ * kind: joining the designer on `user_id` names the client who filed the
+ * ticket as its assignee, and turning a leftJoin into an innerJoin silently
+ * drops every ticket with no calendar item. Both compile the same table name.
+ */
+export interface RecordedJoin {
+  kind: "left" | "inner";
+  table: string;
+  on: string;
+}
+
 const dialect = new PgDialect();
 
 function tableNameOf(table: unknown): string {
@@ -50,6 +66,18 @@ function tableNameOf(table: unknown): string {
     if (typeof value === "string") return value;
   }
   return "unknown";
+}
+
+function recordJoin(
+  kind: RecordedJoin["kind"],
+  table: unknown,
+  on: unknown,
+): RecordedJoin {
+  return {
+    kind,
+    table: tableNameOf(table),
+    on: on ? dialect.sqlToQuery(on as never).sql : "",
+  };
 }
 
 /** Returns the fake plus the record it fills in as the builder runs. */
@@ -66,12 +94,12 @@ export function recordingDb(rows: unknown[] = []) {
       recorded.from = tableNameOf(table);
       return chain;
     },
-    leftJoin(table: unknown) {
-      recorded.joins.push(tableNameOf(table));
+    leftJoin(table: unknown, on?: unknown) {
+      recorded.joins.push(recordJoin("left", table, on));
       return chain;
     },
-    innerJoin(table: unknown) {
-      recorded.joins.push(tableNameOf(table));
+    innerJoin(table: unknown, on?: unknown) {
+      recorded.joins.push(recordJoin("inner", table, on));
       return chain;
     },
     where(condition: unknown) {

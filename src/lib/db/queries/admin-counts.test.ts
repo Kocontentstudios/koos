@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/* The three dashboard count adapters are one line each and were never
+/* The four dashboard count adapters are one line each and were never
    executed: every test that renders the dashboard mocks them. Pointing
    getOverdueTicketCount at `view: "open"` — so the Overdue card reports the
    whole queue — passed the full suite. */
@@ -18,10 +18,21 @@ vi.mock("./admin-tickets", async () => {
 
 import { VIEW_PREDICATES } from "@/lib/admin/scope";
 import {
+  getApprovedTicketCount,
   getAwaitingReviewCount,
   getOpenTicketCount,
   getOverdueTicketCount,
 } from "./index";
+
+/* Every adapter the dashboard renders. Adding a card without adding it here is
+   how getApprovedTicketCount shipped untested — the Delivered card could have
+   counted the open queue and opened a list of one. */
+const ADAPTERS = [
+  ["Overdue", getOverdueTicketCount, "overdue"],
+  ["Ready for review", getAwaitingReviewCount, "awaiting_review"],
+  ["Open tickets", getOpenTicketCount, "open"],
+  ["Delivered", getApprovedTicketCount, "approved"],
+] as const;
 
 beforeEach(() => {
   countAdminTickets.mockReset();
@@ -32,11 +43,7 @@ const viewOf = () =>
   (countAdminTickets.mock.calls[0]?.[0] as { view: string } | undefined)?.view;
 
 describe("each dashboard card counts the view its link opens", () => {
-  it.each([
-    ["Overdue", getOverdueTicketCount, "overdue"],
-    ["Ready for review", getAwaitingReviewCount, "awaiting_review"],
-    ["Open tickets", getOpenTicketCount, "open"],
-  ])("%s", async (_label, fn, view) => {
+  it.each(ADAPTERS)("%s", async (_label, fn, view) => {
     await fn();
     expect(viewOf()).toBe(view);
   });
@@ -45,16 +52,12 @@ describe("each dashboard card counts the view its link opens", () => {
      is the drift these tickets exist to remove. */
   it("no two cards resolve the same predicate", async () => {
     const views: string[] = [];
-    for (const fn of [
-      getOverdueTicketCount,
-      getAwaitingReviewCount,
-      getOpenTicketCount,
-    ]) {
+    for (const [, fn] of ADAPTERS) {
       countAdminTickets.mockClear();
       await fn();
       views.push(viewOf() ?? "");
     }
-    expect(new Set(views).size).toBe(3);
+    expect(new Set(views).size).toBe(ADAPTERS.length);
     for (const view of views) expect(VIEW_PREDICATES).toHaveProperty(view);
   });
 

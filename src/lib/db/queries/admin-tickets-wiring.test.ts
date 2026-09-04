@@ -137,30 +137,55 @@ describe("listAdminTickets", () => {
     expect(rec.recorded.orderBy.at(-1)).toBe('"design_tickets"."id" asc');
   });
 
-  it("joins what the row mapping reads", async () => {
+  /* Table name, KIND and ON condition. A table name alone cannot see the two
+     ways a join goes wrong: an innerJoin here drops every ticket with no
+     calendar item — i.e. every design-request ticket — so the Overdue card
+     counts 6 and its own list shows 1. And joining the designer on user_id
+     names the CLIENT who filed the ticket as its assignee, beside a Send
+     reminder button that would nudge someone else. */
+  it("joins what the row mapping reads, on the right column", async () => {
     await listAdminTickets(scope(), { now: NOW });
-    for (const table of [
-      "brands",
-      "calendar_items",
-      "calendars",
-      "strategies",
-    ]) {
-      expect(rec.recorded.joins).toContain(table);
+    const joins = Object.fromEntries(
+      rec.recorded.joins.map((j) => [j.table, j]),
+    );
+
+    expect(joins.brands?.on).toContain('"design_tickets"."brand_id"');
+    expect(joins.calendar_items?.on).toContain(
+      '"design_tickets"."calendar_item_id"',
+    );
+    expect(joins.calendars?.on).toContain('"calendar_items"."calendar_id"');
+    expect(joins.strategies?.on).toContain('"calendars"."strategy_id"');
+    /* The one that decides whose name the row shows. */
+    expect(joins.designer?.on).toContain(
+      '"design_tickets"."assigned_designer_id"',
+    );
+    expect(joins.designer?.on).not.toContain('"design_tickets"."user_id"');
+  });
+
+  /* Every join must be a LEFT join: a ticket with no brand, no calendar item
+     or no designer still belongs in the list. An inner join silently narrows
+     the result set while the count query — which has no joins — does not. */
+  it("never narrows the result set with an inner join", async () => {
+    await listAdminTickets(scope({ q: "logo" }), { now: NOW });
+    for (const join of rec.recorded.joins) {
+      expect(join.kind, `${join.table} must be a left join`).toBe("left");
     }
   });
 
   /* The requester join exists only to widen the text search. Paying for it on
      every drill-down is the cost the count query already documents avoiding. */
   it("joins the requester only when searching", async () => {
+    const tables = () => rec.recorded.joins.map((j) => j.table);
+
     await listAdminTickets(scope({ q: "logo" }), { now: NOW });
-    expect(rec.recorded.joins).toContain("requester");
+    expect(tables()).toContain("requester");
 
     rec = recordingDb([]);
     setCurrent(rec as unknown as { db: Record<string, unknown> });
     await listAdminTickets(scope(), { now: NOW });
-    expect(rec.recorded.joins).not.toContain("requester");
+    expect(tables()).not.toContain("requester");
     // The designer join IS always needed — the row renders the assignee.
-    expect(rec.recorded.joins).toContain("designer");
+    expect(tables()).toContain("designer");
   });
 });
 
@@ -192,8 +217,9 @@ describe("countAdminTickets", () => {
 
   it("joins for a text search", async () => {
     await countAdminTickets(scope({ q: "logo" }), { now: NOW });
-    expect(rec.recorded.joins).toContain("brands");
-    expect(rec.recorded.joins).toContain("requester");
+    const tables = rec.recorded.joins.map((j) => j.table);
+    expect(tables).toContain("brands");
+    expect(tables).toContain("requester");
   });
 
   it("does not page — a count is over the whole set", async () => {

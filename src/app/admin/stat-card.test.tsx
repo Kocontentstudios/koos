@@ -67,26 +67,27 @@ describe("StatCard", () => {
    the token itself. Because `outline` is set explicitly the UA default is
    suppressed, so this ring IS the only focus indicator on the card. */
 describe("focus indicator", () => {
-  it("uses the token tuned for control contrast", () => {
+  const ringClasses = () => {
     render(<StatCard label="Overdue" value={6} href="/admin/tickets" />);
-    const cls = screen.getByRole("link").className;
-    expect(cls).toContain("focus-visible:outline-[var(--border-control)]");
+    return screen.getByRole("link").className;
+  };
+
+  /* The token and the offset are ONE decision, asserted together. The offset
+     moves the ring off the card onto --background, so a token measured against
+     the card is measured against the wrong ground — that is how a ring tuned
+     to 3.26:1 shipped at 2.88:1. Changing either half requires re-measuring. */
+  it("draws the ring in a colour that clears 3:1 on the ground it lands on", () => {
+    const cls = ringClasses();
+    expect(cls).toContain("focus-visible:outline-[var(--primary)]");
+    expect(cls).toContain("focus-visible:outline-offset-2");
   });
 
-  it("does not use a surface-tuned token that fails 3:1", () => {
-    render(<StatCard label="Overdue" value={6} href="/admin/tickets" />);
-    const cls = screen.getByRole("link").className;
-    expect(cls).not.toContain("outline-[var(--border-accent)]");
-    expect(cls).not.toContain("outline-[var(--border)]");
-  });
-
-  /* A ring drawn on the card's own edge is harder to see than one offset from
-     it, and the card sits directly on the page background. */
-  it("offsets the ring from the card edge", () => {
-    render(<StatCard label="Overdue" value={6} href="/admin/tickets" />);
-    expect(screen.getByRole("link").className).toContain(
-      "focus-visible:outline-offset-2",
-    );
+  it.each([
+    ["--border-accent", "~1.7:1 on both grounds"],
+    ["--border-control", "2.88:1 on --background in light mode"],
+    ["--border", "a surface edge, far below 3:1"],
+  ])("does not use %s (%s)", (token) => {
+    expect(ringClasses()).not.toContain(`outline-[var(${token})]`);
   });
 
   it("draws no focus ring on a card that is not a link", () => {

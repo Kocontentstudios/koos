@@ -167,12 +167,16 @@ export function QueueClient({
           >
             {label}
             {count !== undefined && count > 0 && (
+              /* Outlined, not tinted. The count is 11px semibold — normal
+                 text under WCAG 1.4.3, so it needs 4.5:1. On a 16% tint of its
+                 own colour it measured 3.98:1 in light mode; unfilled on the
+                 card it is 4.92:1. The border carries the badge shape and is
+                 decorative, so 1.4.11 does not apply to it. */
               <span
-                className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold"
+                className="inline-flex min-w-5 items-center justify-center rounded-full border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
                 style={{
                   color: "var(--status-pending-fg)",
-                  backgroundColor:
-                    "color-mix(in srgb, var(--status-pending-fg) 16%, transparent)",
+                  borderColor: "var(--status-pending-fg)",
                 }}
               >
                 {count}
