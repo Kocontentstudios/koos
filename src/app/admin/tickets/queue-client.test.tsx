@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import type { QueueRow } from "./queue-client";
@@ -128,5 +129,65 @@ describe("overdue rows", () => {
       />,
     );
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
+  });
+});
+
+describe("send reminder", () => {
+  it("is offered only when someone is carrying the ticket", () => {
+    const { unmount } = render(
+      <QueueClient
+        queue={[row({ id: "a", assigneeName: "Tolu A" })]}
+        filters={FILTERS}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /send reminder/i }),
+    ).toBeInTheDocument();
+    unmount();
+
+    render(
+      <QueueClient
+        queue={[row({ id: "b", assigneeName: "" })]}
+        filters={FILTERS}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /send reminder/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  /* The rule most easily broken on a list: one shared boolean makes every row
+     claim to be working when one of them is. */
+  it("shows pending on the row that was clicked, not the others", async () => {
+    let release: (r: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((r) => {
+            release = r;
+          }),
+      ),
+    );
+    render(
+      <QueueClient
+        queue={[
+          row({ id: "a", ticketNumber: 201, assigneeName: "Tolu A" }),
+          row({ id: "b", ticketNumber: 202, assigneeName: "Bimpe O" }),
+        ]}
+        filters={FILTERS}
+      />,
+    );
+
+    const [first, second] = screen.getAllByRole("button", {
+      name: /send reminder|sending/i,
+    });
+    await userEvent.click(first);
+
+    expect(first).toHaveAttribute("data-loading", "true");
+    expect(second).not.toHaveAttribute("data-loading", "true");
+
+    release(new Response("{}", { status: 200 }));
+    vi.unstubAllGlobals();
   });
 });

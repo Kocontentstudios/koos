@@ -251,6 +251,29 @@ function QueueItem({ row }: { row: QueueRow }) {
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        {/* Only where it means something: nudging an unassigned ticket has
+            nobody to reach, and the route refuses it. */}
+        {row.assigneeName ? (
+          <Button
+            variant="secondary"
+            size="lg"
+            loading={pending === "remind"}
+            loadingText="Sending…"
+            disabled={pending !== null}
+            onClick={() =>
+              action(
+                "remind",
+                () =>
+                  fetch(`/api/admin/tickets/${row.id}/remind`, {
+                    method: "POST",
+                  }),
+                "Reminder sent",
+              )
+            }
+          >
+            Send reminder
+          </Button>
+        ) : null}
         <Button
           variant="secondary"
           size="lg"
