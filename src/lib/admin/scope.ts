@@ -232,15 +232,13 @@ const DEFAULT_SORT: SortSpec = { field: "createdAt", direction: "desc" };
  * read the same way for a different reason: the oldest due date is the most
  * overdue ticket, and that is the one that needs a call today.
  */
+/* No `awaiting_review` entry, deliberately. This map is shared with the QUEUE
+   page, where that view is a tab and has always sorted newest-created-first.
+   Delivered Projects wants a delivery-date order for the same view, so it sets
+   its own default rather than changing this one — a per-view default cannot
+   serve two pages that mean different things by it. */
 const DEFAULT_SORT_KEY: Partial<Record<AdminTicketView, string>> = {
   delivered: "delivered",
-  /* NOT "delivered": deliveredAt records the FIRST round only, so a ticket
-     re-delivered yesterday would sort below one first delivered last week —
-     the inversion this whole sort exists to prevent. `updated` is the honest
-     proxy for "most recently handed over", because recordDeliverableVersion
-     touches updatedAt on every round. This view is shared with the queue page,
-     so getting it wrong re-sorts a page this unit does not otherwise touch. */
-  awaiting_review: "updated",
   approved: "approved",
   open: "priority",
   in_progress: "priority",

@@ -51,6 +51,15 @@ const RANGES: { range: AdminRange; label: string }[] = [
   { range: "90d", label: "Last 90 days" },
 ];
 
+/* Every chip orders by a date this page actually displays. `delivered` records
+   the first round only — the same value the Delivered column shows — so the
+   order and the visible dates agree. */
+const DEFAULT_SORT_FOR: Partial<Record<AdminTicketView, string>> = {
+  delivered: "delivered",
+  awaiting_review: "delivered",
+  approved: "approved",
+};
+
 const EMPTY_FOR: Partial<Record<AdminTicketView, string>> = {
   delivered: "Nothing has been delivered yet.",
   awaiting_review: "Nothing is waiting on a client.",
@@ -89,8 +98,17 @@ export default async function AdminDeliveredPage({
     ? raw.view
     : "delivered";
   /* `on` is pinned: every date control here is about delivery, so a stale or
-     hand-edited ?on= must not make the range mean something else. */
-  const scope: AdminScope = { ...raw, view, on: "delivered" };
+     hand-edited ?on= must not make the range mean something else.
+     The sort default is the page's own, not the shared per-view one: this page
+     and the queue both show `awaiting_review` and mean different things by it —
+     the queue lists what is waiting, oldest work first by creation; this page
+     lists what has shipped. An explicit ?sort= still wins. */
+  const scope: AdminScope = {
+    ...raw,
+    view,
+    on: "delivered",
+    sort: raw.sort || (DEFAULT_SORT_FOR[view] ?? "delivered"),
+  };
 
   const now = new Date();
   const [rows, total] = await Promise.all([

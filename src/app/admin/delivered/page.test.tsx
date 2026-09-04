@@ -450,3 +450,33 @@ describe("the header count is the whole result set", () => {
     expect(screen.getByText(/^1 project$/)).toBeInTheDocument();
   });
 });
+
+describe("the page owns its own ordering", () => {
+  /* DEFAULT_SORT_KEY is shared with the queue, which shows the same
+     `awaiting_review` view and means something different by it. Setting a
+     delivery-date default there re-sorted a page this unit does not own. */
+  it.each([
+    ["delivered", "delivered"],
+    ["awaiting_review", "delivered"],
+    ["approved", "approved"],
+  ])("%s orders by %s", async (view, sort) => {
+    await renderPage({ view });
+    const scope = listDeliveredProjects.mock.calls[0]?.[0] as { sort: string };
+    expect(scope.sort).toBe(sort);
+  });
+
+  /* A default, not an override: a shared link carrying an explicit sort must
+     still win. */
+  it("yields to an explicit sort in the URL", async () => {
+    await renderPage({ view: "delivered", sort: "ticket:desc" });
+    const scope = listDeliveredProjects.mock.calls[0]?.[0] as { sort: string };
+    expect(scope.sort).toBe("ticket:desc");
+  });
+
+  it("hands the count the same sort-bearing scope it lists", async () => {
+    await renderPage({ view: "awaiting_review" });
+    expect(listDeliveredProjects.mock.calls[0]?.[0]).toEqual(
+      countAdminTickets.mock.calls[0]?.[0],
+    );
+  });
+});

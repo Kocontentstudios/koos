@@ -208,7 +208,6 @@ const rowShape = {
   createdAt: designTickets.createdAt,
   updatedAt: designTickets.updatedAt,
   approvedAt: designTickets.approvedAt,
-  deliveredAt: designTickets.deliveredAt,
   brandId: designTickets.brandId,
   brandName: brands.name,
   campaignName: strategies.name,

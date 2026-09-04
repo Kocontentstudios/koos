@@ -381,14 +381,17 @@ describe("ordering", () => {
     },
   );
 
-  /* deliveredAt records the FIRST round only, so sorting awaiting-review by it
-     puts a ticket re-delivered yesterday below one first delivered last week.
-     updatedAt is touched every round. Shared with the QUEUE page, so the wrong
-     choice re-sorts a page this change does not otherwise touch. */
-  it("sorts awaiting review by last activity, not first delivery", () => {
+  /* The QUEUE's Awaiting review tab is untouched by this unit: it sorted
+     newest-created-first before and must still. DEFAULT_SORT_KEY is shared, so
+     giving that view a delivery-date default here silently re-sorted a page
+     this change does not own — and by a date that only ever records the FIRST
+     round, so a ticket re-delivered yesterday sank below one first delivered
+     last week. Delivered Projects sets its own default instead. */
+  it("leaves the queue's awaiting-review order alone", () => {
     const [primary] = orderSql(scope({ view: "awaiting_review" }));
-    expect(primary).toContain('"design_tickets"."updated_at"');
+    expect(primary).toContain('"design_tickets"."created_at"');
     expect(primary).not.toContain('"design_tickets"."delivered_at"');
+    expect(primary).not.toContain('"design_tickets"."updated_at"');
   });
 
   /* No ORDER BY may name a column twice, whatever the view. */
