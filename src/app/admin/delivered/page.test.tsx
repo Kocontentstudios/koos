@@ -19,7 +19,6 @@ vi.mock("@/lib/db/queries", () => ({
   countAdminTickets: (...a: unknown[]) => countAdminTickets(...a),
 }));
 
-import { defaultSortKeyFor } from "@/lib/admin/scope";
 import AdminDeliveredPage from "./page";
 
 beforeEach(() => {
@@ -39,10 +38,7 @@ function project(over: Record<string, unknown> = {}) {
     status: "delivered",
     deliveredAt: DELIVERED,
     approvedAt: APPROVED,
-    createdAt: new Date("2026-08-10T12:00:00Z"),
-    brandId: "b1",
     brandName: "Acme Co",
-    requesterId: "u1",
     requesterFirstName: "Cara",
     requesterLastName: "Client",
     requesterEmail: "cara@koos.test",
@@ -144,6 +140,17 @@ describe("dates", () => {
 });
 
 describe("the filters", () => {
+  /* Colour alone cannot say which chip is active. */
+  it("marks the active chip for assistive tech", async () => {
+    await renderPage({ view: "approved" });
+    expect(
+      screen.getByRole("link", { name: "Approved / completed" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.getByRole("link", { name: "All delivered" }),
+    ).not.toHaveAttribute("aria-current");
+  });
+
   it.each([
     ["All delivered", "delivered"],
     ["Awaiting review", "awaiting_review"],
@@ -254,6 +261,16 @@ describe("empty states name what is empty", () => {
     await renderPage({ page: "99" }, [], 137);
     expect(screen.getByText(/past the end/i)).toBeInTheDocument();
   });
+
+  /* A studio that has delivered nothing is not "past the end of the list" —
+     it has no list. `total > 0` is what tells those two apart. */
+  it("does not call an empty studio a paging mistake", async () => {
+    await renderPage({ page: "5" }, [], 0);
+    expect(
+      screen.getByText(/nothing has been delivered yet/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/past the end/i)).not.toBeInTheDocument();
+  });
 });
 
 describe("the header says what is on screen", () => {
@@ -351,6 +368,17 @@ describe("the date filter the ticket asks for", () => {
     expect(scope.on).toBe("delivered");
   });
 
+  /* Changing the window changes the result set, so the old offset is
+     meaningless — without the reset, switching to "Last 7 days" from page 4
+     lands past the end of a shorter list. */
+  it("returns to the first page when the window changes", async () => {
+    await renderPage({ page: "4" });
+    const href =
+      screen.getByRole("link", { name: "Last 7 days" }).getAttribute("href") ??
+      "";
+    expect(href).not.toContain("page=4");
+  });
+
   it("marks the active window", async () => {
     await renderPage({ range: "7d" });
     expect(screen.getByRole("link", { name: "Last 7 days" })).toHaveAttribute(
@@ -365,22 +393,6 @@ describe("the date filter the ticket asks for", () => {
     expect(
       screen.getByText(/nothing matches these filters/i),
     ).toBeInTheDocument();
-  });
-});
-
-describe("ordering", () => {
-  /* Read to answer "what have we shipped lately", which creation date answers
-     wrongly: a January ticket delivered yesterday belongs above a last-week
-     ticket delivered last week. */
-  it("sorts by delivery date, not creation date", async () => {
-    await renderPage();
-    const scope = listDeliveredProjects.mock.calls[0]?.[0] as { view: string };
-    expect(defaultSortKeyFor(scope.view as never)).toBe("delivered");
-  });
-
-  it("sorts the approved chip by approval date", async () => {
-    await renderPage({ view: "approved" });
-    expect(defaultSortKeyFor("approved")).toBe("approved");
   });
 });
 

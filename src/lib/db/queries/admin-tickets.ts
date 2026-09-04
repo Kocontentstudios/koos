@@ -180,7 +180,15 @@ export function orderFor(scope: AdminScope): SQL[] {
   const spec = sortToColumn(scope.sort || defaultSortKeyFor(scope.view));
   const column = SORT_COLUMNS[spec.field];
   const direction = spec.direction === "asc" ? asc : desc;
-  const clauses: SQL[] = [direction(column)];
+  /* Branched rather than interpolated: `nulls last` is a literal here, and the
+     direction never reaches sql.raw, so no part of an ORDER BY is built from
+     anything a URL can influence. */
+  const primary = spec.nullsLast
+    ? spec.direction === "asc"
+      ? sql`${column} asc nulls last`
+      : sql`${column} desc nulls last`
+    : direction(column);
+  const clauses: SQL[] = [primary];
   if (spec.field !== "createdAt") clauses.push(desc(designTickets.createdAt));
   clauses.push(asc(designTickets.id));
   return clauses;
@@ -320,25 +328,26 @@ const deliveredRowShape = {
   status: designTickets.status,
   deliveredAt: designTickets.deliveredAt,
   approvedAt: designTickets.approvedAt,
-  createdAt: designTickets.createdAt,
-  brandId: designTickets.brandId,
   brandName: brands.name,
-  requesterId: designTickets.userId,
   requesterFirstName: requester.firstName,
   requesterLastName: requester.lastName,
   requesterEmail: requester.email,
+  /* Read by the row mapping to tell "we cannot name them" from "nobody has
+     it" — the only nullable of the three people columns. */
   designerId: designTickets.assignedDesignerId,
   designerFirstName: designer.firstName,
   designerLastName: designer.lastName,
   designerEmail: designer.email,
   /* The fallback behind deliveredDateOf: a row written between the backfill
      and the deploy that started populating the column.
-     .mapWith is load-bearing, not decoration. A raw `sql` fragment is decoded
-     with noopDecoder, so postgres-js hands back the WIRE STRING while a real
-     column goes through mapFromDriverValue and arrives as a Date — and the
-     `sql<Date>` generic is unchecked, so nothing complains. Without this,
-     formatDate calls .toLocaleDateString on a string and throws, 500ing the
-     whole route. Same class as the write-side footgun timestamp.ts documents. */
+     .mapWith is load-bearing. A raw `sql` fragment is decoded with
+     noopDecoder, so postgres-js returns the WIRE STRING while a real column
+     goes through mapFromDriverValue and arrives as a Date — and the
+     `sql<Date>` generic is unchecked, so nothing complains. The string then
+     parses in the SERVER's timezone rather than UTC, which shifts the delivery
+     date by the offset: measured on a UTC+14 host, the same row renders
+     "Jul 4" without this and "Jul 5" with it. A wrong day, silently, not a
+     crash. Same class as the write-side footgun timestamp.ts documents. */
   firstDeliverableAt: sql<Date | null>`(
     select min(${designDeliverables.createdAt})
     from ${designDeliverables}

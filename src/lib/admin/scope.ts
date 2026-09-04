@@ -185,6 +185,9 @@ function utcDay(value: string | undefined): Date | null {
 }
 
 export interface SortSpec {
+  /** Postgres puts NULLs FIRST on DESC. A date that is absent is not the most
+   *  recent one, so any descending date sort has to say otherwise. */
+  nullsLast?: true;
   field:
     | "createdAt"
     | "dueDate"
@@ -203,8 +206,12 @@ const SORT_FIELDS: Record<string, SortSpec> = {
   /* Newest delivery first. Delivered Projects is read to answer "what have we
      shipped lately", which creation date answers wrongly: a January ticket
      delivered yesterday belongs above a last-week ticket delivered last week. */
-  delivered: { field: "deliveredAt", direction: "desc" },
-  approved: { field: "approvedAt", direction: "desc" },
+  /* nullsLast is load-bearing: DESC defaults to NULLS FIRST in Postgres, and
+     a ticket with no delivery date is reachable — ManagePanel can set the
+     status to `delivered` without any upload — so without it the top of
+     Delivered Projects is reserved for the rows with no date at all. */
+  delivered: { field: "deliveredAt", direction: "desc", nullsLast: true },
+  approved: { field: "approvedAt", direction: "desc", nullsLast: true },
   updated: { field: "updatedAt", direction: "desc" },
   ticket: { field: "ticketNumber", direction: "desc" },
   priority: { field: "priority", direction: "desc" },
@@ -227,7 +234,13 @@ const DEFAULT_SORT: SortSpec = { field: "createdAt", direction: "desc" };
  */
 const DEFAULT_SORT_KEY: Partial<Record<AdminTicketView, string>> = {
   delivered: "delivered",
-  awaiting_review: "delivered",
+  /* NOT "delivered": deliveredAt records the FIRST round only, so a ticket
+     re-delivered yesterday would sort below one first delivered last week —
+     the inversion this whole sort exists to prevent. `updated` is the honest
+     proxy for "most recently handed over", because recordDeliverableVersion
+     touches updatedAt on every round. This view is shared with the queue page,
+     so getting it wrong re-sorts a page this unit does not otherwise touch. */
+  awaiting_review: "updated",
   approved: "approved",
   open: "priority",
   in_progress: "priority",
@@ -360,13 +373,14 @@ export function deliveredDateOf(row: {
 }
 
 /**
- * Belt and braces on the decoder.
+ * Accepts whatever the row actually carries.
  *
- * `firstDeliverableAt` comes from a raw `sql` fragment, which drizzle decodes
- * with noopDecoder unless `.mapWith` is applied — so a missing `.mapWith`
- * silently yields the wire STRING, and the `sql<Date>` generic does not catch
- * it. The query layer applies `.mapWith`; this makes the failure a blank cell
- * rather than a TypeError that 500s the whole route.
+ * `firstDeliverableAt` comes from a raw `sql` fragment. The query layer applies
+ * `.mapWith` so it arrives as a Date; this keeps a plain string — from a caller
+ * that forgets, or a fixture — from reaching `toLocaleDateString`, which throws
+ * on one. It cannot rescue the timezone: a string decoded here parses in the
+ * server's zone, so the DATE will be right only if `.mapWith` did its job.
+ * That correctness lives in the query, and admin-tickets-wiring.test.ts pins it.
  */
 function asDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null;

@@ -35,11 +35,24 @@ export interface RecordedQuery {
  * and `strategies.name` are both called "name", so an assertion on the name
  * alone passes while every row prints the campaign where the brand belongs.
  */
+const dialect = new PgDialect();
+
 function sourceOf(column: unknown): string {
   const col = column as { name?: string; table?: unknown };
-  if (typeof col?.name !== "string") return "?";
-  const table = col.table ? tableNameOf(col.table) : "?";
-  return `${table}.${col.name}`;
+  if (typeof col?.name === "string") {
+    const table = col.table ? tableNameOf(col.table) : "?";
+    return `${table}.${col.name}`;
+  }
+  /* A projected `sql` fragment — a correlated subquery, an aggregate — is not
+     a Column and has no name. Returning "?" for it meant a whole field could
+     be deleted, or its subquery correlated on the wrong key, while the
+     projection assertion stayed green. Compile it instead, so the fragment's
+     own text is what a test reads. */
+  try {
+    return dialect.sqlToQuery(column as never).sql;
+  } catch {
+    return "?";
+  }
 }
 
 /**
@@ -55,8 +68,6 @@ export interface RecordedJoin {
   table: string;
   on: string;
 }
-
-const dialect = new PgDialect();
 
 function tableNameOf(table: unknown): string {
   const symbols = Object.getOwnPropertySymbols(table as object);

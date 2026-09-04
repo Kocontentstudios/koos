@@ -149,7 +149,7 @@ export function DeliveredClient({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Ticket number, title, brand, requester or designer"
-          className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-foreground placeholder:text-[var(--text-muted)] focus:border-primary focus:outline-none"
+          className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-foreground placeholder:text-[var(--text-secondary)] focus:border-primary focus:outline-none"
         />
         <Button type="submit" variant="secondary" size="lg" loading={isPending}>
           Search

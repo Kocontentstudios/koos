@@ -650,7 +650,15 @@ describe("deliveredDateOf", () => {
       firstDeliverableAt: "2026-07-04 12:00:00",
     });
     expect(d).toBeInstanceOf(Date);
-    expect(d?.toISOString()).toContain("2026-07-04");
+    /* Compared in the host's own zone: a bare "YYYY-MM-DD HH:MM:SS" parses
+       locally, so asserting the UTC date fails on any host at UTC+13 or +14. */
+    expect(
+      d?.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+    ).toBe("Jul 4, 2026");
   });
 
   it("refuses a value that is not a date at all", () => {

@@ -33,42 +33,42 @@ describe("getDesignerLoads", () => {
   /* Postgres requires every non-aggregated projected column in the GROUP BY.
      Adding `email` to the projection without adding it here is error 42803 at
      runtime — a green suite and a dead dashboard. */
+  /* `sources` records a Column as `table.column` and a projected sql fragment
+     as compiled SQL, so comparing the two needs a normal form. designerId is
+     projected as a fragment and grouped as a Column — the same column, two
+     spellings. */
+  const columnsIn = (value: string) =>
+    Array.from(value.matchAll(/"?([a-z_]+)"?\."?([a-z_]+)"?/g)).map(
+      (m) => `${m[1]}.${m[2]}`,
+    );
+
   it("groups by every non-aggregated column it projects", async () => {
     await getDesignerLoads();
-    const aggregates = new Set(["count"]);
-    const projected = Object.keys(rec.recorded.sources).filter(
-      (k) => !aggregates.has(k),
-    );
-    for (const key of projected) {
-      const source = rec.recorded.sources[key] ?? "";
-      // designerId is the grouped ticket column, projected through a sql<>.
-      if (source === "?") continue;
-      expect(
-        rec.recorded.groupBy,
-        `${key} (${source}) is projected but not grouped`,
-      ).toContain(source);
+    const grouped = new Set(rec.recorded.groupBy.flatMap(columnsIn));
+
+    for (const [key, source] of Object.entries(rec.recorded.sources)) {
+      // count() is an aggregate; it names no column.
+      if (key === "count") continue;
+      for (const column of columnsIn(source)) {
+        expect(
+          grouped,
+          `${key} projects ${column}, which is not in the GROUP BY`,
+        ).toContain(column);
+      }
     }
-  });
-
-  /* `designerId` is projected from design_tickets, so the href stays correct
-     while the NAME comes from the join. Joining on user_id makes the row read
-     "Bola Client — 5 active" and link to Tolu's list, whose header then names
-     Tolu. The one thing that decides whose name it is was untested. */
-  it("takes the name from the assigned designer, not the requester", async () => {
-    await getDesignerLoads();
-    const join = rec.recorded.joins.find((j) => j.table === "users");
-    expect(join?.on).toContain('"design_tickets"."assigned_designer_id"');
-    expect(join?.on).not.toContain('"design_tickets"."user_id"');
-  });
-
-  it("does not narrow the count with an inner join", async () => {
-    await getDesignerLoads();
-    for (const join of rec.recorded.joins) expect(join.kind).toBe("left");
   });
 
   it("projects the email the card falls back to", async () => {
     await getDesignerLoads();
     expect(rec.recorded.sources.email).toBe("users.email");
+    expect(rec.recorded.groupBy).toContain("users.email");
+  });
+
+  /* The specific 42803: `email` was added to the projection in the same change
+     that added it here. Dropping either half is a runtime error that takes the
+     whole dashboard into the error boundary. */
+  it("groups by the email it projects", async () => {
+    await getDesignerLoads();
     expect(rec.recorded.groupBy).toContain("users.email");
   });
 

@@ -361,6 +361,36 @@ describe("ordering", () => {
     expect(clauses[1]).toBe('"design_tickets"."id" asc');
   });
 
+  /* Delivered Projects is read to answer "what have we shipped lately", which
+     creation date answers wrongly: a January ticket delivered yesterday belongs
+     above a last-week ticket delivered last week. */
+  it("sorts delivered work by delivery date, newest first", () => {
+    const [primary] = orderSql(scope({ view: "delivered" }));
+    expect(primary).toContain('"design_tickets"."delivered_at"');
+    expect(primary).toContain("desc");
+  });
+
+  /* Postgres puts NULLs FIRST on DESC, and a ticket with no delivery date is
+     reachable — ManagePanel can set the status to `delivered` with no upload —
+     so without this the top of the page is reserved for rows with no date. */
+  it.each(["delivered", "approved"] as const)(
+    "puts %s rows with no date last, not first",
+    (view) => {
+      const [primary] = orderSql(scope({ view }));
+      expect(primary).toContain("nulls last");
+    },
+  );
+
+  /* deliveredAt records the FIRST round only, so sorting awaiting-review by it
+     puts a ticket re-delivered yesterday below one first delivered last week.
+     updatedAt is touched every round. Shared with the QUEUE page, so the wrong
+     choice re-sorts a page this change does not otherwise touch. */
+  it("sorts awaiting review by last activity, not first delivery", () => {
+    const [primary] = orderSql(scope({ view: "awaiting_review" }));
+    expect(primary).toContain('"design_tickets"."updated_at"');
+    expect(primary).not.toContain('"design_tickets"."delivered_at"');
+  });
+
   /* No ORDER BY may name a column twice, whatever the view. */
   it.each([...ADMIN_TICKET_VIEWS])("%s names each column once", (view) => {
     const columns = orderSql(scope({ view })).map((c) => c.split(" ")[0]);

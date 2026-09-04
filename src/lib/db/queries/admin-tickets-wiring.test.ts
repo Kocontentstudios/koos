@@ -22,6 +22,7 @@ vi.mock("@/lib/db/client", () => ({ db: dbProxy }));
 
 import { PAGE_SIZE, VIEW_PREDICATES } from "@/lib/admin/scope";
 import { type AdminScope, DEFAULT_SCOPE } from "@/lib/admin/scope-params";
+import { designTickets } from "@/lib/db/schema";
 import {
   countAdminTickets,
   getWorkloadForDesigner,
@@ -350,6 +351,34 @@ describe("listDeliveredProjects", () => {
       deliveredAt: "design_tickets.delivered_at",
       approvedAt: "design_tickets.approved_at",
     });
+  });
+
+  /* The migration-window fallback. Four separate mutations used to survive
+     here — deleting the field, dropping .mapWith, min→max, and correlating on
+     the wrong key — because the recorder reported a non-Column projection as
+     "?" and toMatchObject skipped the key entirely. */
+  it("reads the FIRST delivery, correlated on the ticket", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    const fragment = rec.recorded.sources.firstDeliverableAt ?? "";
+
+    expect(fragment).toContain("min(");
+    expect(fragment).not.toContain("max(");
+    expect(fragment).toContain('"design_deliverables"."created_at"');
+    // Correlated on the ticket, not on the deliverable's own id.
+    expect(fragment).toContain(
+      '"design_deliverables"."ticket_id" = "design_tickets"."id"',
+    );
+  });
+
+  /* A raw sql fragment is decoded with noopDecoder unless .mapWith is applied,
+     so without it the field arrives as the wire string in the server's own
+     timezone rather than a Date — a delivery date silently off by the UTC
+     offset, which renders as the wrong DAY either side of midnight. */
+  it("decodes the fallback as a date, not a wire string", async () => {
+    await listDeliveredProjects(scope({ view: "delivered" }), { now: NOW });
+    const shape = rec.recorded.select ?? {};
+    const field = shape.firstDeliverableAt as { decoder?: unknown } | undefined;
+    expect(field?.decoder).toBe(designTickets.deliveredAt);
   });
 
   it("joins the requester unconditionally, unlike the queue", async () => {
