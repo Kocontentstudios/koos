@@ -539,3 +539,106 @@ describe("OnboardingClient voice chips", () => {
     ).toBeNull();
   });
 });
+
+/* ── KOS-V1-FEAT-018 ───────────────────────────────────────────────────── */
+
+describe("attaching a brand document", () => {
+  /* This block sits outside the suite above, so it does not inherit that
+     beforeEach — and chatState is module-level, so a "streaming" status left
+     by the last test renders every control disabled. */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [];
+    chatState.status = "ready";
+  });
+
+  const renderChat = () =>
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+  /* Criterion 2: a visible attachment control in the chat INPUT BAR. */
+  it("puts a paperclip in the input bar", () => {
+    renderChat();
+    const button = screen.getByRole("button", {
+      name: /attach a brand document/i,
+    });
+    expect(button).toBeInTheDocument();
+    /* Beside the message box, not somewhere else on the page: the ticket asks
+       for it in the input bar. */
+    expect(
+      button.closest("div")?.querySelector("textarea"),
+    ).toBeInTheDocument();
+  });
+
+  /* Criterion 1: the optional upload step, offered in words. */
+  it("offers the upload in plain language", () => {
+    renderChat();
+    expect(
+      screen.getByText(/existing brand guidelines or an identity doc/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /upload it here/i }),
+    ).toBeInTheDocument();
+  });
+
+  /* Both controls must drive ONE picker: two file inputs would mean two
+     sources of pending state that can disagree. */
+  it("renders exactly one file input for both controls", () => {
+    renderChat();
+    expect(screen.getAllByTestId("document-input")).toHaveLength(1);
+  });
+
+  it("accepts exactly the four formats the ticket names", () => {
+    renderChat();
+    const input = screen.getByTestId("document-input");
+    const accept = input.getAttribute("accept") ?? "";
+    for (const ext of [".pdf", ".docx", ".txt", ".pptx"]) {
+      expect(accept).toContain(ext);
+    }
+    expect(accept).not.toContain(".xlsx");
+    expect(accept).not.toContain(".png");
+  });
+
+  it.each([
+    ["the paperclip", /attach a brand document/i],
+    ["the hint link", /upload it here/i],
+  ])("opens the picker from %s", async (_label, name) => {
+    renderChat();
+    const input = screen.getByTestId("document-input") as HTMLInputElement;
+    const click = vi.fn();
+    input.click = click;
+    fireEvent.click(screen.getByRole("button", { name }));
+    expect(click).toHaveBeenCalled();
+  });
+
+  /* The picker is a convenience, not a control: a file dragged past it, or a
+     renamed one, still has to be refused. */
+  it("refuses a file type the ticket did not name, before uploading", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderChat();
+    const input = screen.getByTestId("document-input") as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["x"], "sheet.xlsx", { type: "application/vnd.ms-excel" }),
+        ],
+      },
+    });
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+    fetchSpy.mockRestore();
+  });
+
+  it("refuses a document over 25MB before uploading", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderChat();
+    const input = screen.getByTestId("document-input") as HTMLInputElement;
+    const big = new File(["x"], "huge.pdf", { type: "application/pdf" });
+    Object.defineProperty(big, "size", { value: 26 * 1024 * 1024 });
+    fireEvent.change(input, { target: { files: [big] } });
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+    fetchSpy.mockRestore();
+  });
+});

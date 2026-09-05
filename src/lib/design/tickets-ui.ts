@@ -162,6 +162,11 @@ const STATUS_LABELS: Record<TicketStatus, string> = {
   revision_requested: "Revision Requested",
 };
 
+/* Runtime companion to the TicketStatus union, derived from the label map so
+   it cannot drift: that map is a Record<TicketStatus, string>, so the compiler
+   already forces every status to appear in it exactly once. */
+export const TICKET_STATUSES = Object.keys(STATUS_LABELS) as TicketStatus[];
+
 export function humanizeStatus(status: TicketStatus): string {
   return STATUS_LABELS[status] ?? status;
 }

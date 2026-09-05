@@ -1,24 +1,52 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
 import { StatCard } from "@/app/admin/stat-card";
+import { ADMIN_RANGES } from "@/lib/admin/scope";
+import {
+  type AdminScope,
+  adminScopeHref,
+  DEFAULT_SCOPE,
+  loadAdminScope,
+  USAGE_KINDS,
+} from "@/lib/admin/scope-params";
+import {
+  analyticsFilterFrom,
+  describeWindow,
+  previousWindow,
+} from "@/lib/analytics/filter";
+import { recordsHref } from "@/lib/analytics/records";
 import {
   bucketByPeriod,
   formatDuration,
   median,
   percentChange,
-  splitCurrentAndPrevious,
   toBarPercentages,
+  tooltipText,
 } from "@/lib/analytics/rollup";
 import { requireRole } from "@/lib/auth/require-role";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import {
+  countActiveBrandOptions,
+  countAdminTickets,
   getActiveBrandCount,
-  getApprovalDurationsSince,
-  getSignupsSince,
-  getTicketsSince,
+  getApprovalDurations,
+  getApprovalRate,
+  getBrandFilterOptions,
+  getBrandSetupRows,
+  getCalendarActivityCount,
+  getCampaignCount,
+  getRevisionRequestCount,
+  getSignups,
+  getTickets,
   getTopBrandsByActivity,
-  getUsageEventsSince,
+  getUsageEvents,
 } from "@/lib/db/queries";
+import { humanizeStatus, TICKET_STATUSES } from "@/lib/design/tickets-ui";
+import { AnalyticsFilterBar, type FilterGroup } from "./filter-bar";
+import { TrendChart } from "./trend-chart";
 
-const DAY_MS = 86_400_000;
-const TREND_WEEKS = 12;
+/** What /admin/analytics shows before anyone chooses. See the note below. */
+const ANALYTICS_DEFAULT_RANGE = "30d" as const;
 
 const KIND_LABELS: Record<string, string> = {
   strategy_generated: "Strategy",
@@ -26,6 +54,32 @@ const KIND_LABELS: Record<string, string> = {
   design_ticket_created: "Design ticket",
   design_generated: "Design image",
 };
+
+/**
+ * How many days one bar covers, so any window fits in a legible chart.
+ *
+ * A fixed 7-day bucket makes "last 7 days" a single bar and "all time" hundreds
+ * of them. Sized to land between roughly 6 and 20 bars for every preset.
+ */
+export function trendBucketDays(windowDaysSpan: number): number {
+  if (windowDaysSpan <= 14) return 1;
+  if (windowDaysSpan <= 60) return 7;
+  if (windowDaysSpan <= 240) return 14;
+  return 30;
+}
+
+/** Puts `range=all` back after the serializer drops it as a default. */
+function withRange(url: string): string {
+  if (/[?&]range=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}range=all`;
+}
+
+/** Adds or removes one value, so a chip is its own toggle. */
+function toggle<T extends string>(current: readonly T[], value: T): T[] {
+  return current.includes(value)
+    ? current.filter((v) => v !== value)
+    : [...current, value];
+}
 
 function Panel({
   title,
@@ -57,17 +111,25 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * One row of a breakdown, optionally opening its own records.
+ *
+ * The whole row is the link, not just the label: the number is what the
+ * operator is reaching for, and a 28px label is a small target.
+ */
 function BarRow({
   label,
   count,
   percent,
+  href,
 }: {
   label: string;
   count: number;
   percent: number;
+  href?: string;
 }) {
-  return (
-    <li className="flex items-center gap-3">
+  const body = (
+    <>
       <span className="w-28 shrink-0 text-[13px] text-[var(--text-secondary)]">
         {label}
       </span>
@@ -77,51 +139,182 @@ function BarRow({
           style={{ width: `${percent}%` }}
         />
       </span>
-      <span className="w-10 shrink-0 text-right text-[13px] font-medium text-foreground">
+      <span className="w-10 shrink-0 text-right text-[13px] font-medium text-foreground tabular-nums">
         {count}
       </span>
+    </>
+  );
+
+  return (
+    <li>
+      {href ? (
+        <Link
+          href={href}
+          className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+        >
+          {body}
+        </Link>
+      ) : (
+        <span className="flex items-center gap-3 px-2 py-1">{body}</span>
+      )}
     </li>
   );
 }
 
-export default async function AdminAnalyticsPage() {
+export default async function AdminAnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireRole(["admin"]);
 
   const now = new Date();
-  const trendStart = new Date(now.getTime() - TREND_WEEKS * 7 * DAY_MS);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY_MS);
-  const fourteenDaysAgo = new Date(now.getTime() - 14 * DAY_MS);
+  const params = await searchParams;
+  const scope = loadAdminScope(params);
 
-  const [usage, signups, tickets, activeBrands, topBrands, approvalMs] =
-    await Promise.all([
-      getUsageEventsSince(trendStart),
-      getSignupsSince(fourteenDaysAgo),
-      getTicketsSince(fourteenDaysAgo),
-      getActiveBrandCount(thirtyDaysAgo),
-      getTopBrandsByActivity(thirtyDaysAgo),
-      getApprovalDurationsSince(trendStart),
-    ]);
+  /* These six queries fetch raw timestamps to bucket in JS, so an unbounded
+     range means six full table scans on every load — and past MAX_ROWS the
+     cards cap while their drill-down counts do not, so a card and the list it
+     opens stop agreeing.
+     The guard is on the RAW param, not the resolved range, because nuqs drops
+     a value equal to its default: `?range=` and `?range=30` (a typo) both
+     parse to "all" and would otherwise slip through the very check written to
+     stop them. Only the literal string is treated as a deliberate choice, and
+     the All time chip forces it into the URL — see allTimeHref. */
+  if (params.range !== "all" && scope.range === "all") {
+    redirect(
+      adminScopeHref("/admin/analytics", scope, {
+        range: ANALYTICS_DEFAULT_RANGE,
+      }),
+    );
+  }
+
+  const filter = analyticsFilterFrom(scope, now);
+  const previous = previousWindow(filter, now);
+
+  /* Overdue and Delivered call countAdminTickets — the SAME function the pages
+     they link to run — rather than getting their own definition here. A card
+     with a private copy of a predicate is how a number and the list it opens
+     drift apart, and both of these have done exactly that before. */
+  const overdueScope = { ...DEFAULT_SCOPE, view: "overdue" as const };
+  const deliveredScope = {
+    ...scope,
+    view: "delivered" as const,
+    on: "delivered" as const,
+    page: 1,
+  };
+
+  const [
+    usage,
+    signups,
+    tickets,
+    activeBrands,
+    topBrands,
+    approvalMs,
+    brandOptions,
+    brandOptionTotal,
+    campaigns,
+    calendarActivity,
+    approvalRate,
+    revisions,
+    overdue,
+    delivered,
+    brandSetupRows,
+  ] = await Promise.all([
+    getUsageEvents(filter),
+    getSignups(filter),
+    getTickets(filter),
+    getActiveBrandCount(filter),
+    getTopBrandsByActivity(filter),
+    getApprovalDurations(filter),
+    getBrandFilterOptions(filter),
+    countActiveBrandOptions(filter),
+    getCampaignCount(filter),
+    getCalendarActivityCount(filter),
+    getApprovalRate(filter),
+    getRevisionRequestCount(filter),
+    countAdminTickets(overdueScope, { now }),
+    countAdminTickets(deliveredScope, { now }),
+    getBrandSetupRows(filter),
+  ]);
+
+  /* Computed, never brands.completion_percentage: the stored column and this
+     function disagree, and the admin brands table already uses this one.
+     Averaged over the brands created in the window; null rather than 0 when
+     there are none, because "0% complete" is a claim about brands that do not
+     exist. */
+  const brandSetupAverage =
+    brandSetupRows.length === 0
+      ? null
+      : Math.round(
+          brandSetupRows.reduce((n, b) => n + brandProfileCompletion(b), 0) /
+            brandSetupRows.length,
+        );
+
+  /* The same window, shifted back by its own length — a like-for-like
+     comparison. A 30-day selection compared against the previous 7 days would
+     report growth that is an artefact of the window. Null for "all time",
+     where there is no previous period, and the cards then show no delta at
+     all rather than a meaningless one. */
+  const [prevUsage, prevSignups, prevTickets] = previous
+    ? await Promise.all([
+        getUsageEvents({ ...filter, ...previous }),
+        getSignups({ ...filter, ...previous }),
+        getTickets({ ...filter, ...previous }),
+      ])
+    : [null, null, null];
 
   const usageTimes = usage.map((e) => e.createdAt);
-  const generations = splitCurrentAndPrevious(usageTimes, {
-    now,
-    periodDays: 7,
-  });
-  const newUsers = splitCurrentAndPrevious(
-    signups.map((s) => s.createdAt),
-    { now, periodDays: 7 },
-  );
-  const newTickets = splitCurrentAndPrevious(
-    tickets.map((t) => t.createdAt),
-    { now, periodDays: 7 },
-  );
+  const changeFor = (current: number, prev: unknown[] | null) =>
+    prev === null ? undefined : percentChange(current, prev.length);
 
+  /* The chart must COVER the window, exactly. Two mistakes were possible and
+     both were made: clamping to TREND_WEEKS truncated a 90-day selection so the
+     bars summed to 84 under a card reading 90, and a floor of two buckets gave
+     "last 7 days" one full bar beside a permanently empty one. The bucket size
+     is chosen so the whole window fits in a readable number of bars, and the
+     count is the ceiling of the window over that size — so the bars always sum
+     to the card above them. */
+  /* For "all time" the window has no length of its own, so the chart takes its
+     span from the data — the oldest event to now. Falling back to
+     filter.periodDays (0) would render a single one-day bar for all history. */
+  const chartEnd = filter.to ?? now;
+  const oldest = usageTimes.reduce<Date | null>(
+    (min, t) => (min === null || t < min ? t : min),
+    null,
+  );
+  const spanDays =
+    filter.periodDays ||
+    (oldest
+      ? Math.max(
+          1,
+          Math.ceil((chartEnd.getTime() - oldest.getTime()) / 86_400_000),
+        )
+      : 1);
+  const bucketDays = trendBucketDays(spanDays);
   const trend = bucketByPeriod(usageTimes, {
-    now,
-    periodDays: 7,
-    periods: TREND_WEEKS,
+    now: chartEnd,
+    periodDays: bucketDays,
+    periods: Math.max(1, Math.ceil(spanDays / bucketDays)),
   });
   const trendPercents = toBarPercentages(trend.map((b) => b.count));
+
+  /* Each bar is compared with the bar immediately before it. The first has
+     nothing to compare against, and percentChange returns null when the
+     previous period was empty — tooltipText omits the segment for both, rather
+     than printing a change of "—%" that reads as a measured value. */
+  const trendBars = trend.map((bucket, i) => ({
+    key: bucket.start.toISOString(),
+    count: bucket.count,
+    percent: trendPercents[i],
+    tooltip: tooltipText({
+      bucket,
+      metric: "generation",
+      bucketDays,
+      change:
+        i === 0 ? undefined : percentChange(bucket.count, trend[i - 1].count),
+    }),
+  }));
 
   const byKind = Object.entries(
     usage.reduce<Record<string, number>>((acc, e) => {
@@ -132,6 +325,73 @@ export default async function AdminAnalyticsPage() {
   const kindPercents = toBarPercentages(byKind.map(([, n]) => n));
 
   const brandPercents = toBarPercentages(topBrands.map((b) => b.count));
+  const window = describeWindow(filter);
+
+  const href = (patch: Partial<AdminScope>) =>
+    adminScopeHref("/admin/analytics", scope, patch);
+
+  const groups: FilterGroup[] = [
+    {
+      legend: "Date range",
+      choices: ADMIN_RANGES.filter((r) => r !== "custom").map((range) => ({
+        key: range,
+        label:
+          range === "all" ? "All time" : `Last ${range.replace("d", "")} days`,
+        /* `all` equals the parser default, so the serializer omits it and this
+           chip would link to the bare URL — which the redirect above sends
+           straight back to the default. Forced in, so choosing All time is
+           distinguishable from never having chosen. */
+        href:
+          range === "all"
+            ? withRange(href({ range, from: "", to: "", page: 1 }))
+            : href({ range, from: "", to: "", page: 1 }),
+        active: scope.range === range,
+      })),
+    },
+    {
+      legend: "Activity type",
+      choices: USAGE_KINDS.map((kind) => ({
+        key: kind,
+        label: KIND_LABELS[kind] ?? kind,
+        href: href({ kind: toggle(scope.kind, kind), page: 1 }),
+        active: scope.kind.includes(kind),
+      })),
+    },
+    {
+      legend:
+        brandOptionTotal > brandOptions.length
+          ? `Brand (top ${brandOptions.length} of ${brandOptionTotal})`
+          : "Brand",
+      /* Already the most active twelve for this window — see
+         getBrandFilterOptions. Slicing an alphabetical list here is what made
+         the busiest brand unselectable. */
+      choices: brandOptions.map((b) => ({
+        key: b.id,
+        label: b.name,
+        href: href({ brand: scope.brand === b.id ? "" : b.id, page: 1 }),
+        active: scope.brand === b.id,
+      })),
+    },
+    {
+      legend: "Ticket status",
+      choices: TICKET_STATUSES.map((status) => ({
+        key: status,
+        label: humanizeStatus(status),
+        href: href({ status: toggle(scope.status, status), page: 1 }),
+        active: scope.status.includes(status),
+      })),
+    },
+  ];
+
+  /* Against THIS page's default, not the shared one. Comparing to
+     DEFAULT_SCOPE.range ("all") made the default view report "1 filter
+     applied", open the panel it exists to keep closed, and offer a Clear all
+     that redirected back to the same state. */
+  const activeCount =
+    (scope.range === ANALYTICS_DEFAULT_RANGE ? 0 : 1) +
+    (scope.kind.length ? 1 : 0) +
+    (scope.brand ? 1 : 0) +
+    (scope.status.length ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-8">
@@ -145,73 +405,159 @@ export default async function AdminAnalyticsPage() {
         </p>
       </header>
 
+      <AnalyticsFilterBar
+        groups={groups}
+        activeCount={activeCount}
+        clearHref={adminScopeHref("/admin/analytics", DEFAULT_SCOPE, {
+          range: ANALYTICS_DEFAULT_RANGE,
+        })}
+      />
+
+      {/* Every caption is derived from the resolved window. Hardcoded ones
+          ("last 7 days") become lies the moment a filter is applied. */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Generations"
-          value={generations.current}
-          change={percentChange(generations.current, generations.previous)}
-          caption="last 7 days"
+          value={usage.length}
+          change={changeFor(usage.length, prevUsage)}
+          caption={window}
+          href={recordsHref(scope, "generations")}
         />
         <StatCard
           label="Active brands"
           value={activeBrands}
-          caption="last 30 days"
+          caption={window}
+          href={recordsHref(scope, "brands")}
         />
+        {/* A signup belongs to no brand and has no ticket status, so those two
+            filters cannot narrow this. The caption says so rather than leaving
+            an unnarrowed number under a "filters applied" badge, where the
+            figure would read as an answer to a question it never heard. */}
         <StatCard
           label="New users"
-          value={newUsers.current}
-          change={percentChange(newUsers.current, newUsers.previous)}
-          caption="last 7 days"
+          value={signups.length}
+          change={changeFor(signups.length, prevSignups)}
+          caption={
+            scope.brand || scope.status.length || scope.kind.length
+              ? `${window} · all brands`
+              : window
+          }
+          href={recordsHref(scope, "users")}
         />
+        {/* FEAT-004 calls this "Design Requests". It is the same figure the
+            card used to label "Tickets" — design_tickets created in the window
+            — so it is renamed rather than duplicated: two cards showing one
+            number under two names is worse than either name alone. */}
         <StatCard
-          label="Tickets"
-          value={newTickets.current}
-          change={percentChange(newTickets.current, newTickets.previous)}
-          caption="last 7 days"
+          label="Design requests"
+          value={tickets.length}
+          change={changeFor(tickets.length, prevTickets)}
+          caption={window}
+          href={recordsHref(scope, "tickets")}
         />
         <StatCard
           label="Time to approval"
           value={formatDuration(median(approvalMs))}
           caption={`median of ${approvalMs.length} approved`}
+          href={recordsHref(scope, "approvals")}
+        />
+      </section>
+
+      {/* ADMIN-FEAT-004. Designer workload is deliberately absent — the ticket
+          says Designer Load belongs on the Dashboard, where it already is. */}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {/* A campaign IS a strategy: the product has no separate campaign
+            entity and usage_kind has no "campaign" value. Said on the card so
+            the number is not read as a fifth thing that does not exist. */}
+        <StatCard
+          label="Campaigns created"
+          value={campaigns}
+          caption={`Strategies · ${window}`}
+          href={recordsHref(scope, "campaigns")}
+        />
+        <StatCard
+          label="Calendar activity"
+          value={calendarActivity}
+          caption={`Entries created · ${window}`}
+          href={recordsHref(scope, "calendar")}
+        />
+        {/* Never 0 or NaN on an empty denominator — see getApprovalRate. The
+            caption carries the population, so the percentage is never read
+            without knowing how many deliveries produced it. */}
+        <StatCard
+          label="Approval rate"
+          value={
+            approvalRate.rate === null
+              ? "—"
+              : `${Math.round(approvalRate.rate)}%`
+          }
+          caption={
+            approvalRate.delivered === 0
+              ? `nothing delivered ${window}`
+              : `${approvalRate.approved} of ${approvalRate.delivered} delivered · ${window}`
+          }
+          href={recordsHref(scope, "deliveries")}
+        />
+        {/* Point-in-time: a ticket is overdue NOW or it is not, so this one
+            figure cannot honour the date range. The caption says "right now"
+            rather than silently ignoring the filter, and the link carries no
+            range for the same reason — it must open exactly what was counted. */}
+        <StatCard
+          label="Overdue tickets"
+          value={overdue}
+          caption="right now · ignores the date filter"
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "overdue",
+          })}
+        />
+        <StatCard
+          label="Revision requests"
+          value={revisions}
+          caption={`Times work came back · ${window}`}
+          href={recordsHref(scope, "revisions")}
+        />
+        <StatCard
+          label="Delivered projects"
+          value={delivered}
+          caption={`First handed over · ${window}`}
+          href={adminScopeHref("/admin/delivered", scope, {
+            view: "delivered",
+            on: "delivered",
+            page: 1,
+          })}
+        />
+        <StatCard
+          label="Brand setup completion"
+          value={brandSetupAverage === null ? "—" : `${brandSetupAverage}%`}
+          caption={
+            brandSetupRows.length === 0
+              ? `no brands created ${window}`
+              : `average of ${brandSetupRows.length} brand${brandSetupRows.length === 1 ? "" : "s"} · ${window}`
+          }
+          href={recordsHref(scope, "brand_setup")}
         />
       </section>
 
       <Panel
         title="Activity"
-        subtitle={`Generations per rolling 7-day window, last ${TREND_WEEKS} weeks.`}
+        subtitle={`Generations per ${bucketDays === 1 ? "day" : `${bucketDays}-day period`}, ${window}.`}
       >
         {trend.every((b) => b.count === 0) ? (
           <Empty>No generations recorded in this window.</Empty>
         ) : (
-          <div className="flex h-32 items-end gap-1">
-            {trend.map((bucket, i) => (
-              <div
-                key={bucket.start.toISOString()}
-                className="group flex h-full flex-1 flex-col items-center justify-end gap-1"
-                title={`${bucket.count} in the week to ${bucket.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-              >
-                <span className="text-[11px] text-[var(--text-muted)] opacity-0 group-hover:opacity-100">
-                  {bucket.count}
-                </span>
-                <span
-                  className="w-full rounded-t bg-primary"
-                  style={{
-                    height: `${Math.max(trendPercents[i], bucket.count > 0 ? 2 : 0)}%`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
+          <TrendChart bars={trendBars} />
         )}
       </Panel>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {/* The ticket asks for this to be EXPLAINED, not just linked: "By
+            Type" names nothing on its own. */}
         <Panel
           title="By type"
-          subtitle={`What was generated, last ${TREND_WEEKS} weeks.`}
+          subtitle={`What KO OS produced — strategies, calendars, design tickets and generated images — ${window}.`}
         >
           {byKind.length === 0 ? (
-            <Empty>Nothing generated yet.</Empty>
+            <Empty>Nothing generated in this window.</Empty>
           ) : (
             <ul className="flex flex-col gap-3">
               {byKind.map(([kind, n], i) => (
@@ -220,15 +566,18 @@ export default async function AdminAnalyticsPage() {
                   label={KIND_LABELS[kind] ?? kind}
                   count={n}
                   percent={kindPercents[i]}
+                  href={recordsHref(scope, "generations", {
+                    kind: [kind as (typeof USAGE_KINDS)[number]],
+                  })}
                 />
               ))}
             </ul>
           )}
         </Panel>
 
-        <Panel title="Most active brands" subtitle="Last 30 days.">
+        <Panel title="Most active brands" subtitle={`Activity ${window}.`}>
           {topBrands.length === 0 ? (
-            <Empty>No brand activity in the last 30 days.</Empty>
+            <Empty>No brand activity in this window.</Empty>
           ) : (
             <ul className="flex flex-col gap-3">
               {topBrands.map((brand, i) => (
@@ -237,6 +586,9 @@ export default async function AdminAnalyticsPage() {
                   label={brand.name}
                   count={brand.count}
                   percent={brandPercents[i]}
+                  href={recordsHref(scope, "generations", {
+                    brand: brand.brandId,
+                  })}
                 />
               ))}
             </ul>

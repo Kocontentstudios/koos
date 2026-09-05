@@ -73,6 +73,15 @@ export const extractionSchema = z.object({
     websiteUrl: extractedField.describe(
       "The brand's website URL exactly as the user gave it. Empty string if they have none or did not say.",
     ),
+    /* FEAT-018 asks the document parser for TYPOGRAPHY. brand_font is a real
+       column and strategy.ts already emits a conditional "Typography:" line
+       from it — only the extraction chain was missing, so nothing else has to
+       change to make it reach a strategy. Deliberately NOT added to SECTIONS:
+       those weights total exactly 100 and a new scored field would shift every
+       brand's completion percentage. */
+    brandFont: extractedField.describe(
+      "The typefaces the brand uses, as named. Both faces if a display and a body font are given. Empty string if none were named.",
+    ),
     additionalNotes: extractedField,
   }),
   summary: z.string(),

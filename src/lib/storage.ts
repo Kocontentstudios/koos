@@ -16,6 +16,10 @@ export const STORAGE_PREFIXES = {
   referenceImages: "reference-images",
   deliverables: "deliverables",
   generated: "generated",
+  /* Onboarding brand guidelines and identity decks. A prefix of their own so
+     storageKeyFrom can pin it: the document parser reads bytes BY KEY, and the
+     prefix is what stops a caller pointing it at any other object. */
+  brandDocs: "brand-docs",
 } as const;
 
 export type StoragePrefix =

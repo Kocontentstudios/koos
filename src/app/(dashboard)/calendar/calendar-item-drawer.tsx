@@ -2,7 +2,7 @@
 
 import { Clock, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { GenerateDesignButton } from "@/components/design/generate-design-button";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,22 @@ import {
 import { draftFromItem, ItemFormFields } from "./item-form";
 import type { CalendarItem, CalendarItemStatus } from "./types";
 import { sourceLabel, statusLabel } from "./types";
+
+/** Long enough not to hammer the server, short enough that a brief landing
+ *  mid-read shows up without a reload. */
+const BRIEF_POLL_MS = 8_000;
+/**
+ * A deliberate pause is NOT a stale resume: claimPausedGenerationJob never
+ * touches resumeCount, so MAX_RESUMES does not bound it — MAX_SLICES does, at
+ * 10 slices of CALENDAR_SLICE_BUDGET_MS (240s) ≈ 40 minutes. The page-local
+ * poll already waits 30, so this matches it rather than declaring failure
+ * earlier for the same job.
+ *
+ * Counted in visible time, not wall-clock: a user told to "keep working
+ * elsewhere" backgrounds the tab, and a wall-clock budget expires having
+ * issued no refreshes at all.
+ */
+const BRIEF_POLL_LIMIT_MS = 30 * 60_000;
 
 interface CalendarItemDrawerProps {
   item: CalendarItem | null;
@@ -104,6 +120,38 @@ export function CalendarItemDrawer({
   onRequestDesign,
 }: CalendarItemDrawerProps) {
   const router = useRouter();
+
+  /* The placeholder below promises the brief "will appear here shortly", and
+     nothing else refreshes this view — briefs stream in after the calendar is
+     already navigable, so without this a user has to reload by hand. Bounded:
+     a brief that never arrives is a failed unit, not something to poll for
+     forever. */
+  const awaitingBrief = open && item?.source === "ai" && !item.brief;
+  useEffect(() => {
+    if (!awaitingBrief) return;
+    let elapsed = 0;
+    const id = setInterval(() => {
+      // A backgrounded tab has nobody reading it, and time spent there must
+      // not count against the budget.
+      if (document.hidden) return;
+      elapsed += BRIEF_POLL_MS;
+      if (elapsed > BRIEF_POLL_LIMIT_MS) {
+        clearInterval(id);
+        return;
+      }
+      router.refresh();
+    }, BRIEF_POLL_MS);
+    // Coming back to the tab should show the brief immediately, not after
+    // another full interval of staring at the placeholder.
+    const onVisible = () => {
+      if (!document.hidden) router.refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [awaitingBrief, router]);
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<CalendarItemStatus>(
     item?.status ?? "draft",

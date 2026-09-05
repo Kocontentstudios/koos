@@ -1,0 +1,202 @@
+import {
+  createLoader,
+  createParser,
+  createSerializer,
+  parseAsArrayOf,
+  parseAsInteger,
+  parseAsString,
+  parseAsStringLiteral,
+} from "nuqs/server";
+import type { TicketStatus } from "@/lib/design/tickets-ui";
+import { TICKET_STATUSES } from "@/lib/design/tickets-ui";
+import {
+  ADMIN_RANGES,
+  ADMIN_TICKET_VIEWS,
+  type AdminTicketView,
+  clampPage,
+  isSortable,
+} from "./scope";
+
+/**
+ * The URL vocabulary shared by every admin drill-down, derived from `scope.ts`
+ * so the two cannot drift.
+ *
+ * Which UI sets what: `view`, `status`, `assignee` and `page` come from the
+ * dashboard links and the tab bars; `q` from the search boxes; `range`, `from`,
+ * `to`, `brand` and `kind` from the analytics filter bar and the Delivered
+ * Projects date chips. `requester` and `sort` are honoured by the query layer
+ * and reachable by URL without a dedicated control. The grammar is one contract
+ * across every admin list, so a scope means the same thing wherever it lands.
+ *
+ * Grammar, frozen: multi-values are one comma list (never repeated keys),
+ * defaults are omitted from the URL so two routes to the same view produce the
+ * same link, unknown values fall back instead of erroring, and the params are
+ * orthogonal — adding one never invalidates another. That last rule is what
+ * makes "preserve the active filters" a property of the builder rather than a
+ * decision each link has to remember.
+ */
+/* `delivered` is a real column as of ADMIN-FEAT-002's migration. It was absent
+   before that rather than quietly aliased to created_at, which would have
+   answered a different question than the one asked. */
+/* The activity types the analytics page filters by — the enum's own values, so
+   a filter cannot name a kind the database has never recorded. Removed while it
+   had no consumer; ADMIN-FEAT-005 is that consumer. */
+export const USAGE_KINDS = [
+  "strategy_generated",
+  "calendar_generated",
+  "design_ticket_created",
+  "design_generated",
+] as const;
+export type UsageKind = (typeof USAGE_KINDS)[number];
+
+/* Which metric's records to show. Declared HERE, not in analytics/records:
+   that module builds hrefs with adminScopeHref, so importing its vocabulary
+   back would be a cycle — and a cycle here does not fail loudly, it leaves the
+   parser holding `undefined` and silently accepting nothing, so every metric
+   resolves to the default. */
+export const RECORD_KINDS = [
+  "generations",
+  "brands",
+  "users",
+  "tickets",
+  "approvals",
+  "campaigns",
+  "calendar",
+  "deliveries",
+  "revisions",
+  "brand_setup",
+] as const;
+export type RecordKind = (typeof RECORD_KINDS)[number];
+
+export const DATE_ANCHORS = [
+  "created",
+  "due",
+  "delivered",
+  "approved",
+] as const;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function uuidParam(sentinels: string[] = []) {
+  return createParser({
+    parse: (value: string) =>
+      UUID.test(value) || sentinels.includes(value) ? value : "",
+    serialize: (value: string) => value,
+  }).withDefault("");
+}
+
+export const adminScopeParsers = {
+  /* `open`, not `all`: the bare /admin/tickets URL is the working queue, and a
+     default of `all` forced a coercion that swallowed an explicit ?view=all —
+     the serializer drops values equal to the default, so the All tab round-
+     tripped straight back to Open and drafts became unreachable. */
+  view: parseAsStringLiteral(ADMIN_TICKET_VIEWS).withDefault(
+    "open" as AdminTicketView,
+  ),
+  status: parseAsArrayOf(
+    parseAsStringLiteral(TICKET_STATUSES),
+    ",",
+  ).withDefault([]),
+  /* Validated at the parser, like `sort` below and for the same reason: these
+     are compared against `uuid` columns, and Postgres treats a malformed uuid
+     as a query ERROR, not a miss. `?brand=acme` used to throw out of the server
+     component into the error boundary. `unassigned` is the one non-uuid value
+     the query layer understands. */
+  assignee: uuidParam(["unassigned"]),
+  brand: uuidParam(),
+  requester: uuidParam(),
+  q: parseAsString.withDefault(""),
+  range: parseAsStringLiteral(ADMIN_RANGES).withDefault("all"),
+  from: parseAsString.withDefault(""),
+  to: parseAsString.withDefault(""),
+  on: parseAsStringLiteral(DATE_ANCHORS).withDefault("created"),
+  kind: parseAsArrayOf(parseAsStringLiteral(USAGE_KINDS), ",").withDefault([]),
+  /* Which metric's records to show. Only /admin/analytics/records reads it;
+     it lives in the shared grammar so an analytics link carries it alongside
+     the filters rather than assembling a second, parallel URL vocabulary. */
+  metric: parseAsStringLiteral(RECORD_KINDS).withDefault("generations"),
+  /* Validated here rather than trusted and sanitised later: the scope object
+     is handed straight to the query layer, so it should never carry a field
+     name that came off a hand-edited URL. */
+  sort: createParser({
+    parse: (value: string) => (isSortable(value) ? value : ""),
+    serialize: (value: string) => value,
+  }).withDefault(""),
+  page: parseAsInteger.withDefault(1),
+};
+
+export type AdminScope = {
+  [K in keyof typeof adminScopeParsers]: NonNullable<
+    ReturnType<(typeof adminScopeParsers)[K]["parse"]>
+  >;
+};
+
+export const DEFAULT_SCOPE: AdminScope = {
+  view: "open",
+  status: [],
+  assignee: "",
+  brand: "",
+  requester: "",
+  q: "",
+  range: "all",
+  from: "",
+  to: "",
+  on: "created",
+  kind: [],
+  metric: "generations",
+  sort: "",
+  page: 1,
+};
+
+const load = createLoader(adminScopeParsers);
+const serialize = createSerializer(adminScopeParsers);
+
+/** Reads a scope out of a server component's searchParams (or a URLSearchParams). */
+export function loadAdminScope(
+  input: URLSearchParams | Record<string, string | string[] | undefined>,
+): AdminScope {
+  const parsed = load(input) as AdminScope;
+  return { ...parsed, page: clampPage(parsed.page) };
+}
+
+/**
+ * Builds a link from the CURRENT scope plus a patch. Callers pass the whole
+ * scope rather than assembling params by hand, which is why no drill-down can
+ * silently drop a filter the user has applied.
+ */
+export function adminScopeHref(
+  pathname: string,
+  scope: AdminScope,
+  patch: Partial<AdminScope> = {},
+): string {
+  return serialize(pathname, { ...scope, ...patch });
+}
+
+/**
+ * Where a Status Overview row opens.
+ *
+ * A plain status filter, deliberately: the number beside the row comes from
+ * `getTicketCountsByStatus`, which groups on the raw status, so any richer view
+ * would open a list that disagrees with the count the operator clicked.
+ *
+ * `view: "all"` is not decoration. A status narrows WITHIN a view, and the
+ * queue's default view excludes drafts and delivered work — so a hand-built
+ * `?status=delivered` resolves to `NOT IN (draft, delivered) AND = delivered`,
+ * an empty list under a non-zero count. Built through the serializer so the
+ * scope is stated rather than inherited.
+ *
+ * The two states that have left the queue go to Delivered Projects instead —
+ * that page is where completed work is findable again, which is the whole
+ * point of ADMIN-FEAT-002. Their counts still come from the same rollup, so
+ * both carry `view: "all"` for the same reason.
+ */
+export function statusRowHref(status: TicketStatus): string {
+  const pathname =
+    status === "delivered" || status === "ready_for_review"
+      ? "/admin/delivered"
+      : "/admin/tickets";
+  return adminScopeHref(pathname, DEFAULT_SCOPE, {
+    view: "all",
+    status: [status],
+  });
+}
