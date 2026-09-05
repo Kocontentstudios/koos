@@ -104,9 +104,12 @@ export default async function AnalyticsRecordsPage({
         {/* A signup belongs to no brand and has no ticket status, so filtering
             by either cannot narrow this list. Saying so beats a number that
             looks like it answered the question the filter asked. */}
+        {/* --text-secondary, not --text-muted: the latter is 3.40:1 on white
+            at 13px against a 4.5:1 requirement, and this sentence is the only
+            thing telling an operator a filter is being dropped. */}
         {ignored(metric, scope).length > 0 && (
-          <p className="text-[13px] text-[var(--text-muted)]">
-            {ignored(metric, scope).join(" and ")}{" "}
+          <p className="text-[13px] text-[var(--text-secondary)]">
+            {listPhrase(ignored(metric, scope))}{" "}
             {ignored(metric, scope).length === 1 ? "does" : "do"} not apply to{" "}
             {RECORD_LABELS[metric].toLowerCase()}.
           </p>
@@ -146,6 +149,13 @@ function narrowing(metric: RecordKind, scope: AdminScope): string {
   if (usesStatus && scope.status.length) parts.push("selected statuses");
   if (usesKind && scope.kind.length) parts.push("selected activity types");
   return parts.length ? `, narrowed to ${parts.join(" and ")}` : "";
+}
+
+/** "A", "A and B", "A, B and C" — three filters joined by "and" read as one
+ *  run-on clause. */
+function listPhrase(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
 /** The filters an operator has set that this metric cannot honour. */

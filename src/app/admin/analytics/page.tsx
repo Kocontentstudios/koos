@@ -59,6 +59,12 @@ export function trendBucketDays(windowDaysSpan: number): number {
   return 30;
 }
 
+/** Puts `range=all` back after the serializer drops it as a default. */
+function withRange(url: string): string {
+  if (/[?&]range=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}range=all`;
+}
+
 /** Adds or removes one value, so a chip is its own toggle. */
 function toggle<T extends string>(current: readonly T[], value: T): T[] {
   return current.includes(value)
@@ -157,17 +163,16 @@ export default async function AdminAnalyticsPage({
   const params = await searchParams;
   const scope = loadAdminScope(params);
 
-  /* Redirected, not coerced. These six queries fetch raw timestamps to bucket
-     in JS, so the shared default of `range=all` means six unbounded table scans
-     on every load of the bare URL — and past MAX_ROWS the cards silently cap
-     while their drill-down counts do not, so a card and the list it opens stop
-     agreeing.
-     A redirect rather than a silent override because `?range=all` and no
-     `range` at all are indistinguishable after parsing (the serializer drops a
-     value equal to the default), so overriding would have ignored an operator
-     who explicitly chose All time. Stating the default in the URL makes the two
-     different again. */
-  if (params.range === undefined) {
+  /* These six queries fetch raw timestamps to bucket in JS, so an unbounded
+     range means six full table scans on every load — and past MAX_ROWS the
+     cards cap while their drill-down counts do not, so a card and the list it
+     opens stop agreeing.
+     The guard is on the RAW param, not the resolved range, because nuqs drops
+     a value equal to its default: `?range=` and `?range=30` (a typo) both
+     parse to "all" and would otherwise slip through the very check written to
+     stop them. Only the literal string is treated as a deliberate choice, and
+     the All time chip forces it into the URL — see allTimeHref. */
+  if (params.range !== "all" && scope.range === "all") {
     redirect(
       adminScopeHref("/admin/analytics", scope, {
         range: ANALYTICS_DEFAULT_RANGE,
@@ -267,7 +272,14 @@ export default async function AdminAnalyticsPage({
         key: range,
         label:
           range === "all" ? "All time" : `Last ${range.replace("d", "")} days`,
-        href: href({ range, from: "", to: "", page: 1 }),
+        /* `all` equals the parser default, so the serializer omits it and this
+           chip would link to the bare URL — which the redirect above sends
+           straight back to the default. Forced in, so choosing All time is
+           distinguishable from never having chosen. */
+        href:
+          range === "all"
+            ? withRange(href({ range, from: "", to: "", page: 1 }))
+            : href({ range, from: "", to: "", page: 1 }),
         active: scope.range === range,
       })),
     },
@@ -306,8 +318,12 @@ export default async function AdminAnalyticsPage({
     },
   ];
 
+  /* Against THIS page's default, not the shared one. Comparing to
+     DEFAULT_SCOPE.range ("all") made the default view report "1 filter
+     applied", open the panel it exists to keep closed, and offer a Clear all
+     that redirected back to the same state. */
   const activeCount =
-    (scope.range === DEFAULT_SCOPE.range ? 0 : 1) +
+    (scope.range === ANALYTICS_DEFAULT_RANGE ? 0 : 1) +
     (scope.kind.length ? 1 : 0) +
     (scope.brand ? 1 : 0) +
     (scope.status.length ? 1 : 0);
@@ -327,7 +343,9 @@ export default async function AdminAnalyticsPage({
       <AnalyticsFilterBar
         groups={groups}
         activeCount={activeCount}
-        clearHref={adminScopeHref("/admin/analytics", DEFAULT_SCOPE)}
+        clearHref={adminScopeHref("/admin/analytics", DEFAULT_SCOPE, {
+          range: ANALYTICS_DEFAULT_RANGE,
+        })}
       />
 
       {/* Every caption is derived from the resolved window. Hardcoded ones
@@ -389,7 +407,10 @@ export default async function AdminAnalyticsPage({
                 key={bucket.start.toISOString()}
                 data-trend-bar=""
                 className="group flex h-full flex-1 flex-col items-center justify-end gap-1"
-                title={`${bucket.count} in the week to ${bucket.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                /* Not "week": the bucket is 1, 7, 14 or 30 days depending on
+                   the window, so a fixed word was true only on the old fixed
+                   7-day chart. */
+                title={`${bucket.count} in the ${bucketDays === 1 ? "day" : `${bucketDays} days`} to ${bucket.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
               >
                 <span className="text-[11px] text-[var(--text-muted)] opacity-0 group-hover:opacity-100">
                   {bucket.count}

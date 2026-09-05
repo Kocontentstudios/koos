@@ -242,3 +242,33 @@ describe("filters a metric cannot honour are disclosed", () => {
     expect(headerText()).toMatch(/activity type filter.*does not apply/i);
   });
 });
+
+/* The same defect already fixed once on the ticket queue: a bookmarked or
+   hand-edited ?page=4 that a narrowed filter has pushed past the end renders
+   an empty table with NO pager, so there is no way back except editing the
+   URL. The pager stays visible past the end precisely so Previous exists. */
+describe("a page past the end can still be navigated away from", () => {
+  it("keeps the pager when the requested page no longer exists", async () => {
+    await renderPage({ metric: "tickets", page: "4" });
+    expect(
+      screen.getByRole("navigation", { name: "Pagination" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Page 4 of 1")).toBeInTheDocument();
+  });
+
+  it("offers a live Previous link, not a disabled one", async () => {
+    await renderPage({ metric: "tickets", page: "4" });
+    const prev = screen.getByText("← Previous");
+    expect(prev.tagName).toBe("A");
+    expect(prev).not.toHaveAttribute("aria-disabled");
+  });
+
+  /* One page of results needs no pager at all. Without this the guard could be
+     satisfied by rendering it unconditionally. */
+  it("shows no pager when everything fits on one page", async () => {
+    await renderPage({ metric: "tickets" });
+    expect(
+      screen.queryByRole("navigation", { name: "Pagination" }),
+    ).not.toBeInTheDocument();
+  });
+});

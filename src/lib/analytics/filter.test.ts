@@ -63,6 +63,28 @@ describe("the comparison period is like for like", () => {
     expect(previousWindow(f, NOW)).toBeNull();
   });
 
+  /* A zero-length or reversed window has no meaningful "period before" — and
+     without the guard, previousWindow returns a window identical to the
+     current one, so every card would report 0% change against itself. */
+  it("has no previous period for a zero-length window", () => {
+    const instant = new Date("2026-08-01T00:00:00Z");
+    expect(
+      previousWindow(
+        {
+          from: instant,
+          to: instant,
+          kinds: [],
+          statuses: [],
+          brandId: null,
+          periodDays: 1,
+          explicitFrom: true,
+          explicitTo: true,
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
   it("matches a custom range's own length", () => {
     const f = analyticsFilterFrom(
       scope({ range: "custom", from: "2026-08-01", to: "2026-08-10" }),

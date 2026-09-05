@@ -36,11 +36,6 @@ import { timestampParam } from "@/lib/db/sql/timestamp";
    see hitCap. */
 export const MAX_ROWS = 50_000;
 
-/** Whether a capped fetch actually hit its ceiling, so a caller can say so. */
-export function hitCap(rows: unknown[]): boolean {
-  return rows.length >= MAX_ROWS;
-}
-
 /**
  * The filter, as SQL, for one timestamp column.
  *
@@ -73,6 +68,25 @@ function usageConditions(filter: AnalyticsFilter): SQL[] {
   if (filter.kinds.length)
     parts.push(inArray(usageEvents.kind, [...filter.kinds]));
   if (filter.brandId) parts.push(eq(usageEvents.brandId, filter.brandId));
+  return parts;
+}
+
+/**
+ * Approvals are windowed on when they were APPROVED, not created.
+ *
+ * Every string around this metric says "approved" — the card, the record
+ * description, the empty state — and windowing on created_at contradicts all
+ * of them: a ticket created Aug 1 and signed off Sep 4 vanishes from "last 7
+ * days", so the card reads "median of 0 approved" while one was. It also
+ * biases the metric, because a 7-day window on created_at can only contain
+ * approvals that took under 7 days.
+ */
+function approvalConditions(filter: AnalyticsFilter): SQL[] {
+  const parts = windowOf(designTickets.approvedAt, filter);
+  parts.push(isNotNull(designTickets.approvedAt));
+  if (filter.statuses.length)
+    parts.push(inArray(designTickets.status, [...filter.statuses]));
+  if (filter.brandId) parts.push(eq(designTickets.brandId, filter.brandId));
   return parts;
 }
 
@@ -133,18 +147,22 @@ export async function getTopBrandsByActivity(
   filter: AnalyticsFilter,
   limit = 8,
 ) {
-  return db
-    .select({
-      brandId: brands.id,
-      name: brands.name,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(usageEvents)
-    .innerJoin(brands, eq(usageEvents.brandId, brands.id))
-    .where(all(usageConditions(filter)))
-    .groupBy(brands.id, brands.name)
-    .orderBy(desc(sql`count(*)`))
-    .limit(limit);
+  return (
+    db
+      .select({
+        brandId: brands.id,
+        name: brands.name,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(usageEvents)
+      .innerJoin(brands, eq(usageEvents.brandId, brands.id))
+      .where(all(usageConditions(filter)))
+      .groupBy(brands.id, brands.name)
+      /* asc(id) so brands tied on activity do not reshuffle between renders and
+       silently change which ones make the top slice. */
+      .orderBy(desc(sql`count(*)`), asc(brands.id))
+      .limit(limit)
+  );
 }
 
 /**
@@ -161,9 +179,8 @@ export async function getApprovalDurations(filter: AnalyticsFilter) {
       approvedAt: designTickets.approvedAt,
     })
     .from(designTickets)
-    .where(
-      all([...ticketConditions(filter), isNotNull(designTickets.approvedAt)]),
-    )
+    .where(all(approvalConditions(filter)))
+    .orderBy(desc(designTickets.approvedAt), asc(designTickets.id))
     .limit(MAX_ROWS);
 
   return rows
@@ -316,9 +333,7 @@ export async function listApprovalRecords(
     .from(designTickets)
     .leftJoin(brands, eq(designTickets.brandId, brands.id))
     .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
-    .where(
-      all([...ticketConditions(filter), isNotNull(designTickets.approvedAt)]),
-    )
+    .where(all(approvalConditions(filter)))
     .orderBy(desc(designTickets.approvedAt), asc(designTickets.id))
     .limit(limit)
     .offset(offset);
@@ -328,9 +343,7 @@ export async function countApprovalRecords(filter: AnalyticsFilter) {
   const [row] = await db
     .select({ count: count() })
     .from(designTickets)
-    .where(
-      all([...ticketConditions(filter), isNotNull(designTickets.approvedAt)]),
-    );
+    .where(all(approvalConditions(filter)));
   return row?.count ?? 0;
 }
 

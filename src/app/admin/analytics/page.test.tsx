@@ -165,6 +165,11 @@ describe("a By-type row carries the filter and adds its own kind", () => {
   });
 });
 
+/* These render with a filter already applied, because the panel starts closed
+   on an unfiltered view — by design, so four groups do not push the numbers
+   they filter below the fold. The previous version of these tests passed only
+   because the default view wrongly reported "1 filter applied" and opened the
+   panel; fixing that exposed the dependency. */
 describe("the filter chips", () => {
   it("toggles a selected activity type off again", async () => {
     await renderPage({ range: "30d", kind: "design_generated" });
@@ -173,12 +178,12 @@ describe("the filter chips", () => {
   });
 
   it("adds an unselected activity type", async () => {
-    await renderPage({ range: "30d" });
+    await renderPage({ range: "7d" });
     expect(hrefFor(/^Design image$/)).toContain("kind=design_generated");
   });
 
   it("offers a ticket status group", async () => {
-    await renderPage({ range: "30d" });
+    await renderPage({ range: "7d" });
     expect(hrefFor(/Approved/)).toContain("status=");
   });
 
@@ -192,7 +197,7 @@ describe("the filter chips", () => {
   });
 
   it("says when the brand list is a top slice", async () => {
-    await renderPage({ range: "30d" });
+    await renderPage({ range: "7d" });
     // The legend is rendered twice: once sr-only, once visible.
     expect(screen.getAllByText(/top 1 of 40/i).length).toBeGreaterThan(0);
   });
@@ -254,5 +259,162 @@ describe("the chart covers the window the card counts", () => {
   it("never renders a single bar for a multi-day window", async () => {
     await renderPage({ range: "7d" });
     expect(document.querySelectorAll("[data-trend-bar]").length).toBe(7);
+  });
+});
+
+/* The delta drives a number, an arrow and a colour on three cards. Swapping
+   its arguments turns a genuine +100% into a red -50% and used to be invisible. */
+describe("the change against the previous period", () => {
+  const growth = async (currentCount: number, previousCount: number) => {
+    q.usage.mockImplementation(async (f: { from: Date | null }) => {
+      // previousWindow shifts `from` back by the window's own length.
+      const isPrevious = f.from !== null && f.from.getTime() < NOW - 30 * DAY;
+      const n = isPrevious ? previousCount : currentCount;
+      return Array.from({ length: n }, () => ({
+        kind: "design_generated",
+        brandId: BRAND,
+        createdAt: new Date(NOW - DAY),
+      }));
+    });
+    await renderPage({ range: "30d" });
+    return (
+      screen
+        .getAllByRole("link")
+        .find((a) => /Generations/.test(a.textContent ?? ""))?.textContent ?? ""
+    );
+  };
+
+  it("reports growth as growth", async () => {
+    expect(await growth(20, 10)).toMatch(/↑\s*100%/);
+  });
+
+  it("reports a decline as a decline", async () => {
+    expect(await growth(10, 20)).toMatch(/↓\s*50%/);
+  });
+
+  it("does not invert the direction", async () => {
+    const up = await growth(20, 10);
+    expect(up).not.toMatch(/↓/);
+  });
+
+  /* All time has no previous period; inventing one puts a percentage on a card
+     that cannot have a meaningful comparison. */
+  it("shows no delta for an unbounded range", async () => {
+    await renderPage({ range: "all" });
+    const card =
+      screen
+        .getAllByRole("link")
+        .find((a) => /Generations/.test(a.textContent ?? ""))?.textContent ??
+      "";
+    expect(card).not.toMatch(/[↑↓]/);
+  });
+});
+
+describe("All time is reachable", () => {
+  /* `all` equals the parser default, so the serializer drops it and the chip
+     linked to the bare URL — which the redirect sent straight back to 30 days.
+     The redirect was introduced so an explicit choice would NOT be ignored. */
+  it("forces the range into the chip's URL", async () => {
+    await renderPage({ range: "7d" });
+    const chip = screen
+      .getAllByRole("link")
+      .find((a) => (a.textContent ?? "").trim() === "All time");
+    expect(chip?.getAttribute("href")).toContain("range=all");
+  });
+
+  it("does not redirect away from an explicit all-time choice", async () => {
+    await renderPage({ range: "all" });
+    const filter = q.usage.mock.calls[0]?.[0] as { from: Date | null };
+    expect(filter.from).toBeNull();
+  });
+
+  /* A blank or malformed value parses to the default and must still be bounded
+     — that is the scale regression the redirect exists to prevent. */
+  it.each(["", "30", "zzz"])("redirects a %s range", async (range) => {
+    await expect(renderPage({ range })).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(q.usage).not.toHaveBeenCalled();
+  });
+});
+
+describe("the default view does not claim to be filtered", () => {
+  it("reports no filters applied", async () => {
+    await renderPage({ range: "30d" });
+    expect(screen.queryByText(/filter applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/filters applied/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the panel closed", async () => {
+    await renderPage({ range: "30d" });
+    expect(screen.getByRole("button", { name: /^filter$/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("counts a real filter", async () => {
+    await renderPage({ range: "7d" });
+    expect(screen.getByText(/1 filter applied/i)).toBeInTheDocument();
+  });
+});
+
+/* FEAT-005 names its date options verbatim. Deleting the group, or dropping one
+   option, left the suite green — the chip tests only asserted the options they
+   happened to look for. */
+describe("every date option the ticket names", () => {
+  it.each([
+    "Last 7 days",
+    "Last 15 days",
+    "Last 30 days",
+    "Last 90 days",
+    "All time",
+  ])("offers %s", async (label) => {
+    await renderPage({ range: "7d" });
+    expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+  });
+
+  it("groups them under a date-range legend", async () => {
+    await renderPage({ range: "7d" });
+    expect(screen.getAllByText("Date range").length).toBeGreaterThan(0);
+  });
+
+  /* The fourth option is a form, not a chip. */
+  it("offers a custom range form", async () => {
+    await renderPage({ range: "7d" });
+    expect(screen.getByLabelText(/^from$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^to$/i)).toBeInTheDocument();
+  });
+
+  it("offers every activity type and a ticket status group", async () => {
+    await renderPage({ range: "7d" });
+    expect(screen.getAllByText("Activity type").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Ticket status").length).toBeGreaterThan(0);
+  });
+});
+
+/* The chart ends where the window ends, not at today: a custom range finishing
+   in January would otherwise draw its bars up to now, and the bars would stop
+   lining up with the card. */
+describe("the chart ends where the window does", () => {
+  it("uses the window's own end for an explicit range", async () => {
+    // Events INSIDE the selected month, or the panel renders its empty state.
+    q.usage.mockResolvedValue([
+      {
+        kind: "design_generated",
+        brandId: BRAND,
+        createdAt: new Date("2026-01-15T12:00:00Z"),
+      },
+      {
+        kind: "calendar_generated",
+        brandId: BRAND,
+        createdAt: new Date("2026-01-20T12:00:00Z"),
+      },
+    ]);
+    await renderPage({ range: "custom", from: "2026-01-01", to: "2026-01-31" });
+    const labels = Array.from(
+      document.querySelectorAll("[data-trend-bar]"),
+    ).map((b) => b.getAttribute("title") ?? "");
+    // Every bucket label must fall inside the selected month, not in September.
+    expect(labels.join(" ")).toMatch(/Jan|Feb/);
+    expect(labels.join(" ")).not.toMatch(/Sep/);
   });
 });

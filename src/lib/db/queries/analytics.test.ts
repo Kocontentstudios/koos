@@ -224,6 +224,33 @@ describe("the record lists are ordered and paged deterministically", () => {
     expect(rec.recorded.limit).toBe(MAX_ROWS);
   });
 
+  /* The one the module comment names: the MEDIAN is computed from these rows,
+     so both the cap and the order matter more here than anywhere else. */
+  it("orders and caps the rows the median is computed from", async () => {
+    await getApprovalDurations(filter());
+    expect(rec.recorded.orderBy[0]).toBe('"design_tickets"."approved_at" desc');
+    expect(rec.recorded.limit).toBe(MAX_ROWS);
+  });
+
+  /* Time to approval is windowed on when a ticket was APPROVED. Windowing on
+     created_at hides a ticket created in August and signed off today, and
+     biases the metric: a 7-day window could only contain fast approvals. */
+  it("windows approvals on the approval date, not the creation date", async () => {
+    await getApprovalDurations(filter());
+    expect(sql()).toContain('"design_tickets"."approved_at" >=');
+    expect(sql()).not.toContain('"design_tickets"."created_at" >=');
+  });
+
+  it("windows the approval records and their count the same way", async () => {
+    await listApprovalRecords(filter());
+    const listWhere = sql();
+    rec = recordingDb([]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    await countApprovalRecords(filter());
+    expect(sql()).toBe(listWhere);
+    expect(sql()).toContain('"design_tickets"."approved_at" >=');
+  });
+
   /* The brand leaderboard aggregates, so every non-aggregated projected column
      has to be grouped or Postgres raises 42803 at runtime. */
   it("groups the brand records by everything it projects", async () => {
