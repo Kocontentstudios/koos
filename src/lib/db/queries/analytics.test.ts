@@ -18,7 +18,11 @@ vi.mock("@/lib/db/client", () => ({ db: dbProxy }));
 import { PAGE_SIZE } from "@/lib/admin/scope";
 import type { AnalyticsFilter } from "@/lib/analytics/filter";
 import {
+  countApprovalRecords,
+  countBrandRecords,
   countGenerationRecords,
+  countTicketRecords,
+  countUserRecords,
   getActiveBrandCount,
   getApprovalDurations,
   getSignups,
@@ -28,7 +32,9 @@ import {
   listApprovalRecords,
   listBrandRecords,
   listGenerationRecords,
+  listTicketRecords,
   listUserRecords,
+  MAX_ROWS,
 } from "./analytics";
 
 const BRAND = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
@@ -42,6 +48,8 @@ const filter = (over: Partial<AnalyticsFilter> = {}): AnalyticsFilter => ({
   statuses: [],
   brandId: null,
   periodDays: 31,
+  explicitFrom: false,
+  explicitTo: false,
   ...over,
 });
 
@@ -154,14 +162,66 @@ describe("the record lists are ordered and paged deterministically", () => {
     expect(rec.recorded.orderBy.at(-1)).toMatch(/\."id" asc$/);
   });
 
-  it("counts the same rows it lists", async () => {
-    await listGenerationRecords(filter({ kinds: ["design_generated"] }));
+  /* Every metric, not just one. The header count and the rows below it are two
+     queries; if they diverge, the page prints "412 records" above 8 rows, which
+     is the exact invariant FEAT-003 exists to establish. */
+  it.each([
+    ["generations", listGenerationRecords, countGenerationRecords],
+    ["users", listUserRecords, countUserRecords],
+    ["tickets", listTicketRecords, countTicketRecords],
+    ["approvals", listApprovalRecords, countApprovalRecords],
+  ])("%s counts the same rows it lists", async (_label, list, countFn) => {
+    const f = filter({
+      kinds: ["design_generated"],
+      statuses: ["delivered"],
+      brandId: BRAND,
+    });
+    await list(f);
     const listWhere = sql();
 
     rec = recordingDb([]);
     setCurrent(rec as unknown as { db: Record<string, unknown> });
-    await countGenerationRecords(filter({ kinds: ["design_generated"] }));
+    await countFn(f);
     expect(sql()).toBe(listWhere);
+  });
+
+  /* Brands is the odd one: it LISTS grouped brands and must COUNT distinct
+     brands, not the events underneath them. */
+  it("counts brands, not the events they generated", async () => {
+    await countBrandRecords(filter());
+    expect(rec.recorded.select).toBeDefined();
+    const projection = JSON.stringify(rec.recorded.sources);
+    expect(projection).toContain("brand_id");
+  });
+
+  it("applies the same filter to the brand list and its count", async () => {
+    const f = filter({ kinds: ["design_generated"] });
+    await listBrandRecords(f);
+    const listWhere = sql();
+
+    rec = recordingDb([]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    await countBrandRecords(f);
+    expect(sql()).toBe(listWhere);
+  });
+
+  /* The approval metric must never count a ticket that was not approved —
+     dropping that clause inflates the header over the rows. */
+  it("counts only approved tickets in the approval header", async () => {
+    await countApprovalRecords(filter());
+    expect(sql()).toContain('"design_tickets"."approved_at" is not null');
+  });
+
+  /* A capped fetch keeps the NEWEST rows, not an arbitrary sample: the chart,
+     the breakdowns and the time-to-approval median are computed from them. */
+  it.each([
+    ["generations", getUsageEvents, '"usage_events"."created_at" desc'],
+    ["signups", getSignups, '"users"."created_at" desc'],
+    ["tickets", getTickets, '"design_tickets"."created_at" desc'],
+  ])("%s orders before capping", async (_label, fn, expected) => {
+    await fn(filter());
+    expect(rec.recorded.orderBy[0]).toBe(expected);
+    expect(rec.recorded.limit).toBe(MAX_ROWS);
   });
 
   /* The brand leaderboard aggregates, so every non-aggregated projected column

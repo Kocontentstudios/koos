@@ -5,7 +5,6 @@ import {
   formatPercentChange,
   median,
   percentChange,
-  splitCurrentAndPrevious,
   toBarPercentages,
 } from "./rollup";
 
@@ -192,22 +191,5 @@ describe("toBarPercentages", () => {
 
   it("handles an empty series", () => {
     expect(toBarPercentages([])).toEqual([]);
-  });
-});
-
-describe("splitCurrentAndPrevious", () => {
-  it("separates this period from the one before it", () => {
-    const result = splitCurrentAndPrevious(
-      [daysAgo(1), daysAgo(2), daysAgo(9)],
-      { now: NOW, periodDays: 7 },
-    );
-    expect(result).toEqual({ current: 2, previous: 1 });
-  });
-
-  it("reports zeroes for an empty history", () => {
-    expect(splitCurrentAndPrevious([], { now: NOW, periodDays: 7 })).toEqual({
-      current: 0,
-      previous: 0,
-    });
   });
 });

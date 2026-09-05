@@ -87,6 +87,16 @@ describe("a drill-down never drops the filter that produced it", () => {
     expect(parse(recordsHref(scope({ page: 7 }), "users")).page).toBe(1);
   });
 
+  /* The metric is the caller's second argument, named explicitly. A patch is
+     for the OTHER keys — letting it override the metric would mean a By-type
+     row could silently open a different card's records. */
+  it("does not let a patch override the metric it was given", () => {
+    const href = recordsHref(scope(), "tickets", {
+      metric: "users",
+    } as Partial<Parameters<typeof recordsHref>[0]>);
+    expect(parse(href).metric).toBe("tickets");
+  });
+
   it("points at the records route", () => {
     for (const kind of RECORD_KINDS) {
       expect(recordsHref(scope(), kind).split("?")[0]).toBe(

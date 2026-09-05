@@ -90,12 +90,44 @@ describe("the window describes itself", () => {
     );
   });
 
-  it("describes a custom range by its own length", () => {
+  /* The regression this replaces an inverted assertion for: the old version
+     pinned "last 10 days" for an Aug 1-10 range read on Sep 4, which is false.
+     A hand-picked range is described by its DATES; only a rolling preset is a
+     length. This string appears on nine surfaces. */
+  it("describes an explicit range by its dates, not a length", () => {
     const f = analyticsFilterFrom(
       scope({ range: "custom", from: "2026-08-01", to: "2026-08-10" }),
       NOW,
     );
-    expect(describeWindow(f)).toBe("last 10 days");
+    // `to` is exclusive, so the last day IN the window is Aug 10.
+    expect(describeWindow(f)).toBe("Aug 1, 2026 to Aug 10, 2026");
+    expect(describeWindow(f)).not.toMatch(/last \d+ days/);
+  });
+
+  it("describes a half-open explicit range honestly", () => {
+    const openEnd = analyticsFilterFrom(
+      scope({ range: "custom", from: "2026-08-01" }),
+      NOW,
+    );
+    expect(describeWindow(openEnd)).toBe("since Aug 1, 2026");
+
+    const openStart = analyticsFilterFrom(
+      scope({ range: "custom", to: "2026-08-10" }),
+      NOW,
+    );
+    expect(describeWindow(openStart)).toBe("up to Aug 10, 2026");
+    /* And never "all time": that window IS bounded above. */
+    expect(describeWindow(openStart)).not.toBe("all time");
+  });
+
+  /* A January range read in September must not claim to be recent. */
+  it("does not describe a distant range as recent", () => {
+    const f = analyticsFilterFrom(
+      scope({ range: "custom", from: "2026-01-01", to: "2026-01-31" }),
+      NOW,
+    );
+    expect(describeWindow(f)).toContain("Jan");
+    expect(describeWindow(f)).not.toMatch(/last/);
   });
 });
 

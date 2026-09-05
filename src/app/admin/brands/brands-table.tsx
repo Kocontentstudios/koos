@@ -85,9 +85,10 @@ export function BrandsTable({ brands }: { brands: BrandListRow[] }) {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  {/* No `view` param: listBrandsForAdmin counts every ticket
-                      including drafts, so anything narrower would open a list
-                      shorter than the number just clicked. */}
+                  {/* `view=all`, not the queue's default: listBrandsForAdmin
+                      counts every ticket including drafts, and the default view
+                      excludes drafts and delivered work — so anything narrower
+                      opens a list shorter than the number just clicked. */}
                   {b.ticketCount > 0 ? (
                     <Link
                       href={`/admin/tickets?view=all&brand=${b.id}`}

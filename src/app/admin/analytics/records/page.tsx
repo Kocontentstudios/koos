@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { PAGE_SIZE, pageCount } from "@/lib/admin/scope";
-import { adminScopeHref, loadAdminScope } from "@/lib/admin/scope-params";
+import {
+  type AdminScope,
+  adminScopeHref,
+  loadAdminScope,
+} from "@/lib/admin/scope-params";
 import {
   type AnalyticsFilter,
   analyticsFilterFrom,
@@ -94,8 +98,19 @@ export default async function AnalyticsRecordsPage({
         {/* Says what the rows ARE, so the columns make sense before they are
             read, and states the window the number came from. */}
         <p className="text-[14px] text-[var(--text-secondary)]">
-          {RECORD_DESCRIPTIONS[metric]} Showing {describeWindow(filter)}.
+          {RECORD_DESCRIPTIONS[metric]} Showing {describeWindow(filter)}
+          {narrowing(metric, scope)}.
         </p>
+        {/* A signup belongs to no brand and has no ticket status, so filtering
+            by either cannot narrow this list. Saying so beats a number that
+            looks like it answered the question the filter asked. */}
+        {ignored(metric, scope).length > 0 && (
+          <p className="text-[13px] text-[var(--text-muted)]">
+            {ignored(metric, scope).join(" and ")}{" "}
+            {ignored(metric, scope).length === 1 ? "does" : "do"} not apply to{" "}
+            {RECORD_LABELS[metric].toLowerCase()}.
+          </p>
+        )}
       </header>
 
       <RecordsTable
@@ -121,6 +136,29 @@ export default async function AnalyticsRecordsPage({
   );
 }
 
+/** The filters that DO narrow this metric, said in the header. */
+function narrowing(metric: RecordKind, scope: AdminScope): string {
+  const parts: string[] = [];
+  const usesBrand = metric !== "users";
+  const usesStatus = metric === "tickets" || metric === "approvals";
+  const usesKind = metric === "generations" || metric === "brands";
+  if (usesBrand && scope.brand) parts.push("one brand");
+  if (usesStatus && scope.status.length) parts.push("selected statuses");
+  if (usesKind && scope.kind.length) parts.push("selected activity types");
+  return parts.length ? `, narrowed to ${parts.join(" and ")}` : "";
+}
+
+/** The filters an operator has set that this metric cannot honour. */
+function ignored(metric: RecordKind, scope: AdminScope): string[] {
+  const out: string[] = [];
+  if (scope.brand && metric === "users") out.push("The brand filter");
+  if (scope.status.length && metric !== "tickets" && metric !== "approvals")
+    out.push("The ticket status filter");
+  if (scope.kind.length && metric !== "generations" && metric !== "brands")
+    out.push("The activity type filter");
+  return out;
+}
+
 type TableData = Omit<
   RecordsTableProps,
   "page" | "pages" | "prevHref" | "nextHref"
@@ -139,13 +177,13 @@ async function buildTable(
       ]);
       return {
         total,
-        columns: ["Name", "Email", "Role", "Signed up"],
+        columns: ["Name", "Email", "Brand", "Signed up"],
         rows: rows.map((r) => ({
           key: r.id,
           cells: [
             name(r.firstName, r.lastName, r.email),
             r.email,
-            r.role,
+            r.brandName ?? "—",
             date(r.createdAt),
           ],
         })),
@@ -159,13 +197,14 @@ async function buildTable(
       ]);
       return {
         total,
-        columns: ["Brand", "Owner", "Last active", "Activity"],
+        columns: ["Brand", "Owner", "Workspace", "Last active", "Activity"],
         rows: rows.map((r) => ({
           key: r.brandId,
           href: `/admin/brands/${r.brandId}`,
           cells: [
             r.name,
             name(r.ownerFirstName, r.ownerLastName, r.ownerEmail),
+            r.workspaceName ?? "—",
             date(r.lastActiveAt),
             String(r.count),
           ],

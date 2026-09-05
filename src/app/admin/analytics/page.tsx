@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { StatCard } from "@/app/admin/stat-card";
 import { ADMIN_RANGES } from "@/lib/admin/scope";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/lib/analytics/rollup";
 import { requireRole } from "@/lib/auth/require-role";
 import {
+  countActiveBrandOptions,
   getActiveBrandCount,
   getApprovalDurations,
   getBrandFilterOptions,
@@ -34,7 +36,8 @@ import {
 import { humanizeStatus, TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import { AnalyticsFilterBar, type FilterGroup } from "./filter-bar";
 
-const TREND_WEEKS = 12;
+/** What /admin/analytics shows before anyone chooses. See the note below. */
+const ANALYTICS_DEFAULT_RANGE = "30d" as const;
 
 const KIND_LABELS: Record<string, string> = {
   strategy_generated: "Strategy",
@@ -42,6 +45,19 @@ const KIND_LABELS: Record<string, string> = {
   design_ticket_created: "Design ticket",
   design_generated: "Design image",
 };
+
+/**
+ * How many days one bar covers, so any window fits in a legible chart.
+ *
+ * A fixed 7-day bucket makes "last 7 days" a single bar and "all time" hundreds
+ * of them. Sized to land between roughly 6 and 20 bars for every preset.
+ */
+export function trendBucketDays(windowDaysSpan: number): number {
+  if (windowDaysSpan <= 14) return 1;
+  if (windowDaysSpan <= 60) return 7;
+  if (windowDaysSpan <= 240) return 14;
+  return 30;
+}
 
 /** Adds or removes one value, so a chip is its own toggle. */
 function toggle<T extends string>(current: readonly T[], value: T): T[] {
@@ -138,10 +154,27 @@ export default async function AdminAnalyticsPage({
   await requireRole(["admin"]);
 
   const now = new Date();
-  const scope = loadAdminScope(await searchParams);
-  /* One filter, every figure. Each card used to carry its own hardcoded window
-     — 7 days, 30 days, 12 weeks — so "all cards update to match the selected
-     range" could not be true of a page where the ranges lived in the JSX. */
+  const params = await searchParams;
+  const scope = loadAdminScope(params);
+
+  /* Redirected, not coerced. These six queries fetch raw timestamps to bucket
+     in JS, so the shared default of `range=all` means six unbounded table scans
+     on every load of the bare URL — and past MAX_ROWS the cards silently cap
+     while their drill-down counts do not, so a card and the list it opens stop
+     agreeing.
+     A redirect rather than a silent override because `?range=all` and no
+     `range` at all are indistinguishable after parsing (the serializer drops a
+     value equal to the default), so overriding would have ignored an operator
+     who explicitly chose All time. Stating the default in the URL makes the two
+     different again. */
+  if (params.range === undefined) {
+    redirect(
+      adminScopeHref("/admin/analytics", scope, {
+        range: ANALYTICS_DEFAULT_RANGE,
+      }),
+    );
+  }
+
   const filter = analyticsFilterFrom(scope, now);
   const previous = previousWindow(filter, now);
 
@@ -153,6 +186,7 @@ export default async function AdminAnalyticsPage({
     topBrands,
     approvalMs,
     brandOptions,
+    brandOptionTotal,
   ] = await Promise.all([
     getUsageEvents(filter),
     getSignups(filter),
@@ -160,7 +194,8 @@ export default async function AdminAnalyticsPage({
     getActiveBrandCount(filter),
     getTopBrandsByActivity(filter),
     getApprovalDurations(filter),
-    getBrandFilterOptions(),
+    getBrandFilterOptions(filter),
+    countActiveBrandOptions(filter),
   ]);
 
   /* The same window, shifted back by its own length — a like-for-like
@@ -180,14 +215,34 @@ export default async function AdminAnalyticsPage({
   const changeFor = (current: number, prev: unknown[] | null) =>
     prev === null ? undefined : percentChange(current, prev.length);
 
-  const buckets = Math.min(
-    TREND_WEEKS,
-    Math.max(2, Math.ceil(filter.periodDays / 7)),
+  /* The chart must COVER the window, exactly. Two mistakes were possible and
+     both were made: clamping to TREND_WEEKS truncated a 90-day selection so the
+     bars summed to 84 under a card reading 90, and a floor of two buckets gave
+     "last 7 days" one full bar beside a permanently empty one. The bucket size
+     is chosen so the whole window fits in a readable number of bars, and the
+     count is the ceiling of the window over that size — so the bars always sum
+     to the card above them. */
+  /* For "all time" the window has no length of its own, so the chart takes its
+     span from the data — the oldest event to now. Falling back to
+     filter.periodDays (0) would render a single one-day bar for all history. */
+  const chartEnd = filter.to ?? now;
+  const oldest = usageTimes.reduce<Date | null>(
+    (min, t) => (min === null || t < min ? t : min),
+    null,
   );
+  const spanDays =
+    filter.periodDays ||
+    (oldest
+      ? Math.max(
+          1,
+          Math.ceil((chartEnd.getTime() - oldest.getTime()) / 86_400_000),
+        )
+      : 1);
+  const bucketDays = trendBucketDays(spanDays);
   const trend = bucketByPeriod(usageTimes, {
-    now: filter.to ?? now,
-    periodDays: 7,
-    periods: filter.from ? buckets : TREND_WEEKS,
+    now: chartEnd,
+    periodDays: bucketDays,
+    periods: Math.max(1, Math.ceil(spanDays / bucketDays)),
   });
   const trendPercents = toBarPercentages(trend.map((b) => b.count));
 
@@ -226,8 +281,14 @@ export default async function AdminAnalyticsPage({
       })),
     },
     {
-      legend: "Brand",
-      choices: brandOptions.slice(0, 12).map((b) => ({
+      legend:
+        brandOptionTotal > brandOptions.length
+          ? `Brand (top ${brandOptions.length} of ${brandOptionTotal})`
+          : "Brand",
+      /* Already the most active twelve for this window — see
+         getBrandFilterOptions. Slicing an alphabetical list here is what made
+         the busiest brand unselectable. */
+      choices: brandOptions.map((b) => ({
         key: b.id,
         label: b.name,
         href: href({ brand: scope.brand === b.id ? "" : b.id, page: 1 }),
@@ -285,11 +346,19 @@ export default async function AdminAnalyticsPage({
           caption={window}
           href={recordsHref(scope, "brands")}
         />
+        {/* A signup belongs to no brand and has no ticket status, so those two
+            filters cannot narrow this. The caption says so rather than leaving
+            an unnarrowed number under a "filters applied" badge, where the
+            figure would read as an answer to a question it never heard. */}
         <StatCard
           label="New users"
           value={signups.length}
           change={changeFor(signups.length, prevSignups)}
-          caption={window}
+          caption={
+            scope.brand || scope.status.length || scope.kind.length
+              ? `${window} · all brands`
+              : window
+          }
           href={recordsHref(scope, "users")}
         />
         <StatCard
@@ -309,7 +378,7 @@ export default async function AdminAnalyticsPage({
 
       <Panel
         title="Activity"
-        subtitle={`Generations per rolling 7-day window, ${window}.`}
+        subtitle={`Generations per ${bucketDays === 1 ? "day" : `${bucketDays}-day period`}, ${window}.`}
       >
         {trend.every((b) => b.count === 0) ? (
           <Empty>No generations recorded in this window.</Empty>
@@ -318,6 +387,7 @@ export default async function AdminAnalyticsPage({
             {trend.map((bucket, i) => (
               <div
                 key={bucket.start.toISOString()}
+                data-trend-bar=""
                 className="group flex h-full flex-1 flex-col items-center justify-end gap-1"
                 title={`${bucket.count} in the week to ${bucket.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
               >

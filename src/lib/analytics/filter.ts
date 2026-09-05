@@ -24,6 +24,13 @@ export interface AnalyticsFilter {
   brandId: string | null;
   /** The window's length, for the like-for-like comparison period. */
   periodDays: number;
+  /* Which bounds the operator actually typed. A hand-picked range is described
+     by its DATES rather than by a length — "last 31 days" is false for a
+     January range read in September. And only a typed bound is a day boundary:
+     resolveWindow fills an open end with `now`, so the exclusive-to-inclusive
+     adjustment applies to the typed one alone. */
+  explicitFrom: boolean;
+  explicitTo: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -56,6 +63,8 @@ export function analyticsFilterFrom(
     statuses: scope.status,
     brandId: scope.brand || null,
     periodDays: windowDays(from, to, now),
+    explicitFrom: scope.range === "custom" && Boolean(scope.from),
+    explicitTo: scope.range === "custom" && Boolean(scope.to),
   };
 }
 
@@ -81,8 +90,39 @@ export function previousWindow(
   };
 }
 
-/** The window in the operator's words, for a card caption. */
+const MONTH_DAY: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+};
+
+/**
+ * The window in the operator's words, for a card caption.
+ *
+ * A ROLLING preset reads as a length ("last 30 days"); an EXPLICIT range reads
+ * as its dates. Describing a custom Jan 1 – Jan 31 selection as "last 31 days"
+ * in September is false, and this string appears on all five cards, three panel
+ * subtitles and the records header — nine surfaces telling the same lie.
+ */
 export function describeWindow(filter: AnalyticsFilter): string {
+  if (filter.explicitFrom || filter.explicitTo) {
+    const from = filter.explicitFrom
+      ? filter.from?.toLocaleDateString("en-US", MONTH_DAY)
+      : null;
+    /* `to` is exclusive, so the last day IN the window is the day before it —
+       but only when the operator typed it. An open end is `now`, which is not
+       a day boundary and must not be shifted. */
+    const lastDay =
+      filter.explicitTo && filter.to
+        ? new Date(filter.to.getTime() - DAY_MS).toLocaleDateString(
+            "en-US",
+            MONTH_DAY,
+          )
+        : null;
+    if (from && lastDay) return `${from} to ${lastDay}`;
+    if (from) return `since ${from}`;
+    if (lastDay) return `up to ${lastDay}`;
+  }
   if (!filter.from) return "all time";
   const days = filter.periodDays;
   if (days === 1) return "last 24 hours";

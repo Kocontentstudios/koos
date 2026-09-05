@@ -14,14 +14,32 @@ import {
 } from "drizzle-orm";
 import type { AnalyticsFilter } from "@/lib/analytics/filter";
 import { db } from "@/lib/db/client";
-import { brands, designTickets, usageEvents, users } from "@/lib/db/schema";
+import {
+  brands,
+  designTickets,
+  usageEvents,
+  users,
+  workspaces,
+} from "@/lib/db/schema";
 import { timestampParam } from "@/lib/db/sql/timestamp";
 
 /* Rolling windows are computed in JS (see lib/analytics/rollup.ts) rather than
    with date_trunc, which would force a calendar week-start and a timezone.
    That means fetching timestamps instead of pre-grouped counts, so every raw
-   fetch is capped — a dashboard is never worth an unbounded result set. */
-const MAX_ROWS = 50_000;
+   fetch is capped — a dashboard is never worth an unbounded result set.
+
+   The cap is a truncation, not a filter, so every capped fetch is ORDERED:
+   without it the rows kept are whatever the plan produced, and the trend chart,
+   the breakdowns and the time-to-approval MEDIAN would be computed from an
+   arbitrary sample rather than from the newest data. Callers that show a count
+   beside capped rows must use the matching count* query, which is not capped —
+   see hitCap. */
+export const MAX_ROWS = 50_000;
+
+/** Whether a capped fetch actually hit its ceiling, so a caller can say so. */
+export function hitCap(rows: unknown[]): boolean {
+  return rows.length >= MAX_ROWS;
+}
 
 /**
  * The filter, as SQL, for one timestamp column.
@@ -31,7 +49,18 @@ const MAX_ROWS = 50_000;
  * a signup has no brand and no ticket status — and says so rather than
  * silently ignoring them.
  */
-function windowOf(column: SQL.Aliased | never, filter: AnalyticsFilter): SQL[] {
+/* The columns a window may be applied to, named explicitly. The previous
+   signature was `SQL.Aliased | never`, which collapses to SQL.Aliased and made
+   every call site launder a PgColumn through `as never` — so
+   `windowOf(users.email, ...)` compiled clean and would have shipped
+   `"users"."email" >= $1::timestamp`, a Postgres operator-does-not-exist 500. */
+type TimestampColumn =
+  | typeof usageEvents.createdAt
+  | typeof users.createdAt
+  | typeof designTickets.createdAt
+  | typeof designTickets.approvedAt;
+
+function windowOf(column: TimestampColumn, filter: AnalyticsFilter): SQL[] {
   const parts: SQL[] = [];
   if (filter.from) parts.push(gte(column, timestampParam(filter.from)));
   // `to` is exclusive by contract — see resolveWindow.
@@ -40,7 +69,7 @@ function windowOf(column: SQL.Aliased | never, filter: AnalyticsFilter): SQL[] {
 }
 
 function usageConditions(filter: AnalyticsFilter): SQL[] {
-  const parts = windowOf(usageEvents.createdAt as never, filter);
+  const parts = windowOf(usageEvents.createdAt, filter);
   if (filter.kinds.length)
     parts.push(inArray(usageEvents.kind, [...filter.kinds]));
   if (filter.brandId) parts.push(eq(usageEvents.brandId, filter.brandId));
@@ -48,7 +77,7 @@ function usageConditions(filter: AnalyticsFilter): SQL[] {
 }
 
 function ticketConditions(filter: AnalyticsFilter): SQL[] {
-  const parts = windowOf(designTickets.createdAt as never, filter);
+  const parts = windowOf(designTickets.createdAt, filter);
   if (filter.statuses.length)
     parts.push(inArray(designTickets.status, [...filter.statuses]));
   if (filter.brandId) parts.push(eq(designTickets.brandId, filter.brandId));
@@ -66,6 +95,7 @@ export async function getUsageEvents(filter: AnalyticsFilter) {
     })
     .from(usageEvents)
     .where(all(usageConditions(filter)))
+    .orderBy(desc(usageEvents.createdAt), asc(usageEvents.id))
     .limit(MAX_ROWS);
 }
 
@@ -76,7 +106,8 @@ export async function getSignups(filter: AnalyticsFilter) {
   return db
     .select({ createdAt: users.createdAt })
     .from(users)
-    .where(all(windowOf(users.createdAt as never, filter)))
+    .where(all(windowOf(users.createdAt, filter)))
+    .orderBy(desc(users.createdAt), asc(users.id))
     .limit(MAX_ROWS);
 }
 
@@ -85,6 +116,7 @@ export async function getTickets(filter: AnalyticsFilter) {
     .select({ createdAt: designTickets.createdAt })
     .from(designTickets)
     .where(all(ticketConditions(filter)))
+    .orderBy(desc(designTickets.createdAt), asc(designTickets.id))
     .limit(MAX_ROWS);
 }
 
@@ -140,13 +172,45 @@ export async function getApprovalDurations(filter: AnalyticsFilter) {
     .filter((ms) => ms >= 0);
 }
 
-/** Brands an operator can filter by, newest first. */
-export async function getBrandFilterOptions(limit = 200) {
-  return db
-    .select({ id: brands.id, name: brands.name })
-    .from(brands)
-    .orderBy(brands.name)
-    .limit(limit);
+/**
+ * Brands an operator can filter by, MOST ACTIVE first.
+ *
+ * FEAT-005 asks to filter by "most active brand". Ordering by name and taking
+ * the first twelve makes the busiest brand unselectable whenever its name sorts
+ * late — with forty brands, "Zenith" could not be reached from the UI at all.
+ * Ordered by activity within the current window, so the options track what the
+ * operator is actually looking at.
+ */
+export async function getBrandFilterOptions(
+  filter: AnalyticsFilter,
+  limit = 12,
+) {
+  return (
+    db
+      .select({
+        id: brands.id,
+        name: brands.name,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(usageEvents)
+      .innerJoin(brands, eq(usageEvents.brandId, brands.id))
+      .where(all(usageConditions({ ...filter, brandId: null })))
+      .groupBy(brands.id, brands.name)
+      /* asc(id) so ties do not flap between renders and silently change which
+       brands are offered. */
+      .orderBy(desc(sql`count(*)`), asc(brands.id))
+      .limit(limit)
+  );
+}
+
+/** How many brands had activity, so the UI can say the list is a top slice. */
+export async function countActiveBrandOptions(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: countDistinct(usageEvents.brandId) })
+    .from(usageEvents)
+    .innerJoin(brands, eq(usageEvents.brandId, brands.id))
+    .where(all(usageConditions({ ...filter, brandId: null })));
+  return row?.count ?? 0;
 }
 
 /* ── Records behind a metric (ADMIN-FEAT-003 / 007) ────────────────────── */
@@ -199,9 +263,17 @@ export async function listUserRecords(
       lastName: users.lastName,
       role: users.role,
       createdAt: users.createdAt,
+      /* FEAT-003 asks for the signup's brand. A user may own several; the
+         first one they created is the one that identifies them. */
+      brandName: sql<string | null>`(
+        select ${brands.name} from ${brands}
+        where ${brands.userId} = ${users.id}
+        order by ${brands.createdAt} asc
+        limit 1
+      )`,
     })
     .from(users)
-    .where(all(windowOf(users.createdAt as never, filter)))
+    .where(all(windowOf(users.createdAt, filter)))
     .orderBy(desc(users.createdAt), asc(users.id))
     .limit(limit)
     .offset(offset);
@@ -211,7 +283,7 @@ export async function countUserRecords(filter: AnalyticsFilter) {
   const [row] = await db
     .select({ count: count() })
     .from(users)
-    .where(all(windowOf(users.createdAt as never, filter)));
+    .where(all(windowOf(users.createdAt, filter)));
   return row?.count ?? 0;
 }
 
@@ -275,6 +347,7 @@ export async function listBrandRecords(
       ownerEmail: users.email,
       ownerFirstName: users.firstName,
       ownerLastName: users.lastName,
+      workspaceName: workspaces.name,
       lastActiveAt: sql<Date>`max(${usageEvents.createdAt})`.mapWith(
         usageEvents.createdAt,
       ),

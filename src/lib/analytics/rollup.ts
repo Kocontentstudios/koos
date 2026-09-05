@@ -92,15 +92,3 @@ export function toBarPercentages(counts: number[]): number[] {
   if (max === 0) return counts.map(() => 0);
   return counts.map((c) => (c / max) * 100);
 }
-
-export function splitCurrentAndPrevious(
-  timestamps: Date[],
-  { now, periodDays }: { now: Date; periodDays: number },
-): { current: number; previous: number } {
-  const [previous, current] = bucketByPeriod(timestamps, {
-    now,
-    periodDays,
-    periods: 2,
-  });
-  return { current: current?.count ?? 0, previous: previous?.count ?? 0 };
-}

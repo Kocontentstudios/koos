@@ -106,9 +106,11 @@ const headers = () =>
 describe("each metric renders its own records", () => {
   it.each([
     ["generations", ["Type", "Brand", "By", "When"]],
-    ["users", ["Name", "Email", "Role", "Signed up"]],
+    /* FEAT-003 names "brand" on the New Users list; Role was never asked for. */
+    ["users", ["Name", "Email", "Brand", "Signed up"]],
     ["tickets", ["Ticket", "Title", "Brand", "Status", "Created"]],
-    ["brands", ["Brand", "Owner", "Last active", "Activity"]],
+    /* FEAT-003 names "workspace" on the Active Brands list. */
+    ["brands", ["Brand", "Owner", "Workspace", "Last active", "Activity"]],
     [
       "approvals",
       [
@@ -198,5 +200,45 @@ describe("paging", () => {
     expect(back).toContain("/admin/analytics");
     expect(back).toContain("range=30d");
     expect(back).not.toContain("metric=");
+  });
+});
+
+/* A metric that cannot honour a filter must say so, rather than showing an
+   unnarrowed list under a header that implies it was narrowed. */
+describe("filters a metric cannot honour are disclosed", () => {
+  /* A real uuid: `brand` is validated at the parser, so a placeholder is
+     dropped exactly as a hand-edited URL would be. */
+  const BRAND_ID = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
+  /* Read as text: the sentence is assembled from several nodes, so an
+     element-level matcher cannot see it. */
+  const headerText = () =>
+    Array.from(document.querySelectorAll("header p"))
+      .map((p) => p.textContent)
+      .join(" ");
+
+  it("says the brand filter does not apply to new users", async () => {
+    await renderPage({ metric: "users", brand: BRAND_ID });
+    expect(headerText()).toMatch(/brand filter.*does not apply/i);
+  });
+
+  it("says nothing when every active filter applies", async () => {
+    await renderPage({ metric: "tickets", status: "delivered" });
+    expect(headerText()).not.toMatch(/does not apply/i);
+  });
+
+  it("names the filters that DO narrow the list", async () => {
+    await renderPage({
+      metric: "tickets",
+      brand: BRAND_ID,
+      status: "delivered",
+    });
+    expect(headerText()).toMatch(/narrowed to/i);
+    expect(headerText()).toMatch(/one brand/i);
+  });
+
+  /* The activity-type filter is meaningless for tickets and for signups. */
+  it("says the activity type filter does not apply to tickets", async () => {
+    await renderPage({ metric: "tickets", kind: "design_generated" });
+    expect(headerText()).toMatch(/activity type filter.*does not apply/i);
   });
 });
