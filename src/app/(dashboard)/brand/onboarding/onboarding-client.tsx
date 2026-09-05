@@ -5,7 +5,7 @@ import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { Send, Sparkles, Square, Volume2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ProposalCard } from "@/components/ai/proposal-card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,13 @@ import {
 import { BrandSnapshotCard } from "../brand-snapshot-card";
 import { saveVisualIdentity } from "./actions";
 import { ChipPicker } from "./chip-picker";
+import {
+  DocumentInput,
+  DocumentUploadButton,
+  DocumentUploadStatus,
+  useDocumentStatusId,
+  useDocumentUpload,
+} from "./document-upload";
 import {
   VisualIdentityStep,
   type VisualIdentityValues,
@@ -145,12 +152,36 @@ export function OnboardingClient({
     setInput("");
   }
 
+  /* One definition of "what has been said", shared by the Fill-my-profile
+     button and the document upload. Two copies would drift, and the document
+     parse would then read a different conversation than the extractor does. */
+  const transcriptSoFar = useCallback(
+    () =>
+      messages
+        .map((m) => `${m.role}: ${messageText(m)}`)
+        .join("\n\n")
+        .trim(),
+    [messages],
+  );
+
+  const uploadStatusId = useDocumentStatusId();
+  const upload = useDocumentUpload({
+    brandId,
+    /* Trimmed to leave the document itself room inside the same input budget
+       — documentTranscript reserves the rest. */
+    conversation: useCallback(
+      () => transcriptSoFar().slice(-2000),
+      [transcriptSoFar],
+    ),
+    onProposal: useCallback((next: Proposal, name: string) => {
+      setProposal(next);
+      toast.success(`KO read ${name}. Check what it found below.`);
+    }, []),
+  });
+
   async function handleFillProfile() {
     if (extracting) return;
-    const fullTranscript = messages
-      .map((m) => `${m.role}: ${messageText(m)}`)
-      .join("\n\n")
-      .trim();
+    const fullTranscript = transcriptSoFar();
     if (!fullTranscript) {
       toast.error("Have a bit of a conversation first, then try again.");
       return;
@@ -352,7 +383,23 @@ export function OnboardingClient({
       </div>
 
       <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-background border-t border-[rgba(255,255,255,0.06)]">
-        <div className="flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)]">
+        <div className="relative flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)]">
+          <DocumentInput
+            inputRef={upload.inputRef}
+            onChange={upload.onChange}
+          />
+          <DocumentUploadStatus
+            id={uploadStatusId}
+            stage={upload.stage}
+            fileName={upload.fileName}
+            percent={upload.percent}
+          />
+          <DocumentUploadButton
+            onClick={upload.open}
+            busy={upload.busy}
+            disabled={isLoading}
+            statusId={uploadStatusId}
+          />
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -389,8 +436,21 @@ export function OnboardingClient({
             </button>
           )}
         </div>
+        {/* The optional upload step FEAT-018 asks for. It sits under the input
+            rather than as a chat turn: an offer the user can take at any point
+            in the conversation, not a question that blocks the next one. */}
         <p className="text-[11px] text-[var(--text-muted)] mt-1.5 px-1">
-          AI can make mistakes — review responses carefully.
+          Have existing brand guidelines or an identity doc?{" "}
+          <button
+            type="button"
+            onClick={upload.open}
+            disabled={upload.busy || isLoading}
+            className="underline underline-offset-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+          >
+            Upload it here
+          </button>{" "}
+          and KO will read it. AI can make mistakes — review responses
+          carefully.
         </p>
       </div>
     </div>

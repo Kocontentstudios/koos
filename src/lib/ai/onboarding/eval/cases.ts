@@ -29,6 +29,79 @@ export interface ExtractionEvalCase {
 }
 
 export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
+  /* FEAT-018: a brand deck reaches the extractor through documentTranscript,
+     so the transcript below is that framing, not a chat. A deck is a harder
+     read than a conversation in one specific way — it describes an INDUSTRY as
+     well as a brand, and the boilerplate around the facts is exactly what a
+     model fills empty columns from. Hence the long forbidden list: everything
+     a meal-prep deck makes tempting but never states. */
+  {
+    id: "document-brand-guidelines",
+    transcript: [
+      'user: I\'ve uploaded our brand document, "Okra Kitchen Brand Guidelines.pdf". Here is its text.',
+      "",
+      "OKRA KITCHEN — BRAND GUIDELINES v3",
+      "",
+      "1. WHO WE ARE",
+      "Okra Kitchen is a weekly meal-prep subscription serving Lagos.",
+      "We cook Nigerian home food and deliver it ready to eat.",
+      "",
+      "2. WHO WE SERVE",
+      "Busy professionals in Lagos, aged 28 to 45, who work long hours and",
+      "want to eat properly without cooking.",
+      "",
+      "3. VOICE",
+      "Warm, plain-spoken, never fussy. We talk like a neighbour, not a chef.",
+      "",
+      "4. COLOUR",
+      "Primary: forest green. Secondary: warm cream.",
+      "Accent colours: terracotta, deep charcoal.",
+      "",
+      "5. TYPOGRAPHY",
+      "Headlines are set in Bricolage Grotesque. Body copy is Montserrat.",
+      "",
+      "6. WHERE WE ARE",
+      "Instagram is our main channel. We also post on TikTok and WhatsApp.",
+      "We publish three times a week.",
+      "",
+      "7. ONLINE",
+      "okrakitchen.ng",
+      "",
+      "user: Please take what you can from that document. Only record what it actually says — if it does not cover something, leave that field empty rather than inferring it from the industry.",
+    ].join("\n"),
+    expected: {
+      name: { contains: ["okra kitchen"] },
+      offer: { contains: ["meal"] },
+      targetAudience: { contains: ["28", "45"] },
+      tone: { contains: ["warm"] },
+      primaryColor: { contains: ["forest green"] },
+      secondaryColor: { contains: ["cream"] },
+      additionalColors: { contains: ["terracotta"] },
+      /* The field FEAT-018 adds. Both faces are named, so both must survive —
+         a model reporting only the headline face has dropped half the answer. */
+      brandFont: { contains: ["bricolage", "montserrat"] },
+      platforms: { contains: ["instagram", "tiktok"] },
+      primaryPlatform: {
+        contains: ["instagram"],
+        /* The deck names three channels and calls ONE of them main. A model
+           that lists all three has answered a different question. */
+        notContains: ["tiktok", "whatsapp"],
+      },
+      postingFrequency: { contains: ["three"] },
+      websiteUrl: { contains: ["okrakitchen.ng"] },
+    },
+    /* None of these appear anywhere in the deck. They are what a meal-prep
+       brand USUALLY says, which is precisely the invention this guards. */
+    forbidden: [
+      "competitors",
+      "competitorStrengths",
+      "differentiators",
+      "stage",
+      "primaryGoal",
+      "wordsLove",
+      "wordsAvoid",
+    ],
+  },
   {
     id: "lagos-loom-rich",
     transcript: [
@@ -88,6 +161,7 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
       "primaryPlatform",
       "postingFrequency",
       "websiteUrl",
+      "brandFont",
       // A catch-all is where a model dumps prose it could not place.
       "additionalNotes",
     ],
