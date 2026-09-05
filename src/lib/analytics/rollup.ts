@@ -92,3 +92,76 @@ export function toBarPercentages(counts: number[]): number[] {
   if (max === 0) return counts.map(() => 0);
   return counts.map((c) => (c / max) * 100);
 }
+
+/* ── Tooltip vocabulary (ADMIN-BUG-003) ───────────────────────────────────
+   The old label read "9 in the week to July 25": it named no metric, and said
+   "week" whatever the bucket actually was. Everything below is pure and takes
+   the bucket as an argument, so rollup's fixed-NOW tests are untouched. */
+
+/** What one bar covers, as a word. */
+export function bucketLabel(bucketDays: number): string {
+  if (bucketDays === 1) return "Day";
+  if (bucketDays === 7) return "Week";
+  return `${bucketDays} days`;
+}
+
+/**
+ * Signed, for prose. The cards use arrows (formatPercentChange) because a
+ * glanceable figure carries direction in the glyph as well as the colour; a
+ * sentence reads better with a sign.
+ */
+export function formatSignedPercent(value: number): string {
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? "+" : rounded < 0 ? "−" : ""}${Math.abs(rounded)}%`;
+}
+
+const TOOLTIP_DAY: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+};
+
+/**
+ * The days a bucket covers, inclusive.
+ *
+ * `end` is exclusive, so the last day IN the bucket is the day before it. The
+ * year is printed once when both ends share it and on both when they do not,
+ * so a bucket spanning New Year still reads unambiguously.
+ */
+export function describeBucketRange(bucket: Bucket): string {
+  const lastDay = new Date(bucket.end.getTime() - DAY_MS);
+  const startYear = bucket.start.getUTCFullYear();
+  const endYear = lastDay.getUTCFullYear();
+  const start = bucket.start.toLocaleDateString("en-US", TOOLTIP_DAY);
+  const end = lastDay.toLocaleDateString("en-US", TOOLTIP_DAY);
+
+  if (start === end && startYear === endYear) return `${start}, ${endYear}`;
+  if (startYear === endYear) return `${start} to ${end}, ${endYear}`;
+  return `${start}, ${startYear} to ${end}, ${endYear}`;
+}
+
+/**
+ * The whole tooltip: metric, value, period and — only when there is one — the
+ * change against the previous bucket.
+ *
+ * `change` omitted or null means there is nothing to compare against (the
+ * first bucket, or a previous bucket of zero). The segment is then absent
+ * rather than printed as "—%", which reads as a measured value of nothing.
+ */
+export function tooltipText({
+  bucket,
+  metric,
+  bucketDays,
+  change,
+}: {
+  bucket: Bucket;
+  /** Singular noun. Pluralised here so callers never pre-pluralise. */
+  metric: string;
+  bucketDays: number;
+  change?: number | null;
+}): string {
+  const noun = bucket.count === 1 ? metric : `${metric}s`;
+  const head = `${bucket.count} ${noun} - ${bucketLabel(bucketDays)}: ${describeBucketRange(bucket)}`;
+  return change === undefined || change === null
+    ? head
+    : `${head} - Change: ${formatSignedPercent(change)}`;
+}

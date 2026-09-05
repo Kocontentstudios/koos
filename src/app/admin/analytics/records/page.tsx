@@ -12,21 +12,33 @@ import {
 } from "@/lib/analytics/filter";
 import {
   isRecordKind,
+  METRIC_FILTERS,
   RECORD_DESCRIPTIONS,
   RECORD_LABELS,
   type RecordKind,
 } from "@/lib/analytics/records";
 import { formatDuration } from "@/lib/analytics/rollup";
 import { requireRole } from "@/lib/auth/require-role";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import {
   countApprovalRecords,
   countBrandRecords,
+  countBrandSetupRecords,
+  countCalendarRecords,
+  countCampaignRecords,
+  countDeliveryRecords,
   countGenerationRecords,
+  countRevisionRecords,
   countTicketRecords,
   countUserRecords,
   listApprovalRecords,
   listBrandRecords,
+  listBrandSetupRecords,
+  listCalendarRecords,
+  listCampaignRecords,
+  listDeliveryRecords,
   listGenerationRecords,
+  listRevisionRecords,
   listTicketRecords,
   listUserRecords,
 } from "@/lib/db/queries";
@@ -49,6 +61,23 @@ function name(
   return `${first ?? ""} ${last ?? ""}`.trim() || (email ?? "—");
 }
 
+/* Strategy, calendar-item and onboarding statuses are three DIFFERENT enums
+   from the ticket one. humanizeStatus is typed for tickets and maps
+   "delivered" to "Approved", so borrowing it here would relabel unrelated
+   values — a strategy is never "Approved". */
+function enumLabel(value: string): string {
+  const words = value.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/* A revision message is free client text of any length. Untruncated it blows
+   the column out and pushes every other cell off the row. */
+function truncate(text: string, max: number): string {
+  const clean = text.trim();
+  if (clean.length <= max) return clean || "—";
+  return `${clean.slice(0, max - 1).trimEnd()}…`;
+}
+
 function date(d: Date | null): string {
   if (!d) return "—";
   return d.toLocaleDateString("en-US", {
@@ -61,7 +90,7 @@ function date(d: Date | null): string {
 /**
  * The records behind an analytics number.
  *
- * One route for all five metrics rather than five routes: they share the
+ * One route for all ten metrics rather than ten routes: they share the
  * filter, the paging and the empty states, and the only thing that differs is
  * which columns a row has. `metric` selects that.
  */
@@ -109,7 +138,7 @@ export default async function AnalyticsRecordsPage({
             thing telling an operator a filter is being dropped. */}
         {ignored(metric, scope).length > 0 && (
           <p className="text-[13px] text-[var(--text-secondary)]">
-            {listPhrase(ignored(metric, scope))}{" "}
+            {sentenceCase(listPhrase(ignored(metric, scope)))}{" "}
             {ignored(metric, scope).length === 1 ? "does" : "do"} not apply to{" "}
             {RECORD_LABELS[metric].toLowerCase()}.
           </p>
@@ -141,13 +170,11 @@ export default async function AnalyticsRecordsPage({
 
 /** The filters that DO narrow this metric, said in the header. */
 function narrowing(metric: RecordKind, scope: AdminScope): string {
+  const applies = METRIC_FILTERS[metric];
   const parts: string[] = [];
-  const usesBrand = metric !== "users";
-  const usesStatus = metric === "tickets" || metric === "approvals";
-  const usesKind = metric === "generations" || metric === "brands";
-  if (usesBrand && scope.brand) parts.push("one brand");
-  if (usesStatus && scope.status.length) parts.push("selected statuses");
-  if (usesKind && scope.kind.length) parts.push("selected activity types");
+  if (applies.brand && scope.brand) parts.push("one brand");
+  if (applies.status && scope.status.length) parts.push("selected statuses");
+  if (applies.kind && scope.kind.length) parts.push("selected activity types");
   return parts.length ? `, narrowed to ${parts.join(" and ")}` : "";
 }
 
@@ -158,15 +185,23 @@ function listPhrase(items: string[]): string {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-/** The filters an operator has set that this metric cannot honour. */
+/** The filters an operator has set that this metric cannot honour.
+ *
+ * Lower case: these are joined mid-sentence, and pre-capitalising each one
+ * produced "The ticket status filter and The activity type filter". The
+ * sentence is capitalised once, where it starts. */
 function ignored(metric: RecordKind, scope: AdminScope): string[] {
+  const applies = METRIC_FILTERS[metric];
   const out: string[] = [];
-  if (scope.brand && metric === "users") out.push("The brand filter");
-  if (scope.status.length && metric !== "tickets" && metric !== "approvals")
-    out.push("The ticket status filter");
-  if (scope.kind.length && metric !== "generations" && metric !== "brands")
-    out.push("The activity type filter");
+  if (scope.brand && !applies.brand) out.push("the brand filter");
+  if (scope.status.length && !applies.status)
+    out.push("the ticket status filter");
+  if (scope.kind.length && !applies.kind) out.push("the activity type filter");
   return out;
+}
+
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 type TableData = Omit<
@@ -276,6 +311,138 @@ async function buildTable(
           ],
         })),
         empty: "No ticket was approved in this window.",
+      };
+    }
+    case "campaigns": {
+      const [rows, total] = await Promise.all([
+        listCampaignRecords(filter, PAGE_SIZE, offset),
+        countCampaignRecords(filter),
+      ]);
+      return {
+        total,
+        columns: ["Campaign", "Brand", "Status", "Created"],
+        rows: rows.map((r) => ({
+          key: r.id,
+          cells: [
+            r.name,
+            r.brandName ?? "—",
+            enumLabel(r.status),
+            date(r.createdAt),
+          ],
+        })),
+        empty: "No campaign was created in this window.",
+      };
+    }
+    case "calendar": {
+      const [rows, total] = await Promise.all([
+        listCalendarRecords(filter, PAGE_SIZE, offset),
+        countCalendarRecords(filter),
+      ]);
+      return {
+        total,
+        columns: [
+          "Entry",
+          "Brand",
+          "Platform",
+          "Scheduled",
+          "Status",
+          "Author",
+          "Created",
+        ],
+        rows: rows.map((r) => ({
+          key: r.id,
+          cells: [
+            r.title,
+            r.brandName ?? "—",
+            r.platform,
+            date(r.date),
+            enumLabel(r.status),
+            /* The enum stores "ai"/"manual"; enumLabel would render "Ai". */
+            r.source === "ai" ? "KO" : "Manual",
+            date(r.createdAt),
+          ],
+        })),
+        empty: "No calendar entry was created in this window.",
+      };
+    }
+    case "deliveries": {
+      const [rows, total] = await Promise.all([
+        listDeliveryRecords(filter, PAGE_SIZE, offset),
+        countDeliveryRecords(filter),
+      ]);
+      return {
+        total,
+        /* "Signed off" rather than "Approved" for the date: the Outcome column
+           beside it holds the word "Approved", and two adjacent columns using
+           one word for two different things is unreadable. */
+        columns: [
+          "Ticket",
+          "Title",
+          "Brand",
+          "Delivered",
+          "Outcome",
+          "Signed off",
+        ],
+        rows: rows.map((r) => ({
+          key: r.id,
+          href: `/admin/tickets/${r.id}`,
+          cells: [
+            formatTicketNumber(r.ticketNumber),
+            r.title ?? r.designType,
+            r.brandName ?? "—",
+            date(r.deliveredAt),
+            /* The numerator, spelled out per row: this is the column that adds
+               up to the rate on the card. */
+            r.status === "delivered" ? "Approved" : "Awaiting sign-off",
+            date(r.approvedAt),
+          ],
+        })),
+        empty: "Nothing was delivered in this window.",
+      };
+    }
+    case "revisions": {
+      const [rows, total] = await Promise.all([
+        listRevisionRecords(filter, PAGE_SIZE, offset),
+        countRevisionRecords(filter),
+      ]);
+      return {
+        total,
+        columns: ["Ticket", "Title", "Brand", "What was asked for", "When"],
+        rows: rows.map((r) => ({
+          key: r.id,
+          href: `/admin/tickets/${r.ticketId}`,
+          cells: [
+            formatTicketNumber(r.ticketNumber),
+            r.title ?? r.designType,
+            r.brandName ?? "—",
+            truncate(r.message, 80),
+            date(r.createdAt),
+          ],
+        })),
+        empty: "No revision was requested in this window.",
+      };
+    }
+    case "brand_setup": {
+      const [rows, total] = await Promise.all([
+        listBrandSetupRecords(filter, PAGE_SIZE, offset),
+        countBrandSetupRecords(filter),
+      ]);
+      return {
+        total,
+        columns: ["Brand", "Setup", "Stage", "Created"],
+        rows: rows.map((r) => ({
+          key: r.id,
+          href: `/admin/brands/${r.id}`,
+          cells: [
+            r.name,
+            /* Computed, not brands.completion_percentage — the two disagree and
+               every other surface uses the computed one. */
+            `${brandProfileCompletion(r)}%`,
+            enumLabel(r.onboardingStatus),
+            date(r.createdAt),
+          ],
+        })),
+        empty: "No brand was created in this window.",
       };
     }
     /* `generations` explicitly, not a catch-all: falling through here is how

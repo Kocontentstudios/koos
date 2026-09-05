@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  type Bucket,
   bucketByPeriod,
+  bucketLabel,
+  describeBucketRange,
   formatDuration,
   formatPercentChange,
+  formatSignedPercent,
   median,
   percentChange,
   toBarPercentages,
+  tooltipText,
 } from "./rollup";
 
 const NOW = new Date("2026-08-18T12:00:00.000Z");
@@ -192,4 +197,161 @@ describe("toBarPercentages", () => {
   it("handles an empty series", () => {
     expect(toBarPercentages([])).toEqual([]);
   });
+});
+
+/* ── ADMIN-BUG-003 ─────────────────────────────────────────────────────── */
+
+const bucketOf = (start: string, days: number, count: number): Bucket => ({
+  start: new Date(start),
+  end: new Date(new Date(start).getTime() + days * 86_400_000),
+  count,
+});
+
+describe("bucketLabel", () => {
+  it.each([
+    [1, "Day"],
+    [7, "Week"],
+    [14, "14 days"],
+    [30, "30 days"],
+  ])("calls a %s-day bucket %s", (days, expected) => {
+    expect(bucketLabel(days)).toBe(expected);
+  });
+
+  /* The defect the ticket reports: the old label said "week" for every bucket,
+     so a 30-day bar on the all-time chart claimed to be a week. */
+  it("never calls a non-weekly bucket a week", () => {
+    for (const days of [1, 14, 30, 90]) {
+      expect(bucketLabel(days)).not.toMatch(/week/i);
+    }
+  });
+});
+
+describe("describeBucketRange", () => {
+  /* `end` is exclusive, so a 7-day bucket starting Jul 19 covers Jul 19–25 —
+     the exact range the ticket's example names. Printing the raw `end` would
+     say "to Jul 26" and overstate every bucket by a day. */
+  it("names the days the bucket actually covers", () => {
+    expect(describeBucketRange(bucketOf("2026-07-19T00:00:00Z", 7, 9))).toBe(
+      "Jul 19 to Jul 25, 2026",
+    );
+  });
+
+  it("prints one day once, not as a range to itself", () => {
+    expect(describeBucketRange(bucketOf("2026-07-25T00:00:00Z", 1, 3))).toBe(
+      "Jul 25, 2026",
+    );
+  });
+
+  /* A bucket crossing New Year is ambiguous with a single trailing year. */
+  it("prints both years when the bucket spans a year boundary", () => {
+    expect(describeBucketRange(bucketOf("2025-12-28T00:00:00Z", 7, 4))).toBe(
+      "Dec 28, 2025 to Jan 3, 2026",
+    );
+  });
+
+  /* Pinned, not inherited from the runner's locale: a machine set to en-GB
+     would otherwise render "19 Jul" and the string would differ per host. */
+  it("is pinned to en-US regardless of host locale", () => {
+    expect(describeBucketRange(bucketOf("2026-07-19T00:00:00Z", 7, 9))).toMatch(
+      /^Jul 19/,
+    );
+  });
+});
+
+describe("formatSignedPercent", () => {
+  it.each([
+    [28, "+28%"],
+    [-12, "−12%"],
+    [0, "0%"],
+    [0.4, "0%"],
+  ])("renders %s as %s", (value, expected) => {
+    expect(formatSignedPercent(value)).toBe(expected);
+  });
+});
+
+describe("tooltipText", () => {
+  /* The ticket's own example, verbatim. */
+  it("matches the shape the ticket asks for", () => {
+    expect(
+      tooltipText({
+        bucket: bucketOf("2026-07-19T00:00:00Z", 7, 9),
+        metric: "generation",
+        bucketDays: 7,
+      }),
+    ).toBe("9 generations - Week: Jul 19 to Jul 25, 2026");
+  });
+
+  it("appends the change when there is one", () => {
+    expect(
+      tooltipText({
+        bucket: bucketOf("2026-07-19T00:00:00Z", 7, 9),
+        metric: "generation",
+        bucketDays: 7,
+        change: 28,
+      }),
+    ).toBe("9 generations - Week: Jul 19 to Jul 25, 2026 - Change: +28%");
+  });
+
+  /* percentChange returns null when the previous bucket was empty, and the
+     first bucket has no previous at all. Printing "Change: —%" there states a
+     measurement that was never made. */
+  it.each([
+    ["no comparison was passed", undefined],
+    ["the comparison is null", null],
+  ])("omits the change segment when %s", (_label, change) => {
+    const text = tooltipText({
+      bucket: bucketOf("2026-07-19T00:00:00Z", 7, 9),
+      metric: "generation",
+      bucketDays: 7,
+      change,
+    });
+    expect(text).not.toMatch(/change/i);
+    expect(text).not.toContain("—");
+  });
+
+  it("keeps a zero change, which is a real measurement", () => {
+    expect(
+      tooltipText({
+        bucket: bucketOf("2026-07-19T00:00:00Z", 7, 9),
+        metric: "generation",
+        bucketDays: 7,
+        change: 0,
+      }),
+    ).toContain("Change: 0%");
+  });
+
+  it("says the metric in the singular when there is exactly one", () => {
+    expect(
+      tooltipText({
+        bucket: bucketOf("2026-07-19T00:00:00Z", 7, 1),
+        metric: "generation",
+        bucketDays: 7,
+      }),
+    ).toContain("1 generation -");
+  });
+
+  it("says zero in the plural", () => {
+    expect(
+      tooltipText({
+        bucket: bucketOf("2026-07-19T00:00:00Z", 7, 0),
+        metric: "generation",
+        bucketDays: 7,
+      }),
+    ).toContain("0 generations");
+  });
+
+  /* Every one of the three things the ticket requires, on every bucket size. */
+  it.each([1, 7, 14, 30])(
+    "always names metric, value and period for a %s-day bucket",
+    (days) => {
+      const text = tooltipText({
+        bucket: bucketOf("2026-07-19T00:00:00Z", days, 5),
+        metric: "generation",
+        bucketDays: days,
+      });
+      expect(text).toContain("5 generations");
+      expect(text).toContain(bucketLabel(days));
+      expect(text).toMatch(/\d{4}$/);
+    },
+  );
 });
