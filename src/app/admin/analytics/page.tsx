@@ -21,13 +21,21 @@ import {
   median,
   percentChange,
   toBarPercentages,
+  tooltipText,
 } from "@/lib/analytics/rollup";
 import { requireRole } from "@/lib/auth/require-role";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import {
   countActiveBrandOptions,
+  countAdminTickets,
   getActiveBrandCount,
   getApprovalDurations,
+  getApprovalRate,
   getBrandFilterOptions,
+  getBrandSetupRows,
+  getCalendarActivityCount,
+  getCampaignCount,
+  getRevisionRequestCount,
   getSignups,
   getTickets,
   getTopBrandsByActivity,
@@ -35,6 +43,7 @@ import {
 } from "@/lib/db/queries";
 import { humanizeStatus, TICKET_STATUSES } from "@/lib/design/tickets-ui";
 import { AnalyticsFilterBar, type FilterGroup } from "./filter-bar";
+import { TrendChart } from "./trend-chart";
 
 /** What /admin/analytics shows before anyone chooses. See the note below. */
 const ANALYTICS_DEFAULT_RANGE = "30d" as const;
@@ -183,6 +192,18 @@ export default async function AdminAnalyticsPage({
   const filter = analyticsFilterFrom(scope, now);
   const previous = previousWindow(filter, now);
 
+  /* Overdue and Delivered call countAdminTickets — the SAME function the pages
+     they link to run — rather than getting their own definition here. A card
+     with a private copy of a predicate is how a number and the list it opens
+     drift apart, and both of these have done exactly that before. */
+  const overdueScope = { ...DEFAULT_SCOPE, view: "overdue" as const };
+  const deliveredScope = {
+    ...scope,
+    view: "delivered" as const,
+    on: "delivered" as const,
+    page: 1,
+  };
+
   const [
     usage,
     signups,
@@ -192,6 +213,13 @@ export default async function AdminAnalyticsPage({
     approvalMs,
     brandOptions,
     brandOptionTotal,
+    campaigns,
+    calendarActivity,
+    approvalRate,
+    revisions,
+    overdue,
+    delivered,
+    brandSetupRows,
   ] = await Promise.all([
     getUsageEvents(filter),
     getSignups(filter),
@@ -201,7 +229,27 @@ export default async function AdminAnalyticsPage({
     getApprovalDurations(filter),
     getBrandFilterOptions(filter),
     countActiveBrandOptions(filter),
+    getCampaignCount(filter),
+    getCalendarActivityCount(filter),
+    getApprovalRate(filter),
+    getRevisionRequestCount(filter),
+    countAdminTickets(overdueScope, { now }),
+    countAdminTickets(deliveredScope, { now }),
+    getBrandSetupRows(filter),
   ]);
+
+  /* Computed, never brands.completion_percentage: the stored column and this
+     function disagree, and the admin brands table already uses this one.
+     Averaged over the brands created in the window; null rather than 0 when
+     there are none, because "0% complete" is a claim about brands that do not
+     exist. */
+  const brandSetupAverage =
+    brandSetupRows.length === 0
+      ? null
+      : Math.round(
+          brandSetupRows.reduce((n, b) => n + brandProfileCompletion(b), 0) /
+            brandSetupRows.length,
+        );
 
   /* The same window, shifted back by its own length — a like-for-like
      comparison. A 30-day selection compared against the previous 7 days would
@@ -250,6 +298,23 @@ export default async function AdminAnalyticsPage({
     periods: Math.max(1, Math.ceil(spanDays / bucketDays)),
   });
   const trendPercents = toBarPercentages(trend.map((b) => b.count));
+
+  /* Each bar is compared with the bar immediately before it. The first has
+     nothing to compare against, and percentChange returns null when the
+     previous period was empty — tooltipText omits the segment for both, rather
+     than printing a change of "—%" that reads as a measured value. */
+  const trendBars = trend.map((bucket, i) => ({
+    key: bucket.start.toISOString(),
+    count: bucket.count,
+    percent: trendPercents[i],
+    tooltip: tooltipText({
+      bucket,
+      metric: "generation",
+      bucketDays,
+      change:
+        i === 0 ? undefined : percentChange(bucket.count, trend[i - 1].count),
+    }),
+  }));
 
   const byKind = Object.entries(
     usage.reduce<Record<string, number>>((acc, e) => {
@@ -379,8 +444,12 @@ export default async function AdminAnalyticsPage({
           }
           href={recordsHref(scope, "users")}
         />
+        {/* FEAT-004 calls this "Design Requests". It is the same figure the
+            card used to label "Tickets" — design_tickets created in the window
+            — so it is renamed rather than duplicated: two cards showing one
+            number under two names is worse than either name alone. */}
         <StatCard
-          label="Tickets"
+          label="Design requests"
           value={tickets.length}
           change={changeFor(tickets.length, prevTickets)}
           caption={window}
@@ -394,6 +463,81 @@ export default async function AdminAnalyticsPage({
         />
       </section>
 
+      {/* ADMIN-FEAT-004. Designer workload is deliberately absent — the ticket
+          says Designer Load belongs on the Dashboard, where it already is. */}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {/* A campaign IS a strategy: the product has no separate campaign
+            entity and usage_kind has no "campaign" value. Said on the card so
+            the number is not read as a fifth thing that does not exist. */}
+        <StatCard
+          label="Campaigns created"
+          value={campaigns}
+          caption={`Strategies · ${window}`}
+          href={recordsHref(scope, "campaigns")}
+        />
+        <StatCard
+          label="Calendar activity"
+          value={calendarActivity}
+          caption={`Entries created · ${window}`}
+          href={recordsHref(scope, "calendar")}
+        />
+        {/* Never 0 or NaN on an empty denominator — see getApprovalRate. The
+            caption carries the population, so the percentage is never read
+            without knowing how many deliveries produced it. */}
+        <StatCard
+          label="Approval rate"
+          value={
+            approvalRate.rate === null
+              ? "—"
+              : `${Math.round(approvalRate.rate)}%`
+          }
+          caption={
+            approvalRate.delivered === 0
+              ? `nothing delivered ${window}`
+              : `${approvalRate.approved} of ${approvalRate.delivered} delivered · ${window}`
+          }
+          href={recordsHref(scope, "deliveries")}
+        />
+        {/* Point-in-time: a ticket is overdue NOW or it is not, so this one
+            figure cannot honour the date range. The caption says "right now"
+            rather than silently ignoring the filter, and the link carries no
+            range for the same reason — it must open exactly what was counted. */}
+        <StatCard
+          label="Overdue tickets"
+          value={overdue}
+          caption="right now · ignores the date filter"
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "overdue",
+          })}
+        />
+        <StatCard
+          label="Revision requests"
+          value={revisions}
+          caption={`Times work came back · ${window}`}
+          href={recordsHref(scope, "revisions")}
+        />
+        <StatCard
+          label="Delivered projects"
+          value={delivered}
+          caption={`First handed over · ${window}`}
+          href={adminScopeHref("/admin/delivered", scope, {
+            view: "delivered",
+            on: "delivered",
+            page: 1,
+          })}
+        />
+        <StatCard
+          label="Brand setup completion"
+          value={brandSetupAverage === null ? "—" : `${brandSetupAverage}%`}
+          caption={
+            brandSetupRows.length === 0
+              ? `no brands created ${window}`
+              : `average of ${brandSetupRows.length} brand${brandSetupRows.length === 1 ? "" : "s"} · ${window}`
+          }
+          href={recordsHref(scope, "brand_setup")}
+        />
+      </section>
+
       <Panel
         title="Activity"
         subtitle={`Generations per ${bucketDays === 1 ? "day" : `${bucketDays}-day period`}, ${window}.`}
@@ -401,29 +545,7 @@ export default async function AdminAnalyticsPage({
         {trend.every((b) => b.count === 0) ? (
           <Empty>No generations recorded in this window.</Empty>
         ) : (
-          <div className="flex h-32 items-end gap-1">
-            {trend.map((bucket, i) => (
-              <div
-                key={bucket.start.toISOString()}
-                data-trend-bar=""
-                className="group flex h-full flex-1 flex-col items-center justify-end gap-1"
-                /* Not "week": the bucket is 1, 7, 14 or 30 days depending on
-                   the window, so a fixed word was true only on the old fixed
-                   7-day chart. */
-                title={`${bucket.count} in the ${bucketDays === 1 ? "day" : `${bucketDays} days`} to ${bucket.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-              >
-                <span className="text-[11px] text-[var(--text-muted)] opacity-0 group-hover:opacity-100">
-                  {bucket.count}
-                </span>
-                <span
-                  className="w-full rounded-t bg-primary"
-                  style={{
-                    height: `${Math.max(trendPercents[i], bucket.count > 0 ? 2 : 0)}%`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
+          <TrendChart bars={trendBars} />
         )}
       </Panel>
 

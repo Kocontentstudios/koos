@@ -60,6 +60,11 @@ export const RECORD_KINDS = [
   "users",
   "tickets",
   "approvals",
+  "campaigns",
+  "calendar",
+  "deliveries",
+  "revisions",
+  "brand_setup",
 ] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
 

@@ -11,6 +11,11 @@ const calls = {
   tickets: vi.fn(),
   approvals: vi.fn(),
   brands: vi.fn(),
+  campaigns: vi.fn(),
+  calendar: vi.fn(),
+  deliveries: vi.fn(),
+  revisions: vi.fn(),
+  brandSetup: vi.fn(),
 };
 
 vi.mock("@/lib/db/queries", () => ({
@@ -24,9 +29,20 @@ vi.mock("@/lib/db/queries", () => ({
   countApprovalRecords: async () => 3,
   listBrandRecords: (...a: unknown[]) => calls.brands(...a),
   countBrandRecords: async () => 3,
+  listCampaignRecords: (...a: unknown[]) => calls.campaigns(...a),
+  countCampaignRecords: async () => 3,
+  listCalendarRecords: (...a: unknown[]) => calls.calendar(...a),
+  countCalendarRecords: async () => 3,
+  listDeliveryRecords: (...a: unknown[]) => calls.deliveries(...a),
+  countDeliveryRecords: async () => 3,
+  listRevisionRecords: (...a: unknown[]) => calls.revisions(...a),
+  countRevisionRecords: async () => 3,
+  listBrandSetupRecords: (...a: unknown[]) => calls.brandSetup(...a),
+  countBrandSetupRecords: async () => 3,
 }));
 
 import { RECORD_KINDS } from "@/lib/analytics/records";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import AnalyticsRecordsPage from "./page";
 
 const WHEN = new Date("2026-08-24T12:00:00Z");
@@ -79,6 +95,71 @@ beforeEach(() => {
       designerFirstName: "Bimpe",
       designerLastName: "Okafor",
       designerEmail: "b@k",
+    },
+  ]);
+  calls.campaigns.mockResolvedValue([
+    {
+      id: "s1",
+      name: "Harmattan launch",
+      status: "active",
+      createdAt: WHEN,
+      brandId: "b1",
+      brandName: "Acme Co",
+    },
+  ]);
+  calls.calendar.mockResolvedValue([
+    {
+      id: "ci1",
+      title: "Launch teaser",
+      platform: "Instagram",
+      status: "ready",
+      source: "ai",
+      date: WHEN,
+      createdAt: WHEN,
+      brandName: "Acme Co",
+    },
+  ]);
+  calls.deliveries.mockResolvedValue([
+    {
+      id: "t1",
+      ticketNumber: 73,
+      title: "Signed off",
+      designType: "Brochure",
+      status: "delivered",
+      deliveredAt: WHEN,
+      approvedAt: WHEN,
+      brandName: "Acme Co",
+    },
+    {
+      id: "t2",
+      ticketNumber: 74,
+      title: "Still out",
+      designType: "Flyer",
+      status: "ready_for_review",
+      deliveredAt: WHEN,
+      approvedAt: null,
+      brandName: "Acme Co",
+    },
+  ]);
+  calls.revisions.mockResolvedValue([
+    {
+      id: "u1",
+      ticketId: "t1",
+      ticketNumber: 73,
+      title: "Signed off",
+      designType: "Brochure",
+      message: "Please make the logo larger and swap the background colour.",
+      createdAt: WHEN,
+      brandName: "Acme Co",
+    },
+  ]);
+  calls.brandSetup.mockResolvedValue([
+    {
+      id: "b1",
+      name: "Acme Co",
+      onboardingStatus: "in_progress",
+      createdAt: WHEN,
+      primaryColor: "#101010",
     },
   ]);
   calls.brands.mockResolvedValue([
@@ -270,5 +351,259 @@ describe("a page past the end can still be navigated away from", () => {
     expect(
       screen.queryByRole("navigation", { name: "Pagination" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+/* ── ADMIN-FEAT-004: the breakdown behind each new card ─────────────────── */
+
+describe("each new metric renders its own columns", () => {
+  it.each([
+    ["campaigns", ["Campaign", "Brand", "Status", "Created"]],
+    [
+      "calendar",
+      [
+        "Entry",
+        "Brand",
+        "Platform",
+        "Scheduled",
+        "Status",
+        "Author",
+        "Created",
+      ],
+    ],
+    [
+      "deliveries",
+      ["Ticket", "Title", "Brand", "Delivered", "Outcome", "Signed off"],
+    ],
+    ["revisions", ["Ticket", "Title", "Brand", "What was asked for", "When"]],
+    ["brand_setup", ["Brand", "Setup", "Stage", "Created"]],
+  ])("%s", async (metric, columns) => {
+    await renderPage({ metric });
+    expect(headers()).toEqual(columns);
+  });
+});
+
+/* The rate on the card is the count of this column. If a row cannot say which
+   side it fell on, the percentage above it cannot be checked against anything. */
+describe("the delivery list shows the outcome the rate counts", () => {
+  it("marks an approved delivery and an outstanding one differently", async () => {
+    await renderPage({ metric: "deliveries" });
+    const cells = Array.from(document.querySelectorAll("td")).map(
+      (td) => td.textContent,
+    );
+    expect(cells).toContain("Approved");
+    expect(cells).toContain("Awaiting sign-off");
+  });
+
+  /* The date column must not reuse the word the outcome column owns. */
+  it("does not head the date column with the outcome's word", async () => {
+    await renderPage({ metric: "deliveries" });
+    expect(headers()).not.toContain("Approved");
+    expect(headers()).toContain("Signed off");
+  });
+});
+
+describe("the calendar list says how each entry was authored", () => {
+  /* The enum stores "ai"; rendered raw it reads as "Ai", and title-cased by the
+     ticket humanizer it would collide with a ticket status vocabulary that has
+     nothing to do with calendars. */
+  it("names the AI author as KO, not the raw enum", async () => {
+    await renderPage({ metric: "calendar" });
+    expect(screen.getByText("KO")).toBeInTheDocument();
+    expect(screen.queryByText("Ai")).toBeNull();
+  });
+
+  /* Strategy, calendar and onboarding statuses are separate enums from the
+     ticket one, where "delivered" is relabelled "Approved". Borrowing that
+     mapping here would rename unrelated values. */
+  it("labels a calendar status without the ticket vocabulary", async () => {
+    await renderPage({ metric: "calendar" });
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+  });
+});
+
+describe("a revision row is one request, not one ticket", () => {
+  it("shows what was actually asked for", async () => {
+    await renderPage({ metric: "revisions" });
+    expect(screen.getByText(/make the logo larger/i)).toBeInTheDocument();
+  });
+
+  /* Free client text of any length otherwise blows the column out and pushes
+     every other cell off the row. */
+  it("truncates a long message rather than letting it run", async () => {
+    calls.revisions.mockResolvedValue([
+      {
+        id: "u1",
+        ticketId: "t1",
+        ticketNumber: 73,
+        title: "T",
+        designType: "Flyer",
+        message: "x".repeat(400),
+        createdAt: WHEN,
+        brandName: "Acme Co",
+      },
+    ]);
+    await renderPage({ metric: "revisions" });
+    const cell = screen.getByText(/^x+…$/);
+    expect(cell.textContent?.length).toBeLessThanOrEqual(80);
+  });
+});
+
+describe("brand setup reports the computed completion", () => {
+  /* The fixture carries NO completion_percentage column at all, so a card or
+     cell reading a stored value would render undefined here. */
+  it("renders a percentage computed from the brand's own fields", async () => {
+    await renderPage({ metric: "brand_setup" });
+    expect(screen.getByText(/^\d+%$/)).toBeInTheDocument();
+  });
+
+  it("names the onboarding stage in plain words", async () => {
+    await renderPage({ metric: "brand_setup" });
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+  });
+});
+
+/* Every metric must say which of the operator's filters it silently drops. The
+   table in records.ts is the single definition; these pin what it means. */
+describe("each metric discloses the filters it cannot honour", () => {
+  const BRAND_ID2 = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
+  const headerText = () =>
+    Array.from(document.querySelectorAll("header p"))
+      .map((p) => p.textContent)
+      .join(" ");
+
+  it.each(["campaigns", "calendar", "deliveries", "revisions", "brand_setup"])(
+    "%s says the ticket status filter does not apply",
+    async (metric) => {
+      await renderPage({ metric, status: "delivered" });
+      expect(headerText()).toMatch(/ticket status filter.*does not apply/i);
+    },
+  );
+
+  it.each(["campaigns", "calendar", "deliveries", "revisions", "brand_setup"])(
+    "%s honours the brand filter rather than dropping it",
+    async (metric) => {
+      await renderPage({ metric, brand: BRAND_ID2 });
+      expect(headerText()).toMatch(/narrowed to.*one brand/i);
+      expect(headerText()).not.toMatch(/brand filter.*does not apply/i);
+    },
+  );
+
+  /* Deliberate: the ticket status IS the outcome the rate measures, so
+     filtering on it would move numerator and denominator together and pin the
+     rate at 100% or 0%. */
+  it("says so on the approval rate, where dropping status is a choice", async () => {
+    await renderPage({ metric: "deliveries", status: "delivered" });
+    expect(headerText()).toMatch(/does not apply to approval rate/i);
+  });
+});
+
+/* Columns alone do not prove a case fetched its own data: the header array is
+   a literal in the case body, so a case calling the WRONG list query renders
+   another metric's rows under the right headings and every column assertion
+   still passes. Each fixture carries a value only that metric has. */
+describe("each metric fetches the rows it names", () => {
+  const cells = () =>
+    Array.from(document.querySelectorAll("td")).map((td) => td.textContent);
+
+  it.each([
+    ["campaigns", "Harmattan launch", "Launch teaser"],
+    ["calendar", "Launch teaser", "Harmattan launch"],
+    [
+      "revisions",
+      "Please make the logo larger and swap the background colour.",
+      "Harmattan launch",
+    ],
+  ])("%s shows its own rows and not another's", async (metric, own, other) => {
+    await renderPage({ metric });
+    const text = cells().join(" | ");
+    expect(text).toContain(own.slice(0, 30));
+    expect(text).not.toContain(other);
+  });
+
+  it("deliveries shows tickets, not calendar entries", async () => {
+    await renderPage({ metric: "deliveries" });
+    const text = cells().join(" | ");
+    expect(text).toContain("Signed off");
+    expect(text).not.toContain("Launch teaser");
+  });
+
+  it("brand setup shows brands, not tickets", async () => {
+    await renderPage({ metric: "brand_setup" });
+    const text = cells().join(" | ");
+    expect(text).toContain("Acme Co");
+    expect(text).not.toContain("Signed off");
+  });
+});
+
+/* brands.completion_percentage and brandProfileCompletion() disagree, and every
+   other surface in the product uses the computed one. The fixture carries NO
+   stored column at all, so a cell reading the stored value renders 0% — which
+   still matches a loose /\d+%/ assertion. Compared against the function's own
+   output, it cannot. */
+describe("brand setup completion is computed, not stored", () => {
+  const brandRow = {
+    id: "b1",
+    name: "Acme Co",
+    onboardingStatus: "in_progress",
+    createdAt: WHEN,
+    primaryColor: "#101010",
+    industry: "Retail",
+    targetAudience: "Lagos homeowners",
+  };
+
+  it("renders exactly what brandProfileCompletion returns", async () => {
+    calls.brandSetup.mockResolvedValue([brandRow]);
+    await renderPage({ metric: "brand_setup" });
+    const expected = `${brandProfileCompletion(brandRow)}%`;
+    expect(expected).not.toBe("0%");
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it("does not fall back to a stored column that is absent", async () => {
+    calls.brandSetup.mockResolvedValue([brandRow]);
+    await renderPage({ metric: "brand_setup" });
+    const cells = Array.from(document.querySelectorAll("td")).map(
+      (td) => td.textContent,
+    );
+    expect(cells).not.toContain("0%");
+  });
+});
+
+/* The disclosure is a SENTENCE. Capitalising each filter name produced "The
+   ticket status filter and The activity type filter" — which only became
+   visible once metrics existed that drop two filters at once. */
+describe("the disclosure reads as one sentence", () => {
+  const headerText = () =>
+    Array.from(document.querySelectorAll("header p"))
+      .map((p) => p.textContent)
+      .join(" ");
+
+  it("capitalises only the start when two filters are dropped", async () => {
+    await renderPage({
+      metric: "deliveries",
+      status: "delivered",
+      kind: "design_generated",
+    });
+    expect(headerText()).toContain(
+      "The ticket status filter and the activity type filter do not apply",
+    );
+    expect(headerText()).not.toContain("and The");
+  });
+
+  it("still capitalises a single dropped filter", async () => {
+    await renderPage({ metric: "deliveries", status: "delivered" });
+    expect(headerText()).toMatch(/The ticket status filter does not apply/);
+  });
+
+  it("uses the plural verb for two and the singular for one", async () => {
+    await renderPage({
+      metric: "deliveries",
+      status: "delivered",
+      kind: "design_generated",
+    });
+    expect(headerText()).toContain("filter do not apply");
+    await renderPage({ metric: "deliveries", status: "delivered" });
+    expect(headerText()).toContain("filter does not apply");
   });
 });

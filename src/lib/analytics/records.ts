@@ -11,8 +11,13 @@ export const RECORD_LABELS: Record<RecordKind, string> = {
   generations: "Generations",
   brands: "Active brands",
   users: "New users",
-  tickets: "Tickets",
+  tickets: "Design requests",
   approvals: "Time to approval",
+  campaigns: "Campaigns created",
+  calendar: "Calendar activity",
+  deliveries: "Approval rate",
+  revisions: "Revision requests",
+  brand_setup: "Brand setup completion",
 };
 
 /** What each list is made of, said before the table so the columns make sense. */
@@ -25,6 +30,15 @@ export const RECORD_DESCRIPTIONS: Record<RecordKind, string> = {
   tickets: "Design tickets created in this window.",
   approvals:
     "The approved tickets behind the median — each one's time from request to sign-off.",
+  campaigns:
+    "Campaigns — strategies — created in this window. The product has no separate campaign entity.",
+  calendar:
+    "Calendar entries created in this window, with how each was authored and where it got to.",
+  deliveries:
+    "Every ticket handed over in this window and whether the client signed it off — the population behind the rate.",
+  revisions:
+    "Each time a client sent work back. A ticket revised three times appears three times.",
+  brand_setup: "Brands created in this window and how far their setup got.",
 };
 
 export function isRecordKind(value: string): value is RecordKind {
@@ -51,3 +65,31 @@ export function recordsHref(
     page: 1,
   } as Partial<AdminScope>);
 }
+
+/**
+ * Which of the three narrowing filters each metric can actually honour.
+ *
+ * One table, because the header says both "narrowed to X" and "Y does not
+ * apply" and those two sentences were derived independently — a metric could
+ * be described as narrowed by a filter the query never applied. Every entry
+ * here mirrors exactly one condition builder in queries/analytics.ts.
+ */
+export const METRIC_FILTERS: Record<
+  RecordKind,
+  { brand: boolean; status: boolean; kind: boolean }
+> = {
+  generations: { brand: true, status: false, kind: true },
+  brands: { brand: true, status: false, kind: true },
+  /* A signup belongs to no brand and has no ticket status. */
+  users: { brand: false, status: false, kind: false },
+  tickets: { brand: true, status: true, kind: false },
+  approvals: { brand: true, status: true, kind: false },
+  campaigns: { brand: true, status: false, kind: false },
+  calendar: { brand: true, status: false, kind: false },
+  /* Status is deliberately NOT applied: the ticket status IS the outcome this
+     rate measures, so filtering by it would move the numerator and the
+     denominator together and pin the rate at 100% or 0%. */
+  deliveries: { brand: true, status: false, kind: false },
+  revisions: { brand: true, status: false, kind: false },
+  brand_setup: { brand: true, status: false, kind: false },
+};

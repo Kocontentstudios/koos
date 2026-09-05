@@ -20,18 +20,33 @@ import type { AnalyticsFilter } from "@/lib/analytics/filter";
 import {
   countApprovalRecords,
   countBrandRecords,
+  countBrandSetupRecords,
+  countCalendarRecords,
+  countCampaignRecords,
+  countDeliveryRecords,
   countGenerationRecords,
+  countRevisionRecords,
   countTicketRecords,
   countUserRecords,
   getActiveBrandCount,
   getApprovalDurations,
+  getApprovalRate,
+  getBrandSetupRows,
+  getCalendarActivityCount,
+  getCampaignCount,
+  getRevisionRequestCount,
   getSignups,
   getTickets,
   getTopBrandsByActivity,
   getUsageEvents,
   listApprovalRecords,
   listBrandRecords,
+  listBrandSetupRecords,
+  listCalendarRecords,
+  listCampaignRecords,
+  listDeliveryRecords,
   listGenerationRecords,
+  listRevisionRecords,
   listTicketRecords,
   listUserRecords,
   MAX_ROWS,
@@ -274,5 +289,170 @@ describe("the record lists are ordered and paged deterministically", () => {
     expect(
       (shape.lastActiveAt as { decoder?: unknown } | undefined)?.decoder,
     ).toBeDefined();
+  });
+});
+
+/* ── ADMIN-FEAT-004 ────────────────────────────────────────────────────── */
+
+/* Each new metric reads a DIFFERENT table on a different timestamp. Getting the
+   column wrong is invisible in a mocked test unless the compiled WHERE is read:
+   windowing calendar activity on design_tickets.created_at would still return
+   rows, just the wrong ones. */
+describe("every new metric windows its own table", () => {
+  it.each([
+    ["campaigns", getCampaignCount, '"strategies"."created_at"'],
+    ["calendar", getCalendarActivityCount, '"calendar_items"."created_at"'],
+    ["revisions", getRevisionRequestCount, '"ticket_updates"."created_at"'],
+    ["brand setup", getBrandSetupRows, '"brands"."created_at"'],
+  ])("%s", async (_label, fn, column) => {
+    await fn(filter());
+    expect(sql()).toContain(`${column} >=`);
+    expect(sql()).toContain(`${column} < `);
+    expect(sql()).not.toContain(`${column} <=`);
+  });
+
+  /* The approval RATE is windowed on delivery, not creation: "of the work
+     handed over in this window, how much came back approved". Windowing on
+     created_at answers a different question and biases the rate toward fast
+     jobs, which are the only ones that can be created and delivered inside one
+     short window. */
+  it("windows the approval rate on delivery", async () => {
+    await getApprovalRate(filter());
+    expect(sql()).toContain('"design_tickets"."delivered_at" >=');
+    expect(sql()).not.toContain('"design_tickets"."created_at" >=');
+  });
+
+  it("counts only tickets that were actually delivered", async () => {
+    await getApprovalRate(filter());
+    expect(sql()).toContain('"design_tickets"."delivered_at" is not null');
+  });
+});
+
+/* A ticket revised three times is three revision requests. Counting DISTINCT
+   tickets would report it once, and counting tickets by current status would
+   lose it entirely the moment the status moved on. */
+describe("revisions are counted as events", () => {
+  it("filters on the status the update RECORDED, not the ticket's own", async () => {
+    await getRevisionRequestCount(filter());
+    expect(sql()).toContain('"ticket_updates"."new_status" =');
+    expect(params()).toContain("revision_requested");
+    expect(sql()).not.toContain('"design_tickets"."status" =');
+  });
+
+  it("does not deduplicate by ticket", async () => {
+    await getRevisionRequestCount(filter());
+    expect(rec.recorded.groupBy).toEqual([]);
+    expect(Object.values(rec.recorded.sources).join(" ")).not.toMatch(
+      /distinct/i,
+    );
+  });
+});
+
+describe("the brand filter reaches every metric that claims to honour it", () => {
+  it.each([
+    ["campaigns", getCampaignCount, '"strategies"."brand_id"'],
+    /* calendar_items carries no brand of its own; it reaches one through its
+       calendar, so this is the join as much as the filter. */
+    ["calendar", getCalendarActivityCount, '"calendars"."brand_id"'],
+    ["revisions", getRevisionRequestCount, '"design_tickets"."brand_id"'],
+    ["approval rate", getApprovalRate, '"design_tickets"."brand_id"'],
+    /* METRIC_FILTERS says brand narrows brand setup, so the query must apply
+       it — otherwise the header claims a narrowing that never happened. */
+    ["brand setup", getBrandSetupRows, '"brands"."id" ='],
+  ])("%s", async (_label, fn, fragment) => {
+    await fn(filter({ brandId: BRAND }));
+    expect(sql()).toContain(fragment);
+    expect(params()).toContain(BRAND);
+  });
+
+  it("leaves the brand out entirely when none is selected", async () => {
+    await getCampaignCount(filter());
+    expect(sql()).not.toContain('"strategies"."brand_id"');
+  });
+});
+
+/* The ticket status IS the outcome the rate measures. Applying the status
+   filter would move numerator and denominator together and pin the rate at
+   100% or 0% — see METRIC_FILTERS, which declares this metric status-blind. */
+describe("the approval rate ignores the ticket status filter", () => {
+  it("does not narrow its own population by status", async () => {
+    await getApprovalRate(filter({ statuses: ["delivered"] }));
+    expect(sql()).not.toContain('"design_tickets"."status" in');
+  });
+
+  it("still counts the approved ones as its numerator", async () => {
+    await getApprovalRate(filter());
+    /* A conditional aggregate, not a second query: the numerator has to be
+       counted over the SAME rows as the denominator, or a row can land in one
+       and not the other. */
+    expect(rec.recorded.sources.approved).toContain("filter (where");
+    expect(rec.recorded.sources.approved).toContain("'delivered'");
+  });
+});
+
+describe("a rate is never invented from an empty population", () => {
+  it("returns null rather than zero when nothing was delivered", async () => {
+    rec = recordingDb([{ delivered: 0, approved: 0 }]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    expect((await getApprovalRate(filter())).rate).toBeNull();
+  });
+
+  it("computes a percentage when there is a population", async () => {
+    rec = recordingDb([{ delivered: 8, approved: 6 }]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    expect((await getApprovalRate(filter())).rate).toBeCloseTo(75);
+  });
+
+  /* No row at all (a filter matching nothing) must behave like an empty
+     population, not throw on a missing property. */
+  it("survives the query returning no row", async () => {
+    rec = recordingDb([]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    const result = await getApprovalRate(filter());
+    expect(result).toEqual({ delivered: 0, approved: 0, rate: null });
+  });
+});
+
+/* Every capped or paginated fetch is ORDERED. Without it the rows kept are
+   whatever the plan produced, so page 2 can repeat page 1. */
+describe("the new record lists are ordered and paginated", () => {
+  it.each([
+    ["campaigns", listCampaignRecords, '"strategies"."created_at" desc'],
+    ["calendar", listCalendarRecords, '"calendar_items"."created_at" desc'],
+    ["deliveries", listDeliveryRecords, '"design_tickets"."delivered_at" desc'],
+    ["revisions", listRevisionRecords, '"ticket_updates"."created_at" desc'],
+    ["brand setup", listBrandSetupRecords, '"brands"."created_at" desc'],
+  ])("%s", async (_label, fn, order) => {
+    await fn(filter(), PAGE_SIZE, PAGE_SIZE);
+    expect(rec.recorded.orderBy[0]).toBe(order);
+    // A tiebreak, or rows tied on the timestamp can swap between pages.
+    expect(rec.recorded.orderBy).toHaveLength(2);
+    expect(rec.recorded.limit).toBe(PAGE_SIZE);
+    expect(rec.recorded.offset).toBe(PAGE_SIZE);
+  });
+
+  it("caps the brand setup rows the average is computed from", async () => {
+    await getBrandSetupRows(filter());
+    expect(rec.recorded.limit).toBe(MAX_ROWS);
+  });
+});
+
+/* A list and its count that resolve different WHERE clauses show a total the
+   rows cannot add up to, and a pager that walks off the end of a shorter list. */
+describe("each new list agrees with its own count", () => {
+  it.each([
+    ["campaigns", listCampaignRecords, countCampaignRecords],
+    ["calendar", listCalendarRecords, countCalendarRecords],
+    ["deliveries", listDeliveryRecords, countDeliveryRecords],
+    ["revisions", listRevisionRecords, countRevisionRecords],
+    ["brand setup", listBrandSetupRecords, countBrandSetupRecords],
+  ])("%s", async (_label, list, countFn) => {
+    const f = filter({ brandId: BRAND, statuses: ["delivered"] });
+    await list(f);
+    const listWhere = sql();
+    rec = recordingDb([]);
+    setCurrent(rec as unknown as { db: Record<string, unknown> });
+    await countFn(f);
+    expect(sql()).toBe(listWhere);
   });
 });

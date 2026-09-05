@@ -16,7 +16,11 @@ import type { AnalyticsFilter } from "@/lib/analytics/filter";
 import { db } from "@/lib/db/client";
 import {
   brands,
+  calendarItems,
+  calendars,
   designTickets,
+  strategies,
+  ticketUpdates,
   usageEvents,
   users,
   workspaces,
@@ -53,7 +57,12 @@ type TimestampColumn =
   | typeof usageEvents.createdAt
   | typeof users.createdAt
   | typeof designTickets.createdAt
-  | typeof designTickets.approvedAt;
+  | typeof designTickets.approvedAt
+  | typeof designTickets.deliveredAt
+  | typeof strategies.createdAt
+  | typeof calendarItems.createdAt
+  | typeof ticketUpdates.createdAt
+  | typeof brands.createdAt;
 
 function windowOf(column: TimestampColumn, filter: AnalyticsFilter): SQL[] {
   const parts: SQL[] = [];
@@ -420,5 +429,287 @@ export async function countTicketRecords(filter: AnalyticsFilter) {
     .select({ count: count() })
     .from(designTickets)
     .where(all(ticketConditions(filter)));
+  return row?.count ?? 0;
+}
+
+/* ── The eight metrics (ADMIN-FEAT-004) ────────────────────────────────────
+
+   Two of the eight are NOT here: Overdue tickets and Delivered projects call
+   countAdminTickets with a patched scope, the same function the pages they
+   link to run. A second definition of "overdue" is how a card and its list
+   drift apart, and this codebase has already had that bug twice. */
+
+/* A campaign IS a strategy row — the product has no separate campaign entity,
+   and usage_kind has no "campaign" value. Windowed on when the strategy was
+   created; the ticket status filter cannot narrow a strategy. */
+function strategyConditions(filter: AnalyticsFilter): SQL[] {
+  const parts = windowOf(strategies.createdAt, filter);
+  if (filter.brandId) parts.push(eq(strategies.brandId, filter.brandId));
+  return parts;
+}
+
+/* calendar_items carries no brand of its own; it reaches one through its
+   calendar, so the brand filter needs that join and callers must include it. */
+function calendarConditions(filter: AnalyticsFilter): SQL[] {
+  const parts = windowOf(calendarItems.createdAt, filter);
+  if (filter.brandId) parts.push(eq(calendars.brandId, filter.brandId));
+  return parts;
+}
+
+/* Revisions are counted as EVENTS, not tickets. A ticket sent back three times
+   is three revision requests; counting tickets would report it once and then
+   lose it entirely the moment its status moved on. */
+function revisionConditions(filter: AnalyticsFilter): SQL[] {
+  const parts = windowOf(ticketUpdates.createdAt, filter);
+  parts.push(eq(ticketUpdates.newStatus, "revision_requested"));
+  if (filter.brandId) parts.push(eq(designTickets.brandId, filter.brandId));
+  return parts;
+}
+
+/* Windowed on delivery, not creation: "of the work handed over in this window,
+   how much came back approved". Windowing on created_at would put a ticket's
+   delivery in the window that produced the REQUEST, which is a different
+   question and biases the rate toward fast jobs. */
+function deliveryConditions(filter: AnalyticsFilter): SQL[] {
+  const parts = windowOf(designTickets.deliveredAt, filter);
+  parts.push(isNotNull(designTickets.deliveredAt));
+  if (filter.brandId) parts.push(eq(designTickets.brandId, filter.brandId));
+  return parts;
+}
+
+export async function getCampaignCount(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(strategies)
+    .where(all(strategyConditions(filter)));
+  return row?.count ?? 0;
+}
+
+export async function getCalendarActivityCount(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(calendarItems)
+    .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+    .where(all(calendarConditions(filter)));
+  return row?.count ?? 0;
+}
+
+export async function getRevisionRequestCount(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(ticketUpdates)
+    .innerJoin(designTickets, eq(ticketUpdates.ticketId, designTickets.id))
+    .where(all(revisionConditions(filter)));
+  return row?.count ?? 0;
+}
+
+/**
+ * Share of delivered work the client signed off.
+ *
+ * `rate` is null — never 0, never NaN — when nothing was delivered in the
+ * window. Zero would claim every delivery was rejected; NaN renders as "NaN%".
+ * The caller shows an em dash and the denominator either way, so the number is
+ * never read without the population it came from.
+ */
+export async function getApprovalRate(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({
+      delivered: count(),
+      approved: sql<number>`count(*) filter (where ${designTickets.status} = 'delivered')::int`,
+    })
+    .from(designTickets)
+    .where(all(deliveryConditions(filter)));
+
+  const delivered = row?.delivered ?? 0;
+  const approved = row?.approved ?? 0;
+  return {
+    delivered,
+    approved,
+    rate: delivered === 0 ? null : (approved / delivered) * 100,
+  };
+}
+
+/**
+ * How complete the brands created in this window are.
+ *
+ * Computed with brandProfileCompletion by the caller, NOT read from
+ * brands.completion_percentage: the stored column and the computed function
+ * disagree, and every other surface in the product (the admin brands table,
+ * the brand page) uses the computed one. Reconciling the column is its own
+ * ticket; this must not be the place the two versions of the truth meet.
+ */
+/* METRIC_FILTERS says the brand filter narrows this metric, so it has to be
+   applied here — the header would otherwise claim a narrowing the query never
+   performed. */
+function brandSetupConditions(filter: AnalyticsFilter): SQL[] {
+  const parts = windowOf(brands.createdAt, filter);
+  if (filter.brandId) parts.push(eq(brands.id, filter.brandId));
+  return parts;
+}
+
+export async function getBrandSetupRows(filter: AnalyticsFilter) {
+  return db
+    .select()
+    .from(brands)
+    .where(all(brandSetupConditions(filter)))
+    .orderBy(desc(brands.createdAt), asc(brands.id))
+    .limit(MAX_ROWS);
+}
+
+/* ── Records behind the new metrics ────────────────────────────────────── */
+
+export async function listCampaignRecords(
+  filter: AnalyticsFilter,
+  limit = 50,
+  offset = 0,
+) {
+  return db
+    .select({
+      id: strategies.id,
+      name: strategies.name,
+      status: strategies.status,
+      createdAt: strategies.createdAt,
+      brandId: strategies.brandId,
+      brandName: brands.name,
+    })
+    .from(strategies)
+    .leftJoin(brands, eq(strategies.brandId, brands.id))
+    .where(all(strategyConditions(filter)))
+    .orderBy(desc(strategies.createdAt), asc(strategies.id))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function countCampaignRecords(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(strategies)
+    .where(all(strategyConditions(filter)));
+  return row?.count ?? 0;
+}
+
+export async function listCalendarRecords(
+  filter: AnalyticsFilter,
+  limit = 50,
+  offset = 0,
+) {
+  return db
+    .select({
+      id: calendarItems.id,
+      title: calendarItems.title,
+      platform: calendarItems.platform,
+      status: calendarItems.status,
+      /* ai | manual. The ticket asks for calendar activity split by how it was
+         authored, and this column is the only place that is recorded. */
+      source: calendarItems.source,
+      date: calendarItems.date,
+      createdAt: calendarItems.createdAt,
+      brandName: brands.name,
+    })
+    .from(calendarItems)
+    .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+    .leftJoin(brands, eq(calendars.brandId, brands.id))
+    .where(all(calendarConditions(filter)))
+    .orderBy(desc(calendarItems.createdAt), asc(calendarItems.id))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function countCalendarRecords(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(calendarItems)
+    .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+    .where(all(calendarConditions(filter)));
+  return row?.count ?? 0;
+}
+
+/** The population behind the approval rate: everything handed over, and how it
+ *  ended. */
+export async function listDeliveryRecords(
+  filter: AnalyticsFilter,
+  limit = 50,
+  offset = 0,
+) {
+  return db
+    .select({
+      id: designTickets.id,
+      ticketNumber: designTickets.ticketNumber,
+      title: designTickets.title,
+      designType: designTickets.designType,
+      status: designTickets.status,
+      deliveredAt: designTickets.deliveredAt,
+      approvedAt: designTickets.approvedAt,
+      brandName: brands.name,
+    })
+    .from(designTickets)
+    .leftJoin(brands, eq(designTickets.brandId, brands.id))
+    .where(all(deliveryConditions(filter)))
+    .orderBy(desc(designTickets.deliveredAt), asc(designTickets.id))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function countDeliveryRecords(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(designTickets)
+    .where(all(deliveryConditions(filter)));
+  return row?.count ?? 0;
+}
+
+export async function listRevisionRecords(
+  filter: AnalyticsFilter,
+  limit = 50,
+  offset = 0,
+) {
+  return db
+    .select({
+      id: ticketUpdates.id,
+      ticketId: designTickets.id,
+      ticketNumber: designTickets.ticketNumber,
+      title: designTickets.title,
+      designType: designTickets.designType,
+      message: ticketUpdates.message,
+      createdAt: ticketUpdates.createdAt,
+      brandName: brands.name,
+    })
+    .from(ticketUpdates)
+    .innerJoin(designTickets, eq(ticketUpdates.ticketId, designTickets.id))
+    .leftJoin(brands, eq(designTickets.brandId, brands.id))
+    .where(all(revisionConditions(filter)))
+    .orderBy(desc(ticketUpdates.createdAt), asc(ticketUpdates.id))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function countRevisionRecords(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(ticketUpdates)
+    .innerJoin(designTickets, eq(ticketUpdates.ticketId, designTickets.id))
+    .where(all(revisionConditions(filter)));
+  return row?.count ?? 0;
+}
+
+export async function listBrandSetupRecords(
+  filter: AnalyticsFilter,
+  limit = 50,
+  offset = 0,
+) {
+  return db
+    .select()
+    .from(brands)
+    .where(all(brandSetupConditions(filter)))
+    .orderBy(desc(brands.createdAt), asc(brands.id))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function countBrandSetupRecords(filter: AnalyticsFilter) {
+  const [row] = await db
+    .select({ count: count() })
+    .from(brands)
+    .where(all(brandSetupConditions(filter)));
   return row?.count ?? 0;
 }
