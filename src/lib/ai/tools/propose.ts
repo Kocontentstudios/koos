@@ -58,6 +58,7 @@ export function buildProposeTools(ctx: ToolContext): Record<string, Tool> {
             ),
           postingFrequency: z.string().optional(),
           websiteUrl: z.string().optional(),
+          brandFont: z.string().optional(),
           additionalNotes: z.string().optional(),
         }),
       }),

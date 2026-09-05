@@ -26,6 +26,7 @@ export const brandFieldKeys = [
   "primaryPlatform",
   "postingFrequency",
   "websiteUrl",
+  "brandFont",
   "additionalNotes",
 ] as const;
 
@@ -55,6 +56,7 @@ const brandFields = z.object({
       primaryPlatform: z.string().optional(),
       postingFrequency: z.string().optional(),
       websiteUrl: z.string().optional(),
+      brandFont: z.string().optional(),
       additionalNotes: z.string().optional(),
     })
     .refine((f) => Object.keys(f).length > 0, "At least one field required"),

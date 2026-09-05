@@ -50,6 +50,7 @@ export const BRAND_FIELD_LABELS: Record<string, string> = {
   primaryPlatform: "Primary channel",
   postingFrequency: "Posting frequency",
   websiteUrl: "Website",
+  brandFont: "Typography",
   additionalNotes: "Additional notes",
 };
 
