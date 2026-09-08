@@ -21,6 +21,18 @@ const PER_TYPE_LIMIT = 40;
 const BRIEF_LIMIT = 500;
 const CALENDAR_ITEM_LIMIT = 500;
 
+/** "Sep 3 – Dec 1", the span a calendar covers. */
+function calendarRange(
+  start: Date | null | undefined,
+  end: Date | null | undefined,
+): string | undefined {
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (!start && !end) return undefined;
+  if (start && end) return `${fmt(start)} – ${fmt(end)}`;
+  return fmt((start ?? end) as Date);
+}
+
 function shorten(text: string | null | undefined, max = 80): string | null {
   const trimmed = text?.trim();
   if (!trimmed) return null;
@@ -85,6 +97,9 @@ export async function GET(req: Request) {
          what a user recognises; a calendar has no name of its own. */
       groupId: i.calendarId,
       groupLabel: i.strategyName,
+      /* Only rendered when two calendars share a strategy name, which is
+         common — a brand runs several calendars off one campaign. */
+      groupHint: calendarRange(i.calendarStart, i.calendarEnd),
     })),
     ...tickets.slice(0, PER_TYPE_LIMIT).map((t) => ({
       type: "ticket" as const,
