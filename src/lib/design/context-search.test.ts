@@ -321,3 +321,39 @@ describe("two calendars with the same name tell themselves apart", () => {
     ).toEqual(["Shared · A", "Shared · B", "Unique"]);
   });
 });
+
+/* ── KOOS-BUG-017 ──────────────────────────────────────────────────────── */
+
+/* Two properties the chevron now depends on. The model already had them; they
+   were never pinned, and the affordance that leans on them shipped broken. */
+describe("the contract the expander relies on", () => {
+  const many = Array.from({ length: 30 }, (_, i) => ({
+    type: "brief" as const,
+    id: `b${i}`,
+    label: `Brief ${i}`,
+    hint: null,
+  }));
+
+  /* Collapse is the half that was missing from the UI entirely: the old
+     control could only ever add to the expanded set. */
+  it("re-applies the cap when a group leaves the expanded set", () => {
+    const key = groupKey("brief");
+    const open = buildGroups(many, "", undefined, new Set([key]));
+    expect(open[0].options).toHaveLength(30);
+
+    const closed = buildGroups(many, "", undefined, new Set());
+    expect(closed[0].options).toHaveLength(MAX_PER_GROUP);
+    expect(closed[0].total).toBe(30);
+  });
+
+  /* An expanded group must stay expanded while the query narrows it, or
+     typing would silently re-collapse what the user opened — the model half
+     of "the search bar remains an optional filter". */
+  it("keeps an expanded group uncapped while a query narrows it", () => {
+    const key = groupKey("brief");
+    const [group] = buildGroups(many, "Brief 1", undefined, new Set([key]));
+    // Brief 1 and Brief 10..19.
+    expect(group.total).toBe(11);
+    expect(group.options).toHaveLength(11);
+  });
+});
