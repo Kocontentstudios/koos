@@ -25,6 +25,12 @@ export interface DesignPreviewModalProps {
   pending: boolean;
   progressLabel: string | null;
   error: string | null;
+  /** Some designs rendered and some did not — shown ABOVE the results, never
+   *  instead of them. */
+  partial?: string | null;
+  /** Offered on a failure. Re-reads a finished job rather than regenerating,
+   *  so a display-only failure does not bill the user twice. */
+  onRetry?: () => void;
   /** Absent when viewing an existing design: there is nothing to regenerate. */
   onRegenerate?: () => void;
   /** Context carried into a design ticket when the user sends to the team. */
@@ -57,6 +63,8 @@ export function DesignPreviewModal({
   pending,
   progressLabel,
   error,
+  partial,
+  onRetry,
   onRegenerate,
   ticketContext,
 }: DesignPreviewModalProps) {
@@ -140,66 +148,88 @@ export function DesignPreviewModal({
               </p>
             </div>
           ) : error ? (
-            <div className="py-10 text-center">
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
               <p className="text-[14px] text-[var(--status-error-fg)]">
                 {error}
               </p>
+              {/* An error the user can act on, which the ticket asks for: a
+                  bare message leaves them with nothing but the close button. */}
+              {onRetry && (
+                <Button type="button" variant="secondary" onClick={onRetry}>
+                  Try again
+                </Button>
+              )}
             </div>
           ) : generations.length === 0 ? (
             <p className="py-10 text-center text-[14px] text-[var(--text-muted)]">
               No designs yet.
             </p>
           ) : (
-            <div
-              className={cn(
-                "grid gap-3",
-                generations.length > 1 && "sm:grid-cols-2",
+            <div className="space-y-3">
+              {/* Stated above the results, so the designs that DID come back
+                  stay usable rather than being replaced by an error. */}
+              {partial && (
+                <p
+                  role="status"
+                  /* --status-pending-fg, not a warning token: there is no
+                     warning token, and a hardcoded amber hex is the light-mode
+                     defect this codebase has hit before. */
+                  className="text-[13px] text-[var(--status-pending-fg)]"
+                >
+                  {partial}
+                </p>
               )}
-            >
-              {generations.map((generation) => {
-                const isSelected = selected?.id === generation.id;
-                /* Nothing to choose between when there is one: a disabled
+              <div
+                className={cn(
+                  "grid gap-3",
+                  generations.length > 1 && "sm:grid-cols-2",
+                )}
+              >
+                {generations.map((generation) => {
+                  const isSelected = selected?.id === generation.id;
+                  /* Nothing to choose between when there is one: a disabled
                    button would drop out of the tab order and be announced as
                    unavailable, for what is really a static figure. */
-                const only = generations.length === 1;
-                const Wrapper = only ? "figure" : "button";
-                return (
-                  <Wrapper
-                    key={generation.id}
-                    {...(only
-                      ? {}
-                      : {
-                          type: "button" as const,
-                          onClick: () => setSelectedId(generation.id),
-                          "aria-pressed": isSelected,
-                        })}
-                    className={cn(
-                      "flex flex-col gap-2 rounded-xl border p-2 text-left transition-colors",
-                      isSelected && !only
-                        ? "border-[var(--border-accent)] ring-[3px] ring-[var(--accent-glow)]"
-                        : "border-[var(--border)]",
-                      !only && "hover:border-[var(--border-accent)]",
-                    )}
-                  >
-                    {generation.url ? (
-                      <Image
-                        src={generation.url}
-                        alt={generation.headline ?? "Generated design"}
-                        width={generation.width ?? 1080}
-                        height={generation.height ?? 1080}
-                        className="w-full rounded-lg"
-                        unoptimized
-                      />
-                    ) : null}
-                    <span className="flex flex-wrap gap-x-2 px-1 pb-1 text-[12px] text-[var(--text-muted)]">
-                      <span>{RENDERER_LABEL[generation.renderer]}</span>
-                      {resolutionLabel(generation) ? (
-                        <span>{resolutionLabel(generation)}</span>
+                  const only = generations.length === 1;
+                  const Wrapper = only ? "figure" : "button";
+                  return (
+                    <Wrapper
+                      key={generation.id}
+                      {...(only
+                        ? {}
+                        : {
+                            type: "button" as const,
+                            onClick: () => setSelectedId(generation.id),
+                            "aria-pressed": isSelected,
+                          })}
+                      className={cn(
+                        "flex flex-col gap-2 rounded-xl border p-2 text-left transition-colors",
+                        isSelected && !only
+                          ? "border-[var(--border-accent)] ring-[3px] ring-[var(--accent-glow)]"
+                          : "border-[var(--border)]",
+                        !only && "hover:border-[var(--border-accent)]",
+                      )}
+                    >
+                      {generation.url ? (
+                        <Image
+                          src={generation.url}
+                          alt={generation.headline ?? "Generated design"}
+                          width={generation.width ?? 1080}
+                          height={generation.height ?? 1080}
+                          className="w-full rounded-lg"
+                          unoptimized
+                        />
                       ) : null}
-                    </span>
-                  </Wrapper>
-                );
-              })}
+                      <span className="flex flex-wrap gap-x-2 px-1 pb-1 text-[12px] text-[var(--text-muted)]">
+                        <span>{RENDERER_LABEL[generation.renderer]}</span>
+                        {resolutionLabel(generation) ? (
+                          <span>{resolutionLabel(generation)}</span>
+                        ) : null}
+                      </span>
+                    </Wrapper>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

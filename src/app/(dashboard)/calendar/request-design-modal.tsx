@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { pairColourLabels } from "@/lib/brand/colour-labels";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import {
   DESIGN_TYPE_OPTIONS,
@@ -408,12 +409,11 @@ export function RequestDesignModal({
                       <Swatch color={brand.secondaryColor} label="Secondary" />
                     )}
                     {/* Index key: two additional colours may hold the same value. */}
-                    {(brand.additionalColors ?? []).map((hex, i) => (
-                      <Swatch
-                        key={i}
-                        color={hex}
-                        label={`Additional ${i + 1}`}
-                      />
+                    {pairColourLabels(
+                      brand.additionalColors,
+                      brand.additionalColorLabels,
+                    ).map((entry, i) => (
+                      <Swatch key={i} color={entry.value} label={entry.label} />
                     ))}
                   </div>
                 </div>

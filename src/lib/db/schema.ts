@@ -321,6 +321,9 @@ export const brands = pgTable(
     primaryColor: text("primary_color"),
     secondaryColor: text("secondary_color"),
     additionalColors: text("additional_colors").array(),
+    /** Index-aligned with additionalColors; "" means that slot is unnamed.
+     *  Read through pairColourLabels, which is total over any mismatch. */
+    additionalColorLabels: text("additional_color_labels").array(),
     logoUrl: text("logo_url"),
     // Section 3 — Brand Personality
     values: text("values"),
@@ -335,7 +338,11 @@ export const brands = pgTable(
     brandFont: text("brand_font"),
     /** An uploaded TTF or OTF. Satori rejects WOFF2, so the upload path only
         accepts the two it can actually render. */
+    /** The uploaded HEADING face. Named before there was a second one; it has
+     *  always substituted the Display family, so the name still fits. */
     brandFontUrl: text("brand_font_url"),
+    /** The uploaded BODY/CTA face. Null falls back to the bundled Montserrat. */
+    bodyFontUrl: text("body_font_url"),
     // Section 5 — Competitors
     competitors: text("competitors"),
     competitorStrengths: text("competitor_strengths"),

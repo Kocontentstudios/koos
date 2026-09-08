@@ -4,11 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_STATE } from "./brand-form-state";
 import { StepVisual } from "./step-visual";
 
-function renderStep(additionalColors: string[] = []) {
+function renderStep(
+  additionalColors: string[] = [],
+  additionalColorLabels: string[] = [],
+) {
   const onChange = vi.fn();
   render(
     <StepVisual
-      state={{ ...DEFAULT_STATE, additionalColors }}
+      state={{ ...DEFAULT_STATE, additionalColors, additionalColorLabels }}
       onChange={onChange}
     />,
   );
@@ -44,10 +47,13 @@ describe("StepVisual additional colors", () => {
   it("removes the row the user clicked, not the last one", async () => {
     const onChange = renderStep(["#AA0000", "#BB0000", "#CC0000"]);
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove additional color 2" }),
+      screen.getByRole("button", { name: "Remove Additional 2" }),
     );
+    /* The labels move with their colours. Left behind, the name of the
+       removed swatch would reattach to whatever is added next. */
     expect(onChange).toHaveBeenCalledWith({
       additionalColors: ["#AA0000", "#CC0000"],
+      additionalColorLabels: ["", ""],
     });
   });
 
@@ -66,10 +72,10 @@ describe("StepVisual additional colors", () => {
     renderStep(["#AA0000", "#AA0000"]);
     expect(screen.getAllByDisplayValue("#AA0000")).toHaveLength(2);
     expect(
-      screen.getByRole("button", { name: "Remove additional color 1" }),
+      screen.getByRole("button", { name: "Remove Additional 1" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Remove additional color 2" }),
+      screen.getByRole("button", { name: "Remove Additional 2" }),
     ).toBeInTheDocument();
   });
 
@@ -94,5 +100,124 @@ describe("StepVisual additional colors", () => {
     for (const name of ["Pick Primary color", "Pick Secondary color"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
+  });
+});
+
+/* ── KOOS-FEAT-021 ─────────────────────────────────────────────────────── */
+
+describe("renaming an additional colour", () => {
+  const rename = async (from: string, to: string) => {
+    await userEvent.click(screen.getByRole("button", { name: from }));
+    const input = screen.getByRole("textbox", { name: /name for/i });
+    await userEvent.clear(input);
+    if (to) await userEvent.type(input, to);
+    await userEvent.keyboard("{Enter}");
+  };
+
+  it("offers a rename control on every colour", () => {
+    renderStep(["#AA0000", "#BB0000"]);
+    expect(
+      screen.getByRole("button", { name: "Rename Additional 1" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Rename Additional 2" }),
+    ).toBeInTheDocument();
+  });
+
+  it("stores the name the user typed", async () => {
+    const onChange = renderStep(["#AA0000", "#BB0000"]);
+    await rename("Rename Additional 1", "Accent");
+    expect(onChange).toHaveBeenLastCalledWith({
+      additionalColorLabels: ["Accent", ""],
+    });
+  });
+
+  it("renames only the colour that was clicked", async () => {
+    const onChange = renderStep(["#AA0000", "#BB0000"]);
+    await rename("Rename Additional 2", "CTA");
+    expect(onChange).toHaveBeenLastCalledWith({
+      additionalColorLabels: ["", "CTA"],
+    });
+  });
+
+  /* Escape has to be a way out, or the only exit from the field is to commit
+     something. */
+  it("keeps the old name when the edit is cancelled", async () => {
+    const onChange = renderStep(["#AA0000"]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Rename Additional 1" }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /name for/i }),
+      "Accent",
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Rename Additional 1" }),
+    ).toBeInTheDocument();
+  });
+
+  /* The ticket asks that an empty label is prevented or given a sensible
+     fallback. Clearing it restores the positional default rather than
+     leaving a nameless swatch. */
+  it("falls back to the default name when cleared", async () => {
+    const onChange = renderStep(["#AA0000"], ["Accent"]);
+    await rename("Rename Accent", "");
+    expect(onChange).toHaveBeenLastCalledWith({
+      additionalColorLabels: [""],
+    });
+  });
+
+  /* "Additional 1" is the app's word, not the user's. Prefilling it makes
+     them clear it before they can type, and typing after it produces
+     "Additional 1Accent". */
+  it("opens empty when the colour has no name yet", async () => {
+    renderStep(["#AA0000"]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Rename Additional 1" }),
+    );
+    expect(screen.getByRole("textbox", { name: /name for/i })).toHaveValue("");
+  });
+
+  it("opens with the existing name when there is one, ready to edit", async () => {
+    renderStep(["#AA0000"], ["Accent"]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Rename Accent" }),
+    );
+    expect(screen.getByRole("textbox", { name: /name for/i })).toHaveValue(
+      "Accent",
+    );
+  });
+
+  it("shows a stored name instead of the positional one", () => {
+    renderStep(["#AA0000", "#BB0000"], ["Accent"]);
+    expect(
+      screen.getByRole("button", { name: "Rename Accent" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Rename Additional 2" }),
+    ).toBeInTheDocument();
+  });
+
+  /* The custom name becomes the colour's accessible name everywhere it is
+     referenced, which is what the ticket asks for. */
+  it("names the swatch and its remove control by the custom label", () => {
+    renderStep(["#AA0000"], ["Accent"]);
+    expect(
+      screen.getByRole("button", { name: /Pick Accent color/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Remove Accent" }),
+    ).toBeInTheDocument();
+  });
+
+  /* Two accents is a legitimate brand, so duplicates are allowed on purpose
+     rather than validated away. */
+  it("allows two colours to share a name", () => {
+    renderStep(["#AA0000", "#BB0000"], ["Accent", "Accent"]);
+    expect(
+      screen.getAllByRole("button", { name: "Rename Accent" }),
+    ).toHaveLength(2);
   });
 });

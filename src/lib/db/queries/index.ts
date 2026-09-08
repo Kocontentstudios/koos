@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -286,9 +287,11 @@ export async function updateBrand(
       | "brandStyle"
       | "brandFont"
       | "brandFontUrl"
+      | "bodyFontUrl"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
+      | "additionalColorLabels"
       | "logoUrl"
       | "competitors"
       | "competitorStrengths"
@@ -624,6 +627,47 @@ export async function getCalendarsForBrand(brandId: string) {
     .orderBy(desc(calendars.createdAt));
 }
 
+/**
+ * Every calendar item on a brand, across ALL its calendars.
+ *
+ * The Design Studio picker used to read only the newest calendar, so a brief
+ * saved against any older one was unreachable from the picker and the user had
+ * to copy it by hand (KOOS-BUG-016). Each row carries its calendar so the
+ * picker can group by it.
+ *
+ * Ordered newest calendar first, then by the item's own date, so the grouping
+ * the picker renders is stable and the current campaign leads.
+ */
+export async function listCalendarItemsForBrand(brandId: string, limit = 500) {
+  return (
+    db
+      .select({
+        id: calendarItems.id,
+        title: calendarItems.title,
+        platform: calendarItems.platform,
+        date: calendarItems.date,
+        designRequired: calendarItems.designRequired,
+        calendarId: calendars.id,
+        calendarCreatedAt: calendars.createdAt,
+        calendarStart: calendars.startDate,
+        calendarEnd: calendars.endDate,
+        strategyName: strategies.name,
+      })
+      .from(calendarItems)
+      .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+      .innerJoin(strategies, eq(calendars.strategyId, strategies.id))
+      .where(eq(calendars.brandId, brandId))
+      /* asc(id) as a tiebreak: items sharing a date must not reshuffle between
+       requests, or the picker's order changes under the user. */
+      .orderBy(
+        desc(calendars.createdAt),
+        calendarItems.date,
+        asc(calendarItems.id),
+      )
+      .limit(limit)
+  );
+}
+
 export async function getCalendarById(id: string) {
   const [row] = await db
     .select()
@@ -870,9 +914,20 @@ export async function getDesignGenerationById(id: string) {
 
 export async function listDesignGenerationsForBrand(
   brandId: string,
-  opts: { limit?: number; briefId?: string; calendarItemId?: string } = {},
+  opts: {
+    limit?: number;
+    briefId?: string;
+    calendarItemId?: string;
+    /* Exact rows, for a caller that already knows which ones it wants. The
+       brand filter still applies, so an id belonging to another brand returns
+       nothing rather than leaking across brands. */
+    ids?: string[];
+  } = {},
 ) {
   const filters = [eq(designGenerations.brandId, brandId)];
+  if (opts.ids?.length) {
+    filters.push(inArray(designGenerations.id, opts.ids));
+  }
   if (opts.briefId) filters.push(eq(designGenerations.briefId, opts.briefId));
   if (opts.calendarItemId) {
     filters.push(eq(designGenerations.calendarItemId, opts.calendarItemId));

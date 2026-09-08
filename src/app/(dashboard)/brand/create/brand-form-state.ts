@@ -30,6 +30,7 @@ export interface CreateBrandState {
   primaryColor: string;
   secondaryColor: string;
   additionalColors: string[];
+  additionalColorLabels: string[];
   logoUrl: string;
   // Section 5 — Competitors
   competitors: string;
@@ -74,6 +75,7 @@ export const DEFAULT_STATE: CreateBrandState = {
   primaryColor: "",
   secondaryColor: "",
   additionalColors: [],
+  additionalColorLabels: [],
   logoUrl: "",
   competitors: "",
   competitorStrengths: "",

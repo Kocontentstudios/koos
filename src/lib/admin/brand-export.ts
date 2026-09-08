@@ -24,6 +24,7 @@ export interface BrandExport {
       | "brandStyle"
       | "brandFont"
       | "brandFontUrl"
+      | "bodyFontUrl"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
@@ -74,6 +75,7 @@ export function toBrandExport(brand: BrandRow): BrandExport {
         brandStyle: brand.brandStyle,
         brandFont: brand.brandFont,
         brandFontUrl: brand.brandFontUrl,
+        bodyFontUrl: brand.bodyFontUrl,
         primaryColor: brand.primaryColor,
         secondaryColor: brand.secondaryColor,
         additionalColors: brand.additionalColors,
