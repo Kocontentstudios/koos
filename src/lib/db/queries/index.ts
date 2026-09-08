@@ -649,6 +649,8 @@ export async function listCalendarItemsForBrand(brandId: string, limit = 500) {
         designRequired: calendarItems.designRequired,
         calendarId: calendars.id,
         calendarCreatedAt: calendars.createdAt,
+        calendarStart: calendars.startDate,
+        calendarEnd: calendars.endDate,
         strategyName: strategies.name,
       })
       .from(calendarItems)

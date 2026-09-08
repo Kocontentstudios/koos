@@ -227,3 +227,97 @@ describe("a capped group says what it is holding back", () => {
     expect(groupKey("brief")).toBe("brief");
   });
 });
+
+/* A brand routinely runs several calendars off one strategy, so two groups
+   carry the same name and the user cannot tell which holds the brief they
+   want — grouping that does not distinguish is worse than none. Found by
+   driving the picker, not by a test. */
+describe("two calendars with the same name tell themselves apart", () => {
+  const withHint = (
+    id: string,
+    label: string,
+    hint: string | undefined,
+    n = 1,
+  ): ContextOption[] =>
+    Array.from({ length: n }, (_, i) => ({
+      type: "calendar_item" as const,
+      id: `${id}-${i}`,
+      label: `Item ${i}`,
+      hint: null,
+      groupId: id,
+      groupLabel: label,
+      groupHint: hint,
+    }));
+
+  const labelsOf = (options: ContextOption[]) =>
+    buildGroups(options, "")
+      .filter((g) => g.type === "calendar_item")
+      .map((g) => g.label);
+
+  it("leaves a unique name alone", () => {
+    expect(
+      labelsOf([
+        ...withHint("c1", "Harmattan launch", "Sep 3 – Dec 1"),
+        ...withHint("c2", "Referral drive", "Jan 2 – Mar 1"),
+      ]),
+    ).toEqual(["Harmattan launch", "Referral drive"]);
+  });
+
+  it("adds the date range when the names collide", () => {
+    expect(
+      labelsOf([
+        ...withHint("c1", "90-Day Launch", "Sep 3 – Nov 25"),
+        ...withHint("c2", "90-Day Launch", "Sep 3 – Dec 1"),
+      ]),
+    ).toEqual([
+      "90-Day Launch · Sep 3 – Nov 25",
+      "90-Day Launch · Sep 3 – Dec 1",
+    ]);
+  });
+
+  /* Same name AND same span. An ordinal says nothing useful, but it is
+     unambiguous, which is the property that matters. */
+  it("falls back to an ordinal when even the hint collides", () => {
+    expect(
+      labelsOf([
+        ...withHint("c1", "90-Day Launch", "Sep 3 – Dec 1"),
+        ...withHint("c2", "90-Day Launch", "Sep 3 – Dec 1"),
+      ]),
+    ).toEqual([
+      "90-Day Launch · Sep 3 – Dec 1 (1)",
+      "90-Day Launch · Sep 3 – Dec 1 (2)",
+    ]);
+  });
+
+  it("uses an ordinal when there is no hint to fall back on", () => {
+    expect(
+      labelsOf([
+        ...withHint("c1", "90-Day Launch", undefined),
+        ...withHint("c2", "90-Day Launch", undefined),
+      ]),
+    ).toEqual(["90-Day Launch (1)", "90-Day Launch (2)"]);
+  });
+
+  /* Disambiguation must not disturb the grouping itself. */
+  it("keeps each group's own options and totals", () => {
+    const groups = buildGroups(
+      [
+        ...withHint("c1", "90-Day Launch", "Sep 3 – Nov 25", 3),
+        ...withHint("c2", "90-Day Launch", "Sep 3 – Dec 1", 5),
+      ],
+      "",
+    ).filter((g) => g.type === "calendar_item");
+    expect(groups.map((g) => g.total)).toEqual([3, 5]);
+    expect(groups.map((g) => g.groupId)).toEqual(["c1", "c2"]);
+  });
+
+  it("only disambiguates the names that actually collide", () => {
+    expect(
+      labelsOf([
+        ...withHint("c1", "Shared", "A"),
+        ...withHint("c2", "Shared", "B"),
+        ...withHint("c3", "Unique", "C"),
+      ]),
+    ).toEqual(["Shared · A", "Shared · B", "Unique"]);
+  });
+});
