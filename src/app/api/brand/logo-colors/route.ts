@@ -1,6 +1,12 @@
 import { extractLogoColors } from "@/lib/ai/logo-colors";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { checkBrandAccess } from "@/lib/db/queries";
+import {
+  detectImageType,
+  IMAGE_MIME,
+  isVisionReadable,
+} from "@/lib/images/detect";
+import { rasterizeSvg } from "@/lib/images/rasterize";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import {
   getObjectBytes,
@@ -62,10 +68,9 @@ export async function POST(req: Request) {
     );
   }
 
-  let image: { bytes: Uint8Array; contentType: string };
+  let raw: Uint8Array;
   try {
-    const bytes = await getObjectBytes(key);
-    image = { bytes: new Uint8Array(bytes), contentType: "image/png" };
+    raw = new Uint8Array(await getObjectBytes(key));
   } catch {
     return Response.json(
       { error: "Could not read the logo." },
@@ -73,8 +78,36 @@ export async function POST(req: Request) {
     );
   }
 
+  /* The type comes from the BYTES, not the key's extension or a client MIME.
+     The previous version declared every logo as image/png, which the model
+     rejects outright when it decodes something else. */
+  const type = detectImageType(raw);
+
+  /* Vision cannot take SVG in any form, and /api/upload accepts SVG logos —
+     which is why this returned nothing for the brands most likely to have a
+     vector logo. Rasterised first. */
+  let image: { bytes: Uint8Array; contentType: string };
+  if (type === "svg") {
+    try {
+      image = { bytes: await rasterizeSvg(raw), contentType: IMAGE_MIME.png };
+    } catch (err) {
+      console.error("logo rasterisation failed", err);
+      return Response.json(
+        { error: "We could not read that SVG logo." },
+        { status: 422 },
+      );
+    }
+  } else if (isVisionReadable(type)) {
+    image = { bytes: raw, contentType: IMAGE_MIME[type] };
+  } else {
+    return Response.json(
+      { error: "That logo is not an image we can read." },
+      { status: 415 },
+    );
+  }
+
   // Never throws: an unavailable or text-only model yields an empty palette
-  // and the user types the hexes instead.
+  // and the user types the hexes instead. `failed` tells the two apart.
   const palette = await extractLogoColors(image);
   return Response.json({ palette });
 }

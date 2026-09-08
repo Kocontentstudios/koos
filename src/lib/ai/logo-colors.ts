@@ -15,9 +15,20 @@ export interface ExtractedPalette {
   primary: string | null;
   secondary: string | null;
   accents: string[];
+  /* Whether the call itself failed, as opposed to reading the logo and
+     finding nothing worth reporting. Both return an empty palette, and
+     telling a user "we couldn't read your logo" when it is genuinely
+     monochrome is as wrong as saying "no colours found" when the request was
+     rejected. Still fails SOFT — this never throws. */
+  failed: boolean;
 }
 
-const EMPTY: ExtractedPalette = { primary: null, secondary: null, accents: [] };
+const EMPTY: ExtractedPalette = {
+  primary: null,
+  secondary: null,
+  accents: [],
+  failed: false,
+};
 
 /**
  * Reads a brand's colours off its logo.
@@ -65,12 +76,13 @@ export async function extractLogoColors(image: {
       accents: object.accents
         .map((a) => normalizeHex(a))
         .filter((a): a is string => a !== null),
+      failed: false,
     };
   } catch (err) {
     // Includes providers that reject image parts at all — an openai-compatible
     // endpoint pointed at a text-only model will land here, and must degrade
     // to manual entry rather than blocking the step.
     console.error("logo colour extraction failed", err);
-    return EMPTY;
+    return { ...EMPTY, failed: true };
   }
 }

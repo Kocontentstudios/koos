@@ -25,6 +25,7 @@ describe("extractLogoColors", () => {
       primary: "#3A2A1F",
       secondary: "#FAF7F2",
       accents: ["#D4B8A0"],
+      failed: false,
     });
   });
 
@@ -54,6 +55,7 @@ describe("extractLogoColors", () => {
       primary: null,
       secondary: "#FFFFFF",
       accents: ["#123456"],
+      failed: false,
     });
   });
 
@@ -66,6 +68,7 @@ describe("extractLogoColors", () => {
       primary: null,
       secondary: null,
       accents: [],
+      failed: false,
     });
   });
 
@@ -81,7 +84,22 @@ describe("extractLogoColors", () => {
       primary: null,
       secondary: null,
       accents: [],
+      failed: true,
     });
+  });
+
+  /* An empty palette has two causes and they need different words: a logo we
+     could not read at all, and a logo we read that has nothing distinct in
+     it. Telling a user to try a different file helps only in the first case.
+     Both still return a palette — this never throws. */
+  it("marks a refusal as failed, and a blank answer as not failed", async () => {
+    generateObject.mockRejectedValue(new Error("Could not process image"));
+    expect((await extractLogoColors(IMAGE)).failed).toBe(true);
+
+    generateObject.mockResolvedValue({
+      object: { primary: "", secondary: "", accents: [] },
+    });
+    expect((await extractLogoColors(IMAGE)).failed).toBe(false);
   });
 
   it("caps its own output", async () => {

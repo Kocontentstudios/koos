@@ -231,12 +231,33 @@ export function VisualIdentityStep({
         body: JSON.stringify({ brandId, logoUrl: values.logoUrl }),
       });
       const data = (await res.json().catch(() => null)) as {
-        palette?: { primary: string | null; secondary: string | null };
+        palette?: {
+          primary: string | null;
+          secondary: string | null;
+          failed?: boolean;
+        };
+        error?: string;
       } | null;
+      /* The server refused the file outright — an unreadable format, or an
+         SVG it could not rasterise. Its message names the actual problem, so
+         it beats the generic one. */
+      if (!res.ok) {
+        toast.error(
+          data?.error ??
+            "Couldn't read colours from that logo — add them below.",
+        );
+        return;
+      }
       const primary = data?.palette?.primary;
       const secondary = data?.palette?.secondary;
       if (!primary && !secondary) {
-        toast.message("Couldn't read colours from that logo — add them below.");
+        /* "Could not read it" and "read it, found nothing" are different
+           facts, and only one of them means trying a different file helps. */
+        toast.message(
+          data?.palette?.failed
+            ? "Couldn't read that logo just now — add the colours below, or try again."
+            : "No distinct colours found in that logo — add them below.",
+        );
         return;
       }
       set({
