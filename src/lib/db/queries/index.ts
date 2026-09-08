@@ -636,33 +636,32 @@ export async function getCalendarsForBrand(brandId: string) {
  * Ordered newest calendar first, then by the item's own date, so the grouping
  * the picker renders is stable and the current campaign leads.
  */
-export async function listCalendarItemsForBrand(
-  brandId: string,
-  limit = 500,
-) {
-  return db
-    .select({
-      id: calendarItems.id,
-      title: calendarItems.title,
-      platform: calendarItems.platform,
-      date: calendarItems.date,
-      designRequired: calendarItems.designRequired,
-      calendarId: calendars.id,
-      calendarCreatedAt: calendars.createdAt,
-      strategyName: strategies.name,
-    })
-    .from(calendarItems)
-    .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .innerJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(eq(calendars.brandId, brandId))
-    /* asc(id) as a tiebreak: items sharing a date must not reshuffle between
+export async function listCalendarItemsForBrand(brandId: string, limit = 500) {
+  return (
+    db
+      .select({
+        id: calendarItems.id,
+        title: calendarItems.title,
+        platform: calendarItems.platform,
+        date: calendarItems.date,
+        designRequired: calendarItems.designRequired,
+        calendarId: calendars.id,
+        calendarCreatedAt: calendars.createdAt,
+        strategyName: strategies.name,
+      })
+      .from(calendarItems)
+      .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+      .innerJoin(strategies, eq(calendars.strategyId, strategies.id))
+      .where(eq(calendars.brandId, brandId))
+      /* asc(id) as a tiebreak: items sharing a date must not reshuffle between
        requests, or the picker's order changes under the user. */
-    .orderBy(
-      desc(calendars.createdAt),
-      calendarItems.date,
-      asc(calendarItems.id),
-    )
-    .limit(limit);
+      .orderBy(
+        desc(calendars.createdAt),
+        calendarItems.date,
+        asc(calendarItems.id),
+      )
+      .limit(limit)
+  );
 }
 
 export async function getCalendarById(id: string) {
