@@ -8,6 +8,7 @@ import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { pairColourLabels } from "@/lib/brand/colour-labels";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import {
   getActiveBrandForMember,
@@ -106,7 +107,10 @@ export default async function BrandProfilePage() {
     await Promise.all(generationRows.map(serializeGeneration))
   ).filter((g) => g.status === "succeeded");
 
-  const additionalColors = brand.additionalColors ?? [];
+  const additionalColors = pairColourLabels(
+    brand.additionalColors,
+    brand.additionalColorLabels,
+  );
   const platforms = brand.platforms ?? [];
 
   const hasColors = Boolean(
@@ -169,8 +173,8 @@ export default async function BrandProfilePage() {
               <ColorSwatch hex={brand.secondaryColor} label="Secondary" />
             )}
             {/* Index key: two additional colours may hold the same value. */}
-            {additionalColors.map((hex, i) => (
-              <ColorSwatch key={i} hex={hex} label={`Additional ${i + 1}`} />
+            {additionalColors.map((entry, i) => (
+              <ColorSwatch key={i} hex={entry.value} label={entry.label} />
             ))}
           </div>
         </FieldRow>

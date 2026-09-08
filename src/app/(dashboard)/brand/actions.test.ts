@@ -359,4 +359,75 @@ describe("saveBrandProfile additionalColors", () => {
     });
     expect(written().additionalColors).toEqual(["terracotta"]);
   });
+
+  /* ── KOOS-FEAT-021 ─────────────────────────────────────────────────── */
+
+  /* The values column is sanitised on the way in — blanks dropped, duplicates
+     collapsed, count capped — so labels stored by POSITION would slide onto
+     the wrong colours. */
+  describe("colour labels follow their colours", () => {
+    beforeEach(() => {
+      getActiveBrandForMember.mockResolvedValue({
+        id: "existing-brand",
+        onboardingStatus: "completed",
+      });
+      updateBrand.mockResolvedValue({ id: "existing-brand" });
+    });
+
+    const patch = () =>
+      updateBrand.mock.calls[0][1] as {
+        additionalColors: string[] | null;
+        additionalColorLabels: string[] | null;
+      };
+
+    it("stores each name against its own colour", async () => {
+      await saveBrandProfile({
+        ...validInput,
+        additionalColors: ["#AA0000", "#BB0000"],
+        additionalColorLabels: ["Accent", "CTA"],
+      });
+      expect(patch().additionalColors).toEqual(["#AA0000", "#BB0000"]);
+      expect(patch().additionalColorLabels).toEqual(["Accent", "CTA"]);
+    });
+
+    it("keeps the alignment when a blank colour is dropped", async () => {
+      await saveBrandProfile({
+        ...validInput,
+        additionalColors: ["#AA0000", "  ", "#CC0000"],
+        additionalColorLabels: ["Accent", "Ignored", "CTA"],
+      });
+      expect(patch().additionalColors).toEqual(["#AA0000", "#CC0000"]);
+      expect(patch().additionalColorLabels).toEqual(["Accent", "CTA"]);
+    });
+
+    /* Duplicates collapse to the first occurrence, so its name is the one
+       that should survive with it. */
+    it("keeps the first name when duplicate colours collapse", async () => {
+      await saveBrandProfile({
+        ...validInput,
+        additionalColors: ["#AA0000", "#aa0000", "#CC0000"],
+        additionalColorLabels: ["First", "Second", "Third"],
+      });
+      expect(patch().additionalColors).toEqual(["#AA0000", "#CC0000"]);
+      expect(patch().additionalColorLabels).toEqual(["First", "Third"]);
+    });
+
+    it("writes null when the brand has no additional colours", async () => {
+      await saveBrandProfile({
+        ...validInput,
+        additionalColors: [],
+        additionalColorLabels: ["orphan"],
+      });
+      expect(patch().additionalColors).toBeNull();
+      expect(patch().additionalColorLabels).toBeNull();
+    });
+
+    it("stores blanks for colours nobody named", async () => {
+      await saveBrandProfile({
+        ...validInput,
+        additionalColors: ["#AA0000", "#BB0000"],
+      });
+      expect(patch().additionalColorLabels).toEqual(["", ""]);
+    });
+  });
 });

@@ -201,6 +201,7 @@ export function CreateBrandForm({
       primaryColor: state.primaryColor || undefined,
       secondaryColor: state.secondaryColor || undefined,
       additionalColors: state.additionalColors,
+      additionalColorLabels: state.additionalColorLabels,
       logoUrl: state.logoUrl || undefined,
       competitors: state.competitors.trim() || undefined,
       competitorStrengths: state.competitorStrengths.trim() || undefined,

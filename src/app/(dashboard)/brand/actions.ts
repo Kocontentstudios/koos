@@ -6,6 +6,7 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { alignLabelsToColours } from "@/lib/brand/colour-labels";
 import {
   brandProfileCompletion,
   parseAdditionalColors,
@@ -69,6 +70,17 @@ export async function saveBrandProfile(
        trusting its caller. parseAdditionalColors caps the count, bounds each
        entry and drops blanks — the bound isValidHex used to provide. */
     additionalColors: sanitisedColors.length > 0 ? sanitisedColors : null,
+    /* Matched to the values that SURVIVED sanitising, not by position:
+       parseAdditionalColors drops blanks, de-duplicates and caps, any of
+       which would otherwise slide every later name onto the wrong colour. */
+    additionalColorLabels:
+      sanitisedColors.length > 0
+        ? alignLabelsToColours(
+            v.additionalColors,
+            v.additionalColorLabels,
+            sanitisedColors,
+          )
+        : null,
     logoUrl: v.logoUrl || null,
     competitors: v.competitors || null,
     competitorStrengths: v.competitorStrengths || null,
