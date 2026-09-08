@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { ChevronDown, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Combobox,
@@ -27,7 +27,9 @@ import {
   type ContextOption,
   GROUP_LABELS,
   groupKey,
+  MAX_PER_GROUP,
 } from "@/lib/design/context-search";
+import { cn } from "@/lib/utils";
 
 /** The picker's own key for an option, since ids are only unique per type. */
 const keyOf = (o: Pick<ContextOption, "type" | "id">) => `${o.type}:${o.id}`;
@@ -168,24 +170,80 @@ export function ContextPicker({
                   )}
                   {groups.map((group) => {
                     const key = groupKey(group.type, group.groupId);
-                    const hidden = group.total - group.options.length;
+                    const isExpanded = expanded.has(key);
+                    /* On the TOTAL, not on what is hidden: `hidden` drops to
+                       zero the moment a group expands, so a hidden-based
+                       condition removes the control exactly when it is needed
+                       to collapse again. */
+                    const capped = group.total > MAX_PER_GROUP;
+                    /* A calendar sub-group is titled by its campaign; the type
+                       heading would repeat "Content calendar" once per
+                       calendar and say nothing. */
+                    const heading = group.groupId
+                      ? `${GROUP_LABELS[group.type]} · ${group.label}`
+                      : GROUP_LABELS[group.type];
                     return (
-                      <ComboboxGroup key={key}>
+                      <ComboboxGroup
+                        key={key}
+                        className="grid grid-cols-[1fr_auto] items-center"
+                      >
                         <ComboboxGroupLabel>
-                          {/* A calendar sub-group is titled by its campaign; the
-                            type heading would repeat "Content calendar" once
-                            per calendar and say nothing. */}
-                          {group.groupId
-                            ? `${GROUP_LABELS[group.type]} · ${group.label}`
-                            : GROUP_LABELS[group.type]}
+                          {heading}
                           <span className="ml-1 text-[var(--text-muted)] tabular-nums">
-                            {group.total}
+                            {/* The cap used to be stated by the "Show N more"
+                                text. Removing that text must not remove the
+                                honesty with it. */}
+                            {group.options.length < group.total
+                              ? `${group.options.length} of ${group.total}`
+                              : group.total}
                           </span>
                         </ComboboxGroupLabel>
+
+                        {/* An Item, not a button. A focusable element inside
+                            Combobox.List is bounced straight back to the input
+                            by the popup's focusin handler, and is invisible to
+                            arrow-key navigation because it is not registered in
+                            the composite list — which is why the old control
+                            was unreachable by both pointer and keyboard.
+                            Rendered BEFORE the options so its own index cannot
+                            move when rows are inserted or removed beneath it. */}
+                        {capped && (
+                          <ComboboxItem
+                            value={`expand:${key}`}
+                            aria-label={
+                              isExpanded
+                                ? `Show fewer in ${heading}`
+                                : `Show all ${group.total} in ${heading}`
+                            }
+                            className="justify-self-end size-6 justify-center p-0"
+                            onClick={(event) => {
+                              /* Stops base-ui's own handler, which commits a
+                                 selection and — in multiple mode with the input
+                                 in the popup — clears the search box. Expanding
+                                 must never wipe what the user typed. */
+                              event.preventBaseUIHandler();
+                              setExpanded((prev) => {
+                                const next = new Set(prev);
+                                if (!next.delete(key)) next.add(key);
+                                return next;
+                              });
+                            }}
+                          >
+                            <ChevronDown
+                              aria-hidden="true"
+                              className={cn(
+                                "size-3.5 transition-transform",
+                                isExpanded && "rotate-180",
+                              )}
+                            />
+                          </ComboboxItem>
+                        )}
+
                         {group.options.map((option) => (
                           <ComboboxItem
                             key={keyOf(option)}
                             value={option}
+                            className="col-span-2"
                             onClick={() => toggle(option)}
                           >
                             <span className="min-w-0">
@@ -203,20 +261,6 @@ export function ContextPicker({
                             )}
                           </ComboboxItem>
                         ))}
-                        {/* The cap is stated and reversible. Slicing to eight in
-                          silence is what made the picker look like it held 12
-                          of a brand's 30 briefs. */}
-                        {hidden > 0 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpanded((prev) => new Set(prev).add(key))
-                            }
-                            className="w-full px-3 py-1.5 text-left text-[12px] text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
-                          >
-                            Show {hidden} more
-                          </button>
-                        )}
                       </ComboboxGroup>
                     );
                   })}
