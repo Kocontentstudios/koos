@@ -26,6 +26,7 @@ import {
   buildGroups,
   type ContextOption,
   GROUP_LABELS,
+  groupKey,
 } from "@/lib/design/context-search";
 
 /** The picker's own key for an option, since ids are only unique per type. */
@@ -72,9 +73,13 @@ export function ContextPicker({
     };
   }, [open, options, brandId]);
 
+  /* Which groups the user has opened. Reset when the picker closes, so it
+     does not reopen showing 200 rows from a search the user has forgotten. */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
   const groups = useMemo(
-    () => buildGroups(options ?? [], query),
-    [options, query],
+    () => buildGroups(options ?? [], query, undefined, expanded),
+    [options, query, expanded],
   );
 
   const selectedKeys = useMemo(() => new Set(selected.map(keyOf)), [selected]);
@@ -113,7 +118,11 @@ export function ContextPicker({
       <Combobox
         multiple
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          setOpen(next);
+          // Closing forgets what was expanded; reopening starts short again.
+          if (!next) setExpanded(new Set());
+        }}
         inputValue={query}
         onInputValueChange={setQuery}
       >
@@ -157,34 +166,60 @@ export function ContextPicker({
                   {groups.length === 0 && (
                     <ComboboxEmpty>Nothing matches that.</ComboboxEmpty>
                   )}
-                  {groups.map((group) => (
-                    <ComboboxGroup key={group.type}>
-                      <ComboboxGroupLabel>
-                        {GROUP_LABELS[group.type]}
-                      </ComboboxGroupLabel>
-                      {group.options.map((option) => (
-                        <ComboboxItem
-                          key={keyOf(option)}
-                          value={option}
-                          onClick={() => toggle(option)}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-foreground">
-                              {option.label}
-                            </span>
-                            {option.hint && (
-                              <span className="block truncate text-[11px] text-[var(--text-muted)]">
-                                {option.hint}
-                              </span>
-                            )}
+                  {groups.map((group) => {
+                    const key = groupKey(group.type, group.groupId);
+                    const hidden = group.total - group.options.length;
+                    return (
+                      <ComboboxGroup key={key}>
+                        <ComboboxGroupLabel>
+                          {/* A calendar sub-group is titled by its campaign; the
+                            type heading would repeat "Content calendar" once
+                            per calendar and say nothing. */}
+                          {group.groupId
+                            ? `${GROUP_LABELS[group.type]} · ${group.label}`
+                            : GROUP_LABELS[group.type]}
+                          <span className="ml-1 text-[var(--text-muted)] tabular-nums">
+                            {group.total}
                           </span>
-                          {selectedKeys.has(keyOf(option)) && (
-                            <ComboboxItemIndicator keepMounted />
-                          )}
-                        </ComboboxItem>
-                      ))}
-                    </ComboboxGroup>
-                  ))}
+                        </ComboboxGroupLabel>
+                        {group.options.map((option) => (
+                          <ComboboxItem
+                            key={keyOf(option)}
+                            value={option}
+                            onClick={() => toggle(option)}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-foreground">
+                                {option.label}
+                              </span>
+                              {option.hint && (
+                                <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                                  {option.hint}
+                                </span>
+                              )}
+                            </span>
+                            {selectedKeys.has(keyOf(option)) && (
+                              <ComboboxItemIndicator keepMounted />
+                            )}
+                          </ComboboxItem>
+                        ))}
+                        {/* The cap is stated and reversible. Slicing to eight in
+                          silence is what made the picker look like it held 12
+                          of a brand's 30 briefs. */}
+                        {hidden > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpanded((prev) => new Set(prev).add(key))
+                            }
+                            className="w-full px-3 py-1.5 text-left text-[12px] text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+                          >
+                            Show {hidden} more
+                          </button>
+                        )}
+                      </ComboboxGroup>
+                    );
+                  })}
                 </ComboboxList>
               )}
             </ComboboxPopup>
