@@ -155,14 +155,68 @@ export function isRenderableFont(bytes: Uint8Array): boolean {
  * Any failure returns the built-in set: a bad or missing font file must cost
  * the typeface, never the design.
  */
+export interface BrandFontUrls {
+  /** Substituted for the Display family — headings. */
+  heading?: string | null;
+  /** Substituted for the Body family — body copy, buttons and CTAs. */
+  body?: string | null;
+}
+
+/**
+ * The faces a brand renders with: its own where it uploaded one, the bundled
+ * defaults everywhere else.
+ *
+ * The two slots are independent. A brand that uploaded only a heading face
+ * keeps the bundled Montserrat for body copy, and vice versa — which is also
+ * every brand's state before FEAT-020, so nothing renders differently until
+ * someone uploads a second font.
+ *
+ * Each face is cached under its own URL, so two brands sharing a face pay for
+ * it once and a brand using one face for both roles loads it once.
+ */
 export async function loadBrandFonts(
-  brandFontUrl?: string | null,
+  urls?: BrandFontUrls | string | null,
 ): Promise<LoadedFont[]> {
   const defaults = await loadDefaultFonts();
-  if (!brandFontUrl) return defaults;
+  /* A bare string is the pre-FEAT-020 signature: one URL, meaning the heading
+     face. Kept so every existing caller and test keeps working, and so a
+     single-font brand cannot be misread as having no fonts at all. */
+  const { heading, body } =
+    typeof urls === "string" || urls == null
+      ? { heading: urls, body: null }
+      : urls;
 
-  if (!brandFontCache.has(brandFontUrl)) {
-    const data = await loadUploadedFont(brandFontUrl);
+  if (!heading && !body) return defaults;
+
+  const [headingFace, bodyFace] = await Promise.all([
+    heading ? cachedFace(heading, "Display", 700) : null,
+    body ? cachedFace(body, "Body", 400) : null,
+  ]);
+
+  /* Only the roles that were actually replaced drop their defaults. Removing
+     both unconditionally would leave a brand with one uploaded face rendering
+     its other role in nothing at all. */
+  const replaced = new Set<string>();
+  if (headingFace) replaced.add("Display");
+  if (bodyFace) replaced.add("Body");
+
+  return [
+    ...defaults.filter((f) => !replaced.has(f.name)),
+    ...(headingFace ?? []),
+    ...(bodyFace ?? []),
+  ];
+}
+
+/** One face, loaded once per URL. Returns null when the file is unusable, so
+ *  the caller keeps its default rather than rendering with nothing. */
+async function cachedFace(
+  url: string,
+  name: string,
+  weight: LoadedFont["weight"],
+): Promise<LoadedFont[] | null> {
+  const key = `${name}:${url}`;
+  if (!brandFontCache.has(key)) {
+    const data = await loadUploadedFont(url);
     // Evict oldest-first rather than clearing: a busy process should not lose
     // every brand's font because one more arrived.
     if (brandFontCache.size >= MAX_BRAND_FONTS) {
@@ -170,16 +224,11 @@ export async function loadBrandFonts(
       if (oldest !== undefined) brandFontCache.delete(oldest);
     }
     brandFontCache.set(
-      brandFontUrl,
-      data
-        ? [{ name: "Display", data, weight: 700, style: "normal" as const }]
-        : null,
+      key,
+      data ? [{ name, data, weight, style: "normal" as const }] : null,
     );
   }
-
-  const brandFonts = brandFontCache.get(brandFontUrl);
-  if (!brandFonts) return defaults;
-  return [...defaults.filter((f) => f.name !== "Display"), ...brandFonts];
+  return brandFontCache.get(key) ?? null;
 }
 
 /** Test seam: the caches live for the process, which would otherwise leak

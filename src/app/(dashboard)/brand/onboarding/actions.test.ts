@@ -110,6 +110,7 @@ describe("saveVisualIdentity", () => {
     brandStyle: "",
     brandFont: "",
     brandFontUrl: "",
+    bodyFontUrl: "",
     additionalColors: [],
     ...over,
   });
@@ -138,5 +139,49 @@ describe("saveVisualIdentity", () => {
         additionalColors: ["#22C55E", "forest green", "gold"],
       }),
     );
+  });
+
+  /* ── KOOS-FEAT-020 ───────────────────────────────────────────────────── */
+
+  /* The two slots have to reach two COLUMNS. The step component's own tests
+     only prove it hands the right shape to onSave; this is the half that
+     writes it, and dropping either field here loses the upload silently. */
+  it("persists the heading and body faces to their own columns", async () => {
+    await saveVisualIdentity(
+      "b1",
+      input({
+        brandFontUrl: "https://cdn/fonts/u1/heading.ttf",
+        bodyFontUrl: "https://cdn/fonts/u1/body.ttf",
+      }),
+    );
+    expect(updateBrand).toHaveBeenCalledWith(
+      "b1",
+      expect.objectContaining({
+        brandFontUrl: "https://cdn/fonts/u1/heading.ttf",
+        bodyFontUrl: "https://cdn/fonts/u1/body.ttf",
+      }),
+    );
+  });
+
+  /* Empty means "not uploaded", and null is what the column holds for that —
+     never the empty string, which would render as a font URL of "". */
+  it("writes null, not an empty string, for a slot left empty", async () => {
+    await saveVisualIdentity(
+      "b1",
+      input({ brandFontUrl: "https://cdn/fonts/u1/heading.ttf" }),
+    );
+    const patch = updateBrand.mock.calls[0][1] as Record<string, unknown>;
+    expect(patch.bodyFontUrl).toBeNull();
+    expect(patch.brandFontUrl).toBe("https://cdn/fonts/u1/heading.ttf");
+  });
+
+  it("keeps the slots independent when only the body is uploaded", async () => {
+    await saveVisualIdentity(
+      "b1",
+      input({ bodyFontUrl: "https://cdn/fonts/u1/body.ttf" }),
+    );
+    const patch = updateBrand.mock.calls[0][1] as Record<string, unknown>;
+    expect(patch.brandFontUrl).toBeNull();
+    expect(patch.bodyFontUrl).toBe("https://cdn/fonts/u1/body.ttf");
   });
 });
