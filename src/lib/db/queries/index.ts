@@ -910,9 +910,20 @@ export async function getDesignGenerationById(id: string) {
 
 export async function listDesignGenerationsForBrand(
   brandId: string,
-  opts: { limit?: number; briefId?: string; calendarItemId?: string } = {},
+  opts: {
+    limit?: number;
+    briefId?: string;
+    calendarItemId?: string;
+    /* Exact rows, for a caller that already knows which ones it wants. The
+       brand filter still applies, so an id belonging to another brand returns
+       nothing rather than leaking across brands. */
+    ids?: string[];
+  } = {},
 ) {
   const filters = [eq(designGenerations.brandId, brandId)];
+  if (opts.ids?.length) {
+    filters.push(inArray(designGenerations.id, opts.ids));
+  }
   if (opts.briefId) filters.push(eq(designGenerations.briefId, opts.briefId));
   if (opts.calendarItemId) {
     filters.push(eq(designGenerations.calendarItemId, opts.calendarItemId));

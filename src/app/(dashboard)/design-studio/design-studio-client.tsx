@@ -198,6 +198,8 @@ export function DesignStudioClient({
         pending={viewing ? false : design.pending}
         progressLabel={viewing ? null : design.progressLabel}
         error={viewing ? null : design.error}
+        partial={viewing ? null : design.partial}
+        onRetry={viewing ? undefined : design.retry}
         onRegenerate={viewing ? undefined : handleGenerate}
       />
     </div>

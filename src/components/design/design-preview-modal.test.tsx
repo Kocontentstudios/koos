@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesignPreviewModal } from "./design-preview-modal";
@@ -129,5 +129,87 @@ describe("DesignPreviewModal download", () => {
     expect(
       screen.getByRole("link", { name: /opens in a new tab/i }),
     ).toBeInTheDocument();
+  });
+});
+
+/* ── KOOS-BUG-015 ──────────────────────────────────────────────────────── */
+
+describe("what the modal shows when a run does not go cleanly", () => {
+  const base = {
+    open: true,
+    onOpenChange: () => {},
+    brandId: "3aac081f-cae5-446c-af3a-eaa2dfc3f916",
+    pending: false,
+    progressLabel: null,
+    generations: [],
+    error: null,
+  };
+
+  /* A bare error message leaves the user with nothing but the close button.
+     The ticket asks for an actionable error with a retry. */
+  it("offers a retry on a failure", () => {
+    const onRetry = vi.fn();
+    render(
+      <DesignPreviewModal
+        {...base}
+        error="That design could not be generated."
+        onRetry={onRetry}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("shows the error without a retry when none is offered", () => {
+    render(<DesignPreviewModal {...base} error="Something broke." />);
+    expect(screen.getByText("Something broke.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+  });
+
+  /* Partial success sits ABOVE the results. Rendering it as an error would
+     replace designs the user can still use. */
+  it("keeps the designs that rendered beside the partial notice", () => {
+    render(
+      <DesignPreviewModal
+        {...base}
+        generations={
+          [
+            { id: "g1", status: "succeeded", imageUrl: "https://cdn/g1.png" },
+          ] as never
+        }
+        partial="1 of 2 designs came back."
+      />,
+    );
+    expect(screen.getByText(/1 of 2 designs came back/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no designs yet/i)).toBeNull();
+  });
+
+  it("announces the partial notice politely", () => {
+    render(
+      <DesignPreviewModal
+        {...base}
+        generations={
+          [
+            { id: "g1", status: "succeeded", imageUrl: "https://cdn/g1.png" },
+          ] as never
+        }
+        partial="1 of 2 designs came back."
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toMatch(/1 of 2/);
+  });
+
+  it("says nothing extra when everything came back", () => {
+    render(
+      <DesignPreviewModal
+        {...base}
+        generations={
+          [
+            { id: "g1", status: "succeeded", imageUrl: "https://cdn/g1.png" },
+          ] as never
+        }
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
