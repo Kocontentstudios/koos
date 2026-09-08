@@ -22,6 +22,11 @@ export interface BrandSummary {
   primaryColor?: string | null;
   secondaryColor?: string | null;
   additionalColors?: string[] | null;
+  /* Display only. brandBlock deliberately does NOT emit these — the strategy
+     prompt is the paid eval's baseline and every new field must be
+     absent-by-default, so a colour's nickname must not change what the model
+     is asked. */
+  additionalColorLabels?: string[] | null;
   platforms?: string[] | null;
   primaryPlatform?: string | null;
   postingFrequency?: string | null;

@@ -321,6 +321,9 @@ export const brands = pgTable(
     primaryColor: text("primary_color"),
     secondaryColor: text("secondary_color"),
     additionalColors: text("additional_colors").array(),
+    /** Index-aligned with additionalColors; "" means that slot is unnamed.
+     *  Read through pairColourLabels, which is total over any mismatch. */
+    additionalColorLabels: text("additional_color_labels").array(),
     logoUrl: text("logo_url"),
     // Section 3 — Brand Personality
     values: text("values"),

@@ -30,6 +30,7 @@ function inkFor(swatch: string): "dark" | "light" {
 export function ColorField({
   id,
   label,
+  hideVisibleLabel,
   value,
   onChange,
   allowFreeText = false,
@@ -38,6 +39,10 @@ export function ColorField({
 }: {
   id: string;
   label: string;
+  /* Keeps the label as the accessible name while the caller renders its own
+     visible one — a renameable label is a button, and a button inside a
+     <label> would also focus the input when clicked. */
+  hideVisibleLabel?: boolean;
   value: string;
   onChange: (value: string) => void;
   allowFreeText?: boolean;
@@ -172,7 +177,11 @@ export function ColorField({
       />
       <label
         htmlFor={id}
-        className="whitespace-nowrap text-[12px] text-[var(--text-muted)]"
+        className={
+          hideVisibleLabel
+            ? "sr-only"
+            : "whitespace-nowrap text-[12px] text-[var(--text-muted)]"
+        }
       >
         {label}
       </label>

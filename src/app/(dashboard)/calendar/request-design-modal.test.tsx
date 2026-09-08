@@ -23,6 +23,7 @@ const brand: BrandSummary = {
   primaryColor: null,
   secondaryColor: null,
   additionalColors: null,
+  additionalColorLabels: null,
   logoUrl: null,
 };
 

@@ -50,6 +50,7 @@ export interface BrandSummary {
   primaryColor: string | null;
   secondaryColor: string | null;
   additionalColors: string[] | null;
+  additionalColorLabels: string[] | null;
   logoUrl: string | null;
 }
 

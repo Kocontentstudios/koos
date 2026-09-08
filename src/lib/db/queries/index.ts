@@ -291,6 +291,7 @@ export async function updateBrand(
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
+      | "additionalColorLabels"
       | "logoUrl"
       | "competitors"
       | "competitorStrengths"
