@@ -207,12 +207,14 @@ describe("VisualIdentityStep", () => {
 
 /* An uploaded face is checked by signature server-side; the client's job is to
    send it under the right kind and surface the refusal. */
-describe("VisualIdentityStep font upload", () => {
-  const ttf = () =>
-    new File([new Uint8Array([0x00, 0x01, 0x00, 0x00])], "brand.ttf", {
-      type: "font/ttf",
-    });
+/* A real TrueType signature: the upload route validates fonts by their first
+   four bytes, not by MIME. */
+const ttf = () =>
+  new File([new Uint8Array([0x00, 0x01, 0x00, 0x00])], "brand.ttf", {
+    type: "font/ttf",
+  });
 
+describe("VisualIdentityStep font upload", () => {
   it("uploads a font under the font kind", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -243,8 +245,10 @@ describe("VisualIdentityStep font upload", () => {
     const user = userEvent.setup();
     const { onSave } = renderStep();
 
-    const inputs = screen.getAllByTestId("file-input");
-    await user.upload(inputs[inputs.length - 1], ttf());
+    /* By LABEL, not by index. Indexing the file inputs made this test depend
+       on how many upload fields the step happens to render, so adding the body
+       slot silently retargeted it at a different field. */
+    await user.upload(screen.getByLabelText(/heading \/ main font/i), ttf());
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: /save and finish/i }));
 
@@ -438,5 +442,134 @@ describe("VisualIdentityStep font upload", () => {
         }),
       );
     });
+  });
+});
+
+/* ── KOOS-FEAT-020 ─────────────────────────────────────────────────────── */
+
+describe("two font slots, independent of each other", () => {
+  const uploadOk = (url: string) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ url }) })),
+    );
+
+  it("labels both slots by the role they play", () => {
+    renderStep();
+    expect(screen.getByLabelText(/heading \/ main font/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/body \/ cta font/i)).toBeInTheDocument();
+  });
+
+  it("says what each one is used for", () => {
+    renderStep();
+    expect(screen.getByText(/headlines are set in this/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/body copy, buttons and calls to action/i),
+    ).toBeInTheDocument();
+  });
+
+  it("offers every advertised format on both slots", () => {
+    renderStep();
+    for (const label of [/heading \/ main font/i, /body \/ cta font/i]) {
+      const accept = screen.getByLabelText(label).getAttribute("accept") ?? "";
+      for (const ext of [".ttf", ".otf", ".ttc"]) {
+        expect(accept).toContain(ext);
+      }
+    }
+  });
+
+  it("saves the body font to its own field", async () => {
+    uploadOk("https://cdn/fonts/u1/body.ttf");
+    const user = userEvent.setup();
+    const { onSave } = renderStep();
+
+    await user.upload(screen.getByLabelText(/body \/ cta font/i), ttf());
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyFontUrl: "https://cdn/fonts/u1/body.ttf",
+        // Untouched: uploading one slot must not populate the other.
+        brandFontUrl: "",
+      }),
+    );
+  });
+
+  it("keeps both when both are uploaded", async () => {
+    const user = userEvent.setup();
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ url: `https://cdn/fonts/u1/${++n}.ttf` }),
+      })),
+    );
+    const { onSave } = renderStep();
+
+    await user.upload(screen.getByLabelText(/heading \/ main font/i), ttf());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await user.upload(screen.getByLabelText(/body \/ cta font/i), ttf());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    const saved = onSave.mock.calls[0][0] as Record<string, string>;
+    expect(saved.brandFontUrl).toBe("https://cdn/fonts/u1/1.ttf");
+    expect(saved.bodyFontUrl).toBe("https://cdn/fonts/u1/2.ttf");
+    expect(saved.brandFontUrl).not.toBe(saved.bodyFontUrl);
+  });
+
+  /* Per-slot error state. One shared error would make the heading field report
+     the body field's failure, which is the loading rule's "keyed to the row,
+     never one shared boolean" applied to two fields. */
+  it("shows a failure only on the slot that failed", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        json: async () => ({ error: "That does not look like a font file." }),
+      })),
+    );
+    renderStep();
+
+    await user.upload(screen.getByLabelText(/body \/ cta font/i), ttf());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/does not look like a font file/i),
+      ).toBeInTheDocument(),
+    );
+    // Exactly one field is complaining, not both.
+    expect(screen.getAllByText(/does not look like a font file/i)).toHaveLength(
+      1,
+    );
+  });
+
+  it("removes one slot without clearing the other", async () => {
+    const user = userEvent.setup();
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ url: `https://cdn/fonts/u1/${++n}.ttf` }),
+      })),
+    );
+    const { onSave } = renderStep();
+
+    await user.upload(screen.getByLabelText(/heading \/ main font/i), ttf());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await user.upload(screen.getByLabelText(/body \/ cta font/i), ttf());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    // The remove control belongs to the slot that has a file attached.
+    const removes = screen.getAllByRole("button", { name: /remove/i });
+    await user.click(removes[removes.length - 1]);
+    await user.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    const saved = onSave.mock.calls[0][0] as Record<string, string>;
+    expect(saved.brandFontUrl).toBe("https://cdn/fonts/u1/1.ttf");
+    expect(saved.bodyFontUrl).toBe("");
   });
 });

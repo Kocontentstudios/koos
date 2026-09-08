@@ -139,3 +139,144 @@ describe("loadBrandFonts", { timeout: 12_000 }, () => {
     expect(getObjectBytes).toHaveBeenCalledTimes(1);
   });
 });
+
+/* ── KOOS-FEAT-020 ─────────────────────────────────────────────────────── */
+
+/* The acceptance criterion that matters most: a generated design must set
+   headings in the heading face and body copy in the body face. Everything
+   above this point only proves the files load. */
+describe("two brand faces, each in its own role", () => {
+  const HEADING_URL = `${BASE}/fonts/u1/heading.ttf`;
+  const BODY_URL = `${BASE}/fonts/u1/body.ttf`;
+  const TRUETYPE = [0x00, 0x01, 0x00, 0x00];
+
+  const namesOf = (fonts: { name: string }[]) => fonts.map((f) => f.name);
+
+  it("replaces the display face with the heading upload", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const fonts = await loadBrandFonts({ heading: HEADING_URL });
+    expect(namesOf(fonts)).toContain("Display");
+    // The bundled body faces survive: only the heading role was replaced.
+    expect(namesOf(fonts)).toContain("Body");
+  });
+
+  it("replaces the body face with the body upload", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const fonts = await loadBrandFonts({ body: BODY_URL });
+    expect(namesOf(fonts)).toContain("Body");
+    expect(namesOf(fonts)).toContain("Display");
+  });
+
+  /* The defect this prevents: dropping BOTH defaults whenever either slot is
+     filled would leave a brand with one uploaded face rendering its other
+     role in no font at all. */
+  it("keeps the bundled face for the role that was not uploaded", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const only = await loadBrandFonts({ heading: HEADING_URL });
+    const bodyFaces = only.filter((f) => f.name === "Body");
+    const defaults = await loadBrandFonts();
+    expect(bodyFaces).toHaveLength(
+      defaults.filter((f) => f.name === "Body").length,
+    );
+  });
+
+  it("uses both uploads when both are given", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const fonts = await loadBrandFonts({
+      heading: HEADING_URL,
+      body: BODY_URL,
+    });
+    expect(namesOf(fonts)).toContain("Display");
+    expect(namesOf(fonts)).toContain("Body");
+    // Both roles were fetched — one call per distinct URL.
+    expect(getObjectBytes).toHaveBeenCalledTimes(2);
+  });
+
+  /* The slots are independent all the way down: a broken body font must not
+     cost the brand its heading face. */
+  it("keeps the good face when the other file is unusable", async () => {
+    getObjectBytes.mockImplementation(async (key: string) =>
+      key.includes("body") ? Buffer.alloc(64) : fontBytes(TRUETYPE),
+    );
+    const fonts = await loadBrandFonts({
+      heading: HEADING_URL,
+      body: BODY_URL,
+    });
+    expect(namesOf(fonts)).toContain("Display");
+    expect(namesOf(fonts)).toContain("Body");
+  });
+
+  /* Every existing caller passes a bare string, and every brand in the
+     database has only that one column filled. It must keep meaning "heading". */
+  it("still accepts the single-URL form as the heading face", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const legacy = await loadBrandFonts(HEADING_URL);
+    __resetFontCaches();
+    const explicit = await loadBrandFonts({ heading: HEADING_URL });
+    expect(namesOf(legacy).sort()).toEqual(namesOf(explicit).sort());
+  });
+
+  it("returns the bundled faces when neither slot is filled", async () => {
+    const fonts = await loadBrandFonts({ heading: null, body: null });
+    expect(fonts).toEqual(await loadBrandFonts());
+    expect(getObjectBytes).not.toHaveBeenCalled();
+  });
+
+  /* Weight is part of the role. The bundled Display face is bold and the body
+     face is regular; loading a brand's heading face at 400 leaves satori with
+     no bold Display to reach for, so headings render at the wrong weight or
+     fall back entirely. */
+  it("loads each face at the weight its role renders in", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const fonts = await loadBrandFonts({
+      heading: HEADING_URL,
+      body: BODY_URL,
+    });
+    const display = fonts.find((f) => f.name === "Display");
+    const body = fonts.find((f) => f.name === "Body");
+    expect(display?.weight).toBe(700);
+    expect(body?.weight).toBe(400);
+  });
+
+  /* One file in BOTH slots is a legitimate choice — a brand with a single
+     typeface. */
+  it("serves one file in both roles when both slots point at it", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    const fonts = await loadBrandFonts({
+      heading: HEADING_URL,
+      body: HEADING_URL,
+    });
+    expect(fonts.filter((f) => f.name === "Display")).toHaveLength(1);
+    expect(fonts.filter((f) => f.name === "Body")).toHaveLength(1);
+    expect(fonts.find((f) => f.name === "Body")?.weight).toBe(400);
+  });
+
+  /* The cache lives for the PROCESS, so the roles must be separate keys.
+     Keyed by URL alone this passes within a single call — each role overwrites
+     then immediately reads — and fails across two, which is the shape a server
+     actually sees: one render caches the file as a heading, the next render
+     asks for it as a body face and is handed the heading back. */
+  it("does not serve a cached heading face into the body role", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    // First render: this file is a heading face.
+    await loadBrandFonts({ heading: HEADING_URL });
+    // Second render, same process: the same file, now as the body face.
+    const second = await loadBrandFonts({ body: HEADING_URL });
+
+    const body = second.find((f) => f.name === "Body");
+    expect(body?.weight).toBe(400);
+    // The heading role was not asked for, so no uploaded Display may appear.
+    expect(second.filter((f) => f.name === "Display")).toHaveLength(
+      (await loadBrandFonts()).filter((f) => f.name === "Display").length,
+    );
+  });
+
+  /* Caching is per URL per role, so one brand's face cannot be served in the
+     wrong role to another brand. */
+  it("caches each face separately", async () => {
+    getObjectBytes.mockResolvedValue(fontBytes(TRUETYPE));
+    await loadBrandFonts({ heading: HEADING_URL, body: BODY_URL });
+    await loadBrandFonts({ heading: HEADING_URL, body: BODY_URL });
+    expect(getObjectBytes).toHaveBeenCalledTimes(2);
+  });
+});

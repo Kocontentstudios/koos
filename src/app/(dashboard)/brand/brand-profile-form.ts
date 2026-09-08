@@ -135,6 +135,7 @@ export const brandProfileSchema = z.object({
   brandStyle: optionalText,
   brandFont: optionalText,
   brandFontUrl: optionalText,
+  bodyFontUrl: optionalText,
   // Section 5 — Competitors
   competitors: optionalText,
   competitorStrengths: optionalText,

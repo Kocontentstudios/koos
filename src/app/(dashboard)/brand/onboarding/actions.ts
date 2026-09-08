@@ -67,6 +67,7 @@ export interface VisualIdentityInput {
   brandStyle: string;
   brandFont: string;
   brandFontUrl: string;
+  bodyFontUrl: string;
   additionalColors: string[];
 }
 
@@ -101,6 +102,9 @@ export async function saveVisualIdentity(
     brandStyle: input.brandStyle.trim() || null,
     brandFont: input.brandFont.trim() || null,
     brandFontUrl: input.brandFontUrl.trim() || null,
+    /* Empty means "no body face uploaded", which renders with the bundled
+       Montserrat — the same result every brand had before FEAT-020. */
+    bodyFontUrl: input.bodyFontUrl.trim() || null,
   });
   if (!updated) return { ok: false, error: "Could not save" };
 
