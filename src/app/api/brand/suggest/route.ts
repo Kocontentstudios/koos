@@ -7,7 +7,7 @@ import {
   buildBrandFieldPrompt,
 } from "@/lib/ai/prompts/brand";
 import { getModel } from "@/lib/ai/provider";
-import { getAuthUser } from "@/lib/auth/get-user";
+import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 const suggestionSchema = z.object({ suggestion: z.string() });
@@ -37,10 +37,10 @@ const requestSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const { dbUser } = await getAuthUser();
-  if (!dbUser) {
-    return Response.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  // Spends model tokens, so it needs a capability rather than just a session.
+  const guard = await guardWorkspaceRoute("manage_content");
+  if ("response" in guard) return guard.response;
+  const { dbUser } = guard.ctx;
 
   const verdict = await checkRateLimit({
     key: `brand-suggest:${dbUser.id}`,

@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  getObjectBytes,
+  STORAGE_PREFIXES,
+  storageKeyFrom,
+} from "@/lib/storage";
 
 export interface LoadedFont {
   name: string;
@@ -36,6 +41,13 @@ const SOURCES: FontSource[] = [
 ];
 
 let cache: LoadedFont[] | null = null;
+
+/* Keyed by font URL, because the cache is no longer one shared list: a brand
+   with its own face must not serve it to every other brand rendering
+   concurrently. Bounded so a workspace with many brands cannot grow it without
+   limit — fonts are a few hundred KB each. */
+const MAX_BRAND_FONTS = 20;
+const brandFontCache = new Map<string, LoadedFont[] | null>();
 
 /** Pulls a single TTF out of a Google Fonts CSS response. Only used when the
  * vendored file is missing, so a mis-traced deploy degrades to a slower
@@ -85,7 +97,7 @@ async function loadOne(source: FontSource): Promise<LoadedFont | null> {
 /** Satori falls back silently to its bundled Geist 400 for any weight it was
  * not given, which quietly wrecks the typographic hierarchy — so every weight
  * the layouts use must be loaded explicitly. */
-export async function loadBrandFonts(): Promise<LoadedFont[]> {
+async function loadDefaultFonts(): Promise<LoadedFont[]> {
   if (cache) return cache;
   const loaded = (await Promise.all(SOURCES.map(loadOne))).filter(
     (f): f is LoadedFont => f !== null,
@@ -94,4 +106,134 @@ export async function loadBrandFonts(): Promise<LoadedFont[]> {
   // poison every later render for the lifetime of the process.
   if (loaded.length > 0) cache = loaded;
   return loaded;
+}
+
+/** Fetches an uploaded face. Null for anything satori could not parse, so the
+ *  caller falls back rather than handing it bytes that throw mid-render. */
+async function loadUploadedFont(url: string): Promise<ArrayBuffer | null> {
+  try {
+    /* Pinned to the fonts prefix, not merely to our origin. brandFontUrl is a
+       user-writable column, so without the prefix a brand could point it at
+       another tenant's deliverables and have them read. */
+    const key = storageKeyFrom(url, STORAGE_PREFIXES.fonts);
+    if (!key) return null;
+    const bytes = await getObjectBytes(key);
+    const data = new Uint8Array(bytes);
+    // The upload route checked this too; re-checked here because a row can
+    // outlive the file it points at, and satori throws on a bad signature
+    // rather than declining.
+    if (!isRenderableFont(data)) return null;
+    return data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ) as ArrayBuffer;
+  } catch {
+    return null;
+  }
+}
+
+/** TrueType, TrueType collection, or CFF OpenType — what satori can parse. */
+export function isRenderableFont(bytes: Uint8Array): boolean {
+  const signatures = [
+    [0x00, 0x01, 0x00, 0x00],
+    [0x74, 0x72, 0x75, 0x65],
+    [0x4f, 0x54, 0x54, 0x4f],
+    [0x74, 0x74, 0x63, 0x66],
+  ];
+  return signatures.some((sig) => sig.every((b, i) => bytes[i] === b));
+}
+
+/**
+ * The fonts a render should use, with the brand's own face substituted for the
+ * display family when it has uploaded one.
+ *
+ * Display only, deliberately. An upload is a single file at a single weight,
+ * and the layouts need Body at 400 and 600 — swapping those for one face would
+ * flatten the weight hierarchy that satori's silent-fallback comment above
+ * exists to protect. Headlines are where a brand typeface actually reads.
+ *
+ * Any failure returns the built-in set: a bad or missing font file must cost
+ * the typeface, never the design.
+ */
+export interface BrandFontUrls {
+  /** Substituted for the Display family — headings. */
+  heading?: string | null;
+  /** Substituted for the Body family — body copy, buttons and CTAs. */
+  body?: string | null;
+}
+
+/**
+ * The faces a brand renders with: its own where it uploaded one, the bundled
+ * defaults everywhere else.
+ *
+ * The two slots are independent. A brand that uploaded only a heading face
+ * keeps the bundled Montserrat for body copy, and vice versa — which is also
+ * every brand's state before FEAT-020, so nothing renders differently until
+ * someone uploads a second font.
+ *
+ * Each face is cached under its own URL, so two brands sharing a face pay for
+ * it once and a brand using one face for both roles loads it once.
+ */
+export async function loadBrandFonts(
+  urls?: BrandFontUrls | string | null,
+): Promise<LoadedFont[]> {
+  const defaults = await loadDefaultFonts();
+  /* A bare string is the pre-FEAT-020 signature: one URL, meaning the heading
+     face. Kept so every existing caller and test keeps working, and so a
+     single-font brand cannot be misread as having no fonts at all. */
+  const { heading, body } =
+    typeof urls === "string" || urls == null
+      ? { heading: urls, body: null }
+      : urls;
+
+  if (!heading && !body) return defaults;
+
+  const [headingFace, bodyFace] = await Promise.all([
+    heading ? cachedFace(heading, "Display", 700) : null,
+    body ? cachedFace(body, "Body", 400) : null,
+  ]);
+
+  /* Only the roles that were actually replaced drop their defaults. Removing
+     both unconditionally would leave a brand with one uploaded face rendering
+     its other role in nothing at all. */
+  const replaced = new Set<string>();
+  if (headingFace) replaced.add("Display");
+  if (bodyFace) replaced.add("Body");
+
+  return [
+    ...defaults.filter((f) => !replaced.has(f.name)),
+    ...(headingFace ?? []),
+    ...(bodyFace ?? []),
+  ];
+}
+
+/** One face, loaded once per URL. Returns null when the file is unusable, so
+ *  the caller keeps its default rather than rendering with nothing. */
+async function cachedFace(
+  url: string,
+  name: string,
+  weight: LoadedFont["weight"],
+): Promise<LoadedFont[] | null> {
+  const key = `${name}:${url}`;
+  if (!brandFontCache.has(key)) {
+    const data = await loadUploadedFont(url);
+    // Evict oldest-first rather than clearing: a busy process should not lose
+    // every brand's font because one more arrived.
+    if (brandFontCache.size >= MAX_BRAND_FONTS) {
+      const oldest = brandFontCache.keys().next().value;
+      if (oldest !== undefined) brandFontCache.delete(oldest);
+    }
+    brandFontCache.set(
+      key,
+      data ? [{ name, data, weight, style: "normal" as const }] : null,
+    );
+  }
+  return brandFontCache.get(key) ?? null;
+}
+
+/** Test seam: the caches live for the process, which would otherwise leak
+ *  between cases. */
+export function __resetFontCaches() {
+  cache = null;
+  brandFontCache.clear();
 }

@@ -9,8 +9,16 @@ const createTicketFromRequest = vi.fn();
 const executeGenerationJob = vi.fn();
 const generateStrategyWork = vi.fn();
 const generateCalendarWork = vi.fn();
+const captureServerEvent = vi.fn();
+const revalidatePath = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
+vi.mock("@/lib/analytics/posthog-server", () => ({
+  captureServerEvent: (e: unknown) => captureServerEvent(e),
+}));
+vi.mock("@/lib/analytics/session-id", () => ({
+  getAnalyticsSessionId: async () => "sess-1",
+}));
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: async () => ({ ok: true, retryAfterSeconds: 0 }),
   tooManyRequests: () => new Response(null, { status: 429 }),
@@ -22,6 +30,8 @@ vi.mock("@/lib/db/queries", () => ({
     updateBrand(brandId, fields),
   createGenerationJob: (data: unknown) => createGenerationJob(data),
   getStrategyById: (id: string) => getStrategyById(id),
+  upsertBrandContext: (b: string, sec: string, data: unknown) =>
+    upsertBrandContext(b, sec, data),
 }));
 vi.mock("@/lib/design/ticket-create", () => ({
   createTicketFromRequest: (input: unknown, deps: unknown) =>
@@ -38,6 +48,17 @@ vi.mock("@/lib/jobs/run-generation", () => ({
 // Run the post-response work inline so assertions can see it.
 vi.mock("next/server", () => ({ after: (cb: () => unknown) => cb() }));
 
+const { synthesizeBrandGuide, upsertBrandContext } = vi.hoisted(() => ({
+  synthesizeBrandGuide: vi.fn(),
+  upsertBrandContext: vi.fn(),
+}));
+vi.mock("@/lib/ai/brand-guide", () => ({
+  synthesizeBrandGuide: (b: unknown) => synthesizeBrandGuide(b),
+}));
+vi.mock("next/cache", () => ({
+  revalidatePath: (path: string) => revalidatePath(path),
+}));
+
 import { POST } from "./route";
 
 function req(body: unknown) {
@@ -48,6 +69,7 @@ function req(body: unknown) {
 }
 
 const BRAND_ID = "11111111-1111-4111-8111-111111111111";
+const CONVERSATION_ID = "22222222-2222-4222-8222-222222222222";
 const STRATEGY_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("POST /api/actions/confirm", () => {
@@ -64,7 +86,12 @@ describe("POST /api/actions/confirm", () => {
     });
     checkBrandAccess.mockResolvedValue({
       ok: true,
-      brand: { id: BRAND_ID, name: "Acme" },
+      brand: {
+        id: BRAND_ID,
+        name: "Acme",
+        onboardingType: "conversational",
+        onboardingStatus: "draft",
+      },
     });
   });
 
@@ -88,20 +115,200 @@ describe("POST /api/actions/confirm", () => {
     expect(updateBrand).not.toHaveBeenCalled();
   });
 
-  it("applies a confirmed brand_fields proposal", async () => {
-    updateBrand.mockResolvedValue({ id: BRAND_ID });
-    const res = await POST(
+  function confirmFields(fields: Record<string, string>) {
+    return POST(
       req({
         brandId: BRAND_ID,
         proposal: {
           kind: "brand_fields",
-          summary: "Set tone",
-          data: { fields: { tone: "bold" } },
+          summary: "Captured brand",
+          data: { fields },
         },
       }),
     );
+  }
+
+  it("applies a confirmed brand_fields proposal", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    const res = await confirmFields({ tone: "bold" });
     expect(res.status).toBe(200);
-    expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, { tone: "bold" });
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({ tone: "bold" });
+  });
+
+  /* additional_colors is a Postgres text[] but the model sends a
+     comma-separated string. Writing the raw string would fail inside
+     postgres.js at runtime, where a mocked test would never see it — so
+     assert on the VALUE reaching updateBrand, not just that it was called. */
+  it("parses the model's colour string into an array before writing", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: "terracotta, indigo" });
+    expect(updateBrand.mock.calls[0][1].additionalColors).toEqual([
+      "terracotta",
+      "indigo",
+    ]);
+  });
+
+  it("caps the written colours at three even if the model sends more", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: "a, b, c, d, e" });
+    expect(updateBrand.mock.calls[0][1].additionalColors).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  /* An LLM answering ", ," must not wipe swatches the user saved by hand. */
+  it("drops the key entirely when the parsed list is empty", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ additionalColors: " , , " });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
+  });
+
+  /* KOS-V1-FEAT-017. platforms is the other text[] column, and it is the one
+     the whole distribution poll exists to fill — the chips are collected as
+     prose and this is the only place that turns them back into a list. */
+  it("parses the model's channel string into an array before writing", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ platforms: "Instagram, TikTok, Email / Newsletter" });
+    expect(updateBrand.mock.calls[0][1].platforms).toEqual([
+      "Instagram",
+      "TikTok",
+      "Email / Newsletter",
+    ]);
+  });
+
+  it("drops the channels key entirely when the parsed list is empty", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ platforms: " , , " });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("platforms");
+  });
+
+  /* The single-answer half of the poll. These are plain text columns, so the
+     only risk is them not arriving at all — which is exactly what happened
+     before they were added to the extraction chain. */
+  it("writes the primary channel and cadence the conversation captured", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({
+      primaryPlatform: "Instagram",
+      postingFrequency: "3–4x / week",
+      websiteUrl: "https://okrakitchen.ng",
+    });
+    expect(updateBrand.mock.calls[0][1]).toMatchObject({
+      primaryPlatform: "Instagram",
+      postingFrequency: "3–4x / week",
+      websiteUrl: "https://okrakitchen.ng",
+    });
+  });
+
+  /* "" is the extractor's "not mentioned" sentinel, not an instruction to
+     clear. Without stripping it, a model answering "" for a field the user
+     filled by hand in the Brand Profile form blanks their column. */
+  it.each(["websiteUrl", "primaryPlatform", "postingFrequency", "tone"])(
+    "does not blank %s when the model answers with an empty string",
+    async (field) => {
+      updateBrand.mockResolvedValue({ id: BRAND_ID });
+      await confirmFields({ [field]: "", name: "Okra" });
+      expect(updateBrand.mock.calls[0][1]).not.toHaveProperty(field);
+    },
+  );
+
+  it("leaves the column untouched when the model omits the field", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("additionalColors");
+  });
+
+  /* Regression: confirming fields wrote them but left onboardingStatus at
+     "draft", so requireBrand redirected a chat-only user straight back into
+     onboarding forever. There was no way to finish without the manual form. */
+  it("advances a draft to in_progress as fields land", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, {
+      tone: "bold",
+      // Name (5 of Basics) plus tone (6.25 of Audience), rounded.
+      completionPercentage: 11,
+      onboardingStatus: "in_progress",
+    });
+  });
+
+  it("completes onboarding once every required field is captured", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+    });
+    expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, {
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+      /* Basics only, so the score is 20 — but the status is still "completed".
+         requireBrand gates on the status, and tying it to the score would lock
+         out every user who left an optional section blank. */
+      completionPercentage: 20,
+      onboardingStatus: "completed",
+    });
+  });
+
+  it("reports the completion once, tagged with the path the user took", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+    });
+    expect(captureServerEvent).toHaveBeenCalledWith({
+      distinctId: "u1",
+      event: "brand_brain_completed",
+      properties: {
+        brand_id: BRAND_ID,
+        onboarding_type: "conversational",
+        session_id: "sess-1",
+      },
+    });
+  });
+
+  /* The dashboard reads onboardingStatus to decide whether to run the product
+     tour. Without these revalidations it renders the pre-write status and the
+     tour silently never fires. */
+  it("revalidates the pages that read the brand it just wrote", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(revalidatePath).toHaveBeenCalledWith("/brand");
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("tells the client whether the brand is now complete", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    const partial = await confirmFields({ tone: "bold" });
+    expect(await partial.json()).toMatchObject({ brandCompleted: false });
+
+    const complete = await confirmFields({
+      overview: "Handwoven bags",
+      businessType: "Retail",
+      stage: "Early-stage",
+    });
+    expect(await complete.json()).toMatchObject({ brandCompleted: true });
+  });
+
+  it("does not re-report a brand that was already completed", async () => {
+    checkBrandAccess.mockResolvedValue({
+      ok: true,
+      brand: {
+        id: BRAND_ID,
+        name: "Acme",
+        overview: "x",
+        businessType: "y",
+        stage: "z",
+        onboardingType: "conversational",
+        onboardingStatus: "completed",
+      },
+    });
+    updateBrand.mockResolvedValue({ id: BRAND_ID });
+    await confirmFields({ tone: "bold" });
+    expect(captureServerEvent).not.toHaveBeenCalled();
   });
 
   it("400s on an invalid proposal", async () => {
@@ -176,6 +383,51 @@ describe("POST /api/actions/confirm", () => {
         conversationId: null,
       }),
     );
+  });
+
+  /* Regression: this branch hard-coded conversationId: null, so a campaign
+     confirmed from chat was orphaned from the chat that proposed it — no card
+     on reopen, and no chat to name after the campaign. */
+  it("attaches a chat-born strategy to the chat that proposed it", async () => {
+    createGenerationJob.mockResolvedValue({ id: "job-1" });
+    executeGenerationJob.mockImplementation(
+      async (_id: string, work: () => Promise<unknown>) => {
+        await work();
+      },
+    );
+    generateStrategyWork.mockResolvedValue({ resultId: "s1" });
+
+    const res = await POST(
+      req({
+        brandId: BRAND_ID,
+        conversationId: CONVERSATION_ID,
+        proposal: {
+          kind: "strategy",
+          summary: "Q3 plan",
+          data: { name: "Q3 plan", seed: "Grow awareness" },
+        },
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(generateStrategyWork).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID }),
+    );
+  });
+
+  it("rejects a malformed conversationId instead of silently dropping the link", async () => {
+    const res = await POST(
+      req({
+        brandId: BRAND_ID,
+        conversationId: "not-a-uuid",
+        proposal: {
+          kind: "strategy",
+          summary: "Q3 plan",
+          data: { name: "Q3 plan", seed: "Grow awareness" },
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(createGenerationJob).not.toHaveBeenCalled();
   });
 
   it("rejects a strategy proposal from an unverified user without creating a job", async () => {
@@ -283,5 +535,88 @@ describe("POST /api/actions/confirm", () => {
     );
     expect(res.status).toBe(404);
     expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+});
+
+/* KOS-V1-FEAT-013. The guide turns the handful of adjectives the chips capture
+   into rules a copywriter could work from — recording "Bold, Warm" is not a
+   brand voice. */
+describe("brand voice guide synthesis", () => {
+  const GUIDE = { dos: ["a"], donts: ["b"] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
+    checkBrandAccess.mockResolvedValue({
+      ok: true,
+      brand: { id: BRAND_ID, name: "Okra", onboardingStatus: "draft" },
+    });
+    synthesizeBrandGuide.mockResolvedValue(GUIDE);
+  });
+
+  function confirmVoiceFields(fields: Record<string, string>) {
+    return POST(
+      req({
+        brandId: BRAND_ID,
+        proposal: {
+          kind: "brand_fields",
+          summary: "Captured brand",
+          data: { fields },
+        },
+      }),
+    );
+  }
+
+  async function confirmVoice(fields: Record<string, string>, tone = "Bold") {
+    updateBrand.mockResolvedValue({ id: BRAND_ID, name: "Okra", tone });
+    return confirmVoiceFields(fields);
+  }
+
+  it("stores a guide derived from the row it just wrote", async () => {
+    await confirmVoice({ tone: "Bold, Warm" });
+
+    expect(synthesizeBrandGuide).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "Bold" }),
+    );
+    expect(upsertBrandContext).toHaveBeenCalledWith(
+      BRAND_ID,
+      "brand_foundation",
+      { guide: GUIDE },
+    );
+  });
+
+  it.each(["tone", "wordsLove", "wordsAvoid", "values"])(
+    "re-derives it when %s is written",
+    async (field) => {
+      await confirmVoice({ [field]: "something" });
+      expect(synthesizeBrandGuide).toHaveBeenCalled();
+    },
+  );
+
+  it("leaves it alone when the write touched no voice field", async () => {
+    await confirmVoice({ overview: "We sell meal kits" });
+    expect(synthesizeBrandGuide).not.toHaveBeenCalled();
+  });
+
+  /* A guide needs a voice to expand. Without a tone there is nothing to
+     synthesize from, and the model would invent one. */
+  it("does not run when the brand still has no tone", async () => {
+    updateBrand.mockResolvedValue({ id: BRAND_ID, name: "Okra", tone: null });
+    await confirmVoiceFields({ wordsAvoid: "cheap" });
+    expect(synthesizeBrandGuide).not.toHaveBeenCalled();
+  });
+
+  /* Deliberately not gated on the brand being complete: completion flips on
+     the four Basics fields, and a conversation can capture a rich voice
+     without ever landing on `stage`. */
+  it("runs for an incomplete brand", async () => {
+    await confirmVoice({ tone: "Bold, Warm" });
+    expect(synthesizeBrandGuide).toHaveBeenCalled();
+  });
+
+  it("stores nothing when synthesis fails", async () => {
+    synthesizeBrandGuide.mockResolvedValue(null);
+    await confirmVoice({ tone: "Bold" });
+    expect(upsertBrandContext).not.toHaveBeenCalled();
   });
 });

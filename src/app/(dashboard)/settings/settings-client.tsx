@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -226,6 +227,25 @@ export function SettingsClient({ user }: SettingsClientProps) {
               Update password
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Product tour */}
+      <Card>
+        <CardContent className="p-6">
+          <h2 className="mb-1 font-display text-lg font-bold text-foreground">
+            Product tour
+          </h2>
+          <p className="mb-4 text-sm text-[var(--text-secondary)]">
+            Replay the guided tour of KO OS.
+          </p>
+          <Button
+            render={<Link href="/dashboard?tour=1" />}
+            variant="secondary"
+            size="lg"
+          >
+            Replay Tour
+          </Button>
         </CardContent>
       </Card>
     </div>

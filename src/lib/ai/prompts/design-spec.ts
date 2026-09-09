@@ -1,6 +1,29 @@
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import type { DesignContext } from "@/lib/design/context";
 import { DESIGN_LAYOUTS, type DesignSpec } from "@/lib/design/spec";
 import { type BrandSummary, brandBlock } from "./strategy";
+
+/**
+ * The brand's saved colours, most important first.
+ *
+ * Values pass through verbatim rather than via normalizeHex: the
+ * conversational onboarding path legitimately stores names ("forest green"),
+ * and a name still steers the art director, which answers with a real hex in
+ * `palette`. Hex-filtering here would drop exactly what that path produces.
+ * Sliced defensively — additional_colors is a bare text[] with no DB cap.
+ */
+export function brandPalette(b: BrandSummary): string {
+  const colors = [
+    b.primaryColor,
+    b.secondaryColor,
+    ...(b.additionalColors ?? []).slice(0, MAX_ADDITIONAL_COLORS),
+  ]
+    .map((c) => c?.trim())
+    .filter((c): c is string => !!c);
+  return colors.length === 0
+    ? ""
+    : `\nBrand colours, most important first: ${colors.join(", ")}`;
+}
 
 /** Keeps typography clear of the busiest part of the plate, per layout. */
 function deadZoneFor(layout: DesignSpec["layout"]): string {
@@ -40,9 +63,9 @@ Return a structured design spec. Rules that matter:
 - Copy must be short enough to read at a glance on a phone. Headlines are a few words, not a sentence.
 - "backgroundPrompt" describes a background image ONLY. It must never ask for text, letters, numbers, words, logos, watermarks, or user interface. The typography is drawn separately and will collide with any lettering the image contains.
 - "nativePrompt" is the opposite: it describes the COMPLETE finished design for a model that can render text. Quote the exact copy in double quotes, name the colours, and describe the layout in plain English.
-- "palette" should be drawn from the brand's colours. Ensure the foreground reads clearly against the background.
+- "palette" must be drawn from the brand colours listed below, as hex values — the primary colour leads unless the brief argues otherwise. A colour given by name rather than as a hex is still the brand's colour: convert it. If no brand colours are listed, choose a palette that fits the brand's visual style. Ensure the foreground reads clearly against the background.
 
-${brandBlock(brand)}`;
+${brandBlock(brand)}${brandPalette(brand)}`;
 }
 
 export function buildDesignSpecPrompt(context: DesignContext): string {

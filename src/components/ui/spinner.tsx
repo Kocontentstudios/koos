@@ -1,30 +1,18 @@
+import { Loader2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Inline loading spinner matching the koos auth-screen design.
- * Use inside buttons to signal an in-flight action.
+ * Inline loading spinner. Signals an in-flight action.
+ *
+ * Backed by the same `Loader2Icon` the Button component uses, so every spinner
+ * in the product is one shape — this previously rendered a hand-rolled SVG,
+ * which meant auth screens and dashboard buttons span differently.
  */
 export function Spinner({ className }: { className?: string }) {
   return (
-    <svg
+    <Loader2Icon
       aria-hidden="true"
-      className={cn("h-4 w-4 animate-spin", className)}
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-        fill="currentColor"
-      />
-    </svg>
+      className={cn("size-4 animate-spin", className)}
+    />
   );
 }

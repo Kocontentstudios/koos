@@ -15,9 +15,15 @@ import {
   updateDesignGeneration,
 } from "@/lib/db/queries";
 import type { DesignContext } from "@/lib/design/context";
+import { readPngDimensions } from "@/lib/design/png-dimensions";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
-import { getObjectBytes, STORAGE_PREFIXES, uploadObject } from "@/lib/storage";
+import {
+  getObjectBytes,
+  STORAGE_PREFIXES,
+  storageKeyFrom,
+  uploadObject,
+} from "@/lib/storage";
 import type { JobRuntime } from "./run-generation";
 
 /** Bedrock's 4096 default truncates structured output mid-JSON, which surfaces
@@ -30,26 +36,43 @@ interface DesignVariant {
   adapter: ImageAdapter;
 }
 
-async function loadLogoBytes(
+/** Fetches one reference image, from R2 by key where possible. */
+async function loadImageBytes(
   logoUrl: string | null,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   if (!logoUrl) return null;
   try {
-    const base = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
-    if (base && logoUrl.startsWith(base)) {
-      const bytes = await getObjectBytes(logoUrl.slice(base.length + 1));
-      return { bytes: new Uint8Array(bytes), contentType: "image/png" };
-    }
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return null;
-    return {
-      bytes: new Uint8Array(await res.arrayBuffer()),
-      contentType: res.headers.get("content-type") ?? "image/png",
-    };
+    /* Our own storage only, and no arbitrary fetch fallback.
+       logo_url and an attached asset's file_url are both user-writable, and
+       this runs server-side inside a job — following whatever they contain
+       would let a brand aim the renderer at a link-local metadata endpoint or
+       any internal host and use the reply as a reference image.
+       Every URL that legitimately reaches here was minted by publicUrl. */
+    const key = storageKeyFrom(logoUrl, [
+      STORAGE_PREFIXES.logos,
+      STORAGE_PREFIXES.referenceImages,
+    ]);
+    if (!key) return null;
+    const bytes = await getObjectBytes(key);
+    return { bytes: new Uint8Array(bytes), contentType: "image/png" };
   } catch {
-    // A missing logo degrades the design; it must never fail the generation.
+    // A missing image degrades the design; it must never fail the generation.
     return null;
   }
+}
+
+/** Brand logo first, then whatever the user attached, skipping any that fail. */
+async function loadReferenceImages(
+  logoUrl: string | null,
+  attachedUrls: string[],
+): Promise<{ bytes: Uint8Array; contentType: string }[]> {
+  const loaded = await Promise.all(
+    [logoUrl, ...attachedUrls].map((url) => loadImageBytes(url)),
+  );
+  return loaded.filter(
+    (image): image is { bytes: Uint8Array; contentType: string } =>
+      image !== null,
+  );
 }
 
 function planVariants(): {
@@ -66,11 +89,16 @@ function planVariants(): {
   return plan;
 }
 
-async function renderVariant(
+/* Exported for the test that pins the native size read — the wiring is the
+   only place readPngDimensions takes effect, and it is invisible from the
+   outside once a row is written. */
+export async function renderVariant(
   variant: DesignVariant,
   spec: DesignSpec,
   context: DesignContext,
   logo: { bytes: Uint8Array; contentType: string } | null,
+  /** Logo plus anything the user attached, for models that accept them. */
+  references: { bytes: Uint8Array; contentType: string }[],
 ): Promise<{ bytes: Uint8Array; width?: number; height?: number }> {
   if (variant.renderer === "composite") {
     // A failed plate still yields a design: the layout falls back to a flat
@@ -104,11 +132,20 @@ async function renderVariant(
       Boolean(logo) && variant.adapter.supportsReferenceImages,
     ),
     aspectRatio: spec.aspectRatio,
-    ...(logo && variant.adapter.supportsReferenceImages
-      ? { referenceImages: [logo] }
+    ...(references.length > 0 && variant.adapter.supportsReferenceImages
+      ? { referenceImages: references }
       : {}),
   });
-  return { bytes: image.bytes };
+  /* The model sized this one, so the size comes from the file rather than
+     from us. Without it these rows store null and every surface guesses — so
+     a failed read is logged rather than silently restoring that state. */
+  const size = readPngDimensions(image.bytes);
+  if (!size) {
+    console.warn(
+      `native image from ${variant.adapter.id} had no readable PNG size (${image.contentType}); storing without dimensions`,
+    );
+  }
+  return { bytes: image.bytes, ...(size ?? {}) };
 }
 
 /**
@@ -155,6 +192,9 @@ export async function generateDesignWork(
       source: context.source,
       briefId: context.briefId,
       calendarItemId: context.calendarItemId,
+      // The source enum records one primary reference; this is the full list
+      // the user actually attached.
+      attachments: context.attachments,
       designType: context.designType,
       spec,
       renderer: entry.renderer,
@@ -171,7 +211,13 @@ export async function generateDesignWork(
     label: `Rendering ${variants.length} version${variants.length === 1 ? "" : "s"}…`,
   });
 
-  const logo = await loadLogoBytes(context.brand.logoUrl ?? null);
+  const references = await loadReferenceImages(
+    context.brand.logoUrl ?? null,
+    context.referenceUrls,
+  );
+  // The first reference is the logo when there is one, which the composite
+  // renderer overlays directly rather than handing to the model.
+  const logo = context.brand.logoUrl ? (references[0] ?? null) : null;
   const succeeded: string[] = [];
   const failed: string[] = [];
   let done = 1;
@@ -179,7 +225,13 @@ export async function generateDesignWork(
   await Promise.all(
     variants.map(async (variant) => {
       try {
-        const rendered = await renderVariant(variant, spec, context, logo);
+        const rendered = await renderVariant(
+          variant,
+          spec,
+          context,
+          logo,
+          references,
+        );
         const key = `${STORAGE_PREFIXES.generated}/${context.brand.id}/${crypto.randomUUID()}.png`;
         await uploadObject({
           key,

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
+
 /* ──────────────────────────────────────────────────────────────────────────
    Dropdown option sets — labels are the SOURCE OF TRUTH from the
    KO OS Brand Onboarding Form spec (koos_complete). These are stored verbatim
@@ -44,6 +46,9 @@ export const primaryGoalOptions = [
   "App Installs / Signups",
 ] as const;
 
+/* Appended, never renamed: brandStyle is stored verbatim as text and read back
+   through splitOther, so renaming an option drops every brand already saved
+   under the old label into the free-text "Other" box. */
 export const brandStyleOptions = [
   "Minimalist",
   "Bold & Vibrant",
@@ -51,6 +56,20 @@ export const brandStyleOptions = [
   "Streetwear / Urban",
   "Luxury / Premium",
   "Playful / Fun",
+  "Editorial",
+  "Modern Tech",
+  OTHER_OPTION,
+] as const;
+
+/** Typography direction. Named styles rather than families: the renderer ships
+ *  three fixed faces, so this steers art direction, not font loading. */
+export const brandFontOptions = [
+  "Modern sans-serif",
+  "Classic serif",
+  "Geometric / technical",
+  "Editorial / high-contrast",
+  "Rounded / friendly",
+  "Handwritten / script",
   OTHER_OPTION,
 ] as const;
 
@@ -61,6 +80,7 @@ export const platformOptions = [
   "LinkedIn",
   "YouTube",
   "Facebook",
+  "Email / Newsletter",
   "Other",
 ] as const;
 
@@ -71,9 +91,12 @@ export const primaryPlatformOptions = [
   "LinkedIn",
   "YouTube",
   "Facebook",
+  "Email / Newsletter",
 ] as const;
 
 export const postingFrequencyOptions = [
+  "1–2x / week",
+  "3–4x / week",
   "3x / week",
   "5x / week",
   "Daily",
@@ -101,9 +124,19 @@ export const brandProfileSchema = z.object({
   hasLogo: z.boolean().optional(),
   primaryColor: z.string().optional().or(z.literal("")),
   secondaryColor: z.string().optional().or(z.literal("")),
-  additionalColors: z.array(z.string()).optional(),
+  /* Cap here, not just in the picker: a client-only limit is not a limit.
+     No hex rule on any colour field — the conversational path stores colour
+     names (parseAdditionalColors never validates, and the AI confirm path
+     writes through it), so validating would make an existing brand un-saveable
+     the next time its owner opens this form. paletteSwatches already labels a
+     non-hex value instead of painting it. */
+  additionalColors: z.array(z.string()).max(MAX_ADDITIONAL_COLORS).optional(),
   logoUrl: z.string().optional().or(z.literal("")),
   brandStyle: optionalText,
+  brandFont: optionalText,
+  brandFontUrl: optionalText,
+  bodyFontUrl: optionalText,
+  additionalColorLabels: z.array(z.string()).optional(),
   // Section 5 — Competitors
   competitors: optionalText,
   competitorStrengths: optionalText,
@@ -114,6 +147,7 @@ export const brandProfileSchema = z.object({
   postingFrequency: optionalText,
   // Section 7 — Anything Else
   additionalNotes: optionalText,
+  websiteUrl: optionalText,
   helpfulLinks: optionalText,
 });
 

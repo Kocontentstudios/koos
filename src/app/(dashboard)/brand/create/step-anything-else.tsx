@@ -23,10 +23,20 @@ export function StepAnythingElse({ state, onChange }: StepProps) {
         />
       </Field>
 
+      <Field label="Website" htmlFor="website-url">
+        <Input
+          id="website-url"
+          type="url"
+          placeholder="https://yourbrand.com"
+          value={state.websiteUrl}
+          onChange={(e) => onChange({ websiteUrl: e.target.value })}
+        />
+      </Field>
+
       <Field label="Helpful Links" htmlFor="helpful-links">
         <Input
           id="helpful-links"
-          placeholder="Website, Drive folder, socials — comma-separated"
+          placeholder="Drive folder, socials, press — comma-separated"
           value={state.helpfulLinks}
           onChange={(e) => onChange({ helpfulLinks: e.target.value })}
         />

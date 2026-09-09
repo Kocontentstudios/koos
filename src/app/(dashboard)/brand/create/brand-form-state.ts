@@ -25,9 +25,12 @@ export interface CreateBrandState {
   hasLogo: string; // "", "Yes", "No"
   brandStyle: string;
   brandStyleOther: string;
+  brandFont: string;
+  brandFontOther: string;
   primaryColor: string;
   secondaryColor: string;
   additionalColors: string[];
+  additionalColorLabels: string[];
   logoUrl: string;
   // Section 5 — Competitors
   competitors: string;
@@ -41,6 +44,7 @@ export interface CreateBrandState {
   postingFrequencyOther: string;
   // Section 7 — Anything Else
   additionalNotes: string;
+  websiteUrl: string;
   helpfulLinks: string;
 }
 
@@ -62,9 +66,16 @@ export const DEFAULT_STATE: CreateBrandState = {
   hasLogo: "",
   brandStyle: "",
   brandStyleOther: "",
-  primaryColor: "#138BC8",
-  secondaryColor: "#FFFFFF",
+  brandFont: "",
+  brandFontOther: "",
+  /* Empty, not a seeded hex. step-visual renders the same swatch colour as its
+     display fallback, so pre-filling here only had the effect of saving brand
+     colours the user never chose — which then counted toward the profile
+     completion score for a step they never opened. */
+  primaryColor: "",
+  secondaryColor: "",
   additionalColors: [],
+  additionalColorLabels: [],
   logoUrl: "",
   competitors: "",
   competitorStrengths: "",
@@ -75,5 +86,6 @@ export const DEFAULT_STATE: CreateBrandState = {
   postingFrequency: "",
   postingFrequencyOther: "",
   additionalNotes: "",
+  websiteUrl: "",
   helpfulLinks: "",
 };

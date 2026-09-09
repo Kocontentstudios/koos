@@ -6,9 +6,11 @@ import { redirectToLogin } from "@/lib/auth/redirects";
 import { setActiveWorkspaceCookie } from "@/lib/auth/workspace";
 import {
   addWorkspaceMember,
+  getInvitationBrandIds,
   getInvitationByTokenHash,
   getWorkspaceOwner,
   markInvitationAccepted,
+  setMemberBrandAccess,
 } from "@/lib/db/queries";
 import { appUrl } from "@/lib/design/notify";
 import { sendMemberJoinedEmail } from "@/lib/notify/workspace";
@@ -26,6 +28,8 @@ export async function acceptInviteAction(formData: FormData) {
     {
       getInvitationByTokenHash: (hash) => getInvitationByTokenHash(hash),
       addWorkspaceMember,
+      getInvitationBrandIds,
+      setMemberBrandAccess,
       markInvitationAccepted,
       notifyOwnerMemberJoined: async (args) => {
         // Look up the workspace owner's email for the joined notification.
@@ -53,7 +57,13 @@ export async function acceptInviteAction(formData: FormData) {
     },
   );
 
-  if (!result.ok) redirect(`/invite/${encodeURIComponent(token)}`); // page re-renders the error state
+  if (!result.ok) {
+    /* "no-brands" leaves the invitation valid and pending, so the page would
+       otherwise render the accept form again and loop. Carry the reason so it
+       can explain itself. */
+    const query = result.reason === "no-brands" ? "?error=no-brands" : "";
+    redirect(`/invite/${encodeURIComponent(token)}${query}`);
+  }
   await setActiveWorkspaceCookie(result.workspaceId);
   redirect("/dashboard");
 }

@@ -6,12 +6,11 @@ import {
   TicketUpdatesTimeline,
   type TimelineUpdate,
 } from "@/app/(dashboard)/design-request/ticket-updates-timeline";
-import { AnnotationOverlay } from "@/components/design/annotation-overlay";
+import { AnnotationRounds } from "@/components/design/annotation-rounds";
 import { TicketRequestDetails } from "@/components/design/ticket-request-details";
 import { Markdown } from "@/components/ui/markdown";
 import { requireRole } from "@/lib/auth/require-role";
 import {
-  type AnnotationShape,
   getAnnotationsForTicket,
   getBrandById,
   getDeliverables,
@@ -19,11 +18,7 @@ import {
   getStaffUsers,
   getTicketUpdates,
 } from "@/lib/db/queries";
-import {
-  formatTicketNumber,
-  groupDeliverablesByVersion,
-  latestVersion,
-} from "@/lib/design/ticket";
+import { formatTicketNumber, latestVersion } from "@/lib/design/ticket";
 import type { TicketStatus } from "@/lib/design/tickets-ui";
 import { ManagePanel, type StaffOption } from "./manage-panel";
 import { UpdateComposer } from "./update-composer";
@@ -57,22 +52,7 @@ export default async function AdminTicketDetailPage({
       getAnnotationsForTicket(ticket.id),
     ]);
 
-  const annotationsByDeliverable = new Map<
-    string,
-    { shapes: AnnotationShape[]; note: string | null }[]
-  >();
-  for (const row of annotationRows) {
-    const existing = annotationsByDeliverable.get(row.deliverableId) ?? [];
-    existing.push({ shapes: row.shapes, note: row.note });
-    annotationsByDeliverable.set(row.deliverableId, existing);
-  }
-
-  // Feedback is grouped per delivery round so addressed rounds don't read as
-  // outstanding work sitting next to the current round's notes.
   const currentVersion = latestVersion(deliverables);
-  const annotatedRounds = groupDeliverablesByVersion(
-    deliverables.filter((d) => annotationsByDeliverable.has(d.id)),
-  );
 
   const updates: TimelineUpdate[] = updateRows.map((r) => ({
     id: r.update.id,
@@ -138,64 +118,13 @@ export default async function AdminTicketDetailPage({
 
       <TicketRequestDetails ticketId={ticket.id} specs={ticket.specs} />
 
-      {annotatedRounds.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-[15px] font-semibold text-foreground">
-            Reviewer annotations
-          </h2>
-          {annotatedRounds.map((round) => {
-            const addressed = round.version !== currentVersion;
-            const files = round.items.map((d) => {
-              const marks = annotationsByDeliverable.get(d.id) ?? [];
-              return {
-                id: d.id,
-                fileName: d.fileName,
-                shapes: marks.flatMap((m) => m.shapes),
-                notes: marks
-                  .map((m) => m.note)
-                  .filter((note): note is string => Boolean(note?.trim())),
-              };
-            });
-            return (
-              <details
-                key={round.version}
-                open={!addressed}
-                className="rounded-xl border border-[var(--border)] bg-surface-1 p-4"
-              >
-                <summary className="cursor-pointer text-[13px] font-semibold text-foreground">
-                  Round {round.version} feedback
-                  {addressed && (
-                    <span className="ml-2 font-normal text-[var(--text-muted)]">
-                      — addressed in v{currentVersion}
-                    </span>
-                  )}
-                </summary>
-                <div className="mt-3 space-y-4">
-                  {files.map((f) => (
-                    <div key={f.id} className="space-y-2">
-                      <p className="text-[13px] font-medium text-[var(--text-secondary)]">
-                        {f.fileName}
-                      </p>
-                      <AnnotationOverlay
-                        imageUrl={`/api/design-tickets/${ticket.id}/deliverables/${f.id}?disposition=inline`}
-                        shapes={f.shapes}
-                      />
-                      {f.notes.length > 0 && (
-                        <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)]">
-                          {f.notes.map((note, index) => (
-                            // biome-ignore lint/suspicious/noArrayIndexKey: notes are a static, read-only snapshot with no stable id
-                            <li key={index}>{note}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            );
-          })}
-        </section>
-      )}
+      <AnnotationRounds
+        ticketId={ticket.id}
+        deliverables={deliverables}
+        annotations={annotationRows}
+        currentVersion={currentVersion}
+        title="Reviewer annotations"
+      />
 
       {isAdmin && (
         <section className="space-y-3">

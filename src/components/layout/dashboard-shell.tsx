@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import { can } from "@/lib/auth/workspace-access";
 import { cn } from "@/lib/utils";
 import { AppSidebar } from "./app-sidebar";
 import { SidebarCollapseProvider, useSidebarCollapse } from "./sidebar-context";
@@ -66,13 +67,15 @@ function ShellInner({
         )}
       >
         <TopHeader user={user}>
-          <Link
-            href="/brand/create"
-            className="flex h-9 items-center gap-2 rounded-[10px] bg-primary px-3 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-[var(--primary-hover)]"
-          >
-            <Plus size={16} />
-            <span className="hidden sm:inline">Create Brand</span>
-          </Link>
+          {can(workspace.role, "create_brand") && (
+            <Link
+              href="/brand/create"
+              className="flex h-9 items-center gap-2 rounded-[10px] bg-primary px-3 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-[var(--primary-hover)]"
+            >
+              <Plus size={16} />
+              <span className="hidden sm:inline">Create Brand</span>
+            </Link>
+          )}
         </TopHeader>
         <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
           {children}

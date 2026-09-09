@@ -2,21 +2,27 @@ import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
 import { getActiveBrandForMember } from "@/lib/db/queries";
 import { OnboardingClient } from "./onboarding-client";
+import { OnboardingStart } from "./onboarding-start";
 
 export default async function BrandOnboardingPage() {
   const { dbUser } = await getAuthUser();
   if (!dbUser) redirectToLogin();
 
-  const { workspace } = await getActiveWorkspace();
+  const { workspace, role } = await getActiveWorkspace();
   const brand = workspace
     ? await getActiveBrandForMember(workspace.id, dbUser.id)
     : null;
   // Unlike /brand, onboarding is the tool for filling in a brand that
-  // doesn't exist yet or is still incomplete — only bail when there's no
-  // brand row at all, not when it's a draft.
-  if (!brand) redirect("/brand/create");
+  // doesn't exist yet or is still incomplete, so a draft is fine here. With
+  // no brand row at all we offer to mint one rather than bouncing to the
+  // manual form — this page is where a brand-new user is meant to land.
+  if (!brand) {
+    if (!role || !can(role, "create_brand")) redirect("/no-brands");
+    return <OnboardingStart />;
+  }
 
   const brandContext = {
     brandProfile: [

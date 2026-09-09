@@ -11,6 +11,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { MAIN_NAV } from "@/lib/nav";
+import { NAV_TOUR_ANCHORS, TOUR_ANCHORS } from "@/lib/tour/anchors";
 import { cn } from "@/lib/utils";
 import { LogoutForm } from "./logout-form";
 import { useSidebarCollapse } from "./sidebar-context";
@@ -117,6 +118,7 @@ export function AppSidebar({
               <Link
                 key={item.href}
                 href={item.href}
+                data-tour={NAV_TOUR_ANCHORS[item.href]}
                 onClick={closeMobile}
                 aria-current={isActive ? "page" : undefined}
                 title={collapsed ? item.title : undefined}
@@ -139,6 +141,7 @@ export function AppSidebar({
         <div className="border-t border-[var(--nav-border)] px-3 py-3">
           <Link
             href="/settings"
+            data-tour={TOUR_ANCHORS.navSettings}
             onClick={closeMobile}
             title={collapsed ? "Settings" : undefined}
             className={cn(rowBase, rowPad, rowIdle)}

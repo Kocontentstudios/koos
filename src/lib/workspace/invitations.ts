@@ -1,3 +1,10 @@
+import {
+  type BrandScope,
+  evaluateInvite,
+  ROLE_LABELS,
+  resolveBrandScope,
+  type WorkspaceRole,
+} from "@/lib/auth/workspace-access";
 import { isValidEmail } from "@/lib/validation/email";
 import {
   generateInviteToken,
@@ -14,6 +21,7 @@ interface InviteEmailArgs {
   acceptUrl: string;
   workspaceName: string;
   inviterName: string;
+  roleLabel: string;
 }
 
 export interface CreateInviteDeps {
@@ -29,17 +37,29 @@ export interface CreateInviteDeps {
   createWorkspaceInvitation(input: {
     workspaceId: string;
     email: string;
+    role: WorkspaceRole;
+    brandScope: BrandScope;
     tokenHash: string;
     invitedById: string;
     expiresAt: Date;
+    brandIds: string[];
   }): Promise<{ id: string }>;
+  /** Narrows the requested brand ids to ones that really are in this
+      workspace, so a forged id can never become an assignment. */
+  filterWorkspaceBrandIds(
+    workspaceId: string,
+    brandIds: string[],
+  ): Promise<string[]>;
   sendInviteEmail(args: InviteEmailArgs): Promise<void>;
   buildAcceptUrl(token: string): string;
+  /** True when the send was abandoned at a deadline, so its outcome is
+      unknown and the token must not be rolled back. */
+  wasAbandoned?(err: unknown): boolean;
 }
 
 export type CreateInviteResult =
   | { ok: true; invitationId: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status: 400 | 403 };
 
 export async function createInvitation(
   deps: CreateInviteDeps,
@@ -49,11 +69,37 @@ export async function createInvitation(
     inviterName: string;
     invitedById: string;
     email: string;
+    role: WorkspaceRole;
+    brandIds: string[];
+    inviter: {
+      role: WorkspaceRole;
+      brandScope: BrandScope;
+      assignedBrandIds: string[];
+    };
   },
 ): Promise<CreateInviteResult> {
   const email = input.email.trim();
   if (!isValidEmail(email)) {
-    return { ok: false, error: "Enter a valid email address." };
+    return { ok: false, error: "Enter a valid email address.", status: 400 };
+  }
+
+  /* Every id is confirmed to belong to this workspace BEFORE the permission
+     check, so "is this brand mine to share?" is decided on real rows. An id
+     from another workspace drops out here and then fails the subset rule. */
+  const brandIds = await deps.filterWorkspaceBrandIds(
+    input.workspaceId,
+    input.brandIds,
+  );
+
+  const permitted = evaluateInvite({
+    actorRole: input.inviter.role,
+    actorBrandScope: input.inviter.brandScope,
+    actorAssignedBrandIds: input.inviter.assignedBrandIds,
+    invitedRole: input.role,
+    brandIds,
+  });
+  if (!permitted.ok) {
+    return { ok: false, error: permitted.error, status: permitted.status };
   }
 
   const existingUser = await deps.getUserByEmail(email);
@@ -66,6 +112,7 @@ export async function createInvitation(
       return {
         ok: false,
         error: "This person is already a member of this workspace.",
+        status: 400,
       };
     }
   }
@@ -75,22 +122,31 @@ export async function createInvitation(
       ok: false,
       error:
         "This email has already been invited — use Resend from the Pending tab.",
+      status: 400,
     };
   }
 
+  const brandScope = resolveBrandScope(
+    input.role,
+    brandIds.length > 0 ? "assigned" : null,
+  );
   const { token, tokenHash } = generateInviteToken();
   const invitation = await deps.createWorkspaceInvitation({
     workspaceId: input.workspaceId,
     email,
+    role: input.role,
+    brandScope,
     tokenHash,
     invitedById: input.invitedById,
     expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+    brandIds: brandScope === "assigned" ? brandIds : [],
   });
   await deps.sendInviteEmail({
     to: email,
     acceptUrl: deps.buildAcceptUrl(token),
     workspaceName: input.workspaceName,
     inviterName: input.inviterName,
+    roleLabel: ROLE_LABELS[input.role],
   });
   return { ok: true, invitationId: invitation.id };
 }
@@ -100,7 +156,8 @@ interface InvitationRow {
   workspaceId: string;
   workspaceName: string;
   email: string;
-  role: "owner" | "member";
+  role: WorkspaceRole;
+  brandScope: BrandScope;
   expiresAt: Date;
   acceptedAt: Date | null;
 }
@@ -110,7 +167,14 @@ export interface AcceptInviteDeps {
   addWorkspaceMember(
     workspaceId: string,
     userId: string,
-    role: "owner" | "member",
+    role: WorkspaceRole,
+    brandScope: BrandScope,
+  ): Promise<void>;
+  getInvitationBrandIds(invitationId: string): Promise<string[]>;
+  setMemberBrandAccess(
+    workspaceId: string,
+    userId: string,
+    brandIds: string[],
   ): Promise<void>;
   markInvitationAccepted(id: string): Promise<void>;
   notifyOwnerMemberJoined(args: {
@@ -123,7 +187,10 @@ export interface AcceptInviteDeps {
 
 export type AcceptInviteResult =
   | { ok: true; workspaceId: string; workspaceName: string }
-  | { ok: false; reason: "invalid" | "expired" | "email-mismatch" };
+  | {
+      ok: false;
+      reason: "invalid" | "expired" | "email-mismatch" | "no-brands";
+    };
 
 export async function acceptInvitation(
   deps: AcceptInviteDeps,
@@ -145,10 +212,38 @@ export async function acceptInvitation(
     return { ok: false, reason: "email-mismatch" };
   }
 
+  /* Re-read the grants BEFORE joining anyone. workspace_invitation_brands
+     cascades from brands, so every granted brand may have been deleted since
+     the invite was sent; joining then produces a member who reaches nothing
+     and is told nothing. Refuse instead, leaving the invite intact so it can
+     be re-issued against a live brand. */
+  const brandIds =
+    invite.brandScope === "assigned"
+      ? await deps.getInvitationBrandIds(invite.id)
+      : [];
+  if (invite.brandScope === "assigned" && brandIds.length === 0) {
+    return { ok: false, reason: "no-brands" };
+  }
+
   // Membership BEFORE burning the invite: a crash in between leaves a
   // re-acceptable invite (addWorkspaceMember is idempotent), never a burned
   // invite without a membership.
-  await deps.addWorkspaceMember(invite.workspaceId, input.user.id, invite.role);
+  await deps.addWorkspaceMember(
+    invite.workspaceId,
+    input.user.id,
+    invite.role,
+    invite.brandScope,
+  );
+  /* Assignments before the burn too, for the same reason: a scoped member
+     with no assignments can reach nothing, so a crash here must leave the
+     invite replayable rather than stranding them. */
+  if (invite.brandScope === "assigned") {
+    await deps.setMemberBrandAccess(
+      invite.workspaceId,
+      input.user.id,
+      brandIds,
+    );
+  }
   await deps.markInvitationAccepted(invite.id);
 
   try {
@@ -170,9 +265,13 @@ export async function acceptInvitation(
 }
 
 export interface ResendInviteDeps {
+  /* tokenHash is needed to put the previous token back if the resend's send
+     fails after the rotation has already landed. */
   getInvitationById(
     id: string,
-  ): Promise<Omit<InvitationRow, "workspaceName"> | null>;
+  ): Promise<
+    (Omit<InvitationRow, "workspaceName"> & { tokenHash: string }) | null
+  >;
   rotateInvitationToken(
     id: string,
     tokenHash: string,
@@ -180,6 +279,9 @@ export interface ResendInviteDeps {
   ): Promise<void>;
   sendInviteEmail(args: InviteEmailArgs): Promise<void>;
   buildAcceptUrl(token: string): string;
+  /** True when the send was abandoned at a deadline, so its outcome is
+      unknown and the token must not be rolled back. */
+  wasAbandoned?(err: unknown): boolean;
 }
 
 export async function resendInvitation(
@@ -205,11 +307,35 @@ export async function resendInvitation(
     tokenHash,
     new Date(Date.now() + INVITE_TTL_MS),
   );
-  await deps.sendInviteEmail({
-    to: invite.email,
-    acceptUrl: deps.buildAcceptUrl(token),
-    workspaceName: input.workspaceName,
-    inviterName: input.inviterName,
-  });
+  try {
+    await deps.sendInviteEmail({
+      to: invite.email,
+      acceptUrl: deps.buildAcceptUrl(token),
+      workspaceName: input.workspaceName,
+      inviterName: input.inviterName,
+      roleLabel: ROLE_LABELS[invite.role],
+    });
+  } catch (err) {
+    /* Rotation happens first so the link in the new mail is live on arrival,
+       which means a failed send would otherwise kill the working link the
+       invitee already has and replace it with one that was never delivered.
+       Putting the previous token back leaves them no worse off than before.
+       NOT for an abandoned send: the deadline gives up without aborting the
+       socket, so the mail may still arrive carrying the NEW token — restoring
+       the old hash would invalidate a link that was actually delivered. */
+    if (deps.wasAbandoned?.(err)) throw err;
+    await deps
+      .rotateInvitationToken(invite.id, invite.tokenHash, invite.expiresAt)
+      .catch((restoreErr) => {
+        /* Both writes failed, so the invitee's old link is gone and the new
+           one was never delivered. Nothing downstream can detect that, so it
+           has to be said here or it is lost entirely. */
+        console.error(
+          `invitation ${invite.id}: resend failed AND the previous token could not be restored — the invitee now has no working link`,
+          restoreErr,
+        );
+      });
+    throw err;
+  }
   return { ok: true };
 }

@@ -1,13 +1,15 @@
 "use client";
 
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight, Info, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { saveBrandProfile } from "@/app/(dashboard)/brand/actions";
 import { Button } from "@/components/ui/button";
+import type { BrandSnapshotFields } from "@/lib/brand-snapshot";
 import { OTHER_OPTION } from "../brand-profile-form";
+import { BrandSnapshotCard } from "../brand-snapshot-card";
 import {
   type CreateBrandState,
   DEFAULT_STATE,
@@ -98,6 +100,7 @@ export function CreateBrandForm({
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [snapshot, setSnapshot] = useState<BrandSnapshotFields | null>(null);
   const [state, setState] = useState<CreateBrandState>(
     initialBrand ?? DEFAULT_STATE,
   );
@@ -198,6 +201,7 @@ export function CreateBrandForm({
       primaryColor: state.primaryColor || undefined,
       secondaryColor: state.secondaryColor || undefined,
       additionalColors: state.additionalColors,
+      additionalColorLabels: state.additionalColorLabels,
       logoUrl: state.logoUrl || undefined,
       competitors: state.competitors.trim() || undefined,
       competitorStrengths: state.competitorStrengths.trim() || undefined,
@@ -210,6 +214,7 @@ export function CreateBrandForm({
         "Custom",
       ),
       additionalNotes: state.additionalNotes.trim() || undefined,
+      websiteUrl: state.websiteUrl.trim() || undefined,
       helpfulLinks: state.helpfulLinks.trim() || undefined,
     };
   }
@@ -229,11 +234,24 @@ export function CreateBrandForm({
         } catch {
           // Ignore
         }
-        router.push(isEditing ? "/brand" : "/strategy");
+        /* Editing an existing brand goes straight back to the profile — the
+           snapshot is a first-completion moment, not a save confirmation. */
+        if (isEditing) {
+          router.push("/brand");
+        } else {
+          router.refresh();
+          setSnapshot(res.snapshot);
+        }
       } else {
         toast.error(res.error);
       }
     });
+  }
+
+  /* Replaces the wizard once the profile is created, so the user lands on the
+     summary rather than being dropped straight into /strategy. */
+  if (snapshot) {
+    return <BrandSnapshotCard brand={snapshot} />;
   }
 
   const meta = STEPS[step];
@@ -243,12 +261,19 @@ export function CreateBrandForm({
     <div className="w-full px-4 py-8 md:px-6 lg:px-8">
       {/* Welcome banner — first step only */}
       {step === 0 && (
-        <div className="mb-6 flex items-center gap-2.5 rounded-xl border border-[var(--border)] bg-surface-2 px-4 py-3 text-[13px] text-[var(--text-secondary)]">
+        <div className="mb-6 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-xl border border-[var(--border)] bg-surface-2 px-4 py-3 text-[13px] text-[var(--text-secondary)]">
           <Info className="size-4 shrink-0 text-primary" aria-hidden="true" />
           <span>
             Welcome! Let&apos;s set up your brand first. This helps us create
             better strategies for you.
           </span>
+          <Link
+            href="/brand/onboarding"
+            className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2 hover:text-primary"
+          >
+            <Sparkles aria-hidden="true" className="size-3.5" />
+            Or let KO ask you instead
+          </Link>
         </div>
       )}
 

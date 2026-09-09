@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -11,6 +12,8 @@ import {
   ne,
   sql,
 } from "drizzle-orm";
+import { DEFAULT_SCOPE } from "@/lib/admin/scope-params";
+import { brandGuideSchema } from "@/lib/ai/brand-guide";
 import { db } from "@/lib/db/client";
 import type { brandContextSectionEnum } from "@/lib/db/schema";
 import {
@@ -40,6 +43,9 @@ import {
   users,
   workspaces,
 } from "@/lib/db/schema";
+import { widenWindowGuard, widenWindowSet } from "@/lib/db/sql/calendar-window";
+import { deliveryPatchFor } from "@/lib/design/delivery";
+import { countAdminTickets, viewConditions } from "./admin-tickets";
 
 // ── Users ───────────────────────────────────────────────────────────
 
@@ -69,6 +75,30 @@ export async function updateUserProfile(
   const [updated] = await db
     .update(users)
     .set({ ...data, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return updated;
+}
+
+/**
+ * Product-tour state, deliberately separate from updateUserProfile: that helper
+ * is the user-editable profile surface, and tour state is not profile data.
+ */
+export async function setUserTourCompletedAt(id: string, at: Date | null) {
+  const [updated] = await db
+    .update(users)
+    .set({ tourCompletedAt: at, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return updated;
+}
+
+/** First-run welcome state. Separate from the tour for the same reason the
+ *  tour is separate from updateUserProfile: it is lifecycle, not profile. */
+export async function setUserWelcomeSeenAt(id: string, at: Date | null) {
+  const [updated] = await db
+    .update(users)
+    .set({ welcomeSeenAt: at, updatedAt: new Date() })
     .where(eq(users.id, id))
     .returning();
   return updated;
@@ -117,6 +147,9 @@ export async function getStaffUsers() {
       id: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
+      /* first_name is NOT NULL but may be empty, and a roster entry reading as
+         a UUID prefix identifies nobody. */
+      email: users.email,
       role: users.role,
     })
     .from(users)
@@ -252,9 +285,13 @@ export async function updateBrand(
       | "wordsAvoid"
       | "hasLogo"
       | "brandStyle"
+      | "brandFont"
+      | "brandFontUrl"
+      | "bodyFontUrl"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
+      | "additionalColorLabels"
       | "logoUrl"
       | "competitors"
       | "competitorStrengths"
@@ -262,6 +299,7 @@ export async function updateBrand(
       | "platforms"
       | "primaryPlatform"
       | "postingFrequency"
+      | "websiteUrl"
       | "additionalNotes"
       | "helpfulLinks"
     >
@@ -326,6 +364,16 @@ export async function addBrandAsset(data: typeof brandAssets.$inferInsert) {
 }
 
 // ── Brand Contexts ───────────────────────────────────────────────────
+
+/** The synthesized voice guide, or null when onboarding never produced one.
+ *  Shape-checked on read: it is model output stored as jsonb, and a malformed
+ *  row must not reach a prompt. */
+export async function getBrandVoiceGuide(brandId: string) {
+  const ctx = await getBrandContext(brandId, "brand_foundation");
+  const guide = (ctx?.dataJson as { guide?: unknown } | null)?.guide;
+  const parsed = brandGuideSchema.safeParse(guide);
+  return parsed.success ? parsed.data : null;
+}
 
 export async function getAllBrandContexts(brandId: string) {
   return db
@@ -434,11 +482,34 @@ export async function touchConversation(id: string) {
     .where(eq(chatConversations.id, id));
 }
 
+/**
+ * Automatic titling (the AI titler, and the campaign-name rename on strategy
+ * generation). The titleCustom predicate is part of the WHERE on purpose: a
+ * user rename and a background title write can race, and losing the user's
+ * title is the worse outcome. Returns whether a row was written.
+ */
 export async function updateConversationTitle(id: string, title: string) {
-  await db
+  const written = await db
     .update(chatConversations)
     .set({ title, updatedAt: new Date() })
-    .where(eq(chatConversations.id, id));
+    .where(
+      and(
+        eq(chatConversations.id, id),
+        eq(chatConversations.titleCustom, false),
+      ),
+    )
+    .returning({ id: chatConversations.id });
+  return written.length > 0;
+}
+
+/** A user-typed title. Locks the chat against every automatic title write. */
+export async function renameConversation(id: string, title: string) {
+  const [row] = await db
+    .update(chatConversations)
+    .set({ title, titleCustom: true, updatedAt: new Date() })
+    .where(eq(chatConversations.id, id))
+    .returning();
+  return row ?? null;
 }
 
 // ── Strategies ──────────────────────────────────────────────────────
@@ -455,6 +526,48 @@ export async function getStrategyById(id: string) {
     .where(eq(strategies.id, id))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The campaign card for a chat: its newest strategy that hasn't been
+ * superseded. Archived rows are earlier versions of the same campaign, kept
+ * for history but never shown on the card.
+ */
+export async function getLatestStrategyForConversation(conversationId: string) {
+  const [row] = await db
+    .select()
+    .from(strategies)
+    .where(
+      and(
+        eq(strategies.conversationId, conversationId),
+        ne(strategies.status, "archived"),
+      ),
+    )
+    .orderBy(desc(strategies.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Retire the chat's earlier strategy versions so exactly one campaign stands. */
+export async function archiveSupersededStrategies(
+  conversationId: string,
+  keepId: string,
+) {
+  // updatedAt is deliberately untouched: archiving is a lifecycle flag, not an
+  // edit. Bumping it would sort a superseded version above the campaign that
+  // superseded it wherever strategies are ordered by recency.
+  const archived = await db
+    .update(strategies)
+    .set({ status: "archived" })
+    .where(
+      and(
+        eq(strategies.conversationId, conversationId),
+        ne(strategies.id, keepId),
+        ne(strategies.status, "archived"),
+      ),
+    )
+    .returning({ id: strategies.id });
+  return archived.length;
 }
 
 export async function getStrategiesByBrand(brandId: string) {
@@ -514,6 +627,47 @@ export async function getCalendarsForBrand(brandId: string) {
     .orderBy(desc(calendars.createdAt));
 }
 
+/**
+ * Every calendar item on a brand, across ALL its calendars.
+ *
+ * The Design Studio picker used to read only the newest calendar, so a brief
+ * saved against any older one was unreachable from the picker and the user had
+ * to copy it by hand (KOOS-BUG-016). Each row carries its calendar so the
+ * picker can group by it.
+ *
+ * Ordered newest calendar first, then by the item's own date, so the grouping
+ * the picker renders is stable and the current campaign leads.
+ */
+export async function listCalendarItemsForBrand(brandId: string, limit = 500) {
+  return (
+    db
+      .select({
+        id: calendarItems.id,
+        title: calendarItems.title,
+        platform: calendarItems.platform,
+        date: calendarItems.date,
+        designRequired: calendarItems.designRequired,
+        calendarId: calendars.id,
+        calendarCreatedAt: calendars.createdAt,
+        calendarStart: calendars.startDate,
+        calendarEnd: calendars.endDate,
+        strategyName: strategies.name,
+      })
+      .from(calendarItems)
+      .innerJoin(calendars, eq(calendarItems.calendarId, calendars.id))
+      .innerJoin(strategies, eq(calendars.strategyId, strategies.id))
+      .where(eq(calendars.brandId, brandId))
+      /* asc(id) as a tiebreak: items sharing a date must not reshuffle between
+       requests, or the picker's order changes under the user. */
+      .orderBy(
+        desc(calendars.createdAt),
+        calendarItems.date,
+        asc(calendarItems.id),
+      )
+      .limit(limit)
+  );
+}
+
 export async function getCalendarById(id: string) {
   const [row] = await db
     .select()
@@ -529,6 +683,58 @@ export async function getCalendarItems(calendarId: string) {
     .from(calendarItems)
     .where(eq(calendarItems.calendarId, calendarId))
     .orderBy(calendarItems.date, calendarItems.sortOrder);
+}
+
+/** Insert one item (the manual-add path; generation bulk-inserts instead). */
+export async function createCalendarItem(
+  row: typeof calendarItems.$inferInsert,
+) {
+  const [created] = await db.insert(calendarItems).values(row).returning();
+  return created;
+}
+
+export async function deleteCalendarItem(id: string) {
+  const [row] = await db
+    .delete(calendarItems)
+    .where(eq(calendarItems.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Widen a calendar's date range so a newly placed item stays reachable.
+ *
+ * LEAST/GREATEST rather than a read-modify-write: two concurrent adds on
+ * either side of the range would otherwise both compute their new bound from
+ * the same stale read, and the second write would clobber the first — leaving
+ * one item outside the very window this exists to keep it inside. The WHERE
+ * guard makes an in-range date a no-op instead of a pointless UPDATE.
+ */
+export async function widenCalendarWindow(calendarId: string, date: Date) {
+  const [row] = await db
+    .update(calendars)
+    .set({ ...widenWindowSet(date), updatedAt: new Date() })
+    .where(and(eq(calendars.id, calendarId), widenWindowGuard(date)))
+    .returning();
+  return row ?? null;
+}
+
+/** Next free slot on a given day, so a new item lands after that day's items
+    rather than tying with the first one at sortOrder 0. */
+export async function nextSortOrderForDate(
+  calendarId: string,
+  date: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ max: sql<number | null>`max(${calendarItems.sortOrder})` })
+    .from(calendarItems)
+    .where(
+      and(
+        eq(calendarItems.calendarId, calendarId),
+        eq(calendarItems.date, date),
+      ),
+    );
+  return (row?.max ?? -1) + 1;
 }
 
 export async function updateCalendarItemStatus(
@@ -555,6 +761,8 @@ export async function updateCalendarItem(
       | "contentType"
       | "title"
       | "brief"
+      | "caption"
+      | "notes"
       | "designRequired"
       | "designType"
       | "dimensions"
@@ -592,6 +800,24 @@ export async function getCalendarItemById(id: string) {
   return row ?? null;
 }
 
+/**
+ * A calendar item together with the brand that owns it.
+ *
+ * calendar_items reaches its brand only through calendars, so a bare
+ * getCalendarItemById cannot be ownership-checked by the caller. Generation
+ * accepted an item id without ever tying it to the requested brand, which let
+ * one brand's item be read into another brand's design context.
+ */
+export async function getCalendarItemForBrand(id: string, brandId: string) {
+  const [row] = await db
+    .select({ item: calendarItems })
+    .from(calendarItems)
+    .innerJoin(calendars, eq(calendars.id, calendarItems.calendarId))
+    .where(and(eq(calendarItems.id, id), eq(calendars.brandId, brandId)))
+    .limit(1);
+  return row?.item ?? null;
+}
+
 // ── Design Briefs ───────────────────────────────────────────────────
 
 export async function createDesignBrief(
@@ -616,6 +842,16 @@ export async function listDesignBriefsForConversation(conversationId: string) {
     .from(designBriefs)
     .where(eq(designBriefs.conversationId, conversationId))
     .orderBy(designBriefs.createdAt);
+}
+
+/** Every brief for a brand, newest first — what the context picker searches. */
+export async function listDesignBriefsForBrand(brandId: string, limit = 50) {
+  return db
+    .select()
+    .from(designBriefs)
+    .where(eq(designBriefs.brandId, brandId))
+    .orderBy(desc(designBriefs.createdAt))
+    .limit(limit);
 }
 
 export async function updateDesignBrief(
@@ -678,9 +914,20 @@ export async function getDesignGenerationById(id: string) {
 
 export async function listDesignGenerationsForBrand(
   brandId: string,
-  opts: { limit?: number; briefId?: string; calendarItemId?: string } = {},
+  opts: {
+    limit?: number;
+    briefId?: string;
+    calendarItemId?: string;
+    /* Exact rows, for a caller that already knows which ones it wants. The
+       brand filter still applies, so an id belonging to another brand returns
+       nothing rather than leaking across brands. */
+    ids?: string[];
+  } = {},
 ) {
   const filters = [eq(designGenerations.brandId, brandId)];
+  if (opts.ids?.length) {
+    filters.push(inArray(designGenerations.id, opts.ids));
+  }
   if (opts.briefId) filters.push(eq(designGenerations.briefId, opts.briefId));
   if (opts.calendarItemId) {
     filters.push(eq(designGenerations.calendarItemId, opts.calendarItemId));
@@ -829,31 +1076,6 @@ export async function replaceTicketAttachments(
   return addTicketAttachments(rows);
 }
 
-const QUEUE_STATUSES = [
-  "submitted",
-  "assigned",
-  "in_progress",
-  "revision_requested",
-] as const;
-
-/** Open tickets for the designer/admin queue. */
-export async function getDesignerQueue() {
-  return db
-    .select({
-      ticket: designTickets,
-      campaignName: strategies.name,
-      itemTitle: calendarItems.title,
-      brandName: brands.name,
-    })
-    .from(designTickets)
-    .leftJoin(brands, eq(designTickets.brandId, brands.id))
-    .leftJoin(calendarItems, eq(designTickets.calendarItemId, calendarItems.id))
-    .leftJoin(calendars, eq(calendarItems.calendarId, calendars.id))
-    .leftJoin(strategies, eq(calendars.strategyId, strategies.id))
-    .where(inArray(designTickets.status, [...QUEUE_STATUSES]))
-    .orderBy(desc(designTickets.createdAt));
-}
-
 // ── Design Deliverables ─────────────────────────────────────────────
 
 /** Record a delivery round: insert the files under the next version number, move
@@ -905,7 +1127,7 @@ export async function recordDeliverableVersion(input: {
 
     await tx
       .update(designTickets)
-      .set({ status: "ready_for_review", updatedAt: new Date() })
+      .set(deliveryPatchFor(version, new Date()))
       .where(eq(designTickets.id, input.ticketId));
 
     const count = rows.length;
@@ -1076,6 +1298,58 @@ export async function applyClientReview(input: {
     }
 
     return { ticket, update };
+  });
+}
+
+/**
+ * A comment from the brand side, inserted and fanned out to staff in one
+ * transaction.
+ *
+ * Deliberately cannot change status. `revision_requested` is reachable only
+ * through applyClientReview, and the staff routes cap themselves to the same
+ * end so nobody can fake one; a comment endpoint that could set status would
+ * quietly undo that. Commenting is also allowed in any status, which is the
+ * point — the client previously had no way to say anything except during a
+ * formal review.
+ */
+export async function postClientTicketComment(input: {
+  ticketId: string;
+  authorId: string;
+  message: string;
+  staffIds: string[];
+  /** Built by the caller, matching postTicketProgressUpdate — formatting is
+      the route's job, not the query layer's. */
+  notificationPayload: typeof notifications.$inferInsert.payload;
+}) {
+  return db.transaction(async (tx) => {
+    const [update] = await tx
+      .insert(ticketUpdates)
+      .values({
+        ticketId: input.ticketId,
+        authorId: input.authorId,
+        message: input.message,
+        newStatus: null,
+      })
+      .returning();
+
+    // Touch the ticket so the queue's "last updated" ordering surfaces a
+    // request the client just commented on.
+    await tx
+      .update(designTickets)
+      .set({ updatedAt: new Date() })
+      .where(eq(designTickets.id, input.ticketId));
+
+    if (input.staffIds.length > 0) {
+      await tx.insert(notifications).values(
+        input.staffIds.map((id) => ({
+          userId: id,
+          type: "ticket_status" as const,
+          payload: input.notificationPayload,
+        })),
+      );
+    }
+
+    return update;
   });
 }
 
@@ -1253,6 +1527,19 @@ export async function hitRateLimit(key: string, windowSeconds: number) {
   };
 }
 
+/**
+ * Hand a consumed window back.
+ *
+ * A caller that reserves the window BEFORE doing the work it is protecting has
+ * to release it when that work fails, or the failure silently blocks every
+ * retry for the rest of the window — and the block reports itself as "already
+ * done". Compensating action, not a general-purpose reset: only the caller
+ * that just consumed this key may call it.
+ */
+export async function releaseRateLimit(key: string) {
+  await db.delete(rateLimits).where(eq(rateLimits.key, key));
+}
+
 // ── Admin dashboard ─────────────────────────────────────────────────
 
 /** Ticket counts grouped by status. */
@@ -1263,18 +1550,43 @@ export async function getTicketCountsByStatus() {
     .groupBy(designTickets.status);
 }
 
-/** Tickets past their due date that are not yet delivered. */
+/**
+ * Tickets past their due date that are still live work.
+ *
+ * Deliberately delegates rather than restating the predicate.
+ *
+ * The old query was `dueDate < now AND status != 'delivered'`, which counted
+ * tickets nobody ever submitted and counted approved work the moment a
+ * correction upload moved it off `delivered`. Sharing the definition with the
+ * drill-down is also what stops the card's number disagreeing with the list it
+ * opens — see VIEW_PREDICATES.overdue, which is tested without a database.
+ */
 export async function getOverdueTicketCount() {
-  const [row] = await db
-    .select({ count: count() })
-    .from(designTickets)
-    .where(
-      and(
-        lt(designTickets.dueDate, new Date()),
-        ne(designTickets.status, "delivered"),
-      ),
-    );
-  return row?.count ?? 0;
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "overdue" });
+}
+
+/**
+ * Work waiting on a client, for the Ready for Review card.
+ *
+ * This resolves the SAME predicate as the list the card opens, rather than
+ * reading the status rollup. Today those give the same number —
+ * `awaiting_review` is exactly `status = 'ready_for_review'` — so this is not
+ * paid for a difference that exists now. It is paid so the two cannot drift:
+ * the predicate lives in one place, and a future clause added there reaches
+ * the card and its drill-down together instead of only one of them.
+ */
+export async function getAwaitingReviewCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "awaiting_review" });
+}
+
+/** Client-approved work, for the Delivered card. Same reasoning as above. */
+export async function getApprovedTicketCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "approved" });
+}
+
+/** Tickets in the working queue: everything but drafts and delivered work. */
+export async function getOpenTicketCount() {
+  return countAdminTickets({ ...DEFAULT_SCOPE, view: "open" });
 }
 
 /** User counts grouped by role. */
@@ -1287,26 +1599,39 @@ export async function getUserCountsByRole() {
 
 /** Active (assigned/in_progress/ready_for_review) ticket load per designer. */
 export async function getDesignerLoads() {
-  return db
-    .select({
-      designerId: designTickets.assignedDesignerId,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      count: count(),
-    })
-    .from(designTickets)
-    .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
-    .where(
-      and(
-        isNotNull(designTickets.assignedDesignerId),
-        inArray(designTickets.status, [
-          "assigned",
-          "in_progress",
-          "ready_for_review",
-        ]),
-      ),
-    )
-    .groupBy(designTickets.assignedDesignerId, users.firstName, users.lastName);
+  return (
+    db
+      .select({
+        /* Non-null by the isNotNull guard below. Stated here so callers can link
+         straight to ?assignee=<id> instead of re-checking what the WHERE
+         clause already guarantees. */
+        designerId: sql<string>`${designTickets.assignedDesignerId}`,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        /* first_name is NOT NULL but may be empty, so a designer can render as
+         "". The drill-down header falls back to the email; this row has to
+         fall back to the same thing or the two name the same person
+         differently. */
+        email: users.email,
+        count: count(),
+      })
+      .from(designTickets)
+      .leftJoin(users, eq(designTickets.assignedDesignerId, users.id))
+      /* Derived, not restated: this count is what the drill-down's `active`
+       view opens, so a literal here could drift from the list it links to. */
+      .where(
+        and(
+          isNotNull(designTickets.assignedDesignerId),
+          ...viewConditions("active", new Date()),
+        ),
+      )
+      .groupBy(
+        designTickets.assignedDesignerId,
+        users.firstName,
+        users.lastName,
+        users.email,
+      )
+  );
 }
 
 /** Most recently created tickets, with brand name. */
@@ -1355,6 +1680,7 @@ export async function updateAppSettings(data: {
   return row;
 }
 
+export * from "./admin-tickets";
 export * from "./analytics";
 export * from "./workspaces";
 

@@ -20,6 +20,11 @@ type Status = (typeof STATUSES)[number];
 const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 type Priority = (typeof PRIORITIES)[number];
 
+/* This route sends mail. Vercel's default budget is shorter than the SMTP
+   socket timeout in email.ts, so without this a stalled send is killed before
+   the handler can log or report it. */
+export const maxDuration = 60;
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },

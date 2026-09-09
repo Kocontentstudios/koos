@@ -5,6 +5,7 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import { checkBrandAccess, createGenerationJob } from "@/lib/db/queries";
+import { type AttachmentRef, isAttachmentType } from "@/lib/design/attachments";
 import { DesignContextError, resolveDesignContext } from "@/lib/design/context";
 import { checkDesignQuota, quotaExceeded } from "@/lib/design/quota";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
@@ -17,6 +18,28 @@ import { isUuid } from "@/lib/validation/uuid";
 export const maxDuration = 300;
 
 const MAX_FREEFORM_LENGTH = 1000;
+/** Enough for a brief, a calendar item, a campaign and a few assets. A bound
+ *  matters here because each attachment costs a query and prompt budget. */
+const MAX_ATTACHMENTS = 10;
+
+/**
+ * Validates the client's attachment list. Returns null when anything is
+ * malformed, so a bad payload is a 400 rather than a partially-honoured
+ * request. Ownership is proved later, per type, in resolveDesignContext.
+ */
+function parseAttachments(value: unknown): AttachmentRef[] | null {
+  if (value == null) return [];
+  if (!Array.isArray(value)) return null;
+  const refs: AttachmentRef[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { type, id } = entry as Record<string, unknown>;
+    if (!isAttachmentType(type)) return null;
+    if (typeof id !== "string" || !isUuid(id)) return null;
+    refs.push({ type, id });
+  }
+  return refs;
+}
 
 /**
  * Turns brand + brief/calendar/free-form context into rendered design variants
@@ -42,6 +65,7 @@ export async function POST(req: Request) {
     brandId?: string;
     briefId?: string | null;
     calendarItemId?: string | null;
+    attachments?: unknown;
     freeform?: string | null;
     aspectRatio?: string | null;
   };
@@ -52,6 +76,16 @@ export async function POST(req: Request) {
   }
 
   const { brandId, briefId, calendarItemId, freeform, aspectRatio } = body;
+  const attachments = parseAttachments(body.attachments);
+  if (attachments === null) {
+    return Response.json({ error: "Invalid attachments" }, { status: 400 });
+  }
+  if (attachments.length > MAX_ATTACHMENTS) {
+    return Response.json(
+      { error: `Attach at most ${MAX_ATTACHMENTS} items.` },
+      { status: 400 },
+    );
+  }
   if (!brandId || !isUuid(brandId)) {
     return Response.json(
       { error: "Missing or invalid brandId" },
@@ -104,6 +138,7 @@ export async function POST(req: Request) {
       brandId,
       briefId,
       calendarItemId,
+      attachments,
       freeform,
       aspectRatio: aspectRatio ?? null,
     });
@@ -118,7 +153,11 @@ export async function POST(req: Request) {
     kind: "design_render",
     userId: dbUser.id,
     brandId,
-    input: { briefId: briefId ?? null, calendarItemId: calendarItemId ?? null },
+    input: {
+      briefId: briefId ?? null,
+      calendarItemId: calendarItemId ?? null,
+      attachments,
+    },
   });
 
   const sessionId = await getAnalyticsSessionId();

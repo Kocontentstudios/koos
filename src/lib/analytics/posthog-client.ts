@@ -55,6 +55,22 @@ export function identifyUser(userId: string): void {
 }
 
 /**
+ * Fire-and-forget product event from the browser. No-ops without a key, and
+ * never throws — a failed analytics call must not break a user interaction.
+ */
+export function captureEvent(
+  event: string,
+  properties?: Record<string, unknown>,
+): void {
+  if (!ensureInit()) return;
+  try {
+    posthog.capture(event, properties);
+  } catch {
+    // Analytics is best-effort.
+  }
+}
+
+/**
  * Drops the identity so the next person on a shared browser starts anonymous
  * instead of inheriting the previous user's events. Nothing to reset if the
  * SDK never initialized, and calling into an uninitialized posthog throws.

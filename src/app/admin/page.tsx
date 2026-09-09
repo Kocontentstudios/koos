@@ -1,24 +1,24 @@
 import Link from "next/link";
 import { TicketStatusBadge } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { StatCard } from "@/app/admin/stat-card";
+import {
+  adminScopeHref,
+  DEFAULT_SCOPE,
+  statusRowHref,
+} from "@/lib/admin/scope-params";
 import { requireRole } from "@/lib/auth/require-role";
 import {
+  getApprovedTicketCount,
+  getAwaitingReviewCount,
   getDesignerLoads,
+  getOpenTicketCount,
   getOverdueTicketCount,
   getRecentTickets,
   getTicketCountsByStatus,
   getUserCountsByRole,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
-import type { TicketStatus } from "@/lib/design/tickets-ui";
-
-const OPEN_STATUSES = new Set<string>([
-  "submitted",
-  "assigned",
-  "in_progress",
-  "ready_for_review",
-  "revision_requested",
-]);
+import { TICKET_STATUSES, type TicketStatus } from "@/lib/design/tickets-ui";
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("en-US", {
@@ -31,20 +31,40 @@ function formatDate(d: Date): string {
 export default async function AdminDashboardPage() {
   await requireRole(["designer", "admin"]);
 
-  const [byStatus, overdue, byRole, loads, recent] = await Promise.all([
+  /* Each card resolves the SAME predicate as the list it opens, rather than
+     summing the status rollup to something that looks close. A card whose
+     number disagrees with its own drill-down is the bug this ticket exists to
+     fix, so the agreement is structural, not arithmetic. */
+  const [
+    byStatus,
+    openCount,
+    overdue,
+    readyCount,
+    deliveredCount,
+    byRole,
+    loads,
+    recent,
+  ] = await Promise.all([
     getTicketCountsByStatus(),
+    getOpenTicketCount(),
     getOverdueTicketCount(),
+    getAwaitingReviewCount(),
+    getApprovedTicketCount(),
     getUserCountsByRole(),
     getDesignerLoads(),
     getRecentTickets(8),
   ]);
 
   const statusMap = new Map(byStatus.map((r) => [r.status, r.count]));
-  const openCount = byStatus
-    .filter((r) => OPEN_STATUSES.has(r.status))
-    .reduce((sum, r) => sum + r.count, 0);
-  const readyCount = statusMap.get("ready_for_review") ?? 0;
-  const deliveredCount = statusMap.get("delivered") ?? 0;
+
+  /* Zero-filled and in a fixed order. `getTicketCountsByStatus` is a GROUP BY:
+     a status with no tickets produced no row, so BUG-002's "navigation for
+     Draft" existed only while a draft did, and the row order was whatever the
+     planner returned. */
+  const statusRows = TICKET_STATUSES.map((status) => ({
+    status,
+    count: statusMap.get(status) ?? 0,
+  }));
   const totalUsers = byRole.reduce((sum, r) => sum + r.count, 0);
 
   return (
@@ -59,35 +79,58 @@ export default async function AdminDashboardPage() {
       </header>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Open tickets" value={openCount} />
-        <StatCard label="Overdue" value={overdue} />
-        <StatCard label="Ready for review" value={readyCount} />
-        <StatCard label="Delivered" value={deliveredCount} />
+        <StatCard
+          label="Open tickets"
+          value={openCount}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "open",
+          })}
+        />
+        <StatCard
+          label="Overdue"
+          value={overdue}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            /* No explicit sort: defaultSortKeyFor("overdue") already orders
+               most-overdue-first, and a redundant param rides the tab bar into
+               views that have their own default. */
+            view: "overdue",
+          })}
+        />
+        <StatCard
+          label="Ready for review"
+          value={readyCount}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "awaiting_review",
+          })}
+        />
+        <StatCard
+          label="Delivered"
+          value={deliveredCount}
+          href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+            view: "approved",
+          })}
+        />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-3">
           <h2 className="text-[15px] font-semibold text-foreground">
-            Tickets by status
+            Dashboard Status Overview (Tickets by Status)
           </h2>
           <ul className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-surface-1 p-4">
-            {byStatus.length === 0 ? (
-              <li className="text-[13px] text-[var(--text-secondary)]">
-                No tickets yet.
-              </li>
-            ) : (
-              byStatus.map((r) => (
-                <li
-                  key={r.status}
-                  className="flex items-center justify-between gap-3"
+            {statusRows.map((r) => (
+              <li key={r.status}>
+                <Link
+                  href={statusRowHref(r.status)}
+                  className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)]"
                 >
-                  <TicketStatusBadge status={r.status as TicketStatus} />
-                  <span className="text-[14px] font-medium text-foreground">
+                  <TicketStatusBadge status={r.status} />
+                  <span className="text-[14px] font-medium text-foreground tabular-nums">
                     {r.count}
                   </span>
-                </li>
-              ))
-            )}
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -102,17 +145,22 @@ export default async function AdminDashboardPage() {
               </li>
             ) : (
               loads.map((l) => (
-                <li
-                  key={l.designerId ?? "unassigned"}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <span className="text-[14px] text-foreground">
-                    {`${l.firstName ?? ""} ${l.lastName ?? ""}`.trim() ||
-                      "Unknown"}
-                  </span>
-                  <span className="text-[14px] font-medium text-foreground">
-                    {l.count} active
-                  </span>
+                <li key={l.designerId}>
+                  <Link
+                    href={adminScopeHref("/admin/tickets", DEFAULT_SCOPE, {
+                      view: "active",
+                      assignee: l.designerId,
+                    })}
+                    className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--hover)]"
+                  >
+                    <span className="text-[14px] text-foreground">
+                      {`${l.firstName ?? ""} ${l.lastName ?? ""}`.trim() ||
+                        (l.email ?? "Unknown")}
+                    </span>
+                    <span className="text-[14px] font-medium text-foreground">
+                      {l.count} active
+                    </span>
+                  </Link>
                 </li>
               ))
             )}

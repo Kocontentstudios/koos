@@ -1,7 +1,10 @@
 "use client";
 
-import { Loader2Icon, UploadCloud } from "lucide-react";
+import { Loader2Icon, Plus, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ColorField } from "@/components/ui/color-field";
+import { EditableLabel } from "@/components/ui/editable-label";
 import { FileUpload } from "@/components/ui/file-upload";
 import { Label } from "@/components/ui/label";
 import {
@@ -11,9 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { brandStyleOptions } from "../brand-profile-form";
+import { labelsToStore, pairColourLabels } from "@/lib/brand/colour-labels";
+import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
+import { brandFontOptions, brandStyleOptions } from "../brand-profile-form";
 import type { CreateBrandState } from "./create-brand-form";
-import { ColorField, Field, OtherSelect } from "./fields";
+import { Field, OtherSelect } from "./fields";
 
 interface StepProps {
   state: CreateBrandState;
@@ -21,6 +26,14 @@ interface StepProps {
 }
 
 export function StepVisual({ state, onChange }: StepProps) {
+  /* Guarded: localStorage drafts are restored with a raw JSON.parse and a
+     shallow merge, so a corrupted draft can hand us a non-array here. */
+  const additionalColorLabels = Array.isArray(state.additionalColorLabels)
+    ? (state.additionalColorLabels as string[])
+    : [];
+  const additionalColors = Array.isArray(state.additionalColors)
+    ? state.additionalColors
+    : [];
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
@@ -118,15 +131,99 @@ export function StepVisual({ state, onChange }: StepProps) {
             id="primary-color"
             label="Primary"
             value={state.primaryColor || "#138BC8"}
+            noun="color"
             onChange={(hex) => onChange({ primaryColor: hex })}
           />
           <ColorField
             id="secondary-color"
             label="Secondary"
             value={state.secondaryColor || "#FFFFFF"}
+            noun="color"
             onChange={(hex) => onChange({ secondaryColor: hex })}
           />
         </div>
+
+        {additionalColors.length > 0 && (
+          <div className="flex flex-col gap-3">
+            {pairColourLabels(additionalColors, additionalColorLabels).map(
+              (entry, i) => (
+                // Index key, not the value: two swatches may hold the same one.
+                <div key={i} className="flex items-center gap-2">
+                  <ColorField
+                    id={`additional-color-${i}`}
+                    /* The custom name IS the accessible name, so a screen
+                       reader hears "Pick Accent color", not "Additional 2". */
+                    label={entry.label}
+                    hideVisibleLabel
+                    value={entry.value}
+                    noun="color"
+                    placeholder="#000000"
+                    onChange={(next) =>
+                      onChange({
+                        additionalColors: additionalColors.map((c, j) =>
+                          j === i ? next : c,
+                        ),
+                      })
+                    }
+                  />
+                  <EditableLabel
+                    value={entry.label}
+                    isDefault={entry.isDefault}
+                    onCommit={(name) =>
+                      onChange({
+                        additionalColorLabels: labelsToStore(
+                          additionalColors.map((_, j) =>
+                            j === i ? name : (additionalColorLabels[j] ?? ""),
+                          ),
+                          additionalColors.length,
+                        ),
+                      })
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="icon"
+                    size="icon-sm"
+                    aria-label={`Remove ${entry.label}`}
+                    onClick={() =>
+                      onChange({
+                        additionalColors: additionalColors.filter(
+                          (_, j) => j !== i,
+                        ),
+                        /* The label goes with its colour. Left behind, it
+                           would reattach to whatever is added next. */
+                        additionalColorLabels: labelsToStore(
+                          additionalColorLabels.filter((_, j) => j !== i),
+                          additionalColors.length - 1,
+                        ),
+                      })
+                    }
+                  >
+                    <X className="size-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+
+        {additionalColors.length < MAX_ADDITIONAL_COLORS && (
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                onChange({
+                  additionalColors: [...additionalColors, ""],
+                })
+              }
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              Add color
+            </Button>
+          </div>
+        )}
       </div>
 
       <OtherSelect
@@ -138,6 +235,17 @@ export function StepVisual({ state, onChange }: StepProps) {
         otherValue={state.brandStyleOther}
         onChange={(v) => onChange({ brandStyle: v })}
         onOtherChange={(v) => onChange({ brandStyleOther: v })}
+      />
+
+      <OtherSelect
+        id="brand-font"
+        label="Typography"
+        placeholder="Select a type style..."
+        options={brandFontOptions}
+        value={state.brandFont}
+        otherValue={state.brandFontOther}
+        onChange={(v) => onChange({ brandFont: v })}
+        onOtherChange={(v) => onChange({ brandFontOther: v })}
       />
     </div>
   );

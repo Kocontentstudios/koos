@@ -79,7 +79,7 @@ describe("ReviewActions", () => {
     // submit on the first click — it opens the panel and waits for input.
     it("opens a note box instead of submitting on the first click", () => {
       const fetchMock = stubFetchOk();
-      render(<ReviewActions ticketId="t-1" version={1} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={1} />);
 
       expect(
         screen.queryByLabelText(/what would you like changed/i),
@@ -94,7 +94,7 @@ describe("ReviewActions", () => {
     });
 
     it("keeps submit disabled until there is a note or a mark", () => {
-      render(<ReviewActions ticketId="t-1" version={1} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={1} />);
       openRevisionPanel();
 
       const submit = screen.getByRole("button", { name: /submit request/i });
@@ -106,7 +106,7 @@ describe("ReviewActions", () => {
 
     it("posts the note the client typed", async () => {
       const fetchMock = stubFetchOk();
-      render(<ReviewActions ticketId="t-1" version={1} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={1} />);
 
       openRevisionPanel();
       typeNote("Make the logo bigger");
@@ -124,6 +124,7 @@ describe("ReviewActions", () => {
       const fetchMock = stubFetchOk();
       render(
         <ReviewActions
+          canApprove
           ticketId="t-1"
           version={1}
           deliverables={DELIVERABLES}
@@ -154,6 +155,7 @@ describe("ReviewActions", () => {
       const fetchMock = stubFetchOk();
       render(
         <ReviewActions
+          canApprove
           ticketId="t-1"
           version={1}
           deliverables={DELIVERABLES}
@@ -176,7 +178,7 @@ describe("ReviewActions", () => {
 
     it("closes the panel on cancel without posting", () => {
       const fetchMock = stubFetchOk();
-      render(<ReviewActions ticketId="t-1" version={1} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={1} />);
 
       openRevisionPanel();
       fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
@@ -194,6 +196,7 @@ describe("ReviewActions", () => {
       const fetchMock = stubFetchOk();
       render(
         <ReviewActions
+          canApprove
           ticketId="t-1"
           version={1}
           deliverables={DELIVERABLES}
@@ -213,7 +216,7 @@ describe("ReviewActions", () => {
 
     it("backs out of the confirmation without approving", () => {
       const fetchMock = stubFetchOk();
-      render(<ReviewActions ticketId="t-1" version={1} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={1} />);
 
       fireEvent.click(screen.getByRole("button", { name: /^satisfied$/i }));
       fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
@@ -228,6 +231,7 @@ describe("ReviewActions", () => {
       const fetchMock = stubFetchOk();
       render(
         <ReviewActions
+          canApprove
           ticketId="t-1"
           version={1}
           deliverables={DELIVERABLES}
@@ -247,7 +251,7 @@ describe("ReviewActions", () => {
   describe("final round", () => {
     // With the loop capped at 3, the last round offers only a way to close.
     it("drops Request Revision on the third round", () => {
-      render(<ReviewActions ticketId="t-1" version={3} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={3} />);
 
       expect(
         screen.queryByRole("button", { name: /request revision/i }),
@@ -258,19 +262,19 @@ describe("ReviewActions", () => {
     });
 
     it("explains that the round was the last one", () => {
-      render(<ReviewActions ticketId="t-1" version={3} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={3} />);
       expect(screen.getByText(/final revision round/i)).toBeInTheDocument();
     });
 
     it("keeps Request Revision on earlier rounds", () => {
-      render(<ReviewActions ticketId="t-1" version={2} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={2} />);
       expect(
         screen.getByRole("button", { name: /request revision/i }),
       ).toBeInTheDocument();
     });
 
     it("shows the client where they are in the loop", () => {
-      render(<ReviewActions ticketId="t-1" version={2} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={2} />);
       expect(screen.getByText(/round 2 of 3/i)).toBeInTheDocument();
     });
   });
@@ -287,7 +291,7 @@ describe("ReviewActions", () => {
         );
       vi.stubGlobal("fetch", fetchMock);
       refreshMock.mockClear();
-      render(<ReviewActions ticketId="t-1" version={1} />);
+      render(<ReviewActions canApprove ticketId="t-1" version={1} />);
 
       fireEvent.click(screen.getByRole("button", { name: /^satisfied$/i }));
       fireEvent.click(
@@ -299,5 +303,23 @@ describe("ReviewActions", () => {
       );
       expect(refreshMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("ReviewActions — approval capability", () => {
+  /* Sign-off is approve_deliverables, which a contributor does not hold. The
+     server refuses it either way; hiding the button keeps the UI honest. */
+  it("hides Satisfied when the viewer cannot approve", () => {
+    render(<ReviewActions canApprove={false} ticketId="t-1" version={1} />);
+    expect(
+      screen.queryByRole("button", { name: /^satisfied$/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still offers Request Revision, which is ordinary content work", () => {
+    render(<ReviewActions canApprove={false} ticketId="t-1" version={1} />);
+    expect(
+      screen.getByRole("button", { name: /request revision/i }),
+    ).toBeInTheDocument();
   });
 });

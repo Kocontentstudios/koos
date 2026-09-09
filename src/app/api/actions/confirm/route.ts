@@ -1,15 +1,29 @@
+import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod";
+import { synthesizeBrandGuide } from "@/lib/ai/brand-guide";
+
+/** A write touching any of these is worth re-deriving the voice guide from. */
+const VOICE_FIELDS = ["tone", "wordsLove", "wordsAvoid", "values"] as const;
+
 import { strategySchema } from "@/lib/ai/strategy-schema";
 import { ProposalSchema } from "@/lib/ai/tools/proposals";
+import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
+import {
+  parseAdditionalColors,
+  parsePlatformList,
+  progressAfterFieldWrite,
+} from "@/lib/brand-profile";
+import { toBrandSnapshot } from "@/lib/brand-snapshot";
 import {
   checkBrandAccess,
   createGenerationJob,
   getStrategyById,
   updateBrand,
+  upsertBrandContext,
 } from "@/lib/db/queries";
 import { createTicketFromRequest } from "@/lib/design/ticket-create";
 import {
@@ -23,6 +37,10 @@ import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 const bodySchema = z.object({
   brandId: z.string().uuid(),
   proposal: ProposalSchema,
+  /** The chat the proposal was made in. A strategy confirmed here is that
+   * chat's campaign, so it must carry the link the same way the Build
+   * Strategy button does. */
+  conversationId: z.string().uuid().optional(),
 });
 
 // Headroom for the post-response generation work kicked off via after().
@@ -53,7 +71,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid proposal" }, { status: 400 });
   }
 
-  const { brandId, proposal } = parsed;
+  const { brandId, proposal, conversationId } = parsed;
   const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
@@ -76,11 +94,96 @@ export async function POST(req: Request) {
     case "brand_fields": {
       // No usage_events row: the usage_kind enum has no brand-update value,
       // and adding one is out of this epic's scope.
-      await updateBrand(brandId, proposal.data.fields);
+      const { fields } = proposal.data;
+      /* additionalColors reaches us as the model's comma-separated string but
+         lands in a text[] column, so it must be parsed before the write. An
+         empty result drops the key rather than writing []: a model answering
+         ", ," must not wipe swatches the user saved by hand in the form. */
+      /* "" means "the conversation did not say", never "clear this". The
+         extraction route already strips it via omitUnfilled; the tool route
+         did not, so a model returning "" for a field the user had filled by
+         hand in the form silently blanked the column. */
+      const stated = Object.fromEntries(
+        Object.entries(fields).filter(
+          ([, v]) => typeof v !== "string" || v.trim().length > 0,
+        ),
+      ) as typeof fields;
+      const {
+        additionalColors: proposedColors,
+        platforms: proposedPlatforms,
+        ...rest
+      } = stated;
+      const parsedColors =
+        proposedColors === undefined
+          ? undefined
+          : parseAdditionalColors(proposedColors);
+      // Same shape for platforms: a text[] column fed by the model's prose.
+      const parsedPlatforms =
+        proposedPlatforms === undefined
+          ? undefined
+          : parsePlatformList(proposedPlatforms);
+      const writable = {
+        ...rest,
+        ...(parsedColors && parsedColors.length > 0
+          ? { additionalColors: parsedColors }
+          : {}),
+        ...(parsedPlatforms && parsedPlatforms.length > 0
+          ? { platforms: parsedPlatforms }
+          : {}),
+      };
+      /* Advance onboarding off the back of what the conversation captured.
+         Confirming fields used to leave the status at "draft", which left a
+         chat-only user permanently redirected back into onboarding. */
+      const progress = progressAfterFieldWrite({ ...brand, ...writable });
+      const wasCompleted = brand.onboardingStatus === "completed";
+      const updated = await updateBrand(brandId, { ...writable, ...progress });
+
+      /* Deliberately NOT gated on the brand being "completed": that flips on
+         the four required Basics fields, and a conversation can capture a rich
+         voice without ever landing on, say, `stage`. The guide depends on the
+         voice fields, so it keys off those instead.
+
+         Runs after the response — a slow or failed synthesis must not hold up
+         onboarding, and the Codex reads fine without it. */
+      if (VOICE_FIELDS.some((f) => f in writable) && updated.tone?.trim()) {
+        after(async () => {
+          const guide = await synthesizeBrandGuide(updated);
+          if (guide) {
+            await upsertBrandContext(brandId, "brand_foundation", { guide });
+          }
+        });
+      }
+
+      if (!wasCompleted && progress.onboardingStatus === "completed") {
+        const sessionId = await getAnalyticsSessionId();
+        after(() =>
+          captureServerEvent({
+            distinctId: dbUser.id,
+            event: "brand_brain_completed",
+            properties: {
+              brand_id: brandId,
+              onboarding_type: brand.onboardingType,
+              session_id: sessionId,
+            },
+          }),
+        );
+      }
+
+      /* Synchronously, not in after(): the client navigates to /brand and then
+         /dashboard immediately, and both read onboardingStatus. Revalidating
+         after the response returns lets those pages render the pre-write
+         status — which, on the dashboard, silently suppresses the product tour. */
+      revalidatePath("/brand");
+      revalidatePath("/dashboard");
+
       return Response.json({
         ok: true,
         kind: proposal.kind,
         resultId: brandId,
+        brandCompleted: progress.onboardingStatus === "completed",
+        /* The client's copy of the brand predates this write, so the snapshot
+           card is fed from the row we just wrote rather than re-fetched. */
+        snapshot: toBrandSnapshot(updated),
       });
     }
 
@@ -113,7 +216,7 @@ export async function POST(req: Request) {
           generateStrategyWork({
             brand,
             conversation: proposal.data.seed,
-            conversationId: null,
+            conversationId: conversationId ?? null,
             userId: dbUser.id,
             sessionId,
           }),

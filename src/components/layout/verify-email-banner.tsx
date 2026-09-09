@@ -4,6 +4,7 @@ import { MailWarning } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { resendVerificationEmail } from "@/app/(auth)/actions";
+import { Spinner } from "@/components/ui/spinner";
 
 /** Soft-gate nag shown on every dashboard page until the email is verified. */
 export function VerifyEmailBanner() {
@@ -37,8 +38,10 @@ export function VerifyEmailBanner() {
         type="button"
         onClick={resend}
         disabled={sending}
-        className="font-semibold underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
+        aria-busy={sending || undefined}
+        className="inline-flex items-center gap-1.5 font-semibold underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
       >
+        {sending && <Spinner className="size-3.5" />}
         {sending ? "Sending…" : "Resend email"}
       </button>
     </div>

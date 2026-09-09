@@ -16,6 +16,11 @@ import {
 import { appUrl } from "@/lib/design/notify";
 import { sendWelcomeEmail } from "@/lib/notify/account";
 
+/* This route sends mail. Vercel's default budget is shorter than the SMTP
+   socket timeout in email.ts, so without this a stalled send is killed before
+   the handler can log or report it. */
+export const maxDuration = 60;
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");

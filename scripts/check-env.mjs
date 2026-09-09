@@ -304,24 +304,84 @@ function checkGoogle() {
 
 // ── SMTP / Zoho Mail (warning only) ──────────────────────────────────
 
-function checkSmtp() {
-  const missing = ["ZOHO_SMTP_USER", "ZOHO_SMTP_PASS"].filter(
-    (k) => !process.env[k],
-  );
+async function checkSmtp() {
+  // The app's own predicate, so build-time and runtime cannot disagree about
+  // whether a whitespace-only variable counts as configured.
+  let missingSmtpVars = null;
+  let linkHostVerdict = null;
+  try {
+    ({ missingSmtpVars } = await import("../src/lib/email.ts"));
+    ({ linkHostVerdict } = await import("../src/lib/app-url.ts"));
+  } catch (err) {
+    warn(`SMTP: could not load the app's env helpers (${err.message}).`);
+  }
+
+  const missing = missingSmtpVars
+    ? missingSmtpVars(process.env)
+    : ["ZOHO_SMTP_USER", "ZOHO_SMTP_PASS"].filter(
+        (k) => !process.env[k]?.trim(),
+      );
+
+  /* Checked before the credential branch returns: a wrong link host breaks
+     invitations even when SMTP is perfect, and it is invisible at runtime to
+     everyone except a platform admin. */
+  /* The same classifier the app and the admin panel use, so the build log
+     cannot green-tick a host they call broken. */
+  const verdict = linkHostVerdict?.(process.env) ?? null;
+  if (verdict?.severity === "wrong") {
+    warn(`LINKS: ${verdict.message}`);
+  } else if (verdict) {
+    /* Not a warning: a correct custom staging domain is indistinguishable
+       from a stale one here, and warning on every build is how the provable
+       case above gets ignored. */
+    ok(`LINKS: ${verdict.message}`);
+  }
+
   if (missing.length) {
     warn(
-      `SMTP: missing ${missing.join(", ")} — ALL email (contact form, ` +
-        "password reset, welcome, design tickets) will fail. " +
+      `SMTP: missing or blank ${missing.join(", ")} — ALL email (contact form, ` +
+        "password reset, welcome, design tickets, team invitations) will fail. " +
         "Run `node scripts/check-smtp.mjs` to diagnose.",
     );
     return;
   }
-  const from = process.env.ZOHO_MAIL_FROM;
-  const user = process.env.ZOHO_SMTP_USER;
+  if (
+    process.env.ZOHO_MAIL_FROM !== undefined &&
+    !process.env.ZOHO_MAIL_FROM.trim()
+  ) {
+    /* Accurate, not alarming: mailFrom() falls back to the mailbox, so sends
+       still work. Claiming they fail would send an operator to "fix" it
+       mid-outage by setting a non-alias address and manufacture a real 553. */
+    ok(
+      "SMTP: ZOHO_MAIL_FROM is set but blank — falling back to ZOHO_SMTP_USER. Remove the variable to make that explicit.",
+    );
+  }
+
+  /* Decidable from two variables, and the build log is the only channel that
+     runs before a deploy. */
+  const port = Number(process.env.ZOHO_SMTP_PORT) || 465;
+  const secureRaw = process.env.ZOHO_SMTP_SECURE?.trim().toLowerCase();
+  const secure = secureRaw
+    ? !["false", "0", "no", "off"].includes(secureRaw)
+    : port === 465;
+  if (port === 587 && secure) {
+    warn(
+      "SMTP: port 587 with ZOHO_SMTP_SECURE=true — 587 uses STARTTLS. Set ZOHO_SMTP_SECURE=false, or use port 465.",
+    );
+  }
+  if (port === 465 && !secure) {
+    warn(
+      "SMTP: port 465 with ZOHO_SMTP_SECURE=false — 465 requires implicit TLS. Set ZOHO_SMTP_SECURE=true, or use port 587.",
+    );
+  }
+
+  const from = process.env.ZOHO_MAIL_FROM?.trim();
+  const user = process.env.ZOHO_SMTP_USER?.trim();
   if (from && from !== user) {
     warn(
-      `SMTP: ZOHO_MAIL_FROM (${from}) != ZOHO_SMTP_USER (${user}) — ` +
-        "Zoho rejects sends unless the From address is an authorized alias.",
+      `SMTP: ZOHO_MAIL_FROM (${from}) != ZOHO_SMTP_USER (${user}) — fine only ` +
+        "if it is a REGISTERED Zoho alias; otherwise auth succeeds and every " +
+        "send is rejected with 553.",
     );
   }
   ok("SMTP: Zoho credentials present (auth not verified at build time).");
@@ -380,7 +440,7 @@ await checkDb();
 await checkAi();
 await checkR2();
 checkGoogle();
-checkSmtp();
+await checkSmtp();
 
 console.log("");
 if (failures.length) {

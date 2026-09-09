@@ -3,10 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
-import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
+import { alignLabelsToColours } from "@/lib/brand/colour-labels";
 import {
+  brandProfileCompletion,
+  parseAdditionalColors,
+} from "@/lib/brand-profile";
+import {
+  type BrandSnapshotFields,
+  toBrandSnapshot,
+} from "@/lib/brand-snapshot";
+import {
+  checkBrandAccess,
   createBrand,
   getActiveBrandForMember,
   updateBrand,
@@ -16,11 +26,12 @@ import { brandProfileSchema } from "./brand-profile-form";
 
 export async function saveBrandProfile(
   raw: unknown,
-): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
-  const { dbUser } = await getAuthUser();
+): Promise<
+  | { ok: true; brandId: string; snapshot: BrandSnapshotFields }
+  | { ok: false; error: string }
+> {
+  const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser) return { ok: false, error: "Not authenticated" };
-
-  const { workspace } = await getActiveWorkspace();
   if (!workspace) redirectToLogin();
 
   const parsed = brandProfileSchema.safeParse(raw);
@@ -31,6 +42,7 @@ export async function saveBrandProfile(
     };
   }
   const v = parsed.data;
+  const sanitisedColors = parseAdditionalColors(v.additionalColors);
   const profile = {
     name: v.name,
     overview: v.overview,
@@ -45,9 +57,30 @@ export async function saveBrandProfile(
     wordsAvoid: v.wordsAvoid || null,
     hasLogo: v.hasLogo ?? null,
     brandStyle: v.brandStyle || null,
+    brandFont: v.brandFont || null,
+    brandFontUrl: v.brandFontUrl || null,
     primaryColor: v.primaryColor || null,
     secondaryColor: v.secondaryColor || null,
-    additionalColors: v.additionalColors ?? null,
+    /* Empty means "no extra colours", same as platforms below. Writing {}
+       would leave a brand that never had extras looking different in the DB
+       from one that never touched the field.
+
+       Sanitised here rather than in the form: this is a server action taking
+       unknown input, and it is the last writer of this column that was still
+       trusting its caller. parseAdditionalColors caps the count, bounds each
+       entry and drops blanks — the bound isValidHex used to provide. */
+    additionalColors: sanitisedColors.length > 0 ? sanitisedColors : null,
+    /* Matched to the values that SURVIVED sanitising, not by position:
+       parseAdditionalColors drops blanks, de-duplicates and caps, any of
+       which would otherwise slide every later name onto the wrong colour. */
+    additionalColorLabels:
+      sanitisedColors.length > 0
+        ? alignLabelsToColours(
+            v.additionalColors,
+            v.additionalColorLabels,
+            sanitisedColors,
+          )
+        : null,
     logoUrl: v.logoUrl || null,
     competitors: v.competitors || null,
     competitorStrengths: v.competitorStrengths || null,
@@ -56,21 +89,46 @@ export async function saveBrandProfile(
     primaryPlatform: v.primaryPlatform || null,
     postingFrequency: v.postingFrequency || null,
     additionalNotes: v.additionalNotes || null,
+    websiteUrl: v.websiteUrl || null,
     helpfulLinks: v.helpfulLinks || null,
     onboardingStatus: "completed" as const,
-    completionPercentage: 100,
   };
+
+  /* Was hardcoded to 100, so a brand that skipped every optional step still
+     reported a finished profile in the admin directory. The status stays
+     "completed" — the form validates all four required Basics fields before it
+     will submit, and requireBrand gates on that, not on the score. */
+  const completionPercentage = brandProfileCompletion(profile);
 
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   let brand: typeof brands.$inferSelect;
   if (existing) {
-    // Safe without checkBrandAccess: the brand was fetched workspace-scoped via getActiveBrandForMember above, and every role holds manage_content.
-    brand = await updateBrand(existing.id, profile);
+    /* getActiveBrandForMember already scoped the fetch, but authorize the
+       WRITE explicitly rather than inferring it from the read: the roles that
+       may see a brand and the roles that may edit it are no longer the same
+       set, and this action must not silently widen when that changes. */
+    const access = await checkBrandAccess(
+      dbUser.id,
+      existing.id,
+      "manage_content",
+    );
+    if (!access.ok) return { ok: false, error: access.error };
+    brand = await updateBrand(existing.id, {
+      ...profile,
+      completionPercentage,
+    });
   } else {
+    if (!can(role, "create_brand")) {
+      return {
+        ok: false,
+        error: "You need workspace admin access to add a brand.",
+      };
+    }
     brand = await createBrand({
       userId: dbUser.id, // attribution only ("created by")
       workspaceId: workspace.id,
       ...profile,
+      completionPercentage,
     });
   }
 
@@ -90,5 +148,5 @@ export async function saveBrandProfile(
 
   revalidatePath("/brand");
   revalidatePath("/dashboard");
-  return { ok: true, brandId: brand.id };
+  return { ok: true, brandId: brand.id, snapshot: toBrandSnapshot(brand) };
 }

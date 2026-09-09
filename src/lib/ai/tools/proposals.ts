@@ -1,5 +1,35 @@
 import { z } from "zod";
 
+/* Exported for the lockstep test: extraction.ts, this schema and the
+   propose_brand_field_updates tool must carry identical keys, or a valid
+   extraction is silently stripped when the built proposal is validated. */
+export const brandFieldKeys = [
+  "name",
+  "overview",
+  "businessType",
+  "stage",
+  "targetAudience",
+  "offer",
+  "tone",
+  "primaryGoal",
+  "values",
+  "wordsLove",
+  "wordsAvoid",
+  "brandStyle",
+  "competitors",
+  "competitorStrengths",
+  "differentiators",
+  "primaryColor",
+  "secondaryColor",
+  "additionalColors",
+  "platforms",
+  "primaryPlatform",
+  "postingFrequency",
+  "websiteUrl",
+  "brandFont",
+  "additionalNotes",
+] as const;
+
 const brandFields = z.object({
   fields: z
     .object({
@@ -16,9 +46,17 @@ const brandFields = z.object({
       wordsAvoid: z.string().optional(),
       brandStyle: z.string().optional(),
       competitors: z.string().optional(),
+      competitorStrengths: z.string().optional(),
       differentiators: z.string().optional(),
       primaryColor: z.string().optional(),
       secondaryColor: z.string().optional(),
+      // Comma-separated on the wire; parsed to text[] at the confirm boundary.
+      additionalColors: z.string().optional(),
+      platforms: z.string().optional(),
+      primaryPlatform: z.string().optional(),
+      postingFrequency: z.string().optional(),
+      websiteUrl: z.string().optional(),
+      brandFont: z.string().optional(),
       additionalNotes: z.string().optional(),
     })
     .refine((f) => Object.keys(f).length > 0, "At least one field required"),

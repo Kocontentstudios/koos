@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarItem } from "./types";
 
@@ -48,6 +49,12 @@ export function CalendarItemCard({
         {item.designRequired && (
           <span className="inline-flex items-center rounded-full bg-[rgba(19,139,200,0.15)] px-2 py-0.5 text-[10px] font-medium text-[var(--status-progress-fg)]">
             Design Required
+          </span>
+        )}
+        {item.source === "manual" && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(255,255,255,0.06)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
+            <Pencil aria-hidden="true" className="h-2.5 w-2.5" />
+            Added by you
           </span>
         )}
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { speechText } from "@/lib/speech/speech-text";
 
 // The DOM lib doesn't ship SpeechRecognition types; shim the narrow surface
 // this hook actually uses instead of reaching for `any`.
@@ -37,24 +38,50 @@ function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | undefined {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition;
 }
 
+function getSynthesis(): SpeechSynthesis | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.speechSynthesis ?? undefined;
+}
+
+/** Identifies an utterance started without a caller-supplied id. */
+const ANONYMOUS = "__speaking__";
+
 export interface UseVoiceIo {
   supported: boolean;
   listening: boolean;
   transcript: string;
   start: () => void;
   stop: () => void;
-  speak: (text: string) => void;
+  /** Speaks `text`, cancelling anything already in flight. */
+  speak: (text: string, id?: string) => void;
+  cancel: () => void;
+  /** Id passed to `speak`, or null when nothing is being spoken. */
+  speakingId: string | null;
+  speaking: boolean;
 }
 
 export function useVoiceIo(): UseVoiceIo {
   const [supported] = useState(() => getSpeechRecognitionCtor() !== undefined);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  const cancel = useCallback(() => {
+    // Drop the reference first: cancel() fires `end` on the utterance being
+    // killed, and that handler must not clear state belonging to a newer one.
+    utteranceRef.current = null;
+    getSynthesis()?.cancel();
+    setSpeakingId(null);
+  }, []);
 
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
+      // Speech otherwise keeps talking after the user has navigated away.
+      utteranceRef.current = null;
+      getSynthesis()?.cancel();
     };
   }, []);
 
@@ -93,10 +120,43 @@ export function useVoiceIo(): UseVoiceIo {
     setListening(false);
   }, []);
 
-  const speak = useCallback((text: string) => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-  }, []);
+  const speak = useCallback(
+    (text: string, id?: string) => {
+      const synthesis = getSynthesis();
+      if (!synthesis) return;
 
-  return { supported, listening, transcript, start, stop, speak };
+      cancel();
+
+      // Markdown and emoji reach the voice verbatim otherwise — asterisks and
+      // CLDR emoji names get read out mid-sentence.
+      const spoken = speechText(text);
+      if (!spoken) return;
+
+      const utterance = new SpeechSynthesisUtterance(spoken);
+      const settle = () => {
+        if (utteranceRef.current !== utterance) return;
+        utteranceRef.current = null;
+        setSpeakingId(null);
+      };
+      utterance.onend = settle;
+      utterance.onerror = settle;
+
+      utteranceRef.current = utterance;
+      setSpeakingId(id ?? ANONYMOUS);
+      synthesis.speak(utterance);
+    },
+    [cancel],
+  );
+
+  return {
+    supported,
+    listening,
+    transcript,
+    start,
+    stop,
+    speak,
+    cancel,
+    speakingId,
+    speaking: speakingId !== null,
+  };
 }

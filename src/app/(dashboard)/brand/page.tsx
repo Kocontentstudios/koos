@@ -1,21 +1,22 @@
-import { PencilIcon } from "lucide-react";
+import { ArrowRight, Download, PencilIcon } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Fragment } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
+import { pairColourLabels } from "@/lib/brand/colour-labels";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import {
   getActiveBrandForMember,
   listDesignGenerationsForBrand,
 } from "@/lib/db/queries";
-import {
-  type SerializedGeneration,
-  serializeGeneration,
-} from "@/lib/design/serialize";
+import { serializeGeneration } from "@/lib/design/serialize";
+import { resolveOnboardingRoute } from "@/lib/onboarding-route";
+import { GeneratedDesigns } from "./generated-designs";
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -83,12 +84,20 @@ export default async function BrandProfilePage() {
   const { dbUser } = await getAuthUser();
   if (!dbUser) redirectToLogin();
 
-  const { workspace } = await getActiveWorkspace();
+  const { workspace, role } = await getActiveWorkspace();
   const brand = workspace
     ? await getActiveBrandForMember(workspace.id, dbUser.id)
     : null;
   if (!brand || !hasCompletedBrand(brand.onboardingStatus)) {
-    redirect("/brand/create");
+    /* Resume the path the brand was actually started on. Hard-coding
+       /brand/create used to drop a half-finished conversational brand into the
+       manual form, which is the flow it was chosen to replace. */
+    redirect(
+      resolveOnboardingRoute({
+        canCreateBrand: role ? can(role, "create_brand") : false,
+        onboardingType: brand?.onboardingType,
+      }),
+    );
   }
 
   const generationRows = await listDesignGenerationsForBrand(brand.id, {
@@ -98,7 +107,10 @@ export default async function BrandProfilePage() {
     await Promise.all(generationRows.map(serializeGeneration))
   ).filter((g) => g.status === "succeeded");
 
-  const additionalColors = brand.additionalColors ?? [];
+  const additionalColors = pairColourLabels(
+    brand.additionalColors,
+    brand.additionalColorLabels,
+  );
   const platforms = brand.platforms ?? [];
 
   const hasColors = Boolean(
@@ -112,7 +124,10 @@ export default async function BrandProfilePage() {
     brand.competitors || brand.competitorStrengths || brand.differentiators,
   );
   const hasPlatforms = Boolean(
-    platforms.length || brand.primaryPlatform || brand.postingFrequency,
+    platforms.length ||
+      brand.primaryPlatform ||
+      brand.postingFrequency ||
+      brand.websiteUrl,
   );
   const hasNotes = Boolean(brand.additionalNotes || brand.helpfulLinks);
 
@@ -157,8 +172,9 @@ export default async function BrandProfilePage() {
             {brand.secondaryColor && (
               <ColorSwatch hex={brand.secondaryColor} label="Secondary" />
             )}
-            {additionalColors.map((hex) => (
-              <ColorSwatch key={hex} hex={hex} />
+            {/* Index key: two additional colours may hold the same value. */}
+            {additionalColors.map((entry, i) => (
+              <ColorSwatch key={i} hex={entry.value} label={entry.label} />
             ))}
           </div>
         </FieldRow>
@@ -253,6 +269,9 @@ export default async function BrandProfilePage() {
                   {brand.postingFrequency}
                 </DetailLine>
               )}
+              {brand.websiteUrl && (
+                <DetailLine label="Website">{brand.websiteUrl}</DetailLine>
+              )}
             </div>
           </div>
         </FieldRow>
@@ -291,12 +310,31 @@ export default async function BrandProfilePage() {
             Your brand information used for AI strategies and design assets
           </p>
         </div>
-        <Link href="/brand/create" className="shrink-0">
-          <Button variant="secondary" size="lg">
-            <PencilIcon aria-hidden="true" />
-            Edit Brand
-          </Button>
-        </Link>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* A plain anchor styled as a button, not a Button inside a Link:
+              this is a file download, so it must stay a real link, and
+              nesting a button in an anchor is invalid content. */}
+          <a
+            href={`/api/brand/codex?brandId=${brand.id}`}
+            download
+            className={buttonVariants({ variant: "secondary", size: "lg" })}
+          >
+            <Download aria-hidden="true" />
+            Brand Codex
+          </a>
+          <Link href="/brand/create">
+            <Button variant="secondary" size="lg">
+              <PencilIcon aria-hidden="true" />
+              Edit Brand
+            </Button>
+          </Link>
+          <Link href="/dashboard">
+            <Button variant="default" size="lg">
+              Continue to Dashboard
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* ---- Unified brand profile card ---- */}
@@ -356,53 +394,7 @@ export default async function BrandProfilePage() {
         )}
       </div>
 
-      <GeneratedDesigns generations={generations} />
-    </div>
-  );
-}
-
-/** First surface in the app that renders generated output outside the
- * generation flow itself — previously saved designs were invisible. */
-function GeneratedDesigns({
-  generations,
-}: {
-  generations: SerializedGeneration[];
-}) {
-  if (generations.length === 0) return null;
-  return (
-    <div className="mt-6 rounded-xl border border-[var(--border)] p-6 sm:p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-display text-[18px] font-bold text-foreground">
-          Generated Designs
-        </h2>
-        <Link
-          href="/design-studio"
-          className="text-[13px] text-[var(--text-muted)] transition-colors hover:text-foreground"
-        >
-          View all in Design Studio
-        </Link>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {generations.map((generation) =>
-          generation.url ? (
-            <a
-              key={generation.id}
-              href={generation.url}
-              download={`design-${generation.id.slice(0, 8)}.png`}
-              className="rounded-lg border border-[var(--border)] transition-colors hover:border-[var(--border-accent)]"
-            >
-              <Image
-                src={generation.url}
-                alt={generation.headline ?? "Generated design"}
-                width={generation.width ?? 1080}
-                height={generation.height ?? 1080}
-                className="w-full rounded-lg"
-                unoptimized
-              />
-            </a>
-          ) : null,
-        )}
-      </div>
+      <GeneratedDesigns brandId={brand.id} generations={generations} />
     </div>
   );
 }

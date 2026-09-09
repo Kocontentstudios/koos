@@ -7,6 +7,9 @@ import { cn } from "@/lib/utils";
 
 interface FileUploadProps {
   accept?: string;
+  /** Set when a <Label htmlFor> points at this field — without it the label
+   *  is associated with nothing and the control has no accessible name. */
+  id?: string;
   maxSizeMb?: number;
   onFileSelected: (file: File) => void;
   onRemove?: () => void;
@@ -15,19 +18,47 @@ interface FileUploadProps {
   error?: string | null;
 }
 
+/**
+ * The HTML `accept` grammar, honestly implemented.
+ *
+ * `accept` holds two different kinds of entry and they are matched against
+ * two different things: an extension (".ttf") matches the FILE NAME, a MIME
+ * type ("image/png") matches file.type. Comparing an extension against
+ * file.type is never true, which is what refused every .ttf, .otf and .ttc
+ * upload with "Unsupported file type" — and .ttc had no MIME entry at all, so
+ * it could not be uploaded by any browser.
+ *
+ * Extension matching also carries the case this component cannot otherwise
+ * survive: browsers disagree wildly on a font's MIME, sending
+ * application/octet-stream, font/sfnt, application/x-font-ttf or an empty
+ * string depending on the platform. The name is the only stable signal on the
+ * client. The server does not trust either one — it validates fonts by byte
+ * signature — so this check is a courtesy that fails fast, never the control.
+ */
 function matchesAccept(file: File, accept: string): boolean {
-  const types = accept.split(",").map((t) => t.trim());
+  const types = accept
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  // An accept list that says nothing constrains nothing.
+  if (types.length === 0) return true;
+
+  const name = file.name.toLowerCase();
+  /* Not lowercased: the File API normalises `type` to ASCII lowercase before
+     it is ever readable, so doing it again is unreachable. The NAME is not
+     normalised by the platform, which is why that one is. */
+  const mime = file.type;
   return types.some((t) => {
-    if (t.endsWith("/*")) {
-      const prefix = t.slice(0, t.indexOf("/"));
-      return file.type.startsWith(`${prefix}/`);
-    }
-    return file.type === t;
+    if (t.startsWith(".")) return name.endsWith(t);
+    if (t.endsWith("/*"))
+      return mime.startsWith(`${t.slice(0, t.indexOf("/"))}/`);
+    return mime === t;
   });
 }
 
 export function FileUpload({
   accept,
+  id,
   maxSizeMb = 5,
   onFileSelected,
   onRemove,
@@ -127,6 +158,7 @@ export function FileUpload({
       >
         <input
           ref={inputRef}
+          id={id}
           type="file"
           data-testid="file-input"
           accept={accept}

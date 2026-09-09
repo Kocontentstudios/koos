@@ -1,20 +1,16 @@
+import { readPngDimensions } from "@/lib/design/png-dimensions";
+
 /**
  * Minimal PNG inspection for the design eval.
  *
  * Replaces a `sharp` import. sharp is present in the tree as a transitive
  * dependency of Next, but importing it here made it a declared dependency of
- * the app and twice broke the Vercel build. Dimensions live in the PNG header
- * and need no decoder, so the eval reads them directly.
+ * the app and twice broke the Vercel build.
  */
 
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
-
-/** IHDR is always the first chunk, so width and height sit at fixed offsets:
- * 8-byte signature + 4-byte length + 4-byte type. */
-const WIDTH_OFFSET = 16;
-const HEIGHT_OFFSET = 20;
 
 export interface PngSize {
   width: number;
@@ -26,14 +22,13 @@ export function isPng(bytes: Uint8Array): boolean {
 }
 
 /** Null rather than throwing, so a surprise JPEG degrades the eval to a
- * reported failure instead of crashing the run mid-way. */
+ * reported failure instead of crashing the run mid-way.
+ *
+ * The parse lives in src/lib/design/png-dimensions.ts because the generation
+ * job depends on it; keeping a second copy here meant neither benefited from
+ * the other's tests. */
 export function readPngSize(bytes: Uint8Array): PngSize | null {
-  if (bytes.length < HEIGHT_OFFSET + 4 || !isPng(bytes)) return null;
-  const buf = Buffer.from(bytes);
-  const width = buf.readUInt32BE(WIDTH_OFFSET);
-  const height = buf.readUInt32BE(HEIGHT_OFFSET);
-  if (width === 0 || height === 0) return null;
-  return { width, height };
+  return readPngDimensions(bytes);
 }
 
 export function bytesPerPixel(

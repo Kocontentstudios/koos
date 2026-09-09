@@ -13,6 +13,7 @@ vi.mock("@/lib/db/queries", () => ({
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => ({}) }));
 
+import { EXTRACTION_OUTPUT_TOKEN_CAP } from "@/lib/ai/onboarding/extraction";
 import { POST } from "./route";
 
 function req(body: unknown) {
@@ -30,6 +31,18 @@ describe("POST onboarding extract", () => {
     generateObject.mockResolvedValue({
       object: { fields: { tone: "warm" }, summary: "Captured tone" },
     });
+  });
+
+  /* Regression: at 2000 a conversation that produced paragraph-length
+     overview/audience/differentiators truncated the JSON mid-object, which
+     Bedrock reports as a schema mismatch, not a token error. The cap is a
+     ceiling and unused headroom is free, so it must not be tightened again. */
+  it("caps output well clear of a full 17-field extraction", async () => {
+    expect(EXTRACTION_OUTPUT_TOKEN_CAP).toBeGreaterThanOrEqual(4000);
+    await POST(req({ brandId: BRAND_ID, transcript: "We're warm." }));
+    expect(generateObject.mock.calls[0][0].maxOutputTokens).toBe(
+      EXTRACTION_OUTPUT_TOKEN_CAP,
+    );
   });
 
   it("returns a brand_fields proposal from a transcript", async () => {

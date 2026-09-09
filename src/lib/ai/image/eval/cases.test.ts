@@ -4,6 +4,7 @@ import {
   DESIGN_EVAL_CASES,
   EVAL_THRESHOLDS,
   expectedPixelRatio,
+  RATIO_TOLERANCE,
 } from "./cases";
 
 // Gate lane: the eval itself costs money to run, so its fixtures are checked
@@ -40,8 +41,12 @@ describe("design eval cases", () => {
 });
 
 describe("expectedPixelRatio", () => {
-  it("accounts for the 4:5 substitution rather than expecting 0.8", () => {
-    expect(expectedPixelRatio("4:5")).toBeCloseTo(0.75, 5);
+  /* The adapter sends the true ratio in imageConfig, which accepts 4:5 and
+     overrides the SDK's 3:4 substitution — so the eval must expect what is
+     actually served. Pinning 0.75 here is what kept the free lane green while
+     the paid run failed on every portrait case. */
+  it("expects the ratio that is actually served for 4:5", () => {
+    expect(expectedPixelRatio("4:5")).toBeCloseTo(0.8, 5);
   });
 
   it("passes through ratios Google serves directly", () => {
@@ -59,5 +64,14 @@ describe("thresholds", () => {
   it("leaves room for model variance on legibility", () => {
     expect(EVAL_THRESHOLDS.textLegibilityPassRate).toBeGreaterThan(0.5);
     expect(EVAL_THRESHOLDS.textLegibilityPassRate).toBeLessThan(1);
+  });
+
+  /* The substitution and the true ratio are 0.05 apart, and the tolerance is
+     0.03 — so these two expectations cannot both pass, and the eval fails
+     silently if this file drifts from the adapter. */
+  it("is far enough from the substituted ratio to matter", () => {
+    expect(Math.abs(expectedPixelRatio("4:5") - 0.75)).toBeGreaterThan(
+      RATIO_TOLERANCE,
+    );
   });
 });

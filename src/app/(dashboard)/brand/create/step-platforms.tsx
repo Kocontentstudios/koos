@@ -47,6 +47,18 @@ export function StepPlatforms({ state, onChange }: StepProps) {
             <SelectValue placeholder="Select primary platform..." />
           </SelectTrigger>
           <SelectContent>
+            {/* A value from chat or an older option set is still the brand's
+                answer: offering it keeps it visible and selectable rather than
+                rendering the placeholder over a column that is not empty. */}
+            {(primaryPlatformOptions as readonly string[]).includes(
+              state.primaryPlatform,
+            ) || !state.primaryPlatform
+              ? null
+              : [state.primaryPlatform].map((opt) => (
+                  <SelectItem key={opt} value={opt}>
+                    {opt}
+                  </SelectItem>
+                ))}
             {primaryPlatformOptions.map((opt) => (
               <SelectItem key={opt} value={opt}>
                 {opt}

@@ -3,6 +3,7 @@ import {
   getRecentConversationsForBrand,
   getStrategiesByBrand,
 } from "@/lib/db/queries";
+import { groupStrategiesForSidebar } from "@/lib/strategy/sidebar-groups";
 import { StrategyClient } from "./strategy-client";
 
 export default async function StrategyPage({
@@ -40,40 +41,17 @@ export default async function StrategyPage({
   // in the history panel (Recent Chats).
   const recentConversations = await getRecentConversationsForBrand(brand.id);
 
-  // Latest strategy per chat (rawStrategies is updatedAt-desc) — surfaced as
-  // the chat's "View Strategy" action instead of a separate sidebar list.
-  const latestStrategyIdByConversation = new Map<string, string>();
-  for (const s of rawStrategies) {
-    if (
-      s.conversationId &&
-      !latestStrategyIdByConversation.has(s.conversationId)
-    ) {
-      latestStrategyIdByConversation.set(s.conversationId, s.id);
-    }
-  }
+  const { strategyIdByConversation, olderStrategies } =
+    groupStrategiesForSidebar(rawStrategies, recentConversations);
 
   const conversations = recentConversations.map((c) => ({
     id: c.id,
     title: c.title,
     updatedAt: c.updatedAt,
     mode: c.mode,
-    strategyId: latestStrategyIdByConversation.get(c.id) ?? null,
+    strategyId: strategyIdByConversation.get(c.id) ?? null,
+    titleCustom: c.titleCustom,
   }));
-
-  // Anything not reachable through a listed chat (no conversation, chat fell
-  // off the recent list, or superseded by a newer strategy in the same chat)
-  // stays reachable in the sidebar's "Older Strategies" group.
-  const reachableViaChat = new Set(
-    conversations.map((c) => c.strategyId).filter(Boolean),
-  );
-  const olderStrategies = rawStrategies
-    .filter((s) => !reachableViaChat.has(s.id))
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      updatedAt: s.updatedAt,
-      status: s.status,
-    }));
 
   return (
     <StrategyClient

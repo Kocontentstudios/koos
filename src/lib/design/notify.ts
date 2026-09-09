@@ -7,10 +7,12 @@ import {
   designRequestConfirmationEmail,
   designRequestTeamEmail,
   type TicketProgressEmailInput,
+  type TicketReminderEmailInput,
   type TicketReviewClientEmailInput,
   type TicketReviewTeamEmailInput,
   type TicketStatusEmailInput,
   ticketProgressEmail,
+  ticketReminderEmail,
   ticketReviewClientEmail,
   ticketReviewTeamEmail,
   ticketStatusEmail,
@@ -170,6 +172,25 @@ export async function sendTicketReviewClientEmail({
   } catch (err) {
     console.error("ticket review client email failed", {
       ticketNumber: input.ticketNumber,
+      err,
+    });
+  }
+}
+
+/** Nudge the assigned designer about a ticket. Never throws — a failed nudge
+ *  must not fail the operator's action, and the in-app notification is the
+ *  durable half anyway. */
+export async function sendTicketReminderEmail(args: {
+  to: string;
+  input: TicketReminderEmailInput;
+}): Promise<void> {
+  try {
+    const { subject, html } = ticketReminderEmail(args.input);
+    await sendMail({ to: args.to, subject, html });
+  } catch (err) {
+    console.error("ticket reminder email failed", {
+      ticketNumber: args.input.ticketNumber,
+      to: args.to,
       err,
     });
   }

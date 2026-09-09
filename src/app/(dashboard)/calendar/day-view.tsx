@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { dayKey, groupItemsByDay } from "@/lib/calendar/group";
 import { CalendarItemCard } from "./calendar-item-card";
 import type { CalendarItem } from "./types";
@@ -8,9 +10,10 @@ interface DayViewProps {
   focused: Date;
   items: CalendarItem[];
   onSelect: (item: CalendarItem) => void;
+  onAddDay: (day: Date) => void;
 }
 
-export function DayView({ focused, items, onSelect }: DayViewProps) {
+export function DayView({ focused, items, onSelect, onAddDay }: DayViewProps) {
   const dayItems = groupItemsByDay(items).get(dayKey(focused)) ?? [];
 
   return (
@@ -26,6 +29,15 @@ export function DayView({ focused, items, onSelect }: DayViewProps) {
           <CalendarItemCard key={item.id} item={item} onSelect={onSelect} />
         ))
       )}
+      <Button
+        variant="secondary"
+        size="lg"
+        className="w-full gap-1.5"
+        onClick={() => onAddDay(focused)}
+      >
+        <Plus aria-hidden="true" className="h-4 w-4" />
+        Add post
+      </Button>
     </div>
   );
 }

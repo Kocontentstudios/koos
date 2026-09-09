@@ -362,6 +362,7 @@ export interface WorkspaceInviteEmailInput {
   inviterName: string;
   workspaceName: string;
   acceptUrl: string;
+  roleLabel: string;
   expiresInDays: number;
 }
 
@@ -373,7 +374,7 @@ export function workspaceInviteEmail(i: WorkspaceInviteEmailInput): BuiltEmail {
       i.inviterName,
     )}</strong> invited you to join the <strong>${escapeHtml(
       i.workspaceName,
-    )}</strong> workspace as a member of their team.</p>
+    )}</strong> workspace as a <strong>${escapeHtml(i.roleLabel)}</strong>.</p>
     <p style="margin:16px 0"><a href="${i.acceptUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Accept invitation</a></p>
     <p style="font-size:12px;color:#6b7280">This invitation expires in ${i.expiresInDays} days. If you weren't expecting it, you can ignore this email.</p>`,
   );
@@ -401,4 +402,60 @@ export function memberJoinedEmail(i: MemberJoinedEmailInput): BuiltEmail {
     <p style="margin-top:16px"><a href="${i.teamUrl}" style="color:#138bc8">Open your Team page →</a></p>`,
   );
   return { subject, html };
+}
+
+export interface SmtpTestEmailInput {
+  environment: string;
+  inviteLinkBase: string;
+  sentAt: Date;
+}
+
+/** Sent from the admin Email panel to prove SMTP works end to end. Carries the
+    invite link base so the operator can see, in the delivered mail, which host
+    an invitation would actually point at. */
+export function smtpTestEmail(i: SmtpTestEmailInput): BuiltEmail {
+  return {
+    subject: `KO OS SMTP test — ${i.environment}`,
+    html: shell(
+      "SMTP is working",
+      `<p style="font-size:14px">If you are reading this, this deployment can deliver email.</p>
+  <table style="border-collapse:collapse;width:100%">
+    ${row("Environment", escapeHtml(i.environment))}
+    ${row("Invite links resolve to", escapeHtml(i.inviteLinkBase))}
+    ${row("Sent", escapeHtml(i.sentAt.toISOString()))}
+  </table>`,
+    ),
+  };
+}
+
+export interface TicketReminderEmailInput {
+  ticketNumber: number;
+  designType: string;
+  brandName: string | null;
+  /** Already phrased ("3 days"); null when the ticket is not yet late. */
+  overdueFor: string | null;
+  dueDate: string | null;
+  ticketUrl: string;
+}
+
+/**
+ * A nudge to the designer carrying a ticket. Deliberately states how late it
+ * is rather than a due date — an operator sends this because something has
+ * slipped, and the designer should not have to work that out.
+ */
+export function ticketReminderEmail(i: TicketReminderEmailInput): BuiltEmail {
+  const heading = i.overdueFor
+    ? `${formatTicketNumber(i.ticketNumber)} is ${i.overdueFor} overdue`
+    : `Reminder — ${formatTicketNumber(i.ticketNumber)}`;
+  const html = shell(
+    heading,
+    `<p style="font-size:13px">A reminder about your <strong>${escapeHtml(
+      i.designType,
+    )}</strong> ticket${i.brandName ? ` for ${escapeHtml(i.brandName)}` : ""}.</p>
+    <table style="border-collapse:collapse;width:100%">${
+      i.overdueFor ? row("Overdue by", escapeHtml(i.overdueFor)) : ""
+    }${i.dueDate ? row("Due", escapeHtml(i.dueDate)) : ""}</table>
+    <p style="margin-top:16px"><a href="${escapeHtml(i.ticketUrl)}" style="color:#138bc8">Open the ticket →</a></p>`,
+  );
+  return { subject: heading, html };
 }

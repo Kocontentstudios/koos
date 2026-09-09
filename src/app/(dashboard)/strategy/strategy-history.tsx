@@ -1,29 +1,19 @@
 "use client";
 
-import {
-  Loader2Icon,
-  MessageSquare,
-  PanelLeftClose,
-  Plus,
-  X,
-} from "lucide-react";
+import { Loader2Icon, PanelLeftClose, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { type ConversationListItem, ConversationRow } from "./conversation-row";
+
+export type { ConversationListItem };
 
 export interface StrategyHistoryItem {
   id: string;
   name: string;
   updatedAt: Date;
   status?: string;
-}
-
-export interface ConversationListItem {
-  id: string;
-  title: string | null;
-  updatedAt: Date;
-  mode?: "strategy" | "design";
-  /** Latest strategy generated in this chat, if any. */
-  strategyId?: string | null;
+  /** The chat this strategy was built in, when it still has one. */
+  conversationId?: string | null;
 }
 
 interface StrategyHistoryProps {
@@ -33,7 +23,7 @@ interface StrategyHistoryProps {
   activeId: string | null;
   /** Strategy currently being fetched, shows a spinner on that row. */
   loadingId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, conversationId?: string | null) => void;
   onNew: () => void;
   /** When provided, renders a close button (mobile drawer). */
   onClose?: () => void;
@@ -44,11 +34,8 @@ interface StrategyHistoryProps {
   activeConversationId?: string | null;
   loadingConversationId?: string | null;
   onSelectConversation?: (id: string) => void;
-}
-
-function conversationLabel(c: ConversationListItem): string {
-  if (c.title) return c.title;
-  return `Chat from ${new Date(c.updatedAt).toLocaleDateString()}`;
+  /** Resolves true when the rename stuck, so the row can revert on failure. */
+  onRenameConversation?: (id: string, title: string) => Promise<boolean>;
 }
 
 export function StrategyHistory({
@@ -63,6 +50,7 @@ export function StrategyHistory({
   activeConversationId = null,
   loadingConversationId = null,
   onSelectConversation,
+  onRenameConversation,
 }: StrategyHistoryProps) {
   return (
     <>
@@ -110,55 +98,16 @@ export function StrategyHistory({
         </h4>
         {onSelectConversation && conversations.length > 0 ? (
           <ul className="space-y-1">
-            {conversations.map((c) => {
-              const active = c.id === activeConversationId;
-              const loading = c.id === loadingConversationId;
-              return (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectConversation(c.id)}
-                    disabled={loading}
-                    aria-current={active ? "true" : undefined}
-                    className={cn(
-                      "flex w-full items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-70",
-                      active && "border-l-2 border-l-primary bg-surface-2",
-                    )}
-                  >
-                    <MessageSquare
-                      size={13}
-                      className="mt-0.5 shrink-0 text-[var(--text-muted)]"
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] text-foreground">
-                        {conversationLabel(c)}
-                      </span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
-                        {new Date(c.updatedAt).toLocaleDateString()}
-                        {c.mode === "design" && (
-                          <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary">
-                            Design
-                          </span>
-                        )}
-                        {c.strategyId && (
-                          <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary">
-                            Strategy
-                          </span>
-                        )}
-                      </span>
-                    </span>
-                    {loading && (
-                      <Loader2Icon
-                        size={13}
-                        className="mt-0.5 shrink-0 animate-spin text-[var(--text-muted)]"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </button>
-                </li>
-              );
-            })}
+            {conversations.map((c) => (
+              <ConversationRow
+                key={c.id}
+                conversation={c}
+                active={c.id === activeConversationId}
+                loading={c.id === loadingConversationId}
+                onSelect={onSelectConversation}
+                onRename={onRenameConversation}
+              />
+            ))}
           </ul>
         ) : (
           <p className="px-2 py-3 text-[13px] text-[var(--text-secondary)]">
@@ -180,7 +129,7 @@ export function StrategyHistory({
                   <li key={s.id}>
                     <button
                       type="button"
-                      onClick={() => onSelect(s.id)}
+                      onClick={() => onSelect(s.id, s.conversationId)}
                       disabled={loading}
                       aria-current={active ? "true" : undefined}
                       className={cn(

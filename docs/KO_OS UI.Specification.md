@@ -742,7 +742,7 @@ Same layout as Login, differences:
 
 ### **Loading & Error States**
 
-* Loading: button text replaced by inline spinner (16px, KO Blue). Button disabled. Width stays fixed — no layout shift.
+* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is disabled and carries `aria-busy`. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
 * Network error: banner appears below the card. Background \#1A3A4A, border-left 3px \#D47575, text \#A7B6C7, padding 12px 16px.
 
@@ -855,8 +855,8 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 | Field | Type | Validation | Notes |
 | :---- | :---- | :---- | :---- |
 | Logo Upload | File upload (PNG, SVG, JPG) | Optional, max 5MB | Preview thumbnail shown after upload. Remove button available. |
-| Primary Brand Color | Color picker \+ hex input | Optional, validates hex | Used as main color in designs |
-| Secondary Brand Color | Color picker \+ hex input | Optional, validates hex | Used as accent in designs |
+| Primary Brand Color | Color picker \+ hex input | Optional, no hex rule | Used as main color in designs. May hold a colour NAME from the chat |
+| Secondary Brand Color | Color picker \+ hex input | Optional, no hex rule | Used as accent in designs. May hold a colour NAME from the chat |
 | Additional Colors | Color picker \+ hex input (up to 3\) | Optional | Extra brand colors if applicable |
 
 ### **File Upload Component (Detailed Spec)**
@@ -877,15 +877,25 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 ### **Color Picker Component (Detailed Spec)**
 
-* Layout: horizontal row. Color swatch (32px square, border-radius 6px, border 1px solid rgba(255,255,255,0.12)) \+ hex text input (100px wide).
+* Layout: horizontal row. Color swatch (36px square, border-radius `--radius-lg` = 10px, border 1px solid `--border-control`) \+ text input (140px wide) \+ field label.
 
-* Clicking swatch opens native HTML color picker input (type=color, visually hidden but functionally accessible).
+* The swatch carries a colour-wheel icon (Palette, 16px). Its ink is chosen from the swatch's measured WCAG contrast, not a fixed colour — a fixed white icon disappears on a light fill such as the default secondary \#FFFFFF.
 
-* Hex field: validates on blur. Accepts 3-char (\#FFF) or 6-char (\#FFFFFF) hex. Auto-prefixes \# if missing.
+* Border uses `--border-control`, not `--border`: this is a control boundary and must clear WCAG 1.4.11's 3:1. Set it inline — `globals.css` sets `border-color` on an unlayered `*`, which beats Tailwind's layered utilities.
 
-* Invalid hex: red border (\#8B4040), inline error (12px/\#D47575): Enter a valid hex color.
+* Clicking swatch opens the native HTML color picker (`type=color`, visually hidden but functionally accessible, opened via `showPicker()`). The input is a sibling of the swatch button, never a child — a form control inside a button element is invalid HTML and a real click reaches both.
 
-* Swatch updates in real-time as hex value changes.
+* Empty state (no hex to show): transparent fill, dashed border, muted icon. Without it an unset swatch is an invisible box with no affordance.
+
+* Hex field: commits on blur. Accepts 3-char (\#FFF) or 6-char (\#FFFFFF) hex, auto-prefixes \#, and normalises to uppercase.
+
+* Invalid hex: **known gap.** The spec called for a red border (\#8B4040) and inline error (12px/\#D47575) *Enter a valid hex color*. That has never been implemented, and nothing validates hex on the server either — `brandProfileSchema` deliberately does not, because the colour columns hold free text. Strict mode reverts silently; free-text mode accepts the value. Recorded here rather than dropped, because a field that refuses input without saying why is the worse half of this.
+
+* Two modes, one per screen. **Strict** (Brand Profile form, all rows): a value that is not hex reverts on blur — it is the picker-driven surface, so it normalises. **Free text** (conversational onboarding, all rows): a non-hex value is kept verbatim and the swatch shows the empty state, because the chat writes colour NAMES ("Forest green") into these columns — `parseAdditionalColors` never hex-validates, the paid onboarding eval depends on it, and reverting one would discard what the user said. The input is 140px in both modes because a brand created conversationally carries names into the Brand Profile form.
+
+* Swatch repaints when the value commits — on blur or on a pick from the wheel — not on every keystroke.
+
+* Visiting a field is not editing it: an externally-set colour (Pick from logo, a draft restore) that lands while the field merely has focus must survive the blur. Equally, a hex equal to the displayed value must still commit — the form passes a display fallback (`state.primaryColor || "#138BC8"`), so comparing against it would swallow a real edit.
 
 ### **Validation & UX Behavior**
 
@@ -1514,7 +1524,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 | Active | \#0C5F8A | \#FFFFFF | none | none (translateY \+1px) |
 | Disabled | \#1A3A4A | \#6F8599 | none | none |
 | Focus | \#138BC8 | \#FFFFFF | none | 0 0 0 3px rgba(19,139,200,0.15) |
-| Loading | \#138BC8 | transparent | none | Inline spinner replaces text |
+| Loading | \#138BC8 | \#FFFFFF | none | Inline spinner \+ present-participle label (Saving…) |
 
 ### **Secondary (Outline)**
 

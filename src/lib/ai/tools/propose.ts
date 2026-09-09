@@ -34,9 +34,31 @@ export function buildProposeTools(ctx: ToolContext): Record<string, Tool> {
           wordsAvoid: z.string().optional(),
           brandStyle: z.string().optional(),
           competitors: z.string().optional(),
+          competitorStrengths: z.string().optional(),
           differentiators: z.string().optional(),
           primaryColor: z.string().optional(),
           secondaryColor: z.string().optional(),
+          additionalColors: z
+            .string()
+            .optional()
+            .describe(
+              "Comma-separated list of up to 3 extra brand colours. This REPLACES the saved list — send every colour that should remain.",
+            ),
+          platforms: z
+            .string()
+            .optional()
+            .describe(
+              "Every channel the brand is active on, comma-separated. This REPLACES the saved list — send every channel that should remain, not just the new one.",
+            ),
+          primaryPlatform: z
+            .string()
+            .optional()
+            .describe(
+              "The single channel the strategy leads with. One channel only, never a list.",
+            ),
+          postingFrequency: z.string().optional(),
+          websiteUrl: z.string().optional(),
+          brandFont: z.string().optional(),
           additionalNotes: z.string().optional(),
         }),
       }),

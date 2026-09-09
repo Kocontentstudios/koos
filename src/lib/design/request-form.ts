@@ -46,6 +46,22 @@ export function buildAttachmentKey(
   return `${STORAGE_PREFIXES.referenceImages}/${userId}/${rand}.${ext}`;
 }
 
+/* Documents land under their own prefix, not reference-images: the parser
+   pins that prefix when it turns a URL back into a key, so sharing one prefix
+   would let any attachment URL be handed to the document reader. */
+export function buildDocumentKey(
+  userId: string,
+  fileName: string,
+  rand: string,
+): string {
+  const ext = fileName.toLowerCase().split(".").pop() ?? "bin";
+  return `${STORAGE_PREFIXES.brandDocs}/${userId}/${rand}.${ext}`;
+}
+
+export function documentKeyBelongsToUser(key: string, userId: string): boolean {
+  return key.startsWith(`${STORAGE_PREFIXES.brandDocs}/${userId}/`);
+}
+
 export function attachmentKeyBelongsToUser(
   key: string,
   userId: string,
@@ -115,7 +131,12 @@ export type DraftRequestInput = z.infer<typeof draftRequestSchema>;
 export const presignRequestSchema = z.object({
   brandId: z.uuid(),
   fileName: z.string().min(1).max(255),
-  mimeType: z.string().min(1).max(255),
+  /* Empty allowed: some browsers send no MIME for .txt, and the document
+     allow-list accepts that only where the extension is unambiguous. */
+  mimeType: z.string().max(255),
   sizeBytes: z.number().int().positive().max(MAX_UPLOAD_BYTES),
+  /* Which allow-list, size cap and key prefix apply. Defaulted, so every
+     existing caller keeps its behaviour without passing the field. */
+  kind: z.enum(["attachment", "document"]).default("attachment"),
 });
 export type PresignRequestInput = z.infer<typeof presignRequestSchema>;

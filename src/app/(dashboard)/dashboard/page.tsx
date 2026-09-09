@@ -14,7 +14,12 @@ import {
   WandSparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { requireBrand } from "@/lib/auth/require-brand";
+import { redirect } from "next/navigation";
+import { ProductTour } from "@/components/tour/product-tour";
+import { redirectToLogin } from "@/lib/auth/redirects";
+import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { can } from "@/lib/auth/workspace-access";
+import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getSetupState } from "@/lib/dashboard/setup-state";
 import {
   isOpenTicket,
@@ -23,6 +28,7 @@ import {
   upcomingItems,
 } from "@/lib/dashboard/summary";
 import {
+  getActiveBrandForMember,
   getActiveCalendarForBrand,
   getCalendarItems,
   getDesignTicketsForMember,
@@ -31,6 +37,11 @@ import {
   getWorkspaceMembers,
 } from "@/lib/db/queries";
 import { formatTicketNumber } from "@/lib/design/ticket";
+import { resolveOnboardingRoute } from "@/lib/onboarding-route";
+import { TOUR_ANCHORS } from "@/lib/tour/anchors";
+import { evaluateTourGate } from "@/lib/tour/gate";
+import { evaluateWelcomeGate } from "@/lib/welcome/gate";
+import { LockedDashboard } from "./locked-dashboard";
 import { InviteTeamCard, TeamOverviewCard } from "./team-cards";
 
 function relativeTime(date: Date, now: Date): string {
@@ -54,8 +65,48 @@ function shortDate(date: Date): string {
   });
 }
 
-export default async function DashboardPage() {
-  const { dbUser, workspace, brand } = await requireBrand();
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tour?: string }>;
+}) {
+  /* Deliberately NOT requireBrand(): this is the one route a brand-less user
+     may look at, so the redirect is replaced by a locked preview. Every other
+     guarded route keeps requireBrand exactly as it is — those pages need brand
+     data to function, and the gate is what guarantees they have it. */
+  const { dbUser, workspace, role } = await getActiveWorkspace();
+  if (!dbUser) redirectToLogin();
+  const activeBrand = await getActiveBrandForMember(workspace.id, dbUser.id);
+
+  if (!hasCompletedBrand(activeBrand?.onboardingStatus)) {
+    /* Someone who cannot create a brand has nothing to unlock here, so they
+       keep the existing dead-end rather than a preview they can never act on. */
+    if (!can(role, "create_brand")) redirect("/no-brands");
+    const welcome = evaluateWelcomeGate({
+      welcomeSeenAt: dbUser.welcomeSeenAt,
+      brandOnboardingStatus: activeBrand?.onboardingStatus,
+    });
+    return (
+      <LockedDashboard
+        showWelcome={welcome.show}
+        firstName={dbUser.firstName ?? "there"}
+        onboardingHref={resolveOnboardingRoute({
+          canCreateBrand: true,
+          onboardingType: activeBrand?.onboardingType,
+        })}
+      />
+    );
+  }
+  const brand = activeBrand;
+
+  const { tour } = await searchParams;
+
+  const tourGate = evaluateTourGate({
+    tourCompletedAt: dbUser.tourCompletedAt,
+    brandOnboardingStatus: brand.onboardingStatus,
+    pathname: "/dashboard",
+    forced: tour === "1",
+  });
 
   const [strategies, ticketRows, calendar, teamMembers, pendingInvites] =
     await Promise.all([
@@ -252,8 +303,13 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-7">
+      {tourGate.show && <ProductTour startAt={tourGate.startAt} />}
+
       {/* ── Welcome hero ── */}
-      <div className="relative overflow-hidden rounded-[20px] bg-gradient-to-br from-[#00204F] to-[#00162E] p-6 md:p-9">
+      <div
+        data-tour={TOUR_ANCHORS.dashboardHero}
+        className="relative overflow-hidden rounded-[20px] bg-gradient-to-br from-[#00204F] to-[#00162E] p-6 md:p-9"
+      >
         <span className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-[#85B7EB]">
           <Sparkles size={11} /> {setupComplete ? "All set" : "Getting started"}
         </span>
@@ -539,7 +595,10 @@ export default async function DashboardPage() {
       )}
 
       {/* ── Action cards ── */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div
+        data-tour={TOUR_ANCHORS.dashboardActions}
+        className="grid grid-cols-1 gap-4 md:grid-cols-3"
+      >
         {actionCards.map((c) => {
           const Icon = c.icon;
           return (

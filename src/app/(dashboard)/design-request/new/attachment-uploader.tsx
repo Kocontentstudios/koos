@@ -8,6 +8,7 @@ import {
   isAllowedUpload,
   MAX_UPLOAD_BYTES,
 } from "@/lib/design/request-form";
+import { uploadToPresignedUrl } from "@/lib/uploads/put-presigned";
 import { cn } from "@/lib/utils";
 
 interface PendingUpload {
@@ -20,28 +21,6 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
-}
-
-function uploadToPresignedUrl(
-  url: string,
-  file: File,
-  onProgress: (fraction: number) => void,
-): Promise<void> {
-  // XMLHttpRequest instead of fetch: fetch exposes no upload progress events.
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", file.type);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded / e.total);
-    };
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Upload failed (${xhr.status})`));
-    xhr.onerror = () => reject(new Error("Upload failed"));
-    xhr.send(file);
-  });
 }
 
 export function AttachmentUploader({

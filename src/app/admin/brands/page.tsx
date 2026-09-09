@@ -1,4 +1,5 @@
 import { requireRole } from "@/lib/auth/require-role";
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import { listBrandsForAdmin } from "@/lib/db/queries";
 import { BrandsTable } from "./brands-table";
 
@@ -24,7 +25,7 @@ export default async function AdminBrandsPage() {
           ownerEmail: r.ownerEmail,
           workspaceName: r.workspaceName,
           status: r.brand.onboardingStatus,
-          completionPercentage: r.brand.completionPercentage,
+          completionPercentage: brandProfileCompletion(r.brand),
           ticketCount: r.ticketCount,
           createdAt: r.brand.createdAt.toISOString(),
         }))}

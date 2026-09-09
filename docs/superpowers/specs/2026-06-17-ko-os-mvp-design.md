@@ -4,9 +4,19 @@
 **Status:** Approved for planning
 **Source of truth:** `docs/KO_OS UI.Specification.md` (v1.1, June 2026). Where other docs
 conflict with it, the UI Specification wins.
-**Supporting docs:** `KO_Design_System.docx`, `KO Content Studios — Brand Operating
-Guidelines.docx`, `Navigation Structure.docx`, `KO_OS Brand Onboarding Form.docx`,
-`KO OS -- PDRAP.docx`, `KO Platform MVP – User Story & PRD.docx`.
+**Supporting docs (as of June 2026):** `KO_Design_System.docx`, `KO Content Studios —
+Brand Operating Guidelines.docx`, `Navigation Structure.docx`, `KO_OS Brand Onboarding
+Form.docx`, `KO OS -- PDRAP.docx`, `KO Platform MVP – User Story & PRD.docx`.
+
+> **Note (2026-08-26):** the `.docx` sources above were removed from the repo because they
+> had drifted out of agreement with `docs/KO_OS UI.Specification.md`, which is and remains
+> the source of truth. Of that list only `Navigation Structure.docx` is still in `docs/`.
+> Content that survives elsewhere: design system → UI Specification §9 (colour, typography,
+> spacing, component states); brand onboarding form →
+> `docs/koos_complete/KO_OS Brand Onboarding Form v2.md`; UI handover →
+> `docs/koos_complete/UIUX-HANDOVER.md` plus the reference markup in `docs/koos_complete/`.
+> The PDRAP and PRD documents have no in-repo replacement. This section is left as the
+> historical record of what the June design drew on.
 
 ---
 

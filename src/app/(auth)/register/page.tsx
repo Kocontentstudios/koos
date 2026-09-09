@@ -322,6 +322,9 @@ function RegisterForm() {
   );
 }
 
+/* Registration sends the verification email; see login/page.tsx. */
+export const maxDuration = 60;
+
 export default function RegisterPage() {
   return (
     <Suspense>

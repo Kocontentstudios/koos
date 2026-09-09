@@ -48,3 +48,57 @@ describe("rowsToUiMessages", () => {
     expect(rowsToUiMessages([])).toEqual([]);
   });
 });
+
+/* An onboarding chat is persisted as a `strategy` conversation, so Recent
+   Chats reopens it and renders the stored content. Markers are stripped before
+   storage now, but rows written earlier still carry them and this is the one
+   door every stored conversation comes back through. */
+describe("stored history never carries a poll marker", () => {
+  it("strips a marker left in an older row", () => {
+    const [message] = rowsToUiMessages([
+      {
+        id: "m1",
+        role: "assistant",
+        content: "What sets you apart? [[poll:differentiation]]",
+      },
+    ]);
+    expect(message.parts).toEqual([
+      { type: "text", text: "What sets you apart?" },
+    ]);
+  });
+
+  it("strips a marker whose kind is not one we know", () => {
+    const [message] = rowsToUiMessages([
+      { id: "m1", role: "assistant", content: "Q? [[poll:market-gap]]" },
+    ]);
+    expect(JSON.stringify(message.parts)).not.toContain("[[poll:");
+  });
+
+  /* Every stored conversation in every mode comes back through here, so a
+     transform wider than the marker reformats strategy and design answers
+     that have nothing to do with this feature. */
+  it.each([
+    "Channels:\n\n- Instagram\n  - Reels 3x/wk\n- TikTok",
+    "Run:\n\n    npm run build",
+    "line one  \nline two",
+  ])("does not reformat assistant markdown: %j", (content) => {
+    const [message] = rowsToUiMessages([
+      { id: "m1", role: "assistant", content },
+    ]);
+    expect(message.parts).toEqual([{ type: "text", text: content }]);
+  });
+
+  /* A user who types the token owns those characters. */
+  it("never rewrites a user's own message", () => {
+    const content = "why does it say [[poll:tone]] ?";
+    const [message] = rowsToUiMessages([{ id: "m1", role: "user", content }]);
+    expect(message.parts).toEqual([{ type: "text", text: content }]);
+  });
+
+  it("leaves ordinary content alone", () => {
+    const [message] = rowsToUiMessages([
+      { id: "m1", role: "user", content: "Bold, Warm" },
+    ]);
+    expect(message.parts).toEqual([{ type: "text", text: "Bold, Warm" }]);
+  });
+});

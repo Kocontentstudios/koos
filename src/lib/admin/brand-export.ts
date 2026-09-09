@@ -1,3 +1,4 @@
+import { brandProfileCompletion } from "@/lib/brand-profile";
 import type { brands } from "@/lib/db/schema";
 
 type BrandRow = typeof brands.$inferSelect;
@@ -21,6 +22,9 @@ export interface BrandExport {
       | "logoUrl"
       | "hasLogo"
       | "brandStyle"
+      | "brandFont"
+      | "brandFontUrl"
+      | "bodyFontUrl"
       | "primaryColor"
       | "secondaryColor"
       | "additionalColors"
@@ -31,7 +35,7 @@ export interface BrandExport {
     >;
     platforms: Pick<
       BrandRow,
-      "platforms" | "primaryPlatform" | "postingFrequency"
+      "platforms" | "primaryPlatform" | "postingFrequency" | "websiteUrl"
     >;
     additional: Pick<BrandRow, "additionalNotes" | "helpfulLinks">;
   };
@@ -45,7 +49,7 @@ export function toBrandExport(brand: BrandRow): BrandExport {
     id: brand.id,
     name: brand.name,
     onboardingStatus: brand.onboardingStatus,
-    completionPercentage: brand.completionPercentage,
+    completionPercentage: brandProfileCompletion(brand),
     createdAt: brand.createdAt.toISOString(),
     updatedAt: brand.updatedAt.toISOString(),
     sections: {
@@ -69,6 +73,9 @@ export function toBrandExport(brand: BrandRow): BrandExport {
         logoUrl: brand.logoUrl,
         hasLogo: brand.hasLogo,
         brandStyle: brand.brandStyle,
+        brandFont: brand.brandFont,
+        brandFontUrl: brand.brandFontUrl,
+        bodyFontUrl: brand.bodyFontUrl,
         primaryColor: brand.primaryColor,
         secondaryColor: brand.secondaryColor,
         additionalColors: brand.additionalColors,
@@ -82,6 +89,7 @@ export function toBrandExport(brand: BrandRow): BrandExport {
         platforms: brand.platforms,
         primaryPlatform: brand.primaryPlatform,
         postingFrequency: brand.postingFrequency,
+        websiteUrl: brand.websiteUrl,
       },
       additional: {
         additionalNotes: brand.additionalNotes,

@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -31,6 +33,7 @@ export const providerEnum = pgEnum("provider", ["email", "google"]);
 export const onboardingTypeEnum = pgEnum("onboarding_type", [
   "manual",
   "document",
+  "conversational",
 ]);
 
 export const onboardingStatusEnum = pgEnum("onboarding_status", [
@@ -69,7 +72,17 @@ export const assetTypeEnum = pgEnum("asset_type", [
 
 export const userRoleEnum = pgEnum("user_role", ["user", "designer", "admin"]);
 
-export const workspaceRoleEnum = pgEnum("workspace_role", ["owner", "member"]);
+// Declared in descending privilege: Postgres orders an enum by declaration
+// order, and the member listings sort on this column to surface the most
+// privileged first. Mirrors WORKSPACE_ROLES in src/lib/auth/workspace-access.ts.
+export const workspaceRoleEnum = pgEnum("workspace_role", [
+  "owner",
+  "admin",
+  "brand_manager",
+  "contributor",
+]);
+
+export const brandScopeEnum = pgEnum("brand_scope", ["all", "assigned"]);
 
 export const strategyStatusEnum = pgEnum("strategy_status", [
   "draft",
@@ -82,6 +95,12 @@ export const calendarItemStatusEnum = pgEnum("calendar_item_status", [
   "in_progress",
   "ready",
   "published",
+]);
+
+/** Whether an item came out of calendar generation or the user typed it in. */
+export const calendarItemSourceEnum = pgEnum("calendar_item_source", [
+  "ai",
+  "manual",
 ]);
 
 export const designTicketStatusEnum = pgEnum("design_ticket_status", [
@@ -148,6 +167,14 @@ export const users = pgTable("users", {
       verified at creation (Google already verified the inbox); accounts
       predating the feature were backfilled by migration 0011. */
   emailVerifiedAt: timestamp("email_verified_at"),
+  /** Set once, the first time the user leaves the product tour — finished OR
+      dismissed. Replays from Settings run via ?tour=1 and deliberately do not
+      rewrite it. Accounts predating the tour were backfilled by migration 0021. */
+  tourCompletedAt: timestamp("tour_completed_at"),
+  /** Set once, the first time the user acts on the welcome card — "Set Up
+      Your Brand" OR "Maybe later". Accounts predating it were backfilled by
+      migration 0025. */
+  welcomeSeenAt: timestamp("welcome_seen_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -211,10 +238,26 @@ export const workspaceMembers = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: workspaceRoleEnum("role").notNull().default("member"),
+    role: workspaceRoleEnum("role").notNull().default("contributor"),
+    brandScope: brandScopeEnum("brand_scope").notNull().default("all"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.workspaceId, t.userId), index().on(t.userId)],
+  /* These CHECKs are the database-side half of the privilege rule: owners and
+     admins are always workspace-wide, brand managers are always
+     assignment-scoped. Modelled here, not just in the migration, so a
+     `drizzle-kit push` cannot quietly drop them. */
+  (t) => [
+    unique().on(t.workspaceId, t.userId),
+    index().on(t.userId),
+    check(
+      "workspace_members_privileged_scope_check",
+      sql`${t.role} NOT IN ('owner', 'admin') OR ${t.brandScope} = 'all'`,
+    ),
+    check(
+      "workspace_members_brand_manager_scope_check",
+      sql`${t.role} <> 'brand_manager' OR ${t.brandScope} = 'assigned'`,
+    ),
+  ],
 );
 
 // Single-use invitation tokens. Stores only the SHA-256 hash of the raw token
@@ -227,7 +270,8 @@ export const workspaceInvitations = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     email: citext("email").notNull(),
-    role: workspaceRoleEnum("role").notNull().default("member"),
+    role: workspaceRoleEnum("role").notNull().default("contributor"),
+    brandScope: brandScopeEnum("brand_scope").notNull().default("all"),
     tokenHash: text("token_hash").notNull().unique(),
     invitedById: uuid("invited_by_id").references(() => users.id, {
       onDelete: "set null",
@@ -236,7 +280,17 @@ export const workspaceInvitations = pgTable(
     acceptedAt: timestamp("accepted_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index().on(t.workspaceId)],
+  (t) => [
+    index().on(t.workspaceId),
+    check(
+      "workspace_invitations_privileged_scope_check",
+      sql`${t.role} NOT IN ('owner', 'admin') OR ${t.brandScope} = 'all'`,
+    ),
+    check(
+      "workspace_invitations_brand_manager_scope_check",
+      sql`${t.role} <> 'brand_manager' OR ${t.brandScope} = 'assigned'`,
+    ),
+  ],
 );
 
 export const brands = pgTable(
@@ -267,6 +321,9 @@ export const brands = pgTable(
     primaryColor: text("primary_color"),
     secondaryColor: text("secondary_color"),
     additionalColors: text("additional_colors").array(),
+    /** Index-aligned with additionalColors; "" means that slot is unnamed.
+     *  Read through pairColourLabels, which is total over any mismatch. */
+    additionalColorLabels: text("additional_color_labels").array(),
     logoUrl: text("logo_url"),
     // Section 3 — Brand Personality
     values: text("values"),
@@ -275,6 +332,17 @@ export const brands = pgTable(
     // Section 4 — Visual Identity (extends colors/logoUrl above)
     hasLogo: boolean("has_logo"),
     brandStyle: text("brand_style"),
+    /** Typography preference — a named style, not an uploaded face. The
+        composite renderer loads three fixed families from disk, so a per-brand
+        font file would be a renderer change rather than a column. */
+    brandFont: text("brand_font"),
+    /** An uploaded TTF or OTF. Satori rejects WOFF2, so the upload path only
+        accepts the two it can actually render. */
+    /** The uploaded HEADING face. Named before there was a second one; it has
+     *  always substituted the Display family, so the name still fits. */
+    brandFontUrl: text("brand_font_url"),
+    /** The uploaded BODY/CTA face. Null falls back to the bundled Montserrat. */
+    bodyFontUrl: text("body_font_url"),
     // Section 5 — Competitors
     competitors: text("competitors"),
     competitorStrengths: text("competitor_strengths"),
@@ -284,6 +352,7 @@ export const brands = pgTable(
     primaryPlatform: text("primary_platform"),
     postingFrequency: text("posting_frequency"),
     // Section 7 — Anything Else
+    websiteUrl: text("website_url"),
     additionalNotes: text("additional_notes"),
     helpfulLinks: text("helpful_links"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -323,6 +392,9 @@ export const chatConversations = pgTable("chat_conversations", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   title: text("title"),
+  /** The user renamed this chat by hand. Locks the title against the AI titler
+   * and against the campaign-name rename on strategy generation. */
+  titleCustom: boolean("title_custom").notNull().default(false),
   mode: conversationModeEnum("mode").notNull().default("strategy"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -368,66 +440,102 @@ export const calendars = pgTable("calendars", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const calendarItems = pgTable("calendar_items", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  calendarId: uuid("calendar_id")
-    .notNull()
-    .references(() => calendars.id, { onDelete: "cascade" }),
-  date: timestamp("date").notNull(),
-  time: text("time"),
-  platform: text("platform").notNull(),
-  contentType: text("content_type").notNull(),
-  title: text("title").notNull(),
-  brief: text("brief"),
-  designRequired: boolean("design_required").notNull().default(false),
-  designType: text("design_type"),
-  dimensions: text("dimensions"),
-  status: calendarItemStatusEnum("status").notNull().default("draft"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const calendarItems = pgTable(
+  "calendar_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    calendarId: uuid("calendar_id")
+      .notNull()
+      .references(() => calendars.id, { onDelete: "cascade" }),
+    date: timestamp("date").notNull(),
+    time: text("time"),
+    platform: text("platform").notNull(),
+    contentType: text("content_type").notNull(),
+    title: text("title").notNull(),
+    /** Creative direction — what the post should accomplish. AI-written. */
+    brief: text("brief"),
+    /** The post copy itself, ready to publish. */
+    caption: text("caption"),
+    /** Internal reminders — not part of the post. Still visible to the
+     * in-app assistant, which reads whole rows via list_calendar_items. */
+    notes: text("notes"),
+    designRequired: boolean("design_required").notNull().default(false),
+    designType: text("design_type"),
+    dimensions: text("dimensions"),
+    status: calendarItemStatusEnum("status").notNull().default("draft"),
+    source: calendarItemSourceEnum("source").notNull().default("ai"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index().on(t.calendarId)],
+);
 
-export const designTickets = pgTable("design_tickets", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ticketNumber: integer("ticket_number")
-    .notNull()
-    .unique()
-    .default(sql`nextval('design_ticket_number_seq')`),
-  calendarItemId: uuid("calendar_item_id").references(() => calendarItems.id, {
-    onDelete: "set null",
-  }),
-  brandId: uuid("brand_id")
-    .notNull()
-    .references(() => brands.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  assignedDesignerId: uuid("assigned_designer_id").references(() => users.id, {
-    onDelete: "set null",
-  }),
-  designType: text("design_type").notNull(),
-  title: text("title"),
-  dimensions: text("dimensions"),
-  slides: integer("slides"),
-  brief: text("brief").notNull(),
-  notes: text("notes"),
-  /** Optional structured deliverable specs from the request form; display-only,
-   * so it stays schemaless jsonb rather than dedicated columns. */
-  specs: jsonb("specs").$type<DesignTicketSpecs>(),
-  deliveryEmail: text("delivery_email"),
-  /** Generated design or user upload the designer should work from. Previously
-   * this only survived as a line inside `brief`, so it was invisible to queries. */
-  referenceImageUrl: text("reference_image_url"),
-  dueDate: timestamp("due_date"),
-  status: designTicketStatusEnum("status").notNull().default("submitted"),
-  /** When the client last signed off. Never cleared — a later correction round
-   * reopens the ticket for review but must not revoke files already earned. */
-  approvedAt: timestamp("approved_at"),
-  priority: ticketPriorityEnum("priority").notNull().default("normal"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const designTickets = pgTable(
+  "design_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketNumber: integer("ticket_number")
+      .notNull()
+      .unique()
+      .default(sql`nextval('design_ticket_number_seq')`),
+    calendarItemId: uuid("calendar_item_id").references(
+      () => calendarItems.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    assignedDesignerId: uuid("assigned_designer_id").references(
+      () => users.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    designType: text("design_type").notNull(),
+    title: text("title"),
+    dimensions: text("dimensions"),
+    slides: integer("slides"),
+    brief: text("brief").notNull(),
+    notes: text("notes"),
+    /** Optional structured deliverable specs from the request form; display-only,
+     * so it stays schemaless jsonb rather than dedicated columns. */
+    specs: jsonb("specs").$type<DesignTicketSpecs>(),
+    deliveryEmail: text("delivery_email"),
+    /** Generated design or user upload the designer should work from. Previously
+     * this only survived as a line inside `brief`, so it was invisible to queries. */
+    referenceImageUrl: text("reference_image_url"),
+    dueDate: timestamp("due_date"),
+    status: designTicketStatusEnum("status").notNull().default("submitted"),
+    /** When the client last signed off. Never cleared — a later correction round
+     * reopens the ticket for review but must not revoke files already earned. */
+    approvedAt: timestamp("approved_at"),
+    /** When the studio FIRST delivered. Set once, on version 1: a correction
+     * round is not a new delivery, and overwriting it would make an old ticket
+     * look freshly delivered every time it was revised. */
+    deliveredAt: timestamp("delivered_at"),
+    priority: ticketPriorityEnum("priority").notNull().default("normal"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  /* The columns the admin drill-downs FILTER on — see
+     drizzle/0029_design_ticket_indexes.sql for what each one serves. They do
+     not remove the sort: the working queue's ORDER BY is composite and no
+     index here matches it. */
+  (t) => [
+    index("design_tickets_status_idx").on(t.status),
+    index("design_tickets_due_date_idx").on(t.dueDate),
+    index("design_tickets_assigned_designer_idx").on(t.assignedDesignerId),
+    index("design_tickets_created_at_idx").on(t.createdAt),
+    index("design_tickets_delivered_at_idx").on(t.deliveredAt),
+    index("design_tickets_brand_idx").on(t.brandId),
+  ],
+);
 
 /** AI-generated design briefs pinned to a design-mode conversation, so a
  * brief survives the chat session and can be edited/resubmitted without
@@ -506,6 +614,10 @@ export const designGenerations = pgTable(
       { onDelete: "set null" },
     ),
     designType: text("design_type"),
+    /** Everything the user attached as context, in precedence order. The
+     *  source enum and brief_id/calendar_item_id record only one primary
+     *  reference, so this is what answers "what was this built from". */
+    attachments: jsonb("attachments").notNull().default(sql`'[]'::jsonb`),
     spec: jsonb("spec").notNull(),
     renderer: designRendererEnum("renderer").notNull(),
     provider: text("provider").notNull(),
@@ -674,9 +786,9 @@ export const brandMemory = pgTable("brand_memory", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-/* Per-brand restriction rows. ALWAYS EMPTY in v1 (no UI writes here).
-   Default-open rule: a member with no rows sees every brand in the
-   workspace; a member with rows sees only those brands. */
+/* Brand assignments. Only consulted when the membership's brand_scope is
+   'assigned', where an empty list means NO brands. Owners, admins, and
+   workspace-wide contributors ignore this table entirely. */
 export const memberBrandAccess = pgTable(
   "member_brand_access",
   {
@@ -690,6 +802,36 @@ export const memberBrandAccess = pgTable(
     brandId: uuid("brand_id")
       .notNull()
       .references(() => brands.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
-  (t) => [unique().on(t.workspaceId, t.userId, t.brandId)],
+  /* The composite FK makes "grants die with the membership" structural rather
+     than something every delete path has to remember. No extra index: the
+     unique triple already covers (workspace_id, user_id) lookups. */
+  (t) => [
+    unique().on(t.workspaceId, t.userId, t.brandId),
+    foreignKey({
+      name: "mba_membership_fk",
+      columns: [t.workspaceId, t.userId],
+      foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId],
+    }).onDelete("cascade"),
+  ],
+);
+
+/* The brands a pending invitation will grant on acceptance. Rows move into
+   member_brand_access when the invite is accepted, then die with the
+   invitation row. */
+export const workspaceInvitationBrands = pgTable(
+  "workspace_invitation_brands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invitationId: uuid("invitation_id")
+      .notNull()
+      .references(() => workspaceInvitations.id, { onDelete: "cascade" }),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+  },
+  (t) => [unique().on(t.invitationId, t.brandId)],
 );

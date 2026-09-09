@@ -1,5 +1,4 @@
 import type { AspectRatio } from "../types";
-import { toGoogleAspectRatio } from "../types";
 
 export interface DesignEvalCase {
   id: string;
@@ -12,7 +11,7 @@ export interface DesignEvalCase {
 
 /**
  * Briefs chosen to exercise the parts of the adapter that can silently break:
- * every supported aspect ratio, the 4:5 substitution, short and long copy, and
+ * every supported aspect ratio, the 4:5 ratio, short and long copy, and
  * the text-free plate path the composite renderer depends on.
  */
 export const DESIGN_EVAL_CASES: DesignEvalCase[] = [
@@ -25,7 +24,7 @@ export const DESIGN_EVAL_CASES: DesignEvalCase[] = [
     expectedText: "LAUNCH",
   },
   {
-    id: "portrait-substituted-ratio",
+    id: "portrait-true-ratio",
     prompt:
       "Social post reading exactly 'SPRING SALE' in large sans-serif capitals " +
       "on a warm coral background, clean layout, generous margins.",
@@ -65,22 +64,25 @@ export const EVAL_THRESHOLDS = {
   textLegibilityPassRate: 0.8,
 };
 
-const RATIO_VALUES: Record<string, number> = {
+const RATIO_VALUES: Record<AspectRatio, number> = {
   "1:1": 1,
-  "3:4": 3 / 4,
-  "4:3": 4 / 3,
+  "4:5": 4 / 5,
   "16:9": 16 / 9,
   "9:16": 9 / 16,
 };
 
 /**
- * The pixel ratio a case should actually come back as, accounting for the
- * substitution Google's enum forces on 4:5.
+ * The pixel ratio a case should actually come back as.
+ *
+ * No substitution any more: the adapter sends the true ratio in `imageConfig`,
+ * which accepts 4:5, and that value replaces the SDK's own — so 4:5 is served
+ * as 4:5 and expecting 3:4 here fails the run. The outer `aspectRatio`
+ * argument still takes the narrower image-model enum, which is why
+ * `toGoogleAspectRatio` still exists.
  */
 export function expectedPixelRatio(aspectRatio: AspectRatio): number {
-  const served = toGoogleAspectRatio(aspectRatio);
-  const value = RATIO_VALUES[served];
-  if (!value) throw new Error(`No pixel ratio known for "${served}"`);
+  const value = RATIO_VALUES[aspectRatio];
+  if (!value) throw new Error(`No pixel ratio known for "${aspectRatio}"`);
   return value;
 }
 

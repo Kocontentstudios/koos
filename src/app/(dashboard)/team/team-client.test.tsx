@@ -9,15 +9,25 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+const { toastMock } = vi.hoisted(() => ({
+  toastMock: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
+
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 afterEach(() => {
   refreshMock.mockClear();
+  toastMock.error.mockClear();
+  toastMock.success.mockClear();
+  toastMock.warning.mockClear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+const brands = [
+  { id: "b1", name: "Acme" },
+  { id: "b2", name: "Globex" },
+];
 
 const members = [
   {
@@ -26,13 +36,17 @@ const members = [
     email: "precious@example.com",
     avatarUrl: null,
     role: "owner" as const,
+    brandScope: "all" as const,
+    assignedBrandIds: [] as string[],
   },
   {
     userId: "member-1",
     name: "Sarah Kim",
     email: "sarah@example.com",
     avatarUrl: null,
-    role: "member" as const,
+    role: "contributor" as const,
+    brandScope: "all" as const,
+    assignedBrandIds: [] as string[],
   },
 ];
 
@@ -40,6 +54,9 @@ const invitations = [
   {
     id: "inv-1",
     email: "james@example.com",
+    role: "contributor" as const,
+    brandScope: "all" as const,
+    assignedBrandIds: [] as string[],
     expiresAt: new Date().toISOString(),
   },
 ];
@@ -51,7 +68,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="member-1"
+        viewerRole="contributor"
+        viewerBrandScope="all"
         canManage={false}
+        canInvite={false}
+        canManageBrandAccess={false}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -87,7 +109,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -114,7 +141,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -147,7 +179,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -172,6 +209,8 @@ describe("TeamClient", () => {
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(init.body as string)).toEqual({
       email: "newperson@example.com",
+      role: "contributor",
+      brandIds: [],
     });
   });
 
@@ -189,7 +228,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -219,7 +263,12 @@ describe("TeamClient", () => {
       <TeamClient
         workspaceName="KO Content Studio"
         currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
         canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
         members={members}
         invitations={invitations}
       />,
@@ -242,5 +291,253 @@ describe("TeamClient", () => {
       "/api/workspace/members/member-1",
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+});
+
+describe("TeamClient — a brand-scoped inviter", () => {
+  const scopedProps = {
+    workspaceName: "KO Content Studio",
+    currentUserId: "bm-1",
+    viewerRole: "brand_manager" as const,
+    viewerBrandScope: "assigned" as const,
+    canManage: false,
+    canInvite: true,
+    canManageBrandAccess: false,
+    brands,
+    members,
+    invitations,
+  };
+
+  it("offers only Contributor, never a peer or a superior", async () => {
+    const user = userEvent.setup();
+    render(<TeamClient {...scopedProps} />);
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    expect(await screen.findByText("Contributor")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace Admin")).not.toBeInTheDocument();
+    expect(screen.queryByText("Brand Manager")).not.toBeInTheDocument();
+  });
+
+  /* Escalation guard, mirrored in the UI: a scoped inviter can never send an
+     unscoped invite, so the brand picker is mandatory and cannot be toggled
+     off the way a workspace-wide admin can. */
+  it("forces the brand picker and hides the opt-out toggle", async () => {
+    const user = userEvent.setup();
+    render(<TeamClient {...scopedProps} />);
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    expect(await screen.findByText("Acme")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/limit to specific brands/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("refuses to send with no brand chosen", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TeamClient {...scopedProps} />);
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    await user.type(
+      await screen.findByLabelText(/email address/i),
+      "new@example.com",
+    );
+    await user.click(screen.getByRole("button", { name: /send invitation/i }));
+    expect(
+      await screen.findByText(/choose at least one brand/i),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("TeamClient — per-row pending state", () => {
+  const twoInvites = [
+    invitations[0],
+    {
+      id: "inv-2",
+      email: "ada@example.com",
+      role: "contributor" as const,
+      brandScope: "all" as const,
+      assignedBrandIds: [] as string[],
+      expiresAt: new Date().toISOString(),
+    },
+  ];
+
+  function renderTeam() {
+    render(
+      <TeamClient
+        workspaceName="KO Content Studio"
+        currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
+        canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
+        members={members}
+        invitations={twoInvites}
+      />,
+    );
+  }
+
+  /* Regression: `pending` is one boolean for the whole component, so keying the
+     row buttons on it made every Resend and Revoke spin at once — the UI
+     claiming four things were processing when one was. */
+  it("spins only the invitation row being acted on", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<never>(() => {})),
+    );
+    renderTeam();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    const revokes = await screen.findAllByRole("button", { name: /^revoke$/i });
+    expect(revokes).toHaveLength(2);
+
+    await user.click(revokes[0]);
+
+    // Exactly one button announces work; the other row stays silent.
+    expect(
+      await screen.findAllByRole("button", { name: /revoking…/i }),
+    ).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^revoke$/i })).toHaveLength(
+      1,
+    );
+    // No Resend claims to be resending either.
+    expect(
+      screen.queryByRole("button", { name: /resending…/i }),
+    ).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  /* Spinning one row must still lock the others — `loading` says "I am
+     working", `disabled` says "wait"; they are not the same signal. */
+  it("locks every other row while one is in flight", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<never>(() => {})),
+    );
+    renderTeam();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    const revokes = await screen.findAllByRole("button", { name: /^revoke$/i });
+    await user.click(revokes[0]);
+
+    for (const b of screen.getAllByRole("button", { name: /^revoke$/i })) {
+      expect(b).toBeDisabled();
+    }
+    for (const b of screen.getAllByRole("button", { name: /^resend$/i })) {
+      expect(b).toBeDisabled();
+    }
+
+    vi.unstubAllGlobals();
+  });
+});
+
+/* A 200 that carries a warning means the action worked and the result does
+   not — an invitation whose link points at another deployment. Both Invite and
+   Resend must surface it; the whole warning path once survived deletion
+   against a green suite because only the server contract was tested. */
+describe("TeamClient — a warning on a successful response", () => {
+  const WRONG_HOST =
+    "The invitation was sent, but this environment builds links for a different deployment, so the link will not work.";
+
+  function renderOwner() {
+    render(
+      <TeamClient
+        workspaceName="KO Content Studio"
+        currentUserId="owner-1"
+        viewerRole="owner"
+        viewerBrandScope="all"
+        canManage={true}
+        canInvite={true}
+        canManageBrandAccess={true}
+        brands={brands}
+        members={members}
+        invitations={invitations}
+      />,
+    );
+  }
+
+  function respond(body: unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => body }),
+    );
+  }
+
+  it("warns instead of celebrating when the invitation's link host is wrong", async () => {
+    const user = userEvent.setup();
+    respond({ ok: true, warning: WRONG_HOST });
+    renderOwner();
+
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    await user.type(screen.getByLabelText(/email/i), "new@example.com");
+    await user.click(screen.getByRole("button", { name: /send invitation/i }));
+
+    await waitFor(() =>
+      expect(toastMock.warning).toHaveBeenCalledWith(
+        WRONG_HOST,
+        expect.anything(),
+      ),
+    );
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  /* Resend is the button an owner presses when the invitation did not arrive,
+     so it is the path where a wrong link host matters most. */
+  it("warns on Resend too, not just on Invite", async () => {
+    const user = userEvent.setup();
+    respond({ ok: true, warning: WRONG_HOST });
+    renderOwner();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    await user.click(await screen.findByRole("button", { name: /^resend$/i }));
+
+    await waitFor(() =>
+      expect(toastMock.warning).toHaveBeenCalledWith(
+        WRONG_HOST,
+        expect.anything(),
+      ),
+    );
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  /* The 500 says "the invitation was saved — use Resend from the Pending
+     tab". Without a refresh that tab is empty when the owner looks. */
+  it("refreshes when the invitation was saved despite the email failing", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({
+          saved: true,
+          error: "Our email service did not respond in time.",
+        }),
+      }),
+    );
+    renderOwner();
+
+    await user.click(screen.getByRole("button", { name: /invite team/i }));
+    await user.type(screen.getByLabelText(/email/i), "new@example.com");
+    await user.click(screen.getByRole("button", { name: /send invitation/i }));
+
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+  });
+
+  it("still celebrates an ordinary success", async () => {
+    const user = userEvent.setup();
+    respond({ ok: true });
+    renderOwner();
+
+    await user.click(screen.getByRole("tab", { name: /pending/i }));
+    await user.click(await screen.findByRole("button", { name: /^resend$/i }));
+
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith("Invitation resent"),
+    );
+    expect(toastMock.warning).not.toHaveBeenCalled();
   });
 });

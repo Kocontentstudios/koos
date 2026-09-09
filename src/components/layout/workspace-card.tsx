@@ -2,7 +2,7 @@
 
 import { Check, ChevronsUpDown, Settings2, Users } from "lucide-react";
 import Link from "next/link";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,17 +12,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  can,
+  ROLE_LABELS,
+  type WorkspaceRole,
+} from "@/lib/auth/workspace-access";
 import { cn } from "@/lib/utils";
 
 export interface WorkspaceInfo {
   id: string;
   name: string;
   logoUrl: string | null;
-  role: "owner" | "member";
-}
-
-function roleLabel(role: "owner" | "member") {
-  return role === "owner" ? "Owner" : "Member";
+  role: WorkspaceRole;
 }
 
 function WorkspaceAvatar({ ws }: { ws: WorkspaceInfo }) {
@@ -53,9 +55,14 @@ export function WorkspaceCard({
   memberships: WorkspaceInfo[];
 }) {
   const [pending, startTransition] = useTransition();
+  // Which workspace is being switched to. The menu closes on click and the
+  // page then hard-reloads, so without this the user stares at the old
+  // workspace with no sign anything is happening.
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
   function switchTo(workspaceId: string) {
     if (workspaceId === active.id) return;
+    setSwitchingTo(workspaceId);
     startTransition(async () => {
       const res = await fetch("/api/workspace/switch", {
         method: "POST",
@@ -64,7 +71,11 @@ export function WorkspaceCard({
       });
       // Full reload on purpose: the entire context (brands, chats,
       // calendars) changes — reset the world instead of patching caches.
-      if (res.ok) window.location.assign("/dashboard");
+      if (res.ok) {
+        window.location.assign("/dashboard");
+        return;
+      }
+      setSwitchingTo(null);
     });
   }
 
@@ -72,7 +83,8 @@ export function WorkspaceCard({
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={pending}
-        aria-label="Workspace menu"
+        aria-busy={pending || undefined}
+        aria-label={pending ? "Switching workspace" : "Workspace menu"}
         className={cn(
           "flex w-full items-center gap-3 rounded-xl border border-[var(--nav-border)] bg-[var(--nav-card)] p-3 text-left transition-colors hover:bg-[var(--nav-hover)] disabled:opacity-60",
           collapsed &&
@@ -85,16 +97,25 @@ export function WorkspaceCard({
             {active.name}
           </p>
           <p className="truncate text-xs text-[var(--nav-text)]">
-            {roleLabel(active.role)}
+            {ROLE_LABELS[active.role]}
           </p>
         </div>
-        <ChevronsUpDown
-          size={16}
-          className={cn(
-            "shrink-0 text-[var(--nav-text)]",
-            collapsed && "md:hidden",
-          )}
-        />
+        {pending ? (
+          <Spinner
+            className={cn(
+              "shrink-0 text-[var(--nav-text)]",
+              collapsed && "md:hidden",
+            )}
+          />
+        ) : (
+          <ChevronsUpDown
+            size={16}
+            className={cn(
+              "shrink-0 text-[var(--nav-text)]",
+              collapsed && "md:hidden",
+            )}
+          />
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-60">
         <DropdownMenuGroup>
@@ -103,9 +124,13 @@ export function WorkspaceCard({
             <DropdownMenuItem key={ws.id} onClick={() => switchTo(ws.id)}>
               <span className="flex-1 truncate">{ws.name}</span>
               <span className="text-xs text-muted-foreground">
-                {roleLabel(ws.role)}
+                {ROLE_LABELS[ws.role]}
               </span>
-              {ws.id === active.id && <Check size={14} />}
+              {switchingTo === ws.id ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                ws.id === active.id && <Check size={14} />
+              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
@@ -113,7 +138,8 @@ export function WorkspaceCard({
         <DropdownMenuItem render={<Link href="/team" />}>
           <Users size={16} /> Team
         </DropdownMenuItem>
-        {active.role === "owner" && (
+        {/* Capability, not a role literal: admins hold manage_settings too. */}
+        {can(active.role, "manage_settings") && (
           <DropdownMenuItem render={<Link href="/workspace/settings" />}>
             <Settings2 size={16} /> Workspace Settings
           </DropdownMenuItem>

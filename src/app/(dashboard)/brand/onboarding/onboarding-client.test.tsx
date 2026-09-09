@@ -1,14 +1,51 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pollMarker } from "@/lib/onboarding/chips";
 
-vi.mock("@/hooks/use-voice-io", () => ({
-  useVoiceIo: () => ({
-    supported: false,
-    listening: false,
-    transcript: "",
-    start: vi.fn(),
+const speak = vi.fn();
+const cancel = vi.fn();
+const startVoice = vi.fn();
+const voice = {
+  supported: false,
+  listening: false,
+  transcript: "",
+  start: startVoice,
+  stop: vi.fn(),
+  speak,
+  cancel,
+  speakingId: null as string | null,
+  speaking: false,
+};
+const chatState: { messages: unknown[]; status: string } = {
+  messages: [],
+  status: "ready",
+};
+
+const push = vi.fn();
+const refresh = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, refresh }),
+}));
+vi.mock("@/hooks/use-voice-io", () => ({ useVoiceIo: () => voice }));
+/* The component imports a server action, which drags in the db client and its
+   DATABASE_URL check. The client never calls it in these tests. */
+const { saveVisualIdentity } = vi.hoisted(() => ({
+  saveVisualIdentity: vi.fn(),
+}));
+vi.mock("./actions", () => ({
+  saveVisualIdentity: (id: string, v: unknown) => saveVisualIdentity(id, v),
+}));
+// Hoisted so tests can assert what the chat was asked to send.
+const { sendMessage } = vi.hoisted(() => ({ sendMessage: vi.fn() }));
+vi.mock("@ai-sdk/react", () => ({
+  useChat: () => ({
+    messages: chatState.messages,
+    status: chatState.status,
+    sendMessage,
     stop: vi.fn(),
-    speak: vi.fn(),
+    error: undefined,
   }),
 }));
 
@@ -23,9 +60,14 @@ const brandContext = {
 };
 
 describe("OnboardingClient", () => {
-  it("hides the mic when voice is unsupported", () => {
-    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
-    expect(screen.queryByRole("button", { name: /mic|voice/i })).toBeNull();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    voice.supported = false;
+    voice.listening = false;
+    voice.speakingId = null;
+    voice.speaking = false;
+    chatState.messages = [];
+    chatState.status = "ready";
   });
 
   it("shows the Fill my brand profile button", () => {
@@ -33,5 +75,570 @@ describe("OnboardingClient", () => {
     expect(
       screen.getByRole("button", { name: /fill my brand profile/i }),
     ).toBeInTheDocument();
+  });
+
+  /* KOS-V1-BUG-003: the mic rendered but could never work — the app sends
+     Permissions-Policy: microphone=(), which gates the Web Speech API, and the
+     failure was swallowed silently. It stays hidden until a real speech-to-text
+     service is wired up, including where the browser claims support. */
+  it("renders no mic control, even where the browser supports voice", () => {
+    voice.supported = true;
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(screen.queryByRole("button", { name: /voice input/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /mic/i })).toBeNull();
+    expect(startVoice).not.toHaveBeenCalled();
+  });
+
+  /* KOS-V1-BUG-004: replies used to be spoken automatically once the mic had
+     been tapped even once, because voiceModeRef was latched on and never
+     cleared. Nothing may speak without a deliberate click. */
+  it("never speaks a finished reply on its own", () => {
+    voice.supported = true;
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when the browser reports voice support", () => {
+    voice.supported = true;
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  it("offers a read-aloud control on an assistant reply, not on the user's own", () => {
+    chatState.messages = [
+      {
+        id: "u1",
+        role: "user",
+        parts: [{ type: "text", text: "We sell bags" }],
+      },
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getAllByRole("button", { name: /read aloud/i })).toHaveLength(
+      1,
+    );
+  });
+
+  it("speaks that message, tagged with its id, when read aloud is clicked", () => {
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    fireEvent.click(screen.getByRole("button", { name: /read aloud/i }));
+
+    expect(speak).toHaveBeenCalledWith("Hello there", "m1");
+  });
+
+  it("turns into a Stop control that cancels the message being spoken", () => {
+    chatState.messages = [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello there" }],
+      },
+    ];
+    voice.speakingId = "m1";
+    voice.speaking = true;
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    const stopButton = screen.getByRole("button", {
+      name: /stop reading aloud/i,
+    });
+    expect(stopButton).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(stopButton);
+
+    expect(cancel).toHaveBeenCalled();
+    expect(speak).not.toHaveBeenCalled();
+  });
+
+  /* Only the speaking message shows Stop. Keying this to one shared boolean
+     would make every reply claim to be the one talking. */
+  it("keeps the other replies on Read aloud while one is speaking", () => {
+    chatState.messages = [
+      { id: "m1", role: "assistant", parts: [{ type: "text", text: "First" }] },
+      {
+        id: "m2",
+        role: "assistant",
+        parts: [{ type: "text", text: "Second" }],
+      },
+    ];
+    voice.speakingId = "m1";
+    voice.speaking = true;
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.getAllByRole("button", { name: /stop reading aloud/i }),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: /^read aloud$/i }),
+    ).toHaveLength(1);
+  });
+
+  it("offers no read-aloud control on an empty reply", () => {
+    chatState.messages = [
+      { id: "m1", role: "assistant", parts: [{ type: "text", text: "   " }] },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.queryByRole("button", { name: /read aloud/i })).toBeNull();
+  });
+});
+
+/* The ticket's flow hangs off this hop: onboarding finishes, the user reviews
+   the profile at /brand, and only then reaches the dashboard where the tour
+   fires. Without the redirect the user is left sitting in the chat. */
+describe("OnboardingClient handoff to the brand profile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [
+      {
+        id: "1",
+        role: "user",
+        parts: [{ type: "text", text: "We sell bags" }],
+      },
+    ];
+    chatState.status = "ready";
+  });
+
+  function stubFetch(brandCompleted: boolean) {
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/extract")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            proposal: {
+              kind: "brand_fields",
+              summary: "Captured brand",
+              data: { fields: { overview: "Handwoven bags" } },
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          brandCompleted,
+          snapshot: brandCompleted
+            ? {
+                name: "Lagos Loom",
+                logoUrl: null,
+                overview: "Handwoven aso-oke bags",
+                businessType: "Retail",
+                stage: "Early-stage",
+                targetAudience: "Young professionals",
+                tone: "Elegant, Warm",
+                primaryColor: "#3a2a1f",
+                secondaryColor: null,
+                additionalColors: null,
+              }
+            : undefined,
+        }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  }
+
+  async function captureThenConfirm(brandCompleted: boolean) {
+    stubFetch(brandCompleted);
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /fill my brand profile/i }),
+    );
+    const confirm = await screen.findByRole("button", { name: /confirm/i });
+    fireEvent.click(confirm);
+  }
+
+  /* Previously this pushed straight to /brand. The snapshot now takes that
+     moment, and the user chooses where to go from the card's own buttons. */
+  /* KOS-V1-FEAT-012 put the visual identity step between the conversation and
+     the snapshot: the chat cannot carry a file upload, and the design engine
+     needs a logo and colours more than another paragraph. */
+  it("asks for visual identity once the brand is complete", async () => {
+    await captureThenConfirm(true);
+
+    expect(await screen.findByText("Your visual identity")).toBeInTheDocument();
+    // Without the refresh the pages behind it render the pre-write brand.
+    expect(refresh).toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves the chat behind once the brand is captured", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    expect(screen.queryByLabelText("Message input")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  /* Skipping must not cost the user their snapshot — the brand is already
+     captured, and the visual step is an addition, not a gate. */
+  it("shows the snapshot when the visual step is skipped", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("Lagos Loom")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers both onward routes from the card, rather than choosing one", async () => {
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
+    await screen.findByText("Brand Snapshot");
+
+    expect(
+      screen.getByRole("link", { name: /go to dashboard/i }),
+    ).toHaveAttribute("href", "/dashboard");
+    expect(
+      screen.getByRole("link", { name: /view full brand profile/i }),
+    ).toHaveAttribute("href", "/brand");
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the snapshot the save returned, not the pre-write brand", async () => {
+    saveVisualIdentity.mockResolvedValue({
+      ok: true,
+      snapshot: { name: "Lagos Loom", primaryColor: "#3A2A1F" },
+    });
+    await captureThenConfirm(true);
+    await screen.findByText("Your visual identity");
+
+    fireEvent.click(screen.getByRole("button", { name: /save and finish/i }));
+
+    expect(await screen.findByText("Brand Snapshot")).toBeInTheDocument();
+    expect(screen.getByText("#3A2A1F")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("stays in the chat when the capture left the brand incomplete", async () => {
+    // /brand redirects an incomplete brand straight back into onboarding, so
+    // pushing here would bounce the user in a loop.
+    await captureThenConfirm(false);
+    // The confirm resolved (the card is gone) but no navigation followed.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull(),
+    );
+    expect(push).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+/* KOS-V1-FEAT-013: the chips answer KO's question by tapping instead of
+   typing, and the selection has to arrive as a normal user turn so the
+   existing extract-and-confirm flow picks it up unchanged. */
+describe("OnboardingClient voice chips", () => {
+  const assistant = (text: string) => ({
+    id: "m1",
+    role: "assistant",
+    parts: [{ type: "text", text }],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    voice.supported = false;
+    voice.speakingId = null;
+    chatState.status = "ready";
+    chatState.messages = [];
+  });
+
+  it("offers tone chips under a tone question", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use these words" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers avoid chips under a words-to-avoid question", () => {
+    chatState.messages = [assistant("Are there any words to avoid?")];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByRole("button", { name: "Synergy" })).toBeInTheDocument();
+  });
+
+  it("sends the selection as an ordinary user turn", async () => {
+    chatState.messages = [
+      assistant("What tone of voice should the brand have?"),
+    ];
+    const user = userEvent.setup();
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await user.click(screen.getByRole("button", { name: "Bold" }));
+    await user.click(screen.getByRole("button", { name: "Warm" }));
+    await user.click(screen.getByRole("button", { name: "Use these words" }));
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      { text: "Our brand voice is: Bold, Warm." },
+      expect.objectContaining({
+        body: expect.objectContaining({ brandId: "b1", mode: "onboarding" }),
+      }),
+    );
+  });
+
+  /* The competitor pair has no prose fallback by design, so the marker is the
+     ONLY thing that makes these two polls appear. Detecting on the stripped
+     text instead of the raw text removes the feature entirely — silently, and
+     with every other test still green. */
+  it("offers our-advantage chips only when the message carries the marker", () => {
+    const asked =
+      "What do you do differently or better than those competitors?";
+    chatState.messages = [assistant(asked)];
+    const { unmount } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+    expect(screen.queryByRole("button", { name: "Higher quality" })).toBeNull();
+    unmount();
+
+    chatState.messages = [
+      assistant(`${asked} ${pollMarker("differentiation")}`),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(
+      screen.getByRole("button", { name: "Higher quality" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers their-strength chips for the mirror question", () => {
+    chatState.messages = [
+      assistant(
+        `What are those competitors good at? ${pollMarker("competitor-strengths")}`,
+      ),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(
+      screen.getByRole("button", { name: "Bigger budget" }),
+    ).toBeInTheDocument();
+    // The opposite poll's options must not be on screen.
+    expect(screen.queryByRole("button", { name: "Higher quality" })).toBeNull();
+  });
+
+  /* The marker is protocol, not content. It must not reach the screen — and
+     messageText also feeds the read-aloud voice and the extractor transcript. */
+  it("never renders the marker", () => {
+    chatState.messages = [
+      assistant(`What sets you apart? ${pollMarker("differentiation")}`),
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(screen.getByText("What sets you apart?")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("[[poll:");
+  });
+
+  /* The message re-renders on every chunk and the prompt puts the marker last,
+     so an arriving marker types itself out on screen — on four of the nine
+     onboarding turns. A whole-message test cannot catch this. */
+  it.each([
+    "[[",
+    "[[p",
+    "[[poll",
+    "[[poll:",
+    "[[poll:diff",
+    "[[poll:differentiati",
+  ])("hides the marker while it is still arriving: %j", (partial) => {
+    chatState.status = "streaming";
+    chatState.messages = [assistant(`What do you do better?\n\n${partial}`)];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(document.body.textContent).not.toContain("[[");
+    expect(screen.getByText("What do you do better?")).toBeInTheDocument();
+  });
+
+  it("sends a differentiation pick as its own sentence", async () => {
+    chatState.messages = [
+      assistant(`What do you do better? ${pollMarker("differentiation")}`),
+    ];
+    const user = userEvent.setup();
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await user.click(screen.getByRole("button", { name: "Bespoke service" }));
+    await user.click(screen.getByRole("button", { name: "That's our edge" }));
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      { text: "What we do better than competitors: Bespoke service." },
+      expect.objectContaining({
+        body: expect.objectContaining({ mode: "onboarding" }),
+      }),
+    );
+  });
+
+  /* Chips belong to the question still open. Once the user has answered, their
+     turn is last and the chips must be gone. */
+  it("disappears once the user has replied", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+      { id: "m2", role: "user", parts: [{ type: "text", text: "Bold" }] },
+    ];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+  });
+
+  it("stays hidden under an unrelated question", () => {
+    chatState.messages = [assistant("Who are you trying to reach?")];
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+  });
+
+  it("stays hidden while the reply is still streaming", () => {
+    chatState.messages = [
+      assistant("How would you describe your brand's tone?"),
+    ];
+    chatState.status = "streaming";
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Use these words" }),
+    ).toBeNull();
+  });
+});
+
+/* ── KOS-V1-FEAT-018 ───────────────────────────────────────────────────── */
+
+describe("attaching a brand document", () => {
+  /* This block sits outside the suite above, so it does not inherit that
+     beforeEach — and chatState is module-level, so a "streaming" status left
+     by the last test renders every control disabled. */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [];
+    chatState.status = "ready";
+  });
+
+  const renderChat = () =>
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+  /* Criterion 2: a visible attachment control in the chat INPUT BAR. */
+  it("puts a paperclip in the input bar", () => {
+    renderChat();
+    const button = screen.getByRole("button", {
+      name: /attach a brand document/i,
+    });
+    expect(button).toBeInTheDocument();
+    /* Beside the message box, not somewhere else on the page: the ticket asks
+       for it in the input bar. */
+    expect(
+      button.closest("div")?.querySelector("textarea"),
+    ).toBeInTheDocument();
+  });
+
+  /* Criterion 1: the optional upload step, offered in words. */
+  it("offers the upload in plain language", () => {
+    renderChat();
+    expect(
+      screen.getByText(/existing brand guidelines or an identity doc/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /upload it here/i }),
+    ).toBeInTheDocument();
+  });
+
+  /* Both controls must drive ONE picker: two file inputs would mean two
+     sources of pending state that can disagree. */
+  it("renders exactly one file input for both controls", () => {
+    renderChat();
+    expect(screen.getAllByTestId("document-input")).toHaveLength(1);
+  });
+
+  it("accepts exactly the four formats the ticket names", () => {
+    renderChat();
+    const input = screen.getByTestId("document-input");
+    const accept = input.getAttribute("accept") ?? "";
+    for (const ext of [".pdf", ".docx", ".txt", ".pptx"]) {
+      expect(accept).toContain(ext);
+    }
+    expect(accept).not.toContain(".xlsx");
+    expect(accept).not.toContain(".png");
+  });
+
+  it.each([
+    ["the paperclip", /attach a brand document/i],
+    ["the hint link", /upload it here/i],
+  ])("opens the picker from %s", async (_label, name) => {
+    renderChat();
+    const input = screen.getByTestId("document-input") as HTMLInputElement;
+    const click = vi.fn();
+    input.click = click;
+    fireEvent.click(screen.getByRole("button", { name }));
+    expect(click).toHaveBeenCalled();
+  });
+
+  /* The picker is a convenience, not a control: a file dragged past it, or a
+     renamed one, still has to be refused. */
+  it("refuses a file type the ticket did not name, before uploading", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderChat();
+    const input = screen.getByTestId("document-input") as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["x"], "sheet.xlsx", { type: "application/vnd.ms-excel" }),
+        ],
+      },
+    });
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+    fetchSpy.mockRestore();
+  });
+
+  it("refuses a document over 25MB before uploading", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderChat();
+    const input = screen.getByTestId("document-input") as HTMLInputElement;
+    const big = new File(["x"], "huge.pdf", { type: "application/pdf" });
+    Object.defineProperty(big, "size", { value: 26 * 1024 * 1024 });
+    fireEvent.change(input, { target: { files: [big] } });
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+    fetchSpy.mockRestore();
   });
 });
