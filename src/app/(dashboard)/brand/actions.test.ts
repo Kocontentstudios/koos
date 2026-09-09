@@ -42,10 +42,12 @@ describe("saveBrandProfile", () => {
     });
   });
 
-  /* KOS-V1-BUG-001: this path hardcoded completionPercentage: 100, so a brand
-     that filled only the required Basics and skipped all six optional steps
-     still reported a finished profile in the admin directory. */
-  it("writes the weighted score, not a hardcoded 100, for a Basics-only save", async () => {
+  /* KOS-V1-BUG-011: this path used to write a completion score alongside the
+     profile, a second source of truth that went stale against
+     brandProfileCompletion. The column is gone; the write must not resurrect
+     it. The gate is unchanged — the form validates all four required fields
+     before submitting, and requireBrand keys off the status, not a score. */
+  it("writes no completion score, only the profile and the status", async () => {
     getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
       onboardingStatus: "completed",
@@ -54,15 +56,15 @@ describe("saveBrandProfile", () => {
 
     await saveBrandProfile(validInput);
 
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty(
+      "completionPercentage",
+    );
     expect(updateBrand.mock.calls[0][1]).toMatchObject({
-      completionPercentage: 20,
-      // The gate is unchanged: the form validates all four required fields
-      // before submitting, and requireBrand keys off this, not the score.
       onboardingStatus: "completed",
     });
   });
 
-  it("raises the score as optional sections are filled in", async () => {
+  it("writes no completion score when optional sections are filled in", async () => {
     getActiveBrandForMember.mockResolvedValue({
       id: "existing-brand",
       onboardingStatus: "completed",
@@ -76,20 +78,25 @@ describe("saveBrandProfile", () => {
       postingFrequency: "3x per week",
     });
 
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty(
+      "completionPercentage",
+    );
     expect(updateBrand.mock.calls[0][1]).toMatchObject({
-      completionPercentage: 35,
       onboardingStatus: "completed",
     });
   });
 
-  it("scores a newly created brand the same way", async () => {
+  it("creates a brand without a completion score too", async () => {
     getActiveBrandForMember.mockResolvedValue(null);
     createBrand.mockResolvedValue({ id: "new-brand" });
 
     await saveBrandProfile(validInput);
 
+    expect(createBrand.mock.calls[0][0]).not.toHaveProperty(
+      "completionPercentage",
+    );
     expect(createBrand.mock.calls[0][0]).toMatchObject({
-      completionPercentage: 20,
+      onboardingStatus: "completed",
     });
   });
 

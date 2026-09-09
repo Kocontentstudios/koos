@@ -312,11 +312,11 @@ describe("a rate is never invented", () => {
     expect(cardValue("Brand setup completion")).toBe("—");
   });
 
-  /* Averaged from brandProfileCompletion, NOT from brands.completion_percentage
-     — the two disagree, and a stored column would let this card contradict the
-     brands table. The mocked rows carry no stored percentage at all, so a card
-     reading anything other than the computed average proves it. */
-  it("averages the computed completion, not a stored column", async () => {
+  /* Averaged from brandProfileCompletion, the one definition of completion.
+     KOS-V1-BUG-011 dropped the stored column precisely because a card reading
+     it could contradict the brands table; the mocked rows carry no percentage
+     at all, so anything but the computed average shows up here. */
+  it("averages the computed completion, with nothing stored to read", async () => {
     await renderPage({ range: "30d" });
     expect(cardValue("Brand setup completion")).toMatch(/^\d+%$/);
     expect(screen.getByText(/average of 2 brands/)).toBeInTheDocument();

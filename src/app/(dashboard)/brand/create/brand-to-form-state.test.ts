@@ -12,7 +12,6 @@ function row(overrides: Partial<Brand>): Brand {
     name: "Acme",
     onboardingType: "manual",
     onboardingStatus: "completed",
-    completionPercentage: 100,
     overview: "We sell things people love.",
     businessType: null,
     stage: null,
