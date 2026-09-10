@@ -472,9 +472,13 @@ describe("two font slots, independent of each other", () => {
     renderStep();
     for (const label of [/heading \/ main font/i, /body \/ cta font/i]) {
       const accept = screen.getByLabelText(label).getAttribute("accept") ?? "";
-      for (const ext of [".ttf", ".otf", ".ttc"]) {
+      for (const ext of [".ttf", ".otf"]) {
         expect(accept).toContain(ext);
       }
+      /* Satori refuses every TrueType collection with "Unsupported OpenType
+         signature ttcf", so offering .ttc only moved the failure into the
+         render, where nothing named the font (KOS-V1-BUG-018). */
+      expect(accept).not.toContain(".ttc");
     }
   });
 

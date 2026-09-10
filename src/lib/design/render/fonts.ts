@@ -5,26 +5,39 @@ import {
   STORAGE_PREFIXES,
   storageKeyFrom,
 } from "@/lib/storage";
+import { checkFontBytes, isRenderableFont } from "./font-file";
 
 export interface LoadedFont {
   name: string;
   data: ArrayBuffer;
   weight: 400 | 600 | 700;
   style: "normal";
+  /* Lets the renderer tell whether a failed render is worth retrying without
+     the brand's face. Structure alone cannot decide it: a face can satisfy
+     every table check and still defeat satori — an unsupported GSUB lookup, a
+     variable-font axis table — so this flag is what separates "the typeface is
+     unusable" from "the renderer is broken". */
+  fromBrand?: boolean;
 }
 
 interface FontSource {
   name: string;
   weight: 400 | 600 | 700;
-  /** Vendored file, preferred: no network, no runtime dependency. */
+  /** Written into FONT_DIR by scripts/fetch-fonts.mjs at build time. Preferred:
+   *  no network, no runtime dependency. */
   file: string;
-  /** Google Fonts family used only if the vendored file is absent. */
+  /** Google Fonts family, used only if the vendored file is absent — a deploy
+   *  whose file tracing dropped it, or a dev server before a build has run. */
   family: string;
 }
 
-const FONT_DIR = join(process.cwd(), "src/lib/design/render/fonts");
+/** Exported so the prefetch script and the pipeline gate pin themselves to the
+ *  directory this module actually reads, rather than to a copy of the string. */
+export const FONT_DIR = join(process.cwd(), "src/lib/design/render/fonts");
 
-const SOURCES: FontSource[] = [
+/** Exported so scripts/fetch-fonts.mjs's list is pinned to this one by value
+ *  rather than by a test re-reading this file as text. */
+export const SOURCES: FontSource[] = [
   {
     name: "Display",
     weight: 700,
@@ -78,6 +91,12 @@ async function fetchGoogleFont(family: string): Promise<ArrayBuffer | null> {
 async function loadOne(source: FontSource): Promise<LoadedFont | null> {
   try {
     const buffer = await readFile(join(FONT_DIR, source.file));
+    /* Structural, not just the signature: a vendored face truncated by a
+       partial file-trace copy or a bad artifact restore satisfies readFile and
+       then throws inside satori, which 500s the render instead of falling back
+       to the network. */
+    const check = checkFontBytes(buffer);
+    if (!check.ok) throw new Error(`unusable vendored face: ${check.reason}`);
     return {
       name: source.name,
       data: buffer.buffer.slice(
@@ -119,10 +138,11 @@ async function loadUploadedFont(url: string): Promise<ArrayBuffer | null> {
     if (!key) return null;
     const bytes = await getObjectBytes(key);
     const data = new Uint8Array(bytes);
-    // The upload route checked this too; re-checked here because a row can
-    // outlive the file it points at, and satori throws on a bad signature
-    // rather than declining.
-    if (!isRenderableFont(data)) return null;
+    /* Re-checked here, and structurally, because the upload route's check does
+       not cover the brands that already stored a bad file: a row outlives the
+       file it points at, and every render for such a brand fails identically
+       until something declines the bytes instead of handing them to satori. */
+    if (!checkFontBytes(data).ok) return null;
     return data.buffer.slice(
       data.byteOffset,
       data.byteOffset + data.byteLength,
@@ -132,16 +152,7 @@ async function loadUploadedFont(url: string): Promise<ArrayBuffer | null> {
   }
 }
 
-/** TrueType, TrueType collection, or CFF OpenType — what satori can parse. */
-export function isRenderableFont(bytes: Uint8Array): boolean {
-  const signatures = [
-    [0x00, 0x01, 0x00, 0x00],
-    [0x74, 0x72, 0x75, 0x65],
-    [0x4f, 0x54, 0x54, 0x4f],
-    [0x74, 0x74, 0x63, 0x66],
-  ];
-  return signatures.some((sig) => sig.every((b, i) => bytes[i] === b));
-}
+export { isRenderableFont };
 
 /**
  * The fonts a render should use, with the brand's own face substituted for the
@@ -225,7 +236,9 @@ async function cachedFace(
     }
     brandFontCache.set(
       key,
-      data ? [{ name, data, weight, style: "normal" as const }] : null,
+      data
+        ? [{ name, data, weight, style: "normal" as const, fromBrand: true }]
+        : null,
     );
   }
   return brandFontCache.get(key) ?? null;

@@ -9,25 +9,66 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   getObjectBytes: (key: string) => getObjectBytes(key),
 }));
 
-import { __resetFontCaches, isRenderableFont, loadBrandFonts } from "./fonts";
+const readVendoredFace = vi.fn();
+
+/* scripts/fetch-fonts.mjs vendors the three built-in faces at build time, and
+   the gate lane must not depend on that having run — nor read a real font off
+   disk to load three defaults every test. Only reads under the directory the
+   module actually uses are intercepted, keyed off its own exported FONT_DIR so
+   this is not another copy of the path; everything else gets the real fs. */
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const readFile = actual.readFile as (...args: unknown[]) => unknown;
+  return {
+    ...actual,
+    readFile: (target: unknown, ...rest: unknown[]) =>
+      typeof target === "string" && target.startsWith(FONT_DIR)
+        ? readVendoredFace(target)
+        : readFile(target, ...rest),
+  };
+});
+
+import { join } from "node:path";
+import { buildFont, signatureOnlyFont } from "./font-fixtures";
+import {
+  __resetFontCaches,
+  FONT_DIR,
+  isRenderableFont,
+  loadBrandFonts,
+} from "./fonts";
 
 const BASE = "https://cdn.example.com";
 const FONT_URL = `${BASE}/fonts/u1/brand.ttf`;
 
-/** A buffer that opens with a signature satori accepts. */
-function fontBytes(signature: number[]) {
-  const bytes = new Uint8Array(64);
-  bytes.set(signature, 0);
-  return Buffer.from(bytes);
+/** A real, renderable font, built at runtime rather than committed.
+ *
+ *  A four-byte stub will not do: both load paths now validate structurally, so
+ *  a signature followed by padding is refused exactly as a corrupt upload is. */
+function fontBytes(signature?: number[]) {
+  return Buffer.from(buildFont(signature ? { signature } : {}));
 }
+
+/* Every URL any code under test tried to reach. The assertion lives in
+   afterEach so it covers every case in the file, not just the one written to
+   check it: font loading must never call out to the network, and a change that
+   reintroduces the call fails here instead of flaking in CI a week later. */
+const attemptedRequests: string[] = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
   __resetFontCaches();
   process.env.R2_PUBLIC_BASE_URL = BASE;
+  attemptedRequests.length = 0;
+  readVendoredFace.mockImplementation(async () => fontBytes());
+  vi.stubGlobal("fetch", (input: unknown) => {
+    attemptedRequests.push(String(input));
+    throw new Error(`unexpected network call: ${String(input)}`);
+  });
 });
 
 afterEach(() => {
+  expect(attemptedRequests).toEqual([]);
+  vi.unstubAllGlobals();
   __resetFontCaches();
 });
 
@@ -36,35 +77,59 @@ describe("isRenderableFont", () => {
     ["TrueType", [0x00, 0x01, 0x00, 0x00]],
     ["a 'true' TrueType", [0x74, 0x72, 0x75, 0x65]],
     ["CFF OpenType", [0x4f, 0x54, 0x54, 0x4f]],
-    ["a TrueType collection", [0x74, 0x74, 0x63, 0x66]],
   ])("accepts %s", (_label, signature) => {
     expect(isRenderableFont(new Uint8Array(signature))).toBe(true);
   });
 
-  /* Satori rejects both with "Unsupported OpenType signature", so they must
-     never reach it. */
+  /* Satori rejects each of these outright, so they must never reach it. The
+     collection is the one that used to be accepted here: satori refuses every
+     .ttc with "Unsupported OpenType signature ttcf", verified against eight
+     real collections, so accepting it only moved the failure into the render
+     where the message no longer names the font. */
   it.each([
     ["WOFF", [0x77, 0x4f, 0x46, 0x46]],
     ["WOFF2", [0x77, 0x4f, 0x46, 0x32]],
     ["a PNG", [0x89, 0x50, 0x4e, 0x47]],
     ["nothing", [0x00, 0x00, 0x00, 0x00]],
+    ["a TrueType collection", [0x74, 0x74, 0x63, 0x66]],
   ])("rejects %s", (_label, signature) => {
     expect(isRenderableFont(new Uint8Array(signature))).toBe(false);
   });
 });
 
-/* Raised for contention, not for any single case: the slowest here is ~1.8s
-   and the rest are well under a second, but they read the real vendored font
-   files, so under parallel load they tip past the per-test default together.
-   Wide enough to absorb that, narrow enough that a genuine hang in the font
-   fetch still fails rather than hiding. */
-describe("loadBrandFonts", { timeout: 12_000 }, () => {
+describe("loadBrandFonts", () => {
   it("uses the built-in families when the brand has no font", async () => {
     const fonts = await loadBrandFonts();
 
     expect(fonts.map((f) => f.name)).toContain("Display");
     expect(fonts.map((f) => f.name)).toContain("Body");
     expect(getObjectBytes).not.toHaveBeenCalled();
+  });
+
+  /* KOS-V1-BUG-010: the vendored directory did not exist, so this path never
+     ran and every render — and every run of this file — went to Google.
+     Asserted as whole paths built from the exported FONT_DIR, so pointing the
+     read at some other directory while leaving FONT_DIR correct fails here. */
+  it("reads all three built-in faces from the vendored directory", async () => {
+    const fonts = await loadBrandFonts();
+
+    expect(readVendoredFace.mock.calls.map(([path]) => path)).toEqual([
+      join(FONT_DIR, "display-bold.ttf"),
+      join(FONT_DIR, "body-regular.ttf"),
+      join(FONT_DIR, "body-semibold.ttf"),
+    ]);
+    expect(fonts.map((f) => `${f.name}:${f.weight}`)).toEqual([
+      "Display:700",
+      "Body:400",
+      "Body:600",
+    ]);
+  });
+
+  it("loads the built-in faces once per process", async () => {
+    await loadBrandFonts();
+    await loadBrandFonts();
+
+    expect(readVendoredFace).toHaveBeenCalledTimes(3);
   });
 
   it("substitutes the uploaded face for the display family", async () => {
@@ -94,6 +159,25 @@ describe("loadBrandFonts", { timeout: 12_000 }, () => {
     const fonts = await loadBrandFonts(FONT_URL);
     expect(fonts.filter((f) => f.name === "Display")).toHaveLength(1);
   });
+
+  /* KOS-V1-BUG-018. The signature check passed this file and satori then threw
+     "Offset is outside the bounds of the DataView" mid-render, so every design
+     the brand generated failed with a message naming nothing. The upload route
+     refuses it now, but a brand that stored one before that landed still has
+     it, and only the read path can save those. */
+  it.each([
+    ["a body of zeros behind a valid signature", signatureOnlyFont()],
+    ["a half-finished upload", buildFont({ truncateTo: 220 })],
+  ])(
+    "keeps the bundled faces when the stored font is %s",
+    async (_l, bytes) => {
+      getObjectBytes.mockResolvedValue(Buffer.from(bytes));
+
+      const fonts = await loadBrandFonts(FONT_URL);
+      expect(fonts.filter((f) => f.name === "Display")).toHaveLength(1);
+      expect(fonts.every((f) => !f.fromBrand)).toBe(true);
+    },
+  );
 
   /* The brand row is user-writable, so the URL in it is not a fetch target. */
   it("refuses a URL outside our own storage", async () => {
@@ -278,5 +362,78 @@ describe("two brand faces, each in its own role", () => {
     await loadBrandFonts({ heading: HEADING_URL, body: BODY_URL });
     await loadBrandFonts({ heading: HEADING_URL, body: BODY_URL });
     expect(getObjectBytes).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ── KOS-V1-BUG-010 ────────────────────────────────────────────────────── */
+
+/* The Google fetch is kept as a safety net for a deploy whose file tracing
+   dropped the vendored .ttf files, and it is the path `pnpm dev` takes before
+   anyone has run the prefetch. Both cases here install their own transport, so
+   the recorder in beforeEach never sees a call and nothing leaves the process
+   either way. */
+describe("the network fallback, when the vendored files are missing", () => {
+  const absent = () => {
+    readVendoredFace.mockRejectedValue(
+      new Error("ENOENT: no such file or directory"),
+    );
+  };
+
+  const GOOGLE_CSS =
+    "@font-face{src:url(https://fonts.gstatic.com/s/x.ttf) format('truetype');}";
+
+  it("asks Google with the User-Agent that yields TTF rather than WOFF2", async () => {
+    absent();
+    const transport = vi.fn(
+      async (url: string, _init?: { headers?: Record<string, string> }) =>
+        url.endsWith(".ttf")
+          ? { arrayBuffer: async () => new ArrayBuffer(64) }
+          : { text: async () => GOOGLE_CSS },
+    );
+    vi.stubGlobal("fetch", transport);
+
+    const fonts = await loadBrandFonts();
+
+    expect(fonts.map((f) => f.name)).toEqual(["Display", "Body", "Body"]);
+    const [, init] = transport.mock.calls[0];
+    // A modern UA gets WOFF2, which satori rejects outright.
+    expect(init?.headers?.["User-Agent"]).toContain("AppleWebKit/533.21.1");
+  });
+
+  /* A vendored file that is present but corrupt is the failure the prefetch
+     newly made reachable: readFile succeeds, so nothing would fall back, and
+     satori throws on a bad signature rather than declining — the render 500s
+     instead of degrading. */
+  it("falls back when the vendored file is present but not a font", async () => {
+    readVendoredFace.mockResolvedValue(fontBytes([0x77, 0x4f, 0x46, 0x32]));
+    const transport = vi.fn(async (url: string) =>
+      url.endsWith(".ttf")
+        ? { arrayBuffer: async () => new ArrayBuffer(64) }
+        : { text: async () => GOOGLE_CSS },
+    );
+    vi.stubGlobal("fetch", transport);
+
+    const fonts = await loadBrandFonts();
+
+    expect(fonts.map((f) => f.name)).toEqual(["Display", "Body", "Body"]);
+    expect(transport).toHaveBeenCalled();
+  });
+
+  /* A transient failure must not poison the process: caching the empty result
+     would leave every later render fontless until the instance recycled. */
+  it("does not cache an empty result when the fetch also fails", async () => {
+    absent();
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("offline");
+    });
+
+    expect(await loadBrandFonts()).toEqual([]);
+
+    readVendoredFace.mockResolvedValue(fontBytes([0x00, 0x01, 0x00, 0x00]));
+    expect((await loadBrandFonts()).map((f) => f.name)).toEqual([
+      "Display",
+      "Body",
+      "Body",
+    ]);
   });
 });

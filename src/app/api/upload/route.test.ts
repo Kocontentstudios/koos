@@ -18,6 +18,10 @@ vi.mock("@/lib/storage", () => ({
   STORAGE_PREFIXES: { logos: "logos", fonts: "fonts" },
 }));
 
+import {
+  buildFont,
+  signatureOnlyFont,
+} from "@/lib/design/render/font-fixtures";
 import { POST } from "./route";
 
 function upload(file: File | null) {
@@ -121,13 +125,18 @@ describe("POST /api/upload", () => {
   });
 });
 
-/* Fonts are validated by signature because a browser's MIME for a font file is
-   unreliable and client-controlled either way. */
+/* Fonts are validated from their bytes because a browser's MIME for a font
+   file is unreliable and client-controlled either way — and in full, not by
+   signature alone: a valid signature on a shredded body is accepted here and
+   then fails every design the brand ever renders (KOS-V1-BUG-018). */
 describe("POST /api/upload — fonts", () => {
-  function fontFile(signature: number[], type = "application/octet-stream") {
-    const bytes = new Uint8Array(64);
-    bytes.set(signature, 0);
-    return new File([bytes], "brand.ttf", { type });
+  function fontFile(signature?: number[], type = "application/octet-stream") {
+    const bytes = buildFont(signature ? { signature } : {});
+    return new File([Buffer.from(bytes)], "brand.ttf", { type });
+  }
+
+  function corruptFile(bytes: Uint8Array, name = "brand.ttf") {
+    return new File([Buffer.from(bytes)], name, { type: "font/ttf" });
   }
 
   function uploadFont(file: File) {
@@ -148,7 +157,6 @@ describe("POST /api/upload — fonts", () => {
     ["TrueType", [0x00, 0x01, 0x00, 0x00], "ttf"],
     ["'true' TrueType", [0x74, 0x72, 0x75, 0x65], "ttf"],
     ["CFF OpenType", [0x4f, 0x54, 0x54, 0x4f], "otf"],
-    ["a collection", [0x74, 0x74, 0x63, 0x66], "ttc"],
   ])("accepts %s under the fonts prefix", async (_l, sig, ext) => {
     const res = await POST(uploadFont(fontFile(sig)));
 
@@ -162,12 +170,38 @@ describe("POST /api/upload — fonts", () => {
   it.each([
     ["WOFF", [0x77, 0x4f, 0x46, 0x46]],
     ["WOFF2", [0x77, 0x4f, 0x46, 0x32]],
+    ["a TrueType collection", [0x74, 0x74, 0x63, 0x66]],
   ])("refuses %s, which satori cannot render", async (_l, sig) => {
     const res = await POST(uploadFont(fontFile(sig)));
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/TTF or OTF/);
     expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  /* The defect: each of these carries a signature the old four-byte check
+     accepted, and throws inside satori once stored. Refused here, while the
+     user is still looking at the file picker and the message can name it. */
+  it.each([
+    ["a body of zeros", signatureOnlyFont()],
+    ["a half-finished upload", buildFont({ truncateTo: 220 })],
+    ["a shredded header", buildFont({ truncateTo: 40 })],
+  ])("refuses %s and names the file", async (_l, bytes) => {
+    const res = await POST(uploadFont(corruptFile(bytes, "Acme Display.ttf")));
+
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toContain("Acme Display.ttf");
+    expect(error).toMatch(/can't be used/);
+    expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  /* A name is attacker-supplied and echoed straight back into the UI. */
+  it("clamps an absurd filename out of the message", async () => {
+    const res = await POST(
+      uploadFont(corruptFile(signatureOnlyFont(), "z".repeat(500))),
+    );
+
+    expect((await res.json()).error.length).toBeLessThan(300);
   });
 
   /* The whole point of checking bytes: a PNG announcing itself as a font gets
@@ -182,20 +216,20 @@ describe("POST /api/upload — fonts", () => {
   });
 
   it("accepts a real font despite an empty MIME type", async () => {
-    const res = await POST(uploadFont(fontFile([0x00, 0x01, 0x00, 0x00], "")));
+    const res = await POST(uploadFont(fontFile(undefined, "")));
     expect(res.status).toBe(200);
   });
 
   /* The client's type is frequently wrong for fonts, and the signature already
      settled what this is. */
   it("stores its own content type rather than the client's", async () => {
-    await POST(uploadFont(fontFile([0x00, 0x01, 0x00, 0x00], "text/plain")));
+    await POST(uploadFont(fontFile(undefined, "text/plain")));
     expect(uploadObject.mock.calls[0][0].contentType).toBe("font/sfnt");
   });
 
   it("still enforces the size cap", async () => {
     const big = new Uint8Array(5 * 1024 * 1024 + 1);
-    big.set([0x00, 0x01, 0x00, 0x00], 0);
+    big.set(buildFont(), 0);
     const res = await POST(
       uploadFont(new File([big], "brand.ttf", { type: "font/ttf" })),
     );
@@ -205,7 +239,7 @@ describe("POST /api/upload — fonts", () => {
   /* An image upload must not start passing signature validation instead. */
   it("leaves image uploads on the MIME allowlist", async () => {
     const body = new FormData();
-    body.append("file", fontFile([0x00, 0x01, 0x00, 0x00], "font/ttf"));
+    body.append("file", fontFile(undefined, "font/ttf"));
     const res = await POST(
       new Request("http://x/api/upload", { method: "POST", body }),
     );

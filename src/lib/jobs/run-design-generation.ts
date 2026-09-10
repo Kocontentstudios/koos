@@ -11,6 +11,7 @@ import { getModel } from "@/lib/ai/provider";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
   createDesignGeneration,
+  createNotification,
   recordUsageEvent,
   updateDesignGeneration,
 } from "@/lib/db/queries";
@@ -99,7 +100,15 @@ export async function renderVariant(
   logo: { bytes: Uint8Array; contentType: string } | null,
   /** Logo plus anything the user attached, for models that accept them. */
   references: { bytes: Uint8Array; contentType: string }[],
-): Promise<{ bytes: Uint8Array; width?: number; height?: number }> {
+): Promise<{
+  bytes: Uint8Array;
+  width?: number;
+  height?: number;
+  /** Set when the brand's own face could not be used and the design fell back
+   *  to the bundled ones, so the caller can tell the user rather than leave
+   *  them wondering why their typeface never appears. */
+  brandFontFault?: string | null;
+}> {
   if (variant.renderer === "composite") {
     // A failed plate still yields a design: the layout falls back to a flat
     // brand-coloured background rather than losing the variant entirely.
@@ -122,6 +131,7 @@ export async function renderVariant(
       bytes: result.bytes,
       width: result.width,
       height: result.height,
+      brandFontFault: result.brandFontFault,
     };
   }
 
@@ -146,6 +156,31 @@ export async function renderVariant(
     );
   }
   return { bytes: image.bytes, ...(size ?? {}) };
+}
+
+/* A design that rendered in the wrong typeface still looks finished, so
+   nothing about the result itself tells the user their font was dropped —
+   they would just keep wondering why their brand face never appears.
+
+   The bell rather than the design row: the fault belongs to the brand, not to
+   this one design, and it recurs on every future generation until the font is
+   replaced. Deliberately not a failure — the design succeeded.
+
+   One notification per generation, not one per variant: every variant loads
+   the same brand face and would report the same fault. */
+async function notifyBrandFontUnusable(userId: string, faults: string[]) {
+  const reason = faults[0];
+  if (!reason) return;
+  await createNotification({
+    userId,
+    type: "system",
+    payload: {
+      message: `Your brand font couldn't be used, so this design was set in the default typefaces instead: ${reason}. Re-upload the font in your brand's visual identity to fix it.`,
+    },
+  }).catch((err) => {
+    // A design that rendered must not be lost to a notification write.
+    console.error("brand font notification failed", err);
+  });
 }
 
 /**
@@ -220,6 +255,7 @@ export async function generateDesignWork(
   const logo = context.brand.logoUrl ? (references[0] ?? null) : null;
   const succeeded: string[] = [];
   const failed: string[] = [];
+  const brandFontFaults: string[] = [];
   let done = 1;
 
   await Promise.all(
@@ -245,6 +281,9 @@ export async function generateDesignWork(
           height: rendered.height ?? null,
         });
         succeeded.push(variant.id);
+        if (rendered.brandFontFault) {
+          brandFontFaults.push(rendered.brandFontFault);
+        }
       } catch (err) {
         console.error(`design variant ${variant.id} failed`, err);
         await updateDesignGeneration(variant.id, {
@@ -263,6 +302,8 @@ export async function generateDesignWork(
   if (succeeded.length === 0) {
     throw new Error("Design generation failed. Please try again.");
   }
+
+  await notifyBrandFontUnusable(userId, brandFontFaults);
 
   // Closes the metering gap the old generate-image route left open: image
   // generation was previously the only AI feature with no usage row at all.
