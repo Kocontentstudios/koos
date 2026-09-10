@@ -63,3 +63,6 @@ docs/KOOS-Remediation-Checklist.md
 docs/KOOS-V1.0-Features-To-Add.pdf
 docs/KOOS-V1.0-Features-To-Add.md
 docs/KOOS-V1.0-Feature-Gap-Analysis.md
+
+# render faces vendored by scripts/fetch-fonts.mjs at build time
+src/lib/design/render/fonts/

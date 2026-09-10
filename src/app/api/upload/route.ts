@@ -2,6 +2,11 @@ import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { guardWorkspaceRoute } from "@/lib/auth/workspace-guard";
 import {
+  checkFontBytes,
+  fontExtension,
+  fontRejectionMessage,
+} from "@/lib/design/render/font-file";
+import {
   isStorageConfigured,
   publicUrl,
   STORAGE_PREFIXES,
@@ -14,26 +19,6 @@ const ALLOWED = new Map<string, string>([
   ["image/jpeg", "jpg"],
   ["image/svg+xml", "svg"],
 ]);
-
-/* Fonts are checked by signature, not MIME. Browsers send fonts as
-   application/octet-stream, an empty string, or one of several font/* values
-   depending on the platform, so file.type cannot decide this — and it is
-   client-controlled anyway. These four are what satori can actually parse:
-   0x00010000 and "true" for TrueType, "OTTO" for CFF OpenType, "ttcf" for a
-   collection. WOFF and WOFF2 are deliberately absent; satori rejects them. */
-const FONT_SIGNATURES: [number[], string][] = [
-  [[0x00, 0x01, 0x00, 0x00], "ttf"],
-  [[0x74, 0x72, 0x75, 0x65], "ttf"],
-  [[0x4f, 0x54, 0x54, 0x4f], "otf"],
-  [[0x74, 0x74, 0x63, 0x66], "ttc"],
-];
-
-function fontExtension(bytes: Uint8Array): string | null {
-  for (const [signature, ext] of FONT_SIGNATURES) {
-    if (signature.every((byte, i) => bytes[i] === byte)) return ext;
-  }
-  return null;
-}
 
 export async function POST(request: Request) {
   /* Storage writes are workspace work, not merely signed-in work: gating on
@@ -68,18 +53,33 @@ export async function POST(request: Request) {
 
   /* Fonts and images are validated differently on purpose: an image's MIME is
      the only signal available, while a font's is unreliable enough that the
-     bytes are the only honest check. */
+     bytes are the only honest check.
+
+     A font is checked in full rather than by its first four bytes. The
+     signature says only that a file claims to be a font; satori parses lazily
+     inside the render, so a shredded body is accepted here and then fails
+     every design the brand ever generates (KOS-V1-BUG-018). Refusing it while
+     the user is still looking at the file picker is the only point where the
+     message can name the file. */
+  if (wantsFont) {
+    const check = checkFontBytes(new Uint8Array(buffer));
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: fontRejectionMessage(file.name, check.reason) },
+        { status: 400 },
+      );
+    }
+  }
+
   const ext = wantsFont
-    ? fontExtension(new Uint8Array(buffer.subarray(0, 4)))
+    ? fontExtension(new Uint8Array(buffer))
     : ALLOWED.get(file.type);
   if (!ext) {
     return NextResponse.json(
+      { error: "Unsupported file type." },
       {
-        error: wantsFont
-          ? "That does not look like a TTF or OTF font file."
-          : "Unsupported file type.",
+        status: 400,
       },
-      { status: 400 },
     );
   }
 

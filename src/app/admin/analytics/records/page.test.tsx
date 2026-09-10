@@ -450,8 +450,8 @@ describe("a revision row is one request, not one ticket", () => {
 });
 
 describe("brand setup reports the computed completion", () => {
-  /* The fixture carries NO completion_percentage column at all, so a card or
-     cell reading a stored value would render undefined here. */
+  /* Brands carry no stored completion since KOS-V1-BUG-011, so a cell reading
+     one would render undefined here. */
   it("renders a percentage computed from the brand's own fields", async () => {
     await renderPage({ metric: "brand_setup" });
     expect(screen.getByText(/^\d+%$/)).toBeInTheDocument();
@@ -536,11 +536,10 @@ describe("each metric fetches the rows it names", () => {
   });
 });
 
-/* brands.completion_percentage and brandProfileCompletion() disagree, and every
-   other surface in the product uses the computed one. The fixture carries NO
-   stored column at all, so a cell reading the stored value renders 0% — which
-   still matches a loose /\d+%/ assertion. Compared against the function's own
-   output, it cannot. */
+/* brandProfileCompletion() is the one definition of completion; KOS-V1-BUG-011
+   dropped the stored column it disagreed with. A cell reading a stored value
+   would render 0% — which still matches a loose /\d+%/ assertion. Compared
+   against the function's own output, it cannot. */
 describe("brand setup completion is computed, not stored", () => {
   const brandRow = {
     id: "b1",

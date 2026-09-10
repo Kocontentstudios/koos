@@ -5,7 +5,6 @@ const brand = {
   id: "b1",
   name: "Ada Bakes",
   onboardingStatus: "completed",
-  completionPercentage: 100,
   overview: "Artisan sourdough bakery",
   businessType: "Retail",
   stage: "Growth",
@@ -55,13 +54,12 @@ describe("toBrandExport", () => {
     expect(out.onboardingStatus).toBe("completed");
   });
 
-  /* The stored column is stale on every brand written before the weighted
-     formula landed — this fixture carries 100. Computing from the row instead
-     means existing brands read correctly with no migration. Ada has all of
-     Basics (20), Audience (25) and Platforms (15) but only half of Visual
-     Identity (12.5) and no Personality. */
-  it("computes the score from the fields, not the stored column", () => {
-    expect(brand.completionPercentage).toBe(100);
+  /* KOS-V1-BUG-011: the row carries no stored percentage — there is no such
+     column — so the export has to derive one. Ada has all of Basics (20),
+     Audience (25) and Platforms (15) but only half of Visual Identity (12.5)
+     and no Personality. A missing or zeroed score fails this. */
+  it("computes the score from the fields, with nothing stored to read", () => {
+    expect(brand).not.toHaveProperty("completionPercentage");
     expect(toBrandExport(brand).completionPercentage).toBe(73);
   });
 

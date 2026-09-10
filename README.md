@@ -143,5 +143,28 @@ required integrations are connected:
 Escape hatches (use sparingly, e.g. offline CI):
 `SKIP_PREFLIGHT=1`, `SKIP_DB_CHECK=1`, `SKIP_AI_CHECK=1`, `SKIP_R2_CHECK=1`, `AI_SKIP_PING=1`.
 
+### Vendored render fonts
+
+`pnpm build` then runs `scripts/fetch-fonts.mjs`, which downloads the three
+faces satori renders with into `src/lib/design/render/fonts/` (gitignored — no
+binaries in the repo). It **fails the build** if it cannot produce all three,
+after three retries each.
+
+Without them `src/lib/design/render/fonts.ts` falls back to fetching from
+fonts.googleapis.com on every cold start, and a Google outage means satori gets
+no fonts and every design render fails. That fallback stays as a safety net for
+`pnpm dev` and for a deploy whose file tracing dropped the files; it is not a
+state to ship in.
+
+```bash
+pnpm fonts   # vendor them without building
+```
+
+Already-vendored faces are reused; changing a family in `fonts.ts` re-downloads
+that one. Escape hatch for an offline local build:
+`SKIP_FONT_PREFETCH=1` — it restores the runtime dependency on Google, so it is
+for local use only, never a deploy. If a Google 429 is blocking an urgent
+deploy, that is the flag.
+
 On Vercel, set the same env vars in the project settings — the preflight runs as
 part of the build there too.

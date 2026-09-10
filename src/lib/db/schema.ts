@@ -310,7 +310,10 @@ export const brands = pgTable(
     onboardingStatus: onboardingStatusEnum("onboarding_status")
       .notNull()
       .default("draft"),
-    completionPercentage: integer("completion_percentage").notNull().default(0),
+    /* No completion column on purpose (KOS-V1-BUG-011): setup completion is
+       derived from the fields below by brandProfileCompletion(). A stored copy
+       goes stale the moment the formula changes, and every display surface
+       already computes. */
     overview: text("overview"),
     businessType: text("business_type"),
     stage: text("stage"),

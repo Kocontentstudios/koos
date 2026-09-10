@@ -532,11 +532,8 @@ export async function getApprovalRate(filter: AnalyticsFilter) {
 /**
  * How complete the brands created in this window are.
  *
- * Computed with brandProfileCompletion by the caller, NOT read from
- * brands.completion_percentage: the stored column and the computed function
- * disagree, and every other surface in the product (the admin brands table,
- * the brand page) uses the computed one. Reconciling the column is its own
- * ticket; this must not be the place the two versions of the truth meet.
+ * The caller scores these rows with brandProfileCompletion, the one definition
+ * of completion. Nothing on the brand stores it.
  */
 /* METRIC_FILTERS says the brand filter narrows this metric, so it has to be
    applied here — the header would otherwise claim a narrowing the query never

@@ -238,11 +238,10 @@ export default async function AdminAnalyticsPage({
     getBrandSetupRows(filter),
   ]);
 
-  /* Computed, never brands.completion_percentage: the stored column and this
-     function disagree, and the admin brands table already uses this one.
-     Averaged over the brands created in the window; null rather than 0 when
-     there are none, because "0% complete" is a claim about brands that do not
-     exist. */
+  /* brandProfileCompletion is the one definition of completion; there is no
+     stored percentage to read. Averaged over the brands created in the window;
+     null rather than 0 when there are none, because "0% complete" is a claim
+     about brands that do not exist. */
   const brandSetupAverage =
     brandSetupRows.length === 0
       ? null

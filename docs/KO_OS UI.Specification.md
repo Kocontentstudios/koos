@@ -1046,7 +1046,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * View toggle: segmented control with 4 options: Month | Week | Day | Agenda.
 
-* Toggle style: container bg rgba(255,255,255,0.04), border-radius 8px. Each segment: 13px/500/\#A7B6C7, padding 6px 16px. Active segment: bg Surface 2, text \#FFFFFF, border-radius 8px. Transition: 160ms.
+* Toggle style: see §10.8 Segmented Control. Container has no fill and a 1px `--border-control` edge; the active segment is `--foreground` filled with `--background` text at weight 700.
 
 * Calendar controls: Today button (secondary, small) \+ left/right arrows (icon-only, ghost) for navigating time periods.
 
@@ -1669,11 +1669,13 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 ## **10.8 Segmented Control (View Toggle)**
 
-* Container: bg rgba(255,255,255,0.04), border-radius 8px, padding 3px.
+* Container: no fill, 1px `--border-control` edge, border-radius 8px, padding 3px. The edge is what makes the segments read as one control; it clears WCAG 1.4.11's 3:1 on both the page and a card, in both themes.
 
-* Segment: 13px/500/\#A7B6C7, padding 6px 16px, border-radius 8px.
+* Segment: 13px/500/`--text-secondary`, padding 6px 16px, border-radius 8px.
 
-* Active segment: bg Surface 2, text \#FFFFFF.
+* Active segment: bg `--foreground`, text `--background`, weight 700. The fill is the page inverted rather than a surface token, because `--surface-1` and `--surface-2` are both \#FFFFFF in light mode. Weight is a second, independent cue: selection must not be signalled by colour alone (WCAG 1.4.1), and weight is the one that survives forced-colors mode. The bold measurement is reserved in every state so selecting a segment cannot reflow the row.
+
+* Focus: 2px `--primary` outline, inset, so a scrolling track cannot clip it.
 
 * Transition: background 160ms, color 160ms.
 
