@@ -198,6 +198,10 @@ export function CreateBrandForm({
             ? false
             : undefined,
       brandStyle: resolveOther(state.brandStyle, state.brandStyleOther),
+      /* The picker for this is on the visual step and is hydrated from the
+         brand, so leaving it out meant edits were silently discarded and the
+         stored value was erased on every save (KOS-V1-BUG-020). */
+      brandFont: resolveOther(state.brandFont, state.brandFontOther),
       primaryColor: state.primaryColor || undefined,
       secondaryColor: state.secondaryColor || undefined,
       additionalColors: state.additionalColors,

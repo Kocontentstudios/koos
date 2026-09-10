@@ -90,7 +90,10 @@ function OptionRow({
 /* The formats the upload route actually accepts, by byte signature. Extension
    entries matter as much as the MIME ones: browsers send fonts as
    application/octet-stream or nothing at all — see file-upload.tsx. */
-const FONT_ACCEPT = ".ttf,.otf,.ttc,font/ttf,font/otf";
+/* No .ttc: satori refuses every TrueType collection with "Unsupported
+   OpenType signature ttcf", so offering it only moved the failure into the
+   render, where nothing named the font (KOS-V1-BUG-018). */
+const FONT_ACCEPT = ".ttf,.otf,font/ttf,font/otf";
 
 type FontSlot = "heading" | "body";
 const FONT_FIELD: Record<FontSlot, "brandFontUrl" | "bodyFontUrl"> = {
@@ -427,7 +430,7 @@ export function VisualIdentityStep({
                 error={fontError.heading}
               />
               <p className="text-[12px] text-[var(--text-muted)]">
-                TTF, OTF or TTC. Headlines are set in this.
+                TTF or OTF. Headlines are set in this.
               </p>
             </div>
 

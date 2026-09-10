@@ -271,7 +271,6 @@ export async function updateBrand(
       typeof brands.$inferInsert,
       | "name"
       | "onboardingStatus"
-      | "completionPercentage"
       | "onboardingType"
       | "overview"
       | "businessType"

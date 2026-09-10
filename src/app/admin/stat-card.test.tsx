@@ -74,8 +74,8 @@ describe("focus indicator", () => {
 
   /* The token and the offset are ONE decision, asserted together. The offset
      moves the ring off the card onto --background, so a token measured against
-     the card is measured against the wrong ground — that is how a ring tuned
-     to 3.26:1 shipped at 2.88:1. Changing either half requires re-measuring. */
+     the card is measured against the wrong ground. Changing either half
+     requires re-measuring. */
   it("draws the ring in a colour that clears 3:1 on the ground it lands on", () => {
     const cls = ringClasses();
     expect(cls).toContain("focus-visible:outline-[var(--primary)]");
@@ -84,7 +84,7 @@ describe("focus indicator", () => {
 
   it.each([
     ["--border-accent", "~1.7:1 on both grounds"],
-    ["--border-control", "2.88:1 on --background in light mode"],
+    ["--border-control", "a control boundary, not a focus indicator"],
     ["--border", "a surface edge, far below 3:1"],
   ])("does not use %s (%s)", (token) => {
     expect(ringClasses()).not.toContain(`outline-[var(${token})]`);

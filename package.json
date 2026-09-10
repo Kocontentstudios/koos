@@ -8,8 +8,9 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && next build",
+    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && node scripts/fetch-fonts.mjs && next build",
     "preflight": "node scripts/check-env.mjs",
+    "fonts": "node scripts/fetch-fonts.mjs",
     "start": "next start",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",

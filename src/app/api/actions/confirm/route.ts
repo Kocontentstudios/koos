@@ -13,9 +13,9 @@ import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
 import {
+  onboardingStatusAfterFieldWrite,
   parseAdditionalColors,
   parsePlatformList,
-  progressAfterFieldWrite,
 } from "@/lib/brand-profile";
 import { toBrandSnapshot } from "@/lib/brand-snapshot";
 import {
@@ -134,9 +134,15 @@ export async function POST(req: Request) {
       /* Advance onboarding off the back of what the conversation captured.
          Confirming fields used to leave the status at "draft", which left a
          chat-only user permanently redirected back into onboarding. */
-      const progress = progressAfterFieldWrite({ ...brand, ...writable });
+      const onboardingStatus = onboardingStatusAfterFieldWrite({
+        ...brand,
+        ...writable,
+      });
       const wasCompleted = brand.onboardingStatus === "completed";
-      const updated = await updateBrand(brandId, { ...writable, ...progress });
+      const updated = await updateBrand(brandId, {
+        ...writable,
+        onboardingStatus,
+      });
 
       /* Deliberately NOT gated on the brand being "completed": that flips on
          the four required Basics fields, and a conversation can capture a rich
@@ -154,7 +160,7 @@ export async function POST(req: Request) {
         });
       }
 
-      if (!wasCompleted && progress.onboardingStatus === "completed") {
+      if (!wasCompleted && onboardingStatus === "completed") {
         const sessionId = await getAnalyticsSessionId();
         after(() =>
           captureServerEvent({
@@ -180,7 +186,7 @@ export async function POST(req: Request) {
         ok: true,
         kind: proposal.kind,
         resultId: brandId,
-        brandCompleted: progress.onboardingStatus === "completed",
+        brandCompleted: onboardingStatus === "completed",
         /* The client's copy of the brand predates this write, so the snapshot
            card is fed from the row we just wrote rather than re-fetched. */
         snapshot: toBrandSnapshot(updated),
