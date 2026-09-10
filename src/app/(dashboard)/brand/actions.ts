@@ -55,7 +55,17 @@ export async function saveBrandProfile(
     hasLogo: v.hasLogo ?? null,
     brandStyle: v.brandStyle || null,
     brandFont: v.brandFont || null,
-    brandFontUrl: v.brandFontUrl || null,
+    /* Omission means "leave it alone", not "delete it". The Edit Brand form is
+       the only caller and does not carry the font fields, so writing these
+       unconditionally set the column to NULL on every save and quietly threw
+       away a font the user uploaded during onboarding (KOS-V1-BUG-020). An
+       empty string is still a clear, because that is the user removing it. */
+    ...(v.brandFontUrl !== undefined
+      ? { brandFontUrl: v.brandFontUrl || null }
+      : {}),
+    ...(v.bodyFontUrl !== undefined
+      ? { bodyFontUrl: v.bodyFontUrl || null }
+      : {}),
     primaryColor: v.primaryColor || null,
     secondaryColor: v.secondaryColor || null,
     /* Empty means "no extra colours", same as platforms below. Writing {}

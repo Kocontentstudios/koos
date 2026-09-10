@@ -42,6 +42,55 @@ describe("saveBrandProfile", () => {
     });
   });
 
+  /* KOS-V1-BUG-020. The Edit Brand form is the only caller of this action and
+     it does not carry the font fields, so writing `v.brandFontUrl || null`
+     unconditionally set the column to NULL on every save: a user who uploaded
+     a heading font during onboarding lost it the first time they corrected a
+     typo in their brand overview. Worse, it was silent and asymmetric —
+     bodyFontUrl was absent from the write entirely, so the body face survived
+     while the heading face vanished. Omission must mean "leave it alone". */
+  it("leaves a stored heading font alone when the caller omits it", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile(validInput);
+
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("brandFontUrl");
+    expect(updateBrand.mock.calls[0][1]).not.toHaveProperty("bodyFontUrl");
+  });
+
+  it.each([
+    ["brandFontUrl", "https://cdn.example.com/fonts/u1/heading.ttf"],
+    ["bodyFontUrl", "https://cdn.example.com/fonts/u1/body.ttf"],
+  ])("persists %s when the caller does send it", async (field, url) => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({ ...validInput, [field]: url });
+
+    expect(updateBrand.mock.calls[0][1]).toHaveProperty(field, url);
+  });
+
+  /* Clearing has to stay possible: an empty string is the user removing the
+     font, which is a different intent from not mentioning the field. */
+  it("clears a stored font when the caller sends an empty string", async () => {
+    getActiveBrandForMember.mockResolvedValue({
+      id: "existing-brand",
+      onboardingStatus: "completed",
+    });
+    updateBrand.mockResolvedValue({ id: "existing-brand" });
+
+    await saveBrandProfile({ ...validInput, brandFontUrl: "" });
+
+    expect(updateBrand.mock.calls[0][1]).toHaveProperty("brandFontUrl", null);
+  });
+
   /* KOS-V1-BUG-011: this path used to write a completion score alongside the
      profile, a second source of truth that went stale against
      brandProfileCompletion. The column is gone; the write must not resurrect
