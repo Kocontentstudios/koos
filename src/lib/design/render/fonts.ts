@@ -130,16 +130,14 @@ async function loadDefaultFonts(): Promise<LoadedFont[]> {
   return loaded;
 }
 
-/** Fetches an uploaded face. Null for anything satori could not parse, so the
- *  caller falls back rather than handing it bytes that throw mid-render. */
 /** The face, or why it could not be used. A reason rather than a bare null:
  *  declining the bytes here is what stops a corrupt font reaching satori, and
  *  it is also the ONLY moment anything knows why — by the time the design has
  *  rendered in the bundled faces, the fault is invisible and the user is left
  *  wondering why their typeface never appears. */
 type UploadedFont =
-  | { data: ArrayBuffer; reason: null }
-  | { data: null; reason: string };
+  | { data: ArrayBuffer; reason: null; transient: false }
+  | { data: null; reason: string; transient: boolean };
 
 async function loadUploadedFont(url: string): Promise<UploadedFont> {
   try {
@@ -147,7 +145,13 @@ async function loadUploadedFont(url: string): Promise<UploadedFont> {
        user-writable column, so without the prefix a brand could point it at
        another tenant's deliverables and have them read. */
     const key = storageKeyFrom(url, STORAGE_PREFIXES.fonts);
-    if (!key) return { data: null, reason: "it is not stored with your brand" };
+    if (!key) {
+      return {
+        data: null,
+        reason: "it is not stored with your brand",
+        transient: false,
+      };
+    }
     const bytes = await getObjectBytes(key);
     const data = new Uint8Array(bytes);
     /* Re-checked here, and structurally, because the upload route's check does
@@ -155,16 +159,27 @@ async function loadUploadedFont(url: string): Promise<UploadedFont> {
        file it points at, and every render for such a brand fails identically
        until something declines the bytes instead of handing them to satori. */
     const check = checkFontBytes(data);
-    if (!check.ok) return { data: null, reason: check.reason };
+    if (!check.ok) {
+      return { data: null, reason: check.reason, transient: false };
+    }
     return {
       data: data.buffer.slice(
         data.byteOffset,
         data.byteOffset + data.byteLength,
       ) as ArrayBuffer,
       reason: null,
+      transient: false,
     };
   } catch {
-    return { data: null, reason: "the file could not be read" };
+    /* Nothing was learned about the font itself, so this verdict is about the
+       bucket, not the file. Marked transient so it is neither remembered nor
+       reported: a blip would otherwise tell the user their intact font is
+       damaged, on every generation, for the life of the process. */
+    return {
+      data: null,
+      reason: "the file could not be read",
+      transient: true,
+    };
   }
 }
 
@@ -250,20 +265,27 @@ async function cachedFace(
       const oldest = brandFontCache.keys().next().value;
       if (oldest !== undefined) brandFontCache.delete(oldest);
     }
-    brandFontCache.set(key, {
-      faces: loaded.data
-        ? [
-            {
-              name,
-              data: loaded.data,
-              weight,
-              style: "normal" as const,
-              fromBrand: true,
-            },
-          ]
-        : null,
-      reason: loaded.reason,
-    });
+    /* A verdict about the bytes is permanent and worth remembering — it saves
+       re-reading a font that will fail identically every render. A failure to
+       read them is not a verdict at all, so it is left uncached and the next
+       render tries again. loadDefaultFonts refuses to cache transients for the
+       same reason. */
+    if (!loaded.transient) {
+      brandFontCache.set(key, {
+        faces: loaded.data
+          ? [
+              {
+                name,
+                data: loaded.data,
+                weight,
+                style: "normal" as const,
+                fromBrand: true,
+              },
+            ]
+          : null,
+        reason: loaded.reason,
+      });
+    }
   }
   return brandFontCache.get(key)?.faces ?? null;
 }

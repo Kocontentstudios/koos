@@ -54,7 +54,7 @@ export async function saveBrandProfile(
     wordsAvoid: v.wordsAvoid || null,
     hasLogo: v.hasLogo ?? null,
     brandStyle: v.brandStyle || null,
-    brandFont: v.brandFont || null,
+    ...(v.brandFont !== undefined ? { brandFont: v.brandFont || null } : {}),
     /* Omission means "leave it alone", not "delete it". The Edit Brand form is
        the only caller and does not carry the font fields, so writing these
        unconditionally set the column to NULL on every save and quietly threw

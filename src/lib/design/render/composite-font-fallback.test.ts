@@ -103,12 +103,48 @@ describe("a brand font that cannot be used", () => {
     expect(result.brandFontFault).toMatch(/no font tables/);
   });
 
-  it("reports the fault when the stored file cannot be read at all", async () => {
+  /* A bucket blip says nothing about the font, so it must not be reported:
+     telling a user their intact font is damaged, on every generation, is
+     worse than saying nothing. The next render retries. */
+  it("stays quiet when the file merely could not be read", async () => {
     getObjectBytes.mockRejectedValue(new Error("no such key"));
 
-    expect((await render(FONT_URL)).brandFontFault).toMatch(
-      /could not be read/,
-    );
+    expect((await render(FONT_URL)).brandFontFault).toBeNull();
+  });
+
+  /* The URL is a user-writable column, so a font pointing outside our own
+     storage is refused — and the refusal has to carry a reason, because an
+     empty one silently cancels the notification downstream. */
+  it("reports a reason for a font stored outside our own bucket", async () => {
+    const result = await renderCompositeDesign({
+      spec: SPEC,
+      brand: { ...brandWith("https://evil.example.com/font.ttf") },
+      plate: null,
+      logo: null,
+    });
+
+    expect(getObjectBytes).not.toHaveBeenCalled();
+    expect(result.brandFontFault).toBeTruthy();
+  });
+
+  /* Both slots report, not just the heading one: a brand can upload a body
+     face alone, and FEAT-020 made that a normal state rather than an edge. */
+  it("reports a fault on the body slot as well as the heading slot", async () => {
+    getObjectBytes.mockResolvedValue(Buffer.from(signatureOnlyFont()));
+
+    const result = await renderCompositeDesign({
+      spec: SPEC,
+      brand: {
+        primaryColor: "#123456",
+        secondaryColor: "#654321",
+        brandFontUrl: null,
+        bodyFontUrl: FONT_URL,
+      },
+      plate: null,
+      logo: null,
+    });
+
+    expect(result.brandFontFault).toMatch(/no font tables/);
   });
 
   /* Structure cannot predict an unsupported GSUB lookup or a variable-font

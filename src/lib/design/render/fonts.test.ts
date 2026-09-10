@@ -214,13 +214,31 @@ describe("loadBrandFonts", () => {
     expect(bad.filter((f) => f.name === "Display")).toHaveLength(1);
   });
 
+  /* A verdict about the bytes is permanent: the same file fails identically
+     every render, so reading it once is enough. */
   it("remembers a failure so a broken font is not re-fetched every render", async () => {
-    getObjectBytes.mockRejectedValue(new Error("gone"));
+    getObjectBytes.mockResolvedValue(Buffer.from(signatureOnlyFont()));
 
     await loadBrandFonts(FONT_URL);
     await loadBrandFonts(FONT_URL);
 
     expect(getObjectBytes).toHaveBeenCalledTimes(1);
+  });
+
+  /* A failure to READ the bytes is not a verdict about them. Caching it would
+     make one bucket blip permanent for the life of the process, so the brand
+     would be told its intact font was unusable on every later generation. */
+  it("retries after a read failure instead of condemning the font", async () => {
+    getObjectBytes
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValue(Buffer.from(buildFont()));
+
+    const first = await loadBrandFonts(FONT_URL);
+    const second = await loadBrandFonts(FONT_URL);
+
+    expect(getObjectBytes).toHaveBeenCalledTimes(2);
+    expect(first.some((f) => f.fromBrand)).toBe(false);
+    expect(second.some((f) => f.fromBrand)).toBe(true);
   });
 });
 
