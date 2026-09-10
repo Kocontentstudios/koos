@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { canvasFor } from "@/lib/design/canvas";
 import { type ResolvedPalette, resolvePalette } from "@/lib/design/palette";
 import type { DesignSpec } from "@/lib/design/spec";
-import { type LoadedFont, loadBrandFonts } from "./fonts";
+import { brandFontFaults, type LoadedFont, loadBrandFonts } from "./fonts";
 import { layoutElement } from "./layouts";
 
 export interface CompositeInput {
@@ -63,8 +63,16 @@ export async function renderCompositeDesign({
     logoDataUri: toDataUri(logo),
   });
 
+  /* Two ways a brand face is lost, and both have to reach the user. This is
+     the quiet one: the file was declined while being read, so the render below
+     succeeds in the bundled faces and nothing about the result says the
+     typeface was dropped. */
   const usedBrandFace = fonts.some((f) => f.fromBrand);
-  let brandFontFault: string | null = null;
+  let brandFontFault: string | null =
+    brandFontFaults({
+      heading: brand.brandFontUrl,
+      body: brand.bodyFontUrl,
+    })[0] ?? null;
   let bytes: Uint8Array;
   try {
     bytes = await rasterize(element, canvas, fonts);
@@ -79,8 +87,12 @@ export async function renderCompositeDesign({
        the bundled faces would blame the font for a renderer fault, and the
        original error is rethrown if the retry fails for the same reason. */
     if (!usedBrandFace) throw error;
-    brandFontFault =
-      error instanceof Error ? error.message : "the renderer refused it";
+    /* Deliberately not the exception text: satori's messages are internals
+       ("Cannot read properties of undefined (reading '257')") that mean
+       nothing to the person who uploaded a font. The structural reasons above
+       are written for a reader; this one has no reader-facing detail to give,
+       so it says only what is true. */
+    brandFontFault = "the design renderer could not use it";
     try {
       bytes = await rasterize(element, canvas, await loadBrandFonts(null));
     } catch {

@@ -19,8 +19,7 @@
  * it is O(number of tables) and allocates nothing but the table index. It is
  * necessary but NOT sufficient — a structurally perfect font can still defeat
  * satori (an unsupported GSUB lookup, a variable-font axis table), which is why
- * `font-probe.ts` exists at upload time and `composite.ts` retries at render
- * time.
+ * `composite.ts` retries with the bundled faces at render time.
  */
 
 export type FontCheck = { ok: true } | { ok: false; reason: string };

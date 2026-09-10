@@ -60,7 +60,10 @@ let cache: LoadedFont[] | null = null;
    concurrently. Bounded so a workspace with many brands cannot grow it without
    limit — fonts are a few hundred KB each. */
 const MAX_BRAND_FONTS = 20;
-const brandFontCache = new Map<string, LoadedFont[] | null>();
+const brandFontCache = new Map<
+  string,
+  { faces: LoadedFont[] | null; reason: string | null }
+>();
 
 /** Pulls a single TTF out of a Google Fonts CSS response. Only used when the
  * vendored file is missing, so a mis-traced deploy degrades to a slower
@@ -129,26 +132,39 @@ async function loadDefaultFonts(): Promise<LoadedFont[]> {
 
 /** Fetches an uploaded face. Null for anything satori could not parse, so the
  *  caller falls back rather than handing it bytes that throw mid-render. */
-async function loadUploadedFont(url: string): Promise<ArrayBuffer | null> {
+/** The face, or why it could not be used. A reason rather than a bare null:
+ *  declining the bytes here is what stops a corrupt font reaching satori, and
+ *  it is also the ONLY moment anything knows why — by the time the design has
+ *  rendered in the bundled faces, the fault is invisible and the user is left
+ *  wondering why their typeface never appears. */
+type UploadedFont =
+  | { data: ArrayBuffer; reason: null }
+  | { data: null; reason: string };
+
+async function loadUploadedFont(url: string): Promise<UploadedFont> {
   try {
     /* Pinned to the fonts prefix, not merely to our origin. brandFontUrl is a
        user-writable column, so without the prefix a brand could point it at
        another tenant's deliverables and have them read. */
     const key = storageKeyFrom(url, STORAGE_PREFIXES.fonts);
-    if (!key) return null;
+    if (!key) return { data: null, reason: "it is not stored with your brand" };
     const bytes = await getObjectBytes(key);
     const data = new Uint8Array(bytes);
     /* Re-checked here, and structurally, because the upload route's check does
        not cover the brands that already stored a bad file: a row outlives the
        file it points at, and every render for such a brand fails identically
        until something declines the bytes instead of handing them to satori. */
-    if (!checkFontBytes(data).ok) return null;
-    return data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as ArrayBuffer;
+    const check = checkFontBytes(data);
+    if (!check.ok) return { data: null, reason: check.reason };
+    return {
+      data: data.buffer.slice(
+        data.byteOffset,
+        data.byteOffset + data.byteLength,
+      ) as ArrayBuffer,
+      reason: null,
+    };
   } catch {
-    return null;
+    return { data: null, reason: "the file could not be read" };
   }
 }
 
@@ -227,21 +243,57 @@ async function cachedFace(
 ): Promise<LoadedFont[] | null> {
   const key = `${name}:${url}`;
   if (!brandFontCache.has(key)) {
-    const data = await loadUploadedFont(url);
+    const loaded = await loadUploadedFont(url);
     // Evict oldest-first rather than clearing: a busy process should not lose
     // every brand's font because one more arrived.
     if (brandFontCache.size >= MAX_BRAND_FONTS) {
       const oldest = brandFontCache.keys().next().value;
       if (oldest !== undefined) brandFontCache.delete(oldest);
     }
-    brandFontCache.set(
-      key,
-      data
-        ? [{ name, data, weight, style: "normal" as const, fromBrand: true }]
+    brandFontCache.set(key, {
+      faces: loaded.data
+        ? [
+            {
+              name,
+              data: loaded.data,
+              weight,
+              style: "normal" as const,
+              fromBrand: true,
+            },
+          ]
         : null,
-    );
+      reason: loaded.reason,
+    });
   }
-  return brandFontCache.get(key) ?? null;
+  return brandFontCache.get(key)?.faces ?? null;
+}
+
+/**
+ * Why a brand's faces were not used, for the slots it actually filled.
+ *
+ * Read after loadBrandFonts, off the same cache, so it costs nothing and
+ * cannot disagree with what was rendered. It exists because declining a
+ * corrupt font is invisible by design: the render succeeds in the bundled
+ * faces, so without this the user is never told, which is the silent fallback
+ * KOS-V1-BUG-018 set out to remove.
+ */
+export function brandFontFaults(
+  urls?: BrandFontUrls | string | null,
+): string[] {
+  const { heading, body } =
+    typeof urls === "string" || urls == null
+      ? { heading: urls, body: null }
+      : urls;
+  const faults: string[] = [];
+  for (const [url, name] of [
+    [heading, "Display"],
+    [body, "Body"],
+  ] as const) {
+    if (!url) continue;
+    const reason = brandFontCache.get(`${name}:${url}`)?.reason;
+    if (reason) faults.push(reason);
+  }
+  return faults;
 }
 
 /** Test seam: the caches live for the process, which would otherwise leak

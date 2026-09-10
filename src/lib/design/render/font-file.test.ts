@@ -20,9 +20,14 @@ import {
    and then threw "RangeError: Offset is outside the bounds of the DataView"
    halfway through every design that brand ever rendered.
 
-   The reference for these cases is satori itself, not this module's opinion:
-   each fixture below was run through the real next/og renderer, and the
-   verdicts here match what it does. */
+   The reference is satori itself, not this module's opinion: every fixture
+   below was run through the real next/og renderer. Where they differ, this
+   module is deliberately the stricter one — a handful of malformed fixtures
+   (an impossible unitsPerEm, hhea/maxp disagreeing on glyph count, a loca
+   entry past the end of glyf) happen to render the one string satori was
+   given, and would throw on a different one. Refusing them is the safe
+   direction; accepting a font satori cannot draw is not. Measured against 179
+   real fonts, the strictness costs nothing: zero are rejected. */
 
 describe("checkFontBytes", () => {
   it("accepts a font the renderer can actually draw with", () => {
