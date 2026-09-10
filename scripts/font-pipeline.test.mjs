@@ -174,6 +174,15 @@ async function renderingRoutes() {
 
 const includes = nextConfig.outputFileTracingIncludes ?? {};
 
+/* Two known gaps, left open deliberately because closing them costs more than
+   the drift they permit, and neither is reachable in this repo today:
+
+   - reachesRenderer memoises the provisional `false` it returns on an import
+     cycle, so a value-level cycle could hide a rendering route from the route
+     set below. No such cycle exists here.
+   - routePathOf mirrors Next's normalizeAppPath for route groups and dynamic
+     segments but not for @slot parallel segments, where it would demand a key
+     Next never matches. No parallel routes render designs. */
 describe("the vendored font directory", () => {
   it("is one directory across the renderer, the prefetch and the deploy", () => {
     expect(path.resolve(REPO, VENDOR_FONT_DIR)).toBe(RUNTIME_FONT_DIR);
