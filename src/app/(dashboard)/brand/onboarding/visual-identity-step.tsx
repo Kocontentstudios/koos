@@ -7,6 +7,11 @@ import {
   brandFontOptions,
   brandStyleOptions,
 } from "@/app/(dashboard)/brand/brand-profile-form";
+import {
+  FONT_ACCEPT,
+  FONT_MAX_MB,
+  useFontSlots,
+} from "@/components/brand/use-font-slots";
 import { Button } from "@/components/ui/button";
 import { ColorField } from "@/components/ui/color-field";
 import { FileUpload } from "@/components/ui/file-upload";
@@ -87,20 +92,6 @@ function OptionRow({
  * text-only — there is no mechanism for a file upload inside a message, and
  * inventing one to ask for a PNG would be a lot of machinery for a form field.
  */
-/* The formats the upload route actually accepts, by byte signature. Extension
-   entries matter as much as the MIME ones: browsers send fonts as
-   application/octet-stream or nothing at all — see file-upload.tsx. */
-/* No .ttc: satori refuses every TrueType collection with "Unsupported
-   OpenType signature ttcf", so offering it only moved the failure into the
-   render, where nothing named the font (KOS-V1-BUG-018). */
-const FONT_ACCEPT = ".ttf,.otf,font/ttf,font/otf";
-
-type FontSlot = "heading" | "body";
-const FONT_FIELD: Record<FontSlot, "brandFontUrl" | "bodyFontUrl"> = {
-  heading: "brandFontUrl",
-  body: "bodyFontUrl",
-};
-
 export function VisualIdentityStep({
   brandId,
   initial,
@@ -117,21 +108,6 @@ export function VisualIdentityStep({
     ...initial,
   });
   const [fileName, setFileName] = useState<string | null>(null);
-  /* Per slot, not per component: one shared value would make the heading
-     field display the body field's filename and error. */
-  type SlotState<T> = { heading: T; body: T };
-  const [fontFileName, setFontFileName] = useState<SlotState<string | null>>({
-    heading: null,
-    body: null,
-  });
-  const [fontError, setFontError] = useState<SlotState<string | null>>({
-    heading: null,
-    body: null,
-  });
-  const [fontUploading, setFontUploading] = useState<SlotState<boolean>>({
-    heading: false,
-    body: false,
-  });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -173,53 +149,7 @@ export function VisualIdentityStep({
     }
   }
 
-  /* FEAT-020 asks for two independent slots, so every piece of per-slot state
-     is keyed by the slot. One shared error or filename would make the heading
-     field report the body field's failure — the loading rule's "keyed to the
-     row, never one shared boolean", applied to two fields. */
-  function clearFont(slot: FontSlot) {
-    setFontFileName((prev) => ({ ...prev, [slot]: null }));
-    setFontError((prev) => ({ ...prev, [slot]: null }));
-    set({ [FONT_FIELD[slot]]: "" });
-  }
-
-  async function handleFontSelected(slot: FontSlot, file: File) {
-    const field = FONT_FIELD[slot];
-    setFontFileName((prev) => ({ ...prev, [slot]: file.name }));
-    setFontError((prev) => ({ ...prev, [slot]: null }));
-    setFontUploading((prev) => ({ ...prev, [slot]: true }));
-    try {
-      const body = new FormData();
-      body.append("file", file);
-      body.append("kind", "font");
-      const res = await fetch("/api/upload", { method: "POST", body });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        // Drop the filename too: a refused font must not sit there looking
-        // attached, and FileUpload only shows the error in its empty state.
-        setFontFileName((prev) => ({ ...prev, [slot]: null }));
-        setFontError((prev) => ({
-          ...prev,
-          [slot]: data?.error ?? "Could not upload that font file.",
-        }));
-        set({ [field]: "" });
-        return;
-      }
-      const { url } = (await res.json()) as { url: string };
-      set({ [field]: url });
-    } catch {
-      setFontFileName((prev) => ({ ...prev, [slot]: null }));
-      setFontError((prev) => ({
-        ...prev,
-        [slot]: "Could not upload that font file.",
-      }));
-      set({ [field]: "" });
-    } finally {
-      setFontUploading((prev) => ({ ...prev, [slot]: false }));
-    }
-  }
+  const fonts = useFontSlots((field, value) => set({ [field]: value }));
 
   /* An offer, never a requirement. A provider that cannot read images, or a
      logo it cannot read colours from, leaves the fields exactly as they were
@@ -422,12 +352,13 @@ export function VisualIdentityStep({
               <Label htmlFor="heading-font">Heading / main font</Label>
               <FileUpload
                 id="heading-font"
+                label="heading / main font"
                 accept={FONT_ACCEPT}
-                maxSizeMb={5}
-                onFileSelected={(file) => handleFontSelected("heading", file)}
-                onRemove={() => clearFont("heading")}
-                fileName={fontFileName.heading}
-                error={fontError.heading}
+                maxSizeMb={FONT_MAX_MB}
+                onFileSelected={(file) => fonts.select("heading", file)}
+                onRemove={() => fonts.remove("heading")}
+                fileName={fonts.fileName.heading}
+                error={fonts.error.heading}
               />
               <p className="text-[12px] text-[var(--text-muted)]">
                 TTF or OTF. Headlines are set in this.
@@ -438,12 +369,13 @@ export function VisualIdentityStep({
               <Label htmlFor="body-font">Body / CTA font</Label>
               <FileUpload
                 id="body-font"
+                label="body / cta font"
                 accept={FONT_ACCEPT}
-                maxSizeMb={5}
-                onFileSelected={(file) => handleFontSelected("body", file)}
-                onRemove={() => clearFont("body")}
-                fileName={fontFileName.body}
-                error={fontError.body}
+                maxSizeMb={FONT_MAX_MB}
+                onFileSelected={(file) => fonts.select("body", file)}
+                onRemove={() => fonts.remove("body")}
+                fileName={fonts.fileName.body}
+                error={fonts.error.body}
               />
               <p className="text-[12px] text-[var(--text-muted)]">
                 Body copy, buttons and calls to action. Leave it empty to keep
@@ -451,12 +383,12 @@ export function VisualIdentityStep({
               </p>
             </div>
 
-            {(fontUploading.heading || fontUploading.body) && (
+            {fonts.busy && (
               <p
                 role="status"
                 className="text-[12px] text-[var(--text-secondary)]"
               >
-                Uploading your {fontUploading.heading ? "heading" : "body"}{" "}
+                Uploading your {fonts.uploading.heading ? "heading" : "body"}{" "}
                 font…
               </p>
             )}
