@@ -8,8 +8,16 @@ import { cn } from "@/lib/utils";
 interface FileUploadProps {
   accept?: string;
   /** Set when a <Label htmlFor> points at this field — without it the label
-   *  is associated with nothing and the control has no accessible name. */
+   *  is associated with nothing and the control has no accessible name.
+   *  Note it only reaches the input in the EMPTY state: once a file is
+   *  attached this renders a chip with no form control, so a form with two
+   *  of these should label the surrounding group, not rely on htmlFor. */
   id?: string;
+  /** What this upload is for, e.g. "heading font". Distinguishes the remove
+   *  buttons when a form has more than one: without it every one of them is
+   *  called "Remove file" and neither a screen reader nor a test can say
+   *  which file is about to go. */
+  label?: string;
   maxSizeMb?: number;
   onFileSelected: (file: File) => void;
   onRemove?: () => void;
@@ -59,6 +67,7 @@ function matchesAccept(file: File, accept: string): boolean {
 export function FileUpload({
   accept,
   id,
+  label,
   maxSizeMb = 5,
   onFileSelected,
   onRemove,
@@ -108,7 +117,22 @@ export function FileUpload({
 
   if (fileName) {
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-[rgba(255,255,255,0.12)] p-3">
+      <div className="relative flex items-center gap-3 rounded-lg border border-[rgba(255,255,255,0.12)] p-3">
+        {/* Rendered here too, not only in the empty state: a <Label htmlFor>
+            pointing at this field would otherwise be associated with nothing
+            the moment a file is attached, and a form with two of these would
+            have two orphaned labels. It also means clicking that label picks a
+            replacement, so swapping a file does not require removing it first
+            and briefly having none. */}
+        <input
+          ref={inputRef}
+          id={id}
+          type="file"
+          data-testid="file-input"
+          accept={accept}
+          className="sr-only"
+          onChange={handleChange}
+        />
         {previewUrl ? (
           <NextImage
             src={previewUrl}
@@ -126,7 +150,7 @@ export function FileUpload({
         </span>
         <button
           type="button"
-          aria-label="Remove file"
+          aria-label={label ? `Remove ${label}` : "Remove file"}
           className="rounded p-1 hover:bg-[rgba(255,255,255,0.08)]"
           onClick={onRemove}
         >

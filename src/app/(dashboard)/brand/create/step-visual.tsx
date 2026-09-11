@@ -148,6 +148,7 @@ export function StepVisual({ state, onChange }: StepProps) {
           <Label htmlFor="edit-heading-font">Heading / main font</Label>
           <FileUpload
             id="edit-heading-font"
+            label="heading / main font"
             accept={FONT_ACCEPT}
             maxSizeMb={FONT_MAX_MB}
             onFileSelected={(file) => fonts.select("heading", file)}
@@ -164,6 +165,7 @@ export function StepVisual({ state, onChange }: StepProps) {
           <Label htmlFor="edit-body-font">Body / CTA font</Label>
           <FileUpload
             id="edit-body-font"
+            label="body / cta font"
             accept={FONT_ACCEPT}
             maxSizeMb={FONT_MAX_MB}
             onFileSelected={(file) => fonts.select("body", file)}

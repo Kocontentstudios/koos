@@ -92,9 +92,6 @@ function OptionRow({
  * text-only — there is no mechanism for a file upload inside a message, and
  * inventing one to ask for a PNG would be a lot of machinery for a form field.
  */
-/* The formats the upload route actually accepts, by byte signature. Extension
-   entries matter as much as the MIME ones: browsers send fonts as
-   application/octet-stream or nothing at all — see file-upload.tsx. */
 export function VisualIdentityStep({
   brandId,
   initial,
@@ -355,6 +352,7 @@ export function VisualIdentityStep({
               <Label htmlFor="heading-font">Heading / main font</Label>
               <FileUpload
                 id="heading-font"
+                label="heading / main font"
                 accept={FONT_ACCEPT}
                 maxSizeMb={FONT_MAX_MB}
                 onFileSelected={(file) => fonts.select("heading", file)}
@@ -371,6 +369,7 @@ export function VisualIdentityStep({
               <Label htmlFor="body-font">Body / CTA font</Label>
               <FileUpload
                 id="body-font"
+                label="body / cta font"
                 accept={FONT_ACCEPT}
                 maxSizeMb={FONT_MAX_MB}
                 onFileSelected={(file) => fonts.select("body", file)}
