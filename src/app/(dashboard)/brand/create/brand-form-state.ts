@@ -32,6 +32,8 @@ export interface CreateBrandState {
   additionalColors: string[];
   additionalColorLabels: string[];
   logoUrl: string;
+  brandFontUrl: string;
+  bodyFontUrl: string;
   // Section 5 — Competitors
   competitors: string;
   competitorStrengths: string;
@@ -77,6 +79,8 @@ export const DEFAULT_STATE: CreateBrandState = {
   additionalColors: [],
   additionalColorLabels: [],
   logoUrl: "",
+  brandFontUrl: "",
+  bodyFontUrl: "",
   competitors: "",
   competitorStrengths: "",
   differentiators: "",

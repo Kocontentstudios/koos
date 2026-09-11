@@ -2,6 +2,12 @@
 
 import { Loader2Icon, Plus, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
+import {
+  FONT_ACCEPT,
+  FONT_MAX_MB,
+  storedFontName,
+  useFontSlots,
+} from "@/components/brand/use-font-slots";
 import { Button } from "@/components/ui/button";
 import { ColorField } from "@/components/ui/color-field";
 import { EditableLabel } from "@/components/ui/editable-label";
@@ -38,6 +44,13 @@ export function StepVisual({ state, onChange }: StepProps) {
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  /* Seeded from the stored URLs so an existing brand shows that a font IS set
+     rather than looking as if it has none — the whole point of putting this
+     on the form a user can actually return to. */
+  const fonts = useFontSlots((field, value) => onChange({ [field]: value }), {
+    heading: storedFontName(state.brandFontUrl),
+    body: storedFontName(state.bodyFontUrl),
+  });
 
   async function handleFileSelected(file: File) {
     setLogoFileName(file.name);
@@ -118,6 +131,62 @@ export function StepVisual({ state, onChange }: StepProps) {
           )}
         </div>
       )}
+
+      {/* KOS-V1-FEAT-022. Before this the only font-file input in the product
+          was inside conversational onboarding, so a brand whose typeface was
+          unusable was told to re-upload it somewhere that did not exist. */}
+      <div className="flex flex-col gap-4">
+        <div>
+          <Label>Brand Fonts</Label>
+          <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">
+            TTF or OTF up to {FONT_MAX_MB}MB. Optional — pick a typography style
+            below instead and we'll match it.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="edit-heading-font">Heading / main font</Label>
+          <FileUpload
+            id="edit-heading-font"
+            accept={FONT_ACCEPT}
+            maxSizeMb={FONT_MAX_MB}
+            onFileSelected={(file) => fonts.select("heading", file)}
+            onRemove={() => fonts.remove("heading")}
+            fileName={fonts.fileName.heading}
+            error={fonts.error.heading}
+          />
+          <p className="text-[12px] text-[var(--text-muted)]">
+            Headlines are set in this.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="edit-body-font">Body / CTA font</Label>
+          <FileUpload
+            id="edit-body-font"
+            accept={FONT_ACCEPT}
+            maxSizeMb={FONT_MAX_MB}
+            onFileSelected={(file) => fonts.select("body", file)}
+            onRemove={() => fonts.remove("body")}
+            fileName={fonts.fileName.body}
+            error={fonts.error.body}
+          />
+          <p className="text-[12px] text-[var(--text-muted)]">
+            Body copy, buttons and calls to action. Leave it empty to keep using
+            the heading font's pairing.
+          </p>
+        </div>
+
+        {fonts.busy && (
+          <p
+            role="status"
+            className="flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)]"
+          >
+            <Loader2Icon className="size-3.5 animate-spin" aria-hidden="true" />
+            Uploading your {fonts.uploading.heading ? "heading" : "body"} font…
+          </p>
+        )}
+      </div>
 
       <div className="flex flex-col gap-4">
         <div>

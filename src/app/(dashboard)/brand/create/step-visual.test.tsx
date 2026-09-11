@@ -221,3 +221,65 @@ describe("renaming an additional colour", () => {
     ).toHaveLength(2);
   });
 });
+
+/* KOS-V1-FEAT-022. The only font-file input used to live inside conversational
+   onboarding, so a brand whose typeface was unusable was told by the
+   KOS-V1-BUG-018 notification to re-upload it somewhere that did not exist.
+   These pin the control onto the form a user can actually return to. */
+describe("StepVisual brand fonts", () => {
+  function renderWithFonts(state: Partial<typeof DEFAULT_STATE> = {}) {
+    const onChange = vi.fn();
+    render(
+      <StepVisual state={{ ...DEFAULT_STATE, ...state }} onChange={onChange} />,
+    );
+    return onChange;
+  }
+
+  const slot = (label: RegExp) => screen.getByLabelText(label);
+
+  it("offers both font slots", () => {
+    renderWithFonts();
+    expect(slot(/heading \/ main font/i)).toBeInTheDocument();
+    expect(slot(/body \/ cta font/i)).toBeInTheDocument();
+  });
+
+  it.each([[/heading \/ main font/i], [/body \/ cta font/i]])(
+    "accepts only the formats the renderer can open on %s",
+    (label) => {
+      renderWithFonts();
+      const accept = slot(label).getAttribute("accept") ?? "";
+      expect(accept).toContain(".ttf");
+      expect(accept).toContain(".otf");
+      /* Satori refuses every TrueType collection, so offering it would only move
+       the failure into the render where nothing names the font. */
+      expect(accept).not.toContain(".ttc");
+    },
+  );
+
+  /* A brand that already has a font must not look as though it has none —
+     otherwise the user cannot tell whether their upload ever took. */
+  it("shows that a stored font is set", () => {
+    renderWithFonts({
+      brandFontUrl: "https://cdn.example.com/fonts/u1/1736-a1b2c3.ttf",
+    });
+    expect(screen.getByText(/current font \(\.ttf\)/i)).toBeInTheDocument();
+  });
+
+  it("leaves an unset slot empty", () => {
+    renderWithFonts({ brandFontUrl: "" });
+    expect(screen.queryByText(/current font/i)).not.toBeInTheDocument();
+  });
+
+  /* An empty string is the user removing the font, and it has to reach the
+     server: omission means "leave it alone" there, so removal would silently
+     do nothing (KOS-V1-BUG-020). */
+  it("clears the stored font when the slot is removed", async () => {
+    const onChange = renderWithFonts({
+      brandFontUrl: "https://cdn.example.com/fonts/u1/1736-a1b2c3.ttf",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /remove/i }));
+
+    expect(onChange).toHaveBeenCalledWith({ brandFontUrl: "" });
+  });
+});

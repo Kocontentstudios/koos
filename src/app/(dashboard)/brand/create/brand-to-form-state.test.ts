@@ -106,3 +106,33 @@ describe("brandToFormState additionalColors", () => {
     expect(brandToFormState(row({})).additionalColors).toEqual([]);
   });
 });
+
+/* KOS-V1-FEAT-022. The form could not show a stored font because the mapper
+   never read one, so the Edit Brand step looked empty for a brand that had
+   uploaded a typeface during onboarding. */
+describe("brand fonts", () => {
+  it("carries both stored font URLs onto the form", () => {
+    const state = brandToFormState(
+      row({
+        brandFontUrl: "https://cdn.example.com/fonts/u1/head.ttf",
+        bodyFontUrl: "https://cdn.example.com/fonts/u1/body.otf",
+      }),
+    );
+
+    expect(state.brandFontUrl).toBe(
+      "https://cdn.example.com/fonts/u1/head.ttf",
+    );
+    expect(state.bodyFontUrl).toBe("https://cdn.example.com/fonts/u1/body.otf");
+  });
+
+  /* Empty string, not null: the field feeds a controlled input, and the server
+     reads "" as a deliberate clear. */
+  it("gives an unset font an empty string rather than null", () => {
+    const state = brandToFormState(
+      row({ brandFontUrl: null, bodyFontUrl: null }),
+    );
+
+    expect(state.brandFontUrl).toBe("");
+    expect(state.bodyFontUrl).toBe("");
+  });
+});

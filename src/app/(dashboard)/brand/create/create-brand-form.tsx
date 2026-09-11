@@ -207,6 +207,11 @@ export function CreateBrandForm({
       additionalColors: state.additionalColors,
       additionalColorLabels: state.additionalColorLabels,
       logoUrl: state.logoUrl || undefined,
+      /* Sent even when empty, unlike the fields above: "" is the user removing
+         a font, and omitting it would mean "leave it alone" and make removal
+         impossible (KOS-V1-BUG-020). */
+      brandFontUrl: state.brandFontUrl,
+      bodyFontUrl: state.bodyFontUrl,
       competitors: state.competitors.trim() || undefined,
       competitorStrengths: state.competitorStrengths.trim() || undefined,
       differentiators: state.differentiators.trim() || undefined,

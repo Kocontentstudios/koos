@@ -175,7 +175,10 @@ async function notifyBrandFontUnusable(userId: string, faults: string[]) {
     userId,
     type: "system",
     payload: {
-      message: `Your brand font couldn't be used, so this design was set in the default typefaces instead: ${reason}. Re-upload the font in your brand's visual identity to fix it.`,
+      /* Names the page, because until KOS-V1-FEAT-022 the only font upload
+         was inside conversational onboarding and this sentence pointed at a
+         control the user could not reach. */
+      message: `Your brand font couldn't be used, so this design was set in the default typefaces instead: ${reason}. Upload a replacement under Brand Fonts in Edit Brand.`,
     },
   }).catch((err) => {
     // A design that rendered must not be lost to a notification write.
