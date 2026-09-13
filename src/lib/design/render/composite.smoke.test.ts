@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { canvasFor } from "@/lib/design/canvas";
 import { logoBoxIn } from "@/lib/design/logo-placement";
 import type { DesignSpec } from "@/lib/design/spec";
 import { decodePngRgba, encodePngRgba } from "@/lib/images/png-pixels";
 import { renderCompositeDesign } from "./composite";
+import { bannerBandFor, copySpaceFor } from "./copy-fit";
 import {
   diffBounds,
   inkBounds,
@@ -627,6 +629,80 @@ describe("renderCompositeDesign draws a wide mark that needs a plate", () => {
     async (aspectRatio, aspect) => {
       const ink = countInk(await render(aspect, aspectRatio));
       expect(ink).toBeGreaterThan(500);
+    },
+    180_000,
+  );
+});
+
+/* KOOS-BUG-023: the headline was sized from its character count alone, so the
+   same words got the same size in hero-center — which has the whole canvas —
+   and in banner-bottom, which has a third of it. A short-but-wrapping headline
+   took the largest step and its second line was drawn straight over the
+   subheadline. Satori does not clip, so nothing failed; it just overlapped. */
+describe("renderCompositeDesign keeps the copy inside its layout", () => {
+  const GROUND: [number, number, number] = [0x0f, 0x17, 0x2a];
+
+  /** Vertical extent of everything drawn, which for a type-only design is the
+   *  copy stack itself. */
+  const inkExtent = (bytes: Uint8Array) => {
+    const decoded = decodePngRgba(bytes);
+    if (!decoded) return 0;
+    let first = -1;
+    let last = -1;
+    for (let y = 0; y < decoded.height; y += 1) {
+      for (let x = 0; x < decoded.width; x += 1) {
+        const at = (y * decoded.width + x) * 4;
+        if (
+          Math.abs(decoded.pixels[at] - GROUND[0]) > 10 ||
+          Math.abs(decoded.pixels[at + 1] - GROUND[1]) > 10 ||
+          Math.abs(decoded.pixels[at + 2] - GROUND[2]) > 10
+        ) {
+          if (first < 0) first = y;
+          last = y;
+          break;
+        }
+      }
+    }
+    return last < 0 ? 0 : last - first + 1;
+  };
+
+  it.each([
+    ["banner-bottom", "4:5", "Lagos Launch Week"],
+    ["banner-bottom", "4:5", "Autumn"],
+    ["banner-bottom", "16:9", "Lagos Launch Week"],
+    [
+      "banner-bottom",
+      "4:5",
+      "Lagos Launch Week Is Finally Here And All Invited",
+    ],
+    ["quote-card", "4:5", "Lagos Launch Week"],
+    ["split-left", "16:9", "Lagos Launch Week"],
+    [
+      "hero-center",
+      "9:16",
+      "Lagos Launch Week Is Finally Here And All Invited",
+    ],
+  ] as const)(
+    "fits the stack in %s at %s for %j",
+    async (layout, aspectRatio, headline) => {
+      const result = await renderCompositeDesign({
+        spec: { ...SPEC, layout, aspectRatio, headline, logoPlacement: "none" },
+        brand: {},
+        plate: null,
+        logo: null,
+      });
+
+      const canvas = canvasFor(aspectRatio);
+      const spec = { ...SPEC, layout, aspectRatio, headline };
+      const room = copySpaceFor(
+        layout,
+        canvas,
+        layout === "banner-bottom"
+          ? bannerBandFor({ spec, canvas })
+          : undefined,
+      );
+      // A couple of pixels of antialiasing, not a second line of copy.
+      expect(inkExtent(result.bytes)).toBeLessThanOrEqual(room.height + 4);
     },
     180_000,
   );
