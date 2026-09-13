@@ -29,6 +29,11 @@ it had never been given, and invented a palette instead. `brandPalette()` in
 Verified to have teeth: removing `brandPalette(brand)` from the prompt drops
 `full-palette` to `brandColorUse 0.00` and the run exits non-zero.
 
+The logo cases guard a second regression. `logoPlacement` includes `"none"`,
+and the art-director prompt said nothing about the logo — so the model chose
+`"none"` routinely and the brand's mark reached no design (KOOS-BUG-022).
+`logoPlaced` has no tolerance, because that single value is the whole bug.
+
 ## What it scores
 
 Deterministically, in `score.ts` — no judge, because each of these has exactly
@@ -40,6 +45,8 @@ one right answer for a given output:
 | `brandColorUse` | A slot equals a colour the brand actually stated | 0.8 |
 | `contrastOk` | Foreground clears 4.5:1 on background *before* `resolvePalette` | 0.75 |
 | `namedColorMisses` | A brand colour given by name reached the wrong hue | 0 |
+| `logoPlaced` | A brand WITH a logo got a real corner, never `"none"` | 1.0 |
+| `logoFree` | The brief's intent about the logo was read correctly | 1.0 |
 
 Two scoring decisions worth knowing:
 
@@ -58,3 +65,6 @@ Two scoring decisions worth knowing:
 | `two-colours-only` | The pre-feature shape, primary + secondary with no extras |
 | `named-colour` | Conversational path stores `"forest green"`; scored by hue, not exact hex |
 | `no-colours` | No stated colours — must still return usable, readable hexes |
+| `logo-placed` | A brand with a logo must not come back `"none"` — the whole of KOOS-BUG-022 |
+| `logo-free-brief` | "No logo on this one" must set `logoFree` |
+| `logo-insisted-brief` | "Never omit the logo" must NOT. This is the case a regex got backwards in every phrasing, which is why the question is asked of the model rather than matched in code |

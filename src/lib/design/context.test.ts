@@ -41,6 +41,9 @@ function calendarItem(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.resetAllMocks();
   getBrandById.mockResolvedValue(BRAND);
+  // Every context now reads the brand's approved logo marks, not only the
+  // paths that resolve an "asset" attachment.
+  getBrandAssets.mockResolvedValue([]);
 });
 
 describe("resolveDesignContext from a calendar item", () => {
@@ -229,5 +232,32 @@ describe("resolveDesignContext with several attachments", () => {
     expect(ctx.source).toBe("chat_brief");
     expect(ctx.briefId).toBe("br1");
     expect(ctx.briefText).toBe("Bold and bright.");
+  });
+});
+
+describe("approved logo marks", () => {
+  /* A brand can hold more than one approved mark; the renderer picks whichever
+     reads best on the design's ground. */
+  it("collects logo assets and ignores every other asset type", async () => {
+    getBrandAssets.mockResolvedValue([
+      { id: "a1", assetType: "logo", fileUrl: "u/dark.png", fileName: "d" },
+      { id: "a2", assetType: "image", fileUrl: "u/photo.jpg", fileName: "p" },
+      {
+        id: "a3",
+        assetType: "document",
+        fileUrl: "u/guide.pdf",
+        fileName: "g",
+      },
+      { id: "a4", assetType: "logo", fileUrl: "u/light.png", fileName: "l" },
+    ]);
+
+    const context = await resolveDesignContext({ brandId: BRAND.id });
+
+    expect(context.logoAssetUrls).toEqual(["u/dark.png", "u/light.png"]);
+  });
+
+  it("is empty for a brand with no extra marks", async () => {
+    const context = await resolveDesignContext({ brandId: BRAND.id });
+    expect(context.logoAssetUrls).toEqual([]);
   });
 });

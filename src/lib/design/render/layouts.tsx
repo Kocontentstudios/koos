@@ -1,4 +1,9 @@
 import type { Canvas } from "@/lib/design/canvas";
+import {
+  LOGO_BOX,
+  logoInsetPx,
+  logoMarkBox,
+} from "@/lib/design/logo-placement";
 import type { ResolvedPalette } from "@/lib/design/palette";
 import type { DesignSpec } from "@/lib/design/spec";
 
@@ -10,6 +15,10 @@ export interface LayoutArgs {
    * falls back to a flat palette background rather than losing the design. */
   plateDataUri: string | null;
   logoDataUri: string | null;
+  /** Colour to put behind the mark when the ground would swallow it. */
+  logoBacking?: string | null;
+  /** Width/height of the mark, so its backing hugs it. */
+  logoAspect?: number;
 }
 
 /** Satori cannot shrink text to fit, so size is picked from a ladder keyed on
@@ -77,29 +86,69 @@ function Scrim() {
   );
 }
 
-function Logo({
+export function Logo({
   uri,
   placement,
+  layout,
   width,
+  height,
+  backing = null,
+  aspect = LOGO_BOX.width / LOGO_BOX.height,
 }: {
   uri: string;
   placement: DesignSpec["logoPlacement"];
+  layout: DesignSpec["layout"];
   width: number;
+  height: number;
+  backing?: string | null;
+  aspect?: number;
 }) {
-  const corner = logoCorner(placement, width * 0.05);
+  /* Must match logoBoxIn's reference exactly, or the contrast check measures
+     a different rectangle than the one drawn. */
+  const reference = Math.min(width, height);
+  const corner = logoCorner(placement, logoInsetPx(layout, width, height));
   if (!corner) return null;
+
+  /* The mark's own footprint, so a backing plate is the shape of the logo
+     rather than of the slot it was dropped into. */
+  const mark = logoMarkBox(aspect);
+  const markWidth = reference * mark.width;
+  const markHeight = reference * mark.height;
+
+  /* The plate is a WRAPPER around the mark, never padding on the mark itself.
+     Satori sizes with border-box, so padding is subtracted from the element:
+     a wordmark's box is only 0.22/aspect of the reference tall, and past about
+     5:1 that is less than the padding — the content box collapsed and the
+     design rendered a solid coloured rectangle with no logo in it at all. A
+     5:1 logotype is an ordinary logo, and the failure looked exactly like the
+     bug this whole change exists to fix. */
+  const pad = backing ? reference * 0.012 : 0;
+
   return (
-    // biome-ignore lint/a11y/useAltText: satori renders to a raster, not the DOM
-    // biome-ignore lint/performance/noImgElement: satori parses raw <img> only; next/image never runs here
-    <img
-      src={uri}
+    <div
       style={{
         position: "absolute",
         ...corner,
-        width: width * 0.14,
-        objectFit: "contain",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: markWidth + pad * 2,
+        height: markHeight + pad * 2,
+        ...(backing
+          ? { backgroundColor: backing, borderRadius: reference * 0.012 }
+          : {}),
       }}
-    />
+    >
+      {/* biome-ignore lint/a11y/useAltText: satori renders to a raster, not the DOM */}
+      <img
+        src={uri}
+        style={{
+          width: markWidth,
+          height: markHeight,
+          objectFit: "contain",
+        }}
+      />
+    </div>
   );
 }
 
@@ -198,6 +247,8 @@ export function layoutElement({
   canvas,
   plateDataUri,
   logoDataUri,
+  logoBacking = null,
+  logoAspect,
 }: LayoutArgs) {
   const { width, height } = canvas;
   const pad = width * 0.08;
@@ -217,7 +268,15 @@ export function layoutElement({
   };
 
   const logo = logoDataUri ? (
-    <Logo uri={logoDataUri} placement={spec.logoPlacement} width={width} />
+    <Logo
+      uri={logoDataUri}
+      placement={spec.logoPlacement}
+      layout={spec.layout}
+      width={width}
+      height={height}
+      backing={logoBacking}
+      aspect={logoAspect}
+    />
   ) : null;
 
   if (spec.layout === "split-left") {

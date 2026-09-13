@@ -54,6 +54,9 @@ export interface DesignContext {
   scheduledFor: string | null;
   /** Attached images the renderer should feed the model as references. */
   referenceUrls: string[];
+  /** Other approved logo marks the brand holds, beyond the profile one. The
+   *  renderer picks whichever reads best on the design's ground. */
+  logoAssetUrls: string[];
 }
 
 export interface ResolveDesignContextArgs {
@@ -90,6 +93,7 @@ function clamp(text: string | null | undefined): string | null {
 async function loadAttachment(
   ref: AttachmentRef,
   brandId: string,
+  brandAssets: Awaited<ReturnType<typeof getBrandAssets>>,
 ): Promise<ResolvedAttachment> {
   switch (ref.type) {
     case "brief": {
@@ -168,8 +172,7 @@ async function loadAttachment(
       };
     }
     case "asset": {
-      const assets = await getBrandAssets(brandId);
-      const asset = assets.find((a) => a.id === ref.id);
+      const asset = brandAssets.find((a) => a.id === ref.id);
       if (!asset) throw new DesignContextError("Brand asset not found.");
       return {
         type: "asset",
@@ -220,8 +223,12 @@ export async function resolveDesignContext({
       all.findIndex((o) => o.type === ref.type && o.id === ref.id) === i,
   );
 
+  /* Read once. Both the attachment resolver and the logo-variant list need
+     the brand's assets, and issuing the same query twice per generation is a
+     round trip for nothing. */
+  const brandAssets = await getBrandAssets(brandId);
   const resolved = await Promise.all(
-    refs.map((ref) => loadAttachment(ref, brandId)),
+    refs.map((ref) => loadAttachment(ref, brandId, brandAssets)),
   );
   const merged = mergeAttachments({
     freeform,
@@ -246,5 +253,8 @@ export async function resolveDesignContext({
     platform: merged.platform,
     scheduledFor: merged.scheduledFor,
     referenceUrls: merged.referenceUrls,
+    logoAssetUrls: brandAssets
+      .filter((asset) => asset.assetType === "logo")
+      .map((asset) => asset.fileUrl),
   };
 }

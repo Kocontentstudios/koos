@@ -20,6 +20,8 @@ const SPEC: DesignSpec = {
   cta: "Order now",
   palette: { background: "#0F172A", foreground: "#FFFFFF", accent: "#F97316" },
   logoPlacement: "bottom-right",
+  logoFree: false,
+  logoFreeQuote: "",
   backgroundPrompt: "warm city skyline at dusk",
   backgroundTreatment: "photographic",
   nativePrompt: "unused in the composite route",
