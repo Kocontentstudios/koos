@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The limiter is DB-backed and its window is an hour, so an unmocked call
+   writes to the real rate_limits table and the file trips itself: run the
+   suite a few times inside an hour and these start 429-ing. CI never sees it
+   because it has no DATABASE_URL and the limiter fails open there
+   (KOOS-BUG-024). */
+const checkRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rate-limit")>()),
+  checkRateLimit: (policy: unknown) => checkRateLimit(policy),
+}));
+
 const guardWorkspaceRoute = vi.fn();
 const generateObject = vi.fn();
 
@@ -33,6 +44,7 @@ function req(body: unknown) {
 
 describe("brand suggest route", () => {
   beforeEach(() => {
+    checkRateLimit.mockResolvedValue({ ok: true, retryAfterSeconds: 0 });
     vi.clearAllMocks();
     guardWorkspaceRoute.mockResolvedValue({
       ctx: { dbUser: { id: "u1" }, workspace: { id: "w1" }, role: "owner" },

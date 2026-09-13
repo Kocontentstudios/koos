@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The limiter is DB-backed and its window is an hour, so an unmocked call
+   writes to the real rate_limits table and the file trips itself: run the
+   suite a few times inside an hour and these start 429-ing. CI never sees it
+   because it has no DATABASE_URL and the limiter fails open there
+   (KOOS-BUG-024). */
+const checkRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rate-limit")>()),
+  checkRateLimit: (policy: unknown) => checkRateLimit(policy),
+}));
+
 const sendMail = vi.fn();
 vi.mock("@/lib/email", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email")>()),
@@ -19,6 +30,7 @@ const valid = { name: "Ada", email: "ada@x.com", message: "Hello there" };
 
 describe("contact route", () => {
   beforeEach(() => {
+    checkRateLimit.mockResolvedValue({ ok: true, retryAfterSeconds: 0 });
     vi.clearAllMocks();
     sendMail.mockResolvedValue({});
     vi.stubEnv("CONTACT_EMAIL", "support@x.com");
@@ -70,5 +82,28 @@ describe("contact route", () => {
     sendMail.mockRejectedValue(new Error("smtp down"));
     const res = await POST(req(valid));
     expect(res.status).toBe(500);
+  });
+
+  /* Reached on purpose rather than by accident. Before this the file walked
+     into its own limit after a few suite runs and the FIRST test failed, which
+     reads as flake rather than as the limiter doing its job. */
+  it("429s when the limiter says the caller is over", async () => {
+    checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 900 });
+
+    const res = await POST(req(valid));
+
+    expect(res.status).toBe(429);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it("checks the limit before reading the body", async () => {
+    checkRateLimit.mockResolvedValue({ ok: false, retryAfterSeconds: 60 });
+
+    // Malformed JSON would 400 if the body were parsed first.
+    const res = await POST(
+      new Request("http://x/api/contact", { method: "POST", body: "{" }),
+    );
+
+    expect(res.status).toBe(429);
   });
 });

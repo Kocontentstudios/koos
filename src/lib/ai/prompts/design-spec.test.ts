@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { brandPalette } from "./design-spec";
+import {
+  brandPalette,
+  buildDesignSpecSystemPrompt,
+  buildNativePrompt,
+} from "./design-spec";
 import { brandBlock, buildStrategyGenerationPrompt } from "./strategy";
 
 const brand = { name: "Lagos Loom" };
@@ -138,5 +142,96 @@ describe("the strategy prompt acts on positioning", () => {
     expect(onlyOurs).not.toMatch(/aim at the gap/i);
     const onlyTheirs = build({ ...bare, competitorStrengths: "Bigger budget" });
     expect(onlyTheirs).not.toMatch(/key message on how/i);
+  });
+});
+
+describe("the logo rule", () => {
+  const withLogo = buildDesignSpecSystemPrompt(brand, true);
+  const withoutLogo = buildDesignSpecSystemPrompt(brand, false);
+
+  /* The bug this rule exists for: logoPlacement is an enum containing "none"
+     and the prompt said nothing about it at all, so the art director picked
+     "none" freely and the brand's mark never reached a design. */
+  it("tells a brand with a logo that one is coming", () => {
+    expect(withLogo).toMatch(/this brand has a logo/i);
+    expect(withLogo).toMatch(/never "none"/i);
+  });
+
+  it("asks for the emptiest corner rather than a fixed one", () => {
+    expect(withLogo).toMatch(/emptiest/i);
+    expect(withLogo).not.toMatch(/always use the top[- ]right/i);
+  });
+
+  /* The plate and native prompts render the artwork; the real logo file is
+     composited afterwards. A model that draws its own would produce two. */
+  it("forbids asking the image model to draw a logo", () => {
+    expect(withLogo).toMatch(
+      /do not describe or ask for a logo in "backgroundPrompt" or "nativePrompt"/i,
+    );
+  });
+
+  it("tells a brand without a logo not to leave a gap", () => {
+    expect(withoutLogo).toMatch(/no logo on file/i);
+    expect(withoutLogo).toMatch(/"none"/);
+    expect(withoutLogo).not.toMatch(/this brand has a logo/i);
+  });
+
+  it("keeps the palette rule either way", () => {
+    for (const prompt of [withLogo, withoutLogo]) {
+      expect(prompt).toMatch(/"palette" must be drawn from the brand colours/);
+    }
+  });
+});
+
+describe("buildNativePrompt's logo clause", () => {
+  const spec = {
+    layout: "hero-center",
+    headline: "Launch week",
+    palette: { background: "#000", foreground: "#fff", accent: "#f00" },
+    logoPlacement: "top-right",
+    backgroundPrompt: "a skyline",
+    backgroundTreatment: "photographic",
+    nativePrompt: "a launch poster",
+    aspectRatio: "1:1",
+  } as const;
+
+  it("asks for a clear corner, not for a drawn logo", () => {
+    const prompt = buildNativePrompt(spec as never, brand);
+    expect(prompt).toMatch(/leave the top right corner clear/i);
+    expect(prompt).toMatch(/do not draw a logo yourself/i);
+  });
+
+  /* The shipped nonsense: "none" fell through to the same sentence with the
+     placement interpolated raw, so a logo-free design was told to leave clear
+     space in "the none corner". */
+  it("never speaks of a none corner", () => {
+    const prompt = buildNativePrompt(
+      { ...spec, logoPlacement: "none" } as never,
+      brand,
+    );
+    expect(prompt).not.toMatch(/none corner/i);
+    expect(prompt).toMatch(/do not include a logo/i);
+    expect(prompt).toMatch(/do not leave a gap/i);
+  });
+
+  it("keeps the visual style line independent of the logo", () => {
+    const styled = { ...brand, brandStyle: "Minimal and monochrome" };
+    for (const placement of ["top-right", "none"] as const) {
+      expect(
+        buildNativePrompt(
+          { ...spec, logoPlacement: placement } as never,
+          styled,
+        ),
+      ).toMatch(/visual style is: Minimal and monochrome/);
+    }
+    expect(buildNativePrompt(spec as never, brand)).not.toMatch(
+      /visual style is:/,
+    );
+  });
+
+  it("still carries the exact copy and palette", () => {
+    const prompt = buildNativePrompt(spec as never, brand);
+    expect(prompt).toContain('Headline: "Launch week"');
+    expect(prompt).toContain("Background colour #000");
   });
 });
