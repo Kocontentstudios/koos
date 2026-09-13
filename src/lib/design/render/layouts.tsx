@@ -5,6 +5,11 @@ import {
   logoMarkBox,
 } from "@/lib/design/logo-placement";
 import type { ResolvedPalette } from "@/lib/design/palette";
+import {
+  BANNER_BAND,
+  bannerBandFor,
+  fitHeadlineSize,
+} from "@/lib/design/render/copy-fit";
 import type { DesignSpec } from "@/lib/design/spec";
 
 export interface LayoutArgs {
@@ -19,14 +24,6 @@ export interface LayoutArgs {
   logoBacking?: string | null;
   /** Width/height of the mark, so its backing hugs it. */
   logoAspect?: number;
-}
-
-/** Satori cannot shrink text to fit, so size is picked from a ladder keyed on
- * character count instead. */
-function headlineSize(headline: string, width: number): number {
-  if (headline.length <= 18) return width * 0.11;
-  if (headline.length <= 34) return width * 0.078;
-  return width * 0.058;
 }
 
 function logoCorner(
@@ -188,11 +185,18 @@ function CopyStack({
   palette,
   width,
   align,
+  headlineSize,
 }: {
   spec: DesignSpec;
   palette: ResolvedPalette;
+  /** The canvas's shorter side. Every size in the stack keys off it, like the
+   *  padding does — keyed to width, a landscape design gets body copy and a
+   *  button sized for 1344px inside a band 287px tall. */
   width: number;
   align: "center" | "flex-start";
+  /** Sized against the room this layout actually gives the copy, because
+   *  satori neither shrinks text to fit nor clips what overflows. */
+  headlineSize: number;
 }) {
   return (
     <div
@@ -210,7 +214,7 @@ function CopyStack({
           display: "flex",
           fontFamily: "Display",
           fontWeight: 700,
-          fontSize: headlineSize(spec.headline, width),
+          fontSize: headlineSize,
           lineHeight: 1.05,
           color: palette.foreground,
         }}
@@ -251,12 +255,34 @@ export function layoutElement({
   logoAspect,
 }: LayoutArgs) {
   const { width, height } = canvas;
-  const pad = width * 0.08;
+  /* Keyed to the SHORTER side, like the logo inset. At 16:9 a padding of 8%
+     of the width is 107px on a 756px-tall canvas — 215px of a 287px band, so
+     banner-bottom had 72px left for a headline, a subheadline and a button.
+     Only landscape changes; the portrait and square canvases are all
+     width-limited and keep the margin they had. */
+  const pad = Math.min(width, height) * 0.08;
   const overPhoto = Boolean(plateDataUri);
   // Copy sits on the scrim when there is a plate, so it must read as light.
   const copyPalette: ResolvedPalette = overPhoto
     ? { ...palette, foreground: "#FFFFFF" }
     : palette;
+
+  /* Sized once from the space THIS layout leaves, not from the headline's
+     character count — the same words got the same size in hero-center, which
+     has the whole canvas, and in banner-bottom, which has a third of it. */
+  const reference = Math.min(width, height);
+  /* banner-bottom's band grows to fit rather than overflowing, so the fit has
+     to be measured against the band that will actually be drawn. */
+  const bannerBand =
+    spec.layout === "banner-bottom"
+      ? bannerBandFor({ spec, canvas })
+      : undefined;
+  const headline = fitHeadlineSize({
+    spec,
+    layout: spec.layout,
+    canvas,
+    bannerBand,
+  });
 
   const frame = {
     position: "relative" as const,
@@ -308,8 +334,9 @@ export function layoutElement({
           <CopyStack
             spec={spec}
             palette={palette}
-            width={width}
+            width={reference}
             align="flex-start"
+            headlineSize={headline}
           />
         </div>
         {logo}
@@ -324,7 +351,7 @@ export function layoutElement({
           style={{
             display: "flex",
             width,
-            height: height * 0.62,
+            height: height * (1 - (bannerBand ?? BANNER_BAND.min)),
             position: "relative",
           }}
         >
@@ -334,7 +361,7 @@ export function layoutElement({
           style={{
             display: "flex",
             width,
-            height: height * 0.38,
+            height: height * (bannerBand ?? BANNER_BAND.min),
             padding: pad,
             backgroundColor: palette.background,
           }}
@@ -342,8 +369,9 @@ export function layoutElement({
           <CopyStack
             spec={spec}
             palette={palette}
-            width={width}
+            width={reference}
             align="flex-start"
+            headlineSize={headline}
           />
         </div>
         {logo}
@@ -379,8 +407,9 @@ export function layoutElement({
           <CopyStack
             spec={spec}
             palette={copyPalette}
-            width={width}
+            width={reference}
             align="center"
+            headlineSize={headline}
           />
         </div>
         {logo}
@@ -408,8 +437,9 @@ export function layoutElement({
         <CopyStack
           spec={spec}
           palette={copyPalette}
-          width={width}
+          width={reference}
           align="center"
+          headlineSize={headline}
         />
       </div>
       {logo}
