@@ -1,0 +1,99 @@
+name: Uptime
+
+# Every 15 minutes, best effort: GitHub's shared runners routinely delay
+# scheduled workflows, and GitHub disables schedules entirely after 60 days of
+# repository inactivity — the same class of failure that caused the 2026-09-23
+# outage. This is the SECOND line of defence. The primary monitor must be an
+# external service (see docs/runbooks/database.md).
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: production
+            url: https://app.kocontentstudios.com/api/health
+          - name: staging
+            url: https://staging.kocontentstudios.com/api/health
+    steps:
+      # /api/health opens a real database connection and reads a real table,
+      # which is the point: during the outage every page returned 200 while the
+      # database was unreachable, so a homepage check would have stayed green.
+      #
+      # Three attempts, because one sample turns a cold start into a page.
+      - name: Probe ${{ matrix.target.name }}
+        id: probe
+        env:
+          URL: ${{ matrix.target.url }}
+        run: |
+          for attempt in 1 2 3; do
+            code=$(curl -s -o response.json -w '%{http_code}' --max-time 30 "$URL") || code=000
+            echo "attempt $attempt: HTTP $code"
+            cat response.json 2>/dev/null || true
+            echo
+            if [ "$code" = "200" ]; then
+              echo "status=200" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 20; fi
+          done
+          echo "status=$code" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      - name: Open or update an incident issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout in this job, so gh has no git remote to infer the
+          # repository from and every call would fail with "failed to
+          # determine base repo" — silently losing the alert.
+          GH_REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target.name }}
+          URL: ${{ matrix.target.url }}
+          STATUS: ${{ steps.probe.outputs.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create outage --color B60205 \
+            --description "Production or staging is down" --force
+          title="$TARGET is down"
+          body=$(printf '%s health check failed 3 times (last HTTP %s).\n\nURL: %s\nRun: %s\n\n503 with reason "unreachable" means the Aiven service is powered off or deleted.\n503 with reason "error" means it answered and refused: connection cap, credentials, or an empty database.\n000 means no HTTP response at all.\n\nRunbook: docs/runbooks/database.md' \
+            "$TARGET" "$STATUS" "$URL" "$RUN_URL")
+          existing=$(gh issue list --label outage --state open \
+            --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --label outage --body "$body"
+          fi
+
+      # Without this the first outage leaves an issue open forever and every
+      # later one is a comment on a stale thread nobody is watching.
+      - name: Close the incident once the target recovers
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target.name }}
+        run: |
+          # Exact title match, client side: the search index is eventually
+          # consistent, and a substring match would close a human-filed issue.
+          for number in $(gh issue list --label outage --state open \
+            --json number,title \
+            --jq ".[] | select(.title == \"$TARGET is down\") | .number"); do
+            gh issue close "$number" --comment "Health check recovered (run ${{ github.run_id }})."
+          done

@@ -66,3 +66,7 @@ docs/KOOS-V1.0-Feature-Gap-Analysis.md
 
 # render faces vendored by scripts/fetch-fonts.mjs at build time
 src/lib/design/render/fonts/
+
+# Database dumps — never commit one (scripts/backup-db.mjs writes to /tmp by default)
+*.dump
+*.sql.gz
