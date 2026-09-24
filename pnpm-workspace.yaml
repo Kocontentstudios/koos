@@ -14,13 +14,17 @@ minimumReleaseAgeExclude:
   # Browser-support data package (frequent releases); pulled in by the merged
   # Dependabot bump. Not a vulnerability — accept it past the release-age gate.
   - baseline-browser-mapping@2.11.4
-# Security overrides: pin patched versions of transitive deps flagged by Dependabot.
+# Security overrides: pin patched versions of transitive deps flagged by
+# Dependabot. The floor is the PATCHED version, not the range that merely
+# allows it — a permissive floor leaves the old resolution sitting in the
+# lockfile and the alert open, which is how sharp/js-yaml/hono stayed
+# vulnerable while looking overridden.
 overrides:
-  sharp: ^0.35.0
+  sharp: ^0.35.4
   postcss: ^8.5.18
   dompurify: ^3.4.12
-  js-yaml: ^4.3.0
-  hono: ^4.12.27
+  js-yaml: ^4.3.2
+  hono: ^4.13.5
   fast-uri: ^3.1.7
   # Only 5.0.8 patches GHSA-mh99-v99m-4gvg (no 1.x fix exists); 5.x is a dual
   # CJS/ESM package so the old minimatch@3 consumer can still require() it.

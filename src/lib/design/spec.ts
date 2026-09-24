@@ -40,6 +40,28 @@ export const designSpecSchema = z.object({
     accent: colorValue,
   }),
   logoPlacement: z.enum(LOGO_PLACEMENTS),
+  /** The brief explicitly asked for a design with no logo on it.
+   *
+   * Read by the model rather than matched in code. Whether a sentence asks for
+   * the mark to be REMOVED is a question about negation scope in English, and
+   * a regex gets it backwards: "never omit the logo" and "do not remove the
+   * logo" both contain a removal verb next to the word logo. This is the one
+   * genuinely latent half of the placement decision, so it is asked for
+   * explicitly instead of inferred. */
+  logoFree: z.boolean(),
+  /** The words in the brief that asked for no logo, quoted exactly.
+   *
+   * Empty string when logoFree is false. A required string with an empty
+   * sentinel rather than an optional field: generateObject compiles the schema
+   * to a decoding grammar and optional properties are capped.
+   *
+   * This is what makes logoFree checkable. The flag alone is a boolean the
+   * model can simply get wrong, with the same blast radius that made "none" a
+   * bug — and a guard that only asks whether the brief MENTIONS a logo passes
+   * every brief that discusses one, which is exactly where a wrong answer is
+   * likeliest. A verbatim quotation cannot be invented: either those words are
+   * in the brief or they are not. */
+  logoFreeQuote: z.string(),
   /** Scene description for the text-free background plate. Must never ask for
    * lettering — the composite renderer draws all copy itself. */
   backgroundPrompt: z.string().min(1),

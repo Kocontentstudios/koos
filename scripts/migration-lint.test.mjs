@@ -66,5 +66,29 @@ describe("migration files", () => {
         .map((s) => s.trim());
       expect(statements.every((s) => s.length > 0)).toBe(true);
     });
+
+    /* scripts/migrate.mjs runs at the START of `next build`, so the schema
+       changes while the PREVIOUS bundle is still serving traffic, and drizzle
+       names every column explicitly rather than selecting *. Removing
+       something the live bundle still names turns each of its queries into an
+       error for the length of the build, and there is no down migration to
+       roll back to. Such a change is only safe once the code that stopped
+       referencing it is already promoted — two deploys, not one.
+
+       Deliberately narrow. ALTER TYPE ... RENAME TO is the repo's enum-swap
+       recipe (0019, 0020) and is safe within one transaction, so it is not
+       matched; SET NOT NULL is backward-incompatible in principle but has one
+       historical use and no rule that would not be noise. */
+    it(`${file}: any backward-incompatible drop declares its two-phase deploy`, () => {
+      const sql = sources[file];
+      const drops = [
+        ...sql.matchAll(/(?:DROP\s+(?:COLUMN|TABLE)|RENAME\s+COLUMN)\b/gi),
+      ].map((m) => m[0]);
+      if (drops.length === 0) return;
+      expect(
+        sql,
+        `${file} removes something the running bundle may still query. Ship the code that stops referencing it first, let it promote, then land this file with a "-- two-phase: <ref>" line naming that deploy.`,
+      ).toMatch(/^--\s*two-phase:\s*\S+/im);
+    });
   }
 });

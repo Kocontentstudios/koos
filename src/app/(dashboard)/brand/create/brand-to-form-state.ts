@@ -87,6 +87,8 @@ export function brandToFormState(brand: Brand): CreateBrandState {
     secondaryColor: brand.secondaryColor ?? DEFAULT_STATE.secondaryColor,
     additionalColors: brand.additionalColors ?? [],
     logoUrl: brand.logoUrl ?? "",
+    brandFontUrl: brand.brandFontUrl ?? "",
+    bodyFontUrl: brand.bodyFontUrl ?? "",
     competitors: brand.competitors ?? "",
     competitorStrengths: brand.competitorStrengths ?? "",
     differentiators: brand.differentiators ?? "",

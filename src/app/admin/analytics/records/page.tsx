@@ -435,8 +435,8 @@ async function buildTable(
           href: `/admin/brands/${r.id}`,
           cells: [
             r.name,
-            /* Computed, not brands.completion_percentage — the two disagree and
-               every other surface uses the computed one. */
+            /* Computed from the row: brandProfileCompletion is the one
+               definition of completion and nothing stores it. */
             `${brandProfileCompletion(r)}%`,
             enumLabel(r.onboardingStatus),
             date(r.createdAt),

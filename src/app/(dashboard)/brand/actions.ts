@@ -7,10 +7,7 @@ import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { alignLabelsToColours } from "@/lib/brand/colour-labels";
-import {
-  brandProfileCompletion,
-  parseAdditionalColors,
-} from "@/lib/brand-profile";
+import { parseAdditionalColors } from "@/lib/brand-profile";
 import {
   type BrandSnapshotFields,
   toBrandSnapshot,
@@ -57,8 +54,18 @@ export async function saveBrandProfile(
     wordsAvoid: v.wordsAvoid || null,
     hasLogo: v.hasLogo ?? null,
     brandStyle: v.brandStyle || null,
-    brandFont: v.brandFont || null,
-    brandFontUrl: v.brandFontUrl || null,
+    ...(v.brandFont !== undefined ? { brandFont: v.brandFont || null } : {}),
+    /* Omission means "leave it alone", not "delete it". The Edit Brand form is
+       the only caller and does not carry the font fields, so writing these
+       unconditionally set the column to NULL on every save and quietly threw
+       away a font the user uploaded during onboarding (KOS-V1-BUG-020). An
+       empty string is still a clear, because that is the user removing it. */
+    ...(v.brandFontUrl !== undefined
+      ? { brandFontUrl: v.brandFontUrl || null }
+      : {}),
+    ...(v.bodyFontUrl !== undefined
+      ? { bodyFontUrl: v.bodyFontUrl || null }
+      : {}),
     primaryColor: v.primaryColor || null,
     secondaryColor: v.secondaryColor || null,
     /* Empty means "no extra colours", same as platforms below. Writing {}
@@ -94,12 +101,6 @@ export async function saveBrandProfile(
     onboardingStatus: "completed" as const,
   };
 
-  /* Was hardcoded to 100, so a brand that skipped every optional step still
-     reported a finished profile in the admin directory. The status stays
-     "completed" — the form validates all four required Basics fields before it
-     will submit, and requireBrand gates on that, not on the score. */
-  const completionPercentage = brandProfileCompletion(profile);
-
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   let brand: typeof brands.$inferSelect;
   if (existing) {
@@ -113,10 +114,7 @@ export async function saveBrandProfile(
       "manage_content",
     );
     if (!access.ok) return { ok: false, error: access.error };
-    brand = await updateBrand(existing.id, {
-      ...profile,
-      completionPercentage,
-    });
+    brand = await updateBrand(existing.id, profile);
   } else {
     if (!can(role, "create_brand")) {
       return {
@@ -128,7 +126,6 @@ export async function saveBrandProfile(
       userId: dbUser.id, // attribution only ("created by")
       workspaceId: workspace.id,
       ...profile,
-      completionPercentage,
     });
   }
 

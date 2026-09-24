@@ -68,10 +68,16 @@ export function isBasicsComplete(input: BrandProfileInput): boolean {
 /**
  * 0-100, weighted across the five scored sections.
  *
+ * THE one definition of brand setup completion (KOS-V1-BUG-011). It is derived
+ * from the row on every read and never stored: the `brands` table used to
+ * carry a completion_percentage column written at save time, which nothing
+ * displayed and which disagreed with this function on every brand written
+ * before the weights changed. Every surface that shows a percentage calls this.
+ *
  * This is a reporting number only. It deliberately does NOT decide whether
  * onboarding is finished: gating on 100% would trap every user who left an
  * optional section blank outside the dashboard forever. See
- * progressAfterFieldWrite.
+ * onboardingStatusAfterFieldWrite.
  */
 export function brandProfileCompletion(input: BrandProfileInput): number {
   const score = SECTIONS.reduce((total, section) => {
@@ -89,34 +95,24 @@ export function hasCompletedBrand(
 
 export type OnboardingStatus = "draft" | "in_progress" | "completed";
 
-export interface OnboardingProgress {
-  completionPercentage: number;
-  onboardingStatus: OnboardingStatus;
-}
-
 /**
- * Progress for a brand after AI-extracted fields are confirmed onto it.
+ * Onboarding status for a brand after AI-extracted fields are confirmed onto it.
  *
  * Without this the conversational path is a dead end: /api/actions/confirm
  * wrote the fields but left onboardingStatus at "draft", so requireBrand kept
  * bouncing the user back into onboarding no matter how much they told KO.
  *
- * The status gate is the required Basics fields, NOT the percentage. Those
+ * The completed gate is the required Basics fields, NOT the percentage. Those
  * were the same condition while the score counted only those four fields;
  * once the score spread across five sections they stopped being the same, and
- * requireBrand redirects on anything short of "completed".
+ * requireBrand redirects on anything short of "completed". The score still
+ * separates draft from in_progress: "the conversation captured something".
  */
-export function progressAfterFieldWrite(
+export function onboardingStatusAfterFieldWrite(
   merged: BrandProfileInput,
-): OnboardingProgress {
-  const completionPercentage = brandProfileCompletion(merged);
-  if (isBasicsComplete(merged)) {
-    return { completionPercentage, onboardingStatus: "completed" };
-  }
-  return {
-    completionPercentage,
-    onboardingStatus: completionPercentage > 0 ? "in_progress" : "draft",
-  };
+): OnboardingStatus {
+  if (isBasicsComplete(merged)) return "completed";
+  return brandProfileCompletion(merged) > 0 ? "in_progress" : "draft";
 }
 
 /** Spec cap: Primary + Secondary + up to 3 more (KO_OS UI.Specification.md:860). */

@@ -8,18 +8,21 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && next build",
+    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && node scripts/fetch-fonts.mjs && next build",
     "preflight": "node scripts/check-env.mjs",
+    "fonts": "node scripts/fetch-fonts.mjs",
     "start": "next start",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/migrate.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "backup": "node scripts/backup-db.mjs",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "eval:design": "tsx src/lib/ai/image/eval/run.mts",
+    "eval:design-logo": "tsx src/lib/ai/image/eval/run-logo.mts",
     "eval:design-spec": "tsx src/lib/ai/design-spec/eval/run.mts",
     "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts",
     "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts"
@@ -47,10 +50,10 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.28.0",
     "mammoth": "^1.12.2",
-    "next": "16.2.12",
+    "next": "16.3.4",
     "next-themes": "^0.4.6",
     "nextjs-toploader": "^3.9.17",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.3",
     "nuqs": "^2.9.4",
     "postgres": "^3.4.9",
     "posthog-js": "^1.409.3",
@@ -67,6 +70,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@aws-sdk/lib-storage": "^3.1100.0",
     "@biomejs/biome": "^2.5.6",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",
@@ -79,12 +83,12 @@
     "@vitejs/plugin-react": "^6.0.5",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.3.4",
     "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
     "shadcn": "^4.16.0",
     "tailwindcss": "^4",
     "typescript": "^6",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

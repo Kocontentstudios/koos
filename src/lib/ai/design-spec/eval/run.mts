@@ -75,7 +75,10 @@ for (const evalCase of cases) {
     const { object } = await generateObject({
       model: getModel("strategy"),
       schema: designSpecSchema,
-      system: buildDesignSpecSystemPrompt(evalCase.brand),
+      system: buildDesignSpecSystemPrompt(
+        evalCase.brand,
+        evalCase.hasLogo ?? false,
+      ),
       prompt: requestPrompt(evalCase.request),
       maxOutputTokens: SPEC_OUTPUT_TOKEN_CAP,
     });
@@ -85,6 +88,7 @@ for (const evalCase of cases) {
       score.usesBrandColor === null ? "n/a" : String(score.usesBrandColor);
     console.log(
       `hex=${score.validHex} brand=${brandUse} contrast=${score.contrastOk} ` +
+        `logo=${object.logoPlacement}/${object.logoFree ? "free" : "on"} ` +
         `[${object.palette.background}/${object.palette.foreground}/${object.palette.accent}] ` +
         `(${Date.now() - started}ms)`,
     );
@@ -110,6 +114,15 @@ console.log(
   `contrast ok ${totals.contrastOk.toFixed(2)} (min ${DESIGN_SPEC_EVAL_THRESHOLDS.minContrastOk})`,
 );
 console.log(`named colour misses ${totals.namedColorMisses.length}`);
+console.log(
+  `logo placed ${totals.logoPlaced.toFixed(2)} (min ${DESIGN_SPEC_EVAL_THRESHOLDS.minLogoPlaced})`,
+);
+console.log(
+  `logo-free read ${totals.logoFree.toFixed(2)} (min ${DESIGN_SPEC_EVAL_THRESHOLDS.minLogoFree})`,
+);
+console.log(
+  `logo-free quoted ${totals.logoFreeGrounded.toFixed(2)} (min ${DESIGN_SPEC_EVAL_THRESHOLDS.minLogoFreeGrounded})`,
+);
 console.log(`${passed ? "PASS" : "FAIL"} across ${scores.length} cases`);
 
 mkdirSync("qa-reports/eval", { recursive: true });

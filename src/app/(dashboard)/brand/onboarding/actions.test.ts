@@ -47,7 +47,6 @@ describe("startConversationalOnboarding", () => {
       name: PLACEHOLDER_BRAND_NAME,
       onboardingType: "conversational",
       onboardingStatus: "draft",
-      completionPercentage: 0,
     });
   });
 

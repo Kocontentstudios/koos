@@ -221,3 +221,92 @@ describe("renaming an additional colour", () => {
     ).toHaveLength(2);
   });
 });
+
+/* KOS-V1-FEAT-022. The only font-file input used to live inside conversational
+   onboarding, so a brand whose typeface was unusable was told by the
+   KOS-V1-BUG-018 notification to re-upload it somewhere that did not exist.
+   These pin the control onto the form a user can actually return to. */
+describe("StepVisual brand fonts", () => {
+  function renderWithFonts(state: Partial<typeof DEFAULT_STATE> = {}) {
+    const onChange = vi.fn();
+    render(
+      <StepVisual state={{ ...DEFAULT_STATE, ...state }} onChange={onChange} />,
+    );
+    return onChange;
+  }
+
+  const STORED = "https://cdn.example.com/fonts/u1/1736-a1b2c3.ttf";
+  /* Anchored: the remove buttons are now named "Remove heading / main font",
+     so an unanchored pattern matches the control AND the button that deletes
+     what it holds. */
+  const HEADING = /^heading \/ main font$/i;
+  const BODY = /^body \/ cta font$/i;
+
+  it("offers both font slots", () => {
+    renderWithFonts();
+    expect(screen.getByLabelText(HEADING)).toBeInTheDocument();
+    expect(screen.getByLabelText(BODY)).toBeInTheDocument();
+  });
+
+  /* Still reachable once a font is attached. FileUpload used to render its
+     input only while empty, which left both labels pointing at nothing in
+     exactly the state this feature exists for. */
+  it("keeps both slots labelled once fonts are attached", () => {
+    renderWithFonts({ brandFontUrl: STORED, bodyFontUrl: STORED });
+    expect(screen.getByLabelText(HEADING)).toBeInTheDocument();
+    expect(screen.getByLabelText(BODY)).toBeInTheDocument();
+  });
+
+  it.each([[HEADING], [BODY]])(
+    "accepts only the formats the renderer can open on %s",
+    (label) => {
+      renderWithFonts();
+      const accept = screen.getByLabelText(label).getAttribute("accept") ?? "";
+      expect(accept).toContain(".ttf");
+      expect(accept).toContain(".otf");
+      /* Satori refuses every TrueType collection, so offering it would only
+         move the failure into the render where nothing names the font. */
+      expect(accept).not.toContain(".ttc");
+    },
+  );
+
+  /* A brand that already has a font must not look as though it has none —
+     otherwise the user cannot tell whether their upload ever took. */
+  it("shows that a stored font is set", () => {
+    renderWithFonts({ brandFontUrl: STORED });
+    expect(screen.getByText(/current font \(\.ttf\)/i)).toBeInTheDocument();
+  });
+
+  it("leaves an unset slot empty", () => {
+    renderWithFonts({ brandFontUrl: "" });
+    expect(screen.queryByText(/current font/i)).not.toBeInTheDocument();
+  });
+
+  /* Two slots means two remove buttons, and "Remove file" twice tells neither
+     a screen reader nor this test which font is about to go. */
+  it("names each remove control by the font it removes", () => {
+    renderWithFonts({ brandFontUrl: STORED, bodyFontUrl: STORED });
+    expect(
+      screen.getByRole("button", { name: /remove heading \/ main font/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /remove body \/ cta font/i }),
+    ).toBeInTheDocument();
+  });
+
+  /* An empty string is the user removing the font, and it has to reach the
+     server: omission means "leave it alone" there, so removal would silently
+     do nothing (KOS-V1-BUG-020). */
+  it("clears the stored font when the slot is removed", async () => {
+    const onChange = renderWithFonts({
+      brandFontUrl: STORED,
+      bodyFontUrl: STORED,
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /remove heading \/ main font/i }),
+    );
+
+    expect(onChange).toHaveBeenCalledWith({ brandFontUrl: "" });
+  });
+});

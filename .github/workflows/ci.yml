@@ -24,6 +24,16 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # composite-brand-font renders through real satori against the vendored
+      # faces, and the directory is gitignored (no binaries in the repo), so
+      # without this step it falls through to fonts.googleapis.com mid-test —
+      # the flake KOS-V1-BUG-010 exists to remove. This relocates that Google
+      # dependency rather than removing it: the fetch now happens once, in a
+      # step that fails loudly, instead of inside an assertion that goes red
+      # for reasons the test name does not explain.
+      - name: Vendor render fonts
+        run: pnpm fonts
+
       - name: Test
         run: pnpm test
 

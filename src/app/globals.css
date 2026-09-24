@@ -189,7 +189,10 @@
   --surface-container-highest: #e2e8f0;
   --primary-container: #dbeafe;
 
-  --border-control: #8090a4;
+  /* Darker than the #8090a4 this shipped with, which measured 2.88:1 against
+     --background and so missed the 3:1 the dark token above promises. #737f92
+     is 3.58:1 on --background and 4.05:1 on a white card. */
+  --border-control: #737f92;
 
   /* White-alpha overlays become invisible on light surfaces → flip to ink-alpha */
   --status-draft-bg: rgba(15, 23, 42, 0.05);

@@ -41,7 +41,6 @@ export async function ensureQuickRequestBrand(
     workspaceId: workspace.id,
     name,
     onboardingStatus: "draft",
-    completionPercentage: 0,
   });
   if (!brand) return { ok: false, error: "Could not start your request" };
   return { ok: true, brandId: brand.id };

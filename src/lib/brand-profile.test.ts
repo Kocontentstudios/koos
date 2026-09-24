@@ -4,10 +4,10 @@ import {
   brandProfileCompletion,
   hasCompletedBrand,
   isBasicsComplete,
+  onboardingStatusAfterFieldWrite,
   PLACEHOLDER_BRAND_NAME,
   parseAdditionalColors,
   parsePlatformList,
-  progressAfterFieldWrite,
 } from "./brand-profile";
 
 const BASICS = {
@@ -152,7 +152,7 @@ describe("hasCompletedBrand", () => {
   });
 });
 
-describe("progressAfterFieldWrite", () => {
+describe("onboardingStatusAfterFieldWrite", () => {
   const complete = {
     name: "Lagos Loom",
     overview: "Handwoven aso-oke bags",
@@ -163,52 +163,43 @@ describe("progressAfterFieldWrite", () => {
   /* The gate that matters. requireBrand redirects anything short of
      "completed" out of the dashboard, so this must stay tied to the required
      Basics fields and NOT to the percentage — a brand with optional sections
-     blank now scores 20 and would otherwise be locked out forever. */
+     blank scores 20 and would otherwise be locked out forever. */
   it("completes a brand on the required fields alone, not on the score", () => {
-    expect(progressAfterFieldWrite(complete)).toEqual({
-      completionPercentage: 20,
-      onboardingStatus: "completed",
-    });
+    expect(brandProfileCompletion(complete)).toBe(20);
+    expect(onboardingStatusAfterFieldWrite(complete)).toBe("completed");
   });
 
   it("stays completed as optional sections raise the score", () => {
-    expect(progressAfterFieldWrite({ ...complete, ...PLATFORMS })).toEqual({
-      completionPercentage: 35,
-      onboardingStatus: "completed",
-    });
+    expect(onboardingStatusAfterFieldWrite({ ...complete, ...PLATFORMS })).toBe(
+      "completed",
+    );
   });
 
   it("marks partial capture as in_progress, not completed", () => {
-    expect(progressAfterFieldWrite({ name: "Lagos Loom" })).toEqual({
-      completionPercentage: 5,
-      onboardingStatus: "in_progress",
-    });
+    expect(onboardingStatusAfterFieldWrite({ name: "Lagos Loom" })).toBe(
+      "in_progress",
+    );
   });
 
   /* Optional fields alone must not imply the brand is described: the required
      Basics are still missing, so it cannot be waved through to the dashboard. */
   it("stays in_progress when only optional sections were captured", () => {
-    expect(progressAfterFieldWrite(AUDIENCE)).toEqual({
-      completionPercentage: 25,
-      onboardingStatus: "in_progress",
-    });
+    expect(onboardingStatusAfterFieldWrite(AUDIENCE)).toBe("in_progress");
   });
 
   /* A conversational brand starts life with only the placeholder name. It
      must stay a draft, or requireBrand would wave a brand nobody described
      through to the dashboard. */
   it("leaves a brand that captured nothing as a draft", () => {
-    expect(progressAfterFieldWrite({ name: PLACEHOLDER_BRAND_NAME })).toEqual({
-      completionPercentage: 0,
-      onboardingStatus: "draft",
-    });
+    expect(
+      onboardingStatusAfterFieldWrite({ name: PLACEHOLDER_BRAND_NAME }),
+    ).toBe("draft");
   });
 
   it("treats null columns from a brand row as unfilled", () => {
-    expect(progressAfterFieldWrite({ ...complete, overview: null })).toEqual({
-      completionPercentage: 15,
-      onboardingStatus: "in_progress",
-    });
+    expect(
+      onboardingStatusAfterFieldWrite({ ...complete, overview: null }),
+    ).toBe("in_progress");
   });
 });
 

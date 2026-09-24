@@ -51,6 +51,14 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["postgres", "@node-rs/argon2"],
+  /* scripts/fetch-fonts.mjs vendors these before the build, but fonts.ts reads
+     them through a runtime join of process.cwd() that the tracer cannot
+     follow. Without the explicit include they never reach the function that
+     renders designs, and every render silently falls back to Google Fonts —
+     which is the whole defect. Keyed on the one route that renders. */
+  outputFileTracingIncludes: {
+    "/api/design/generate": ["./src/lib/design/render/fonts/*.ttf"],
+  },
   images: {
     remotePatterns: r2Host ? [{ protocol: "https", hostname: r2Host }] : [],
   },

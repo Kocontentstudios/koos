@@ -257,6 +257,12 @@ export const MAIL_ERROR_KINDS: Record<string, MailFailureKind> = {
   ENOAUTH: "auth",
   EOAUTH2: "auth",
   EMAXLIMIT: "throttled",
+  /* Added by nodemailer 9.1.1, and caught by the test below rather than
+     silently becoming "unknown". NOT throttled: that advice is "wait and
+     retry", and a message with too many recipients fails identically however
+     long you wait. The fix is to change the message, which is what "message"
+     tells the operator. */
+  EMAXRECIPIENTS: "message",
   ECONFIG: "config",
   ESENDMAIL: "unknown",
   ESES: "unknown",

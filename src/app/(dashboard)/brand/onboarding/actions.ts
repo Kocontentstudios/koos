@@ -52,7 +52,6 @@ export async function startConversationalOnboarding(): Promise<
     name: PLACEHOLDER_BRAND_NAME,
     onboardingType: "conversational",
     onboardingStatus: "draft",
-    completionPercentage: 0,
   });
   if (!brand) return { ok: false, error: "Could not start onboarding" };
 

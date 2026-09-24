@@ -227,8 +227,6 @@ describe("POST /api/actions/confirm", () => {
     await confirmFields({ tone: "bold" });
     expect(updateBrand).toHaveBeenCalledWith(BRAND_ID, {
       tone: "bold",
-      // Name (5 of Basics) plus tone (6.25 of Audience), rounded.
-      completionPercentage: 11,
       onboardingStatus: "in_progress",
     });
   });
@@ -244,10 +242,11 @@ describe("POST /api/actions/confirm", () => {
       overview: "Handwoven bags",
       businessType: "Retail",
       stage: "Early-stage",
-      /* Basics only, so the score is 20 — but the status is still "completed".
-         requireBrand gates on the status, and tying it to the score would lock
-         out every user who left an optional section blank. */
-      completionPercentage: 20,
+      /* Basics only, so brandProfileCompletion would score 20 — the status is
+         still "completed". requireBrand gates on the status, and tying it to
+         the score would lock out every user who left a section blank.
+         KOS-V1-BUG-011: no score is written; toHaveBeenCalledWith is exact, so
+         a reintroduced completionPercentage fails here. */
       onboardingStatus: "completed",
     });
   });

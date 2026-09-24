@@ -16,7 +16,6 @@ const brand = {
   id: VALID_ID,
   name: "Acme Rockets",
   onboardingStatus: "complete",
-  completionPercentage: 100,
   overview: "A brand that launches things.",
   businessType: "ecommerce",
   stage: "growth",
