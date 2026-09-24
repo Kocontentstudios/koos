@@ -1,0 +1,111 @@
+name: Database backup
+
+# 02:00 UTC daily. GitHub delays scheduled runs under load, so the timestamp in
+# the object key is the truth, not the cron time.
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+# A manual run during the nightly one would have two jobs pruning the same
+# prefix against a listing each took before the other uploaded.
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      # This job holds production database credentials, so it installs without
+      # running any package's lifecycle scripts.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # The runner's bundled client trails the server and pg_dump refuses to
+      # dump a newer server than itself.
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Back up every database to the private bucket
+        env:
+          DIRECT_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_DATABASES: ${{ vars.BACKUP_DATABASES }}
+          BACKUP_RETENTION_DAYS: ${{ vars.BACKUP_RETENTION_DAYS }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Present so resolveBucket can compare against it: without it the
+          # "never write to the app bucket" guard compares against undefined
+          # and passes whatever it is given.
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # The destination is proved private by fetching the uploaded key
+          # anonymously through the app's public domain.
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+          BACKUP_BUCKET_IS_PRIVATE: ${{ vars.BACKUP_BUCKET_IS_PRIVATE }}
+          # Optional: a token scoped to the backup bucket alone, so an app-side
+          # credential leak cannot read or delete the backups.
+          BACKUP_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+          BACKUP_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+        run: node scripts/backup-db.mjs
+
+      # Nobody reads the Actions tab. The label is created first because
+      # `gh issue create --label` fails outright when the label is missing,
+      # which would lose the alert instead of raising it.
+      - name: Raise an issue if the backup failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create backup-failed --color D93F0B \
+            --description "Scheduled database backup failed" --force
+          body=$(printf 'Backup run failed.\n\nRun: %s\n\nRunbook: docs/runbooks/database.md' "$RUN_URL")
+          existing=$(gh issue list --label backup-failed --state open \
+            --json number,title \
+            --jq '.[] | select(.title == "Database backup failed") | .number' | head -1)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "Database backup failed" \
+              --label backup-failed --body "$body"
+          fi
+
+      # Backups that silently stop are indistinguishable from backups that work
+      # until the day you need one, so a success closes the open alert.
+      - name: Close the alert once a run succeeds
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Exact title only. The restore drill files "Restore drill failed"
+          # under this same label, and a nightly dump succeeding says nothing
+          # about whether those dumps can be restored.
+          for number in $(gh issue list --label backup-failed --state open \
+            --json number,title \
+            --jq '.[] | select(.title == "Database backup failed") | .number'); do
+            gh issue close "$number" --comment "Backup succeeded on run ${{ github.run_id }}."
+          done

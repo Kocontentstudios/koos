@@ -1,0 +1,157 @@
+name: Restore drill
+
+# Weekly, Sundays 03:00 UTC — after the nightly backup.
+#
+# A backup nobody has restored is a file, not a backup. This downloads the
+# newest production archive and restores it into a throwaway PostgreSQL, then
+# asserts the restored database actually holds rows. It is the only check that
+# exercises the whole path: R2 object -> pg_restore -> queryable data.
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      database:
+        description: Database to drill
+        required: false
+        default: defaultdb
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: restored
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U drill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Download the newest backup
+        id: download
+        env:
+          DIRECT_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_DATABASES: ${{ vars.BACKUP_DATABASES }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+          BACKUP_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+          BACKUP_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+          DATABASE: ${{ inputs.database || 'defaultdb' }}
+        run: |
+          # Keys are ISO timestamps, so the last one sorted is the newest.
+          key=$(node scripts/backup-db.mjs --list \
+            | awk '{print $1}' | grep "^backups/$DATABASE/" | sort | tail -1)
+          if [ -z "$key" ]; then
+            echo "No backup found for $DATABASE" >&2
+            exit 1
+          fi
+          echo "Restoring $key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          node scripts/backup-db.mjs --download "$key" --out "$RUNNER_TEMP"
+          echo "file=$RUNNER_TEMP/$(basename "$key")" >> "$GITHUB_OUTPUT"
+
+      # The filename comes from a bucket listing, so it reaches the shell as an
+      # environment variable rather than being interpolated into the command.
+      - name: Restore into the throwaway database
+        env:
+          PGPASSWORD: drill
+          ARCHIVE: ${{ steps.download.outputs.file }}
+        run: |
+          # An Aiven dump carries extension and role entries a vanilla cluster
+          # rejects, so pg_restore exits non-zero on a restore that is fine for
+          # our purposes. The verdict is the row assertions in the next step,
+          # deliberately, not this exit code.
+          pg_restore --no-owner --no-acl -h localhost -p 5432 -U drill \
+            -d restored "$ARCHIVE" || echo "pg_restore reported errors; row assertions decide"
+          
+
+      # An empty-but-valid restore is the failure this drill exists to catch,
+      # so the assertion is on rows, not on pg_restore's exit code.
+      - name: Assert the restored data is real
+        env:
+          PGPASSWORD: drill
+        run: |
+          read -r tables migrations users <<<"$(psql -h localhost -p 5432 -U drill -d restored -tA -F' ' -c "
+            select
+              (select count(*) from information_schema.tables
+                 where table_schema='public' and table_type='BASE TABLE'),
+              (select count(*) from _migrations),
+              (select count(*) from users)")"
+          echo "tables=$tables migrations=$migrations users=$users"
+          test "$tables" -ge 20 || { echo "Too few tables restored" >&2; exit 1; }
+          test "$migrations" -ge 1 || { echo "No migration ledger" >&2; exit 1; }
+          test "$users" -ge 1 || { echo "No user rows restored" >&2; exit 1; }
+
+      - name: Close the drill alert once it passes
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for number in $(gh issue list --label backup-failed --state open \
+            --json number,title \
+            --jq '.[] | select(.title == "Restore drill failed") | .number'); do
+            gh issue close "$number" --comment "Restore drill passed (run ${{ github.run_id }})."
+          done
+
+      - name: Raise an issue if the drill failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          KEY: ${{ steps.download.outputs.key }}
+        run: |
+          gh label create backup-failed --color D93F0B \
+            --description "Scheduled database backup failed" --force
+          body=$(printf 'Weekly restore drill failed — the backups may not be restorable.\n\nArchive: %s\nRun: %s\n\nRunbook: docs/runbooks/database.md' "${KEY:-none}" "$RUN_URL")
+          existing=$(gh issue list --label backup-failed --state open \
+            --json number,title \
+            --jq '.[] | select(.title == "Restore drill failed") | .number' | head -1)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "Restore drill failed" \
+              --label backup-failed --body "$body"
+          fi
