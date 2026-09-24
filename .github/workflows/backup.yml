@@ -48,6 +48,19 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
+          # Installing the package is not enough: /usr/bin/pg_dump is Ubuntu's
+          # wrapper and resolves to the runner's bundled 16, which refuses to
+          # dump a 17 server ("aborting because of server version mismatch").
+          # PGDG puts the real binaries here, so they have to lead PATH.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pg_dump is version 17
+        run: |
+          pg_dump --version
+          pg_dump --version | grep -q " 17\." || {
+            echo "pg_dump is not 17; it cannot dump the Aiven server" >&2
+            exit 1
+          }
 
       - name: Back up every database to the private bucket
         env:
