@@ -67,6 +67,27 @@ without the idle rule, or a standing calendar reminder to log in.
 | `.github/workflows/uptime.yml`, every 15 min | prod and staging down | **GitHub disables schedules after 60 days of repo inactivity** and delays runs under load |
 | An external monitor (UptimeRobot, BetterStack, Cronitor) | everything above, plus GitHub Actions being down | not configured yet — see below |
 
+### Cloudflare challenges the GitHub runners
+
+Cloudflare serves datacenter IPs a managed challenge, so the uptime workflow
+gets `403 "Just a moment..."` from both environments while the app is healthy
+(observed 2026-09-24 to 2026-09-30: 34 failed runs, two false "is down" issues
+with 33 comments each, FastCron green throughout).
+
+The workflow now tells the two apart — a challenged probe opens a single
+`monitoring` issue instead of an outage — but the real fix is a WAF rule so the
+probe reaches the app:
+
+1. Cloudflare dashboard → the zone → **Security → WAF → Custom rules → Create**.
+2. Field `URI Path` **equals** `/api/health`. If `HEALTH_PROBE_TOKEN` is set,
+   add `AND` `Header x-health-token` **equals** the token, so only the monitors
+   skip the challenge.
+3. Action: **Skip** → tick *All remaining custom rules*, *Bot Fight Mode* and
+   *Managed Challenge*.
+4. Deploy, then `gh workflow run uptime.yml` and confirm both matrix jobs pass.
+
+Do this for the production zone and the staging hostname.
+
 **The GitHub workflow must not be the only monitor**: it shares the inactivity
 failure mode with the incident it watches for. Point an external monitor at
 both `/api/health` URLs, alerting on any non-200, and keep the workflow as the
