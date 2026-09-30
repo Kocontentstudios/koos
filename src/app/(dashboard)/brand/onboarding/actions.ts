@@ -15,6 +15,7 @@ import {
   checkBrandAccess,
   createBrand,
   getActiveBrandForMember,
+  setBrandOnboardingConversation,
   updateBrand,
 } from "@/lib/db/queries";
 
@@ -110,4 +111,25 @@ export async function saveVisualIdentity(
   revalidatePath("/brand");
   revalidatePath("/dashboard");
   return { ok: true, snapshot: toBrandSnapshot(updated) };
+}
+
+/**
+ * Forget the saved onboarding session so the next turn starts a fresh chat.
+ *
+ * The answers already written to the brand profile are deliberately untouched:
+ * "start over" means start the conversation again, not discard the brand
+ * (KOOS-V1-BUG-027).
+ */
+export async function restartOnboarding(
+  brandId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { dbUser } = await getActiveWorkspace();
+  if (!dbUser) return { ok: false, error: "Not authenticated" };
+
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) return { ok: false, error: access.error };
+
+  await setBrandOnboardingConversation(brandId, null);
+  revalidatePath("/brand/onboarding");
+  return { ok: true };
 }

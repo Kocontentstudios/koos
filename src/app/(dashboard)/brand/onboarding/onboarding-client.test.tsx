@@ -17,7 +17,11 @@ const voice = {
   speakingId: null as string | null,
   speaking: false,
 };
-const chatState: { messages: unknown[]; status: string } = {
+const chatState: {
+  messages: unknown[];
+  status: string;
+  error?: Error;
+} = {
   messages: [],
   status: "ready",
 };
@@ -34,19 +38,31 @@ vi.mock("@/hooks/use-voice-io", () => ({ useVoiceIo: () => voice }));
 const { saveVisualIdentity } = vi.hoisted(() => ({
   saveVisualIdentity: vi.fn(),
 }));
+const { restartOnboarding } = vi.hoisted(() => ({
+  restartOnboarding: vi.fn().mockResolvedValue({ ok: true }),
+}));
 vi.mock("./actions", () => ({
   saveVisualIdentity: (id: string, v: unknown) => saveVisualIdentity(id, v),
+  restartOnboarding: (id: string) => restartOnboarding(id),
 }));
 // Hoisted so tests can assert what the chat was asked to send.
-const { sendMessage } = vi.hoisted(() => ({ sendMessage: vi.fn() }));
+const { sendMessage, setMessages, chatOptions } = vi.hoisted(() => ({
+  sendMessage: vi.fn(),
+  setMessages: vi.fn(),
+  chatOptions: { current: undefined as { messages?: unknown[] } | undefined },
+}));
 vi.mock("@ai-sdk/react", () => ({
-  useChat: () => ({
-    messages: chatState.messages,
-    status: chatState.status,
-    sendMessage,
-    stop: vi.fn(),
-    error: undefined,
-  }),
+  useChat: (opts: { messages?: unknown[] }) => {
+    chatOptions.current = opts;
+    return {
+      messages: chatState.messages,
+      status: chatState.status,
+      sendMessage,
+      setMessages,
+      stop: vi.fn(),
+      error: chatState.error,
+    };
+  },
 }));
 
 import { OnboardingClient } from "./onboarding-client";
@@ -640,5 +656,219 @@ describe("attaching a brand document", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
     fetchSpy.mockRestore();
+  });
+});
+
+/* KOOS-V1-BUG-025. A client answered "what does success look like for you",
+   pressed Enter, and nothing happened — five times in fifty seconds, per her
+   session replay, with no error on screen. handleSend early-returns while
+   `isLoading`, and the turn stayed "streaming" long after the answer rendered
+   because the route awaited a second LLM call before closing the stream. The
+   server no longer gates the stream on that work, but a slow model or a
+   dropped connection can still land a user in the same place, so an answer
+   typed mid-reply must never be silently dropped. */
+describe("OnboardingClient answering while KO is still replying", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [];
+    chatState.status = "ready";
+  });
+
+  it("sends the answer once KO finishes instead of discarding it", async () => {
+    chatState.status = "streaming";
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "Ten new clients a month" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    chatState.status = "ready";
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(sendMessage.mock.calls[0][0]).toEqual({
+      text: "Ten new clients a month",
+    });
+  });
+
+  it("tells the user the answer is waiting rather than failing silently", async () => {
+    chatState.status = "streaming";
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "Ten new clients a month" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/send/i);
+  });
+
+  it("never sends a queued answer twice", async () => {
+    chatState.status = "streaming";
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "Ten new clients" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    chatState.status = "ready";
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* KOOS-V1-BUG-025 asks for a failed send to be recoverable: the error bubble
+   alone left the user with a dead conversation and no way forward. */
+describe("OnboardingClient recovering from a failed send", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [];
+    chatState.status = "ready";
+    chatState.error = undefined;
+  });
+
+  it("offers a retry that resends the answer that failed", async () => {
+    const { rerender } = render(
+      <OnboardingClient brandId="b1" brandContext={brandContext} />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "Ten new clients a month" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    chatState.error = new Error("network");
+    rerender(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /try again/i }),
+    );
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage.mock.calls[1][0]).toEqual({
+      text: "Ten new clients a month",
+    });
+  });
+
+  it("does not offer a retry when nothing has been sent yet", () => {
+    chatState.error = new Error("network");
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: /try again/i }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+/* KOOS-V1-BUG-027 / BUG-028. `conversationId` was minted per mount and no
+   history was loaded, so a refresh — or simply coming back later — started KO
+   from the first question and asked everything again. */
+describe("OnboardingClient resuming an earlier session", () => {
+  const earlier = [
+    {
+      id: "m1",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "What does your brand do?" }],
+    },
+    {
+      id: "m2",
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: "We roast coffee." }],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chatState.messages = [];
+    chatState.status = "ready";
+    chatState.error = undefined;
+    chatOptions.current = undefined;
+  });
+
+  it("hands the saved transcript to the chat instead of starting empty", () => {
+    render(
+      <OnboardingClient
+        brandId="b1"
+        brandContext={brandContext}
+        conversationId="c1"
+        initialMessages={earlier}
+      />,
+    );
+
+    expect(chatOptions.current?.messages).toEqual(earlier);
+  });
+
+  it("keeps answering in the same conversation it resumed", () => {
+    chatState.messages = earlier;
+    render(
+      <OnboardingClient
+        brandId="b1"
+        brandContext={brandContext}
+        conversationId="c1"
+        initialMessages={earlier}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "Ten new clients" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(sendMessage.mock.calls[0][1]).toMatchObject({
+      body: { conversationId: "c1" },
+    });
+  });
+
+  it("offers to continue or start over when there is a session to resume", () => {
+    chatState.messages = earlier;
+    render(
+      <OnboardingClient
+        brandId="b1"
+        brandContext={brandContext}
+        conversationId="c1"
+        initialMessages={earlier}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /start over/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing about resuming on a first visit", () => {
+    render(<OnboardingClient brandId="b1" brandContext={brandContext} />);
+
+    expect(
+      screen.queryByRole("button", { name: /start over/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  /* "Make restart intentional and require confirmation so existing data is not
+     lost accidentally." */
+  it("does not clear the chat until the restart is confirmed", async () => {
+    chatState.messages = earlier;
+    render(
+      <OnboardingClient
+        brandId="b1"
+        brandContext={brandContext}
+        conversationId="c1"
+        initialMessages={earlier}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /start over/i }));
+    expect(setMessages).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /yes, start over/i }),
+    );
+    expect(setMessages).toHaveBeenCalledWith([]);
   });
 });
