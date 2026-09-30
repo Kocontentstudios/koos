@@ -36,27 +36,52 @@ jobs:
       # database was unreachable, so a homepage check would have stayed green.
       #
       # Three attempts, because one sample turns a cold start into a page.
+      # /api/health opens a real database connection and reads a real table,
+      # which is the point: during the 2026-09-23 outage every page returned 200
+      # while the database was unreachable, so a homepage check would have
+      # stayed green.
+      #
+      # Three attempts, because one sample turns a cold start into a page.
+      #
+      # Cloudflare challenges datacenter IPs, so a runner can be served a 403
+      # "Just a moment..." interstitial while the site is perfectly healthy.
+      # That is a broken monitor, not an outage, and the two must never share
+      # an alert: a week of false "production is down" comments is how a real
+      # one gets ignored. The WAF needs a skip rule for this path (see
+      # docs/runbooks/database.md).
       - name: Probe ${{ matrix.target.name }}
         id: probe
         env:
           URL: ${{ matrix.target.url }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_PROBE_TOKEN }}
         run: |
           for attempt in 1 2 3; do
-            code=$(curl -s -o response.json -w '%{http_code}' --max-time 30 "$URL") || code=000
+            code=$(curl -s -o response.body -D response.head \
+              -H "x-health-token: $HEALTH_TOKEN" \
+              -w '%{http_code}' --max-time 30 "$URL") || code=000
             echo "attempt $attempt: HTTP $code"
-            cat response.json 2>/dev/null || true
+            head -c 400 response.body 2>/dev/null || true
             echo
             if [ "$code" = "200" ]; then
               echo "status=200" >> "$GITHUB_OUTPUT"
+              echo "blocked=false" >> "$GITHUB_OUTPUT"
               exit 0
+            fi
+            if grep -qi "cf-mitigated" response.head 2>/dev/null \
+               || grep -q "__cf_chl\|Just a moment" response.body 2>/dev/null; then
+              echo "blocked=true" >> "$GITHUB_OUTPUT"
+              echo "status=$code" >> "$GITHUB_OUTPUT"
+              echo "Cloudflare challenged this runner; the target's health is unknown from here."
+              exit 1
             fi
             if [ "$attempt" -lt 3 ]; then sleep 20; fi
           done
           echo "status=$code" >> "$GITHUB_OUTPUT"
+          echo "blocked=false" >> "$GITHUB_OUTPUT"
           exit 1
 
       - name: Open or update an incident issue
-        if: failure()
+        if: failure() && steps.probe.outputs.blocked != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           # No checkout in this job, so gh has no git remote to infer the
@@ -81,6 +106,28 @@ jobs:
             gh issue create --title "$title" --label outage --body "$body"
           fi
 
+      - name: Report a blocked probe as a monitoring defect
+        if: failure() && steps.probe.outputs.blocked == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target.name }}
+          URL: ${{ matrix.target.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create monitoring --color 0E8A16 \
+            --description "The monitor itself is broken" --force
+          title="Uptime probe blocked by Cloudflare"
+          body=$(printf 'The %s probe was served a Cloudflare challenge (403), so this workflow cannot see whether the site is up. The site may be perfectly healthy — FastCron is the primary monitor.\n\nURL: %s\nRun: %s\n\nFix: add a WAF skip rule for /api/health (docs/runbooks/database.md).' \
+            "$TARGET" "$URL" "$RUN_URL")
+          existing=$(gh issue list --label monitoring --state open \
+            --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$existing" ]; then
+            echo "Already tracked in #$existing; not commenting again."
+          else
+            gh issue create --title "$title" --label monitoring --body "$body"
+          fi
+
       # Without this the first outage leaves an issue open forever and every
       # later one is a comment on a stale thread nobody is watching.
       - name: Close the incident once the target recovers
@@ -96,4 +143,10 @@ jobs:
             --json number,title \
             --jq ".[] | select(.title == \"$TARGET is down\") | .number"); do
             gh issue close "$number" --comment "Health check recovered (run ${{ github.run_id }})."
+          done
+          # A successful probe also proves the runner is no longer challenged.
+          for number in $(gh issue list --label monitoring --state open \
+            --json number,title \
+            --jq '.[] | select(.title == "Uptime probe blocked by Cloudflare") | .number'); do
+            gh issue close "$number" --comment "Probe reached the app again (run ${{ github.run_id }})."
           done
