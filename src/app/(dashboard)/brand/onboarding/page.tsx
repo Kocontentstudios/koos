@@ -1,9 +1,13 @@
 import { redirect } from "next/navigation";
+import { rowsToUiMessages } from "@/lib/ai/chat-messages";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
-import { getActiveBrandForMember } from "@/lib/db/queries";
+import {
+  getActiveBrandForMember,
+  getConversationMessages,
+} from "@/lib/db/queries";
 import { OnboardingClient } from "./onboarding-client";
 import { OnboardingStart } from "./onboarding-start";
 
@@ -41,5 +45,25 @@ export default async function BrandOnboardingPage() {
     previousConversations: "",
   };
 
-  return <OnboardingClient brandId={brand.id} brandContext={brandContext} />;
+  /* Reopen the saved session rather than interviewing from scratch: the chat
+     minted a new conversation on every mount, so a refresh lost the thread and
+     KO asked everything again (KOOS-V1-BUG-027 / BUG-028). */
+  const saved = brand.onboardingConversationId;
+  const initialMessages = saved
+    ? rowsToUiMessages(
+        (await getConversationMessages(saved)).filter(
+          (row): row is typeof row & { role: "user" | "assistant" } =>
+            row.role === "user" || row.role === "assistant",
+        ),
+      )
+    : [];
+
+  return (
+    <OnboardingClient
+      brandId={brand.id}
+      brandContext={brandContext}
+      conversationId={saved ?? undefined}
+      initialMessages={initialMessages}
+    />
+  );
 }
