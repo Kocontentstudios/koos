@@ -357,3 +357,36 @@ describe("recovering from a failed upload", () => {
     error.mockRestore();
   });
 });
+
+/* KOOS-V1-FEAT-031: a scanned deck is now read from its pages. That is worth
+   saying — text lifted off artwork is likelier to be wrong than text read from
+   a text layer, and the user is about to confirm it into their brand. */
+describe("a document read from its pages", () => {
+  it("says so, so the summary gets a closer look", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("presign")
+        ? new Response(
+            JSON.stringify({ key: "brand-docs/u1/a.pdf", url: "https://put" }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({ proposal: PROPOSAL, readVisually: true }),
+            { status: 200 },
+          ),
+    );
+    render(<Harness />);
+    pick(pdf());
+
+    await waitFor(() => expect(onProposal).toHaveBeenCalled());
+    expect(toastInfo).toHaveBeenCalled();
+    expect(toastInfo.mock.calls[0][0]).toMatch(/pages|scan/i);
+  });
+
+  it("says nothing extra for a document with a text layer", async () => {
+    render(<Harness />);
+    pick(pdf());
+
+    await waitFor(() => expect(onProposal).toHaveBeenCalled());
+    expect(toastInfo).not.toHaveBeenCalled();
+  });
+});
