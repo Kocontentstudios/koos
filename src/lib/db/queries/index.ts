@@ -464,6 +464,23 @@ export async function getConversationById(id: string) {
   return conv ?? null;
 }
 
+/**
+ * Remember which conversation IS this brand's onboarding chat.
+ *
+ * Conversations carry only 'strategy' | 'design', and an onboarding chat is
+ * stored as 'strategy', so this link is the only way back to the right one
+ * (KOOS-V1-BUG-027). Set once, when the chat is created.
+ */
+export async function setBrandOnboardingConversation(
+  brandId: string,
+  conversationId: string | null,
+) {
+  await db
+    .update(brands)
+    .set({ onboardingConversationId: conversationId })
+    .where(eq(brands.id, brandId));
+}
+
 export async function getLatestConversationForBrand(brandId: string) {
   const [conv] = await db
     .select()

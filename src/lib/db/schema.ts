@@ -310,6 +310,11 @@ export const brands = pgTable(
     onboardingStatus: onboardingStatusEnum("onboarding_status")
       .notNull()
       .default("draft"),
+    /* Which chat IS the onboarding one. Conversations only carry
+       'strategy' | 'design' and an onboarding chat is stored as 'strategy', so
+       without this there is no way to reopen the right one and every visit
+       started KO from the first question (KOOS-V1-BUG-027 / BUG-028). */
+    onboardingConversationId: uuid("onboarding_conversation_id"),
     /* No completion column on purpose (KOS-V1-BUG-011): setup completion is
        derived from the fields below by brandProfileCompletion(). A stored copy
        goes stale the moment the formula changes, and every display surface

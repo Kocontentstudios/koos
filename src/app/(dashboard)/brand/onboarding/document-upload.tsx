@@ -45,6 +45,13 @@ export function useDocumentUpload({
   const [percent, setPercent] = useState(0);
   const [fileName, setFileName] = useState("");
   const busy = stage !== "idle";
+  /* The file that failed, so "Try again" can re-send it. Losing the handle
+     meant a failed upload sent the user back to the file picker, and one
+     client left the site rather than repeat it (KOOS-V1-BUG-026). */
+  const lastFile = useRef<File | null>(null);
+  /* Mirrors `stage` for the failure log: the catch closure captured the value
+     from the render it was created in, which is always "idle". */
+  const stageRef = useRef<Stage>("idle");
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -61,9 +68,11 @@ export function useDocumentUpload({
         return;
       }
 
+      lastFile.current = file;
       setFileName(file.name);
       setPercent(0);
       setStage("uploading");
+      stageRef.current = "uploading";
       try {
         const presignRes = await fetch("/api/uploads/presign", {
           method: "POST",
@@ -90,6 +99,7 @@ export function useDocumentUpload({
         );
 
         setStage("reading");
+        stageRef.current = "reading";
         const res = await fetch("/api/brand/onboarding/document", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -119,13 +129,32 @@ export function useDocumentUpload({
         }
         onProposal(data.proposal, file.name);
       } catch (err) {
+        /* Named, staged and actionable: "upload failed" in a log tells whoever
+           reads it nothing about which file or how far it got. */
+        console.error("brand document upload failed", {
+          fileName: file.name,
+          sizeBytes: file.size,
+          mimeType: file.type,
+          stage: stageRef.current,
+          message: err instanceof Error ? err.message : String(err),
+        });
         toast.error(
           err instanceof Error
             ? err.message
             : "We couldn't read that document.",
+          {
+            action: {
+              label: "Try again",
+              onClick: () => {
+                const retry = lastFile.current;
+                if (retry) void handleFile(retry);
+              },
+            },
+          },
         );
       } finally {
         setStage("idle");
+        stageRef.current = "idle";
         setPercent(0);
         /* Cleared so choosing the SAME file again still fires a change. */
         if (inputRef.current) inputRef.current.value = "";

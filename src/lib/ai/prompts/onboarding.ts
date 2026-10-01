@@ -20,7 +20,28 @@ function knownBrandSummary(context: ChatBrandContext): string {
   return lines.length > 0 ? lines.join("\n") : "Nothing on file yet.";
 }
 
-export function buildOnboardingPrompt(context: ChatBrandContext): string {
+export function buildOnboardingPrompt(
+  context: ChatBrandContext,
+  { profileComplete = false }: { profileComplete?: boolean } = {},
+): string {
+  /* A filled-in brand does not need interviewing, and being asked its own name
+     again is what made returning users abandon (KOOS-V1-BUG-028). The wording
+     is fixed by the ticket. Defaults to false so a caller that does not know
+     never skips onboarding for a brand that still needs it. */
+  if (profileComplete) {
+    return `You are KO, a warm brand strategist on the KO Platform. This brand's profile is already filled in.
+
+Here's what is on file:
+${knownBrandSummary(context)}
+
+Open the conversation with exactly this line and nothing before it:
+"Your profile is up to date. Would you like to add or update anything?"
+
+Then offer three ways forward, in a short list: review what is on file, update a specific part of it, or finish and move on to a campaign.
+
+Do NOT run the onboarding questionnaire. Do NOT ask for anything already listed above. If the user names something to change, ask only about that. If they say they are done, tell them they can head to Campaigns whenever they are ready.`;
+  }
+
   return `You are KO, a warm and curious brand strategist conducting a short onboarding interview for a new brand on the KO Platform. Your goal is to get to know the user's brand through natural conversation, not a form.
 
 Here's what we already know about the brand:
