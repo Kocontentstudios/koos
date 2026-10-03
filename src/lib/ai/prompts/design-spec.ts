@@ -1,6 +1,7 @@
 import { anchorsBlock } from "@/lib/ai/design-training/anchors";
 import { inferCategory } from "@/lib/ai/design-training/infer-category";
 import { playbookBlock } from "@/lib/ai/design-training/playbooks";
+import { layoutMemoryBlock } from "@/lib/ai/design-training/recent-layouts";
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import type { DesignContext } from "@/lib/design/context";
 import {
@@ -105,6 +106,9 @@ function anchorsSection(brand: BrandSummary, hasLogo: boolean): string {
 }
 
 export interface DesignSpecPromptOptions {
+  /** Layouts this brand's recent designs used, newest first. Drives module
+   *  06 §7's anti-repetition rule (src/lib/ai/design-training/recent-layouts). */
+  recentLayouts?: string[];
   /** The brand's accumulated memory (src/lib/ai/memory.ts). Built from every
    *  chat turn and, until KOOS-AI-001, visible only to the chat — the design
    *  path had no access to the most current thing the product knows. */
@@ -114,8 +118,10 @@ export interface DesignSpecPromptOptions {
 export function buildDesignSpecSystemPrompt(
   brand: BrandSummary,
   hasLogo: boolean,
-  { memorySummary }: DesignSpecPromptOptions = {},
+  { memorySummary, recentLayouts = [] }: DesignSpecPromptOptions = {},
 ): string {
+  const layoutMemory = layoutMemoryBlock(recentLayouts);
+  const layouts = layoutMemory ? `\n\n${layoutMemory}` : "";
   const memory = memorySummary?.trim()
     ? `\n\nWhat KO knows about this brand from working with them:\n${memorySummary.trim()}`
     : "";
@@ -128,7 +134,7 @@ Return a structured design spec. Rules that matter:${AUTONOMY_RULES}
 - "nativePrompt" is the opposite: it describes the COMPLETE finished design for a model that can render text. Quote the exact copy in double quotes, name the colours, and describe the layout in plain English.
 - "palette" must be drawn from the brand colours listed below, as hex values — the primary colour leads unless the brief argues otherwise. A colour given by name rather than as a hex is still the brand's colour: convert it. If no brand colours are listed, choose a palette that fits the brand's visual style. Ensure the foreground reads clearly against the background.${logoRule(hasLogo)}
 
-${brandBlock(brand)}${brandPalette(brand)}${anchorsSection(brand, hasLogo)}${memory}`;
+${brandBlock(brand)}${brandPalette(brand)}${anchorsSection(brand, hasLogo)}${layouts}${memory}`;
 }
 
 export function buildDesignSpecPrompt(context: DesignContext): string {

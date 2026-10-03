@@ -385,3 +385,25 @@ describe("the system prompt can carry the brand's accumulated memory", () => {
     );
   });
 });
+
+/* KOOS-AI-001 §1.5. Every generation re-rolled the layout blind, so a brand
+   could receive the same composition indefinitely — and all parallel variants
+   share one spec, so they shared the repetition too. */
+describe("the system prompt carries the brand's recent layouts", () => {
+  it("tells the art director what this brand has had lately", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      recentLayouts: ["hero-center", "hero-center"],
+    });
+
+    expect(prompt).toMatch(/recent layouts/i);
+    expect(prompt).toMatch(/hero-center/);
+  });
+
+  it("adds nothing for a brand generating its first design", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      recentLayouts: [],
+    });
+
+    expect(prompt).not.toMatch(/recent layouts/i);
+  });
+});

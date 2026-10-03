@@ -1,4 +1,8 @@
 import { generateObject } from "ai";
+import {
+  LAYOUT_MEMORY_DEPTH,
+  recentLayouts,
+} from "@/lib/ai/design-training/recent-layouts";
 import { getNativeAdapters, getPlateAdapter } from "@/lib/ai/image";
 import type { ImageAdapter } from "@/lib/ai/image/types";
 import { buildMemoryBlock } from "@/lib/ai/memory";
@@ -13,6 +17,7 @@ import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
   createDesignGeneration,
   createNotification,
+  listDesignGenerationsForBrand,
   recordUsageEvent,
   updateDesignGeneration,
 } from "@/lib/db/queries";
@@ -335,6 +340,22 @@ async function notifyBrandAssetFaults(
  * so the user can compare. Each variant is an independent row that succeeds or
  * fails on its own — the job only fails if nothing rendered at all.
  */
+/* Layout history is an improvement to the brief, never a prerequisite for it.
+   buildMemoryBlock already swallows its own failures; this read has to do the
+   same, or an unavailable history would cost the user their design. */
+async function recentLayoutsFor(brandId: string): Promise<string[]> {
+  try {
+    return recentLayouts(
+      await listDesignGenerationsForBrand(brandId, {
+        limit: LAYOUT_MEMORY_DEPTH,
+      }),
+    );
+  } catch (err) {
+    console.error("recent layout history unavailable", err);
+    return [];
+  }
+}
+
 export async function generateDesignWork(
   args: {
     context: DesignContext;
@@ -362,10 +383,13 @@ export async function generateDesignWork(
     system: buildDesignSpecSystemPrompt(
       context.brandSummary,
       Boolean(context.brand.logoUrl),
-      /* Best-effort: the memory is an improvement to the brief, not a
-         prerequisite for it, and a brand with no chat history simply has
-         none. buildMemoryBlock swallows its own failures. */
-      { memorySummary: await buildMemoryBlock(context.brand.id) },
+      /* Both are best-effort improvements to the brief, not prerequisites
+         for it: a brand with no chat history has no memory, and one
+         generating its first design has no layout history. */
+      {
+        memorySummary: await buildMemoryBlock(context.brand.id),
+        recentLayouts: await recentLayoutsFor(context.brand.id),
+      },
     ),
     prompt: buildDesignSpecPrompt(context),
     maxOutputTokens: SPEC_MAX_OUTPUT_TOKENS,
