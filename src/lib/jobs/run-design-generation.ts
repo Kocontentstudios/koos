@@ -21,6 +21,7 @@ import {
   recordUsageEvent,
   updateDesignGeneration,
 } from "@/lib/db/queries";
+import { canvasFor } from "@/lib/design/canvas";
 import type { DesignContext } from "@/lib/design/context";
 import {
   briefAskedForNoLogo,
@@ -30,6 +31,12 @@ import {
 } from "@/lib/design/logo-placement";
 import { resolvePalette } from "@/lib/design/palette";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
+import { checkRenderedDesign } from "@/lib/design/quality/checks";
+import {
+  betterResult,
+  faultSummary,
+  isRetryable,
+} from "@/lib/design/quality/gate";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import {
   LOGO_FILE_FAULTS,
@@ -340,6 +347,63 @@ async function notifyBrandAssetFaults(
  * so the user can compare. Each variant is an independent row that succeeds or
  * fails on its own — the job only fails if nothing rendered at all.
  */
+/**
+ * Render a variant, check it before anyone sees it, and correct it once.
+ *
+ * The job's success criterion used to be "bytes were produced", and the faults
+ * it did detect were raised after the image had been stored and shown. These
+ * checks are deterministic and already existed offline; they now run before
+ * delivery (KOOS-AI-001 §1.6).
+ *
+ * Exactly one correction pass, and only for faults a fresh render could fix.
+ * A design that still fails is delivered with its fault recorded rather than
+ * withheld: a flawed design the user can see and judge beats an error message
+ * and nothing to look at.
+ */
+async function renderGuarded(
+  variant: DesignVariant,
+  spec: DesignSpec,
+  context: DesignContext,
+  logo: LoadedLogo | null,
+  references: { bytes: Uint8Array; contentType: string }[],
+): Promise<Awaited<ReturnType<typeof renderVariant>> & { fault?: string }> {
+  /* The canvas the spec asked for, which is what "the right shape" means here
+     — not whatever the adapter decided to return. */
+  const canvas = canvasFor(spec.aspectRatio);
+  const first = await renderVariant(variant, spec, context, logo, references);
+  const firstCheck = checkRenderedDesign({
+    bytes: first.bytes,
+    expected: canvas,
+    logoLegible: !first.logoFault,
+  });
+  if (firstCheck.ok) return first;
+
+  console.error("design failed its pre-delivery checks", {
+    variantId: variant.id,
+    renderer: variant.renderer,
+    faults: firstCheck.failures.map((f) => f.code),
+  });
+
+  if (!isRetryable(firstCheck.failures)) {
+    return { ...first, fault: faultSummary(firstCheck.failures) };
+  }
+
+  const second = await renderVariant(variant, spec, context, logo, references);
+  const secondCheck = checkRenderedDesign({
+    bytes: second.bytes,
+    expected: canvas,
+    logoLegible: !second.logoFault,
+  });
+
+  const keep = betterResult(firstCheck, secondCheck);
+  const kept = keep === "first" ? first : second;
+  const keptCheck = keep === "first" ? firstCheck : secondCheck;
+
+  return keptCheck.ok
+    ? kept
+    : { ...kept, fault: faultSummary(keptCheck.failures) };
+}
+
 /* Layout history is an improvement to the brief, never a prerequisite for it.
    buildMemoryBlock already swallows its own failures; this read has to do the
    same, or an unavailable history would cost the user their design. */
@@ -509,7 +573,7 @@ export async function generateDesignWork(
   await Promise.all(
     variants.map(async (variant) => {
       try {
-        const rendered = await renderVariant(
+        const rendered = await renderGuarded(
           variant,
           spec,
           context,
