@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   brandPalette,
+  buildDesignSpecPrompt,
   buildDesignSpecSystemPrompt,
   buildNativePrompt,
 } from "./design-spec";
@@ -233,5 +234,96 @@ describe("buildNativePrompt's logo clause", () => {
     const prompt = buildNativePrompt(spec as never, brand);
     expect(prompt).toContain('Headline: "Launch week"');
     expect(prompt).toContain("Background colour #000");
+  });
+});
+
+/* KOOS-AI-001 §1.2-1.3. The art director's entire instruction was eight lines
+   that said "a single social media design" whatever had been asked for, and
+   the deliverable type reached it as one free-text line it could not act on.
+   The training manual's master instruction (module 09), the format rules and
+   the category playbook (module 08) now reach the call that decides the
+   design. */
+describe("the art director's brief carries the training system", () => {
+  const ctx = (over: Record<string, unknown> = {}) =>
+    buildDesignSpecPrompt({
+      title: "Weekend restock",
+      designType: "Video Thumbnail",
+      dimensions: "1280x720",
+      platform: "YouTube",
+      scheduledFor: null,
+      aspectRatio: "16:9",
+      briefText: "Fresh meat pies, order now for delivery before 6pm.",
+      ...over,
+    } as Parameters<typeof buildDesignSpecPrompt>[0]);
+
+  it("names the resolved format, not just the user's label", () => {
+    expect(ctx()).toMatch(/thumbnail/i);
+  });
+
+  /* A thumbnail is read beside competing thumbnails at a few hundred pixels;
+     a poster is read across a room. One prompt for both is how every
+     deliverable ended up looking like a social post. */
+  it("carries the format's own reading conditions", () => {
+    const thumbnail = ctx();
+    const poster = ctx({ designType: "Poster", dimensions: "2480x3508" });
+
+    expect(thumbnail).not.toBe(poster);
+    expect(thumbnail).toMatch(/few hundred pixels|competing thumbnails/i);
+    expect(poster).toMatch(/distance/i);
+  });
+
+  it("applies the category playbook inferred from the brief", () => {
+    const block = ctx();
+
+    expect(block).toMatch(/category: food/i);
+    expect(block).toMatch(/appetite appeal/i);
+  });
+
+  /* The manual's avoid lists are the sharp edges — the mistakes it has seen
+     made — so they must survive into the prompt. */
+  it("passes on what that category must avoid", () => {
+    expect(ctx()).toMatch(/plastic-looking food|too many equal items/i);
+  });
+
+  it("routes a recruitment brief to a different playbook entirely", () => {
+    const block = ctx({
+      briefText: "We are hiring a senior backend engineer, apply by Friday.",
+    });
+
+    expect(block).toMatch(/category: recruitment/i);
+    expect(block).toMatch(/role or opportunity/i);
+  });
+
+  /* Honesty about the renderer: a motion brief cannot be a still composite,
+     and saying so beats quietly shipping a flat poster as if it were the
+     deliverable that was asked for. */
+  it("says when the renderer cannot produce the format requested", () => {
+    const block = ctx({ designType: "Motion Graphics" });
+
+    expect(block).toMatch(/still|cannot|key frame/i);
+  });
+});
+
+describe("the master instruction reaches the system prompt", () => {
+  const prompt = buildDesignSpecSystemPrompt(brand, true);
+
+  /* Module 09 §1 and module 07: creative decisions are the system's job, and
+     asking the user to choose a font or a background is the documented
+     failure this is meant to end. */
+  it("tells the art director to decide art direction itself", () => {
+    expect(prompt).toMatch(/do not ask/i);
+  });
+
+  /* Module 07 §3 class B: a missing phone number becomes a placeholder, never
+     an invented one. This is the rule that keeps a generated design from
+     carrying a plausible-looking number that belongs to nobody. */
+  it("forbids inventing facts and names the placeholder form", () => {
+    expect(prompt).toMatch(/never invent/i);
+    expect(prompt).toMatch(/\[PHONE NUMBER\]|placeholder/i);
+  });
+
+  it("still carries the layout and logo rules it had before", () => {
+    expect(prompt).toMatch(/hero-center/);
+    expect(prompt).toMatch(/this brand has a logo/i);
   });
 });
