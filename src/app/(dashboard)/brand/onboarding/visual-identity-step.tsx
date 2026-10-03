@@ -30,6 +30,12 @@ export interface VisualIdentityValues {
   additionalColors: string[];
 }
 
+/** Says a logo IS on file, and what kind — mirrors the font slots' wording. */
+function storedLogoName(url: string): string {
+  const extension = /\.([a-z0-9]+)(?:\?|$)/i.exec(url)?.[1]?.toLowerCase();
+  return extension ? `Current logo (.${extension})` : "Current logo";
+}
+
 const EMPTY: VisualIdentityValues = {
   logoUrl: "",
   primaryColor: "",
@@ -107,8 +113,15 @@ export function VisualIdentityStep({
     ...EMPTY,
     ...initial,
   });
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  /* Seeded from the logo already on the brand: this step is reached again
+     whenever setup is resumed, and an empty slot asked for a file the brand
+     already had (KOOS-V1-BUG-030). */
+  const [fileName, setFileName] = useState<string | null>(() =>
+    initial?.logoUrl ? storedLogoName(initial.logoUrl) : null,
+  );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    () => initial?.logoUrl || null,
+  );
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -232,6 +245,7 @@ export function VisualIdentityStep({
             <FileUpload
               accept="image/png,image/svg+xml,image/jpeg"
               maxSizeMb={5}
+              label="logo"
               onFileSelected={handleFileSelected}
               onRemove={() => {
                 setFileName(null);
