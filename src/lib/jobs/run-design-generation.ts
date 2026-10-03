@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { getNativeAdapters, getPlateAdapter } from "@/lib/ai/image";
 import type { ImageAdapter } from "@/lib/ai/image/types";
+import { buildMemoryBlock } from "@/lib/ai/memory";
 import {
   buildBackgroundPlatePrompt,
   buildDesignSpecPrompt,
@@ -361,6 +362,10 @@ export async function generateDesignWork(
     system: buildDesignSpecSystemPrompt(
       context.brandSummary,
       Boolean(context.brand.logoUrl),
+      /* Best-effort: the memory is an improvement to the brief, not a
+         prerequisite for it, and a brand with no chat history simply has
+         none. buildMemoryBlock swallows its own failures. */
+      { memorySummary: await buildMemoryBlock(context.brand.id) },
     ),
     prompt: buildDesignSpecPrompt(context),
     maxOutputTokens: SPEC_MAX_OUTPUT_TOKENS,

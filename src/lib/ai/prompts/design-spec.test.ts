@@ -327,3 +327,61 @@ describe("the master instruction reaches the system prompt", () => {
     expect(prompt).toMatch(/this brand has a logo/i);
   });
 });
+
+/* KOOS-AI-001 §1.4. The design path never knew which parts of a brand may
+   move. Module 06 §1's three layers now reach the art director, so "vary the
+   composition" cannot be read as licence to recolour the mark. */
+describe("the system prompt carries the brand's anchors", () => {
+  const withLogo = buildDesignSpecSystemPrompt(
+    { name: "Lagos Loom", primaryColor: "indigo", brandFont: "Bricolage" },
+    true,
+  );
+
+  it("separates what is fixed from what may vary", () => {
+    expect(withLogo).toMatch(/fixed, do not change/i);
+    expect(withLogo).toMatch(/may vary/i);
+  });
+
+  it("protects the real logo file from being described or redrawn", () => {
+    expect(withLogo).toMatch(/never describe, redraw, recolour or letter it/i);
+  });
+
+  /* The failure this prevents: "vary two or three dimensions" read as "change
+     everything", which produces a design belonging to no brand. */
+  it("bounds the variation rather than inviting a free hand", () => {
+    expect(withLogo).toMatch(/not every one at once/i);
+  });
+
+  it("adds no anchor section for a brand with nothing on file", () => {
+    const bare = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false);
+
+    expect(bare).not.toMatch(/fixed, do not change/i);
+  });
+});
+
+/* KOOS-AI-001 §1.4. `buildMemoryBlock` accumulates durable facts about a brand
+   from every chat turn, and until now only the chat could see them — the
+   design path, which needs them most, had no access at all. */
+describe("the system prompt can carry the brand's accumulated memory", () => {
+  it("includes the memory summary when one exists", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      memorySummary: "Known: sells handwoven textiles; avoids the word luxury.",
+    });
+
+    expect(prompt).toMatch(/handwoven textiles/);
+  });
+
+  it("adds no memory section when the brand has none", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      memorySummary: "",
+    });
+
+    expect(prompt).not.toMatch(/what KO knows/i);
+  });
+
+  it("still works for callers that pass no options at all", () => {
+    expect(buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false)).toMatch(
+      /art director/i,
+    );
+  });
+});

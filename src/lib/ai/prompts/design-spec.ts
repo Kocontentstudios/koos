@@ -1,3 +1,4 @@
+import { anchorsBlock } from "@/lib/ai/design-training/anchors";
 import { inferCategory } from "@/lib/ai/design-training/infer-category";
 import { playbookBlock } from "@/lib/ai/design-training/playbooks";
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
@@ -85,10 +86,39 @@ const AUTONOMY_RULES = `
 - Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. If one is missing and the design needs it, write an explicit placeholder like [PHONE NUMBER], [WEBSITE] or [EVENT DATE]. A plausible invention is the worst outcome here, because nobody notices it is wrong.
 - Say one thing. There is normally one dominant message; supporting detail is subordinate to it, not a second headline.`;
 
+/* Module 06 §1's three layers, appended only when the brand actually has
+   anchors to protect. A heading over nothing teaches the model that the
+   section is noise. */
+function anchorsSection(brand: BrandSummary, hasLogo: boolean): string {
+  const block = anchorsBlock(
+    {
+      name: brand.name,
+      primaryColor: brand.primaryColor,
+      secondaryColor: brand.secondaryColor,
+      brandFont: brand.brandFont,
+      brandStyle: brand.brandStyle,
+      tone: brand.tone,
+    },
+    { hasLogo },
+  );
+  return block ? `\n\n${block}` : "";
+}
+
+export interface DesignSpecPromptOptions {
+  /** The brand's accumulated memory (src/lib/ai/memory.ts). Built from every
+   *  chat turn and, until KOOS-AI-001, visible only to the chat — the design
+   *  path had no access to the most current thing the product knows. */
+  memorySummary?: string;
+}
+
 export function buildDesignSpecSystemPrompt(
   brand: BrandSummary,
   hasLogo: boolean,
+  { memorySummary }: DesignSpecPromptOptions = {},
 ): string {
+  const memory = memorySummary?.trim()
+    ? `\n\nWhat KO knows about this brand from working with them:\n${memorySummary.trim()}`
+    : "";
   return `You are an art director producing a design for ${brand.name}.
 
 Return a structured design spec. Rules that matter:${AUTONOMY_RULES}
@@ -98,7 +128,7 @@ Return a structured design spec. Rules that matter:${AUTONOMY_RULES}
 - "nativePrompt" is the opposite: it describes the COMPLETE finished design for a model that can render text. Quote the exact copy in double quotes, name the colours, and describe the layout in plain English.
 - "palette" must be drawn from the brand colours listed below, as hex values — the primary colour leads unless the brief argues otherwise. A colour given by name rather than as a hex is still the brand's colour: convert it. If no brand colours are listed, choose a palette that fits the brand's visual style. Ensure the foreground reads clearly against the background.${logoRule(hasLogo)}
 
-${brandBlock(brand)}${brandPalette(brand)}`;
+${brandBlock(brand)}${brandPalette(brand)}${anchorsSection(brand, hasLogo)}${memory}`;
 }
 
 export function buildDesignSpecPrompt(context: DesignContext): string {
