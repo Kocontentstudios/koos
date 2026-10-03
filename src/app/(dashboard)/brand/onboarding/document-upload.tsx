@@ -113,6 +113,7 @@ export function useDocumentUpload({
         const data = (await res.json().catch(() => null)) as {
           proposal?: Proposal;
           truncated?: boolean;
+          readVisually?: boolean;
           error?: string;
         } | null;
         if (!res.ok || !data?.proposal) {
@@ -122,6 +123,15 @@ export function useDocumentUpload({
         /* Said plainly rather than silently: a deck read only in part may be
            missing whatever was at the end of it, and the user is about to
            confirm the result. */
+        /* Read off the artwork rather than a text layer, which is likelier to
+           misread a word — and the user is about to confirm this into their
+           brand (KOOS-V1-FEAT-031). */
+        if (data.readVisually) {
+          toast.info(
+            "That document had no text layer, so KO read the pages themselves. Check the summary before you confirm it.",
+          );
+        }
+
         if (data.truncated) {
           toast.info(
             "That document was long, so KO read the beginning of it. Check the summary covers what you expected.",
