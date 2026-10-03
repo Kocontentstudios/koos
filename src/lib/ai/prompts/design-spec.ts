@@ -1,4 +1,5 @@
 import { anchorsBlock } from "@/lib/ai/design-training/anchors";
+import { designTrainingEnabled } from "@/lib/ai/design-training/enabled";
 import { inferCategory } from "@/lib/ai/design-training/infer-category";
 import { playbookBlock } from "@/lib/ai/design-training/playbooks";
 import { layoutMemoryBlock } from "@/lib/ai/design-training/recent-layouts";
@@ -106,6 +107,10 @@ function anchorsSection(brand: BrandSummary, hasLogo: boolean): string {
 }
 
 export interface DesignSpecPromptOptions {
+  /** Whether the design-training system shapes this prompt. Defaults to the
+   *  environment; the benchmark overrides it per call to run both arms, and
+   *  production can turn it off without a deploy. */
+  training?: boolean;
   /** Layouts this brand's recent designs used, newest first. Drives module
    *  06 §7's anti-repetition rule (src/lib/ai/design-training/recent-layouts). */
   recentLayouts?: string[];
@@ -118,26 +123,31 @@ export interface DesignSpecPromptOptions {
 export function buildDesignSpecSystemPrompt(
   brand: BrandSummary,
   hasLogo: boolean,
-  { memorySummary, recentLayouts = [] }: DesignSpecPromptOptions = {},
+  { memorySummary, recentLayouts = [], training }: DesignSpecPromptOptions = {},
 ): string {
-  const layoutMemory = layoutMemoryBlock(recentLayouts);
+  const trained = designTrainingEnabled(training);
+  const layoutMemory = trained ? layoutMemoryBlock(recentLayouts) : "";
   const layouts = layoutMemory ? `\n\n${layoutMemory}` : "";
   const memory = memorySummary?.trim()
     ? `\n\nWhat KO knows about this brand from working with them:\n${memorySummary.trim()}`
     : "";
   return `You are an art director producing a design for ${brand.name}.
 
-Return a structured design spec. Rules that matter:${AUTONOMY_RULES}
+Return a structured design spec. Rules that matter:${trained ? AUTONOMY_RULES : ""}
 - Choose "layout" from: ${DESIGN_LAYOUTS.join(", ")}. Pick by the shape of the content, not at random.
 - Copy must be short enough to read at a glance on a phone. Headlines are a few words, not a sentence.
 - "backgroundPrompt" describes a background image ONLY. It must never ask for text, letters, numbers, words, logos, watermarks, or user interface. The typography is drawn separately and will collide with any lettering the image contains.
 - "nativePrompt" is the opposite: it describes the COMPLETE finished design for a model that can render text. Quote the exact copy in double quotes, name the colours, and describe the layout in plain English.
 - "palette" must be drawn from the brand colours listed below, as hex values — the primary colour leads unless the brief argues otherwise. A colour given by name rather than as a hex is still the brand's colour: convert it. If no brand colours are listed, choose a palette that fits the brand's visual style. Ensure the foreground reads clearly against the background.${logoRule(hasLogo)}
 
-${brandBlock(brand)}${brandPalette(brand)}${anchorsSection(brand, hasLogo)}${layouts}${memory}`;
+${brandBlock(brand)}${brandPalette(brand)}${trained ? anchorsSection(brand, hasLogo) : ""}${layouts}${memory}`;
 }
 
-export function buildDesignSpecPrompt(context: DesignContext): string {
+export function buildDesignSpecPrompt(
+  context: DesignContext,
+  { training }: { training?: boolean } = {},
+): string {
+  const trained = designTrainingEnabled(training);
   const request =
     context.briefText?.trim() ||
     "Produce an on-brand social post that reflects the brand's offer and goal.";
@@ -169,9 +179,9 @@ export function buildDesignSpecPrompt(context: DesignContext): string {
 
   return [
     `Design request:\n${lines.join("\n")}`,
-    formatBlock(format),
-    playbookBlock(category),
-    limitation,
+    trained ? formatBlock(format) : null,
+    trained ? playbookBlock(category) : null,
+    trained ? limitation : null,
     `Brief:\n${request}`,
   ]
     .filter(Boolean)

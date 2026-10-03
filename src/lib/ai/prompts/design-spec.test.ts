@@ -407,3 +407,55 @@ describe("the system prompt carries the brand's recent layouts", () => {
     expect(prompt).not.toMatch(/recent layouts/i);
   });
 });
+
+/* KOOS-AI-001 §1.7. The benchmark runs both arms in one process, and the same
+   switch is the production rollback. Off must mean genuinely off — the old
+   prompt, not a quieter version of the new one, or the comparison measures
+   nothing. */
+describe("the training system can be switched off", () => {
+  const ctxArgs = {
+    title: "Weekend restock",
+    designType: "Video Thumbnail",
+    dimensions: "1280x720",
+    platform: "YouTube",
+    scheduledFor: null,
+    aspectRatio: "16:9",
+    briefText: "Fresh meat pies, order now for delivery before 6pm.",
+  } as Parameters<typeof buildDesignSpecPrompt>[0];
+
+  it("drops the playbook and format rules from the brief", () => {
+    const off = buildDesignSpecPrompt(ctxArgs, { training: false });
+
+    expect(off).not.toMatch(/category: food/i);
+    expect(off).not.toMatch(/competing thumbnails/i);
+    expect(off).toMatch(/Fresh meat pies/);
+  });
+
+  it("drops the anchors and the autonomy rules from the system prompt", () => {
+    const off = buildDesignSpecSystemPrompt(
+      { name: "Lagos Loom", primaryColor: "indigo" },
+      true,
+      { training: false },
+    );
+
+    expect(off).not.toMatch(/fixed, do not change/i);
+    expect(off).not.toMatch(/never invent/i);
+  });
+
+  /* What must survive: the rules that keep the renderer working. Turning the
+     training system off is a quality rollback, not a licence to break the
+     layout enum or let the model redraw the logo. */
+  it("keeps the rules the renderer depends on", () => {
+    const off = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, true, {
+      training: false,
+    });
+
+    expect(off).toMatch(/hero-center/);
+    expect(off).toMatch(/this brand has a logo/i);
+    expect(off).toMatch(/no text, no letters|never ask for text/i);
+  });
+
+  it("is on when no option is passed", () => {
+    expect(buildDesignSpecPrompt(ctxArgs)).toMatch(/category: food/i);
+  });
+});
