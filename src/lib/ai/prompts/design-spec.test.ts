@@ -322,6 +322,18 @@ describe("the master instruction reaches the system prompt", () => {
     expect(prompt).toMatch(/\[PHONE NUMBER\]|placeholder/i);
   });
 
+  /* The benchmark's own finding: the baseline invented "0800 000 0000" for a
+     brief that said "put our number on it", and the trained arm stopped
+     inventing but OMITTED the number instead. Omission silently drops
+     something the user explicitly asked for, so the rule has to distinguish a
+     fact the design merely needs from one the brief named. */
+  it("requires a placeholder when the brief asked for the missing element", () => {
+    expect(prompt).toMatch(/never silently drop/i);
+    /* The rule and the placeholder form have to be in the same breath, or the
+       model can honour "do not invent" by omitting instead. */
+    expect(prompt).toMatch(/brief asks for[^.]*\[PHONE NUMBER\]/i);
+  });
+
   it("still carries the layout and logo rules it had before", () => {
     expect(prompt).toMatch(/hero-center/);
     expect(prompt).toMatch(/this brand has a logo/i);

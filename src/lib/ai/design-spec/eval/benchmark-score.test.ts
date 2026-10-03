@@ -7,6 +7,7 @@ const spec = (over: Record<string, unknown> = {}) =>
     subheadline: "Order before 6pm",
     cta: "Order now",
     layout: "hero-center",
+    bodyPoints: [],
     ...over,
   }) as Parameters<typeof scoreSpec>[0];
 
@@ -55,6 +56,29 @@ describe("scoreSpec", () => {
     const scored = scoreSpec(spec({ subheadline: "Open until 6pm" }), "Flyer");
 
     expect(scored.suspectNumbers).toEqual([]);
+  });
+
+  /* The scorer read only headline/subheadline/cta and reported "0
+     placeholders" for a spec carrying four of them in bodyPoints — a
+     benchmark that under-reports its own result is a broken instrument. */
+  it("reads every copy field, not just the headline block", () => {
+    const scored = scoreSpec(
+      spec({
+        bodyPoints: ["[EVENT DATE] · [EVENT TIME]", "[VENUE NAME], Lagos"],
+      }),
+      "Flyer",
+    );
+
+    expect(scored.placeholders).toHaveLength(3);
+  });
+
+  it("finds an invented number wherever it was written", () => {
+    const scored = scoreSpec(
+      spec({ bodyPoints: ["Call 0803 123 4567"] }),
+      "Flyer",
+    );
+
+    expect(scored.suspectNumbers).toHaveLength(1);
   });
 
   it("counts an empty headline as no words rather than one", () => {

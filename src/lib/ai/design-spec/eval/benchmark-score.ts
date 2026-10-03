@@ -1,5 +1,4 @@
 import { formatRules, resolveDesignFormat } from "@/lib/design/formats";
-import type { DesignSpec } from "@/lib/design/spec";
 
 /**
  * What can be measured about a design spec without asking a model.
@@ -34,12 +33,29 @@ export function words(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
-export function scoreSpec(
-  spec: Pick<DesignSpec, "headline" | "subheadline" | "cta" | "layout">,
-  designType: string,
-): SpecScore {
+/** Loose on purpose: specs stored before a field was removed still carry it,
+ *  and the scorer's job is to read whatever copy a spec holds. */
+export interface ScorableSpec {
+  headline?: string;
+  subheadline?: string;
+  cta?: string;
+  layout?: string;
+  /** Removed from the live schema because nothing drew it; historic rows and
+   *  the before-arm of a benchmark can still contain it. */
+  bodyPoints?: string[];
+}
+
+export function scoreSpec(spec: ScorableSpec, designType: string): SpecScore {
   const budget = formatRules(resolveDesignFormat(designType)).headlineWords;
-  const copy = [spec.headline, spec.subheadline, spec.cta]
+  /* Every copy field, because the model puts utility details wherever the
+     schema gives it room — in practice bodyPoints — and a scorer that reads
+     three of four fields reports a win as a miss. */
+  const copy = [
+    spec.headline,
+    spec.subheadline,
+    spec.cta,
+    ...(spec.bodyPoints ?? []),
+  ]
     .filter(Boolean)
     .join(" ");
 

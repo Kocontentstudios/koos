@@ -74,6 +74,21 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
       "Says plainly that a still renderer cannot produce motion, and offers the closest useful still.",
   },
   {
+    /* The same missing-fact rule, but for a fact that belongs in the COPY
+       rather than in contact details. If this one gets a placeholder and
+       missing-fact-placeholder does not, the gap is the spec having nowhere to
+       put contact details — a schema and renderer problem, not a prompt one. */
+    id: "missing-fact-in-copy",
+    designType: "Flyer",
+    dimensions: "1080x1350",
+    platform: "Instagram",
+    aspectRatio: "4:5",
+    briefText:
+      "Our anniversary tasting event. Put the date on it prominently so people can plan. Free entry, limited spaces.",
+    looksLike:
+      "A visible placeholder where the date belongs. The brief named the date as the thing to feature, and no date was supplied.",
+  },
+  {
     id: "control-social-post",
     designType: "Social Media Post",
     dimensions: "1080x1080",

@@ -259,19 +259,40 @@ finished.
   brand fit and freshness are not scored, because a judge from the same model
   family grading its own output is weak evidence. **A human has to look at the
   outputs.**
-- **Five briefs, one brand, one run.** Model output varies between runs; a
-  single pass is an indication, not a measurement.
+- **Six briefs, one brand, one run.** Model output varies between runs, and
+  visibly so: across runs of the same case the baseline invented a phone number
+  once and not the next time, and placeholder counts moved. A single pass is an
+  indication, not a measurement. Treat a difference of one or two as noise.
 - **Specs, not images.** The training system does its work at the spec stage,
   but the user sees a rendered image, and the renderer can still fail a good
   spec.
 
 ## Known gaps, in the order I would fix them
 
-1. **A placeholder is not preferred when the brief asks for the element.** In
-   the benchmark the training arm stopped inventing a number but omitted it
-   rather than writing `[PHONE NUMBER]`. Module 07 permits either; when the
-   brief explicitly asks for the number, the placeholder is better, because
-   omission silently drops something the user asked for. A prompt fix.
+1. ~~A placeholder is not preferred when the brief asks for the element. A
+   prompt fix.~~ **Wrong on both counts; corrected after investigating.**
+
+   The prompt rule was strengthened (the brief naming an element means a
+   placeholder, never an omission) and it does work — a brief asking for the
+   event date now yields `[EVENT DATE]` and `[EVENT TIME]`.
+
+   But two other things were actually going on, and neither was a prompt:
+
+   - **The benchmark scorer read three of four copy fields.** It reported "0
+     placeholders" for a spec carrying four of them in `bodyPoints`. A
+     benchmark that under-reports its own result is a broken instrument, and
+     it nearly sent this investigation in the wrong direction.
+   - **`bodyPoints` existed in the schema and nowhere else** — no layout drew
+     it, no prompt mentioned it. The art director filled it because the schema
+     offered it, and the renderer discarded every word. The benchmark caught it
+     writing `[EVENT DATE] · [EVENT TIME]` and `[VENUE NAME], Lagos` into a
+     field that is silently dropped. A field that eats the user's information
+     is worse than no field, so it is gone.
+
+   **What remains, and it is structural:** a phone number belongs in a footer,
+   and the renderer has no footer zone at all (module 05: twelve footer systems,
+   renderer has none). Contact details have nowhere to live that is actually
+   drawn. That is phase 2, not a prompt.
 2. **Category inference is keyword-based** on the form and quick paths. The
    chat path could be asked for the category directly and is not yet.
 3. **Most of the manual is still renderer work** — 12 footer systems, 9 layout

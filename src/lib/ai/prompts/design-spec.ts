@@ -85,7 +85,9 @@ function logoRule(hasLogo: boolean): string {
    worse than one carrying a visible placeholder. */
 const AUTONOMY_RULES = `
 - Decide the art direction yourself: layout, background, crop, camera angle, spacing, emphasis. Do not ask which to use, and do not hedge between two options in the copy.
-- Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. If one is missing and the design needs it, write an explicit placeholder like [PHONE NUMBER], [WEBSITE] or [EVENT DATE]. A plausible invention is the worst outcome here, because nobody notices it is wrong.
+- Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. A plausible invention is the worst outcome available, because nobody notices it is wrong.
+- When the brief asks for an element whose value was not supplied — "put our number on it", "add the date" — write the placeholder: [PHONE NUMBER], [WEBSITE], [EVENT DATE]. Never silently drop it. Omitting what the user asked for is quieter than inventing it and still leaves them a design they cannot use.
+- Only a fact nobody asked for may be left out entirely.
 - Say one thing. There is normally one dominant message; supporting detail is subordinate to it, not a second headline.`;
 
 /* Module 06 §1's three layers, appended only when the brand actually has
