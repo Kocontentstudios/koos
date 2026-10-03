@@ -6,6 +6,11 @@ const getActiveBrandForMember = vi.fn();
 const checkBrandAccess = vi.fn();
 const updateBrand = vi.fn();
 const createBrand = vi.fn();
+const addBrandAsset = vi.fn();
+const listBrandLogos = vi.fn();
+const setPreferredBrandLogo = vi.fn();
+const removeBrandLogo = vi.fn();
+const updateBrandLogo = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/auth/workspace", () => ({
@@ -18,10 +23,23 @@ vi.mock("@/lib/db/queries", () => ({
     checkBrandAccess(userId, brandId, capability),
   updateBrand: (id: string, data: unknown) => updateBrand(id, data),
   createBrand: (data: unknown) => createBrand(data),
+  addBrandAsset: (data: unknown) => addBrandAsset(data),
+  listBrandLogos: (brandId: string) => listBrandLogos(brandId),
+  setPreferredBrandLogo: (brandId: string, id: string) =>
+    setPreferredBrandLogo(brandId, id),
+  removeBrandLogo: (brandId: string, id: string) =>
+    removeBrandLogo(brandId, id),
+  updateBrandLogo: (brandId: string, id: string, fields: unknown) =>
+    updateBrandLogo(brandId, id, fields),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { saveBrandProfile } from "./actions";
+import {
+  addLogoVariation,
+  removeLogoVariation,
+  saveBrandProfile,
+  setDefaultLogoVariation,
+} from "./actions";
 
 const validInput = {
   name: "Acme",
@@ -485,5 +503,103 @@ describe("saveBrandProfile additionalColors", () => {
       });
       expect(patch().additionalColorLabels).toEqual(["", ""]);
     });
+  });
+});
+
+/* FEAT-032: a brand holds a stacked mark, a horizontal lockup, an icon, and
+   light and dark cuts of each. Only one could be stored, so a second upload
+   overwrote the first. */
+describe("logo variations", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1" },
+      workspace: { id: "ws-1" },
+      role: "owner",
+    });
+    checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b1" } });
+    addBrandAsset.mockResolvedValue({ id: "a1" });
+    listBrandLogos.mockResolvedValue([]);
+    /* storageKeyFrom compares the URL's origin against this, so a logo URL is
+       only ours when the public base is configured. */
+    vi.stubEnv("R2_PUBLIC_BASE_URL", "https://cdn.example.test");
+  });
+
+  it("stores a variation without touching the primary logo", async () => {
+    const result = await addLogoVariation({
+      brandId: "b1",
+      fileUrl: "https://cdn.example.test/logos/u1/stacked.png",
+      fileName: "stacked.png",
+      label: "Stacked",
+      logoVariant: "vertical",
+      logoBackground: "dark",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(updateBrand).not.toHaveBeenCalled();
+    expect(addBrandAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandId: "b1",
+        assetType: "logo",
+        label: "Stacked",
+        logoVariant: "vertical",
+        logoBackground: "dark",
+      }),
+    );
+  });
+
+  /* The same guard every other brand write uses: an id in the body is not
+     permission to write to that brand. */
+  it("refuses a brand the member cannot manage", async () => {
+    checkBrandAccess.mockResolvedValue({ ok: false, error: "No access" });
+
+    const result = await addLogoVariation({
+      brandId: "someone-elses",
+      fileUrl: "https://cdn.example.test/logos/u1/x.png",
+      fileName: "x.png",
+      label: "",
+      logoVariant: "icon",
+      logoBackground: "any",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(addBrandAsset).not.toHaveBeenCalled();
+  });
+
+  /* storageKeyFrom is the only sanctioned URL→key path; a URL from anywhere
+     else must not become a brand asset. */
+  it("refuses a file that is not in our logo storage", async () => {
+    const result = await addLogoVariation({
+      brandId: "b1",
+      fileUrl: "https://attacker.test/logo.png",
+      fileName: "logo.png",
+      label: "",
+      logoVariant: "icon",
+      logoBackground: "any",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(addBrandAsset).not.toHaveBeenCalled();
+  });
+
+  it("makes one variation the default", async () => {
+    const result = await setDefaultLogoVariation("b1", "a1");
+
+    expect(result.ok).toBe(true);
+    expect(setPreferredBrandLogo).toHaveBeenCalledWith("b1", "a1");
+  });
+
+  it("removes a variation", async () => {
+    const result = await removeLogoVariation("b1", "a1");
+
+    expect(result.ok).toBe(true);
+    expect(removeBrandLogo).toHaveBeenCalledWith("b1", "a1");
+  });
+
+  it("refuses to remove from a brand the member cannot manage", async () => {
+    checkBrandAccess.mockResolvedValue({ ok: false, error: "No access" });
+
+    expect((await removeLogoVariation("b1", "a1")).ok).toBe(false);
+    expect(removeBrandLogo).not.toHaveBeenCalled();
   });
 });

@@ -385,8 +385,10 @@ export async function generateDesignWork(
   const { logo, fault: logoLoadFault } = logoFree
     ? { logo: null, fault: null }
     : await loadBestLogo({
-        /* The profile logo, plus any other approved marks the brand holds. */
-        urls: [context.brand.logoUrl, ...context.logoAssetUrls],
+        /* The profile logo plus every other approved mark, ordered so the
+           user's chosen default wins when two read equally well — loadBestLogo
+           measures contrast and keeps the first on a tie (FEAT-032). */
+        urls: context.logoCandidates,
         /* The resolved palette, not the model's raw string: colorValue is a
            permissive z.string() on purpose, so the model routinely answers
            with a colour NAME and resolvePalette substitutes the brand's own

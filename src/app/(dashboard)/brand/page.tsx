@@ -12,11 +12,13 @@ import { pairColourLabels } from "@/lib/brand/colour-labels";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import {
   getActiveBrandForMember,
+  listBrandLogos,
   listDesignGenerationsForBrand,
 } from "@/lib/db/queries";
 import { serializeGeneration } from "@/lib/design/serialize";
 import { resolveOnboardingRoute } from "@/lib/onboarding-route";
 import { GeneratedDesigns } from "./generated-designs";
+import { LogoVariations } from "./logo-variations";
 
 /* ------------------------------------------------------------------ */
 /*  Sub-components                                                     */
@@ -99,6 +101,20 @@ export default async function BrandProfilePage() {
       }),
     );
   }
+
+  /* The other approved marks. Only a member who may change brand content can
+     manage them, and the renderer measures contrast between them per design
+     (FEAT-032). */
+  const canManage = role ? can(role, "manage_content") : false;
+  const logoVariations = (await listBrandLogos(brand.id)).map((asset) => ({
+    id: asset.id,
+    fileUrl: asset.fileUrl,
+    fileName: asset.fileName,
+    label: asset.label,
+    logoVariant: asset.logoVariant,
+    logoBackground: asset.logoBackground,
+    isPreferred: asset.isPreferred,
+  }));
 
   const generationRows = await listDesignGenerationsForBrand(brand.id, {
     limit: 8,
@@ -393,6 +409,12 @@ export default async function BrandProfilePage() {
           </div>
         )}
       </div>
+
+      {canManage && (
+        <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-6">
+          <LogoVariations brandId={brand.id} initial={logoVariations} />
+        </div>
+      )}
 
       <GeneratedDesigns brandId={brand.id} generations={generations} />
     </div>
