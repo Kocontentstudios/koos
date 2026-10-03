@@ -13,12 +13,16 @@ import {
   toBrandSnapshot,
 } from "@/lib/brand-snapshot";
 import {
+  addBrandAsset,
   checkBrandAccess,
   createBrand,
   getActiveBrandForMember,
+  removeBrandLogo,
+  setPreferredBrandLogo,
   updateBrand,
 } from "@/lib/db/queries";
 import type { brands } from "@/lib/db/schema";
+import { STORAGE_PREFIXES, storageKeyFrom } from "@/lib/storage";
 import { brandProfileSchema } from "./brand-profile-form";
 
 export async function saveBrandProfile(
@@ -146,4 +150,84 @@ export async function saveBrandProfile(
   revalidatePath("/brand");
   revalidatePath("/dashboard");
   return { ok: true, brandId: brand.id, snapshot: toBrandSnapshot(brand) };
+}
+
+/* FEAT-032. A brand holds a stacked mark, a horizontal lockup, an icon, and
+   light and dark cuts of each; brands.logo_url could hold one, so a second
+   upload replaced the first. These live in brand_assets alongside the primary
+   mark, which they never overwrite. */
+
+export interface LogoVariationInput {
+  brandId: string;
+  fileUrl: string;
+  fileName: string;
+  label: string;
+  logoVariant:
+    | "primary"
+    | "horizontal"
+    | "vertical"
+    | "icon"
+    | "wordmark"
+    | "alternate";
+  logoBackground: "any" | "light" | "dark";
+}
+
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+async function mayManage(brandId: string): Promise<ActionResult> {
+  const { dbUser } = await getActiveWorkspace();
+  if (!dbUser) return { ok: false, error: "Not authenticated" };
+
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  return access.ok ? { ok: true } : { ok: false, error: access.error };
+}
+
+export async function addLogoVariation(
+  input: LogoVariationInput,
+): Promise<ActionResult> {
+  const allowed = await mayManage(input.brandId);
+  if (!allowed.ok) return allowed;
+
+  /* storageKeyFrom is the only sanctioned URL→key path: a URL from anywhere
+     else must never become a brand asset the renderer will fetch. */
+  if (!storageKeyFrom(input.fileUrl, STORAGE_PREFIXES.logos)) {
+    return { ok: false, error: "That file is not one of our uploads." };
+  }
+
+  await addBrandAsset({
+    brandId: input.brandId,
+    assetType: "logo",
+    fileUrl: input.fileUrl,
+    fileName: input.fileName,
+    label: input.label.trim() || null,
+    logoVariant: input.logoVariant,
+    logoBackground: input.logoBackground,
+  });
+
+  revalidatePath("/brand");
+  return { ok: true };
+}
+
+export async function setDefaultLogoVariation(
+  brandId: string,
+  assetId: string,
+): Promise<ActionResult> {
+  const allowed = await mayManage(brandId);
+  if (!allowed.ok) return allowed;
+
+  await setPreferredBrandLogo(brandId, assetId);
+  revalidatePath("/brand");
+  return { ok: true };
+}
+
+export async function removeLogoVariation(
+  brandId: string,
+  assetId: string,
+): Promise<ActionResult> {
+  const allowed = await mayManage(brandId);
+  if (!allowed.ok) return allowed;
+
+  await removeBrandLogo(brandId, assetId);
+  revalidatePath("/brand");
+  return { ok: true };
 }

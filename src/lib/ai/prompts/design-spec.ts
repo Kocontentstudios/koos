@@ -1,5 +1,12 @@
+import { inferCategory } from "@/lib/ai/design-training/infer-category";
+import { playbookBlock } from "@/lib/ai/design-training/playbooks";
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import type { DesignContext } from "@/lib/design/context";
+import {
+  formatBlock,
+  formatRules,
+  resolveDesignFormat,
+} from "@/lib/design/formats";
 import { DESIGN_LAYOUTS, type DesignSpec } from "@/lib/design/spec";
 import { type BrandSummary, brandBlock } from "./strategy";
 
@@ -67,13 +74,24 @@ function logoRule(hasLogo: boolean): string {
     : `\n- This brand has no logo on file. Set "logoPlacement" to "none", "logoFree" to true, "logoFreeQuote" to "", and do not leave a gap for one.`;
 }
 
+/* Module 09 §1 and module 07 of the training manual, compressed to the rules
+   this pipeline can actually honour. The manual's point: choosing a layout, a
+   background or a crop is the system's job, and asking the user to choose one
+   is a failure, not politeness. The facts rule is the sharp one — a generated
+   design carrying a plausible-looking phone number that belongs to nobody is
+   worse than one carrying a visible placeholder. */
+const AUTONOMY_RULES = `
+- Decide the art direction yourself: layout, background, crop, camera angle, spacing, emphasis. Do not ask which to use, and do not hedge between two options in the copy.
+- Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. If one is missing and the design needs it, write an explicit placeholder like [PHONE NUMBER], [WEBSITE] or [EVENT DATE]. A plausible invention is the worst outcome here, because nobody notices it is wrong.
+- Say one thing. There is normally one dominant message; supporting detail is subordinate to it, not a second headline.`;
+
 export function buildDesignSpecSystemPrompt(
   brand: BrandSummary,
   hasLogo: boolean,
 ): string {
-  return `You are an art director producing a single social media design for ${brand.name}.
+  return `You are an art director producing a design for ${brand.name}.
 
-Return a structured design spec. Rules that matter:
+Return a structured design spec. Rules that matter:${AUTONOMY_RULES}
 - Choose "layout" from: ${DESIGN_LAYOUTS.join(", ")}. Pick by the shape of the content, not at random.
 - Copy must be short enough to read at a glance on a phone. Headlines are a few words, not a sentence.
 - "backgroundPrompt" describes a background image ONLY. It must never ask for text, letters, numbers, words, logos, watermarks, or user interface. The typography is drawn separately and will collide with any lettering the image contains.
@@ -84,6 +102,19 @@ ${brandBlock(brand)}${brandPalette(brand)}`;
 }
 
 export function buildDesignSpecPrompt(context: DesignContext): string {
+  const request =
+    context.briefText?.trim() ||
+    "Produce an on-brand social post that reflects the brand's offer and goal.";
+
+  /* Two axes, both previously absent. FORMAT is what the deliverable is and
+     how it is read; CATEGORY is what it is selling, which decides the priority
+     order and therefore what becomes the headline (training manual module 08).
+     The user's label stays in the prompt too — it is what they actually
+     asked for, and the resolution is a reading of it, not a replacement. */
+  const format = resolveDesignFormat(context.designType);
+  const category = inferCategory(request, context.designType);
+  const rules = formatRules(format);
+
   const lines = [
     context.title ? `Title: ${context.title}` : null,
     context.designType ? `Design type: ${context.designType}` : null,
@@ -93,11 +124,22 @@ export function buildDesignSpecPrompt(context: DesignContext): string {
     `Target aspect ratio: ${context.aspectRatio}`,
   ].filter(Boolean);
 
-  const request =
-    context.briefText?.trim() ||
-    "Produce an on-brand social post that reflects the brand's offer and goal.";
+  /* Said plainly rather than silently producing something else: the renderer
+     composites one still image, so a motion or print request cannot be the
+     deliverable that was asked for. */
+  const limitation = rules.generatable
+    ? null
+    : `NOTE: this pipeline renders one still image, so it cannot produce ${format} as asked. ${rules.guidance} Produce the closest useful still and keep the copy honest about what it is.`;
 
-  return `Design request:\n${lines.join("\n")}\n\nBrief:\n${request}`;
+  return [
+    `Design request:\n${lines.join("\n")}`,
+    formatBlock(format),
+    playbookBlock(category),
+    limitation,
+    `Brief:\n${request}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** The string actually sent to the plate model. The negative clause is what

@@ -15,6 +15,7 @@ import {
   type ResolvedAttachment,
   sortByPrecedence,
 } from "@/lib/design/attachments";
+import { orderLogoCandidates } from "@/lib/design/logo-variants";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import {
   type BrandSummary,
@@ -57,6 +58,8 @@ export interface DesignContext {
   /** Other approved logo marks the brand holds, beyond the profile one. The
    *  renderer picks whichever reads best on the design's ground. */
   logoAssetUrls: string[];
+  /** Ordered for loadBestLogo: the user's default first (FEAT-032). */
+  logoCandidates: string[];
 }
 
 export interface ResolveDesignContextArgs {
@@ -227,6 +230,7 @@ export async function resolveDesignContext({
      the brand's assets, and issuing the same query twice per generation is a
      round trip for nothing. */
   const brandAssets = await getBrandAssets(brandId);
+  const logoAssets = brandAssets.filter((asset) => asset.assetType === "logo");
   const resolved = await Promise.all(
     refs.map((ref) => loadAttachment(ref, brandId, brandAssets)),
   );
@@ -253,8 +257,19 @@ export async function resolveDesignContext({
     platform: merged.platform,
     scheduledFor: merged.scheduledFor,
     referenceUrls: merged.referenceUrls,
-    logoAssetUrls: brandAssets
-      .filter((asset) => asset.assetType === "logo")
-      .map((asset) => asset.fileUrl),
+    logoAssetUrls: logoAssets.map((asset) => asset.fileUrl),
+    /* The order loadBestLogo should try them in. It picks by measuring
+       contrast and keeps the first on a tie, so this is where a user's chosen
+       default gets its say between marks that both read well (FEAT-032). */
+    logoCandidates: orderLogoCandidates(
+      logoAssets.map((asset) => ({
+        fileUrl: asset.fileUrl,
+        logoVariant: asset.logoVariant ?? null,
+        logoBackground: asset.logoBackground ?? "any",
+        label: asset.label ?? null,
+        isPreferred: asset.isPreferred ?? false,
+      })),
+      brand.logoUrl,
+    ),
   };
 }

@@ -357,6 +357,67 @@ export async function getBrandAssets(brandId: string) {
     .orderBy(desc(brandAssets.createdAt));
 }
 
+/**
+ * The brand's logo variations, newest last so the list reads as it was built.
+ *
+ * brands.logo_url remains the primary mark; these are the other approved cuts
+ * (FEAT-032).
+ */
+export async function listBrandLogos(brandId: string) {
+  return db
+    .select()
+    .from(brandAssets)
+    .where(
+      and(eq(brandAssets.brandId, brandId), eq(brandAssets.assetType, "logo")),
+    )
+    .orderBy(brandAssets.createdAt);
+}
+
+/**
+ * Make one variation the brand's default.
+ *
+ * Cleared first, in the same transaction: a partial unique index allows one
+ * preferred logo per brand, so setting a second without clearing the first
+ * fails the write rather than moving the default.
+ */
+export async function setPreferredBrandLogo(brandId: string, assetId: string) {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(brandAssets)
+      .set({ isPreferred: false })
+      .where(
+        and(
+          eq(brandAssets.brandId, brandId),
+          eq(brandAssets.assetType, "logo"),
+        ),
+      );
+    await tx
+      .update(brandAssets)
+      .set({ isPreferred: true })
+      .where(
+        and(eq(brandAssets.id, assetId), eq(brandAssets.brandId, brandId)),
+      );
+  });
+}
+
+/** Scoped by brand as well as id, so an id from another brand updates nothing. */
+export async function updateBrandLogo(
+  brandId: string,
+  assetId: string,
+  fields: Partial<typeof brandAssets.$inferInsert>,
+) {
+  await db
+    .update(brandAssets)
+    .set(fields)
+    .where(and(eq(brandAssets.id, assetId), eq(brandAssets.brandId, brandId)));
+}
+
+export async function removeBrandLogo(brandId: string, assetId: string) {
+  await db
+    .delete(brandAssets)
+    .where(and(eq(brandAssets.id, assetId), eq(brandAssets.brandId, brandId)));
+}
+
 export async function addBrandAsset(data: typeof brandAssets.$inferInsert) {
   const [asset] = await db.insert(brandAssets).values(data).returning();
   return asset;
