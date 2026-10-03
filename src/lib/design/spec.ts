@@ -33,7 +33,13 @@ export const designSpecSchema = z.object({
   headline: z.string().min(1).max(70),
   subheadline: z.string().max(140).optional(),
   cta: z.string().max(32).optional(),
-  bodyPoints: z.array(z.string().max(90)).max(3).optional(),
+  /* No bodyPoints. The field existed here and nowhere else — no layout drew
+     it, no prompt mentioned it — so the art director filled it because the
+     schema offered it and the renderer discarded every word. The benchmark
+     caught it writing "[EVENT DATE] · [EVENT TIME]" and "[VENUE NAME]" into
+     it for a brief that asked for the date. Utility details belong in copy
+     the renderer draws, until there is a real footer zone (module 05 of the
+     training manual, phase 2). */
   palette: z.object({
     background: colorValue,
     foreground: colorValue,

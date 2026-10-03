@@ -322,8 +322,152 @@ describe("the master instruction reaches the system prompt", () => {
     expect(prompt).toMatch(/\[PHONE NUMBER\]|placeholder/i);
   });
 
+  /* The benchmark's own finding: the baseline invented "0800 000 0000" for a
+     brief that said "put our number on it", and the trained arm stopped
+     inventing but OMITTED the number instead. Omission silently drops
+     something the user explicitly asked for, so the rule has to distinguish a
+     fact the design merely needs from one the brief named. */
+  it("requires a placeholder when the brief asked for the missing element", () => {
+    expect(prompt).toMatch(/never silently drop/i);
+    /* The rule and the placeholder form have to be in the same breath, or the
+       model can honour "do not invent" by omitting instead. */
+    expect(prompt).toMatch(/brief asks for[^.]*\[PHONE NUMBER\]/i);
+  });
+
   it("still carries the layout and logo rules it had before", () => {
     expect(prompt).toMatch(/hero-center/);
     expect(prompt).toMatch(/this brand has a logo/i);
+  });
+});
+
+/* KOOS-AI-001 §1.4. The design path never knew which parts of a brand may
+   move. Module 06 §1's three layers now reach the art director, so "vary the
+   composition" cannot be read as licence to recolour the mark. */
+describe("the system prompt carries the brand's anchors", () => {
+  const withLogo = buildDesignSpecSystemPrompt(
+    { name: "Lagos Loom", primaryColor: "indigo", brandFont: "Bricolage" },
+    true,
+  );
+
+  it("separates what is fixed from what may vary", () => {
+    expect(withLogo).toMatch(/fixed, do not change/i);
+    expect(withLogo).toMatch(/may vary/i);
+  });
+
+  it("protects the real logo file from being described or redrawn", () => {
+    expect(withLogo).toMatch(/never describe, redraw, recolour or letter it/i);
+  });
+
+  /* The failure this prevents: "vary two or three dimensions" read as "change
+     everything", which produces a design belonging to no brand. */
+  it("bounds the variation rather than inviting a free hand", () => {
+    expect(withLogo).toMatch(/not every one at once/i);
+  });
+
+  it("adds no anchor section for a brand with nothing on file", () => {
+    const bare = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false);
+
+    expect(bare).not.toMatch(/fixed, do not change/i);
+  });
+});
+
+/* KOOS-AI-001 §1.4. `buildMemoryBlock` accumulates durable facts about a brand
+   from every chat turn, and until now only the chat could see them — the
+   design path, which needs them most, had no access at all. */
+describe("the system prompt can carry the brand's accumulated memory", () => {
+  it("includes the memory summary when one exists", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      memorySummary: "Known: sells handwoven textiles; avoids the word luxury.",
+    });
+
+    expect(prompt).toMatch(/handwoven textiles/);
+  });
+
+  it("adds no memory section when the brand has none", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      memorySummary: "",
+    });
+
+    expect(prompt).not.toMatch(/what KO knows/i);
+  });
+
+  it("still works for callers that pass no options at all", () => {
+    expect(buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false)).toMatch(
+      /art director/i,
+    );
+  });
+});
+
+/* KOOS-AI-001 §1.5. Every generation re-rolled the layout blind, so a brand
+   could receive the same composition indefinitely — and all parallel variants
+   share one spec, so they shared the repetition too. */
+describe("the system prompt carries the brand's recent layouts", () => {
+  it("tells the art director what this brand has had lately", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      recentLayouts: ["hero-center", "hero-center"],
+    });
+
+    expect(prompt).toMatch(/recent layouts/i);
+    expect(prompt).toMatch(/hero-center/);
+  });
+
+  it("adds nothing for a brand generating its first design", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      recentLayouts: [],
+    });
+
+    expect(prompt).not.toMatch(/recent layouts/i);
+  });
+});
+
+/* KOOS-AI-001 §1.7. The benchmark runs both arms in one process, and the same
+   switch is the production rollback. Off must mean genuinely off — the old
+   prompt, not a quieter version of the new one, or the comparison measures
+   nothing. */
+describe("the training system can be switched off", () => {
+  const ctxArgs = {
+    title: "Weekend restock",
+    designType: "Video Thumbnail",
+    dimensions: "1280x720",
+    platform: "YouTube",
+    scheduledFor: null,
+    aspectRatio: "16:9",
+    briefText: "Fresh meat pies, order now for delivery before 6pm.",
+  } as Parameters<typeof buildDesignSpecPrompt>[0];
+
+  it("drops the playbook and format rules from the brief", () => {
+    const off = buildDesignSpecPrompt(ctxArgs, { training: false });
+
+    expect(off).not.toMatch(/category: food/i);
+    expect(off).not.toMatch(/competing thumbnails/i);
+    expect(off).toMatch(/Fresh meat pies/);
+  });
+
+  it("drops the anchors and the autonomy rules from the system prompt", () => {
+    const off = buildDesignSpecSystemPrompt(
+      { name: "Lagos Loom", primaryColor: "indigo" },
+      true,
+      { training: false },
+    );
+
+    expect(off).not.toMatch(/fixed, do not change/i);
+    expect(off).not.toMatch(/never invent/i);
+  });
+
+  /* What must survive: the rules that keep the renderer working. Turning the
+     training system off is a quality rollback, not a licence to break the
+     layout enum or let the model redraw the logo. */
+  it("keeps the rules the renderer depends on", () => {
+    const off = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, true, {
+      training: false,
+    });
+
+    expect(off).toMatch(/hero-center/);
+    expect(off).toMatch(/this brand has a logo/i);
+    expect(off).toMatch(/no text, no letters|never ask for text/i);
+  });
+
+  it("is on when no option is passed", () => {
+    expect(buildDesignSpecPrompt(ctxArgs)).toMatch(/category: food/i);
   });
 });

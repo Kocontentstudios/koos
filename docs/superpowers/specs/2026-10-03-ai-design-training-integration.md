@@ -215,3 +215,92 @@ candidate plans — safe/balanced/exploratory (§9), campaign-level packs (modul
 | Compositing | `src/lib/design/render/composite.ts`, `layouts.tsx`, `copy-fit.ts`, `logo-overlay.tsx` |
 | Brand data | `src/lib/jobs/brand-summary.ts`, `src/lib/ai/prompts/strategy.ts` (`brandBlock`), `brand-codex.ts` (unused here), `ai/memory.ts` (unused here) |
 | Offline evals | `src/lib/ai/image/eval/`, `src/lib/ai/design-spec/eval/` |
+
+---
+
+# Phase 1 results and implementation notes
+
+*Deliverable #9. Written after building phase 1, before it ships.*
+
+## What was built
+
+| § | Landed | Where |
+| --- | --- | --- |
+| 1.1 | Format resolution (12 formats, reading conditions, copy budget, whether the renderer can produce it) + category inference | `src/lib/design/formats.ts`, `src/lib/ai/design-training/infer-category.ts` |
+| 1.2 | The 12 category playbooks from module 08, as data | `src/lib/ai/design-training/playbooks.ts` |
+| 1.3 | Module 09's autonomy rules and module 07's missing-information protocol | `src/lib/ai/prompts/design-spec.ts` |
+| 1.4 | Brand anchors (module 06 §1) + the rolling brand memory on the design path | `src/lib/ai/design-training/anchors.ts` |
+| 1.5 | Layout memory and anti-repetition (module 06 §7-8), read back from stored specs | `src/lib/ai/design-training/recent-layouts.ts` |
+| 1.6 | Pre-delivery checks with one correction pass | `src/lib/design/quality/` |
+| 1.7 | Benchmark, both arms in one process | `src/lib/ai/design-spec/eval/benchmark.mts` |
+
+`AI_DESIGN_TRAINING=off` turns the whole thing off without a deploy. It is how
+the benchmark runs both arms, and it is the rollback.
+
+## Benchmark, 2026-10-03
+
+Five briefs, each art-directed twice against the same brand and model.
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Headline within the format's budget | 4/5 | 5/5 |
+| Invented phone-like numbers | **1** | **0** |
+| Distinct layouts across five briefs | 2 | 3 |
+
+The one that matters: a brief saying "put our number on it" with no number
+supplied produced `Call to Order: 0800 000 0000` in the baseline. A plausible
+invented number on a flyer is the failure nobody catches, because it looks
+finished.
+
+## What the benchmark does NOT show
+
+- **It does not say the designs are better.** Headline length, invented numbers
+  and layout variety have one correct answer each and are computed. Hierarchy,
+  brand fit and freshness are not scored, because a judge from the same model
+  family grading its own output is weak evidence. **A human has to look at the
+  outputs.**
+- **Six briefs, one brand, one run.** Model output varies between runs, and
+  visibly so: across runs of the same case the baseline invented a phone number
+  once and not the next time, and placeholder counts moved. A single pass is an
+  indication, not a measurement. Treat a difference of one or two as noise.
+- **Specs, not images.** The training system does its work at the spec stage,
+  but the user sees a rendered image, and the renderer can still fail a good
+  spec.
+
+## Known gaps, in the order I would fix them
+
+1. ~~A placeholder is not preferred when the brief asks for the element. A
+   prompt fix.~~ **Wrong on both counts; corrected after investigating.**
+
+   The prompt rule was strengthened (the brief naming an element means a
+   placeholder, never an omission) and it does work — a brief asking for the
+   event date now yields `[EVENT DATE]` and `[EVENT TIME]`.
+
+   But two other things were actually going on, and neither was a prompt:
+
+   - **The benchmark scorer read three of four copy fields.** It reported "0
+     placeholders" for a spec carrying four of them in `bodyPoints`. A
+     benchmark that under-reports its own result is a broken instrument, and
+     it nearly sent this investigation in the wrong direction.
+   - **`bodyPoints` existed in the schema and nowhere else** — no layout drew
+     it, no prompt mentioned it. The art director filled it because the schema
+     offered it, and the renderer discarded every word. The benchmark caught it
+     writing `[EVENT DATE] · [EVENT TIME]` and `[VENUE NAME], Lagos` into a
+     field that is silently dropped. A field that eats the user's information
+     is worse than no field, so it is gone.
+
+   **What remains, and it is structural:** a phone number belongs in a footer,
+   and the renderer has no footer zone at all (module 05: twelve footer systems,
+   renderer has none). Contact details have nowhere to live that is actually
+   drawn. That is phase 2, not a prompt.
+2. **Category inference is keyword-based** on the form and quick paths. The
+   chat path could be asked for the category directly and is not yet.
+3. **Most of the manual is still renderer work** — 12 footer systems, 9 layout
+   families, grids, multi-page. Phase 2, and `KOOS-AI-002` for carousels.
+4. **The quality gate is deterministic only.** It catches blank frames, wrong
+   shapes and unreadable marks. A design that is technically sound but generic
+   passes. The rubric judge (module 06 §10) is the answer and is deliberately
+   not wired in yet — per the decision, it runs only when a deterministic check
+   has already failed, which means a design that fails nothing is never judged.
+5. **Variants still share one spec**, so the parallel renders share a layout,
+   a headline and a palette. Real variant diversity needs more than one spec.
