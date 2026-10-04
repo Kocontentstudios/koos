@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 import { canvasFor } from "@/lib/design/canvas";
 import { logoBoxIn } from "@/lib/design/logo-placement";
 import type { DesignSpec } from "@/lib/design/spec";
-import { decodePngRgba, encodePngRgba } from "@/lib/images/png-pixels";
+import {
+  decodePngRgba,
+  encodePngRgba,
+  regionInk,
+} from "@/lib/images/png-pixels";
 import { renderCompositeDesign } from "./composite";
 import { bannerBandFor, copySpaceFor } from "./copy-fit";
+import { footerBandHeight } from "./footer";
 import {
   diffBounds,
   inkBounds,
@@ -28,6 +33,8 @@ const SPEC: DesignSpec = {
   logoPlacement: "bottom-right",
   logoFree: false,
   logoFreeQuote: "",
+  footerStyle: "none" as const,
+  footerLines: [],
   backgroundPrompt: "warm city skyline at dusk",
   backgroundTreatment: "photographic",
   nativePrompt: "unused in the composite route",
@@ -706,4 +713,71 @@ describe("renderCompositeDesign keeps the copy inside its layout", () => {
     },
     180_000,
   );
+});
+
+/* KOOS-AI-001 phase 2. Module 05's footer, rendered for real. Measured in the
+   pixels rather than asserted from the spec: the whole reason this work exists
+   is that the model was writing contact details into a field the renderer
+   silently dropped, and a test that only checks the spec would not have caught
+   that either. */
+describe("the footer band", () => {
+  const FOOTER_SPEC: DesignSpec = {
+    ...SPEC,
+    footerStyle: "bar",
+    footerLines: ["Call [PHONE NUMBER]", "Delivery across Yaba"],
+  };
+
+  it("puts ink in the bottom band that is not there without it", async () => {
+    const [plain, withFooter] = await Promise.all([
+      renderCompositeDesign({
+        spec: { ...SPEC, footerStyle: "none", footerLines: [] },
+        brand: { primaryColor: "#0F172A", secondaryColor: "#F97316" },
+        plate: null,
+        logo: null,
+      }),
+      renderCompositeDesign({
+        spec: FOOTER_SPEC,
+        brand: { primaryColor: "#0F172A", secondaryColor: "#F97316" },
+        plate: null,
+        logo: null,
+      }),
+    ]);
+
+    const band = (bytes: Uint8Array) => {
+      const decoded = decodePngRgba(bytes);
+      if (!decoded) throw new Error("render did not decode");
+      const height = footerBandHeight(FOOTER_SPEC, {
+        width: decoded.width,
+        height: decoded.height,
+      });
+      return regionInk(decoded, {
+        left: 0,
+        top: decoded.height - height,
+        width: decoded.width,
+        height,
+      });
+    };
+
+    const before = band(plain.bytes);
+    const after = band(withFooter.bytes);
+
+    /* regionInk reports RELATIVE LUMINANCE, 0 to 1 — not a 0-255 channel.
+       The bar paints the foreground across the strip, so on a dark design the
+       band goes from near-black to near-white: measured 0.99 of the available
+       range. A tenth is already far more than rendering noise. */
+    expect(Math.abs(after.lightest - before.lightest)).toBeGreaterThan(0.1);
+  }, 90_000);
+
+  it("renders every layout with a footer without throwing", async () => {
+    for (const layout of LAYOUTS) {
+      const result = await renderCompositeDesign({
+        spec: { ...FOOTER_SPEC, layout },
+        brand: { primaryColor: "#0F172A", secondaryColor: "#F97316" },
+        plate: null,
+        logo: null,
+      });
+
+      expect(Array.from(result.bytes.slice(0, 4))).toEqual(PNG_MAGIC);
+    }
+  }, 120_000);
 });

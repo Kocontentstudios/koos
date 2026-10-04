@@ -11,6 +11,7 @@ import {
   fitHeadlineSize,
 } from "@/lib/design/render/copy-fit";
 import type { DesignSpec } from "@/lib/design/spec";
+import { footerBandHeight, footerLinesFor, hasFooter } from "./footer";
 
 export interface LayoutArgs {
   spec: DesignSpec;
@@ -245,6 +246,76 @@ function CopyStack({
   );
 }
 
+/**
+ * Utility information — contact details, dates, venue — pinned to the bottom.
+ *
+ * Module 05 of the training manual catalogues twelve footer systems; two draw
+ * here. A "bar" carries its own ground so the details read over any plate; a
+ * "text" footer sits directly on the design for a lighter, premium feel. The
+ * ten geometric variants (ribbon, curved shoulder, angled split) are satori
+ * shape work and can follow — what mattered first was that the information
+ * reaches the design at all (KOOS-AI-001 phase 2).
+ */
+function FooterBand({
+  spec,
+  palette,
+  canvas,
+  overPhoto,
+}: {
+  spec: DesignSpec;
+  palette: ResolvedPalette;
+  canvas: Canvas;
+  overPhoto: boolean;
+}) {
+  const lines = footerLinesFor(spec);
+  if (!hasFooter(spec)) return null;
+
+  const bandHeight = footerBandHeight(spec, canvas);
+  const reference = Math.min(canvas.width, canvas.height);
+  const isBar = spec.footerStyle === "bar";
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: bandHeight,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: reference * 0.008,
+        paddingLeft: reference * 0.06,
+        paddingRight: reference * 0.06,
+        /* The bar is its own ground. Plain text has none, so over a photo it
+           has to borrow the scrim's contrast the way the copy does. */
+        backgroundColor: isBar ? palette.foreground : "transparent",
+      }}
+    >
+      {lines.map((line) => (
+        <div
+          key={line}
+          style={{
+            display: "flex",
+            fontSize: reference * 0.026,
+            lineHeight: 1.3,
+            textAlign: "center",
+            color: isBar
+              ? palette.background
+              : overPhoto
+                ? "#FFFFFF"
+                : palette.foreground,
+          }}
+        >
+          {line}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function layoutElement({
   spec,
   palette,
@@ -293,6 +364,15 @@ export function layoutElement({
     overflow: "hidden" as const,
   };
 
+  const footer = (
+    <FooterBand
+      spec={spec}
+      palette={palette}
+      canvas={canvas}
+      overPhoto={overPhoto}
+    />
+  );
+
   const logo = logoDataUri ? (
     <Logo
       uri={logoDataUri}
@@ -339,6 +419,7 @@ export function layoutElement({
             headlineSize={headline}
           />
         </div>
+        {footer}
         {logo}
       </div>
     );
@@ -374,6 +455,7 @@ export function layoutElement({
             headlineSize={headline}
           />
         </div>
+        {footer}
         {logo}
       </div>
     );
@@ -412,6 +494,7 @@ export function layoutElement({
             headlineSize={headline}
           />
         </div>
+        {footer}
         {logo}
       </div>
     );
@@ -442,6 +525,7 @@ export function layoutElement({
           headlineSize={headline}
         />
       </div>
+      {footer}
       {logo}
     </div>
   );

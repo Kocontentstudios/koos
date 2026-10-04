@@ -506,6 +506,12 @@ export async function generateDesignWork(
       hasLogo: Boolean(logo),
       layout: drafted.layout,
       logoFree,
+      /* A footer band covers the bottom corners, so the mark has to move off
+         them before placement rather than being measured as illegible after. */
+      footer: {
+        footerStyle: drafted.footerStyle,
+        footerLines: drafted.footerLines,
+      },
     }),
   };
 

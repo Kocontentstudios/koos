@@ -87,6 +87,8 @@ const draftedSpec = {
   logoPlacement: "none",
   logoFree: false,
   logoFreeQuote: "",
+  footerStyle: "none" as const,
+  footerLines: [],
   backgroundPrompt: "a skyline",
   backgroundTreatment: "photographic",
   nativePrompt: "a launch poster",

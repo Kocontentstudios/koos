@@ -88,6 +88,7 @@ const AUTONOMY_RULES = `
 - Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. A plausible invention is the worst outcome available, because nobody notices it is wrong.
 - When the brief asks for an element whose value was not supplied — "put our number on it", "add the date" — write the placeholder: [PHONE NUMBER], [WEBSITE], [EVENT DATE]. Never silently drop it. Omitting what the user asked for is quieter than inventing it and still leaves them a design they cannot use.
 - Only a fact nobody asked for may be left out entirely.
+- "footerLines" carries the utility information a design needs to be usable — phone, website, handle, venue, date, "limited spaces". Up to three short lines, and placeholders belong here when the brief named something it did not supply. "footerStyle" is "bar" for a solid band that reads over any image, "text" for plain lines on the design, and "none" when the design needs no utility block at all. A greeting or a brand-building post usually needs "none"; an empty band reads as a mistake.
 - Say one thing. There is normally one dominant message; supporting detail is subordinate to it, not a second headline.`;
 
 /* Module 06 §1's three layers, appended only when the brand actually has

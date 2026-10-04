@@ -334,6 +334,16 @@ describe("the master instruction reaches the system prompt", () => {
     expect(prompt).toMatch(/brief asks for[^.]*\[PHONE NUMBER\]/i);
   });
 
+  /* Module 05 §1: the footer is chosen by function, and a celebration post
+     often needs none — an empty band reads as a mistake. The renderer can now
+     draw one, so the art director has to know it exists and when to use it. */
+  it("explains when a footer earns its place and what goes in it", () => {
+    expect(prompt).toMatch(/footerLines/);
+    expect(prompt).toMatch(/footerStyle/);
+    expect(prompt).toMatch(/contact|utility|date|venue/i);
+    expect(prompt).toMatch(/"none"/);
+  });
+
   it("still carries the layout and logo rules it had before", () => {
     expect(prompt).toMatch(/hero-center/);
     expect(prompt).toMatch(/this brand has a logo/i);
