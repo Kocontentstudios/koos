@@ -1,3 +1,4 @@
+import { placeholdersIn, suspectNumbersIn, words } from "@/lib/ai/eval-text";
 import { formatRules, resolveDesignFormat } from "@/lib/design/formats";
 
 /**
@@ -22,15 +23,6 @@ export interface SpecScore {
    *  the training system's missing-information rule exists to prevent. */
   suspectNumbers: string[];
   layout: string;
-}
-
-const PLACEHOLDER = /\[[A-Z][A-Z \-/]{2,}\]/g;
-/* Long digit runs, which in a brief with no number supplied means the model
-   produced one. Dates and prices are shorter and are checked by eye. */
-const PHONE_LIKE = /\+?\d[\d\s\-()]{8,}\d/g;
-
-export function words(text: string): number {
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
 /** Loose on purpose: specs stored before a field was removed still carry it,
@@ -63,8 +55,8 @@ export function scoreSpec(spec: ScorableSpec, designType: string): SpecScore {
     headlineWords: words(spec.headline ?? ""),
     headlineBudget: budget,
     withinBudget: words(spec.headline ?? "") <= budget,
-    placeholders: [...copy.matchAll(PLACEHOLDER)].map((m) => m[0]),
-    suspectNumbers: [...copy.matchAll(PHONE_LIKE)].map((m) => m[0].trim()),
+    placeholders: placeholdersIn(copy),
+    suspectNumbers: suspectNumbersIn(copy),
     layout: spec.layout ?? "",
   };
 }

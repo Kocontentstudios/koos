@@ -25,6 +25,8 @@
     "eval:design-logo": "tsx src/lib/ai/image/eval/run-logo.mts",
     "eval:design-spec": "tsx src/lib/ai/design-spec/eval/run.mts",
     "eval:design-benchmark": "tsx src/lib/ai/design-spec/eval/benchmark.mts",
+    "eval:design-brief": "tsx src/lib/ai/design-brief/eval/run.mts",
+    "eval:design-judge": "tsx src/lib/ai/design-judge/eval/run.mts",
     "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts",
     "eval:scanned-pdf": "tsx src/lib/ai/onboarding/eval/run-scanned.mts",
     "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts"

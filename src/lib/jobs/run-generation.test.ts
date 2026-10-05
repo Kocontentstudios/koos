@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CalendarChunk, CalendarOutline } from "@/lib/ai/calendar-schema";
+import {
+  deliverableSchema,
+  designBriefContentSchema,
+} from "@/lib/ai/design-brief-schema";
+import {
+  buildDeliverableIdentificationPrompt,
+  deliverableIdentificationSystemPrompt,
+} from "@/lib/ai/prompts/design-request";
 import type { Strategy } from "@/lib/ai/strategy-schema";
 
 const generateObject = vi.fn();
@@ -432,15 +440,27 @@ describe("resumeCalendarJob", () => {
 });
 
 describe("generateDesignBriefWork", () => {
-  const BRIEF = {
+  /* Two model calls since KOOS-AI-001: the deliverable is settled first so the
+     brief can be written against that format's structure alone. */
+  const DELIVERABLE = {
+    designType: "Social Media Post",
+    dimensions: "",
+    slides: 0,
+  };
+  const CONTENT = {
     title: "Launch Post",
-    designType: "Instagram Post (1080x1350)",
-    dimensions: "1080x1350",
-    briefMarkdown: "**Title**\nLaunch Post",
+    briefMarkdown: "**Request Title**\nLaunch Post",
+    notes: "",
   };
 
+  function mockBothSteps() {
+    generateObject
+      .mockResolvedValueOnce({ object: DELIVERABLE })
+      .mockResolvedValueOnce({ object: CONTENT });
+  }
+
   it("persists the brief when a conversationId is provided", async () => {
-    generateObject.mockResolvedValueOnce({ object: BRIEF });
+    mockBothSteps();
     createDesignBrief.mockResolvedValue({ id: "brief-1" });
     const outcome = await generateDesignBriefWork({
       brand: BRAND,
@@ -455,15 +475,76 @@ describe("generateDesignBriefWork", () => {
         brandId: "b1",
         userId: "u1",
         title: "Launch Post",
-        designType: "Instagram Post (1080x1350)",
-        briefMarkdown: "**Title**\nLaunch Post",
+        designType: "Social Media Post",
+        /* Never stated in the conversation, so it comes from the format
+           rather than from a model asked to remember it. */
+        dimensions: "1080x1350",
+        briefMarkdown: "**Request Title**\nLaunch Post",
       }),
     );
-    expect(outcome.result).toMatchObject({ brief: BRIEF, briefId: "brief-1" });
+    /* The assembled brief is what the API hands back to the client, so the
+       DB-write shape alone is not enough. */
+    expect(outcome.result).toMatchObject({
+      brief: {
+        title: "Launch Post",
+        designType: "Social Media Post",
+        dimensions: "1080x1350",
+        briefMarkdown: "**Request Title**\nLaunch Post",
+      },
+      briefId: "brief-1",
+    });
+  });
+
+  /* Every guarantee the prompt tests prove — the standard labels, the
+     empty-string and zero sentinels — is proven on a function nothing else
+     proves the job calls. Replacing the identification prompt with a bare
+     sentence left every other test in this suite passing. */
+  it("identifies the deliverable with the real prompt, schema and token cap", async () => {
+    mockBothSteps();
+    await generateDesignBriefWork({
+      brand: BRAND,
+      conversation: "user: I need a launch post",
+      conversationId: null,
+      userId: "u1",
+      sessionId: null,
+    });
+    const identify = generateObject.mock.calls[0][0];
+    expect(identify.system).toBe(deliverableIdentificationSystemPrompt());
+    expect(identify.prompt).toBe(
+      buildDeliverableIdentificationPrompt("user: I need a launch post"),
+    );
+    expect(identify.schema).toBe(deliverableSchema);
+
+    const write = generateObject.mock.calls[1][0];
+    expect(write.schema).toBe(designBriefContentSchema);
+    /* Bedrock's 4096 default truncates a long brief into malformed JSON, and
+       the routed brief is longer than the template it replaced. */
+    expect(write.maxOutputTokens).toBeGreaterThan(4096);
+  });
+
+  /* The whole point of splitting the call: the structure handed to the writing
+     step is the one the identified format owns. A thumbnail must not be asked
+     for the utility details a flyer needs. */
+  it("writes the brief against the identified format's structure", async () => {
+    generateObject
+      .mockResolvedValueOnce({
+        object: { ...DELIVERABLE, designType: "Video Thumbnail" },
+      })
+      .mockResolvedValueOnce({ object: CONTENT });
+    await generateDesignBriefWork({
+      brand: BRAND,
+      conversation: "user: thumbnail for the new episode",
+      conversationId: null,
+      userId: "u1",
+      sessionId: null,
+    });
+    const writeCall = generateObject.mock.calls[1][0];
+    expect(writeCall.system).toMatch(/Focal Subject/);
+    expect(writeCall.system).not.toMatch(/Utility Details/);
   });
 
   it("skips persistence when no conversationId is provided", async () => {
-    generateObject.mockResolvedValueOnce({ object: BRIEF });
+    mockBothSteps();
     const outcome = await generateDesignBriefWork({
       brand: BRAND,
       conversation: "user: I need a launch post",
@@ -472,7 +553,7 @@ describe("generateDesignBriefWork", () => {
       sessionId: null,
     });
     expect(createDesignBrief).not.toHaveBeenCalled();
-    expect(outcome.result).toMatchObject({ brief: BRIEF, briefId: null });
+    expect(outcome.result).toMatchObject({ briefId: null });
   });
 });
 

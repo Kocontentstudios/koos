@@ -44,6 +44,12 @@ export interface FormatRules {
   generatable: boolean;
   /** Format-specific art direction, injected into the brief and spec prompts. */
   guidance: string;
+  /** The canvas to assume when the request never states one — always a size
+   *  src/lib/design/canvas.ts can actually render, so a brief's dimensions are
+   *  producible rather than aspirational. Empty for a format the still
+   *  renderer cannot produce: there is no right answer to invent for a
+   *  dieline or a motion piece. */
+  defaultDimensions: string;
 }
 
 /* Ordered: the first pattern that matches wins, so the more specific ones come
@@ -81,6 +87,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 8,
     multiPage: false,
     generatable: true,
+    defaultDimensions: "1080x1350",
     guidance:
       "Read on a phone while scrolling. One dominant message, high contrast, and copy that survives being seen at thumbnail size before it is opened.",
   },
@@ -88,6 +95,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 7,
     multiPage: true,
     generatable: true,
+    defaultDimensions: "1080x1350",
     guidance:
       "A sequence: the first frame earns the swipe, the middle frames carry one point each, the last frame carries the action. Frames share a type system and palette so they read as one set.",
   },
@@ -95,6 +103,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 10,
     multiPage: false,
     generatable: true,
+    defaultDimensions: "1080x1350",
     guidance:
       "Denser than a social post and often read at arm's length. Dates, venue and contact details are information, not decoration, and belong in a stable lower zone.",
   },
@@ -102,13 +111,15 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 12,
     multiPage: false,
     generatable: true,
+    defaultDimensions: "1080x1350",
     guidance:
-      "Read at distance first, up close second. One statement legible across a room, then supporting detail for whoever steps closer.",
+      "Read at distance first, up close second. One statement legible across a room, then supporting detail for whoever steps closer. The still renderer produces a screen-resolution image, so a poster that will be printed needs a human designer for bleed, trim and CMYK.",
   },
   banner: {
     headlineWords: 6,
     multiPage: false,
     generatable: true,
+    defaultDimensions: "1344x756",
     guidance:
       "Wide and shallow. Copy sits on one side with the subject on the other; a centred stack wastes the shape. Very short headline, one action.",
   },
@@ -116,6 +127,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 4,
     multiPage: false,
     generatable: true,
+    defaultDimensions: "1344x756",
     guidance:
       "Seen at a few hundred pixels wide beside competing thumbnails. Three or four very large words, one face or object, extreme contrast. Detail is wasted here.",
   },
@@ -123,6 +135,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 10,
     multiPage: true,
     generatable: false,
+    defaultDimensions: "",
     guidance:
       "A deck is a sequence of slides with a master layout. The still-image renderer produces one frame, so treat a request for this as a single title slide and say so.",
   },
@@ -130,6 +143,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 3,
     multiPage: false,
     generatable: false,
+    defaultDimensions: "",
     guidance:
       "A mark is identity work, not a composition. It needs vector output and human iteration; a generated raster is a sketch at best.",
   },
@@ -137,6 +151,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 8,
     multiPage: false,
     generatable: false,
+    defaultDimensions: "",
     guidance:
       "Print needs bleed, trim, CMYK and a dieline. A screen-resolution RGB composite is not a printable artefact.",
   },
@@ -144,6 +159,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 6,
     multiPage: false,
     generatable: false,
+    defaultDimensions: "",
     guidance:
       "Motion needs frames over time. A still renderer can only offer a key frame, which is not the deliverable that was asked for.",
   },
@@ -151,6 +167,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 8,
     multiPage: true,
     generatable: false,
+    defaultDimensions: "",
     guidance:
       "Interface design needs real components, states and content. A generated picture of a screen is a mood board, not a design.",
   },
@@ -158,6 +175,7 @@ const RULES: Record<DesignFormat, FormatRules> = {
     headlineWords: 8,
     multiPage: false,
     generatable: true,
+    defaultDimensions: "1080x1350",
     guidance:
       "Format unrecognised. Apply the general rules: one dominant message, clear reading order, and copy sized for the canvas.",
   },

@@ -11,6 +11,7 @@ const listDesignGenerations = vi.fn(() => Promise.resolve([]));
 const updateDesignGeneration = vi.fn();
 const getPlateAdapter = vi.fn();
 const getNativeAdapters = vi.fn();
+const judgeAndCorrect = vi.fn();
 
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
@@ -46,6 +47,10 @@ vi.mock("@/lib/db/queries", () => ({
 vi.mock("@/lib/analytics/posthog-server", () => ({
   captureServerEvent: vi.fn(),
 }));
+vi.mock("@/lib/design/quality/judge", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  judgeAndCorrect: (args: unknown) => judgeAndCorrect(args),
+}));
 vi.mock("@/lib/storage", () => ({
   getObjectBytes: (key: string) => getObjectBytes(key),
   uploadObject: vi.fn(),
@@ -66,8 +71,10 @@ const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
    64-byte stub for a 1024x1024 frame reads as blank by compressed density,
    exactly as a real empty render would, and the gate would retry it. These
    fixtures stand in for a finished design, so they carry a design's density. */
-function png(width = 8, height = 8): Uint8Array {
-  const bytes = new Uint8Array(Math.max(64, Math.ceil(width * height * 0.25)));
+function png(width = 8, height = 8, bytesPerPixel = 0.25): Uint8Array {
+  const bytes = new Uint8Array(
+    Math.max(64, Math.ceil(width * height * bytesPerPixel)),
+  );
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
   const view = new DataView(bytes.buffer);
   view.setUint32(8, 13);
@@ -118,7 +125,16 @@ function context(over: Record<string, unknown> = {}) {
   } as never;
 }
 
-const runtime = { reportProgress: vi.fn() } as never;
+/* JobRuntime's real shape. A double carrying only reportProgress threw on
+   shouldPause the moment the pre-delivery gate started consulting the slice
+   deadline, and the variant failed rather than the test. */
+const runtime = {
+  jobId: "job-1",
+  reportProgress: vi.fn(),
+  checkpoint: {},
+  saveCheckpoint: vi.fn(),
+  shouldPause: () => false,
+} as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -131,6 +147,12 @@ beforeEach(() => {
   nativeGenerate.mockResolvedValue({
     bytes: png(1024, 1024),
     contentType: "image/png",
+  });
+  judgeAndCorrect.mockResolvedValue({
+    corrected: false,
+    spec: null,
+    verdict: null,
+    applied: null,
   });
   getPlateAdapter.mockReturnValue(null);
   getNativeAdapters.mockReturnValue([
@@ -280,6 +302,38 @@ describe("the logo reaches the design", () => {
     await generateDesignWork({ context: context(), userId: "u1" }, runtime);
 
     expect(updateDesignGeneration.mock.calls[0][1].spec).toBeUndefined();
+  });
+
+  /* The judge's correction changes the spec, and the corrected render is what
+     the user gets. The row has to carry that spec, not the draft: recentLayouts
+     reads this column back to decide what NOT to repeat, so a draft layout
+     nobody saw would steer the brand's next design away from a composition it
+     never used. */
+  it("stores the corrected spec when the judge's render was kept", async () => {
+    /* A genuinely flat first frame, so the real pre-delivery check raises the
+       fault rather than a stubbed one. Stubbed at the overlay, not at the
+       adapter: the logo is composited onto the generated image, so the bytes
+       the check reads are the overlay's output. */
+    overlayLogo
+      .mockResolvedValueOnce({
+        bytes: png(1080, 1080, 0.0001),
+        logoFault: null,
+      })
+      .mockResolvedValue({ bytes: png(1080, 1080), logoFault: null });
+    judgeAndCorrect.mockResolvedValue({
+      corrected: true,
+      spec: { ...draftedSpec, layout: "split-left" },
+      verdict: null,
+      applied: { field: "layout", from: "hero-center", to: "split-left" },
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await generateDesignWork({ context: context(), userId: "u1" }, runtime);
+
+    expect(updateDesignGeneration.mock.calls[0][1].spec).toMatchObject({
+      layout: "split-left",
+    });
+    error.mockRestore();
   });
 
   it("persists the placement it actually rendered, not the draft", async () => {

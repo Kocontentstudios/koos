@@ -88,3 +88,36 @@ describe("formatRules", () => {
     expect(formatRules("flyer").generatable).toBe(true);
   });
 });
+
+/* KOOS-AI-001. The brief generator used to be told "Instagram feed posts and
+   carousel slides default to 1080x1350 portrait unless the user asks
+   otherwise" — a deterministic fact asked of a model on every brief. The
+   default now comes from the format, and every one it offers is a canvas the
+   renderer can actually produce (src/lib/design/canvas.ts). */
+describe("defaultDimensions", () => {
+  const CANVASES = ["1080x1080", "1080x1350", "1080x1920", "1344x756"];
+
+  it("offers a producible canvas for every format the renderer can render", () => {
+    for (const format of DESIGN_FORMATS) {
+      const dimensions = formatRules(format).defaultDimensions;
+      if (!formatRules(format).generatable) continue;
+      expect(CANVASES).toContain(dimensions);
+    }
+  });
+
+  /* A dieline, a deck master or a motion piece has no single right pixel size,
+     and the default exists to give the renderer a canvas — so for a format it
+     cannot render, asserting one would be inventing a specification. */
+  it("offers none for a format the renderer cannot produce", () => {
+    for (const format of DESIGN_FORMATS) {
+      if (formatRules(format).generatable) continue;
+      expect(formatRules(format).defaultDimensions).toBe("");
+    }
+  });
+
+  it("puts a thumbnail and a banner in landscape and a social post in portrait", () => {
+    expect(formatRules("thumbnail").defaultDimensions).toBe("1344x756");
+    expect(formatRules("banner").defaultDimensions).toBe("1344x756");
+    expect(formatRules("social-post").defaultDimensions).toBe("1080x1350");
+  });
+});

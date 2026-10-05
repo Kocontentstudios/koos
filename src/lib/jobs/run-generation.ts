@@ -5,7 +5,11 @@ import {
   calendarChunkSchema,
   calendarOutlineSchema,
 } from "@/lib/ai/calendar-schema";
-import { designBriefSchema } from "@/lib/ai/design-brief-schema";
+import {
+  assembleDesignBrief,
+  deliverableSchema,
+  designBriefContentSchema,
+} from "@/lib/ai/design-brief-schema";
 import {
   buildCalendarChunkPrompt,
   buildCalendarChunkSystemPrompt,
@@ -13,8 +17,10 @@ import {
   buildCalendarOutlineSystemPrompt,
 } from "@/lib/ai/prompts/calendar";
 import {
+  buildDeliverableIdentificationPrompt,
   buildDesignBriefGenerationPrompt,
   buildDesignBriefSystemPrompt,
+  deliverableIdentificationSystemPrompt,
 } from "@/lib/ai/prompts/design-request";
 import {
   buildStrategistSystemPrompt,
@@ -40,6 +46,7 @@ import {
   updateGenerationJob,
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
+import { resolveDesignFormat } from "@/lib/design/formats";
 import {
   brandSummaryFrom,
   brandSummaryWithVoice,
@@ -755,6 +762,8 @@ export async function resumeCalendarJob(job: {
   );
 }
 
+const BRIEF_MAX_OUTPUT_TOKENS = 8000;
+
 /** Turn a design-request conversation into a structured brief. When the chat
  * conversation is known, the brief is persisted as a design_briefs row so it
  * survives the session as an editable Design Brief Card; the client reviews
@@ -767,12 +776,36 @@ export async function generateDesignBriefWork(args: {
   sessionId?: string | null;
 }): Promise<JobOutcome> {
   const summary = await brandSummaryWithVoice(args.brand);
-  const { object } = await generateObject({
+
+  /* Two calls, not one: the structure the brief is written against depends on
+     the deliverable, so the deliverable has to be settled first (KOOS-AI-001,
+     "KO OS identifies the correct design type before writing the brief"). */
+  const { object: deliverable } = await generateObject({
     model: getModel("strategy"),
-    schema: designBriefSchema,
-    system: buildDesignBriefSystemPrompt(summary),
-    prompt: buildDesignBriefGenerationPrompt(args.conversation, summary),
+    schema: deliverableSchema,
+    system: deliverableIdentificationSystemPrompt(),
+    prompt: buildDeliverableIdentificationPrompt(args.conversation),
   });
+
+  const { object: content } = await generateObject({
+    model: getModel("strategy"),
+    schema: designBriefContentSchema,
+    system: buildDesignBriefSystemPrompt(
+      summary,
+      resolveDesignFormat(deliverable.designType),
+    ),
+    prompt: buildDesignBriefGenerationPrompt(
+      args.conversation,
+      summary,
+      deliverable,
+    ),
+    /* Bedrock's 4096 default truncates a long brief into malformed JSON, and
+       a routed brief is longer than the one template it replaced — eight or
+       nine sections, each answered even when the answer is short. */
+    maxOutputTokens: BRIEF_MAX_OUTPUT_TOKENS,
+  });
+
+  const object = assembleDesignBrief(deliverable, content);
   let briefId: string | null = null;
   if (args.conversationId) {
     const row = await createDesignBrief({

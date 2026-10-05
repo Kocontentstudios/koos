@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { layoutVariety, scoreSpec, words } from "./benchmark-score";
+import { words } from "@/lib/ai/eval-text";
+import { layoutVariety, scoreSpec } from "./benchmark-score";
 
 const spec = (over: Record<string, unknown> = {}) =>
   ({
