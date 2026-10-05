@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   brandPalette,
+  buildDesignSpecPrompt,
   buildDesignSpecSystemPrompt,
   buildNativePrompt,
 } from "./design-spec";
@@ -233,5 +234,250 @@ describe("buildNativePrompt's logo clause", () => {
     const prompt = buildNativePrompt(spec as never, brand);
     expect(prompt).toContain('Headline: "Launch week"');
     expect(prompt).toContain("Background colour #000");
+  });
+});
+
+/* KOOS-AI-001 §1.2-1.3. The art director's entire instruction was eight lines
+   that said "a single social media design" whatever had been asked for, and
+   the deliverable type reached it as one free-text line it could not act on.
+   The training manual's master instruction (module 09), the format rules and
+   the category playbook (module 08) now reach the call that decides the
+   design. */
+describe("the art director's brief carries the training system", () => {
+  const ctx = (over: Record<string, unknown> = {}) =>
+    buildDesignSpecPrompt({
+      title: "Weekend restock",
+      designType: "Video Thumbnail",
+      dimensions: "1280x720",
+      platform: "YouTube",
+      scheduledFor: null,
+      aspectRatio: "16:9",
+      briefText: "Fresh meat pies, order now for delivery before 6pm.",
+      ...over,
+    } as Parameters<typeof buildDesignSpecPrompt>[0]);
+
+  it("names the resolved format, not just the user's label", () => {
+    expect(ctx()).toMatch(/thumbnail/i);
+  });
+
+  /* A thumbnail is read beside competing thumbnails at a few hundred pixels;
+     a poster is read across a room. One prompt for both is how every
+     deliverable ended up looking like a social post. */
+  it("carries the format's own reading conditions", () => {
+    const thumbnail = ctx();
+    const poster = ctx({ designType: "Poster", dimensions: "2480x3508" });
+
+    expect(thumbnail).not.toBe(poster);
+    expect(thumbnail).toMatch(/few hundred pixels|competing thumbnails/i);
+    expect(poster).toMatch(/distance/i);
+  });
+
+  it("applies the category playbook inferred from the brief", () => {
+    const block = ctx();
+
+    expect(block).toMatch(/category: food/i);
+    expect(block).toMatch(/appetite appeal/i);
+  });
+
+  /* The manual's avoid lists are the sharp edges — the mistakes it has seen
+     made — so they must survive into the prompt. */
+  it("passes on what that category must avoid", () => {
+    expect(ctx()).toMatch(/plastic-looking food|too many equal items/i);
+  });
+
+  it("routes a recruitment brief to a different playbook entirely", () => {
+    const block = ctx({
+      briefText: "We are hiring a senior backend engineer, apply by Friday.",
+    });
+
+    expect(block).toMatch(/category: recruitment/i);
+    expect(block).toMatch(/role or opportunity/i);
+  });
+
+  /* Honesty about the renderer: a motion brief cannot be a still composite,
+     and saying so beats quietly shipping a flat poster as if it were the
+     deliverable that was asked for. */
+  it("says when the renderer cannot produce the format requested", () => {
+    const block = ctx({ designType: "Motion Graphics" });
+
+    expect(block).toMatch(/still|cannot|key frame/i);
+  });
+});
+
+describe("the master instruction reaches the system prompt", () => {
+  const prompt = buildDesignSpecSystemPrompt(brand, true);
+
+  /* Module 09 §1 and module 07: creative decisions are the system's job, and
+     asking the user to choose a font or a background is the documented
+     failure this is meant to end. */
+  it("tells the art director to decide art direction itself", () => {
+    expect(prompt).toMatch(/do not ask/i);
+  });
+
+  /* Module 07 §3 class B: a missing phone number becomes a placeholder, never
+     an invented one. This is the rule that keeps a generated design from
+     carrying a plausible-looking number that belongs to nobody. */
+  it("forbids inventing facts and names the placeholder form", () => {
+    expect(prompt).toMatch(/never invent/i);
+    expect(prompt).toMatch(/\[PHONE NUMBER\]|placeholder/i);
+  });
+
+  /* The benchmark's own finding: the baseline invented "0800 000 0000" for a
+     brief that said "put our number on it", and the trained arm stopped
+     inventing but OMITTED the number instead. Omission silently drops
+     something the user explicitly asked for, so the rule has to distinguish a
+     fact the design merely needs from one the brief named. */
+  it("requires a placeholder when the brief asked for the missing element", () => {
+    expect(prompt).toMatch(/never silently drop/i);
+    /* The rule and the placeholder form have to be in the same breath, or the
+       model can honour "do not invent" by omitting instead. */
+    expect(prompt).toMatch(/brief asks for[^.]*\[PHONE NUMBER\]/i);
+  });
+
+  /* Module 05 §1: the footer is chosen by function, and a celebration post
+     often needs none — an empty band reads as a mistake. The renderer can now
+     draw one, so the art director has to know it exists and when to use it. */
+  it("explains when a footer earns its place and what goes in it", () => {
+    expect(prompt).toMatch(/footerLines/);
+    expect(prompt).toMatch(/footerStyle/);
+    expect(prompt).toMatch(/contact|utility|date|venue/i);
+    expect(prompt).toMatch(/"none"/);
+  });
+
+  it("still carries the layout and logo rules it had before", () => {
+    expect(prompt).toMatch(/hero-center/);
+    expect(prompt).toMatch(/this brand has a logo/i);
+  });
+});
+
+/* KOOS-AI-001 §1.4. The design path never knew which parts of a brand may
+   move. Module 06 §1's three layers now reach the art director, so "vary the
+   composition" cannot be read as licence to recolour the mark. */
+describe("the system prompt carries the brand's anchors", () => {
+  const withLogo = buildDesignSpecSystemPrompt(
+    { name: "Lagos Loom", primaryColor: "indigo", brandFont: "Bricolage" },
+    true,
+  );
+
+  it("separates what is fixed from what may vary", () => {
+    expect(withLogo).toMatch(/fixed, do not change/i);
+    expect(withLogo).toMatch(/may vary/i);
+  });
+
+  it("protects the real logo file from being described or redrawn", () => {
+    expect(withLogo).toMatch(/never describe, redraw, recolour or letter it/i);
+  });
+
+  /* The failure this prevents: "vary two or three dimensions" read as "change
+     everything", which produces a design belonging to no brand. */
+  it("bounds the variation rather than inviting a free hand", () => {
+    expect(withLogo).toMatch(/not every one at once/i);
+  });
+
+  it("adds no anchor section for a brand with nothing on file", () => {
+    const bare = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false);
+
+    expect(bare).not.toMatch(/fixed, do not change/i);
+  });
+});
+
+/* KOOS-AI-001 §1.4. `buildMemoryBlock` accumulates durable facts about a brand
+   from every chat turn, and until now only the chat could see them — the
+   design path, which needs them most, had no access at all. */
+describe("the system prompt can carry the brand's accumulated memory", () => {
+  it("includes the memory summary when one exists", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      memorySummary: "Known: sells handwoven textiles; avoids the word luxury.",
+    });
+
+    expect(prompt).toMatch(/handwoven textiles/);
+  });
+
+  it("adds no memory section when the brand has none", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      memorySummary: "",
+    });
+
+    expect(prompt).not.toMatch(/what KO knows/i);
+  });
+
+  it("still works for callers that pass no options at all", () => {
+    expect(buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false)).toMatch(
+      /art director/i,
+    );
+  });
+});
+
+/* KOOS-AI-001 §1.5. Every generation re-rolled the layout blind, so a brand
+   could receive the same composition indefinitely — and all parallel variants
+   share one spec, so they shared the repetition too. */
+describe("the system prompt carries the brand's recent layouts", () => {
+  it("tells the art director what this brand has had lately", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      recentLayouts: ["hero-center", "hero-center"],
+    });
+
+    expect(prompt).toMatch(/recent layouts/i);
+    expect(prompt).toMatch(/hero-center/);
+  });
+
+  it("adds nothing for a brand generating its first design", () => {
+    const prompt = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, false, {
+      recentLayouts: [],
+    });
+
+    expect(prompt).not.toMatch(/recent layouts/i);
+  });
+});
+
+/* KOOS-AI-001 §1.7. The benchmark runs both arms in one process, and the same
+   switch is the production rollback. Off must mean genuinely off — the old
+   prompt, not a quieter version of the new one, or the comparison measures
+   nothing. */
+describe("the training system can be switched off", () => {
+  const ctxArgs = {
+    title: "Weekend restock",
+    designType: "Video Thumbnail",
+    dimensions: "1280x720",
+    platform: "YouTube",
+    scheduledFor: null,
+    aspectRatio: "16:9",
+    briefText: "Fresh meat pies, order now for delivery before 6pm.",
+  } as Parameters<typeof buildDesignSpecPrompt>[0];
+
+  it("drops the playbook and format rules from the brief", () => {
+    const off = buildDesignSpecPrompt(ctxArgs, { training: false });
+
+    expect(off).not.toMatch(/category: food/i);
+    expect(off).not.toMatch(/competing thumbnails/i);
+    expect(off).toMatch(/Fresh meat pies/);
+  });
+
+  it("drops the anchors and the autonomy rules from the system prompt", () => {
+    const off = buildDesignSpecSystemPrompt(
+      { name: "Lagos Loom", primaryColor: "indigo" },
+      true,
+      { training: false },
+    );
+
+    expect(off).not.toMatch(/fixed, do not change/i);
+    expect(off).not.toMatch(/never invent/i);
+  });
+
+  /* What must survive: the rules that keep the renderer working. Turning the
+     training system off is a quality rollback, not a licence to break the
+     layout enum or let the model redraw the logo. */
+  it("keeps the rules the renderer depends on", () => {
+    const off = buildDesignSpecSystemPrompt({ name: "Lagos Loom" }, true, {
+      training: false,
+    });
+
+    expect(off).toMatch(/hero-center/);
+    expect(off).toMatch(/this brand has a logo/i);
+    expect(off).toMatch(/no text, no letters|never ask for text/i);
+  });
+
+  it("is on when no option is passed", () => {
+    expect(buildDesignSpecPrompt(ctxArgs)).toMatch(/category: food/i);
   });
 });

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_STATE } from "./brand-form-state";
@@ -308,5 +308,77 @@ describe("StepVisual brand fonts", () => {
     );
 
     expect(onChange).toHaveBeenCalledWith({ brandFontUrl: "" });
+  });
+});
+
+/* KOOS-V1-BUG-030. A brand that already had a logo was shown the empty upload
+   prompt every time its owner came back to Visual Identity, so the only way
+   to see what was on file was to upload it again. The fonts beneath it were
+   seeded from their stored URLs for exactly this reason; the logo never was. */
+describe("StepVisual with a logo already saved", () => {
+  const SAVED = "https://cdn.example.com/logos/u1/acme-mark.png";
+
+  function renderSaved(overrides: Record<string, unknown> = {}) {
+    const onChange = vi.fn();
+    render(
+      <StepVisual
+        state={{
+          ...DEFAULT_STATE,
+          hasLogo: "Yes",
+          logoUrl: SAVED,
+          ...overrides,
+        }}
+        onChange={onChange}
+      />,
+    );
+    return onChange;
+  }
+
+  it("shows the saved logo", () => {
+    renderSaved();
+
+    const img = screen.getByRole("img", { name: /logo/i }) as HTMLImageElement;
+    expect(img.src).toBe(SAVED);
+  });
+
+  /* Scoped to the logo field: the two font slots on this step have their own
+     upload prompts and must keep them. */
+  it("does not ask for a file that is already on record", () => {
+    renderSaved();
+
+    const logoField = screen.getByText("Logo Upload").closest("div");
+    expect(logoField).not.toBeNull();
+    expect(
+      within(logoField as HTMLElement).queryByText(/click to upload|drag/i),
+    ).toBeNull();
+  });
+
+  it("offers to remove it", async () => {
+    const onChange = renderSaved();
+
+    await userEvent.click(screen.getByRole("button", { name: /remove/i }));
+
+    expect(onChange).toHaveBeenCalledWith({ logoUrl: "" });
+  });
+
+  /* A brand onboarded through the chat can hold a logo while `hasLogo` was
+     never answered, and the question gated the whole block — so the logo it
+     already had was invisible and unremovable. */
+  it("shows a saved logo even when the has-logo question was never answered", () => {
+    renderSaved({ hasLogo: "" });
+
+    expect(screen.getByRole("img", { name: /logo/i })).toBeInTheDocument();
+  });
+
+  it("still asks for a file when nothing is on record", () => {
+    const onChange = vi.fn();
+    render(
+      <StepVisual
+        state={{ ...DEFAULT_STATE, hasLogo: "Yes" }}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.queryByRole("img", { name: /logo/i })).toBeNull();
   });
 });

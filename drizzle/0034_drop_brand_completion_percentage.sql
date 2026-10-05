@@ -1,0 +1,15 @@
+-- two-phase: phase 1 (the code that stopped reading this column) reached
+-- production in PR #156 on 2026-09-24, prod commit 5573de8. Verified before
+-- writing this file: `git show 5573de8:src/lib/db/schema.ts` names
+-- completion_percentage zero times, so the running bundle cannot select it.
+--
+-- KOS-V1-CHORE-019, phase 2 of KOS-V1-BUG-011.
+--
+-- brands.completion_percentage was written at save time and disagreed with
+-- brandProfileCompletion() on every brand saved before the weights changed.
+-- Nothing displayed the stored value; every surface computes from the row
+-- (src/lib/brand-profile.ts), and src/lib/db/schema.test.ts fails the build if
+-- the column is ever mapped again.
+--
+-- The column is NOT NULL DEFAULT 0, so no insert depends on supplying it.
+ALTER TABLE "brands" DROP COLUMN IF EXISTS "completion_percentage";

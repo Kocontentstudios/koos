@@ -64,6 +64,24 @@ export const conversationModeEnum = pgEnum("conversation_mode", [
   "design",
 ]);
 
+/* FEAT-032. The renderer switches on these; the free-text label is what the
+   user calls it. */
+export const logoVariantEnum = pgEnum("logo_variant", [
+  "primary",
+  "horizontal",
+  "vertical",
+  "icon",
+  "wordmark",
+  "alternate",
+]);
+
+/** Which background a cut of the logo is drawn for. */
+export const logoBackgroundEnum = pgEnum("logo_background", [
+  "any",
+  "light",
+  "dark",
+]);
+
 export const assetTypeEnum = pgEnum("asset_type", [
   "logo",
   "image",
@@ -388,6 +406,15 @@ export const brandAssets = pgTable("brand_assets", {
   assetType: assetTypeEnum("asset_type").notNull(),
   fileUrl: text("file_url").notNull(),
   fileName: text("file_name").notNull(),
+  /* Logo variations (FEAT-032). Null on every non-logo asset, and on logos
+     uploaded before this shipped — an unlabelled mark is usable anywhere,
+     which is what it already was. */
+  logoVariant: logoVariantEnum("logo_variant"),
+  logoBackground: logoBackgroundEnum("logo_background")
+    .notNull()
+    .default("any"),
+  label: text("label"),
+  isPreferred: boolean("is_preferred").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
