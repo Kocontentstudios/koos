@@ -1,5 +1,8 @@
+import { anchorsBlock } from "@/lib/ai/design-training/anchors";
+import { designTrainingEnabled } from "@/lib/ai/design-training/enabled";
 import { inferCategory } from "@/lib/ai/design-training/infer-category";
 import { playbookBlock } from "@/lib/ai/design-training/playbooks";
+import { layoutMemoryBlock } from "@/lib/ai/design-training/recent-layouts";
 import { MAX_ADDITIONAL_COLORS } from "@/lib/brand-profile";
 import type { DesignContext } from "@/lib/design/context";
 import {
@@ -82,26 +85,72 @@ function logoRule(hasLogo: boolean): string {
    worse than one carrying a visible placeholder. */
 const AUTONOMY_RULES = `
 - Decide the art direction yourself: layout, background, crop, camera angle, spacing, emphasis. Do not ask which to use, and do not hedge between two options in the copy.
-- Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. If one is missing and the design needs it, write an explicit placeholder like [PHONE NUMBER], [WEBSITE] or [EVENT DATE]. A plausible invention is the worst outcome here, because nobody notices it is wrong.
+- Never invent a fact. Phone numbers, prices, dates, addresses, discounts, claims, testimonials and product details must come from the brief or the brand. A plausible invention is the worst outcome available, because nobody notices it is wrong.
+- When the brief asks for an element whose value was not supplied — "put our number on it", "add the date" — write the placeholder: [PHONE NUMBER], [WEBSITE], [EVENT DATE]. Never silently drop it. Omitting what the user asked for is quieter than inventing it and still leaves them a design they cannot use.
+- Only a fact nobody asked for may be left out entirely.
+- "footerLines" carries the utility information a design needs to be usable — phone, website, handle, venue, date, "limited spaces". Up to three short lines, and placeholders belong here when the brief named something it did not supply. "footerStyle" is "bar" for a solid band that reads over any image, "text" for plain lines on the design, and "none" when the design needs no utility block at all. A greeting or a brand-building post usually needs "none"; an empty band reads as a mistake.
 - Say one thing. There is normally one dominant message; supporting detail is subordinate to it, not a second headline.`;
+
+/* Module 06 §1's three layers, appended only when the brand actually has
+   anchors to protect. A heading over nothing teaches the model that the
+   section is noise. */
+function anchorsSection(brand: BrandSummary, hasLogo: boolean): string {
+  const block = anchorsBlock(
+    {
+      name: brand.name,
+      primaryColor: brand.primaryColor,
+      secondaryColor: brand.secondaryColor,
+      brandFont: brand.brandFont,
+      brandStyle: brand.brandStyle,
+      tone: brand.tone,
+    },
+    { hasLogo },
+  );
+  return block ? `\n\n${block}` : "";
+}
+
+export interface DesignSpecPromptOptions {
+  /** Whether the design-training system shapes this prompt. Defaults to the
+   *  environment; the benchmark overrides it per call to run both arms, and
+   *  production can turn it off without a deploy. */
+  training?: boolean;
+  /** Layouts this brand's recent designs used, newest first. Drives module
+   *  06 §7's anti-repetition rule (src/lib/ai/design-training/recent-layouts). */
+  recentLayouts?: string[];
+  /** The brand's accumulated memory (src/lib/ai/memory.ts). Built from every
+   *  chat turn and, until KOOS-AI-001, visible only to the chat — the design
+   *  path had no access to the most current thing the product knows. */
+  memorySummary?: string;
+}
 
 export function buildDesignSpecSystemPrompt(
   brand: BrandSummary,
   hasLogo: boolean,
+  { memorySummary, recentLayouts = [], training }: DesignSpecPromptOptions = {},
 ): string {
+  const trained = designTrainingEnabled(training);
+  const layoutMemory = trained ? layoutMemoryBlock(recentLayouts) : "";
+  const layouts = layoutMemory ? `\n\n${layoutMemory}` : "";
+  const memory = memorySummary?.trim()
+    ? `\n\nWhat KO knows about this brand from working with them:\n${memorySummary.trim()}`
+    : "";
   return `You are an art director producing a design for ${brand.name}.
 
-Return a structured design spec. Rules that matter:${AUTONOMY_RULES}
+Return a structured design spec. Rules that matter:${trained ? AUTONOMY_RULES : ""}
 - Choose "layout" from: ${DESIGN_LAYOUTS.join(", ")}. Pick by the shape of the content, not at random.
 - Copy must be short enough to read at a glance on a phone. Headlines are a few words, not a sentence.
 - "backgroundPrompt" describes a background image ONLY. It must never ask for text, letters, numbers, words, logos, watermarks, or user interface. The typography is drawn separately and will collide with any lettering the image contains.
 - "nativePrompt" is the opposite: it describes the COMPLETE finished design for a model that can render text. Quote the exact copy in double quotes, name the colours, and describe the layout in plain English.
 - "palette" must be drawn from the brand colours listed below, as hex values — the primary colour leads unless the brief argues otherwise. A colour given by name rather than as a hex is still the brand's colour: convert it. If no brand colours are listed, choose a palette that fits the brand's visual style. Ensure the foreground reads clearly against the background.${logoRule(hasLogo)}
 
-${brandBlock(brand)}${brandPalette(brand)}`;
+${brandBlock(brand)}${brandPalette(brand)}${trained ? anchorsSection(brand, hasLogo) : ""}${layouts}${memory}`;
 }
 
-export function buildDesignSpecPrompt(context: DesignContext): string {
+export function buildDesignSpecPrompt(
+  context: DesignContext,
+  { training }: { training?: boolean } = {},
+): string {
+  const trained = designTrainingEnabled(training);
   const request =
     context.briefText?.trim() ||
     "Produce an on-brand social post that reflects the brand's offer and goal.";
@@ -133,9 +182,9 @@ export function buildDesignSpecPrompt(context: DesignContext): string {
 
   return [
     `Design request:\n${lines.join("\n")}`,
-    formatBlock(format),
-    playbookBlock(category),
-    limitation,
+    trained ? formatBlock(format) : null,
+    trained ? playbookBlock(category) : null,
+    trained ? limitation : null,
     `Brief:\n${request}`,
   ]
     .filter(Boolean)

@@ -435,3 +435,62 @@ describe("logoBoxIn measures the mark, not the slot", () => {
     expect(landscape?.height).toBeCloseTo(756 * LOGO_BOX.height, 5);
   });
 });
+
+/* KOOS-AI-001 phase 2. A footer band covers the bottom of the canvas, so a
+   mark placed in a bottom corner lands on the contact details. The compositor
+   measures legibility after the fact but cannot move the mark — the corner has
+   to be ruled out before placement. */
+describe("a footer takes the bottom corners", () => {
+  const withFooter = { footerStyle: "bar" as const, footerLines: ["Call us"] };
+
+  it("moves a bottom-corner choice off the band", () => {
+    const placement = resolveLogoPlacement({
+      modelChoice: "bottom-right",
+      hasLogo: true,
+      layout: "hero-center",
+      logoFree: false,
+      footer: withFooter,
+    });
+
+    expect(placement).not.toBe("bottom-right");
+    expect(placement).not.toBe("bottom-left");
+  });
+
+  it("keeps a top-corner choice, which the band does not reach", () => {
+    expect(
+      resolveLogoPlacement({
+        modelChoice: "top-left",
+        hasLogo: true,
+        layout: "hero-center",
+        logoFree: false,
+        footer: withFooter,
+      }),
+    ).toBe("top-left");
+  });
+
+  it("leaves the bottom corners available when no footer is drawn", () => {
+    expect(
+      resolveLogoPlacement({
+        modelChoice: "bottom-right",
+        hasLogo: true,
+        layout: "hero-center",
+        logoFree: false,
+        footer: { footerStyle: "none", footerLines: [] },
+      }),
+    ).toBe("bottom-right");
+  });
+
+  /* split-left only ever had the right-hand corners; with a footer the bottom
+     one goes too, and the fallback must still be a corner that exists. */
+  it("falls back to a corner the layout actually leaves free", () => {
+    const placement = resolveLogoPlacement({
+      modelChoice: "bottom-right",
+      hasLogo: true,
+      layout: "split-left",
+      logoFree: false,
+      footer: withFooter,
+    });
+
+    expect(placement).toBe("top-right");
+  });
+});

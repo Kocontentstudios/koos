@@ -7,6 +7,7 @@ const overlayLogo = vi.fn();
 const renderCompositeDesign = vi.fn();
 const getObjectBytes = vi.fn();
 const createNotification = vi.fn();
+const listDesignGenerations = vi.fn(() => Promise.resolve([]));
 const updateDesignGeneration = vi.fn();
 const getPlateAdapter = vi.fn();
 const getNativeAdapters = vi.fn();
@@ -36,6 +37,11 @@ vi.mock("@/lib/db/queries", () => ({
   recordUsageEvent: vi.fn(),
   updateDesignGeneration: (id: string, patch: unknown) =>
     updateDesignGeneration(id, patch),
+  /* KOOS-AI-001: the art director is now briefed with the brand's rolling
+     memory and the layouts its recent designs used. Both are read through
+     these, and both must leave the design unaffected when unavailable. */
+  getBrandMemory: () => listDesignGenerations(),
+  listDesignGenerationsForBrand: () => listDesignGenerations(),
 }));
 vi.mock("@/lib/analytics/posthog-server", () => ({
   captureServerEvent: vi.fn(),
@@ -56,8 +62,12 @@ vi.mock("@/lib/storage", () => ({
 
 const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
 
+/* Sized to clear the pre-delivery blank-frame floor (KOOS-AI-001 §1.6): a
+   64-byte stub for a 1024x1024 frame reads as blank by compressed density,
+   exactly as a real empty render would, and the gate would retry it. These
+   fixtures stand in for a finished design, so they carry a design's density. */
 function png(width = 8, height = 8): Uint8Array {
-  const bytes = new Uint8Array(64);
+  const bytes = new Uint8Array(Math.max(64, Math.ceil(width * height * 0.25)));
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
   const view = new DataView(bytes.buffer);
   view.setUint32(8, 13);
@@ -77,6 +87,8 @@ const draftedSpec = {
   logoPlacement: "none",
   logoFree: false,
   logoFreeQuote: "",
+  footerStyle: "none" as const,
+  footerLines: [],
   backgroundPrompt: "a skyline",
   backgroundTreatment: "photographic",
   nativePrompt: "a launch poster",
@@ -112,7 +124,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   generateObject.mockResolvedValue({ object: { ...draftedSpec } });
   loadBrandLogo.mockResolvedValue({ logo: LOGO, fault: null });
-  overlayLogo.mockResolvedValue(png(64, 64));
+  /* The real overlayLogo resolves { bytes, logoFault }. A bare array left
+     stamped.bytes undefined, which nothing read until the pre-delivery check
+     did — and then correctly called it an unreadable image. */
+  overlayLogo.mockResolvedValue({ bytes: png(1080, 1080), logoFault: null });
   nativeGenerate.mockResolvedValue({
     bytes: png(1024, 1024),
     contentType: "image/png",
@@ -604,5 +619,23 @@ describe("a logo the renderer cannot decode", () => {
     );
     expect(createNotification).not.toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+/* KOOS-AI-001 §1.5. The art director is briefed with the brand's recent
+   layouts so it can avoid repeating one. That history is an improvement to the
+   brief and never a prerequisite: a database that cannot answer must cost the
+   user a less-varied design, never the design itself. */
+describe("when the brand's history cannot be read", () => {
+  it("still produces the design", async () => {
+    listDesignGenerations.mockRejectedValueOnce(new Error("db unavailable"));
+    nativeGenerate.mockResolvedValue({
+      bytes: png(1024, 1024),
+      contentType: "image/png",
+    });
+
+    await generateDesignWork({ context: context(), userId: "u1" }, runtime);
+
+    expect(nativeGenerate).toHaveBeenCalled();
   });
 });
