@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DesignFault } from "./checks";
-import { betterResult, faultSummary, isRetryable } from "./gate";
+import { betterResult, faultSummary, isCorrectable, isRetryable } from "./gate";
 
 const fault = (code: DesignFault["code"]): DesignFault => ({
   code,
@@ -86,5 +86,82 @@ describe("faultSummary", () => {
 
   it("is empty when nothing went wrong", () => {
     expect(faultSummary([])).toBe("");
+  });
+});
+
+/* The two sets used to be one, and the consequence was that the only faults
+   reaching a second render were the two with nothing to look at: unreadable
+   bytes hold no image, and a blank frame is a flat rectangle the deterministic
+   check has already described. The judge's vision half was unreachable. */
+describe("isCorrectable", () => {
+  it.each(["blank-frame", "unreadable-image", "unreadable-logo"] as const)(
+    "lets a changed spec answer %s",
+    (code) => {
+      expect(isCorrectable([fault(code)])).toBe(true);
+    },
+  );
+
+  /* The case the split exists for: re-rolling the same spec cannot change a
+     mark's contrast against its own ground, but moving the corner, lifting the
+     colour behind it or dropping the footer band that swallowed it all can. */
+  it("treats an unreadable logo as correctable but not re-rollable", () => {
+    expect(isCorrectable([fault("unreadable-logo")])).toBe(true);
+    expect(isRetryable([fault("unreadable-logo")])).toBe(false);
+  });
+
+  /* Adapters substitute aspect ratios deterministically, so no change to the
+     spec alters what comes back and a judge call would buy a verdict nobody
+     can act on. */
+  it("leaves the wrong shape out of both", () => {
+    expect(isCorrectable([fault("wrong-dimensions")])).toBe(false);
+    expect(isRetryable([fault("wrong-dimensions")])).toBe(false);
+  });
+
+  it("is false for no faults at all, so a clean design costs nothing", () => {
+    expect(isCorrectable([])).toBe(false);
+  });
+});
+
+/* A count alone made a blank rectangle and a real design with one hard-to-read
+   mark equally bad, so the correction that produced the real design was
+   discarded and the empty frame delivered. The path is reachable: a blank
+   first render, a backgroundPrompt correction, and a second render whose only
+   remaining fault is the logo. */
+describe("betterResult ranks by severity before count", () => {
+  const result = (...codes: DesignFault["code"][]) => ({
+    ok: false,
+    failures: codes.map(fault),
+  });
+
+  it("prefers a real design with an unreadable mark over a blank frame", () => {
+    expect(betterResult(result("blank-frame"), result("unreadable-logo"))).toBe(
+      "second",
+    );
+    expect(betterResult(result("unreadable-logo"), result("blank-frame"))).toBe(
+      "first",
+    );
+  });
+
+  it("prefers the wrong shape over nothing to look at", () => {
+    expect(
+      betterResult(result("unreadable-image"), result("wrong-dimensions")),
+    ).toBe("second");
+  });
+
+  /* Two faults of the same worst kind fall back to the count, which is what
+     the original rule did and still the right tie-break. */
+  it("falls back to the count at equal severity", () => {
+    expect(
+      betterResult(
+        result("blank-frame", "unreadable-logo"),
+        result("blank-frame"),
+      ),
+    ).toBe("second");
+  });
+
+  it("keeps the first on a true tie", () => {
+    expect(betterResult(result("blank-frame"), result("blank-frame"))).toBe(
+      "first",
+    );
   });
 });

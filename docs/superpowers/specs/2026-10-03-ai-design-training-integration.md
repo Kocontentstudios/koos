@@ -304,3 +304,226 @@ finished.
    has already failed, which means a design that fails nothing is never judged.
 5. **Variants still share one spec**, so the parallel renders share a layout,
    a headline and a palette. Real variant diversity needs more than one spec.
+
+
+---
+
+# Phase 2 — closing the ticket's remaining acceptance criteria
+
+*Written after building, before it ships. Deliverable #9 continued.*
+
+Phase 1 left three of the ticket's acceptance criteria unmet. The audit below
+is what a blind critic found when it was asked to reject the work, not a
+self-assessment; its verdicts are in `/tmp/koos-ai-001-finish/critique/`.
+
+## What was still unmet, and why
+
+| Criterion | Why phase 1 did not meet it |
+| --- | --- |
+| "KO OS identifies the correct design type **before** writing the brief" | One `generateObject` call chose `designType` AND wrote `briefMarkdown` together. The structure was picked by the pass that was already committing to prose. |
+| "Brief structure changes appropriately for each deliverable rather than using one social-media-flyer template for everything" | `formats.ts` knew the per-format constraints and was imported by the art-director prompt only. The brief step saw four templates with "post, flyer, banner, story, ad" collapsed into one, and the model chose. |
+| "The system evaluates and corrects weak outputs before delivery" | `renderGuarded` re-rendered the **identical** spec on a retryable fault. That is a dice re-roll, not a correction, and nothing implemented module 06 §10's rubric or §11's correction map. |
+
+## Unit A — the brief is routed on the deliverable
+
+Two calls where there was one.
+
+1. **Identify** — `deliverableSchema` + `deliverableIdentificationSystemPrompt`
+   return the label, the stated size and the page count, and nothing else.
+2. **Write** — `buildDesignBriefSystemPrompt(brand, format)` carries exactly
+   one structure, the one `resolveDesignFormat` selected.
+
+`assembleDesignBrief` composes the two back into the shape the Design Brief
+Card and the ticket submit already store, so nothing downstream changed. The
+canvas default moved out of the prompt and into `formatRules().defaultDimensions`
+— "Instagram posts are 1080x1350" is a fact, not a judgement, and every default
+it offers is a size `canvas.ts` can actually render.
+
+Twelve section sets, built from module 01 §2's required-content list and §3's
+four content levels, with module 05 §1-2's footer ordering. Four properties are
+enforced by test rather than asserted in prose:
+
+- no two formats share a section set;
+- no two formats differ by only one heading (a rename is not a difference);
+- a format the renderer cannot produce declares a Production Note section, and
+  the prompt names that section exactly once — the first version named it twice,
+  which let the test pass with the heading deleted from all five formats;
+- the brief's headings appear in the declared ORDER. Order is the substance of
+  the criterion, not decoration: modules 01 §3 and 05 §2 *are* orderings, and a
+  flyer brief with all eight headings reversed satisfied every other measure.
+
+Two content errors came out of review. The social-post footer listed its
+priorities in the wrong order — module 05 §2 puts the action or primary contact
+first, and `footerLines` holds three lines, so the wrong order drops the
+manual's first item first; a real run demoted an order line below a handle. And
+the format the renderer draws most often had nowhere to carry a date, time or
+price the user supplied, which is module 01 §3's secondary level.
+
+**Measured, 10 of 10 cases, `pnpm eval:design-brief`:** format correct 1.00,
+structure clean 1.00, headline within budget 1.00, production notes 1.00, slide
+count coherent 1.00, invented numbers 0, no gap dropped.
+
+The comparison is the number that matters, not the score.
+`resolveDesignFormat` run FREE on the raw conversation scores 6 of these 10;
+the identification step scores 10, including all four the regex gets wrong — a
+request naming no format ("something for the wall … A2 in the window"), one
+carrying a decoy ("don't make it look like a poster — something simple for the
+feed"), one with no keyword at all ("on our WhatsApp status … nothing
+printed"), and a packaging label the regex reads as a logo. The other six name
+the deliverable in the user's own words and are kept only as regression.
+
+Three of the scorer's own measures were wrong and failed correct briefs before
+this run was trusted: a heading name matching as a prefix of a longer one
+(`Action` inside the poster's `Action & Access`), an optional bold marker that
+let any body line starting with the word count as a heading, and a forbidden
+check that read a carousel's per-slide `**Headline:**` as a flyer section
+leaking in — a borrowed section stands alone on its line, an inline field does
+not. Each is now a test. **An instrument that under-reports is worse than no
+instrument**, and this lane has produced that failure three times.
+
+## Unit B — the correction pass is now a correction
+
+`src/lib/design/quality/judge.ts`. Module 06 §10's ten scored categories and
+§11's symptom-to-remedy map, as one model call that returns a verdict plus
+**one** prescribed change. Built as a two-variant tournament; the losing
+variant's source-reading field test was the single best idea in either and was
+ported into the winner.
+
+The load-bearing constraint: a prescription may only name a field the renderer
+on that route actually draws. Enforced three ways — the decoding schema's field
+enum is built per renderer, `applyPrescribedChange` re-checks the field against
+§11's map for the named symptom and re-validates the patched spec, and a test
+reads `layouts.tsx`, `footer.ts`, `composite.ts` and the two prompt builders off
+disk and fails if a correctable field is absent from the source that would draw
+it. That test exists because of `bodyPoints`: a spec field nothing drew, which
+the art director filled with the user's event date.
+
+**The gate had to be split before any of it could work.** `isRetryable` is "a
+fresh roll of the same spec might differ" — a blank frame or unreadable bytes.
+`isCorrectable` is "a changed spec might fix it", which adds `unreadable-logo`.
+While the two were one set, the only faults reaching a second render were the
+two with nothing to look at, and the judge's vision half was unreachable. The
+wrong shape stays out of both: adapters substitute aspect ratios
+deterministically, so no spec change alters what comes back.
+
+`renderGuarded` renders at most twice, ever, and the second render receives the
+corrected spec. The row stores the spec that produced the delivered bytes, not
+the draft — the layout memory reads that column back to shape the brand's next
+design, and storing an uncorrected spec would teach it a layout that was never
+rendered. `design_generated` now carries `quality_faults` and
+`corrections_kept`, so the question "is the judge correcting anything or just
+costing a call" has an answer in PostHog.
+
+Fail-soft at both boundaries: the judge module documents itself as fail-soft,
+and the job wraps the call anyway. A user never loses a rendered design because
+the critic was unavailable. Past the slice deadline the correction is skipped
+entirely — it costs a reasoning call plus a second image render, and this
+project has measured single images at 55-663s against a 300s route.
+
+**`logoFault` has four producers and only one is a measurement.** Only the
+compositor's contrast comparison measures a mark against its ground; the other
+three mean the mark never reached the design — satori could not decode the
+file, the image model returned a format the overlay cannot stamp, or the stamp
+threw. `markReads()` keeps them apart. Conflating them would spend a reasoning
+call and a full second image render, on every generation, forever, for every
+brand whose logo file we cannot read, while `checkRenderedDesign` asserted a
+pixel measurement that never happened.
+
+`betterResult` ranks by the worst fault before the count. A count alone made a
+blank rectangle and a real design with one hard-to-read mark equally bad, so a
+correction that produced the real design was discarded and the empty frame
+delivered.
+
+**New paid lane `pnpm eval:design-judge`.** The 101 gate tests on `judge.ts`
+protect its *refusals* — `correct()` has seven ways to turn a prescription down
+and nearly every one has a test that goes red when removed — while every test
+asserting an accepted correction feeds it a hand-written object built to pass.
+So the suite cannot tell a judge whose prescriptions land from one that returns
+a verdict and then refuses itself, which costs a reasoning call per failed
+variant and delivers the design the user already had. The lane measures the
+acceptance rate against all seven guards, renders its designs locally through
+the real composite path (reasoning tokens, no image generations), and treats an
+undrawn field, an unchanged spec reported as corrected, or a refusal it cannot
+attribute as hard failures.
+
+**Measured, 9 cases:** acceptance rate 0.89, symptom-treats-field 1.00, verdict
+rate 1.00, zero undrawn fields, zero unchanged specs reported as corrected,
+zero unattributable refusals.
+
+Its first run earned its keep immediately. Two prescriptions were discarded
+that were *correct*: the decoding schema constrains the field to the route's
+drawn set, `prescribableFields` then requires it to be in the symptom's §11
+row, and the system prompt never stated the second rule — **the model was held
+to a constraint it could not see**, and in one case it was refused for
+prescribing that a mark be moved off the headline it was sitting on. Fixed by
+generating each symptom's allowed fields into the prompt from the same map the
+guard reads, and by applying the map's own documented principle to `weak-cta`
+on the native route, where `nativePrompt` is the only thing that draws the
+action. §11's `artificial` row was deliberately NOT widened to admit
+`logoPlacement`: the manual's `artificial` is light, shadow, perspective and
+texture, and bending the map to pass a threshold would make it mean nothing.
+No threshold was lowered.
+
+With the pairing shown, the model re-judged that case as `artificial` and
+prescribed `backgroundPrompt` — a field that row genuinely owns — and it was
+accepted. The map did not need bending.
+
+Two gaps that run named and left open:
+
+1. **No §11 symptom owns "an element collides with the copy."** `logoPlacement`
+   sits only under `off-brand`, which is about identity, not composition; the
+   nearest shape is `pasted-footer`'s "connect its geometry, colour, overlap or
+   spacing to the composition", and that is scoped to the footer by name.
+   Stretching either would make the map mean nothing. The honest home is the
+   deterministic layer: `resolveLogoPlacement` and `cornersBlockedByFooter`
+   already keep a mark off footer bands and layout copy zones, but they reason
+   from the layout TEMPLATE, so a headline that wraps to four lines into the
+   top-right corner is invisible to them. A mark/copy overlap check in
+   `quality/checks.ts`, measured from the render the way the logo contrast
+   already is, would raise it as a named fault — and then the existing
+   `off-brand` → `logoPlacement` path is a legitimate remedy for it.
+2. **The native field guide is looser than the guard it is held to.** It says
+   "never ask for a logo"; the judge did not ask for one, it reserved space for
+   one ("the upper quarter is clear dark ground so a brand logo can sit
+   top-right"), and the vocabulary guard refused it. The guard's behaviour is
+   correct — that vocabulary is KOOS-BUG-022 — but the guide should say the word
+   must not appear at all, even to reserve room, because `nativeLogoClause`
+   already reserves that space on every native render.
+
+## What this still does not do
+
+1. **Nothing measures whether a corrected render is better than a re-roll.**
+   The gate checks that the correction is applicable and that it changes what is
+   drawn, never that it improved anything — measuring improvement needs a third
+   render, which is the loop Oluwaseyi ruled out. The PostHog counters are the
+   first evidence; a paid eval comparing corrected renders against re-rolls is
+   the honest next step and is not built.
+2. **A technically clean but generic design is still never judged.** That is
+   the chosen trigger working as specified: the judge runs only after a
+   deterministic check has failed. It remains the knob to turn if quality
+   complaints continue.
+3. **The calendar brief writer is unrouted.** `buildCalendarChunkPrompt` drafts
+   briefs for a chunk of slots whose formats differ from each other in one call,
+   so no single structure can serve it, and it keeps the four-template block.
+   Per-format routing there is possible — the format is settled per slot in the
+   outline call — and is the next brief-side improvement. It has no eval, which
+   is why it was not touched in the same change.
+4. **`improve-brief.ts` is deliberately unrouted.** It polishes a brief the
+   client typed into the request form, in plain text, preserving their words. A
+   section structure is the wrong tool for that job.
+5. **A story is briefed as a social post.** `resolveDesignFormat` maps `/story/`
+   to `social-post`, which defaults to 4:5 rather than 9:16. Adding a format
+   touches the playbooks, the section sets and the canvas table together.
+6. **Variants still share one spec.** Deliberate, and Oluwaseyi's decision: the
+   parallel renders exist so the user can compare the composite and native
+   ROUTES on the same design. Making them differ by spec would replace that
+   comparison with two unrelated designs.
+7. **Six briefs and eight cases, one brand.** Model output varies between runs.
+   Treat a one-case difference as noise.
+
+**The open ask is unchanged: a designer has to look at the output.** Every
+measure in both lanes is deterministic, because a judge from the same model
+family grading its own work is weak evidence. Routing, section sets, word
+budgets, invented numbers, which fields are drawn and how many renders happen
+are all computed. Whether the designs are good is not, and no harness here can
+answer it.

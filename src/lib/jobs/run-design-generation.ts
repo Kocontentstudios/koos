@@ -35,8 +35,10 @@ import { checkRenderedDesign } from "@/lib/design/quality/checks";
 import {
   betterResult,
   faultSummary,
+  isCorrectable,
   isRetryable,
 } from "@/lib/design/quality/gate";
+import { correctionSummary, judgeAndCorrect } from "@/lib/design/quality/judge";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import {
   LOGO_FILE_FAULTS,
@@ -142,6 +144,10 @@ export async function renderVariant(
   brandFontFault?: string | null;
   /** Set when the logo was loaded but could not be placed on this variant. */
   logoFault?: string | null;
+  /** Set when this design carries no mark at all, as opposed to one that was
+   *  placed and measured hard to read. Only the measured case is a contrast
+   *  problem a different spec could answer — see markReads. */
+  logoUnplaced?: true;
 }> {
   if (variant.renderer === "composite") {
     // A failed plate still yields a design: the layout falls back to a flat
@@ -186,6 +192,10 @@ export async function renderVariant(
       height: result.height,
       brandFontFault: result.brandFontFault,
       logoFault: logoFault ?? result.logoFault,
+      /* This design carries no mark at all, as opposed to one that was placed
+         and measured hard to read. Only the measured case is a contrast
+         problem a different spec could answer. */
+      ...(logoFault ? { logoUnplaced: true as const } : {}),
     };
   }
 
@@ -236,6 +246,7 @@ export async function renderVariant(
       /* Names the model, not the brand's file: re-uploading the logo would
          change nothing here. */
       logoFault: `this version came back from the image model in a format the design renderer cannot stamp (${rendered ?? image.contentType})`,
+      logoUnplaced: true as const,
     };
   }
 
@@ -261,6 +272,7 @@ export async function renderVariant(
       bytes: image.bytes,
       ...(size ?? {}),
       logoFault: "the design renderer could not place it on this version",
+      logoUnplaced: true as const,
     };
   }
 }
@@ -355,18 +367,85 @@ async function notifyBrandAssetFaults(
  * checks are deterministic and already existed offline; they now run before
  * delivery (KOOS-AI-001 §1.6).
  *
- * Exactly one correction pass, and only for faults a fresh render could fix.
+ * Exactly one extra render, ever. What that render is given is the difference
+ * this function exists for: it used to be the identical spec, which is a dice
+ * re-roll rather than a correction. The rubric judge (module 06 §10-11) now
+ * sees the failed design and prescribes one change, and the second render uses
+ * the changed spec. A plain re-roll remains the fallback for the transient
+ * faults where it genuinely helps and the judge could not be reached.
+ *
  * A design that still fails is delivered with its fault recorded rather than
  * withheld: a flawed design the user can see and judge beats an error message
  * and nothing to look at.
  */
-async function renderGuarded(
+/**
+ * Whether the mark was placed AND reads.
+ *
+ * `logoFault` has four producers and only one of them is a measurement: the
+ * compositor comparing the mark against its own ground. The other three mean
+ * the mark never reached the design — satori could not decode the file, the
+ * image model returned a format the overlay cannot stamp, or the stamp threw.
+ *
+ * The distinction is load-bearing now that an unreadable mark is correctable.
+ * A changed spec can move a placed mark to a corner that works; nothing in the
+ * spec makes an undecodable file decodable. Conflating them would spend a
+ * reasoning call and a full second image render, on every generation, for every
+ * brand whose logo file we cannot read — and `checkRenderedDesign` would state
+ * a pixel measurement that never happened.
+ */
+function markReads(rendered: {
+  logoFault?: string | null;
+  logoUnplaced?: true;
+}): boolean {
+  return !rendered.logoFault || rendered.logoUnplaced === true;
+}
+
+/* The judge is an improvement to a design we are already holding, never a
+   prerequisite for delivering it — the same rule buildMemoryBlock and
+   recentLayoutsFor follow. It documents itself as fail-soft; this is the
+   boundary that makes losing a rendered design impossible rather than
+   unlikely. */
+async function judgeOrSkip(
+  args: Parameters<typeof judgeAndCorrect>[0],
+): Promise<Awaited<ReturnType<typeof judgeAndCorrect>> | null> {
+  try {
+    return await judgeAndCorrect(args);
+  } catch (err) {
+    console.error("design judge unavailable", err);
+    return null;
+  }
+}
+
+type GuardedRender = Awaited<ReturnType<typeof renderVariant>> & {
+  /** Faults still present on what is being delivered, in words. */
+  fault?: string;
+  /** The spec that produced the delivered bytes — the corrected one when the
+   *  correction was kept. The row stores this, not the draft: the spec column
+   *  is what every later surface reads, including the layout memory that
+   *  shapes the brand's next design. */
+  spec: DesignSpec;
+  /** The verdict and the change, as one line for the log. Set whenever the
+   *  judge answered, including when its prescription was refused. */
+  correction?: string;
+  /** The corrected render was the one delivered. Distinct from `correction`,
+   *  which only says the judge spoke: counting the two as one measured a
+   *  refused prescription and a discarded second render as successes. */
+  correctionKept?: true;
+};
+
+export async function renderGuarded(
   variant: DesignVariant,
   spec: DesignSpec,
   context: DesignContext,
   logo: LoadedLogo | null,
   references: { bytes: Uint8Array; contentType: string }[],
-): Promise<Awaited<ReturnType<typeof renderVariant>> & { fault?: string }> {
+  /** True once the slice's deadline has passed. A correction costs a reasoning
+   *  call plus a second image render, and this project has measured single
+   *  images at 55-663s against a 300s route — so past the deadline the user
+   *  gets the design that exists rather than a better one that arrives after
+   *  the function has been killed. */
+  outOfTime: () => boolean = () => false,
+): Promise<GuardedRender> {
   /* The canvas the spec asked for, which is what "the right shape" means here
      — not whatever the adapter decided to return. */
   const canvas = canvasFor(spec.aspectRatio);
@@ -374,9 +453,9 @@ async function renderGuarded(
   const firstCheck = checkRenderedDesign({
     bytes: first.bytes,
     expected: canvas,
-    logoLegible: !first.logoFault,
+    logoLegible: markReads(first),
   });
-  if (firstCheck.ok) return first;
+  if (firstCheck.ok) return { ...first, spec };
 
   console.error("design failed its pre-delivery checks", {
     variantId: variant.id,
@@ -384,24 +463,72 @@ async function renderGuarded(
     faults: firstCheck.failures.map((f) => f.code),
   });
 
-  if (!isRetryable(firstCheck.failures)) {
-    return { ...first, fault: faultSummary(firstCheck.failures) };
+  const correctable = isCorrectable(firstCheck.failures);
+  const retryable = isRetryable(firstCheck.failures);
+  if ((!correctable && !retryable) || outOfTime()) {
+    return { ...first, spec, fault: faultSummary(firstCheck.failures) };
   }
 
-  const second = await renderVariant(variant, spec, context, logo, references);
+  /* Reached only from a failure and only once per variant — Oluwaseyi's
+     decision on when the judge is worth paying for. */
+  const judged = correctable
+    ? await judgeOrSkip({
+        spec,
+        renderer: variant.renderer,
+        faults: firstCheck.failures,
+        /* The pixels, when there are any to read. An unreadable mark is
+           visible in them; unreadable bytes and a flat frame are not, and the
+           judge degrades to the spec and the fault in words. */
+        image: first.bytes,
+        brief: context.briefText,
+        brand: context.brandSummary,
+        hasLogo: Boolean(logo),
+      })
+    : null;
+  const correction = judged?.verdict ? correctionSummary(judged) : undefined;
+  if (correction) {
+    console.error("design judge", { variantId: variant.id, correction });
+  }
+
+  /* Nothing new to render: the judge found no change it could make, and this
+     fault is not one a fresh roll of the same spec answers. */
+  if (!judged?.corrected && !retryable) {
+    return {
+      ...first,
+      spec,
+      fault: faultSummary(firstCheck.failures),
+      correction,
+    };
+  }
+
+  const secondSpec = judged?.corrected ? judged.spec : spec;
+  const second = await renderVariant(
+    variant,
+    secondSpec,
+    context,
+    logo,
+    references,
+  );
   const secondCheck = checkRenderedDesign({
     bytes: second.bytes,
     expected: canvas,
-    logoLegible: !second.logoFault,
+    logoLegible: markReads(second),
   });
 
   const keep = betterResult(firstCheck, secondCheck);
   const kept = keep === "first" ? first : second;
   const keptCheck = keep === "first" ? firstCheck : secondCheck;
+  const keptSpec = keep === "first" ? spec : secondSpec;
 
-  return keptCheck.ok
-    ? kept
-    : { ...kept, fault: faultSummary(keptCheck.failures) };
+  return {
+    ...kept,
+    spec: keptSpec,
+    correction,
+    ...(keep === "second" && judged?.corrected
+      ? { correctionKept: true as const }
+      : {}),
+    ...(keptCheck.ok ? {} : { fault: faultSummary(keptCheck.failures) }),
+  };
 }
 
 /* Layout history is an improvement to the brief, never a prerequisite for it.
@@ -566,6 +693,13 @@ export async function generateDesignWork(
   const succeeded: string[] = [];
   const failed: string[] = [];
   const brandFontFaults: string[] = [];
+  /* The pre-delivery gate's findings were computed and dropped. Without these
+     counts there is no way to tell whether the judge is correcting anything or
+     only costing a call — and a single count would not separate the two, since
+     a verdict arrives on every refused prescription too. */
+  const qualityFaults: string[] = [];
+  const judgeVerdicts: string[] = [];
+  const correctionsKept: string[] = [];
   const logoFaults: string[] = logoLoadFault ? [logoLoadFault] : [];
   /* An extremely elongated mark is placed correctly and is still unreadable at
      the size a corner allows. Reported once, not per variant. */
@@ -585,6 +719,7 @@ export async function generateDesignWork(
           context,
           logo,
           references,
+          () => runtime.shouldPause(),
         );
         const key = `${STORAGE_PREFIXES.generated}/${context.brand.id}/${crypto.randomUUID()}.png`;
         await uploadObject({
@@ -597,18 +732,27 @@ export async function generateDesignWork(
           status: "succeeded",
           width: rendered.width ?? null,
           height: rendered.height ?? null,
-          /* The row is written before rendering, so a variant that dropped the
-             mark would otherwise keep a spec claiming a corner it does not
-             have — and the spec is what every later surface reads. */
+          /* The row is written before rendering, so it holds the draft spec.
+             It is replaced when what actually rendered differs: the judge's
+             corrected spec when that render was the one kept, or a dropped
+             mark that must stop claiming a corner it does not have. The spec
+             column is what every later surface reads, including the layout
+             memory that shapes this brand's next design, so a spec that was
+             never rendered would teach it a layout nobody saw. */
           ...(rendered.logoFault
-            ? { spec: { ...spec, logoPlacement: "none" as const } }
-            : {}),
+            ? { spec: { ...rendered.spec, logoPlacement: "none" as const } }
+            : rendered.spec !== spec
+              ? { spec: rendered.spec }
+              : {}),
         });
         succeeded.push(variant.id);
         if (rendered.brandFontFault) {
           brandFontFaults.push(rendered.brandFontFault);
         }
         if (rendered.logoFault) logoFaults.push(rendered.logoFault);
+        if (rendered.fault) qualityFaults.push(rendered.fault);
+        if (rendered.correction) judgeVerdicts.push(rendered.correction);
+        if (rendered.correctionKept) correctionsKept.push(variant.id);
       } catch (err) {
         console.error(`design variant ${variant.id} failed`, err);
         await updateDesignGeneration(variant.id, {
@@ -661,6 +805,11 @@ export async function generateDesignWork(
       failed: failed.length,
       renderers: variants.map((v) => `${v.renderer}:${v.adapter.id}`),
       source: context.source,
+      /* Also on the usage row, because captureServerEvent is a no-op without a
+         PostHog key and the admin dashboard reads Postgres. */
+      qualityFaults: qualityFaults.length,
+      judgeVerdicts: judgeVerdicts.length,
+      correctionsKept: correctionsKept.length,
     },
   });
 
@@ -672,6 +821,14 @@ export async function generateDesignWork(
       source: context.source,
       variants: succeeded.length,
       session_id: args.sessionId ?? null,
+      /* The measurable outcome for KOOS-AI-001's quality gate. Three numbers,
+         not one: how often a design reached delivery still carrying a fault,
+         how often the judge answered at all, and how often its correction was
+         the version actually delivered. judge_verdicts minus corrections_kept
+         is the cost of verdicts that bought nothing. */
+      quality_faults: qualityFaults.length,
+      judge_verdicts: judgeVerdicts.length,
+      corrections_kept: correctionsKept.length,
     },
   });
 

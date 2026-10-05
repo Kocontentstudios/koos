@@ -75,8 +75,15 @@ export interface ResolveDesignContextArgs {
 export class DesignContextError extends Error {}
 
 /** Cap on how much of one attachment reaches the model, so a long strategy
- *  cannot crowd out everything else the user attached. */
-const MAX_ATTACHMENT_CHARS = 4000;
+ *  cannot crowd out everything else the user attached.
+ *
+ *  Raised from 4000 when briefs became format-routed: a routed brief carries
+ *  eight or nine sections, each answered even when the answer is short, and
+ *  two of the eight briefs in the design-brief eval already exceeded 4000
+ *  characters. What a clamp cuts is the tail, which is where Visual Direction,
+ *  Branding Requirements and the Production Note sit — so the truncation was
+ *  silently removing the art direction and the renderer's own limitation. */
+const MAX_ATTACHMENT_CHARS = 8000;
 
 function clamp(text: string | null | undefined): string | null {
   const trimmed = text?.trim();
