@@ -2,8 +2,7 @@ import { PostHogIdentify } from "@/components/analytics/posthog-identify";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { GenerationWatcher } from "@/components/layout/generation-watcher";
 import { VerifyEmailBanner } from "@/components/layout/verify-email-banner";
-import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { getWorkspacesForUser } from "@/lib/db/queries";
 
 /* The verify-email banner's resend action sends mail and runs in this
@@ -16,12 +15,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { dbUser, workspace, role } = await getActiveWorkspace();
-
-  if (!dbUser) {
-    redirectToLogin();
-  }
-
+  const { dbUser, workspace, role } = await requireOpenWorkspace();
   const memberships = await getWorkspacesForUser(dbUser.id);
 
   const user = {

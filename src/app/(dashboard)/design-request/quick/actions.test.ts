@@ -13,6 +13,7 @@ vi.mock("@/lib/db/queries", () => ({
   createBrand: (data: unknown) => createBrand(data),
 }));
 
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import { ensureQuickRequestBrand } from "./actions";
 
 describe("ensureQuickRequestBrand", () => {
@@ -25,7 +26,7 @@ describe("ensureQuickRequestBrand", () => {
   function signedInAs(role: string) {
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "w1" },
+      workspace: { id: "w1", accessStatus: "approved" },
       role,
     });
   }
@@ -62,5 +63,20 @@ describe("ensureQuickRequestBrand", () => {
     getActiveBrandForMember.mockResolvedValue({ id: "existing" });
     const res = await ensureQuickRequestBrand("Acme");
     expect(res).toEqual({ ok: true, brandId: "existing" });
+  });
+});
+
+describe("ensureQuickRequestBrand behind the access gate", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("refuses a pending workspace without creating a brand", async () => {
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1", role: "user" },
+      workspace: { id: "w1", accessStatus: "pending" },
+      role: "owner",
+    });
+    const res = await ensureQuickRequestBrand("Acme");
+    expect(res).toEqual({ ok: false, error: WORKSPACE_PENDING_ERROR });
+    expect(createBrand).not.toHaveBeenCalled();
   });
 });

@@ -85,6 +85,9 @@ stable for the lifetime of one login) where available.
 | `design_ticket_submitted` | design ticket created | `design_type`, `from_calendar_item` |
 | `design_request_start_opened` | Design Tickets chooser opened | `label` (which CTA) |
 | `design_request_start_selected` | a start path chosen in the chooser | `option` (`direct`/`calendar`/`campaign`) |
+| `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
+| `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
+| `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
 
 The two `design_request_start_*` events answer whether design requests actually
 want to begin from the calendar: compare the `calendar` share of
@@ -106,6 +109,12 @@ Both live on the **Activation funnels** dashboard in PostHog, already created:
    HogQL, not a funnel: a funnel step cannot require that a property match the
    previous step's value, so a plain funnel would happily count a strategy
    generated weeks later in a different session.
+
+3. **Access gate conversion** (interim paywall, see
+   `docs/runbooks/access-gate.md`) — `signed_up` → `access_book_call_clicked`
+   → `workspace_access_changed` where `status = approved`. Step 2 over step 1
+   says whether the page persuades; step 3 over step 2 says whether calls
+   close. All three are keyed on the client's user id.
 
 Other useful views: `chat_started` broken down by `mode`;
 `design_ticket_submitted` by `from_calendar_item` (AI-chat vs calendar flow);

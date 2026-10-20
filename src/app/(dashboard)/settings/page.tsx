@@ -1,10 +1,8 @@
-import { getAuthUser } from "@/lib/auth/get-user";
-import { redirectToLogin } from "@/lib/auth/redirects";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { SettingsClient } from "./settings-client";
 
 export default async function SettingsPage() {
-  const { dbUser } = await getAuthUser();
-  if (!dbUser) redirectToLogin();
+  const { dbUser } = await requireOpenWorkspace();
 
   return (
     <SettingsClient

@@ -90,6 +90,12 @@ export const assetTypeEnum = pgEnum("asset_type", [
 
 export const userRoleEnum = pgEnum("user_role", ["user", "designer", "admin"]);
 
+/** Mirrors WORKSPACE_ACCESS_STATUSES in src/lib/auth/workspace-approval.ts. */
+export const workspaceAccessStatusEnum = pgEnum("workspace_access_status", [
+  "pending",
+  "approved",
+]);
+
 // Declared in descending privilege: Postgres orders an enum by declaration
 // order, and the member listings sort on this column to surface the most
 // privileged first. Mirrors WORKSPACE_ROLES in src/lib/auth/workspace-access.ts.
@@ -235,16 +241,31 @@ export const emailVerificationTokens = pgTable("email_verification_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const workspaces = pgTable("workspaces", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  logoUrl: text("logo_url"),
-  ownerId: uuid("owner_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    logoUrl: text("logo_url"),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Interim paywall: a workspace is unusable until an admin approves it
+      after the client's onboarding call and payment. Workspaces predating the
+      gate were approved by migration 0036. */
+    accessStatus: workspaceAccessStatusEnum("access_status")
+      .notNull()
+      .default("pending"),
+    accessDecidedAt: timestamp("access_decided_at"),
+    /** Null for grandfathered workspaces and after the deciding admin is deleted. */
+    accessDecidedBy: uuid("access_decided_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("workspaces_access_status_idx").on(t.accessStatus)],
+);
 
 export const workspaceMembers = pgTable(
   "workspace_members",

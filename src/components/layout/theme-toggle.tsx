@@ -44,7 +44,10 @@ export function ThemeToggle({ className }: { className?: string }) {
             className={cn(
               "flex h-[30px] w-[30px] items-center justify-center rounded-[7px] text-text-secondary transition-colors",
               "hover:text-foreground",
-              active && "bg-[var(--accent-glow)] text-primary",
+              // --primary on the light-mode glow is 2.6:1, under the 3:1 a
+              // control's state needs; the pressed shade clears it.
+              active &&
+                "bg-[var(--accent-glow)] text-primary [:root[data-theme=light]_&]:text-[var(--primary-active)]",
             )}
           >
             <Icon size={15} />

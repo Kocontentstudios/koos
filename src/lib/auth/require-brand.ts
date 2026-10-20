@@ -1,14 +1,12 @@
 import { redirect } from "next/navigation";
-import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getActiveBrandForMember } from "@/lib/db/queries";
 import { resolveOnboardingRoute } from "@/lib/onboarding-route";
 
 export async function requireBrand() {
-  const { dbUser, workspace, role } = await getActiveWorkspace();
-  if (!dbUser) redirectToLogin();
+  const { dbUser, workspace, role } = await requireOpenWorkspace();
   const brand = await getActiveBrandForMember(workspace.id, dbUser.id);
   if (!hasCompletedBrand(brand?.onboardingStatus)) {
     /* Only offer brand creation to someone allowed to create one. A

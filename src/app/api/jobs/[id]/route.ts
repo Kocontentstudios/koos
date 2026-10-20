@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { getAuthUser } from "@/lib/auth/get-user";
 import {
+  checkBrandAccess,
   claimPausedGenerationJob,
   claimStaleGenerationJob,
   getGenerationJobById,
@@ -19,6 +20,29 @@ import { isUuid } from "@/lib/validation/uuid";
 export const maxDuration = 300;
 
 const STALLED_ERROR = "Generation stalled. Please try again.";
+
+type ClaimedJob = NonNullable<
+  Awaited<ReturnType<typeof claimPausedGenerationJob>>
+>;
+
+/* The poll checked access before claiming, but a revoke can land between that
+   check and this callback; checking again here, after the claim and right
+   before the spend, closes that window. */
+async function resumeIfStillAllowed(claimed: ClaimedJob, userId: string) {
+  const access = await checkBrandAccess(
+    userId,
+    claimed.brandId,
+    "manage_content",
+  );
+  if (!access.ok) {
+    await updateGenerationJob(claimed.id, {
+      status: "failed",
+      error: access.error,
+    });
+    return;
+  }
+  await resumeCalendarJob(claimed);
+}
 
 /** In-flight progress parked in the result column by executeGenerationJob. */
 function progressFrom(result: unknown): unknown {
@@ -68,6 +92,34 @@ export async function GET(
     Date.now(),
   );
 
+  /* Resuming spends model credit and a finished job hands over its output,
+     so both re-check access: a workspace revoked (or a member removed)
+     mid-job must neither keep paying for the slices still to come nor
+     collect the result. A poll of a job still running stays cheap. */
+  const resumes = isPausedForResume(job.result) || action === "resume";
+  if (resumes || job.status === "succeeded") {
+    const access = await checkBrandAccess(
+      dbUser.id,
+      job.brandId,
+      "manage_content",
+    );
+    if (!access.ok && !resumes) {
+      return Response.json({ error: access.error }, { status: access.status });
+    }
+    if (!access.ok) {
+      await updateGenerationJob(job.id, {
+        status: "failed",
+        error: access.error,
+      });
+      return Response.json({
+        status: "failed",
+        kind: job.kind,
+        result: null,
+        error: access.error,
+      });
+    }
+  }
+
   // A deliberately paused job is ready now — resume without waiting for it
   // to look dead. Checked before the stale branch so a pause that also went
   // silent still takes the cheap path and keeps its resume budget.
@@ -76,7 +128,7 @@ export async function GET(
     if (claimed) {
       console.log(`continuing paused generation job ${job.id}`);
       after(() =>
-        resumeCalendarJob(claimed).catch((err) => {
+        resumeIfStillAllowed(claimed, dbUser.id).catch((err) => {
           console.error(
             `continuation of generation job ${job.id} crashed`,
             err,
@@ -115,7 +167,7 @@ export async function GET(
         `resuming generation job ${job.id} (attempt ${resumeCountFrom(claimed.result)})`,
       );
       after(() =>
-        resumeCalendarJob(claimed).catch((err) => {
+        resumeIfStillAllowed(claimed, dbUser.id).catch((err) => {
           // A crash here would otherwise be silent: the job stays "running"
           // and burns a resume attempt with no trace in the logs.
           console.error(`resume of generation job ${job.id} crashed`, err);

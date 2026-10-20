@@ -1,5 +1,9 @@
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { type Capability, can } from "@/lib/auth/workspace-access";
+import {
+  isWorkspaceOpen,
+  workspacePendingResponse,
+} from "@/lib/auth/workspace-approval";
 
 type ActiveWorkspace = Awaited<ReturnType<typeof getActiveWorkspace>>;
 type Guarded = ActiveWorkspace & {
@@ -27,7 +31,8 @@ const CAPABILITY_DENIED_MESSAGE: Record<Capability, string> = {
 };
 
 /**
- * Shared route guard: 401 when signed out, 403 when the capability is denied.
+ * Shared route guard: 401 when signed out, 403 when the active workspace is
+ * still pending approval (code "workspace_pending") or the capability is denied.
  * Returns either the failure Response to return as-is, or the narrowed
  * context. An array of capabilities passes when the caller holds ANY of them
  * (the invite route accepts manage_team or invite_contributor); the denial
@@ -41,6 +46,9 @@ export async function guardWorkspaceRoute(
     return {
       response: Response.json({ error: "Not authenticated" }, { status: 401 }),
     };
+  }
+  if (!isWorkspaceOpen(resolved.workspace.accessStatus, resolved.dbUser.role)) {
+    return { response: workspacePendingResponse() };
   }
   if (capability) {
     const required = Array.isArray(capability) ? capability : [capability];

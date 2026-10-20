@@ -58,7 +58,7 @@ describe("GET /api/workspace/members", () => {
   function signedInAs(role: string) {
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "w1", ownerId: "u1" },
+      workspace: { id: "w1", ownerId: "u1", accessStatus: "approved" },
       role,
     });
   }

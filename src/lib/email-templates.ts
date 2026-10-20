@@ -307,6 +307,28 @@ export function welcomeEmail(i: WelcomeEmailInput): BuiltEmail {
   return { subject: "Welcome to KO OS", html };
 }
 
+export interface WorkspaceApprovedEmailInput {
+  firstName: string;
+  workspaceName: string;
+  dashboardUrl: string;
+}
+
+/** Sent to the owner when an admin approves a workspace held at the access gate. */
+export function workspaceApprovedEmail(
+  i: WorkspaceApprovedEmailInput,
+): BuiltEmail {
+  const html = shell(
+    "Your KO OS workspace is ready",
+    `<p style="font-size:13px">Hi ${escapeHtml(
+      i.firstName,
+    )}, <strong>${escapeHtml(
+      i.workspaceName,
+    )}</strong> has been approved. Everything in KO OS is now open to you and your team.</p>
+    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:#138bc8">Open your workspace →</a></p>`,
+  );
+  return { subject: "Your KO OS workspace is ready", html };
+}
+
 export interface ContactFormEmailInput {
   name: string;
   email: string;

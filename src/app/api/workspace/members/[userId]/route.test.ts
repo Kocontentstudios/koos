@@ -27,7 +27,13 @@ vi.mock("@/lib/db/queries", () => ({
 
 import { DELETE, PATCH } from "./route";
 
-const WORKSPACE = { id: "w1", name: "Acme", logoUrl: null, ownerId: "owner-1" };
+const WORKSPACE = {
+  id: "w1",
+  name: "Acme",
+  logoUrl: null,
+  ownerId: "owner-1",
+  accessStatus: "approved",
+};
 
 function params(userId: string) {
   return { params: Promise.resolve({ userId }) };

@@ -1759,6 +1759,7 @@ export async function updateAppSettings(data: {
 
 export * from "./admin-tickets";
 export * from "./analytics";
+export * from "./workspace-access";
 export * from "./workspaces";
 
 // ── Brand memory ────────────────────────────────────────────────────
