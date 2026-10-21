@@ -131,7 +131,10 @@ export function DesignDirectionsDialog({
 
   /* One new direction for one slot (regenerateOf), swapped in where the old
      one was. A failed slot keeps its row id, so it regenerates the same way.
-     Not a new image choice, so no design_image_choice event. */
+     Not a new image choice, so no design_image_choice event.
+     The contract is exactly one row back. Any other count means the server
+     broke it, so the slot keeps its design and says so rather than guessing
+     which of several rows belongs in it. */
   async function regenerate(slot: number) {
     const image = lastImage.current;
     const target = slots[slot];
@@ -139,11 +142,12 @@ export function DesignDirectionsDialog({
     setRegeneratingSlot(slot);
     setRegenerateError(null);
     onRunStart?.();
-    const [replacement] = await slotRun.generate({
+    const rows = await slotRun.generate({
       ...args,
       image,
       regenerateOf: target.id,
     });
+    const replacement = rows.length === 1 ? rows[0] : null;
     if (replacement) {
       setReplaced((current) => ({
         ...current,
@@ -272,7 +276,6 @@ export function DesignDirectionsDialog({
               stage: design.stage,
               jobStage: design.jobStage,
               progress: design.progress,
-              label: design.progressLabel,
             }
           : design.error
             ? {

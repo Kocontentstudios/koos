@@ -119,7 +119,6 @@ export function DirectionResults({
     rendered[0]?.width && rendered[0]?.height
       ? { width: rendered[0].width, height: rendered[0].height }
       : null;
-  const failed = slots.length - rendered.length;
 
   async function handleJpeg(generation: SerializedGeneration) {
     setConvertingId(generation.id);
@@ -135,17 +134,9 @@ export function DirectionResults({
 
   return (
     <div className="flex flex-col gap-4">
-      {source || failed > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          {source ? <SourcePill source={source} imageName={imageName} /> : null}
-          {failed > 0 ? (
-            <p
-              role="status"
-              className="text-[13px] text-[var(--status-pending-fg)]"
-            >
-              {rendered.length} of {slots.length} directions came back.
-            </p>
-          ) : null}
+      {source ? (
+        <div className="flex">
+          <SourcePill source={source} imageName={imageName} />
         </div>
       ) : null}
 
@@ -176,6 +167,7 @@ export function DirectionResults({
               key={id}
               index={index}
               size={firstSize}
+              otherReady={rendered.length > 0}
               {...regenerate}
             />
           );

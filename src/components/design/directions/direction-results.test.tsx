@@ -253,7 +253,7 @@ describe("DirectionResults", () => {
   it("regenerates one slot while the other stays usable", () => {
     const { props } = results({ regeneratingSlot: 0 });
     expect(
-      within(card("Playful product story")).getByRole("status"),
+      within(card("Regenerating direction 1")).getByRole("status"),
     ).toHaveTextContent("Making a new direction…");
     expect(
       screen.getByRole("button", { name: "Regenerating…" }),
@@ -274,9 +274,29 @@ describe("DirectionResults", () => {
 
   /* An anchor styled as disabled still follows its href on Enter, which
      would download the design that is being replaced. */
+  /* Round 2 left the old title and "Why this works" under the skeleton, so
+     the card described a design that was no longer there. */
+  it("hides the old title and reasons while a slot regenerates", () => {
+    results({ regeneratingSlot: 0 });
+    const regenerating = card("Regenerating direction 1");
+    const c = within(regenerating);
+    expect(c.getByText("Direction 1")).toBeVisible();
+    expect(screen.queryByText("Playful product story")).toBeNull();
+    expect(c.queryByText("Why this works")).toBeNull();
+    expect(c.queryByText("Cutout sits on a warm arch")).toBeNull();
+    /* Placeholders hold the title and reasons' place, so the card keeps
+       its shape: the design frame, the title and three reason lines. */
+    expect(
+      regenerating.querySelectorAll('[data-slot="skeleton"]'),
+    ).toHaveLength(5);
+    expect(
+      within(card("Editorial arch frame")).getByText("Why this works"),
+    ).toBeVisible();
+  });
+
   it("makes the regenerating card's downloads truly inert", async () => {
     results({ regeneratingSlot: 0 });
-    const c = within(card("Playful product story"));
+    const c = within(card("Regenerating direction 1"));
     expect(c.queryByRole("link", { name: /download png/i })).toBeNull();
     const png = c.getByRole("button", { name: /download png/i });
     expect(png).toBeDisabled();
@@ -317,17 +337,62 @@ describe("DirectionResults", () => {
     const { props } = results({
       slots: [ready(direction("d1")), failedSlot("d2")],
     });
-    expect(screen.getByText("1 of 2 directions came back.")).toHaveAttribute(
-      "role",
-      "status",
-    );
-    const failed = within(
-      screen.getByRole("article", { name: "Direction 2 did not render" }),
-    );
+    const failedCard = screen.getByRole("article", {
+      name: "Direction 2 did not render",
+    });
+    const failed = within(failedCard);
+    expect(failed.getByText("This direction didn't render")).toBeVisible();
+    expect(failed.getByText(/The other direction is ready/)).toBeVisible();
     await userEvent.click(
       failed.getByRole("button", { name: "Regenerate direction 2" }),
     );
     expect(props.onRegenerate).toHaveBeenCalledWith(1);
+  });
+
+  it("does not point to another direction when none rendered", () => {
+    results({ slots: [failedSlot("d1"), failedSlot("d2")] });
+    for (const name of [
+      "Direction 1 did not render",
+      "Direction 2 did not render",
+    ]) {
+      const c = within(screen.getByRole("article", { name }));
+      expect(c.queryByText(/The other direction is ready/)).toBeNull();
+      expect(c.getByText("Regenerate it to try again.")).toBeVisible();
+    }
+  });
+
+  /* In light mode --surface-container-lowest is the card's own #ffffff, so a
+     failed or unavailable slot drawn with it had no edge at all (round 2,
+     L16-one-failed.png). theme-contrast.test.ts holds the tokens; this holds
+     the frame to them. */
+  it.each([
+    [
+      "a failed slot",
+      () => results({ slots: [ready(direction("d1")), failedSlot("d2")] }),
+      "Direction 2 did not render",
+      "This direction didn't render",
+    ],
+    [
+      "an unavailable preview",
+      () => results({ slots: [ready(direction("d1", { url: null }))] }),
+      "Playful product story",
+      "Preview unavailable",
+    ],
+  ])("draws %s as a visible box", (_label, show, article, text) => {
+    show();
+    const c = within(screen.getByRole("article", { name: article }));
+    const frame = (
+      c.queryByText("Preview unavailable") ??
+      c.getByText(/The other direction is ready/)
+    ).parentElement as HTMLElement;
+    expect(c.getByText(text)).toBeVisible();
+    expect(frame.className).toContain("bg-[var(--surface-container-low)]");
+    expect(frame.className).not.toContain("surface-container-lowest");
+    const outline = frame.querySelector('[aria-hidden="true"].border-dashed');
+    expect(outline).not.toBeNull();
+    expect((outline as HTMLElement).style.borderColor).toBe(
+      "var(--border-control)",
+    );
   });
 
   it("shows an empty state with a way forward when nothing came back", async () => {

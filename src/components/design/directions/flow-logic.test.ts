@@ -11,6 +11,9 @@ import {
   generationStepIndex,
   generationSteps,
   isUnusableImageError,
+  resultsHeading,
+  startOverLabel,
+  unusableImageDetail,
   unusableImageReason,
 } from "./flow-logic";
 
@@ -179,5 +182,94 @@ describe("unusableImageReason", () => {
     expect(unusableImageReason("Design generation failed.")).toBe(
       "Design generation failed.",
     );
+  });
+});
+
+describe("unusableImageDetail", () => {
+  /* Round 2 read "...may be damaged. Choose another image." over a "Choose
+     another image" button: the instruction the button already gives. */
+  it.each([
+    [
+      new DesignImageError("unreadable").message,
+      "It could not be read and may be damaged.",
+    ],
+    [
+      new DesignImageError("not_png_or_jpeg").message,
+      "It is not a PNG or JPEG file.",
+    ],
+    [
+      new DesignImageError("foreign_key").message,
+      "It was not uploaded for this brand.",
+    ],
+    [
+      new ImageNotUsableError("undecodable").message,
+      "It couldn't be opened and may be damaged.",
+    ],
+    [
+      new ImageNotUsableError("wrong_type").message,
+      "It is not a PNG, JPEG or WEBP file.",
+    ],
+  ])("drops the remedy the button repeats from %s", (message, expected) => {
+    expect(unusableImageDetail(message)).toBe(expected);
+  });
+
+  it("keeps a remedy the button does not say", () => {
+    expect(unusableImageDetail(new DesignImageError("too_large").message)).toBe(
+      `It is larger than ${MAX_DESIGN_IMAGE_BYTES / (1024 * 1024)} MB. Choose a smaller image.`,
+    );
+    expect(unusableImageDetail(new DesignImageError("missing").message)).toBe(
+      "The upload could not be found. Upload it again.",
+    );
+    expect(
+      unusableImageDetail(new ImageNotUsableError("encode_failed").message),
+    ).toBe(
+      "It couldn't be prepared for upload. Try again or choose another image.",
+    );
+  });
+
+  it("is empty when the remedy was all there was", () => {
+    expect(
+      unusableImageDetail("This image can't be used: Choose another image."),
+    ).toBe("");
+  });
+});
+
+describe("startOverLabel", () => {
+  it("offers to change the image only when one was chosen", () => {
+    expect(startOverLabel("upload")).toBe("Change image");
+    expect(startOverLabel("ko")).toBe("Start over");
+    expect(startOverLabel(null)).toBe("Start over");
+  });
+});
+
+describe("resultsHeading", () => {
+  it("promises two directions only when both are on screen", () => {
+    expect(resultsHeading(2, 2).title).toBe("Two directions to choose from");
+    expect(resultsHeading(1, 2)).toEqual({
+      title: "One direction is ready",
+      description:
+        "The other didn't render. Use the one that's ready, or regenerate the other for a fresh take.",
+    });
+  });
+
+  it("never claims a direction is ready when none is", () => {
+    expect(resultsHeading(0, 2)).toEqual({
+      title: "Neither direction rendered",
+      description: "Regenerate either one to try again.",
+    });
+    expect(resultsHeading(0, 1).description).toBe(
+      "Regenerate it to try again.",
+    );
+  });
+
+  it("covers a single slot and an empty run", () => {
+    expect(resultsHeading(1, 1).title).toBe("Your direction is ready");
+    expect(resultsHeading(0, 0).title).toBe("Your designs");
+  });
+
+  it("counts past the words it knows", () => {
+    expect(resultsHeading(2, 5).title).toBe("Two directions are ready");
+    expect(resultsHeading(2, 5).description).toMatch(/^Three didn't render/);
+    expect(resultsHeading(7, 7).title).toBe("7 directions to choose from");
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { DesignEntry } from "@/components/design/design-analytics";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
 import { DirectionResults, type DirectionSlot } from "./direction-results";
 import { FlowDescription, FlowTitle } from "./flow-heading";
-import type { ImageSource } from "./flow-logic";
+import { type ImageSource, resultsHeading, startOverLabel } from "./flow-logic";
 import { GenerationError, GenerationProgress } from "./generation-status";
 import { ImageChoice } from "./image-choice";
 import { ImageDropzone } from "./image-dropzone";
@@ -35,7 +36,6 @@ export type DirectionsView =
       stage: GenerationStage | null;
       jobStage: JobStage | null;
       progress: { done: number; total: number } | null;
-      label: string | null;
     }
   | {
       step: "error";
@@ -97,18 +97,102 @@ function Header({
 function Footer({
   children,
   className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+  ...props
+}: React.ComponentProps<"div">) {
   return (
     /* The sheet squares its bottom corners on phones and its -mb-4 pulls the
        footer flush to the edge; pb-10 keeps actions clear of the home bar. */
     <DialogFooter
       className={cn("mt-4 max-sm:rounded-b-none max-sm:pb-10", className)}
+      {...props}
     >
       {children}
     </DialogFooter>
+  );
+}
+
+/**
+ * Leaving results clears them from this dialog, so with designs on screen it
+ * asks first and says where they will still be. The designs are never lost
+ * (every run is saved to Design Studio), which is why this is a confirm in
+ * the footer rather than a destructive-action dialog.
+ */
+function ResultsFooter({
+  source,
+  designsOnScreen,
+  regenerating,
+  onStartOver,
+  onDone,
+}: {
+  source: ImageSource | null;
+  designsOnScreen: boolean;
+  regenerating: boolean;
+  onStartOver: () => void;
+  onDone: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const promptId = useId();
+  const stayRef = useRef<HTMLButtonElement>(null);
+  const startOverRef = useRef<HTMLButtonElement>(null);
+  /* The button that was pressed disappears, so focus is placed by hand both
+     ways; without it, focus falls to the dialog and a keyboard user is lost.
+     Compared with the last value, not skipped on first run, so a Strict Mode
+     re-run of the effect never steals focus on mount. */
+  const shown = useRef(confirming);
+  useEffect(() => {
+    if (shown.current === confirming) return;
+    shown.current = confirming;
+    (confirming ? stayRef : startOverRef).current?.focus();
+  }, [confirming]);
+
+  const label = startOverLabel(source);
+
+  if (confirming) {
+    return (
+      <Footer
+        role="group"
+        aria-labelledby={promptId}
+        className="flex-col sm:flex-row sm:items-center sm:justify-between"
+      >
+        <p
+          id={promptId}
+          className="text-[13px] leading-snug text-[var(--text-secondary)]"
+        >
+          <span className="font-semibold text-foreground">{label}?</span> These
+          designs stay in Design Studio.
+        </p>
+        <div className="flex gap-2 max-sm:flex-col-reverse">
+          <Button
+            ref={stayRef}
+            type="button"
+            variant="ghost"
+            onClick={() => setConfirming(false)}
+          >
+            Stay here
+          </Button>
+          <Button type="button" onClick={onStartOver} disabled={regenerating}>
+            {label}
+          </Button>
+        </div>
+      </Footer>
+    );
+  }
+
+  return (
+    <Footer className="sm:justify-between">
+      <Button
+        ref={startOverRef}
+        type="button"
+        variant="ghost"
+        onClick={designsOnScreen ? () => setConfirming(true) : onStartOver}
+        disabled={regenerating}
+      >
+        {label}
+      </Button>
+      <Button type="button" onClick={onDone}>
+        Done
+      </Button>
+    </Footer>
   );
 }
 
@@ -193,7 +277,6 @@ export function DirectionsFlowView({
           stage={view.stage}
           jobStage={view.jobStage}
           progress={view.progress}
-          label={view.label}
         />
       );
 
@@ -201,6 +284,7 @@ export function DirectionsFlowView({
       return (
         <GenerationError
           message={view.message}
+          source={view.source}
           unusableImage={view.unusableImage}
           onRetry={handlers.onRetryGeneration}
           onChooseAnotherImage={handlers.onChooseAnotherImage}
@@ -209,21 +293,12 @@ export function DirectionsFlowView({
         />
       );
 
-    case "results":
+    case "results": {
+      const ready = view.slots.filter((slot) => slot.generation).length;
+      const heading = resultsHeading(ready, view.slots.length);
       return (
         <>
-          <Header
-            title={
-              view.slots.length > 0
-                ? "Two directions to choose from"
-                : "Your designs"
-            }
-            description={
-              view.slots.length > 0
-                ? "Each takes a different approach to the same brief. Download the one you like, send it to the design team, or regenerate either one."
-                : "Designs from this run appear here."
-            }
-          />
+          <Header title={heading.title} description={heading.description} />
           <DirectionResults
             slots={view.slots}
             source={view.source}
@@ -236,21 +311,16 @@ export function DirectionsFlowView({
             onChooseImagery={handlers.onBackToChoice}
           />
           {view.slots.length > 0 ? (
-            <Footer className="sm:justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handlers.onBackToChoice}
-                disabled={view.regeneratingSlot !== null}
-              >
-                Change image
-              </Button>
-              <Button type="button" onClick={handlers.onDone}>
-                Done
-              </Button>
-            </Footer>
+            <ResultsFooter
+              source={view.source}
+              designsOnScreen={ready > 0}
+              regenerating={view.regeneratingSlot !== null}
+              onStartOver={handlers.onBackToChoice}
+              onDone={handlers.onDone}
+            />
           ) : null}
         </>
       );
+    }
   }
 }

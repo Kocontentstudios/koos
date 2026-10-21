@@ -124,3 +124,81 @@ export function unusableImageReason(message: string): string {
     .replace(/^[\s.:,;–—-]+/, "");
   return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
+
+/* The reasons end by telling the user to choose another image, and the
+   recovery button under them says exactly that. Saying it in both reads as
+   an echo. Any other remedy ("Choose a smaller image") stays, because it
+   says something the button does not. */
+const REDUNDANT_REMEDY = /(?:^|(?<=[.!?]))\s*Choose another image\.?\s*$/;
+
+/** The reason to show above a "Choose another image" button. */
+export function unusableImageDetail(message: string): string {
+  return unusableImageReason(message).replace(REDUNDANT_REMEDY, "").trim();
+}
+
+/** Going back from a KO-imagery run changes no image, because none was
+ *  chosen; it starts the choice again. */
+export function startOverLabel(source: ImageSource | null): string {
+  return source === "upload" ? "Change image" : "Start over";
+}
+
+const COUNT_WORDS = ["No", "One", "Two", "Three", "Four"];
+
+function countWord(n: number): string {
+  return COUNT_WORDS[n] ?? String(n);
+}
+
+export interface ResultsHeading {
+  title: string;
+  description: string;
+}
+
+/**
+ * The results heading says what is actually on screen: with one of two
+ * directions failed, "Two directions to choose from" is a promise the cards
+ * below break.
+ */
+export function resultsHeading(ready: number, total: number): ResultsHeading {
+  if (total === 0) {
+    return {
+      title: "Your designs",
+      description: "Designs from this run appear here.",
+    };
+  }
+  if (ready === total) {
+    return total === 1
+      ? {
+          title: "Your direction is ready",
+          description:
+            "Download it, send it to the design team, or regenerate it for a different take.",
+        }
+      : {
+          title: `${countWord(total)} directions to choose from`,
+          description:
+            "Each takes a different approach to the same brief. Download the one you like, send it to the design team, or regenerate either one.",
+        };
+  }
+  const missing = total - ready;
+  if (ready === 0) {
+    return {
+      title:
+        total === 2 ? "Neither direction rendered" : "No direction rendered",
+      description:
+        total === 1
+          ? "Regenerate it to try again."
+          : total === 2
+            ? "Regenerate either one to try again."
+            : "Regenerate any of them to try again.",
+    };
+  }
+  return {
+    title:
+      ready === 1
+        ? "One direction is ready"
+        : `${countWord(ready)} directions are ready`,
+    description:
+      missing === 1
+        ? "The other didn't render. Use the one that's ready, or regenerate the other for a fresh take."
+        : `${countWord(missing)} didn't render. Use what's ready, or regenerate the rest.`,
+  };
+}
