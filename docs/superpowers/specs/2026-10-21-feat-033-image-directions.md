@@ -28,7 +28,7 @@ Satori renders a subset of HTML/CSS. Restricting the renderer to that subset mak
 | PR | Scope |
 |---|---|
 | **1 (this spec)** | Image choice (own image or KO imagery), upload with preview/remove/replace, two directions as layer documents with a "why this works" list, results screen, PNG and JPG download, regenerate. Calendar post and Design Studio entry points. |
-| 2 | Editor: canvas select/drag/resize/rotate/snap, Design and Layers panels, undo/redo, versions (save, restore, up to 30), format switch. |
+| 2 | Editor: canvas select/drag/resize/rotate/snap, Design and Layers panels, undo/redo, versions (save, restore, up to 30), format switch. Text fit while editing is a browser estimate (font-metric advance widths read from the same TTFs satori loads, with 1em assumed for any glyph the font lacks, so emoji and CJK estimate wide, never narrow). The server re-fits with the satori measurer on save, and the saved document is the server's. Decided with Oluwaseyi 2026-10-21: the server measurer costs 0.4-1.3 s per probe set, too slow for every keystroke. |
 | 3 | Edit with AI: free-text and chips, scope (whole design or selection), proposal preview with changed elements outlined, brand checks, accept/decline/try again, accept saves a version. |
 
 ## PR 1 contracts
@@ -88,28 +88,58 @@ New request field `image: { source: "upload", key } | { source: "ko" }`. Its pre
 3. Each direction runs through the existing pre-delivery gate (`renderGuarded` semantics: deterministic checks, one judge correction).
 4. Each direction is one `design_generations` row, `renderer = composite`, holding the document and rationale. The job result lists both ids.
 5. Quota: one generation is one quota unit, as today.
+6. **Regenerating one direction.** Request field `regenerateOf: generationId` (requires `image`). The job produces exactly one direction, whose layout differs from that generation's layout and from its sibling's. On the KO path that is one plate call, not two. One quota unit. The new row records the same job-level `image_source`. The UI swaps it into that slot; nothing is discarded, so Design Studio history gains no orphan row.
+7. **Progress.** The directions path reports `JobProgress` with a `stage` field the UI maps to its four steps: `brief` (writing the two directions), `imagery` (plates, KO path only), `render` (`done`/`total` count rendered directions) and `checks` (the pre-delivery gate). `label` stays human text. The UI keys off `stage`, never off `label`.
 
 ### Upload
 
 - **Endpoint:** `POST /api/uploads/presign` with `kind: "design-image"`.
-- **Allowed:** PNG, JPEG or WEBP, up to 20 MB, stored under `design-images/{brandId}/{uuid}.{ext}`.
-- **Normalised in the browser:** before upload the browser re-encodes every image to fit within 2560 px on the long edge, keeping the type for PNG and JPEG and turning WEBP into JPEG.
+- **Presign accepts PNG and JPEG only**, up to 20 MB, stored under `design-images/{brandId}/{uuid}.{png|jpg}`. WEBP never reaches presign: the browser converts it first.
+- **The signature binds the type and the size.** The AWS presigner leaves `content-type` unsigned by default, so the URL signs `content-type` and `content-length` explicitly (`signableHeaders`). Without that, one URL accepts any type up to R2's 5 GB, and the bucket's public domain would serve it. The same signing function serves attachments and documents, so they get the fix too.
+- **The key is built from the brand row** (`access.brand.id`), never from the request string, so an uppercase UUID that Postgres matches cannot reach `designImageKeyFor` and 500.
+- **Normalised in the browser:** before upload the browser re-encodes every image to fit within 2560 px on the long edge.
+  - An image with any transparent pixel (PNG or WEBP) becomes PNG, so the transparency survives. Every opaque image becomes JPEG, which is far smaller for photos.
   - **Why:** satori cannot draw WEBP (see `run-design-generation.ts` on "u2 is not iterable"), and phone photos arrive at 7000+ px, which resvg rasterises slowly and with a large memory cost inside a lambda.
   - **Free fixes:** re-encoding through `createImageBitmap` also applies EXIF orientation, and strips EXIF metadata such as location.
-  - The server accepts only PNG and JPEG keys, and refuses files over 4096 px on either side (`readImageDimensions`).
-- **Checking the real file:** at generation the server sniffs the bytes (`detectImageType`). If they are not PNG or JPEG, it fails with "This image can't be used" and the user is told to choose another.
+- **Checking the real file at generation:** the server sniffs the bytes (`detectImageType`), refuses files over 4096 px on either side, and proves the image decodes (PNG: the IDAT stream inflates to the size the header promises; JPEG: a frame header, a scan and an end marker are present). A file that fails any check is a `DesignImageError`, so a corrupt upload is an error the user can act on, never a design with a silently empty image slot.
+- **Error contract:** every user-facing unusable-image message starts with `IMAGE_NOT_USABLE_PREFIX` ("This image can't be used"), exported from `src/lib/uploads/design-image-limits.ts`, which has no server imports. The UI detects the state by that constant, not by its own copy of the wording.
 
 ### Schema (migration `0037_design_documents.sql`)
 
 `design_generations` gets four new nullable columns: `document` (jsonb), `rationale` (jsonb), `image_source` (text: `upload` or `ko`) and `source_image_key` (text). Old rows keep `document = null` and render exactly as today.
 
+### Client/server contract
+
+These are the seams the parallel units build against.
+
+- **`DirectionSpec`** is a `DesignSpec` plus:
+  - `title`: up to 40 characters, e.g. "Playful product story"
+  - `rationale`: 2 to 4 strings, each up to 90 characters
+
+  Both are stored in `design_generations.rationale` as `{ title, reasons }`.
+- **`SerializedGeneration`** (`src/lib/design/serialize.ts`) gains:
+  - `direction: { title: string; reasons: string[] } | null`
+  - `imageSource: "upload" | "ko" | null`
+  - `editable: boolean` (`document !== null`)
+- **`GenerateArgs`** (`src/components/design/use-design-generation.ts`) gains `image?: { source: "upload"; key: string } | { source: "ko" }` and `regenerateOf?: string` (a generation id; requires `image`). The route validates both, checks `regenerateOf` belongs to the same brand, and passes them through to the job.
+- **`JobProgress`** (`src/lib/generation/poll-job.ts`) gains `stage?: "brief" | "imagery" | "render" | "checks"`.
+- **Upload helpers:**
+  - `src/lib/uploads/normalize-image.ts` (browser): `normalizeImageForUpload(file: File): Promise<{ blob: Blob; type: "image/png" | "image/jpeg"; width: number; height: number }>`. It throws `ImageNotUsableError` with a user-facing message.
+  - `src/lib/uploads/design-image.ts` (server):
+    - `designImageKeyFor(brandId, ext)`
+    - `isDesignImageKeyFor(key, brandId)`
+    - `loadDesignImage(key, brandId)`: returns `{ bytes, contentType, width, height }`, or throws `DesignImageError` with a user-facing message.
+- **Presign:** `POST /api/uploads/presign` with `kind: "design-image"` returns `{ url, key }`, the same shape as the other kinds.
+
 ### UI
 
-- **Entry points:** the calendar item drawer's Generate design button, and the Design Studio generate action.
+- **Entry points:** every user of the shared `GenerateDesignButton` (calendar item drawer, strategy design brief panel) plus the Design Studio generate action. The flow lives behind `GenerateDesignButton`, so no entry point can skip the image choice.
+- **Send to design team** stays: each direction card carries it, keyed per row, with the ticket context the calendar drawer passes today.
+- **Legacy rows** (no `direction`) keep opening the existing `DesignPreviewModal`.
 - **Flow:** both open the image-choice modal: "Use a specific image" or "Let KO create the imagery".
   - **Upload:** drop zone with click-to-browse, type and size validation, preview with Remove / Replace / Use this image.
   - **Progress:** a four-step progress modal driven by the job's real progress events, with an error state.
-  - **Results:** two direction cards, each with the image, "why this works", Download PNG, Download JPG and Regenerate. Editing is phase 2, so the card has no Edit control yet. A placeholder for an unbuilt feature is a lie.
+  - **Results:** two direction cards, each with the image, "why this works", Download PNG, Download JPG, Send to design team and Regenerate (this direction only, via `regenerateOf`). Editing is phase 2, so the card has no Edit control yet. A placeholder for an unbuilt feature is a lie.
 - **JPG:** converted in the browser from the stored PNG on a `canvas`, white-filled first because JPEG has no alpha.
 - Every wait follows CLAUDE.md "Every wait gets an affordance".
 
