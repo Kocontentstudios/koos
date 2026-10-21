@@ -105,11 +105,14 @@ New request field `image: { source: "upload", key } | { source: "ko" }`. Its pre
 - **Endpoint:** `POST /api/uploads/presign` with `kind: "design-image"`.
 - **Presign accepts PNG and JPEG only**, up to 20 MB, stored under `design-images/{brandId}/{uuid}.{png|jpg}`. WEBP never reaches presign: the browser converts it first.
 - **The signature binds the type and the size.** The AWS presigner leaves `content-type` unsigned by default, so the URL signs `content-type` and `content-length` explicitly (`signableHeaders`). Without that, one URL accepts any type up to R2's 5 GB, and the bucket's public domain would serve it. The same signing function serves attachments and documents, so they get the fix too.
+  - **What the browser must send:** presign returns the `contentType` it signed. The PUT sends exactly that `Content-Type` and exactly `sizeBytes` bytes (for a design image, `sizeBytes` is the normalised `blob.size`), or R2 answers 403. `uploadToPresignedUrl(url, blob, onProgress, contentType)` in `src/lib/uploads/put-presigned.ts` does this.
+  - An untyped `.txt` document (the browser sends an empty type) is signed as `text/plain`, because an empty type cannot be bound.
 - **The key is built from the brand row** (`access.brand.id`), never from the request string, so an uppercase UUID that Postgres matches cannot reach `designImageKeyFor` and 500.
 - **Normalised in the browser:** before upload the browser re-encodes every image to fit within 2560 px on the long edge.
   - An image with any transparent pixel (PNG or WEBP) becomes PNG, so the transparency survives. Every opaque image becomes JPEG, which is far smaller for photos.
   - **Why:** satori cannot draw WEBP (see `run-design-generation.ts` on "u2 is not iterable"), and phone photos arrive at 7000+ px, which resvg rasterises slowly and with a large memory cost inside a lambda.
-  - **Free fixes:** re-encoding through `createImageBitmap` also applies EXIF orientation, and strips EXIF metadata such as location.
+  - **Free fixes:** re-encoding through `createImageBitmap` also applies EXIF orientation, and strips EXIF metadata such as location. A browser that rejects the `imageOrientation` option with a `TypeError` is retried without it.
+  - **Too many pixels:** a file whose header declares more than 100 megapixels (a decompression bomb, or a photo no phone browser can hold decoded) is refused before decoding as too large, not as damaged.
 - **Checking the real file at generation:** the server sniffs the bytes (`detectImageType`), refuses files over 4096 px on either side, and proves the image decodes (PNG: the IDAT stream inflates to the size the header promises; JPEG: a frame header, a scan and an end marker are present). A file that fails any check is a `DesignImageError`, so a corrupt upload is an error the user can act on, never a design with a silently empty image slot.
 - **Error contract:** every user-facing unusable-image message starts with `IMAGE_NOT_USABLE_PREFIX` ("This image can't be used"), exported from `src/lib/uploads/design-image-limits.ts`, which has no server imports. The UI detects the state by that constant, not by its own copy of the wording.
 
@@ -138,7 +141,7 @@ These are the seams the parallel units build against.
     - `designImageKeyFor(brandId, ext)`
     - `isDesignImageKeyFor(key, brandId)`
     - `loadDesignImage(key, brandId)`: returns `{ bytes, contentType, width, height }`, or throws `DesignImageError` with a user-facing message.
-- **Presign:** `POST /api/uploads/presign` with `kind: "design-image"` returns `{ url, key }`, the same shape as the other kinds.
+- **Presign:** `POST /api/uploads/presign` with `kind: "design-image"` returns `{ url, key, contentType }`, the same shape as the other kinds.
 
 ### UI
 

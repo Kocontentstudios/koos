@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
+import { jpegDecodes, pngDecodes } from "@/lib/images/decode-check";
 import { detectImageType } from "@/lib/images/detect";
 import {
   getObjectBytes,
@@ -9,6 +10,7 @@ import {
 import {
   type DesignImageExtension,
   type DesignImageStoredType,
+  IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
   MAX_DESIGN_IMAGE_SIDE,
 } from "./design-image-limits";
@@ -16,10 +18,12 @@ import {
 /**
  * A user's uploaded design image, read back by key at generation.
  *
- * The browser normalises before upload and the presign route checks what the
- * client claims, but neither is proof: the PUT goes straight from the browser
- * to R2, so the object can be anything of any size. This is the one place the
- * real bytes are judged, and it runs before they reach satori or resvg.
+ * The browser normalises before upload and the presign route binds the
+ * declared type and size, but neither is proof of the bytes: the PUT goes
+ * straight from the browser to R2, and a client can skip the normaliser or a
+ * PUT can be cut short. This is the one place the real bytes are judged (type,
+ * size, and that the pixel data decodes), and it runs before they reach satori
+ * or resvg, which draw a corrupt image as nothing rather than failing.
  */
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -50,7 +54,7 @@ const REASONS: Record<DesignImageFault, string> = {
 /** `fault` is for logs and metrics; `message` is safe to show the user. */
 export class DesignImageError extends Error {
   constructor(readonly fault: DesignImageFault) {
-    super(`This image can't be used: ${REASONS[fault]}`);
+    super(`${IMAGE_NOT_USABLE_PREFIX}: ${REASONS[fault]}`);
     this.name = "DesignImageError";
   }
 }
@@ -105,6 +109,10 @@ export async function loadDesignImage(
   ) {
     throw new DesignImageError("too_many_pixels");
   }
+  /* After the size cap, so the inflate check never meets a header promising
+     more than 4096 x 4096 pixels. */
+  const decodes = type === "png" ? await pngDecodes(bytes) : jpegDecodes(bytes);
+  if (!decodes) throw new DesignImageError("unreadable");
 
   return {
     bytes,

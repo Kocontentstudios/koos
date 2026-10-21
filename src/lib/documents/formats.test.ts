@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalDocumentMime,
   DOCUMENT_ACCEPT,
   DOCUMENT_EXTENSIONS,
   DOCUMENT_MIME_TYPES,
@@ -114,5 +115,28 @@ describe("isAllowedDocument", () => {
 
   it("is case-insensitive on both halves", () => {
     expect(isAllowedDocument("GUIDE.PDF", "Application/PDF")).toBe(true);
+  });
+});
+
+/* A presigned PUT cannot bind an empty type: it is dropped before signing,
+   and the URL would then accept the file as text/html. */
+describe("canonicalDocumentMime", () => {
+  it("signs an untyped .txt as text/plain", () => {
+    expect(canonicalDocumentMime("notes.txt", "")).toBe("text/plain");
+    expect(canonicalDocumentMime("NOTES.TXT", "  ")).toBe("text/plain");
+  });
+
+  it("normalises a declared type's case and whitespace", () => {
+    expect(canonicalDocumentMime("a.pdf", " Application/PDF ")).toBe(
+      "application/pdf",
+    );
+  });
+
+  it("never returns an empty type for any allowed document", () => {
+    for (const ext of DOCUMENT_EXTENSIONS) {
+      for (const mime of DOCUMENT_MIME_TYPES[ext]) {
+        expect(canonicalDocumentMime(`f.${ext}`, mime)).not.toBe("");
+      }
+    }
   });
 });

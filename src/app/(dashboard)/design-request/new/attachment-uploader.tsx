@@ -84,17 +84,21 @@ export function AttachmentUploader({
           }),
         });
         const presign = (await presignRes.json()) as
-          | { key: string; url: string }
+          | { key: string; url: string; contentType: string }
           | { error: string };
         if (!presignRes.ok || !("url" in presign)) {
           throw new Error(
             ("error" in presign && presign.error) || "Upload failed",
           );
         }
-        await uploadToPresignedUrl(presign.url, file, (fraction) =>
-          setPending((p) =>
-            p.map((u) => (u.id === id ? { ...u, progress: fraction } : u)),
-          ),
+        await uploadToPresignedUrl(
+          presign.url,
+          file,
+          (fraction) =>
+            setPending((p) =>
+              p.map((u) => (u.id === id ? { ...u, progress: fraction } : u)),
+            ),
+          presign.contentType,
         );
         onAdd([
           {
