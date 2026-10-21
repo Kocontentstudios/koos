@@ -183,6 +183,19 @@ function statusPairs(tokens: Tokens): [string, string][] {
     .sort();
 }
 
+/** Each solid --X-fill and --X-fill-<state> with --X-fill-foreground, the
+ *  label colour painted on it. Found by name, so a new state is measured. */
+function fills(tokens: Tokens): [string, string][] {
+  return [...tokens.keys()]
+    .flatMap((name) => {
+      const match = /^(--[\w-]+-fill)(-(?!foreground$)[\w]+)?$/.exec(name);
+      return match
+        ? [[name, `${match[1]}-foreground`] as [string, string]]
+        : [];
+    })
+    .sort();
+}
+
 /** Every ground where `fg` on `tint` falls short, as readable lines. */
 function shortfalls(tokens: Tokens, fg: string, tint: string): string[] {
   return grounds(tokens).flatMap((ground) => {
@@ -260,6 +273,10 @@ describe("the token parser", () => {
         ]),
       );
       expect(statusPairs(tokens)).toHaveLength(5);
+      expect(fills(tokens)).toEqual([
+        ["--destructive-fill", "--destructive-fill-foreground"],
+        ["--destructive-fill-hover", "--destructive-fill-foreground"],
+      ]);
     }
   });
 });
@@ -341,6 +358,32 @@ describe.each([
     ).toBeGreaterThanOrEqual(NON_TEXT_AA);
   });
 
+  /* --status-error-fg is the one error text token (UI Spec §9.2): pills,
+     inline field errors, upload rejections. --error is its old name and must
+     not drift back to a second value; #d47575 was 3.18:1 on a light card. */
+  it.each(grounds(tokens))(
+    `inline error text on %s clears ${TEXT_AA}:1`,
+    (bg) => {
+      expect(ratio(tokens, "--status-error-fg", bg)).toBeGreaterThanOrEqual(
+        TEXT_AA,
+      );
+    },
+  );
+
+  it("names one error text colour, whatever it is called", () => {
+    expect(solid(tokens, "--error")).toBe(solid(tokens, "--status-error-fg"));
+  });
+
+  /* A destructive button is a solid fill under its label. Dark white on
+     --status-error-fg as a fill was 3.05:1, so fills have their own tokens
+     and every state of each is measured with its own foreground. */
+  it.each(fills(tokens))(
+    `%s under %s clears ${TEXT_AA}:1`,
+    (fill, foreground) => {
+      expect(ratio(tokens, foreground, fill)).toBeGreaterThanOrEqual(TEXT_AA);
+    },
+  );
+
   /* Muted has to stay the quietest tier, or the fix has flattened the
      hierarchy rather than repaired it. */
   it("keeps muted quieter than secondary, and secondary quieter than primary text", () => {
@@ -378,6 +421,56 @@ describe("landing.css keeps the same muted contract", () => {
   });
 });
 
+function sourceLines(): { at: string; line: string }[] {
+  const lines: { at: string; line: string }[] = [];
+  for (const entry of readdirSync(SRC, { recursive: true })) {
+    const rel = String(entry);
+    if (!/\.(tsx?|css)$/.test(rel) || /\.test\.tsx?$/.test(rel)) continue;
+    readFileSync(path.join(SRC, rel), "utf8")
+      .split("\n")
+      .forEach((line, i) => {
+        lines.push({ at: `src/${rel}:${i + 1}`, line });
+      });
+  }
+  return lines;
+}
+
+describe("destructive fills", () => {
+  /* Text tokens are tuned as text on the surfaces, not as fills under white:
+     the workspace and member delete buttons painted white on
+     --status-error-fg and fell to 3.05:1 in dark. */
+  const TEXT_TOKEN_FILL =
+    /bg-(?:\[var\(--(?:status-[a-z]+-fg|error)\)\]|status-[a-z]+-fg\b|error\b)/;
+  const LIGHT_LABEL =
+    /text-(?:white\b|\[#fff(?:fff)?\]|primary-foreground\b|destructive-fill-foreground\b)/;
+
+  it("never paints a label on a text token used as a fill", () => {
+    const offenders = sourceLines()
+      .filter(
+        ({ line }) => TEXT_TOKEN_FILL.test(line) && LIGHT_LABEL.test(line),
+      )
+      .map(({ at, line }) => `${at} ${line.trim()}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it("has no white-on-error foreground token left to reach for", () => {
+    const offenders = sourceLines()
+      .filter(({ line }) => /error-foreground/.test(line))
+      .map(({ at }) => at);
+    expect(offenders).toEqual([]);
+  });
+
+  it("is what the destructive Button variant paints", () => {
+    const button = readFileSync(
+      path.join(SRC, "components", "ui", "button.tsx"),
+      "utf8",
+    );
+    expect(button).toMatch(
+      /destructive:\s*"bg-destructive-fill text-destructive-fill-foreground hover:bg-destructive-fill-hover/,
+    );
+  });
+});
+
 describe("the focus indicator", () => {
   it("is a solid 2px --ring outline, outward and inset", () => {
     const css = stripComments(globals);
@@ -408,18 +501,12 @@ describe("the focus indicator", () => {
   ];
 
   it("has no weak focus style left anywhere in src", () => {
-    const offenders: string[] = [];
-    for (const entry of readdirSync(SRC, { recursive: true })) {
-      const rel = String(entry);
-      if (!/\.(tsx?|css)$/.test(rel) || /\.test\.tsx?$/.test(rel)) continue;
-      const lines = readFileSync(path.join(SRC, rel), "utf8").split("\n");
-      lines.forEach((line, i) => {
-        for (const pattern of WEAK_FOCUS) {
-          const hit = pattern.exec(line);
-          if (hit) offenders.push(`src/${rel}:${i + 1} ${hit[0]}`);
-        }
-      });
-    }
+    const offenders = sourceLines().flatMap(({ at, line }) =>
+      WEAK_FOCUS.flatMap((pattern) => {
+        const hit = pattern.exec(line);
+        return hit ? [`${at} ${hit[0]}`] : [];
+      }),
+    );
     expect(offenders).toEqual([]);
   });
 });

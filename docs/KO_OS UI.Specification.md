@@ -588,7 +588,7 @@ Items appear in this exact order. Each item: height 44px, padding 0 16px, icon 2
 
 * Each item: 13px, padding 10px 12px, border-radius 8px. Hover: background rgba(255,255,255,0.04).
 
-* Logout hover: text color shifts to \#D47575 (subtle red caution).
+* Logout hover: text color shifts to the Error text token, `--status-error-fg` (subtle red caution).
 
 * Dismiss: click outside, press Escape.
 
@@ -746,9 +746,9 @@ Same layout as Login, differences:
 
 * Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is disabled and carries `aria-busy`. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
-* Network error: banner appears below the card. Background \#1A3A4A, border-left 3px \#D47575, text \#A7B6C7, padding 12px 16px.
+* Network error: banner appears below the card. Background \#1A3A4A, border-left 3px `--status-error-fg`, text \#A7B6C7, padding 12px 16px.
 
-* Invalid credentials: inline error below password field. 12px/\#D47575. Message: Incorrect email or password.
+* Invalid credentials: inline error below password field. 12px/`--status-error-fg` (\#D57A7A dark, \#B23528 light). Message: Incorrect email or password.
 
 * Success (register): toast Account created\! Welcome to KO OS. Auto-route after 1 second.
 
@@ -875,7 +875,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Uploaded state: solid border rgba(255,255,255,0.06), file thumbnail (64px) \+ filename \+ size \+ remove X button (ghost, 16px).
 
-* Error state: dashed border \#8B4040, error icon \+ error text (12px/\#D47575).
+* Error state: dashed border \#8B4040, error icon \+ error text (12px/`--status-error-fg` (\#D57A7A dark, \#B23528 light)).
 
 ### **Color Picker Component (Detailed Spec)**
 
@@ -891,7 +891,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Hex field: commits on blur. Accepts 3-char (\#FFF) or 6-char (\#FFFFFF) hex, auto-prefixes \#, and normalises to uppercase.
 
-* Invalid hex: **known gap.** The spec called for a red border (\#8B4040) and inline error (12px/\#D47575) *Enter a valid hex color*. That has never been implemented, and nothing validates hex on the server either — `brandProfileSchema` deliberately does not, because the colour columns hold free text. Strict mode reverts silently; free-text mode accepts the value. Recorded here rather than dropped, because a field that refuses input without saying why is the worse half of this.
+* Invalid hex: **known gap.** The spec called for a red border (\#8B4040) and inline error (12px/`--status-error-fg`) *Enter a valid hex color*. That has never been implemented, and nothing validates hex on the server either — `brandProfileSchema` deliberately does not, because the colour columns hold free text. Strict mode reverts silently; free-text mode accepts the value. Recorded here rather than dropped, because a field that refuses input without saying why is the worse half of this.
 
 * Two modes, one per screen. **Strict** (Brand Profile form, all rows): a value that is not hex reverts on blur — it is the picker-driven surface, so it normalises. **Free text** (conversational onboarding, all rows): a non-hex value is kept verbatim and the swatch shows the empty state, because the chat writes colour NAMES ("Forest green") into these columns — `parseAdditionalColors` never hex-validates, the paid onboarding eval depends on it, and reverting one would discard what the user said. The input is 140px in both modes because a brand created conversationally carries names into the Brand Profile form.
 
@@ -1014,7 +1014,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 *   Background: rgba(212,117,117,0.08). Border: 1px solid rgba(212,117,117,0.3).
 
-*   Icon: alert triangle (16px, \#D47575).
+*   Icon: alert triangle (16px, `--status-error-fg`).
 
 *   Text: I am temporarily unavailable. Our AI service has reached its limit. Please try again in a few moments. (14px/\#A7B6C7).
 
@@ -1482,7 +1482,20 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 | Pending | rgba(212,169,84,0.15) | \#D4A954 | \#8C5506 | Waiting for designer |
 | Error | rgba(212,117,117,0.08) | \#D57A7A | \#B23528 | Something went wrong |
 
-* Each text colour clears 4.5:1 on its own background composited over every surface in its theme. Until 2026-10-21 light In Progress was \#1F7AB5 (3.89:1 as a pill on a white dialog), Ready \#4D7C0F, Pending \#A16207 and Error \#C0392B, and dark Error was \#D47575 (4.42:1 over \#002550). The Error status text is now a shade off the Error token (\#D47575, used for inline error text on plain surfaces); that is deliberate, not drift.
+* Each text colour clears 4.5:1 on its own background composited over every surface in its theme. Until 2026-10-21 light In Progress was \#1F7AB5 (3.89:1 as a pill on a white dialog), Ready \#4D7C0F, Pending \#A16207 and Error \#C0392B, and dark Error was \#D47575 (4.42:1 over \#002550).
+* **Error text is one token, `--status-error-fg`**, for every piece of error text: status pills, inline field errors, upload rejections, a failed regenerate, error icons. On a plain surface it is \#D57A7A on dark (6.39:1 on Base, 5.46:1 on Surface 2, 4.99:1 at worst on \#002550) and \#B23528 on light (6.12:1 on a white card, 5.40:1 on Base, 4.96:1 at worst on \#E2E8F0). `--error` is the same token under its old name (`--error: var(--status-error-fg)`). As a separate \#D47575 it was never darkened for light mode, where it measured 3.18:1 on a white card.
+* Error text is a text colour, never a fill. White on it measured 3.05:1 (dark). A filled destructive control uses Destructive Fill below.
+
+### **Destructive Fill**
+
+| Token | Dark | Light | Usage |
+| :---- | :---- | :---- | :---- |
+| Destructive Fill (`--destructive-fill`) | \#C0392B | \#B23528 | Background of the button that confirms a destructive action (delete workspace, remove member, revoke access, delete post) |
+| Destructive Fill Hover (`--destructive-fill-hover`) | \#A93226 | \#962A1F | Hover and pressed. Deepens, per 9.5; a lighter hover would drop the label under 4.5:1 |
+| Destructive Fill Foreground (`--destructive-fill-foreground`) | \#FFFFFF | \#FFFFFF | The label on either fill |
+
+* White on the fill: 5.44:1 (dark) and 6.12:1 (light) at rest, 6.62:1 and 7.93:1 on hover.
+* Implemented once as the `destructive` variant of `src/components/ui/button.tsx`. Call sites pass `variant="destructive"`; they never paint a status or error token as a fill.
 
 ### **Borders, Dividers & Effects**
 
@@ -1585,6 +1598,18 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Disabled | transparent | \#3A4656 | none |
 | Focus | transparent | \#A7B6C7 | none |
 
+### **Destructive (Filled)**
+
+| State | Background | Text | Border |
+| :---- | :---- | :---- | :---- |
+| Default | `--destructive-fill` | \#FFFFFF | none |
+| Hover | `--destructive-fill-hover` | \#FFFFFF | none |
+| Active | `--destructive-fill-hover` | \#FFFFFF | none |
+| Disabled | `--destructive-fill` at 50% opacity | \#FFFFFF at 50% | none |
+| Loading | `--destructive-fill` | \#FFFFFF | none (inline spinner \+ present-participle label: Deleting…) |
+
+* Only for the button that carries out a destructive action, usually in a confirm dialog. The trigger that opens that dialog is ghost or outline with `--status-error-fg` text.
+
 ### **Icon-Only**
 
 | State | Background | Icon Color | Size |
@@ -1604,12 +1629,12 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#93A3B3 |
 | Hover | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.1) | Slightly stronger border |
 | Focus | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | 2px solid `--ring` outline, 2px offset. A focus border colour never paints: `* { border-color }` in globals.css is unlayered and beats every utility |
-| Error | \#00162E | \#FFFFFF | 1px solid \#8B4040 | Error text: 12px/\#D47575 below |
+| Error | \#00162E | \#FFFFFF | 1px solid \#8B4040 | Error text: 12px/`--status-error-fg` below |
 | Disabled | \#001224 | \#93A3B3 | 1px solid rgba(255,255,255,0.04) | No interaction |
 
 * Height: 44px. Border-radius: 10px. Padding: 0 14px. Font: 14px/400.
 
-* Label: 12px/500/\#A7B6C7, above field, margin-bottom 6px. Required: red asterisk \* (12px/\#D47575).
+* Label: 12px/500/\#A7B6C7, above field, margin-bottom 6px. Required: red asterisk \* (12px/`--status-error-fg`).
 
 * Textarea: same styling, min-height 80px, padding 12px 14px, resize vertical.
 
@@ -1696,7 +1721,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Toast: max-width 400px. Position: bottom-right desktop, top-center mobile.
 
-* Background: Surface 2\. Border-left: 3px solid \#138BC8 (info), \#97C459 (success), \#D47575 (error).
+* Background: Surface 2\. Border-left: 3px solid \#138BC8 (info), \#97C459 (success), `--status-error-fg` (error).
 
 * Border-radius: 8px. Padding: 12px 16px. Shadow: 0 4px 16px rgba(0,0,0,0.3).
 
@@ -1864,6 +1889,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 * Non-text indicators (focus rings, control boundaries) need 3:1 against what they sit on (WCAG 1.4.11).
 
 * Gate: `src/app/theme-contrast.test.ts` reads the tokens out of `globals.css` (and `landing.css`) for both themes and fails the build if any text token drops below 4.5:1, or `--ring` below 3:1, on any surface token. Surfaces are found by name, so a new `--surface-*` is measured the day it lands.
+* The same gate measures Error text (`--status-error-fg`) on every surface, holds `--error` to the same colour, and measures the Destructive Fill foreground on every `--*-fill` state token. It also fails on any source line that paints a light label on a status or error text token used as a fill.
 * The same gate composites every translucent tint over every surface, the way the browser does, and measures Text Primary, Secondary and Muted on each, plus each status text on its own status background. Every `rgba()` token must be classed as a text tint, a sidebar tint, or something text never sits on (borders, divider, backdrop, skeleton), so a new tint cannot land unmeasured. `landing.css` must use the app's Text Muted.
 
 | Pair | Dark | Light |
@@ -1877,6 +1903,9 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Text Muted, weakest pair | 4.61:1 on the Pending tint over \#002550 | 4.61:1 on the Ready tint over \#E2E8F0 |
 | In Progress pill (source pill) on Surface 2 | 5.97:1 or better | \#196190 on 15% Primary over \#FFFFFF \= 5.59:1 |
 | Status text, weakest pair | 4.61:1 (Error over \#002550) | 4.60:1 (Pending over \#E2E8F0) |
+| Error text on Surface 2 | \#D57A7A on \#001F3D \= 5.46:1 | \#B23528 on \#FFFFFF \= 6.12:1 |
+| Error text, weakest surface | 4.99:1 on \#002550 | 4.96:1 on \#E2E8F0 |
+| Destructive Fill label | \#FFFFFF on \#C0392B \= 5.44:1 (hover 6.62:1) | \#FFFFFF on \#B23528 \= 6.12:1 (hover 7.93:1) |
 | Ring on Base | \#138BC8 on \#000D20 \= 5.15:1 | 3.34:1 on \#EDF1F7 |
 | Ring on Surface 2 | 4.40:1 on \#001F3D | 3.78:1 on \#FFFFFF |
 | Ring, weakest pair | 4.02:1 on \#002550 | 3.07:1 on \#E2E8F0 |

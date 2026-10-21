@@ -387,7 +387,7 @@ export function CalendarItemDrawer({
                 <Button
                   variant="ghost"
                   size="lg"
-                  className="mr-auto gap-1.5 text-destructive hover:text-destructive"
+                  className="mr-auto gap-1.5 text-[var(--status-error-fg)] hover:text-[var(--status-error-fg)]"
                   onClick={() => setConfirmingDelete(true)}
                 >
                   <Trash2 aria-hidden="true" className="h-4 w-4" />

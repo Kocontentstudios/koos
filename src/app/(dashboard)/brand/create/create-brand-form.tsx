@@ -317,7 +317,7 @@ export function CreateBrandForm({
             <span
               className={
                 meta.required
-                  ? "text-[12px] font-medium text-[var(--error)]"
+                  ? "text-[12px] font-medium text-[var(--status-error-fg)]"
                   : "text-[12px] font-medium text-[var(--text-muted)]"
               }
             >
