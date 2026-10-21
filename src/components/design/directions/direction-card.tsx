@@ -467,11 +467,14 @@ export function FailedDirectionCard({
           </p>
         </EmptyFrame>
       )}
-      <div className="flex flex-col gap-3 p-4">
+      {/* Same body as a ready card's regenerate, so a failed slot coming back
+          reads as the same wait rather than an empty panel. */}
+      <div className="flex flex-1 flex-col gap-4 p-4">
+        {regenerate.regenerating ? <ReasonsPlaceholder /> : null}
         {regenerate.regenerateError ? (
           <RegenerateError message={regenerate.regenerateError} />
         ) : null}
-        <div className="flex justify-end">
+        <div className="mt-auto flex justify-end">
           <RegenerateButton index={index} {...regenerate} />
         </div>
       </div>

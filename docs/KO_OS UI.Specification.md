@@ -1745,13 +1745,13 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 ## **10.9 Progress Steps**
 
-* Horizontal layout. Each step: circle (24px) \+ label below (12px).
+* Horizontal layout. Each step: circle (24px) \+ label below (12px), centred in an equal-width column, so every connector is the same length whatever the labels say. Labels wrap inside their column rather than pushing a connector shorter.
 
 * Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text \#138BC8. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#93A3B3, bg transparent, text \#93A3B3.
 
-* Connector line between steps: 2px height. Completed: \#138BC8. Future: rgba(255,255,255,0.06).
+* Connector line between steps: 2px height, centre to centre, stopping 4px short of each circle. Completed: \#138BC8. Future: `--border`.
 
-* Used in Create Brand form (3 steps).
+* `src/components/ui/progress-steps.tsx` draws the design-generation progress (3 or 4 steps). Create Brand has its own clickable variant in `src/app/(dashboard)/brand/create/progress-steps.tsx`.
 
 # **11\. Responsiveness Specification**
 

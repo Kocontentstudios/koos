@@ -10,6 +10,7 @@ import type { SerializedGeneration } from "@/lib/design/serialize";
 import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
 import { DirectionResults, type DirectionSlot } from "./direction-results";
+import { useEscapeLayer } from "./escape-layer";
 import { FlowDescription, FlowTitle } from "./flow-heading";
 import { type ImageSource, resultsHeading, startOverLabel } from "./flow-logic";
 import { GenerationError, GenerationProgress } from "./generation-status";
@@ -131,6 +132,7 @@ function ResultsFooter({
   onDone: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  useEscapeLayer(confirming, () => setConfirming(false));
   const promptId = useId();
   const stayRef = useRef<HTMLButtonElement>(null);
   const startOverRef = useRef<HTMLButtonElement>(null);

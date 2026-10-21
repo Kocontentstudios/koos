@@ -453,6 +453,31 @@ describe("DesignDirectionsDialog", () => {
     ).toBeInTheDocument();
   });
 
+  /* Escape with the confirm open closed the whole dialog: innermost first. */
+  it("dismisses only the start-over confirm on Escape, then the dialog", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    const { onOpenChange } = await openResults(design);
+
+    await userEvent.click(screen.getByRole("button", { name: "Start over" }));
+    expect(
+      within(screen.getByRole("group")).getByRole("button", {
+        name: "Stay here",
+      }),
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(design.reset).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start over" })).toHaveFocus();
+    expect(screen.getByRole("article", { name: "Bold" })).toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("calls it Change image after a run built around an upload", async () => {
     const design = runState({
       generations: [direction("d1", "Bold"), direction("d2", "Calm")],

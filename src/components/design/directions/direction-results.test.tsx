@@ -349,6 +349,28 @@ describe("DirectionResults", () => {
     expect(props.onRegenerate).toHaveBeenCalledWith(1);
   });
 
+  /* Round 3 left a regenerating failed slot's body empty apart from the
+     button, where a ready slot shows reason placeholders (L17 vs L08). */
+  it("gives a regenerating failed slot the same wait as a ready one", () => {
+    results({
+      slots: [ready(direction("d1")), failedSlot("d2")],
+      regeneratingSlot: 1,
+    });
+    const regenerating = card("Regenerating direction 2");
+    expect(
+      regenerating.querySelectorAll('[data-slot="skeleton"]'),
+    ).toHaveLength(5);
+    expect(within(regenerating).getByRole("status")).toHaveTextContent(
+      "Making a new direction…",
+    );
+    expect(
+      within(regenerating).queryByText("This direction didn't render"),
+    ).toBeNull();
+    expect(
+      within(regenerating).getByRole("button", { name: /regenerating/i }),
+    ).toBeDisabled();
+  });
+
   it("does not point to another direction when none rendered", () => {
     results({ slots: [failedSlot("d1"), failedSlot("d2")] });
     for (const name of [

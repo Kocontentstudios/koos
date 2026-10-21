@@ -1,5 +1,6 @@
 "use client";
 
+import type { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { trackImageChoice } from "@/components/design/design-analytics";
@@ -26,6 +27,7 @@ import {
   type DirectionsView,
   dialogWidthFor,
 } from "./directions-flow-view";
+import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
 import { useDesignImageUpload } from "./use-design-image-upload";
@@ -71,6 +73,7 @@ export function DesignDirectionsDialog({
   /* A second run for one slot, separate from the main one so the other card
      stays on screen while it works. */
   const slotRun = useDesignGeneration();
+  const escapeLayers = useEscapeLayerStack();
   const [step, setStep] = useState<Step>("choose");
   const [source, setSource] = useState<ImageSource | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
@@ -184,7 +187,18 @@ export function DesignDirectionsDialog({
     }
   }
 
-  function handleOpenChange(next: boolean) {
+  function handleOpenChange(
+    next: boolean,
+    details?: DialogPrimitive.Root.ChangeEventDetails,
+  ) {
+    if (
+      !next &&
+      details?.reason === "escape-key" &&
+      escapeLayers.dismissInnermost()
+    ) {
+      details.cancel();
+      return;
+    }
     if (!next) {
       setStep("choose");
       setWaitingOnUpload(false);
@@ -309,7 +323,13 @@ export function DesignDirectionsDialog({
             against the popup, so scrolling that carries the X off-screen. */}
         <div className="flex flex-col overflow-y-auto">
           <FlowChromeProvider value="dialog">
-            <DirectionsFlowView entry={entry} view={view} handlers={handlers} />
+            <EscapeLayerProvider value={escapeLayers.stack}>
+              <DirectionsFlowView
+                entry={entry}
+                view={view}
+                handlers={handlers}
+              />
+            </EscapeLayerProvider>
           </FlowChromeProvider>
         </div>
       </DialogContent>
