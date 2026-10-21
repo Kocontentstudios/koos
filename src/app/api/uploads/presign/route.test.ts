@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const getAuthUser = vi.fn();
 const checkBrandAccess = vi.fn();
@@ -19,7 +27,8 @@ vi.mock("@/lib/rate-limit", async () => {
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   isStorageConfigured: () => true,
-  getSignedUploadUrl: (k: string, m: string) => getSignedUploadUrl(k, m),
+  getSignedUploadUrl: (k: string, m: string, s: number) =>
+    getSignedUploadUrl(k, m, s),
 }));
 
 import { POST } from "./route";
@@ -47,7 +56,7 @@ async function keyFrom(res: Response): Promise<string> {
 beforeEach(() => {
   vi.clearAllMocks();
   getAuthUser.mockResolvedValue({ dbUser: { id: USER, role: "user" } });
-  checkBrandAccess.mockResolvedValue({ ok: true });
+  checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: BRAND } });
   checkRateLimit.mockResolvedValue({ ok: true, retryAfterSeconds: 0 });
   getSignedUploadUrl.mockResolvedValue("https://r2.example/put");
 });
@@ -258,14 +267,47 @@ describe("design images", () => {
     );
   });
 
-  /* The signature binds Content-Type, so the browser must PUT exactly the type
-     that was checked. */
-  it("signs the canonical MIME type", async () => {
-    await image({ fileName: "a.png", mimeType: " IMAGE/PNG " });
+  it("signs the canonical MIME type and the claimed size, and returns the type", async () => {
+    const res = await image({
+      fileName: "a.png",
+      mimeType: " IMAGE/PNG ",
+      sizeBytes: 4321,
+    });
     expect(getSignedUploadUrl).toHaveBeenCalledWith(
       expect.stringMatching(/^design-images\//),
       "image/png",
+      4321,
     );
+    expect(await res.json()).toMatchObject({ contentType: "image/png" });
+  });
+
+  /* Round-1 critic B3: z.uuid() accepts uppercase and Postgres matches it, so
+     the request string passed the access check and then threw inside
+     designImageKeyFor, a 500. The key now comes from the brand row. */
+  it("keys an uppercase brand id under the canonical brand id", async () => {
+    const res = await call({
+      brandId: BRAND.toUpperCase(),
+      kind: "design-image",
+      fileName: "a.png",
+      mimeType: "image/png",
+      sizeBytes: 1000,
+    });
+    expect(res.status).toBe(200);
+    expect(await keyFrom(res)).toMatch(
+      new RegExp(`^design-images/${BRAND}/${UUID}\\.png$`),
+    );
+    expect(checkBrandAccess).toHaveBeenCalledWith(
+      USER,
+      BRAND.toUpperCase(),
+      "manage_content",
+    );
+  });
+
+  it("builds the key from the brand row, never the request string", async () => {
+    const rowId = "0d6c3c2e-6a1b-4f6e-9a4c-2b8e5d7f1a90";
+    checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: rowId } });
+    const res = await image({ fileName: "a.jpg", mimeType: "image/jpeg" });
+    expect(await keyFrom(res)).toMatch(new RegExp(`^design-images/${rowId}/`));
   });
 
   it("checks brand access with manage_content before signing", async () => {
@@ -283,7 +325,9 @@ describe("design images", () => {
   it("refuses WEBP and tells the client to convert it", async () => {
     const res = await image({ fileName: "a.webp", mimeType: "image/webp" });
     expect(res.status).toBe(400);
-    expect(await errorOf(res)).toMatch(/converted to JPEG before upload/);
+    expect(await errorOf(res)).toMatch(
+      /converted to PNG or JPEG before upload/,
+    );
     expect(getSignedUploadUrl).not.toHaveBeenCalled();
   });
 
@@ -354,4 +398,121 @@ describe("design images", () => {
     });
     expect(res.status).toBe(400);
   });
+});
+
+/* Round-1 critic's claims against the design-image presign, kept as a
+   regression list: each refusal must happen before anything is signed. */
+describe("design-image claims the critic tried", () => {
+  const MB = 1024 * 1024;
+
+  it.each([
+    ["a.svg", "image/svg+xml", 10],
+    ["a.png", "image/svg+xml", 10],
+    ["a.gif", "image/gif", 10],
+    ["a.heic", "image/heic", 10],
+    ["a.webp", "image/webp", 10],
+    ["a.png", "", 10],
+    ["a.png", "image/png; x=1", 10],
+    ["a.jpg", "image/png", 10],
+    ["a.png", "image/jpeg", 10],
+    ["png", "image/png", 10],
+    ["a.png", "image/png", 20 * MB + 1],
+    ["a.png", "text/html", 10],
+    ["a.png.html", "image/png", 10],
+  ])(
+    "refuses %s claimed as %j at %i bytes",
+    async (fileName, mimeType, sizeBytes) => {
+      const res = await call({
+        kind: "design-image",
+        fileName,
+        mimeType,
+        sizeBytes,
+      });
+      expect(res.status).toBe(400);
+      expect(getSignedUploadUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["../../../etc/passwd.png", "image/png", "image/png"],
+    ["a.JPEG", "IMAGE/JPEG", "image/jpeg"],
+    ["x.jpg", " image/jpeg ", "image/jpeg"],
+  ])(
+    "accepts %s claimed as %j with a canonical key and type",
+    async (fileName, mimeType, signedType) => {
+      const res = await call({
+        kind: "design-image",
+        fileName,
+        mimeType,
+        sizeBytes: 20 * MB,
+      });
+      expect(res.status).toBe(200);
+      const { key, contentType } = (await res.json()) as {
+        key: string;
+        contentType: string;
+      };
+      expect(key).toMatch(
+        /^design-images\/3aac081f-cae5-446c-af3a-eaa2dfc3f916\/[0-9a-f-]{36}\.(png|jpg)$/,
+      );
+      expect(contentType).toBe(signedType);
+      expect(getSignedUploadUrl).toHaveBeenCalledWith(key, signedType, 20 * MB);
+    },
+  );
+});
+
+/* Round-1 critic B1 and B2: the presigner always drops content-type from the
+   signature and never adds content-length, so a URL minted for a 1 KB PNG
+   accepted HTML, or 5 GB of anything, and the public domain served it. The
+   old test only checked the argument handed to a mock. These sign for real,
+   with fake credentials and no network, and read what the URL binds. */
+describe("every kind's URL binds the type and the size", () => {
+  const ENV = {
+    R2_ACCOUNT_ID: "acct",
+    R2_ACCESS_KEY_ID: "AKIDEXAMPLE",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET: "bucket",
+  };
+  const saved: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const [name, value] of Object.entries(ENV)) {
+      saved[name] = process.env[name];
+      process.env[name] = value;
+    }
+  });
+
+  afterAll(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  beforeEach(async () => {
+    const real =
+      await vi.importActual<typeof import("@/lib/storage")>("@/lib/storage");
+    getSignedUploadUrl.mockImplementation(real.getSignedUploadUrl);
+  });
+
+  it.each([
+    ["attachment", "logo.png", "image/png", "image/png"],
+    ["document", "guidelines.pdf", PDF, PDF],
+    ["document", "notes.txt", "", "text/plain"],
+    ["design-image", "a.jpg", " IMAGE/JPEG ", "image/jpeg"],
+  ])(
+    "a %s %s claimed as %j is signed as %s",
+    async (kind, fileName, mimeType, signedType) => {
+      const res = await call({ kind, fileName, mimeType, sizeBytes: 2048 });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { url: string; contentType: string };
+      const signed = new URL(body.url).searchParams.get("X-Amz-SignedHeaders");
+      expect(signed).toBe("content-length;content-type;host");
+      expect(body.contentType).toBe(signedType);
+      expect(getSignedUploadUrl).toHaveBeenCalledWith(
+        expect.any(String),
+        signedType,
+        2048,
+      );
+    },
+  );
 });

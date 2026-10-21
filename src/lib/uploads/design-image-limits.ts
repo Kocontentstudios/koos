@@ -5,6 +5,11 @@
  * storage imports so the browser bundle can use it.
  */
 
+/* Every message telling the user an image is unusable starts with this, from
+   the browser normaliser and from the server loader alike, so the UI detects
+   the state by this constant rather than by its own copy of the wording. */
+export const IMAGE_NOT_USABLE_PREFIX = "This image can't be used";
+
 export const MAX_DESIGN_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /* The browser normalises to this long edge. The server cap is looser so a
@@ -14,7 +19,7 @@ export const NORMALISED_LONG_EDGE = 2560;
 export const MAX_DESIGN_IMAGE_SIDE = 4096;
 
 /* WEBP is accepted from the user but never stored: satori cannot draw it, so
-   the browser converts it before asking to upload. */
+   the browser converts it to PNG or JPEG before asking to upload. */
 export const DESIGN_IMAGE_INPUT_TYPES = [
   "image/png",
   "image/jpeg",
