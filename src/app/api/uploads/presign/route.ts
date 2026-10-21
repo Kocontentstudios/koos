@@ -9,6 +9,7 @@ import {
   presignRequestSchema,
 } from "@/lib/design/request-form";
 import {
+  canonicalDocumentMime,
   DOCUMENT_SUMMARY,
   isAllowedDocument,
   MAX_DOCUMENT_BYTES,
@@ -61,9 +62,12 @@ export async function POST(req: Request) {
   }
 
   const request = { fileName, mimeType, sizeBytes };
+  /* The brand row's id, not the request's: Postgres matches an uppercase UUID
+     case-insensitively, so the request string can pass the access check and
+     still not be the canonical id a key is built from. */
   const target =
     kind === "design-image"
-      ? designImageTarget(brandId, request)
+      ? designImageTarget(access.brand.id, request)
       : kind === "document"
         ? documentTarget(dbUser.id, request)
         : attachmentTarget(dbUser.id, request);
@@ -71,8 +75,19 @@ export async function POST(req: Request) {
     return Response.json({ error: target.error }, { status: 400 });
   }
 
-  const url = await getSignedUploadUrl(target.key, target.contentType);
-  return Response.json({ key: target.key, url });
+  /* The URL binds this type and this size. The browser sends the type back
+     verbatim, which matters where it differs from file.type (an untyped .txt
+     is signed as text/plain). */
+  const url = await getSignedUploadUrl(
+    target.key,
+    target.contentType,
+    sizeBytes,
+  );
+  return Response.json({
+    key: target.key,
+    url,
+    contentType: target.contentType,
+  });
 }
 
 interface UploadClaim {
@@ -92,7 +107,7 @@ function attachmentTarget(userId: string, claim: UploadClaim): UploadTarget {
   const rand = randomBytes(12).toString("hex");
   return {
     key: buildAttachmentKey(userId, claim.fileName, rand),
-    contentType: claim.mimeType,
+    contentType: claim.mimeType.toLowerCase(),
   };
 }
 
@@ -110,7 +125,7 @@ function documentTarget(userId: string, claim: UploadClaim): UploadTarget {
   const rand = randomBytes(12).toString("hex");
   return {
     key: buildDocumentKey(userId, claim.fileName, rand),
-    contentType: claim.mimeType,
+    contentType: canonicalDocumentMime(claim.fileName, claim.mimeType),
   };
 }
 
@@ -120,14 +135,14 @@ const STORED_SUMMARY = `PNG or JPEG image, up to ${MAX_DESIGN_IMAGE_BYTES / (102
    proves the key is this brand's before reading it (loadDesignImage). Only
    PNG and JPEG are signed because only they are ever stored; the browser
    converts WEBP first, so a WEBP here is a client that skipped that step. The
-   signed Content-Type is the canonical MIME, so the PUT must declare the type
-   that was checked. The real bytes and size are judged again at generation. */
+   bytes are judged again at generation, because the signature binds only the
+   declared type and size, never what the bytes are. */
 function designImageTarget(brandId: string, claim: UploadClaim): UploadTarget {
   const mime = claim.mimeType.toLowerCase().trim();
   if (mime === "image/webp") {
     return {
       error:
-        "WEBP images are converted to JPEG before upload. Upload a PNG or JPEG.",
+        "WEBP images are converted to PNG or JPEG before upload. Upload a PNG or JPEG.",
     };
   }
   if (

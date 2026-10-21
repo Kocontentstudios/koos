@@ -134,11 +134,12 @@ export class ObjectTooLargeError extends Error {
 /**
  * Fetch an object's raw bytes (e.g. to bundle into a zip).
  *
- * `maxBytes` is for objects a browser wrote through a presigned PUT, whose
- * size the server never saw: the signature does not bind Content-Length, so a
- * client can claim 1 MB and upload gigabytes. The cap is a Range request for
- * one byte past the limit rather than a check of the reported length, so the
- * process never buffers more than the cap plus one byte whatever the object.
+ * `maxBytes` is for objects a browser wrote through a presigned PUT. The
+ * signature binds the size the client claimed, but the server never saw the
+ * bytes, and an object written before that binding existed carries no such
+ * promise. The cap is a Range request for one byte past the limit rather than
+ * a check of the reported length, so the process never buffers more than the
+ * cap plus one byte whatever the object.
  */
 export async function getObjectBytes(
   key: string,
@@ -160,21 +161,40 @@ export async function getObjectBytes(
   return Buffer.from(bytes);
 }
 
-/** Short-lived signed PUT URL so the browser uploads directly to R2,
- * bypassing the serverless request-body size limit. */
+/* The presigner always leaves content-type unsigned and leaves content-length
+   unsigned unless asked, so by default one URL accepts any type at any size
+   up to R2's 5 GB, and the public domain serves it back as whatever type the
+   uploader declared. Naming both here overrides that. */
+const SIGNED_UPLOAD_HEADERS = new Set(["content-type", "content-length"]);
+
+/**
+ * Short-lived signed PUT URL so the browser uploads directly to R2, bypassing
+ * the serverless request-body size limit.
+ *
+ * The signature binds `contentType` and `sizeBytes`: the PUT must send exactly
+ * that Content-Type and exactly that many bytes, or R2 answers 403.
+ */
 export async function getSignedUploadUrl(
   key: string,
   contentType: string,
+  sizeBytes: number,
   expiresInSeconds = 900,
 ): Promise<string> {
+  /* An empty type is dropped from the request before signing, which would
+     quietly leave the type unbound again. */
+  if (!contentType) throw new Error("A signed upload needs a content type.");
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+    throw new Error("A signed upload needs a positive byte size.");
+  }
   return presign(
     client(),
     new PutObjectCommand({
       Bucket: env("R2_BUCKET"),
       Key: key,
       ContentType: contentType,
+      ContentLength: sizeBytes,
     }),
-    { expiresIn: expiresInSeconds },
+    { expiresIn: expiresInSeconds, signableHeaders: SIGNED_UPLOAD_HEADERS },
   );
 }
 

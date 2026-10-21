@@ -88,14 +88,18 @@ export function useDocumentUpload({
         const presign = (await presignRes.json().catch(() => null)) as {
           key?: string;
           url?: string;
+          contentType?: string;
           error?: string;
         } | null;
         if (!presignRes.ok || !presign?.url || !presign.key) {
           throw new Error(presign?.error ?? "We couldn't start that upload.");
         }
 
-        await uploadToPresignedUrl(presign.url, file, (fraction) =>
-          setPercent(Math.round(fraction * 100)),
+        await uploadToPresignedUrl(
+          presign.url,
+          file,
+          (fraction) => setPercent(Math.round(fraction * 100)),
+          presign.contentType,
         );
 
         setStage("reading");

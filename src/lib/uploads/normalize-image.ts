@@ -1,6 +1,12 @@
+import {
+  type PngDimensions,
+  readJpegDimensions,
+  readPngDimensions,
+} from "@/lib/design/png-dimensions";
 import { detectImageType } from "@/lib/images/detect";
 import {
   type DesignImageStoredType,
+  IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
   NORMALISED_LONG_EDGE,
 } from "./design-image-limits";
@@ -9,9 +15,9 @@ import {
  * Re-encode a picked image in the browser before it is uploaded.
  *
  * Three jobs in one pass, all of which the server would otherwise pay for or
- * get wrong: WEBP becomes JPEG because satori cannot draw WEBP; a 7000 px
- * phone photo becomes 2560 px because resvg rasterises huge images slowly and
- * with a large memory cost inside a lambda; and decoding through
+ * get wrong: WEBP becomes PNG or JPEG because satori cannot draw WEBP; a
+ * 7000 px phone photo becomes 2560 px because resvg rasterises huge images
+ * slowly and with a large memory cost inside a lambda; and decoding through
  * createImageBitmap applies EXIF orientation and drops EXIF metadata such as
  * location, which a canvas never carries over.
  */
@@ -19,27 +25,28 @@ import {
 export type ImageNotUsableReason =
   | "wrong_type"
   | "too_large"
+  | "too_many_pixels"
   | "undecodable"
   | "encode_failed"
   | "too_large_after_encode";
 
 const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
 
-const MESSAGES: Record<ImageNotUsableReason, string> = {
-  wrong_type: "This file can't be used. Choose a PNG, JPEG or WEBP image.",
-  too_large: `This image is over ${MAX_MB} MB. Choose a smaller one.`,
+const REASONS: Record<ImageNotUsableReason, string> = {
+  wrong_type: "it is not a PNG, JPEG or WEBP file. Choose another image.",
+  too_large: `it is over ${MAX_MB} MB. Choose a smaller one.`,
+  too_many_pixels: "it has too many pixels to open. Choose a smaller one.",
   undecodable:
-    "This image couldn't be opened. It may be damaged, so choose another one.",
+    "it couldn't be opened and may be damaged. Choose another image.",
   encode_failed:
-    "This image couldn't be prepared for upload. Try again or choose another one.",
-  too_large_after_encode:
-    "This image is too detailed to upload. Choose a smaller one.",
+    "it couldn't be prepared for upload. Try again or choose another image.",
+  too_large_after_encode: "it is too detailed to upload. Choose a smaller one.",
 };
 
 /** `reason` is for analytics; `message` is safe to show the user. */
 export class ImageNotUsableError extends Error {
   constructor(readonly reason: ImageNotUsableReason) {
-    super(MESSAGES[reason]);
+    super(`${IMAGE_NOT_USABLE_PREFIX}: ${REASONS[reason]}`);
     this.name = "ImageNotUsableError";
   }
 }
@@ -54,17 +61,36 @@ export interface NormalisedImage {
 type SourceType = "png" | "jpeg" | "webp";
 
 const JPEG_QUALITY = 0.9;
-const SNIFF_BYTES = 16;
+
+/* Enough to reach a JPEG frame header behind a large EXIF block and an ICC
+   profile; PNG and WEBP state their size in the first 30 bytes. */
+const HEAD_BYTES = 256 * 1024;
+
+/* A 194 KB PNG can declare 40000 x 40000 pixels, 6.4 GB once decoded. Refused
+   from the header before the browser tries. The largest phone sensors shoot
+   about 200 MP, but at 100 MP the decoded bitmap is already 400 MB, past what
+   a phone browser tab reliably holds. */
+export const MAX_SOURCE_PIXELS = 100_000_000;
+
+/* Below the hard cap, a failed decode of a very large image is far likelier a
+   browser out of memory than a damaged file, so it is reported as too large
+   rather than sending the user to look for damage that is not there. */
+export const LIKELY_TOO_BIG_TO_DECODE = 40_000_000;
 
 export async function normalizeImageForUpload(
   file: File,
 ): Promise<NormalisedImage> {
-  const source = await sniffSourceType(file);
+  const head = new Uint8Array(await file.slice(0, HEAD_BYTES).arrayBuffer());
+  const source = sniffSourceType(head);
   if (file.size > MAX_DESIGN_IMAGE_BYTES) {
     throw new ImageNotUsableError("too_large");
   }
+  const declaredPixels = pixelCount(declaredDimensions(head, source));
+  if (declaredPixels > MAX_SOURCE_PIXELS) {
+    throw new ImageNotUsableError("too_many_pixels");
+  }
 
-  const bitmap = await decode(file);
+  const bitmap = await decode(file, declaredPixels);
   try {
     const { width, height } = fitWithinLongEdge(
       bitmap.width,
@@ -81,9 +107,11 @@ export async function normalizeImageForUpload(
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(bitmap, 0, 0, width, height);
 
-    const keepPng = source === "png" && hasTransparency(ctx, width, height);
-    if (!keepPng) flattenOntoWhite(ctx, width, height);
-    const type: DesignImageStoredType = keepPng ? "image/png" : "image/jpeg";
+    const type: DesignImageStoredType =
+      source !== "jpeg" && hasTransparency(ctx, width, height)
+        ? "image/png"
+        : "image/jpeg";
+    if (type === "image/jpeg") flattenOntoWhite(ctx, width, height);
 
     const blob = await encode(canvas, type);
     if (blob.size > MAX_DESIGN_IMAGE_BYTES) {
@@ -110,24 +138,84 @@ export function fitWithinLongEdge(
 
 /* The bytes, not file.type: the browser derives file.type from the extension,
    so a renamed HEIC or SVG arrives claiming to be image/png. */
-async function sniffSourceType(file: File): Promise<SourceType> {
-  const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+function sniffSourceType(head: Uint8Array): SourceType {
   const type = detectImageType(head);
   if (type === "png" || type === "jpeg" || type === "webp") return type;
   throw new ImageNotUsableError("wrong_type");
 }
 
-async function decode(file: File): Promise<ImageBitmap> {
+function pixelCount(size: PngDimensions | null): number {
+  return size ? size.width * size.height : 0;
+}
+
+function declaredDimensions(
+  head: Uint8Array,
+  source: SourceType,
+): PngDimensions | null {
+  if (source === "png") return readPngDimensions(head);
+  if (source === "jpeg") return readJpegDimensions(head);
+  return readWebpDimensions(head);
+}
+
+const ascii = (bytes: Uint8Array, from: number, length: number) =>
+  String.fromCharCode(...bytes.subarray(from, from + length));
+
+/** A WEBP's canvas size, from whichever of its three headers it uses. */
+export function readWebpDimensions(head: Uint8Array): PngDimensions | null {
+  if (head.length < 30) return null;
+  const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  const chunk = ascii(head, 12, 4);
+  if (chunk === "VP8X") {
+    const uint24 = (at: number) =>
+      head[at] | (head[at + 1] << 8) | (head[at + 2] << 16);
+    return { width: uint24(24) + 1, height: uint24(27) + 1 };
+  }
+  if (chunk === "VP8L" && head[20] === 0x2f) {
+    const bits = view.getUint32(21, true);
+    return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+  }
+  if (chunk === "VP8 ") {
+    return {
+      width: view.getUint16(26, true) & 0x3fff,
+      height: view.getUint16(28, true) & 0x3fff,
+    };
+  }
+  return null;
+}
+
+async function decode(
+  file: File,
+  declaredPixels: number,
+): Promise<ImageBitmap> {
   try {
-    return await createImageBitmap(file, { imageOrientation: "from-image" });
+    return await decodeOriented(file);
   } catch {
-    throw new ImageNotUsableError("undecodable");
+    throw new ImageNotUsableError(
+      declaredPixels > LIKELY_TOO_BIG_TO_DECODE
+        ? "too_many_pixels"
+        : "undecodable",
+    );
   }
 }
 
-/* A PNG stays PNG only when it actually uses its alpha channel. An opaque PNG
-   (a screenshot, an export with a flat background) is several times larger
-   than the same pixels as JPEG, and nothing is lost by converting it. */
+/* Engines that predate "from-image" know only "none" and "flipY", and reject
+   an unknown option with a TypeError before looking at the file. Retried
+   without it: a photo that may come out sideways beats refusing every image
+   on that browser. A damaged file rejects with a DOMException instead. */
+async function decodeOriented(file: File): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (err) {
+    if (!(err instanceof TypeError)) throw err;
+    return createImageBitmap(file);
+  }
+}
+
+/* An image keeps PNG when it has even one transparent pixel, whether it
+   arrived as PNG or WEBP, so a cut-out sticker keeps its cut-out. An opaque
+   one (a screenshot, an export with a flat background) is several times
+   larger than the same pixels as JPEG, and nothing is lost by converting it.
+   JPEG has no alpha to look for. */
 function hasTransparency(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -140,9 +228,10 @@ function hasTransparency(
   return false;
 }
 
-/* JPEG has no alpha, and a canvas encodes transparent pixels as black. Painted
-   behind what is already drawn, so a transparent WEBP sticker lands on white
-   rather than on a black box. */
+/* A JPEG source is never scanned for alpha, and some engines leave the edges
+   of a downscaled drawImage slightly transparent; the JPEG encoder turns that
+   into a dark border. Painted behind what is already drawn, so those edges
+   land on white instead. */
 function flattenOntoWhite(
   ctx: CanvasRenderingContext2D,
   width: number,

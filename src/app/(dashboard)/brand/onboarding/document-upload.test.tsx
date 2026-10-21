@@ -114,6 +114,35 @@ describe("the presign request", () => {
   });
 });
 
+/* The presigned URL binds Content-Type. An untyped .txt is signed as
+   text/plain, so PUTting file.type ("") would be refused by storage. */
+describe("the upload", () => {
+  it("PUTs with the type the presign route signed, not file.type", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("presign")
+        ? new Response(
+            JSON.stringify({
+              key: "brand-docs/u1/abc.txt",
+              url: "https://put",
+              contentType: "text/plain",
+            }),
+            { status: 200 },
+          )
+        : new Response(JSON.stringify({ proposal: PROPOSAL }), {
+            status: 200,
+          }),
+    );
+    render(<Harness />);
+    const untyped = new File(["Okra Kitchen"], "notes.txt", { type: "" });
+    pick(untyped);
+    await waitFor(() => expect(uploadToPresignedUrl).toHaveBeenCalled());
+    const [url, file, , contentType] = uploadToPresignedUrl.mock.calls[0];
+    expect(url).toBe("https://put");
+    expect(file).toBe(untyped);
+    expect(contentType).toBe("text/plain");
+  });
+});
+
 describe("the parse request", () => {
   it("sends the key the presign step returned, never a URL", async () => {
     render(<Harness />);
