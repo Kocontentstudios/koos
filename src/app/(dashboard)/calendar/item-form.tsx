@@ -5,7 +5,7 @@ import type { CalendarItemFormInput } from "./actions";
 import type { CalendarItem } from "./types";
 
 export const inputCls =
-  "w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]";
+  "w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:focus-outline";
 
 export function EditField({
   id,

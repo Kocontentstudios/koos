@@ -19,7 +19,7 @@ interface SettingsClientProps {
 type Msg = { type: "success" | "error"; text: string } | null;
 
 const inputClass =
-  "w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-sm text-foreground placeholder:text-[var(--text-muted)] focus:border-primary focus:outline-none focus:ring-1 focus:ring-[var(--accent-glow)] disabled:opacity-50";
+  "w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-sm text-foreground placeholder:text-[var(--text-muted)] focus-visible:focus-outline disabled:opacity-50";
 const labelClass =
   "mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]";
 

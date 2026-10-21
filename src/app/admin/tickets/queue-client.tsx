@@ -201,7 +201,7 @@ export function QueueClient({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Ticket number, title, brief, brand or requester"
-          className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-foreground placeholder:text-[var(--text-muted)] focus:border-primary focus:outline-none"
+          className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-[13px] text-foreground placeholder:text-[var(--text-muted)] focus-visible:focus-outline"
         />
         <Button type="submit" variant="secondary" size="lg" loading={isPending}>
           Search
@@ -457,7 +457,7 @@ function QueueItem({
               value={row.designerId ?? ""}
               disabled={pending !== null}
               onChange={(e) => assign(e.target.value)}
-              className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[13px] text-foreground focus:border-primary focus:outline-none disabled:opacity-50"
+              className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-[13px] text-foreground focus-visible:focus-outline disabled:opacity-50"
             >
               <option value="">Unassigned</option>
               {assignees.map((a) => (

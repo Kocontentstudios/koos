@@ -41,7 +41,7 @@ export function BrandsTable({ brands }: { brands: BrandListRow[] }) {
         placeholder="Search by brand or owner email"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+        className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-foreground focus-visible:focus-outline"
       />
 
       <div className="overflow-x-auto rounded-xl border border-[var(--border)]">

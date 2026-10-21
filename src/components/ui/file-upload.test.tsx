@@ -184,3 +184,15 @@ describe("MIME matching still works for the other consumers", () => {
     expect(onFileSelected).toHaveBeenCalled();
   });
 });
+
+/* The real input is sr-only, so its own focus outline is clipped to a 1px box
+   and a keyboard user tabbing to the dropzone saw nothing. */
+describe("keyboard focus", () => {
+  it("rings the dropzone while its hidden input has keyboard focus", () => {
+    render(<FileUpload onFileSelected={() => {}} />);
+    const zone = screen.getByTestId("file-input").closest("label");
+    expect(zone?.className).toContain(
+      "has-[input:focus-visible]:focus-outline",
+    );
+  });
+});

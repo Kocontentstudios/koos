@@ -112,7 +112,7 @@ function ResetPasswordForm() {
           </label>
           <div className="relative">
             <input
-              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
               id="password"
               minLength={6}
               name="password"
@@ -144,7 +144,7 @@ function ResetPasswordForm() {
             Confirm Password
           </label>
           <input
-            className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+            className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
             id="confirm"
             minLength={6}
             name="confirm"

@@ -78,7 +78,7 @@ export function MonthView({
                 type="button"
                 onClick={() => onSelectDay(day)}
                 aria-label={`View ${label}`}
-                className="absolute inset-0 z-0 transition-colors duration-150 hover:bg-[rgba(19,139,200,0.06)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-[var(--accent-glow)]"
+                className="absolute inset-0 z-0 transition-colors duration-150 hover:bg-[rgba(19,139,200,0.06)] focus-visible:focus-outline-inset"
               />
               <button
                 type="button"
@@ -87,7 +87,7 @@ export function MonthView({
                 // Hidden-at-rest is gated on (hover: hover), not on a width
                 // breakpoint: a tablet is wide but cannot hover, and an
                 // opacity-0 button there is an invisible tap target.
-                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] transition-opacity duration-150 hover:bg-[rgba(19,139,200,0.15)] hover:text-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)] opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 focus-visible:opacity-100"
+                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] transition-opacity duration-150 hover:bg-[rgba(19,139,200,0.15)] hover:text-primary focus-visible:focus-outline opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 focus-visible:opacity-100"
               >
                 <Plus aria-hidden="true" className="h-3.5 w-3.5" />
               </button>

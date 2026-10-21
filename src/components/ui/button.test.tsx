@@ -28,6 +28,24 @@ describe("Button", () => {
       /bg-primary\b/,
     );
   });
+
+  /* The ring was --accent-glow, a 12% tint that measured 1.15:1 in light mode:
+     keyboard focus on every Button was invisible. The token's contrast is held
+     by src/app/theme-contrast.test.ts; this pins that every variant uses it. */
+  it.each([
+    "default",
+    "secondary",
+    "ghost",
+    "icon",
+    "outline",
+    "destructive",
+    "link",
+  ] as const)("draws the --ring focus outline on the %s variant", (variant) => {
+    render(<Button variant={variant}>Focus me</Button>);
+    const cls = screen.getByRole("button", { name: "Focus me" }).className;
+    expect(cls).toContain("focus-visible:focus-outline");
+    expect(cls).not.toMatch(/focus-visible:ring-/);
+  });
 });
 
 /**

@@ -480,7 +480,7 @@ export function OnboardingClient({
       )}
 
       <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-background border-t border-[rgba(255,255,255,0.06)]">
-        <div className="relative flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)]">
+        <div className="relative flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)] has-[textarea:focus-visible]:focus-outline">
           <DocumentInput
             inputRef={upload.inputRef}
             onChange={upload.onChange}
@@ -509,7 +509,7 @@ export function OnboardingClient({
             placeholder="Tell KO about your brand…"
             rows={1}
             aria-label="Message input"
-            className="flex-1 min-h-[40px] max-h-[160px] resize-none border-0 bg-transparent py-1 focus-visible:ring-0"
+            className="flex-1 min-h-[40px] max-h-[160px] resize-none border-0 bg-transparent py-1 focus-visible:outline-none!"
           />
 
           {isLoading ? (

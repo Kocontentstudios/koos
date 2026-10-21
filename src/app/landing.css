@@ -13,7 +13,7 @@
             --accent-glow: rgba(19, 139, 200, 0.15);
             --text-primary: #FFFFFF;
             --text-secondary: #A7B6C7;
-            --text-muted: #6F8599;
+            --text-muted: #7C90A3;
             --text-faint: #475569;
             --border: rgba(255, 255, 255, 0.06);
             --easing: cubic-bezier(0.2, 0, 0, 1);
@@ -1322,10 +1322,13 @@
             resize: vertical;
         }
 
+        /* Same indicator as the app's focus-outline utility (UI Spec §12.2):
+           the old accent-glow halo measured 1.2:1 and read as no focus. */
         .form-group input:focus,
         .form-group textarea:focus {
             border-color: var(--border-accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
         }
 
         .form-success {
@@ -1575,7 +1578,7 @@
     --surface-2: #FFFFFF;
     --text-primary: #0F172A;
     --text-secondary: #475569;
-    --text-muted: #7C8DA1;
+    --text-muted: #58687B;
     --text-faint: #AEB9C7;
     --border: #E2E8F0;
     --accent-glow: rgba(19, 139, 200, 0.12);

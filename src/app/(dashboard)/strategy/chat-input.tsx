@@ -43,7 +43,7 @@ export function ChatInput({
 
   return (
     <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-background border-t border-[rgba(255,255,255,0.06)]">
-      <div className="flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)]">
+      <div className="flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)] has-[textarea:focus-visible]:focus-outline">
         <textarea
           ref={textareaRef}
           value={value}

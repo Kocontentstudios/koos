@@ -68,7 +68,7 @@ export function UsersTable({
                 <td className="px-4 py-3">
                   <select
                     aria-label={`Role for ${u.email}`}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none disabled:opacity-50"
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-sm text-foreground focus-visible:focus-outline disabled:opacity-50"
                     value={u.role}
                     disabled={pendingId === u.id || isSelf}
                     title={

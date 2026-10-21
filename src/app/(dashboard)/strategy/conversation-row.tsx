@@ -98,7 +98,7 @@ export function ConversationRow({
             aria-label={`Rename chat: ${label}`}
             aria-invalid={error ? "true" : undefined}
             disabled={saving}
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[var(--text-muted)]"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[var(--text-muted)] focus-visible:focus-outline"
           />
           <button
             type="button"

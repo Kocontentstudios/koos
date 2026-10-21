@@ -15,7 +15,7 @@ function ComboboxInput({ className, ...props }: ComboboxPrimitive.Input.Props) {
     <ComboboxPrimitive.Input
       data-slot="combobox-input"
       className={cn(
-        "h-9 w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 text-sm text-foreground outline-none placeholder:text-[var(--text-muted)] focus-visible:border-[var(--border-accent)]",
+        "h-9 w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 text-sm text-foreground outline-none placeholder:text-[var(--text-muted)] focus-visible:focus-outline",
         className,
       )}
       {...props}
@@ -59,7 +59,7 @@ function ComboboxItem({ className, ...props }: ComboboxPrimitive.Item.Props) {
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "grid cursor-default grid-cols-[1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground",
+        "grid cursor-default grid-cols-[1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-highlighted:focus-outline-inset",
         className,
       )}
       {...props}

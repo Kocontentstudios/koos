@@ -155,7 +155,7 @@ export function AnalyticsFilterBar({
                 type="date"
                 value={draftFrom}
                 onChange={(e) => setDraftFrom(e.target.value)}
-                className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-foreground focus:border-primary focus:outline-none"
+                className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-foreground focus-visible:focus-outline"
               />
             </span>
             <span className="flex flex-col gap-1">
@@ -170,7 +170,7 @@ export function AnalyticsFilterBar({
                 type="date"
                 value={draftTo}
                 onChange={(e) => setDraftTo(e.target.value)}
-                className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-foreground focus:border-primary focus:outline-none"
+                className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-foreground focus-visible:focus-outline"
               />
             </span>
             <Button

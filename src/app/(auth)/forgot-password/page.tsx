@@ -85,7 +85,7 @@ export default function ForgotPasswordPage() {
                 Email
               </label>
               <input
-                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
                 id="email"
                 name="email"
                 placeholder="name@company.com"

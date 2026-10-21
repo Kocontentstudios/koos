@@ -52,7 +52,7 @@ function OptionCard({
         captureEvent("design_request_start_selected", { option: option.key })
       }
       className={cn(
-        "group flex items-center gap-3 rounded-xl text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]",
+        "group flex items-center gap-3 rounded-xl text-left transition-colors duration-150 focus-visible:focus-outline",
         HOVER_TINT,
         quiet
           ? "p-3"

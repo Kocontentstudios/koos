@@ -22,7 +22,7 @@ export function CalendarItemCard({
       onClick={() => onSelect(item)}
       aria-label={`Open ${item.title}`}
       className={cn(
-        "group flex w-full flex-col gap-1.5 rounded-lg border border-[var(--border)] bg-surface-1 p-3 text-left transition-colors duration-150 hover:border-[var(--border-accent)] hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]",
+        "group flex w-full flex-col gap-1.5 rounded-lg border border-[var(--border)] bg-surface-1 p-3 text-left transition-colors duration-150 hover:border-[var(--border-accent)] hover:bg-surface-2 focus-visible:focus-outline",
         compact && "p-3",
       )}
     >

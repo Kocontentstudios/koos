@@ -179,7 +179,7 @@ export function AttachmentUploader({
             className="absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-muted)]"
           />
           <input
-            className="w-full rounded-lg border border-[var(--border)] bg-surface-1 py-2 pr-3 pl-8 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)] focus-visible:outline-none"
+            className="w-full rounded-lg border border-[var(--border)] bg-surface-1 py-2 pr-3 pl-8 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:focus-outline"
             placeholder={linkPlaceholder}
             value={link}
             onChange={(e) => setLink(e.target.value)}
