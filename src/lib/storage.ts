@@ -4,26 +4,18 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl as presign } from "@aws-sdk/s3-request-presigner";
+import {
+  keyUnderPrefix,
+  STORAGE_PREFIXES,
+  type StoragePrefix,
+} from "./storage-keys";
 
 /**
  * Cloudflare R2 (S3-compatible) storage. Objects are organized under key
  * prefixes within a single bucket. Logos are public-read (served by URL);
  * private artifacts (deliverables) are read via short-lived signed URLs.
  */
-export const STORAGE_PREFIXES = {
-  logos: "logos",
-  fonts: "fonts",
-  referenceImages: "reference-images",
-  deliverables: "deliverables",
-  generated: "generated",
-  /* Onboarding brand guidelines and identity decks. A prefix of their own so
-     storageKeyFrom can pin it: the document parser reads bytes BY KEY, and the
-     prefix is what stops a caller pointing it at any other object. */
-  brandDocs: "brand-docs",
-} as const;
-
-export type StoragePrefix =
-  (typeof STORAGE_PREFIXES)[keyof typeof STORAGE_PREFIXES];
+export { STORAGE_PREFIXES, type StoragePrefix };
 
 function env(name: string): string {
   const value = process.env[name];
@@ -111,10 +103,7 @@ export function storageKeyFrom(
   // Decoded, so an encoded traversal cannot smuggle a different prefix past
   // the check and then be re-expanded by the storage client.
   const key = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-  const allowed = Array.isArray(prefix) ? prefix : [prefix];
-  if (!allowed.some((p) => key.startsWith(`${p}/`))) return null;
-  if (key.includes("..")) return null;
-  return key;
+  return keyUnderPrefix(key, prefix);
 }
 
 /** Fetch an object's raw bytes (e.g. to bundle into a zip). */
