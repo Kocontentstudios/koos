@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getObjectBytes = vi.fn();
 const rasterizeSvg = vi.fn();
 const probeLogo = vi.fn();
+const reencodeImage = vi.fn();
 
 vi.mock("@/lib/storage", async () => {
   const actual =
@@ -31,7 +32,13 @@ vi.mock("@/lib/design/render/logo-probe", () => ({
   probeLogo: (logo: unknown) => probeLogo(logo),
 }));
 
-const { loadBestLogo, loadBrandLogo } = await import(
+/* A passthrough here, so the stub bytes below reach the stubbed probe.
+   logo-reencode.smoke.test.ts runs the real libvips step on real files. */
+vi.mock("@/lib/images/reencode", () => ({
+  reencodeImage: (...args: unknown[]) => reencodeImage(...args),
+}));
+
+const { LOGO_FILE_FAULTS, loadBestLogo, loadBrandLogo } = await import(
   "@/lib/design/render/logo"
 );
 
@@ -60,6 +67,13 @@ beforeEach(() => {
     lightest: 0.2,
     aspect: 1,
   });
+  reencodeImage.mockReset();
+  reencodeImage.mockImplementation(async (bytes: Uint8Array) => ({
+    bytes,
+    width: 1,
+    height: 1,
+    visible: true,
+  }));
 });
 
 afterEach(() => {
@@ -227,6 +241,52 @@ describe("loadBrandLogo", () => {
     expect(logo).toBeNull();
     expect(fault).toMatch(/could not decode it/);
     expect(probeLogo.mock.calls[0][0].bytes).toEqual(PNG);
+  });
+
+  /* resvg aborts the process on some malformed PNGs, so the stored bytes must
+     never reach the probe: only what the re-encode produced does. */
+  it("probes and returns the re-encoded bytes, never the stored ones", async () => {
+    const reencoded = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 7, 7, 7]);
+    reencodeImage.mockResolvedValue({
+      bytes: reencoded,
+      width: 1,
+      height: 1,
+      visible: true,
+    });
+    getObjectBytes.mockResolvedValue(Buffer.from(PNG));
+
+    const { logo } = await loadBrandLogo(`${BASE}/logos/u1/a.png`);
+    expect(reencodeImage).toHaveBeenCalledWith(new Uint8Array(PNG), "png", {
+      maxInputPixels: 8192 * 8192,
+      maxOutputSide: 4096,
+    });
+    expect(probeLogo.mock.calls[0][0].bytes).toBe(reencoded);
+    expect(logo?.bytes).toBe(reencoded);
+  });
+
+  it("re-encodes a JPEG as a JPEG", async () => {
+    getObjectBytes.mockResolvedValue(Buffer.from(JPEG));
+    await loadBrandLogo(`${BASE}/logos/u1/a.png`);
+    expect(reencodeImage.mock.calls[0][1]).toBe("jpeg");
+  });
+
+  it("reports a file the decoder refuses, without probing it", async () => {
+    reencodeImage.mockRejectedValue(
+      new Error("Input buffer has corrupt header"),
+    );
+    getObjectBytes.mockResolvedValue(Buffer.from(PNG));
+
+    const { logo, fault } = await loadBrandLogo(`${BASE}/logos/u1/a.png`);
+    expect(logo).toBeNull();
+    expect(fault).toMatch(/could not decode it/);
+    expect(LOGO_FILE_FAULTS).toContain(fault);
+    expect(probeLogo).not.toHaveBeenCalled();
+  });
+
+  it("never re-encodes an SVG: its raster is the renderer's own output", async () => {
+    getObjectBytes.mockResolvedValue(Buffer.from(svg('viewBox="0 0 10 10"')));
+    await loadBrandLogo(`${BASE}/logos/u1/a.svg`);
+    expect(reencodeImage).not.toHaveBeenCalled();
   });
 
   it("reports a vector the renderer choked on", async () => {

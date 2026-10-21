@@ -1,14 +1,16 @@
 import { crc32, createInflate } from "node:zlib";
 
 /**
- * Proof that a PNG or JPEG decodes, without decoding it.
+ * A cheap pre-filter for a PNG or JPEG that cannot be whole, run before the
+ * real decode in reencodeImage.
  *
- * A valid header is not an image. satori and resvg draw a PNG whose pixel
- * data is missing or corrupt as nothing at all, byte-identical to a design
- * with no image, so a broken upload would become a design with a silently
- * empty slot. These checks run the parts of a decoder that can fail on a
- * damaged file (chunk framing and CRCs, the zlib stream, the JPEG marker
- * chain) and skip the parts that cannot (colour conversion, IDCT).
+ * These checks run the parts of a decoder that can fail on a damaged file
+ * (chunk framing and CRCs, the zlib stream, the JPEG marker chain) and skip
+ * the parts that cannot (colour conversion, IDCT). They refuse a truncated
+ * upload or a decompression bomb before libvips allocates for it, and they
+ * catch truncations libpng would quietly pad out. They are NOT proof the
+ * renderer can draw the file: resvg rejects well-framed files these accept,
+ * and panics on some. That proof is the re-encode.
  */
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
