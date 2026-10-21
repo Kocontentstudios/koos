@@ -103,6 +103,28 @@ New request field `image: { source: "upload", key } | { source: "ko" }`. Its pre
 
 `design_generations` gets four new nullable columns: `document` (jsonb), `rationale` (jsonb), `image_source` (text: `upload` or `ko`) and `source_image_key` (text). Old rows keep `document = null` and render exactly as today.
 
+### Client/server contract
+
+These are the seams the parallel units build against.
+
+- **`DirectionSpec`** is a `DesignSpec` plus:
+  - `title`: up to 40 characters, e.g. "Playful product story"
+  - `rationale`: 2 to 4 strings, each up to 90 characters
+
+  Both are stored in `design_generations.rationale` as `{ title, reasons }`.
+- **`SerializedGeneration`** (`src/lib/design/serialize.ts`) gains:
+  - `direction: { title: string; reasons: string[] } | null`
+  - `imageSource: "upload" | "ko" | null`
+  - `editable: boolean` (`document !== null`)
+- **`GenerateArgs`** (`src/components/design/use-design-generation.ts`) gains `image?: { source: "upload"; key: string } | { source: "ko" }`. The route validates it and passes it through to the job.
+- **Upload helpers:**
+  - `src/lib/uploads/normalize-image.ts` (browser): `normalizeImageForUpload(file: File): Promise<{ blob: Blob; type: "image/png" | "image/jpeg"; width: number; height: number }>`. It throws `ImageNotUsableError` with a user-facing message.
+  - `src/lib/uploads/design-image.ts` (server):
+    - `designImageKeyFor(brandId, ext)`
+    - `isDesignImageKeyFor(key, brandId)`
+    - `loadDesignImage(key, brandId)`: returns `{ bytes, contentType, width, height }`, or throws `DesignImageError` with a user-facing message.
+- **Presign:** `POST /api/uploads/presign` with `kind: "design-image"` returns `{ url, key }`, the same shape as the other kinds.
+
 ### UI
 
 - **Entry points:** the calendar item drawer's Generate design button, and the Design Studio generate action.
