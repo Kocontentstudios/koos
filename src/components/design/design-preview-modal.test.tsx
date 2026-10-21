@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesignPreviewModal } from "./design-preview-modal";
 
+const captureEvent = vi.fn();
+vi.mock("@/lib/analytics/posthog-client", () => ({
+  captureEvent: (...a: unknown[]) => captureEvent(...a),
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -227,5 +231,24 @@ describe("DesignPreviewModal directions", () => {
     });
     expect(screen.getAllByText("Playful product story")).toHaveLength(1);
     expect(screen.getAllByText("Exact brand colours & logo")).toHaveLength(2);
+  });
+});
+
+/* The legacy preview is where a run ends until the server ships directions,
+   so its downloads must count in the FEAT-033 funnel too. */
+describe("DesignPreviewModal download tracking", () => {
+  it("records a PNG download with the row's image source", async () => {
+    renderModal({
+      generations: [
+        { ...generation, imageSource: null, width: 1080, height: 1350 },
+      ],
+    });
+    const link = screen.getByRole("link", { name: /download/i });
+    link.addEventListener("click", (e) => e.preventDefault());
+    await userEvent.click(link);
+    expect(captureEvent).toHaveBeenCalledWith("design_downloaded", {
+      format: "png",
+      image_source: null,
+    });
   });
 });

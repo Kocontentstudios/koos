@@ -4,13 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const normalize = vi.fn();
 const upload = vi.fn();
 
-vi.mock("@/lib/uploads/normalize-image", () => {
-  class ImageNotUsableError extends Error {}
-  return {
-    ImageNotUsableError,
-    normalizeImageForUpload: (...a: unknown[]) => normalize(...a),
-  };
-});
+/* The real error class, so a test sees the message the user would. */
+vi.mock("@/lib/uploads/normalize-image", async (original) => ({
+  ...(await original<typeof import("@/lib/uploads/normalize-image")>()),
+  normalizeImageForUpload: (...a: unknown[]) => normalize(...a),
+}));
 vi.mock("@/lib/uploads/put-presigned", () => ({
   uploadToPresignedUrl: (...a: unknown[]) => upload(...a),
 }));
@@ -44,6 +42,7 @@ beforeEach(() => {
         JSON.stringify({
           url: "https://r2/put",
           key: `design-images/${BRAND}/k.jpg`,
+          contentType: "image/jpeg",
         }),
         { status: 200 },
       ),
@@ -62,16 +61,26 @@ describe("useDesignImageUpload", () => {
 
     await waitFor(() => expect(result.current.state.status).toBe("ready"));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
-    /* The re-encoded type and name, not the original WEBP's: the server only
-       accepts PNG and JPEG keys. */
+    /* The re-encoded type, name and size, not the original WEBP's: the
+       server signs only PNG and JPEG, and binds the size it was told. */
     expect(body).toMatchObject({
       brandId: BRAND,
       kind: "design-image",
       mimeType: "image/jpeg",
-      fileName: "cake.jpg",
+      fileName: "design-image.jpg",
+      sizeBytes: 4,
     });
-    const [, sent] = upload.mock.calls[0] as [string, File];
-    expect(sent.type).toBe("image/jpeg");
+    /* The signature binds the presign route's contentType; the PUT must send
+       exactly that, or storage answers 403. */
+    const [url, sent, , contentType] = upload.mock.calls[0] as [
+      string,
+      Blob,
+      unknown,
+      string,
+    ];
+    expect(url).toBe("https://r2/put");
+    expect(sent.size).toBe(4);
+    expect(contentType).toBe("image/jpeg");
     expect(result.current.state).toMatchObject({
       status: "ready",
       key: `design-images/${BRAND}/k.jpg`,
@@ -92,14 +101,15 @@ describe("useDesignImageUpload", () => {
   });
 
   it("reports an unreadable file as a prepare failure with its message", async () => {
-    normalize.mockRejectedValue(new ImageNotUsableError("Not a real image."));
+    normalize.mockRejectedValue(new ImageNotUsableError("undecodable"));
     const { result } = renderHook(() => useDesignImageUpload(BRAND));
     act(() => result.current.select(image()));
 
     await waitFor(() => expect(result.current.state.status).toBe("error"));
     expect(result.current.state).toMatchObject({
       step: "prepare",
-      message: "Not a real image.",
+      message:
+        "This image can't be used: it couldn't be opened and may be damaged. Choose another image.",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

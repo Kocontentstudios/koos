@@ -5,11 +5,13 @@ import type { GenerationStage } from "@/components/design/use-design-generation"
 import { Button } from "@/components/ui/button";
 import { ProgressSteps } from "@/components/ui/progress-steps";
 import { Spinner } from "@/components/ui/spinner";
+import type { JobStage } from "@/lib/generation/poll-job";
 import { FlowDescription, FlowTitle } from "./flow-heading";
 import {
   generationStepIndex,
   generationSteps,
   type ImageSource,
+  unusableImageReason,
 } from "./flow-logic";
 
 /** The client's own fetching label matches the last step's name; saying it
@@ -22,20 +24,34 @@ function sameWords(a: string, b: string): boolean {
 export interface GenerationProgressProps {
   source: ImageSource;
   stage: GenerationStage | null;
+  /** The job's own stage; the steps follow this and nothing else. */
+  jobStage: JobStage | null;
   progress: { done: number; total: number } | null;
   /** The worker's own words for what it is doing right now. */
   label: string | null;
 }
 
+/* While designs render, done/total counts them; it is the one stage where
+   the count is real progress the user can watch. */
+function renderCount(
+  jobStage: JobStage | null,
+  progress: { done: number; total: number } | null,
+): string | null {
+  if (jobStage !== "render" || !progress || progress.total <= 0) return null;
+  return `${Math.min(progress.done, progress.total)} of ${progress.total} done`;
+}
+
 export function GenerationProgress({
   source,
   stage,
+  jobStage,
   progress,
   label,
 }: GenerationProgressProps) {
   const steps = generationSteps(source);
-  const current = generationStepIndex(stage, progress);
+  const current = generationStepIndex(steps, stage, jobStage);
   const step = steps[current];
+  const count = stage === "fetching" ? null : renderCount(jobStage, progress);
 
   return (
     <div className="flex flex-col items-center gap-5 py-4 text-center">
@@ -47,6 +63,9 @@ export function GenerationProgress({
         <div role="status" className="flex flex-col items-center gap-1">
           <p className="text-[14px] font-medium text-foreground">
             {step.long}
+            {count ? (
+              <span className="text-[var(--text-secondary)]"> · {count}</span>
+            ) : null}
             <span className="sr-only">
               , step {current + 1} of {steps.length}
             </span>
@@ -89,9 +108,7 @@ export function GenerationError({
   const Icon = unusableImage ? ImageOff : TriangleAlert;
   /* The server's sentence opens with the heading's own words; repeating them
      directly under the heading reads as a stutter. */
-  const detail = unusableImage
-    ? message.replace(/^this image can.t be used\.?\s*/i, "")
-    : message;
+  const detail = unusableImage ? unusableImageReason(message) : message;
   return (
     <div
       role="alert"

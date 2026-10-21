@@ -292,10 +292,25 @@ describe("progress, image and failed count", () => {
     seen.push(String(result.current.stage));
     await waitFor(() => expect(report).toBeDefined());
 
-    act(() => report?.({ done: 1, total: 3, label: "Rendering designs…" }));
+    act(() => report?.({ done: 0, total: 2, label: "Writing…" }));
+    expect(result.current.jobStage).toBeNull();
+
+    act(() =>
+      report?.({
+        done: 1,
+        total: 2,
+        label: "Rendering designs…",
+        stage: "render",
+      }),
+    );
     seen.push(String(result.current.stage));
-    expect(result.current.progress).toEqual({ done: 1, total: 3 });
+    expect(result.current.progress).toEqual({ done: 1, total: 2 });
     expect(result.current.progressLabel).toBe("Rendering designs…");
+    expect(result.current.jobStage).toBe("render");
+
+    /* A report without a stage (an older worker) never moves the steps back. */
+    act(() => report?.({ done: 1, total: 2, label: "Still rendering…" }));
+    expect(result.current.jobStage).toBe("render");
 
     await act(async () => {
       finish?.({ generationIds: ["g1", "g2"], failed: [] });
@@ -304,6 +319,33 @@ describe("progress, image and failed count", () => {
     expect(seen).toEqual(["starting", "running"]);
     expect(result.current.stage).toBeNull();
     expect(result.current.progress).toBeNull();
+    expect(result.current.jobStage).toBeNull();
+  });
+
+  it("sends regenerateOf through to the route with the image", async () => {
+    pollGenerationJob.mockResolvedValue({ generationIds: ["g3"], failed: [] });
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/api/design/generate")
+        ? new Response(JSON.stringify({ jobId: "job-2" }), { status: 200 })
+        : new Response(JSON.stringify({ generations: [row("g3")] }), {
+            status: 200,
+          }),
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    let rows: unknown[] = [];
+    await act(async () => {
+      rows = await result.current.generate({
+        ...ARGS,
+        image: { source: "ko" },
+        regenerateOf: "g1",
+      });
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      image: { source: "ko" },
+      regenerateOf: "g1",
+    });
+    expect(rows.map((r) => (r as { id: string }).id)).toEqual(["g3"]);
   });
 
   it("sends the chosen image through to the route", async () => {
@@ -339,9 +381,11 @@ describe("progress, image and failed count", () => {
     });
     expect(rows.map((r) => (r as { id: string }).id)).toEqual(["g1"]);
     expect(result.current.failedCount).toBe(1);
+    expect(result.current.failedIds).toEqual(["g2"]);
 
     act(() => result.current.reset());
     expect(result.current.failedCount).toBe(0);
+    expect(result.current.failedIds).toEqual([]);
   });
 
   it("resolves to nothing when the run fails", async () => {

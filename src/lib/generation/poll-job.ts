@@ -1,9 +1,14 @@
 /** Client-side polling for async generation jobs (/api/jobs/[id]). */
 
+/** Where a design-directions job is. The UI keys its steps off this, never
+ *  off `label`, which is human text and free to change. */
+export type JobStage = "brief" | "imagery" | "render" | "checks";
+
 export interface JobProgress {
   done: number;
   total: number;
   label: string;
+  stage?: JobStage;
   /** Present once the calendar exists, before briefs are complete. */
   calendarId?: string;
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { SerializedGeneration } from "@/lib/design/serialize";
-import { pollGenerationJob } from "@/lib/generation/poll-job";
+import { type JobStage, pollGenerationJob } from "@/lib/generation/poll-job";
 
 export interface GenerateArgs {
   brandId: string;
@@ -13,6 +13,9 @@ export interface GenerateArgs {
   aspectRatio?: string | null;
   /** Selects the two-directions path. Absent keeps the legacy variants. */
   image?: DesignImageChoice;
+  /** A generation id: the job makes exactly one new direction to take that
+   *  one's place. Requires `image`. */
+  regenerateOf?: string;
 }
 
 export type DesignImageChoice =
@@ -42,11 +45,16 @@ export interface DesignGenerationState {
   stage: GenerationStage | null;
   /** The worker's own done/total, as last reported. */
   progress: { done: number; total: number } | null;
+  /** The directions job's own stage, as last reported. Null until it reports
+   *  one, and always null on the legacy path. */
+  jobStage: JobStage | null;
   error: string | null;
   /** Set when some designs rendered and some did not. Never set with `error`. */
   partial: string | null;
   /** How many rows the job produced that did not render. */
   failedCount: number;
+  /** Those rows' ids, so a failed direction can be regenerated in its slot. */
+  failedIds: string[];
   generations: SerializedGeneration[];
   reset: () => void;
 }
@@ -66,7 +74,8 @@ export function useDesignGeneration(): DesignGenerationState {
     done: number;
     total: number;
   } | null>(null);
-  const [failedCount, setFailedCount] = useState(0);
+  const [jobStage, setJobStage] = useState<JobStage | null>(null);
+  const [failedIds, setFailedIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [generations, setGenerations] = useState<SerializedGeneration[]>([]);
   /* Distinct from `error`: some designs rendered and are usable. An error
@@ -86,9 +95,10 @@ export function useDesignGeneration(): DesignGenerationState {
     setProgressLabel(null);
     setStage(null);
     setProgress(null);
+    setJobStage(null);
     setError(null);
     setPartial(null);
-    setFailedCount(0);
+    setFailedIds([]);
     setGenerations([]);
   }, []);
 
@@ -120,7 +130,8 @@ export function useDesignGeneration(): DesignGenerationState {
       }
 
       setGenerations(succeeded);
-      setFailedCount(ids.length - succeeded.length);
+      const rendered = new Set(succeeded.map((g) => g.id));
+      setFailedIds(ids.filter((id) => !rendered.has(id)));
       /* Partial success is stated, not silently shown as a shorter list. The
          designs that DID render are kept — the user can still use them. */
       setPartial(
@@ -143,11 +154,12 @@ export function useDesignGeneration(): DesignGenerationState {
       setPending(true);
       setError(null);
       setPartial(null);
-      setFailedCount(0);
+      setFailedIds([]);
       setGenerations([]);
       setProgressLabel("Starting…");
       setStage("starting");
       setProgress(null);
+      setJobStage(null);
       try {
         const res = await fetch("/api/design/generate", {
           method: "POST",
@@ -163,6 +175,7 @@ export function useDesignGeneration(): DesignGenerationState {
             setProgressLabel(p.label);
             setStage("running");
             setProgress({ done: p.done, total: p.total });
+            if (p.stage) setJobStage(p.stage);
           },
         });
         if (runId.current !== run) return [];
@@ -198,6 +211,7 @@ export function useDesignGeneration(): DesignGenerationState {
           setProgressLabel(null);
           setStage(null);
           setProgress(null);
+          setJobStage(null);
         }
       }
     },
@@ -224,7 +238,7 @@ export function useDesignGeneration(): DesignGenerationState {
     setPending(true);
     setError(null);
     setPartial(null);
-    setFailedCount(0);
+    setFailedIds([]);
     setProgressLabel("Fetching your designs…");
     setStage("fetching");
     try {
@@ -240,6 +254,7 @@ export function useDesignGeneration(): DesignGenerationState {
         setProgressLabel(null);
         setStage(null);
         setProgress(null);
+        setJobStage(null);
       }
     }
   }, [generate, loadByIds]);
@@ -251,9 +266,11 @@ export function useDesignGeneration(): DesignGenerationState {
     progressLabel,
     stage,
     progress,
+    jobStage,
     error,
     partial,
-    failedCount,
+    failedCount: failedIds.length,
+    failedIds,
     generations,
     reset,
   };

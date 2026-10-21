@@ -2,8 +2,8 @@
 
 import { ImageUp, type LucideIcon, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { DESIGN_IMAGE_SUMMARY } from "@/lib/uploads/design-image-limits";
 import { cn } from "@/lib/utils";
-import { DESIGN_IMAGE_HINT } from "./flow-logic";
 import { PointerOnly } from "./input-modality";
 
 /** Same tint as the Design Tickets chooser: --surface-* resolve to the sheet's
@@ -36,7 +36,7 @@ function ChoiceCard({
          unlayered, which beats every border-* utility class. */
       style={dropActive ? { borderColor: "var(--primary)" } : undefined}
       className={cn(
-        "group flex h-full flex-col items-start gap-3 rounded-xl border bg-surface-1 p-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]",
+        "group flex h-full flex-col items-start gap-3 rounded-xl border bg-surface-1 p-4 text-left transition-colors duration-150 focus-visible:focus-outline",
         HOVER_TINT,
         dropActive && "bg-[var(--accent-glow)]",
       )}
@@ -83,7 +83,7 @@ export function ImageChoice({
         description="A product shot, photo or visual you already have. KO designs around it and never redraws it."
         hint={
           <>
-            {DESIGN_IMAGE_HINT}.
+            {DESIGN_IMAGE_SUMMARY}.
             <PointerOnly> You can also drop it here.</PointerOnly>
           </>
         }

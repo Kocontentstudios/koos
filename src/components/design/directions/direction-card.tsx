@@ -1,17 +1,24 @@
 "use client";
 
-import { Download, ImageOff, RefreshCw, TriangleAlert } from "lucide-react";
+import {
+  Download,
+  ImageOff,
+  RefreshCw,
+  Send,
+  TriangleAlert,
+} from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { captureEvent } from "@/lib/analytics/posthog-client";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_SIZE = { width: 1080, height: 1350 };
 
-function sizeOf(generation: SerializedGeneration | null) {
+type Size = { width: number; height: number };
+
+function sizeOf(generation: SerializedGeneration | null): Size {
   return generation?.width && generation.height
     ? { width: generation.width, height: generation.height }
     : FALLBACK_SIZE;
@@ -25,18 +32,36 @@ function Eyebrow({ index }: { index: number }) {
   );
 }
 
-/** Replaces the design while a new one is made for this slot, so the old
- *  design is never mistaken for the result. */
-function RegeneratingPlaceholder({
+/** The design's own box at its own aspect ratio, full card width, so every
+ *  state of a slot (loading, shown, unavailable, regenerating) is the same
+ *  size and the cards never jump. */
+function DesignFrame({
   size,
+  className,
+  children,
 }: {
-  size: { width: number; height: number };
+  size: Size;
+  className?: string;
+  children: React.ReactNode;
 }) {
   return (
     <div
-      className="relative max-h-[44vh] w-full"
+      className={cn(
+        "relative w-full bg-[var(--surface-container-lowest)]",
+        className,
+      )}
       style={{ aspectRatio: `${size.width} / ${size.height}` }}
     >
+      {children}
+    </div>
+  );
+}
+
+/** Replaces the design while a new one is made for this slot, so the old
+ *  design is never mistaken for the result. */
+function RegeneratingPlaceholder({ size }: { size: Size }) {
+  return (
+    <DesignFrame size={size}>
       <Skeleton className="absolute inset-0 rounded-none" />
       <p
         role="status"
@@ -44,7 +69,64 @@ function RegeneratingPlaceholder({
       >
         Making a new direction…
       </p>
-    </div>
+    </DesignFrame>
+  );
+}
+
+function PreviewUnavailable({ size }: { size: Size }) {
+  return (
+    <DesignFrame
+      size={size}
+      className="flex flex-col items-center justify-center gap-2 px-6 text-center"
+    >
+      <ImageOff
+        aria-hidden="true"
+        className="size-6 text-[var(--text-muted)]"
+      />
+      <p
+        role="status"
+        className="text-[13px] font-medium text-[var(--text-secondary)]"
+      >
+        Preview unavailable
+      </p>
+    </DesignFrame>
+  );
+}
+
+type PreviewState = "loading" | "shown" | "failed";
+
+/* An expired signed URL or a missing object fails the load; without onError
+   the skeleton would stay up and keep claiming the design is on its way. */
+function DesignPreview({
+  url,
+  alt,
+  size,
+}: {
+  url: string;
+  alt: string;
+  size: Size;
+}) {
+  const [state, setState] = useState<PreviewState>("loading");
+  if (state === "failed") return <PreviewUnavailable size={size} />;
+  return (
+    <DesignFrame size={size}>
+      {state === "loading" ? (
+        <div role="status" className="absolute inset-0">
+          <Skeleton className="absolute inset-0 rounded-none" />
+          <span className="sr-only">Loading the design preview…</span>
+        </div>
+      ) : null}
+      <Image
+        src={url}
+        alt={alt}
+        width={size.width}
+        height={size.height}
+        onLoad={() => setState("shown")}
+        onError={() => setState("failed")}
+        className="relative block h-auto w-full"
+        unoptimized
+      />
+    </DesignFrame>
   );
 }
 
@@ -73,7 +155,8 @@ function RegenerateButton({
   regenerateBlocked,
   onRegenerate,
   index,
-}: RegenerateSlotProps & { index: number }) {
+  className,
+}: RegenerateSlotProps & { index: number; className?: string }) {
   return (
     <Button
       type="button"
@@ -82,7 +165,7 @@ function RegenerateButton({
       loading={regenerating}
       loadingText="Regenerating…"
       disabled={regenerateBlocked}
-      className="w-full lg:w-auto"
+      className={className}
       aria-label={
         regenerating ? undefined : `Regenerate direction ${index + 1}`
       }
@@ -93,25 +176,78 @@ function RegenerateButton({
   );
 }
 
+/* A link, not a button: the route redirects to a signed URL whose disposition
+   makes the browser save the file. Opened in a new tab so an expired
+   session's JSON error never replaces the dialog. While the slot regenerates
+   it becomes a real disabled button: an anchor styled as disabled still
+   follows its href on Enter. */
+function DownloadPng({
+  generationId,
+  index,
+  disabled,
+  onDownload,
+}: {
+  generationId: string;
+  index: number;
+  disabled: boolean;
+  onDownload: () => void;
+}) {
+  const label = (
+    <>
+      <Download aria-hidden="true" />
+      Download PNG
+    </>
+  );
+  if (disabled) {
+    return (
+      <Button type="button" variant="secondary" disabled>
+        {label}
+        <span className="sr-only"> of direction {index + 1}</span>
+      </Button>
+    );
+  }
+  return (
+    <a
+      href={`/api/design/generations/${generationId}/download`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={onDownload}
+      className={buttonVariants({ variant: "secondary" })}
+    >
+      {label}
+      <span className="sr-only">
+        {" "}
+        of direction {index + 1} (opens in a new tab)
+      </span>
+    </a>
+  );
+}
+
 export interface DirectionCardProps extends RegenerateSlotProps {
   generation: SerializedGeneration;
   index: number;
   convertingJpg: boolean;
+  onDownloadPng: () => void;
   onDownloadJpg: () => void;
+  sendingToTeam: boolean;
+  onSendToTeam: () => void;
 }
 
 export function DirectionCard({
   generation,
   index,
   convertingJpg,
+  onDownloadPng,
   onDownloadJpg,
+  sendingToTeam,
+  onSendToTeam,
   ...regenerate
 }: DirectionCardProps) {
-  const [loaded, setLoaded] = useState(false);
   const size = sizeOf(generation);
   const direction = generation.direction;
   const title =
     direction?.title ?? generation.headline ?? `Design ${index + 1}`;
+  const busy = regenerate.regenerating;
 
   return (
     <article
@@ -133,35 +269,16 @@ export function DirectionCard({
         </span>
       </header>
 
-      {regenerate.regenerating ? (
+      {busy ? (
         <RegeneratingPlaceholder size={size} />
       ) : generation.url ? (
-        /* Height-capped so a portrait design never pushes its own download
-           buttons below the fold on a laptop screen. */
-        <div
-          className="relative max-h-[44vh] w-full bg-[var(--surface-container-lowest)]"
-          style={{ aspectRatio: `${size.width} / ${size.height}` }}
-        >
-          {loaded ? null : (
-            <Skeleton className="absolute inset-0 rounded-none" />
-          )}
-          <Image
-            src={generation.url}
-            alt={`Direction ${index + 1}: ${title}`}
-            width={size.width}
-            height={size.height}
-            onLoad={() => setLoaded(true)}
-            className="relative size-full object-contain"
-            unoptimized
-          />
-        </div>
+        <DesignPreview
+          url={generation.url}
+          alt={`Direction ${index + 1}: ${title}`}
+          size={size}
+        />
       ) : (
-        <div
-          className="flex max-h-[44vh] w-full items-center justify-center bg-[var(--surface-container-lowest)] text-[13px] text-[var(--text-muted)]"
-          style={{ aspectRatio: `${size.width} / ${size.height}` }}
-        >
-          Preview unavailable
-        </div>
+        <PreviewUnavailable size={size} />
       )}
 
       <div className="flex flex-1 flex-col gap-4 p-4">
@@ -190,45 +307,49 @@ export function DirectionCard({
           <RegenerateError message={regenerate.regenerateError} />
         ) : null}
 
-        {/* Two downloads side by side and Regenerate on its own row on a
-            narrow card, where three buttons in one row wrap unevenly. */}
-        <div className="mt-auto grid grid-cols-2 gap-2 lg:flex lg:flex-wrap lg:items-center">
-          {/* A link, not a button: the route redirects to a signed URL whose
-              disposition makes the browser save the file. Opened in a new tab
-              so an expired session's JSON error never replaces the dialog. */}
-          <a
-            href={`/api/design/generations/${generation.id}/download`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => captureEvent("design_downloaded", { format: "png" })}
-            aria-disabled={regenerate.regenerating || undefined}
-            className={cn(
-              buttonVariants({ variant: "secondary" }),
-              regenerate.regenerating && "pointer-events-none opacity-50",
-            )}
-          >
-            <Download aria-hidden="true" />
-            Download PNG
-            <span className="sr-only">
-              {" "}
-              of direction {index + 1} (opens in a new tab)
-            </span>
-          </a>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onDownloadJpg}
-            loading={convertingJpg}
-            loadingText="Making JPG…"
-            disabled={regenerate.regenerating}
-          >
-            <Download aria-hidden="true" />
-            Download JPG
-            <span className="sr-only"> of direction {index + 1}</span>
-          </Button>
-          <span className="col-span-2 lg:ml-auto">
-            <RegenerateButton index={index} {...regenerate} />
-          </span>
+        {/* Even rows rather than a wrapping flex row, which leaves ragged
+            gaps. Sized by the card, not the viewport: "Send to design team"
+            needs a full row in any card narrower than 24rem, which covers
+            phones and a narrow two-up dialog alike. */}
+        <div className="@container mt-auto">
+          <div className="grid grid-cols-2 gap-2">
+            <DownloadPng
+              generationId={generation.id}
+              index={index}
+              disabled={busy}
+              onDownload={onDownloadPng}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onDownloadJpg}
+              loading={convertingJpg}
+              loadingText="Making JPG…"
+              disabled={busy}
+            >
+              <Download aria-hidden="true" />
+              Download JPG
+              <span className="sr-only"> of direction {index + 1}</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onSendToTeam}
+              loading={sendingToTeam}
+              loadingText="Sending…"
+              disabled={busy}
+              className="col-span-2 @sm:col-span-1"
+            >
+              <Send aria-hidden="true" />
+              Send to design team
+              <span className="sr-only"> (direction {index + 1})</span>
+            </Button>
+            <RegenerateButton
+              index={index}
+              className="col-span-2 @sm:col-span-1"
+              {...regenerate}
+            />
+          </div>
         </div>
       </div>
     </article>
@@ -237,7 +358,7 @@ export function DirectionCard({
 
 export interface FailedDirectionCardProps extends RegenerateSlotProps {
   index: number;
-  size: { width: number; height: number } | null;
+  size: Size | null;
 }
 
 /** The slot of a direction that did not render: stated, and recoverable on
@@ -262,9 +383,9 @@ export function FailedDirectionCard({
       {regenerate.regenerating ? (
         <RegeneratingPlaceholder size={box} />
       ) : (
-        <div
-          className="flex max-h-[44vh] w-full flex-col items-center justify-center gap-2 bg-[var(--surface-container-lowest)] px-6 text-center"
-          style={{ aspectRatio: `${box.width} / ${box.height}` }}
+        <DesignFrame
+          size={box}
+          className="flex flex-col items-center justify-center gap-2 px-6 text-center"
         >
           <ImageOff
             aria-hidden="true"
@@ -274,7 +395,7 @@ export function FailedDirectionCard({
             The other direction is ready to use. Regenerate this one for a fresh
             take.
           </p>
-        </div>
+        </DesignFrame>
       )}
       <div className="flex flex-col gap-3 p-4">
         {regenerate.regenerateError ? (

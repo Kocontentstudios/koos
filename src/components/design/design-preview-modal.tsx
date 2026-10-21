@@ -16,6 +16,12 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
+import { trackDesignDownload } from "./design-analytics";
+import {
+  sendGenerationToTeam,
+  sentToTeamMessage,
+  type TicketContext,
+} from "./send-to-team";
 
 export interface DesignPreviewModalProps {
   open: boolean;
@@ -34,13 +40,7 @@ export interface DesignPreviewModalProps {
   /** Absent when viewing an existing design: there is nothing to regenerate. */
   onRegenerate?: () => void;
   /** Context carried into a design ticket when the user sends to the team. */
-  ticketContext?: {
-    briefId?: string | null;
-    calendarItemId?: string | null;
-    designType?: string | null;
-    dimensions?: string | null;
-    brief?: string | null;
-  };
+  ticketContext?: TicketContext;
 }
 
 const RENDERER_LABEL: Record<SerializedGeneration["renderer"], string> = {
@@ -79,36 +79,12 @@ export function DesignPreviewModal({
     if (!selected) return;
     setSending(true);
     try {
-      const res = await fetch("/api/design-tickets", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          brandId,
-          briefId: ticketContext?.briefId ?? undefined,
-          calendarItemId: ticketContext?.calendarItemId ?? undefined,
-          designType:
-            ticketContext?.designType ?? selected.designType ?? "Social post",
-          dimensions: ticketContext?.dimensions ?? undefined,
-          brief:
-            ticketContext?.brief ??
-            selected.headline ??
-            "Polish the attached AI-generated design.",
-          referenceImageUrl: selected.url,
-          generationId: selected.id,
-        }),
+      const ticketNumber = await sendGenerationToTeam({
+        brandId,
+        generation: selected,
+        ticketContext,
       });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not send to the design team.");
-      }
-      const { ticket } = (await res.json()) as {
-        ticket?: { ticketNumber?: number };
-      };
-      toast.success(
-        ticket?.ticketNumber
-          ? `Sent to the design team as DT-${ticket.ticketNumber}`
-          : "Sent to the design team",
-      );
+      toast.success(sentToTeamMessage(ticketNumber));
       onOpenChange(false);
     } catch (err) {
       toast.error(
@@ -270,6 +246,7 @@ export function DesignPreviewModal({
               href={`/api/design/generations/${selected.id}/download`}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackDesignDownload(selected, "png")}
               className={cn(buttonVariants({ variant: "secondary" }))}
             >
               <Download aria-hidden="true" className="size-4" />

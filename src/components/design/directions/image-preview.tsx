@@ -4,7 +4,8 @@ import { CircleCheck, RotateCw, TriangleAlert } from "lucide-react";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { DESIGN_IMAGE_ACCEPT, formatBytes } from "./flow-logic";
+import { DESIGN_IMAGE_ACCEPT } from "@/lib/uploads/design-image-limits";
+import { formatBytes, unusableImageReason } from "./flow-logic";
 import type { DesignImageUpload } from "./use-design-image-upload";
 
 type PickedState = Exclude<DesignImageUpload, { status: "idle" }>;
@@ -13,7 +14,7 @@ const FAILED_STEP_LEAD: Record<
   Extract<DesignImageUpload, { status: "error" }>["step"],
   string
 > = {
-  prepare: "This image couldn't be read.",
+  prepare: "This image can't be used.",
   presign: "The upload couldn't start.",
   upload: "The upload stopped part way.",
 };
@@ -154,7 +155,9 @@ export function ImagePreview({
               {FAILED_STEP_LEAD[state.step]}
             </span>{" "}
             <span className="text-[var(--text-secondary)]">
-              {state.message}
+              {state.step === "prepare"
+                ? unusableImageReason(state.message)
+                : state.message}
             </span>
           </p>
           {/* An unreadable file will not become readable on a second try;

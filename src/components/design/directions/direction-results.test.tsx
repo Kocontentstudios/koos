@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SerializedGeneration } from "@/lib/design/serialize";
@@ -20,6 +26,7 @@ vi.mock("sonner", () => ({ toast: { error: (m: string) => toastError(m) } }));
 import {
   DirectionResults,
   type DirectionResultsProps,
+  type DirectionSlot,
 } from "./direction-results";
 
 function direction(
@@ -51,19 +58,27 @@ function direction(
   };
 }
 
+const ready = (generation: SerializedGeneration): DirectionSlot => ({
+  id: generation.id,
+  generation,
+});
+const failedSlot = (id: string): DirectionSlot => ({ id, generation: null });
+
 function results(overrides: Partial<DirectionResultsProps> = {}) {
   const props: DirectionResultsProps = {
-    slots: [direction("d1"), direction("d2")],
+    slots: [ready(direction("d1")), ready(direction("d2"))],
     source: "upload",
     imageName: "cake.png",
     regeneratingSlot: null,
     regenerateError: null,
+    sendingId: null,
     onRegenerate: vi.fn(),
+    onSendToTeam: vi.fn(),
     onChooseImagery: vi.fn(),
     ...overrides,
   };
-  render(<DirectionResults {...props} />);
-  return props;
+  const utils = render(<DirectionResults {...props} />);
+  return { props, ...utils };
 }
 
 const card = (title: string) =>
@@ -90,7 +105,7 @@ describe("DirectionResults", () => {
   });
 
   /* Editing is phase 2: a control for it now would be a placeholder. */
-  it("has downloads and regenerate on every card and no edit control", () => {
+  it("has downloads, send and regenerate on every card and no edit control", () => {
     results();
     for (const title of ["Playful product story", "Editorial arch frame"]) {
       const c = within(card(title));
@@ -101,10 +116,41 @@ describe("DirectionResults", () => {
         c.getByRole("button", { name: /download jpg/i }),
       ).toBeInTheDocument();
       expect(
+        c.getByRole("button", { name: /send to design team/i }),
+      ).toBeInTheDocument();
+      expect(
         c.getByRole("button", { name: /regenerate/i }),
       ).toBeInTheDocument();
     }
     expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
+  });
+
+  it("shows the design at full card width with a skeleton until it loads", async () => {
+    results();
+    const c = within(card("Playful product story"));
+    const img = c.getByRole("img", { name: /Playful product story/ });
+    expect(img).toHaveClass("w-full");
+    expect(c.getByRole("status")).toHaveTextContent(
+      "Loading the design preview…",
+    );
+
+    fireEvent.load(img);
+    await waitFor(() => expect(c.queryByRole("status")).toBeNull());
+    expect(img).toBeVisible();
+  });
+
+  /* An expired signed URL or a missing object: the skeleton must not keep
+     claiming the design is on its way. */
+  it("says the preview is unavailable when the image fails to load", () => {
+    results();
+    const c = within(card("Playful product story"));
+    fireEvent.error(c.getByRole("img", { name: /Playful product story/ }));
+
+    expect(c.getByRole("status")).toHaveTextContent("Preview unavailable");
+    expect(c.queryByText("Loading the design preview…")).toBeNull();
+    expect(c.queryByRole("img", { name: /Playful/ })).toBeNull();
+    /* Downloads go through the route, not the preview URL, so they stay. */
+    expect(c.getByRole("link", { name: /download png/i })).toBeInTheDocument();
   });
 
   it("downloads the PNG through the authorised route and records it", async () => {
@@ -117,6 +163,7 @@ describe("DirectionResults", () => {
     await userEvent.click(link);
     expect(captureEvent).toHaveBeenCalledWith("design_downloaded", {
       format: "png",
+      image_source: "upload",
     });
   });
 
@@ -128,7 +175,12 @@ describe("DirectionResults", () => {
           finish = resolve;
         }),
     );
-    results();
+    results({
+      slots: [
+        ready(direction("d1", { imageSource: "ko" })),
+        ready(direction("d2")),
+      ],
+    });
     await userEvent.click(
       within(card("Playful product story")).getByRole("button", {
         name: /download jpg/i,
@@ -154,6 +206,7 @@ describe("DirectionResults", () => {
     expect(saveBlob.mock.calls[0][1]).toBe("instagram-post-1080x1350-d1.jpg");
     expect(captureEvent).toHaveBeenCalledWith("design_downloaded", {
       format: "jpg",
+      image_source: "ko",
     });
   });
 
@@ -169,11 +222,39 @@ describe("DirectionResults", () => {
     expect(captureEvent).not.toHaveBeenCalled();
   });
 
-  it("regenerates one slot while the other stays usable", async () => {
-    const props = results({ regeneratingSlot: 0 });
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Making a new direction…",
+  it("sends a card's own design to the design team", async () => {
+    const { props } = results();
+    await userEvent.click(
+      within(card("Editorial arch frame")).getByRole("button", {
+        name: /send to design team/i,
+      }),
     );
+    expect(props.onSendToTeam).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "d2" }),
+    );
+  });
+
+  /* Keyed to the row: one card sending must not make the other claim it is
+     working too. */
+  it("shows sending on that card only", () => {
+    results({ sendingId: "d1" });
+    expect(
+      within(card("Playful product story")).getByRole("button", {
+        name: "Sending…",
+      }),
+    ).toHaveAttribute("aria-busy", "true");
+    const other = within(card("Editorial arch frame")).getByRole("button", {
+      name: /send to design team/i,
+    });
+    expect(other).toBeEnabled();
+    expect(other).not.toHaveAttribute("aria-busy");
+  });
+
+  it("regenerates one slot while the other stays usable", () => {
+    const { props } = results({ regeneratingSlot: 0 });
+    expect(
+      within(card("Playful product story")).getByRole("status"),
+    ).toHaveTextContent("Making a new direction…");
     expect(
       screen.getByRole("button", { name: "Regenerating…" }),
     ).toHaveAttribute("aria-busy", "true");
@@ -191,8 +272,31 @@ describe("DirectionResults", () => {
     expect(props.onRegenerate).not.toHaveBeenCalled();
   });
 
+  /* An anchor styled as disabled still follows its href on Enter, which
+     would download the design that is being replaced. */
+  it("makes the regenerating card's downloads truly inert", async () => {
+    results({ regeneratingSlot: 0 });
+    const c = within(card("Playful product story"));
+    expect(c.queryByRole("link", { name: /download png/i })).toBeNull();
+    const png = c.getByRole("button", { name: /download png/i });
+    expect(png).toBeDisabled();
+    expect(png).not.toHaveAttribute("href");
+
+    png.focus();
+    expect(png).not.toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    fireEvent.keyDown(png, { key: "Enter" });
+    fireEvent.click(png);
+    expect(captureEvent).not.toHaveBeenCalled();
+
+    expect(c.getByRole("button", { name: /download jpg/i })).toBeDisabled();
+    expect(
+      c.getByRole("button", { name: /send to design team/i }),
+    ).toBeDisabled();
+  });
+
   it("calls regenerate with the card's slot", async () => {
-    const props = results();
+    const { props } = results();
     await userEvent.click(
       screen.getByRole("button", { name: "Regenerate direction 2" }),
     );
@@ -210,9 +314,12 @@ describe("DirectionResults", () => {
   });
 
   it("states a direction that did not render and lets it be regenerated", async () => {
-    const props = results({ slots: [direction("d1"), null] });
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "1 of 2 directions came back.",
+    const { props } = results({
+      slots: [ready(direction("d1")), failedSlot("d2")],
+    });
+    expect(screen.getByText("1 of 2 directions came back.")).toHaveAttribute(
+      "role",
+      "status",
     );
     const failed = within(
       screen.getByRole("article", { name: "Direction 2 did not render" }),
@@ -224,7 +331,7 @@ describe("DirectionResults", () => {
   });
 
   it("shows an empty state with a way forward when nothing came back", async () => {
-    const props = results({ slots: [] });
+    const { props } = results({ slots: [] });
     expect(
       screen.getByRole("heading", { name: "No designs yet" }),
     ).toBeInTheDocument();
@@ -237,7 +344,7 @@ describe("DirectionResults", () => {
   /* A row from before directions existed renders as it always did. */
   it("renders a legacy row without an empty rationale", () => {
     results({
-      slots: [direction("old", { direction: null, imageSource: null })],
+      slots: [ready(direction("old", { direction: null, imageSource: null }))],
       source: null,
     });
     expect(screen.queryByText("Why this works")).toBeNull();

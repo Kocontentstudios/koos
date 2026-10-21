@@ -2,9 +2,12 @@
 
 import { ImageUp, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  DESIGN_IMAGE_ACCEPT,
+  DESIGN_IMAGE_SUMMARY,
+} from "@/lib/uploads/design-image-limits";
 import { cn } from "@/lib/utils";
-import { DESIGN_IMAGE_ACCEPT, DESIGN_IMAGE_HINT } from "./flow-logic";
 import { PointerOnly, TouchOnly } from "./input-modality";
 
 export interface ImageDropzoneProps {
@@ -19,6 +22,12 @@ function firstImage(list: FileList | null | undefined): File | null {
   return list && list.length > 0 ? list[0] : null;
 }
 
+/**
+ * Drop target and file picker in one control: the whole zone is a single
+ * button, so the click target is the full area and the keyboard path is one
+ * Tab stop with a visible outline, not a zone plus a button inside it that do
+ * the same thing.
+ */
 export function ImageDropzone({
   onFile,
   rejection = null,
@@ -27,7 +36,6 @@ export function ImageDropzone({
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
   const errorId = useId();
-  const inputId = useId();
   const [dragging, setDragging] = useState(false);
   const active = dragActive ?? dragging;
 
@@ -46,16 +54,35 @@ export function ImageDropzone({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* The zone itself is not focusable: the Choose image button inside it
-          is the keyboard path, so tab order has one stop, not two that do the
-          same thing. */}
-      <label
-        htmlFor={inputId}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={DESIGN_IMAGE_ACCEPT}
+        tabIndex={-1}
+        aria-hidden="true"
+        data-testid="design-image-input"
+        className="sr-only"
+        onChange={(e) => {
+          const file = firstImage(e.target.files);
+          /* Cleared so picking the same file again after a Remove still
+             fires a change event. */
+          e.target.value = "";
+          if (file) onFile(file);
+        }}
+      />
+      <button
+        type="button"
+        aria-label="Choose image"
+        aria-describedby={rejection ? `${hintId} ${errorId}` : hintId}
+        onClick={() => inputRef.current?.click()}
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
         }}
-        onDragLeave={() => setDragging(false)}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          setDragging(false);
+        }}
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
@@ -73,11 +100,12 @@ export function ImageDropzone({
               : "var(--border-control)",
         }}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-150",
+          "group flex w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-150 focus-visible:focus-outline",
           active ? "bg-[var(--accent-glow)]" : "hover:bg-[var(--hover)]",
         )}
       >
         <span
+          aria-hidden="true"
           className={cn(
             "flex size-11 items-center justify-center rounded-full transition-colors",
             active
@@ -85,10 +113,10 @@ export function ImageDropzone({
               : "bg-[rgba(19,139,200,0.15)] text-primary",
           )}
         >
-          <ImageUp aria-hidden="true" className="size-5" />
+          <ImageUp className="size-5" />
         </span>
-        <div className="flex flex-col gap-1">
-          <p className="text-[14px] font-semibold text-foreground">
+        <span className="flex flex-col gap-1">
+          <span className="text-[14px] font-semibold text-foreground">
             {active ? (
               "Drop to use this image"
             ) : (
@@ -97,41 +125,24 @@ export function ImageDropzone({
                 <TouchOnly>Add your image</TouchOnly>
               </>
             )}
-          </p>
-          <p id={hintId} className="text-[12px] text-[var(--text-muted)]">
-            {DESIGN_IMAGE_HINT}.
+          </span>
+          <span id={hintId} className="text-[12px] text-[var(--text-muted)]">
+            {DESIGN_IMAGE_SUMMARY}.
             <PointerOnly> You can also paste one.</PointerOnly>
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          aria-describedby={rejection ? `${hintId} ${errorId}` : hintId}
-          onClick={(e) => {
-            e.stopPropagation();
-            inputRef.current?.click();
-          }}
+          </span>
+        </span>
+        {/* Looks like a button so the zone reads as clickable at a glance;
+            the zone itself is the control. */}
+        <span
+          aria-hidden="true"
+          className={cn(
+            buttonVariants({ variant: "secondary" }),
+            "pointer-events-none",
+          )}
         >
           Choose image
-        </Button>
-        <input
-          ref={inputRef}
-          id={inputId}
-          type="file"
-          accept={DESIGN_IMAGE_ACCEPT}
-          tabIndex={-1}
-          aria-hidden="true"
-          data-testid="design-image-input"
-          className="sr-only"
-          onChange={(e) => {
-            const file = firstImage(e.target.files);
-            /* Cleared so picking the same file again after a Remove still
-               fires a change event. */
-            e.target.value = "";
-            if (file) onFile(file);
-          }}
-        />
-      </label>
+        </span>
+      </button>
       {rejection ? (
         <p
           id={errorId}

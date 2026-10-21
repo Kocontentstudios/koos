@@ -23,8 +23,8 @@ vi.mock("sonner", () => ({
     error: (m: string) => toastError(m),
   },
 }));
-vi.mock("@/components/design/directions/generate-directions-button", () => ({
-  GenerateDirectionsButton: () => null,
+vi.mock("@/components/design/generate-design-button", () => ({
+  GenerateDesignButton: () => null,
 }));
 
 import { CalendarItemDrawer } from "./calendar-item-drawer";

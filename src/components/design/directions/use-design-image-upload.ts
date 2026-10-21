@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { uploadFileNameFor } from "@/lib/uploads/design-image-limits";
 import {
   ImageNotUsableError,
   type NormalisedImage,
   normalizeImageForUpload,
 } from "@/lib/uploads/normalize-image";
 import { uploadToPresignedUrl } from "@/lib/uploads/put-presigned";
-import { designImageProblem, uploadNameFor } from "./flow-logic";
+import { designImageProblem } from "./flow-logic";
 
 /** Which step failed decides the recovery: a file that cannot be read needs a
  *  different file, a failed presign or PUT only needs another attempt. */
@@ -42,18 +43,24 @@ export interface DesignImageUploadControls {
 
 const IDLE: DesignImageUpload = { status: "idle", rejection: null };
 
+interface PresignedTarget {
+  url: string;
+  key: string;
+  /** The type the URL's signature binds; the PUT must send exactly this. */
+  contentType: string;
+}
+
 async function presign(
   brandId: string,
-  name: string,
   normalized: NormalisedImage,
-): Promise<{ url: string; key: string }> {
+): Promise<PresignedTarget> {
   const res = await fetch("/api/uploads/presign", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       brandId,
       kind: "design-image",
-      fileName: uploadNameFor(name, normalized.type),
+      fileName: uploadFileNameFor(normalized.type),
       mimeType: normalized.type,
       sizeBytes: normalized.blob.size,
     }),
@@ -61,12 +68,17 @@ async function presign(
   const body = (await res.json().catch(() => ({}))) as {
     url?: string;
     key?: string;
+    contentType?: string;
     error?: string;
   };
   if (!res.ok || !body.url || !body.key) {
     throw new Error(body.error ?? "The upload could not be started.");
   }
-  return { url: body.url, key: body.key };
+  return {
+    url: body.url,
+    key: body.key,
+    contentType: body.contentType ?? normalized.type,
+  };
 }
 
 /**
@@ -125,9 +137,9 @@ export function useDesignImageUpload(
       }
 
       setState({ status: "uploading", image, fraction: 0 });
-      let target: { url: string; key: string };
+      let target: PresignedTarget;
       try {
-        target = await presign(brandId, image.name, prepared);
+        target = await presign(brandId, prepared);
       } catch (err) {
         if (stale()) return;
         setState({
@@ -144,14 +156,14 @@ export function useDesignImageUpload(
       if (stale()) return;
 
       try {
-        const body = new File(
-          [prepared.blob],
-          uploadNameFor(image.name, prepared.type),
-          { type: prepared.type },
+        await uploadToPresignedUrl(
+          target.url,
+          prepared.blob,
+          (fraction) => {
+            if (!stale()) setState({ status: "uploading", image, fraction });
+          },
+          target.contentType,
         );
-        await uploadToPresignedUrl(target.url, body, (fraction) => {
-          if (!stale()) setState({ status: "uploading", image, fraction });
-        });
       } catch {
         if (stale()) return;
         setState({

@@ -1,9 +1,12 @@
 "use client";
 
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import type { DesignEntry } from "@/components/design/design-analytics";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import type { SerializedGeneration } from "@/lib/design/serialize";
+import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
 import { DirectionResults, type DirectionSlot } from "./direction-results";
 import { FlowDescription, FlowTitle } from "./flow-heading";
@@ -14,7 +17,7 @@ import { ImageDropzone } from "./image-dropzone";
 import { ImagePreview } from "./image-preview";
 import type { DesignImageUpload } from "./use-design-image-upload";
 
-export type DirectionsEntry = "calendar" | "studio";
+export type DirectionsEntry = DesignEntry;
 
 export type DirectionsView =
   | { step: "choose" }
@@ -30,6 +33,7 @@ export type DirectionsView =
       step: "progress";
       source: ImageSource;
       stage: GenerationStage | null;
+      jobStage: JobStage | null;
       progress: { done: number; total: number } | null;
       label: string | null;
     }
@@ -46,6 +50,7 @@ export type DirectionsView =
       imageName: string | null;
       regeneratingSlot: number | null;
       regenerateError: { slot: number; message: string } | null;
+      sendingId: string | null;
     };
 
 export interface DirectionsHandlers {
@@ -59,11 +64,13 @@ export interface DirectionsHandlers {
   onRetryGeneration: () => void;
   onChooseAnotherImage: () => void;
   onRegenerate: (slot: number) => void;
+  onSendToTeam: (generation: SerializedGeneration) => void;
   onDone: () => void;
 }
 
 const CHOOSE_TITLE: Record<DirectionsEntry, string> = {
   calendar: "Choose the image for this post",
+  brief: "Choose imagery for this design",
   studio: "Choose imagery for this design",
 };
 
@@ -184,6 +191,7 @@ export function DirectionsFlowView({
         <GenerationProgress
           source={view.source}
           stage={view.stage}
+          jobStage={view.jobStage}
           progress={view.progress}
           label={view.label}
         />
@@ -212,7 +220,7 @@ export function DirectionsFlowView({
             }
             description={
               view.slots.length > 0
-                ? "Each takes a different approach to the same brief. Download the one you like, or regenerate either one."
+                ? "Each takes a different approach to the same brief. Download the one you like, send it to the design team, or regenerate either one."
                 : "Designs from this run appear here."
             }
           />
@@ -222,7 +230,9 @@ export function DirectionsFlowView({
             imageName={view.imageName}
             regeneratingSlot={view.regeneratingSlot}
             regenerateError={view.regenerateError}
+            sendingId={view.sendingId}
             onRegenerate={handlers.onRegenerate}
+            onSendToTeam={handlers.onSendToTeam}
             onChooseImagery={handlers.onBackToChoice}
           />
           {view.slots.length > 0 ? (

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { ImageNotUsableError } from "@/lib/uploads/normalize-image";
 import { ImageChoice } from "./image-choice";
 import { ImageDropzone } from "./image-dropzone";
 import { ImagePreview } from "./image-preview";
@@ -47,13 +48,47 @@ describe("ImageChoice", () => {
     );
     expect(onFileDropped).toHaveBeenCalledWith(file);
   });
+
+  /* The design-system outline (2px --primary): the old accent-glow ring
+     measured 1.15:1 and was invisible in light mode. */
+  it("draws the visible focus outline on both cards", () => {
+    render(
+      <ImageChoice
+        onUseOwnImage={vi.fn()}
+        onLetKoCreate={vi.fn()}
+        onFileDropped={vi.fn()}
+      />,
+    );
+    for (const name of [/use a specific image/i, /let ko create/i]) {
+      const card = screen.getByRole("button", { name });
+      expect(card).toHaveClass("focus-visible:focus-outline");
+      expect(card.className).not.toContain("accent-glow");
+    }
+  });
 });
 
 describe("ImageDropzone", () => {
-  it("is reachable by keyboard through a real button", async () => {
+  /* The whole zone is one control: one Tab stop, the full area clickable,
+     and the same visible outline as every other control. */
+  it("is one keyboard stop with a visible focus outline", async () => {
     render(<ImageDropzone onFile={vi.fn()} />);
     await userEvent.tab();
-    expect(screen.getByRole("button", { name: "Choose image" })).toHaveFocus();
+    const zone = screen.getByRole("button", { name: "Choose image" });
+    expect(zone).toHaveFocus();
+    expect(zone).toHaveClass("focus-visible:focus-outline");
+    expect(zone).toHaveAccessibleDescription(/PNG, JPEG or WEBP, up to 20 MB/);
+    await userEvent.tab();
+    expect(zone).not.toHaveFocus();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("opens the file picker from the keyboard", async () => {
+    render(<ImageDropzone onFile={vi.fn()} />);
+    const input = screen.getByTestId("design-image-input");
+    const click = vi.spyOn(input, "click");
+    await userEvent.tab();
+    await userEvent.keyboard("{Enter}");
+    expect(click).toHaveBeenCalledOnce();
   });
 
   it("passes on a picked file", async () => {
@@ -66,8 +101,8 @@ describe("ImageDropzone", () => {
 
   it("passes on a dropped file and shows the drop target while dragging", () => {
     const onFile = vi.fn();
-    const { container } = render(<ImageDropzone onFile={onFile} />);
-    const zone = container.querySelector("label") as HTMLElement;
+    render(<ImageDropzone onFile={onFile} />);
+    const zone = screen.getByRole("button", { name: "Choose image" });
     fireEvent.dragOver(zone);
     expect(screen.getByText("Drop to use this image")).toBeInTheDocument();
     const file = png();
@@ -166,15 +201,20 @@ describe("ImagePreview", () => {
     expect(handlers.onRetry).toHaveBeenCalled();
   });
 
-  /* An unreadable file does not become readable by retrying it. */
+  /* An unreadable file does not become readable by retrying it. The real
+     normaliser message, prefix and all, is said once, not twice. */
   it("asks for a different file when the image could not be read", () => {
     preview({
       status: "error",
       image: IMAGE,
       step: "prepare",
-      message: "Not a real image.",
+      message: new ImageNotUsableError("undecodable").message,
     });
-    expect(screen.getByRole("alert")).toHaveTextContent("Not a real image.");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This image can't be used. It couldn't be opened and may be damaged. Choose another image.",
+    );
+    expect(alert.textContent?.match(/can't be used/g)).toHaveLength(1);
     expect(
       screen.getByRole("button", { name: "Choose another" }),
     ).toBeInTheDocument();
