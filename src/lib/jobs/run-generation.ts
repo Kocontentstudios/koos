@@ -47,6 +47,7 @@ import {
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
 import { resolveDesignFormat } from "@/lib/design/formats";
+import type { JobStage } from "@/lib/generation/poll-job";
 import {
   brandSummaryFrom,
   brandSummaryWithVoice,
@@ -81,6 +82,7 @@ export interface JobProgress {
   label: string;
   /** Present once the calendar exists, before briefs are complete. */
   calendarId?: string;
+  stage?: JobStage;
 }
 
 export type ReportProgress = (progress: JobProgress) => void;

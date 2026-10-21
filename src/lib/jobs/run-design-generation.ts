@@ -1,8 +1,4 @@
 import { generateObject } from "ai";
-import {
-  LAYOUT_MEMORY_DEPTH,
-  recentLayouts,
-} from "@/lib/ai/design-training/recent-layouts";
 import { getNativeAdapters, getPlateAdapter } from "@/lib/ai/image";
 import type { ImageAdapter } from "@/lib/ai/image/types";
 import { buildMemoryBlock } from "@/lib/ai/memory";
@@ -16,35 +12,16 @@ import { getModel } from "@/lib/ai/provider";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
   createDesignGeneration,
-  createNotification,
-  listDesignGenerationsForBrand,
   recordUsageEvent,
   updateDesignGeneration,
 } from "@/lib/db/queries";
-import { canvasFor } from "@/lib/design/canvas";
 import type { DesignContext } from "@/lib/design/context";
-import {
-  briefAskedForNoLogo,
-  logoIsTheDeliverable,
-  markIsTooThin,
-  resolveLogoPlacement,
-} from "@/lib/design/logo-placement";
-import { resolvePalette } from "@/lib/design/palette";
+import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
-import { checkRenderedDesign } from "@/lib/design/quality/checks";
-import {
-  betterResult,
-  faultSummary,
-  isCorrectable,
-  isRetryable,
-} from "@/lib/design/quality/gate";
-import { correctionSummary, judgeAndCorrect } from "@/lib/design/quality/judge";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import {
-  LOGO_FILE_FAULTS,
   LOGO_UNDECODABLE_IN_RENDER,
   type LoadedLogo,
-  loadBestLogo,
 } from "@/lib/design/render/logo";
 import { overlayLogo } from "@/lib/design/render/logo-overlay";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
@@ -55,6 +32,13 @@ import {
   storageKeyFrom,
   uploadObject,
 } from "@/lib/storage";
+import { type Guarded, guardRender } from "./design-gate";
+import { recentLayoutsFor, settleLogo } from "./design-logo-settle";
+import { notifyBrandAssetFaults, notifyLogoLeftOff } from "./design-notify";
+import {
+  type DirectionsRequest,
+  generateDirectionsWork,
+} from "./run-design-directions";
 import type { JobRuntime } from "./run-generation";
 
 /** Bedrock's 4096 default truncates structured output mid-JSON, which surfaces
@@ -277,284 +261,58 @@ export async function renderVariant(
   }
 }
 
-/* A design that rendered without the brand's own typeface or without its logo
-   still looks finished, so nothing about the result itself tells the user what
-   was dropped — they would just keep wondering why their brand never appears.
+export type GuardedRender = Guarded<Awaited<ReturnType<typeof renderVariant>>>;
 
-   The bell rather than the design row: the fault belongs to the brand asset,
-   not to this one design, and it recurs on every future generation until the
-   file is replaced. Deliberately not a failure — the design succeeded.
-
-   One notification per fault kind per generation, not one per variant: every
-   variant loads the same brand assets and would report the same fault. */
-async function notifyAssetFault(userId: string, message: string) {
-  await createNotification({
-    userId,
-    type: "system",
-    payload: { message },
-  }).catch((err) => {
-    // A design that rendered must not be lost to a notification write.
-    console.error("brand asset notification failed", err);
-  });
-}
-
-/* Reasons that name the brand's own upload. Anything else is ours or the
-   model's, and must not send the user to replace a file that is fine. */
-const BRAND_FILE_FAULTS: ReadonlySet<string> = new Set(LOGO_FILE_FAULTS);
-
-async function notifyLogoLeftOff({
-  userId,
-  reason,
-}: {
-  userId: string;
-  reason: string;
-}) {
-  await notifyAssetFault(
-    userId,
-    `This design was made without your brand logo, because ${reason}. Generate it again without that instruction if the logo should be on it.`,
+/** A variant through the pre-delivery gate (design-gate.ts). */
+export function renderGuarded(
+  variant: DesignVariant,
+  spec: DesignSpec,
+  context: DesignContext,
+  logo: LoadedLogo | null,
+  references: { bytes: Uint8Array; contentType: string }[],
+  outOfTime: () => boolean = () => false,
+): Promise<GuardedRender> {
+  return guardRender(
+    (attempt) => renderVariant(variant, attempt, context, logo, references),
+    spec,
+    {
+      renderer: variant.renderer,
+      id: variant.id,
+      context,
+      hasLogo: Boolean(logo),
+      outOfTime,
+    },
   );
-}
-
-async function notifyBrandAssetFaults(
-  userId: string,
-  faults: { font: string[]; logo: string[] },
-) {
-  const font = faults.font[0];
-  if (font) {
-    await notifyAssetFault(
-      userId,
-      /* Names the page, because until KOS-V1-FEAT-022 the only font upload
-         was inside conversational onboarding and this sentence pointed at a
-         control the user could not reach. */
-      `Your brand font couldn't be used, so this design was set in the default typefaces instead: ${font}. Upload a replacement under Brand Fonts in Edit Brand.`,
-    );
-  }
-
-  /* Distinct reasons, not the first one. A load fault and a per-variant stamp
-     failure are different problems with different remedies, and reporting only
-     whichever happened to land first tells the user to fix the wrong thing.
-     Deduped because every variant loads the same file. */
-  const reasons = [...new Set(faults.logo)];
-  if (reasons.length > 0) {
-    /* "Upload a replacement" only when the brand's file is actually the
-       problem. A model that returned an image satori choked on is not
-       something the user fixes by re-uploading a logo that is fine, and
-       telling them so sends them round a loop that cannot end. */
-    const theirFileIsAtFault = faults.logo.some((reason) =>
-      BRAND_FILE_FAULTS.has(reason),
-    );
-    await notifyAssetFault(
-      userId,
-      `Your brand logo couldn't be added to this design because ${reasons.join("; and ")}.${
-        theirFileIsAtFault
-          ? " Upload a replacement under Logo in Edit Brand."
-          : " Generating the design again usually clears it."
-      }`,
-    );
-  }
 }
 
 /**
  * Art-directs one design spec, then renders it through every configured route
  * so the user can compare. Each variant is an independent row that succeeds or
  * fails on its own — the job only fails if nothing rendered at all.
+ *
+ * A request carrying `directions` (an image choice) takes the two-directions
+ * path instead (run-design-directions.ts); callers without one are unchanged.
  */
-/**
- * Render a variant, check it before anyone sees it, and correct it once.
- *
- * The job's success criterion used to be "bytes were produced", and the faults
- * it did detect were raised after the image had been stored and shown. These
- * checks are deterministic and already existed offline; they now run before
- * delivery (KOOS-AI-001 §1.6).
- *
- * Exactly one extra render, ever. What that render is given is the difference
- * this function exists for: it used to be the identical spec, which is a dice
- * re-roll rather than a correction. The rubric judge (module 06 §10-11) now
- * sees the failed design and prescribes one change, and the second render uses
- * the changed spec. A plain re-roll remains the fallback for the transient
- * faults where it genuinely helps and the judge could not be reached.
- *
- * A design that still fails is delivered with its fault recorded rather than
- * withheld: a flawed design the user can see and judge beats an error message
- * and nothing to look at.
- */
-/**
- * Whether the mark was placed AND reads.
- *
- * `logoFault` has four producers and only one of them is a measurement: the
- * compositor comparing the mark against its own ground. The other three mean
- * the mark never reached the design — satori could not decode the file, the
- * image model returned a format the overlay cannot stamp, or the stamp threw.
- *
- * The distinction is load-bearing now that an unreadable mark is correctable.
- * A changed spec can move a placed mark to a corner that works; nothing in the
- * spec makes an undecodable file decodable. Conflating them would spend a
- * reasoning call and a full second image render, on every generation, for every
- * brand whose logo file we cannot read — and `checkRenderedDesign` would state
- * a pixel measurement that never happened.
- */
-function markReads(rendered: {
-  logoFault?: string | null;
-  logoUnplaced?: true;
-}): boolean {
-  return !rendered.logoFault || rendered.logoUnplaced === true;
-}
-
-/* The judge is an improvement to a design we are already holding, never a
-   prerequisite for delivering it — the same rule buildMemoryBlock and
-   recentLayoutsFor follow. It documents itself as fail-soft; this is the
-   boundary that makes losing a rendered design impossible rather than
-   unlikely. */
-async function judgeOrSkip(
-  args: Parameters<typeof judgeAndCorrect>[0],
-): Promise<Awaited<ReturnType<typeof judgeAndCorrect>> | null> {
-  try {
-    return await judgeAndCorrect(args);
-  } catch (err) {
-    console.error("design judge unavailable", err);
-    return null;
-  }
-}
-
-type GuardedRender = Awaited<ReturnType<typeof renderVariant>> & {
-  /** Faults still present on what is being delivered, in words. */
-  fault?: string;
-  /** The spec that produced the delivered bytes — the corrected one when the
-   *  correction was kept. The row stores this, not the draft: the spec column
-   *  is what every later surface reads, including the layout memory that
-   *  shapes the brand's next design. */
-  spec: DesignSpec;
-  /** The verdict and the change, as one line for the log. Set whenever the
-   *  judge answered, including when its prescription was refused. */
-  correction?: string;
-  /** The corrected render was the one delivered. Distinct from `correction`,
-   *  which only says the judge spoke: counting the two as one measured a
-   *  refused prescription and a discarded second render as successes. */
-  correctionKept?: true;
-};
-
-export async function renderGuarded(
-  variant: DesignVariant,
-  spec: DesignSpec,
-  context: DesignContext,
-  logo: LoadedLogo | null,
-  references: { bytes: Uint8Array; contentType: string }[],
-  /** True once the slice's deadline has passed. A correction costs a reasoning
-   *  call plus a second image render, and this project has measured single
-   *  images at 55-663s against a 300s route — so past the deadline the user
-   *  gets the design that exists rather than a better one that arrives after
-   *  the function has been killed. */
-  outOfTime: () => boolean = () => false,
-): Promise<GuardedRender> {
-  /* The canvas the spec asked for, which is what "the right shape" means here
-     — not whatever the adapter decided to return. */
-  const canvas = canvasFor(spec.aspectRatio);
-  const first = await renderVariant(variant, spec, context, logo, references);
-  const firstCheck = checkRenderedDesign({
-    bytes: first.bytes,
-    expected: canvas,
-    logoLegible: markReads(first),
-  });
-  if (firstCheck.ok) return { ...first, spec };
-
-  console.error("design failed its pre-delivery checks", {
-    variantId: variant.id,
-    renderer: variant.renderer,
-    faults: firstCheck.failures.map((f) => f.code),
-  });
-
-  const correctable = isCorrectable(firstCheck.failures);
-  const retryable = isRetryable(firstCheck.failures);
-  if ((!correctable && !retryable) || outOfTime()) {
-    return { ...first, spec, fault: faultSummary(firstCheck.failures) };
-  }
-
-  /* Reached only from a failure and only once per variant — Oluwaseyi's
-     decision on when the judge is worth paying for. */
-  const judged = correctable
-    ? await judgeOrSkip({
-        spec,
-        renderer: variant.renderer,
-        faults: firstCheck.failures,
-        /* The pixels, when there are any to read. An unreadable mark is
-           visible in them; unreadable bytes and a flat frame are not, and the
-           judge degrades to the spec and the fault in words. */
-        image: first.bytes,
-        brief: context.briefText,
-        brand: context.brandSummary,
-        hasLogo: Boolean(logo),
-      })
-    : null;
-  const correction = judged?.verdict ? correctionSummary(judged) : undefined;
-  if (correction) {
-    console.error("design judge", { variantId: variant.id, correction });
-  }
-
-  /* Nothing new to render: the judge found no change it could make, and this
-     fault is not one a fresh roll of the same spec answers. */
-  if (!judged?.corrected && !retryable) {
-    return {
-      ...first,
-      spec,
-      fault: faultSummary(firstCheck.failures),
-      correction,
-    };
-  }
-
-  const secondSpec = judged?.corrected ? judged.spec : spec;
-  const second = await renderVariant(
-    variant,
-    secondSpec,
-    context,
-    logo,
-    references,
-  );
-  const secondCheck = checkRenderedDesign({
-    bytes: second.bytes,
-    expected: canvas,
-    logoLegible: markReads(second),
-  });
-
-  const keep = betterResult(firstCheck, secondCheck);
-  const kept = keep === "first" ? first : second;
-  const keptCheck = keep === "first" ? firstCheck : secondCheck;
-  const keptSpec = keep === "first" ? spec : secondSpec;
-
-  return {
-    ...kept,
-    spec: keptSpec,
-    correction,
-    ...(keep === "second" && judged?.corrected
-      ? { correctionKept: true as const }
-      : {}),
-    ...(keptCheck.ok ? {} : { fault: faultSummary(keptCheck.failures) }),
-  };
-}
-
-/* Layout history is an improvement to the brief, never a prerequisite for it.
-   buildMemoryBlock already swallows its own failures; this read has to do the
-   same, or an unavailable history would cost the user their design. */
-async function recentLayoutsFor(brandId: string): Promise<string[]> {
-  try {
-    return recentLayouts(
-      await listDesignGenerationsForBrand(brandId, {
-        limit: LAYOUT_MEMORY_DEPTH,
-      }),
-    );
-  } catch (err) {
-    console.error("recent layout history unavailable", err);
-    return [];
-  }
-}
-
 export async function generateDesignWork(
   args: {
     context: DesignContext;
     userId: string;
     sessionId?: string | null;
+    directions?: DirectionsRequest;
   },
   runtime: JobRuntime,
 ): Promise<{ resultId?: string; result: unknown }> {
+  if (args.directions) {
+    return generateDirectionsWork(
+      {
+        context: args.context,
+        userId: args.userId,
+        sessionId: args.sessionId,
+        request: args.directions,
+      },
+      runtime,
+    );
+  }
   const { context, userId } = args;
   const plan = planVariants();
   if (plan.length === 0) {
@@ -586,61 +344,13 @@ export async function generateDesignWork(
     maxOutputTokens: SPEC_MAX_OUTPUT_TOKENS,
   });
 
-  /* The model's answer is trusted only where the brief could plausibly have
-     asked. Otherwise logoFree is the old "none" escape hatch wearing a new
-     name: one hallucinated true and the mark is gone with no fault, no
-     notification and nothing in the UI to say why. */
-  const logoIsWhatWeAreDesigning = logoIsTheDeliverable(context.designType);
-  const briefAsked =
-    drafted.logoFree &&
-    briefAskedForNoLogo(context.briefText, drafted.logoFreeQuote);
-  const logoFree = logoIsWhatWeAreDesigning || briefAsked;
-
-  /* The logo is loaded before the rows are written because placement depends
-     on whether the file is actually usable, and the spec is persisted with
-     those rows — a stored spec that disagrees with what was rendered is worse
-     than no spec at all. Skipped entirely for a logo-free brief: an R2 read
-     and an SVG rasterise to decide not to draw it, and a load fault the user
-     could do nothing useful with. */
-  const { logo, fault: logoLoadFault } = logoFree
-    ? { logo: null, fault: null }
-    : await loadBestLogo({
-        /* The profile logo plus every other approved mark, ordered so the
-           user's chosen default wins when two read equally well — loadBestLogo
-           measures contrast and keeps the first on a tie (FEAT-032). */
-        urls: context.logoCandidates,
-        /* The resolved palette, not the model's raw string: colorValue is a
-           permissive z.string() on purpose, so the model routinely answers
-           with a colour NAME and resolvePalette substitutes the brand's own
-           colour downstream. Comparing against the raw value picks the variant
-           for a background that is never rendered. */
-        background: resolvePalette(drafted.palette, context.brand).background,
-      });
-
-  /* Whether the brand's own mark appears is not the art director's call.
-     "none" is in the enum and the prompt gave it no grounds to choose it, so
-     it chose it routinely and the logo silently vanished (KOOS-BUG-022). */
-  const spec: DesignSpec = {
-    ...drafted,
-    /* The resolved answer, not the model's raw claim. A brief where the
-       quotation was not corroborated used to persist logoFree: true beside a
-       real corner — a stored spec disagreeing with the render, which is the
-       invariant this file defends everywhere else. */
+  const {
+    spec,
+    logo,
+    fault: logoLoadFault,
     logoFree,
-    logoFreeQuote: logoFree ? drafted.logoFreeQuote : "",
-    logoPlacement: resolveLogoPlacement({
-      modelChoice: drafted.logoPlacement,
-      hasLogo: Boolean(logo),
-      layout: drafted.layout,
-      logoFree,
-      /* A footer band covers the bottom corners, so the mark has to move off
-         them before placement rather than being measured as illegible after. */
-      footer: {
-        footerStyle: drafted.footerStyle,
-        footerLines: drafted.footerLines,
-      },
-    }),
-  };
+    logoIsWhatWeAreDesigning,
+  } = await settleLogo(drafted, context);
 
   // Rows are created before the slow calls so provenance survives a crash and
   // the client can render skeleton cards immediately.

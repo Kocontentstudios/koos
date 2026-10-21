@@ -1,11 +1,17 @@
 /** Client-side polling for async generation jobs (/api/jobs/[id]). */
 
+/** The design-directions job's steps, in order. The UI keys its progress
+ *  steps off this, never off `label`, which is human text. */
+export const JOB_STAGES = ["brief", "imagery", "render", "checks"] as const;
+export type JobStage = (typeof JOB_STAGES)[number];
+
 export interface JobProgress {
   done: number;
   total: number;
   label: string;
   /** Present once the calendar exists, before briefs are complete. */
   calendarId?: string;
+  stage?: JobStage;
 }
 
 export interface JobStatusResponse<T> {

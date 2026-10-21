@@ -88,6 +88,8 @@ stable for the lifetime of one login) where available.
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
+| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault), `regenerated`, `image_calls`, `redrafted`, `layouts_forced` |
+| `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
 
 The two `design_request_start_*` events answer whether design requests actually
 want to begin from the calendar: compare the `calendar` share of
@@ -95,7 +97,21 @@ want to begin from the calendar: compare the `calendar` share of
 `design_ticket_submitted`. `opened` minus the sum of `selected` is the
 chooser's abandon rate — the evidence for whether it reads as simple.
 
-The pre-existing `usage_events` DB table keeps recording independently.
+`design_directions_generated` is the middle step of the FEAT-033 funnel,
+image choice → directions delivered → download. It fires server-side from
+`src/lib/jobs/run-design-directions.ts` after the job's one usage row is
+written, so it counts deliveries, never attempts: an unusable upload or a job
+where nothing rendered fires nothing. `image_calls` is the cost outcome the
+feature names: always 0 when `source = upload`, one per direction when
+`source = ko`. The same job also fires `design_generated`, so the quality-gate
+series on that event does not read as a drop to zero when the entry points
+switch from variants to directions.
+
+The pre-existing `usage_events` DB table keeps recording independently. A
+directions job writes one `design_generated` usage row (one quota unit) whose
+metadata carries `renderers` (`composite:upload` per direction on an upload,
+`composite:<plate adapter>` on KO imagery) and `imageCalls`, so the cost
+outcome is visible in Postgres even where PostHog is not configured.
 
 ## Funnels
 

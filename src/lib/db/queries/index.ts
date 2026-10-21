@@ -968,7 +968,7 @@ export async function updateDesignGeneration(
   data: Partial<
     Pick<
       typeof designGenerations.$inferInsert,
-      "imageKey" | "status" | "error" | "width" | "height" | "spec"
+      "imageKey" | "status" | "error" | "width" | "height" | "spec" | "document"
     >
   >,
 ) {
@@ -1015,6 +1015,26 @@ export async function listDesignGenerationsForBrand(
     .where(and(...filters))
     .orderBy(desc(designGenerations.createdAt))
     .limit(opts.limit ?? 50);
+}
+
+/**
+ * The rows of one set of directions, newest first. A set is the pair one job
+ * produced plus any regenerated replacements, keyed by the id stored in
+ * `rationale.set`; the brand filter keeps a guessed set id from reaching
+ * another brand's rows.
+ */
+export async function listDirectionSet(brandId: string, setId: string) {
+  return db
+    .select()
+    .from(designGenerations)
+    .where(
+      and(
+        eq(designGenerations.brandId, brandId),
+        sql`${designGenerations.rationale}->>'set' = ${setId}`,
+      ),
+    )
+    .orderBy(desc(designGenerations.createdAt))
+    .limit(20);
 }
 
 /** Successful design generations charged to a workspace since `since`.

@@ -1,0 +1,111 @@
+import type { DirectionDraft } from "./schema";
+
+/**
+ * Model answers and a design context for the directions tests. A draft is
+ * the full shape generateObject returns, so a test that reads one field is
+ * not quietly passing on a double that lacks the rest.
+ */
+
+export function draftOf(over: Partial<DirectionDraft> = {}): DirectionDraft {
+  return {
+    layout: "hero-center",
+    headline: "Fresh croissants every morning",
+    subheadline: "Baked before sunrise in Lekki",
+    cta: "Order for pickup",
+    footerStyle: "none",
+    footerLines: [],
+    palette: {
+      background: "#FFF4E6",
+      foreground: "#3B2416",
+      accent: "#C2410C",
+    },
+    logoPlacement: "top-right",
+    logoFree: false,
+    logoFreeQuote: "",
+    backgroundPrompt: "a bakery counter at dawn with fresh croissants",
+    backgroundTreatment: "photographic",
+    nativePrompt: "a bakery poster",
+    aspectRatio: "4:5",
+    title: "Morning bake story",
+    rationale: [
+      "Leads with the croissant, the product commuters queue for",
+      "Warm cream ground echoes the bakery's ovens",
+    ],
+    ...over,
+  };
+}
+
+/** A second concept that shares nothing with draftOf()'s copy. */
+export function contrastingDraft(
+  over: Partial<DirectionDraft> = {},
+): DirectionDraft {
+  return draftOf({
+    layout: "quote-card",
+    headline: "Your Saturday table is waiting",
+    subheadline: "Slow brunch, good coffee, no rush",
+    cta: "Book a table",
+    backgroundPrompt: "a sunlit cafe table set for two with coffee",
+    title: "Weekend table invitation",
+    rationale: [
+      "Speaks to weekend brunch, the occasion in the brief",
+      "Quote card puts the invitation itself centre stage",
+    ],
+    ...over,
+  });
+}
+
+export const BRAND_ID = "11111111-1111-4111-8111-111111111111";
+
+export function directionsContext(over: Record<string, unknown> = {}) {
+  return {
+    source: "quick",
+    brand: {
+      id: BRAND_ID,
+      name: "Crumb & Co.",
+      logoUrl: null,
+      primaryColor: "#FFF4E6",
+      secondaryColor: "#C2410C",
+      additionalColors: null,
+      brandFontUrl: null,
+      bodyFontUrl: null,
+    },
+    brandSummary: {
+      name: "Crumb & Co.",
+      overview: "Neighbourhood bakery in Lekki, Lagos",
+      tone: "Warm and unfussy",
+      primaryColor: "#FFF4E6",
+      secondaryColor: "#C2410C",
+    },
+    briefId: null,
+    calendarItemId: null,
+    attachments: [],
+    title: "Croissant launch",
+    briefText:
+      "Promote our almond croissants to commuters before work. Brunch on weekends.",
+    designType: "Instagram Post",
+    dimensions: "1080x1350",
+    aspectRatio: "4:5",
+    platform: "Instagram",
+    scheduledFor: null,
+    referenceUrls: [],
+    logoAssetUrls: [],
+    logoCandidates: [],
+    ...over,
+  } as never;
+}
+
+/**
+ * A PNG header carrying a design's compressed density. The blank-frame check
+ * measures bytes per pixel, so a 64-byte stub for a 1080x1350 frame would
+ * read as an empty render and send every test through the correction path.
+ */
+export function designPng(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(64 + Math.ceil(width * height * 0.08));
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(8, 13);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
