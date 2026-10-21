@@ -18,7 +18,7 @@ export default function AuthLayout({
           aria-label="KO OS — back to home"
           className="inline-flex items-center gap-2.5 transition-opacity hover:opacity-90"
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-primary text-sm font-extrabold leading-none text-white">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-primary-fill text-sm font-extrabold leading-none text-primary-foreground">
             KO
           </span>
           <span className="text-base font-bold tracking-[-0.3px] text-foreground">

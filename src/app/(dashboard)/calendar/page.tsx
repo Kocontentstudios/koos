@@ -51,7 +51,7 @@ export default async function CalendarPage({
   if (!calendar) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
-        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(19,139,200,0.2)] text-xl font-bold text-primary">
+        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(19,139,200,0.2)] text-xl font-bold text-primary-text">
           K
         </div>
         <h1 className="mb-2 font-display text-2xl font-bold text-foreground">

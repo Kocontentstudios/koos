@@ -73,7 +73,7 @@ export function SuggestButton({
       aria-busy={loading || undefined}
       aria-label={`${label} with AI`}
       className={cn(
-        "inline-flex items-center gap-1 self-start rounded-lg border border-[var(--border)] px-2.5 py-1 text-[12px] font-medium text-primary transition-colors hover:border-[var(--border-accent)] hover:bg-[var(--accent-glow)]",
+        "inline-flex items-center gap-1 self-start rounded-lg border border-[var(--border)] px-2.5 py-1 text-[12px] font-medium text-primary-text transition-colors hover:border-[var(--border-accent)] hover:bg-[var(--accent-glow)]",
         loading && "opacity-50 cursor-not-allowed",
       )}
     >

@@ -7,7 +7,7 @@ export function InviteTeamCard() {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-gradient-to-r from-primary/10 to-[#7c5cff]/10 p-5">
       <div className="flex items-start gap-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary-text">
           <Users size={20} />
         </div>
         <div className="min-w-0 flex-1">
@@ -18,7 +18,7 @@ export function InviteTeamCard() {
           </p>
           <Link
             href="/team"
-            className="mt-3 inline-block rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground"
+            className="mt-3 inline-block rounded-lg bg-primary-fill px-4 py-2 text-xs font-medium text-primary-foreground"
           >
             Invite Team
           </Link>
@@ -67,7 +67,7 @@ export function TeamOverviewCard({
       </div>
       <Link
         href="/team"
-        className="mt-3 inline-block text-xs font-medium text-primary hover:underline"
+        className="mt-3 inline-block text-xs font-medium text-primary-text hover:underline"
       >
         Manage team →
       </Link>

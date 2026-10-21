@@ -117,7 +117,7 @@ export default async function AnalyticsRecordsPage({
           href={adminScopeHref("/admin/analytics", scope, {
             metric: undefined,
           })}
-          className="text-[13px] font-semibold text-primary hover:underline"
+          className="text-[13px] font-semibold text-primary-text hover:underline"
         >
           ← Back to Analytics
         </Link>

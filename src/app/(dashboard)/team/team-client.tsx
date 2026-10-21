@@ -577,7 +577,7 @@ export function TeamClient({
                               },
                             )
                           }
-                          className="text-primary hover:text-primary"
+                          className="text-primary-text hover:text-primary-text"
                         >
                           Resend
                         </Button>

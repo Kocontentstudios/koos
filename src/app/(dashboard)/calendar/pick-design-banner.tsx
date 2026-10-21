@@ -30,7 +30,7 @@ function Message({ guidance }: { guidance: PickGuidance }) {
       Nothing here to request a design for. Try another view, or{" "}
       <Link
         href="/design-request/new"
-        className="font-semibold text-primary underline underline-offset-2"
+        className="font-semibold text-primary-text underline underline-offset-2"
       >
         describe the design yourself
       </Link>
@@ -52,7 +52,10 @@ export function PickDesignBanner({ guidance }: PickDesignBannerProps) {
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-[var(--border-accent)] bg-[rgba(19,139,200,0.08)] px-4 py-3">
-      <Palette aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
+      <Palette
+        aria-hidden="true"
+        className="h-4 w-4 shrink-0 text-primary-text"
+      />
       <p className="text-[13px] text-[var(--text-secondary)]">
         <Message guidance={guidance} />
       </p>

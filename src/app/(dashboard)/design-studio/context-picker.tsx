@@ -101,7 +101,7 @@ export function ContextPicker({
         <ul className="flex flex-wrap gap-1.5">
           {selected.map((item) => (
             <li key={keyOf(item)}>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(19,139,200,0.12)] py-1 pr-1 pl-2.5 text-xs font-medium text-primary">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(19,139,200,0.12)] py-1 pr-1 pl-2.5 text-xs font-medium text-primary-text">
                 <span className="max-w-[180px] truncate">{item.label}</span>
                 <button
                   type="button"

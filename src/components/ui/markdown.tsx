@@ -48,7 +48,7 @@ const components: Components = {
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="text-primary underline underline-offset-2 hover:text-[var(--primary-hover)]"
+      className="text-primary-text underline underline-offset-2 hover:text-primary-text-hover"
     >
       {children}
     </a>

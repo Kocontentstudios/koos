@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "@/lib/design/palette";
+import { EMAIL_BRAND } from "@/lib/email-templates";
 import { normalizeHex } from "@/lib/validation/hex";
 
 /**
@@ -112,7 +113,7 @@ describe("contrastRatio (WCAG 2.x relative luminance)", () => {
     // WebAIM's reference: the lightest grey that still looks fine and fails AA.
     ["#777777", "#ffffff", 4.48],
     ["#767676", "#ffffff", 4.54],
-    // The open brand item named in UI Spec §12.1: white on the primary fill.
+    // Why --primary is never a fill behind a label (UI Spec §12.1).
     ["#ffffff", "#138bc8", 3.78],
   ])("%s on %s is %d:1", (fg, bg, expected) => {
     expect(contrastRatio(fg, bg)).toBeCloseTo(expected, 2);
@@ -190,7 +191,144 @@ describe.each([
   });
 });
 
-describe("landing.css keeps the same muted contract", () => {
+/* --primary (#138bc8) is the brand blue, and it cannot carry text either way
+   round: white on it is 3.78:1, and as text it is 4.02:1 on the deepest dark
+   surface and 3.34:1 on the light page. So a label on a primary fill uses
+   --primary-fill*, and the blue as text uses --primary-text*. These pin both
+   splits; primary-token-usage.test.ts keeps src from reaching around them. */
+const FILLS = [
+  "--primary-fill",
+  "--primary-fill-hover",
+  "--primary-fill-active",
+] as const;
+const PRIMARY_TEXT = ["--primary-text", "--primary-text-hover"] as const;
+
+/** The grounds a brand tint (icon tile, chip, selected row) is laid on. */
+const TINT_GROUNDS = ["--background", "--surface-1", "--surface-2"];
+const BRAND_RGB = [19, 139, 200] as const;
+
+/** Every alpha a brand tint is painted at, read from src so a stronger tint
+ * added later is measured the day it lands: bg-[rgba(19,139,200,a)],
+ * bg-primary/NN and the --accent-glow token. */
+function brandTintAlphas(tokens: Tokens): number[] {
+  const alphas = new Set<number>();
+  for (const entry of readdirSync(SRC, { recursive: true })) {
+    const rel = String(entry);
+    if (!/\.tsx?$/.test(rel) || /\.test\.tsx?$/.test(rel)) continue;
+    const source = readFileSync(path.join(SRC, rel), "utf8");
+    for (const [, a] of source.matchAll(
+      /bg-\[rgba\(19,\s*139,\s*200,\s*([\d.]+)\)\]/g,
+    )) {
+      alphas.add(Number(a));
+    }
+    for (const [, pct] of source.matchAll(/bg-primary\/(\d+)/g)) {
+      alphas.add(Number(pct) / 100);
+    }
+  }
+  const glow = /^rgba\(19,\s*139,\s*200,\s*([\d.]+)\)$/.exec(
+    resolve(tokens, "--accent-glow"),
+  );
+  if (!glow) throw new Error("--accent-glow is no longer a brand tint");
+  alphas.add(Number(glow[1]));
+  return [...alphas].sort((a, b) => a - b);
+}
+
+function composite(alpha: number, ground: string): string {
+  const base = ground
+    .slice(1)
+    .match(/../g)
+    ?.map((c) => parseInt(c, 16));
+  if (!base) throw new Error(`cannot composite onto ${ground}`);
+  return `#${BRAND_RGB.map((c, i) =>
+    Math.round(c * alpha + base[i] * (1 - alpha))
+      .toString(16)
+      .padStart(2, "0"),
+  ).join("")}`;
+}
+
+describe.each([
+  ["dark", APP_THEMES.dark],
+  ["light", APP_THEMES.light],
+] as const)("the primary token split, %s theme", (_name, tokens) => {
+  it.each(FILLS)(`--primary-foreground on %s clears ${TEXT_AA}:1`, (fill) => {
+    expect(ratio(tokens, "--primary-foreground", fill)).toBeGreaterThanOrEqual(
+      TEXT_AA,
+    );
+  });
+
+  it("darkens the fill from rest to hover to pressed", () => {
+    const [rest, hover, active] = FILLS.map((fill) =>
+      ratio(tokens, "--primary-foreground", fill),
+    );
+    expect(rest).toBeLessThan(hover);
+    expect(hover).toBeLessThan(active);
+  });
+
+  it("aims the resting fill near 5:1, not just over the line", () => {
+    expect(
+      ratio(tokens, "--primary-foreground", "--primary-fill"),
+    ).toBeGreaterThanOrEqual(5);
+  });
+
+  it(`the sidebar's primary pair clears ${TEXT_AA}:1`, () => {
+    expect(
+      ratio(tokens, "--sidebar-primary-foreground", "--sidebar-primary"),
+    ).toBeGreaterThanOrEqual(TEXT_AA);
+  });
+
+  /* Disabled labels are exempt from AA (WCAG 1.4.3), but the light theme had
+     --text-muted on the dark navy disabled fill at 2.11:1. */
+  it(`the disabled label stays legible, at least ${NON_TEXT_AA}:1`, () => {
+    expect(
+      ratio(tokens, "--primary-disabled-foreground", "--primary-disabled"),
+    ).toBeGreaterThanOrEqual(NON_TEXT_AA);
+  });
+
+  const textPairs = PRIMARY_TEXT.flatMap((fg) =>
+    grounds(tokens).map((bg) => [fg, bg] as const),
+  );
+  it.each(textPairs)(`%s on %s clears ${TEXT_AA}:1`, (fg, bg) => {
+    expect(ratio(tokens, fg, bg)).toBeGreaterThanOrEqual(TEXT_AA);
+  });
+
+  const alphas = brandTintAlphas(tokens);
+  const tintPairs = PRIMARY_TEXT.flatMap((fg) =>
+    TINT_GROUNDS.flatMap((bg) =>
+      alphas.map((alpha) => [fg, alpha, bg] as const),
+    ),
+  );
+  it.each(tintPairs)(
+    `%s on a %d brand tint over %s clears ${TEXT_AA}:1`,
+    (fg, alpha, bg) => {
+      const ground = composite(alpha, solid(tokens, bg));
+      expect(contrastRatio(solid(tokens, fg), ground)).toBeGreaterThanOrEqual(
+        TEXT_AA,
+      );
+    },
+  );
+
+  it("keeps --primary as the focus ring, which only needs 3:1", () => {
+    expect(resolve(tokens, "--ring")).toBe(resolve(tokens, "--primary"));
+  });
+
+  it("has retired the fill tokens that failed under a white label", () => {
+    expect(tokens.has("--primary-hover")).toBe(false);
+    expect(tokens.has("--primary-active")).toBe(false);
+  });
+});
+
+describe("transactional email inlines the light primary tokens", () => {
+  it("uses --primary-text for links and --primary-fill for buttons", () => {
+    expect(normalizeHex(EMAIL_BRAND.link)).toBe(
+      solid(APP_THEMES.light, "--primary-text"),
+    );
+    expect(normalizeHex(EMAIL_BRAND.buttonFill)).toBe(
+      solid(APP_THEMES.light, "--primary-fill"),
+    );
+  });
+});
+
+describe("landing.css keeps the app's text and primary contracts", () => {
   const landing = readFileSync(path.join(APP, "landing.css"), "utf8");
   const LANDING = theme(
     landing,
@@ -200,12 +338,28 @@ describe("landing.css keeps the same muted contract", () => {
   const LANDING_GROUNDS = ["--base", "--surface-1", "--surface-2"];
 
   describe.each([
-    ["dark", LANDING.dark],
-    ["light", LANDING.light],
-  ] as const)("%s", (_name, tokens) => {
+    ["dark", LANDING.dark, APP_THEMES.dark],
+    ["light", LANDING.light, APP_THEMES.light],
+  ] as const)("%s", (_name, tokens, app) => {
     it.each(LANDING_GROUNDS)(`--text-muted on %s clears ${TEXT_AA}:1`, (bg) => {
       expect(ratio(tokens, "--text-muted", bg)).toBeGreaterThanOrEqual(TEXT_AA);
     });
+
+    it.each(LANDING_GROUNDS)(
+      `--primary-text on %s clears ${TEXT_AA}:1`,
+      (bg) => {
+        expect(ratio(tokens, "--primary-text", bg)).toBeGreaterThanOrEqual(
+          TEXT_AA,
+        );
+      },
+    );
+
+    it.each([...FILLS, "--primary-foreground", "--primary-text", "--primary"])(
+      "%s matches globals.css",
+      (name) => {
+        expect(solid(tokens, name)).toBe(solid(app, name));
+      },
+    );
   });
 });
 

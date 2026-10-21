@@ -77,9 +77,9 @@ function LoginForm() {
         >
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>
@@ -163,7 +163,7 @@ function LoginForm() {
             </div>
             <div className="flex justify-end mt-1">
               <Link
-                className="text-xs text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+                className="text-xs text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
                 href="/forgot-password"
               >
                 Forgot password?
@@ -174,10 +174,10 @@ function LoginForm() {
           {/* Submit */}
           <button
             className={cn(
-              "w-full bg-primary text-white rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
+              "w-full bg-primary-fill text-primary-foreground rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
               anyPending
                 ? "opacity-50 cursor-not-allowed"
-                : "hover:bg-[var(--primary-hover)]",
+                : "hover:bg-primary-fill-hover",
             )}
             disabled={anyPending}
             type="submit"
@@ -255,7 +255,7 @@ function LoginForm() {
           <p className="text-sm text-[var(--text-secondary)]">
             Need an account?{" "}
             <Link
-              className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+              className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
               href={`/register${next ? `?next=${encodeURIComponent(next)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ""}` : ""}`}
             >
               Create one.

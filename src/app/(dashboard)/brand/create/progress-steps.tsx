@@ -31,8 +31,8 @@ export function ProgressSteps({
               className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-semibold transition-colors",
                 isCompleted &&
-                  "border-primary bg-primary text-primary-foreground",
-                isActive && "border-primary bg-surface-1 text-primary",
+                  "border-primary-fill bg-primary-fill text-primary-foreground",
+                isActive && "border-primary bg-surface-1 text-primary-text",
                 !isCompleted &&
                   !isActive &&
                   "border-[var(--text-muted)] text-[var(--text-muted)]",
@@ -43,7 +43,7 @@ export function ProgressSteps({
             <span
               className={cn(
                 "hidden text-[12px] font-medium whitespace-nowrap transition-colors sm:inline",
-                isActive && "text-primary",
+                isActive && "text-primary-text",
                 isCompleted && "text-[var(--text-secondary)]",
                 !isCompleted && !isActive && "text-[var(--text-muted)]",
               )}

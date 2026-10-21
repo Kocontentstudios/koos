@@ -12,7 +12,7 @@ export default function AccessLayout({
         <div className="mr-auto flex items-center gap-2.5 sm:gap-3.5">
           <span
             aria-hidden="true"
-            className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-primary text-sm font-extrabold text-white sm:h-12 sm:w-12 sm:rounded-[15px] sm:text-xl"
+            className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-primary-fill text-sm font-extrabold text-primary-foreground sm:h-12 sm:w-12 sm:rounded-[15px] sm:text-xl"
           >
             KO
           </span>

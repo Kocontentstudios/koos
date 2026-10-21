@@ -22,7 +22,7 @@ export function AcceptForm({
         type="submit"
         disabled={pending}
         aria-busy={pending}
-        className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        className="flex items-center justify-center gap-2 rounded-lg bg-primary-fill px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
       >
         {pending ? <Spinner /> : null}
         {pending ? "Joining…" : `Join ${workspaceName}`}

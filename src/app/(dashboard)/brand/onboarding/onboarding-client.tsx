@@ -302,7 +302,7 @@ export function OnboardingClient({
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
         {messages.length === 0 && (
           <div className="flex items-start gap-3 max-w-[85%]">
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
+            <div className="w-7 h-7 rounded-full bg-primary-fill flex items-center justify-center shrink-0 text-primary-foreground font-bold text-[11px]">
               KO
             </div>
             <div className="rounded-xl rounded-tl-sm border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm leading-relaxed text-foreground">
@@ -325,7 +325,7 @@ export function OnboardingClient({
                 className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
                   isUser
                     ? "bg-surface-2 text-foreground"
-                    : "bg-primary text-white"
+                    : "bg-primary-fill text-primary-foreground"
                 }`}
               >
                 {isUser ? "U" : "KO"}
@@ -365,7 +365,7 @@ export function OnboardingClient({
 
         {isLoading && (
           <div className="flex items-start gap-3 max-w-[85%]">
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
+            <div className="w-7 h-7 rounded-full bg-primary-fill flex items-center justify-center shrink-0 text-primary-foreground font-bold text-[11px]">
               KO
             </div>
             <div className="bg-surface-1 border border-[var(--border)] rounded-xl rounded-tl-sm px-4 py-3">
@@ -527,9 +527,9 @@ export function OnboardingClient({
               onClick={handleSend}
               disabled={!input.trim() || isLoading}
               aria-label="Send message"
-              className="w-9 h-9 rounded-full bg-primary flex items-center justify-center hover:bg-[var(--primary-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
+              className="w-9 h-9 rounded-full bg-primary-fill flex items-center justify-center hover:bg-primary-fill-hover disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
             >
-              <Send className="w-4 h-4 text-white" />
+              <Send className="w-4 h-4 text-primary-foreground" />
             </button>
           )}
         </div>

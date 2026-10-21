@@ -87,7 +87,7 @@ export function MonthView({
                 // Hidden-at-rest is gated on (hover: hover), not on a width
                 // breakpoint: a tablet is wide but cannot hover, and an
                 // opacity-0 button there is an invisible tap target.
-                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] transition-opacity duration-150 hover:bg-[rgba(19,139,200,0.15)] hover:text-primary focus-visible:focus-outline opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 focus-visible:opacity-100"
+                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded text-[var(--text-muted)] transition-opacity duration-150 hover:bg-[rgba(19,139,200,0.15)] hover:text-primary-text focus-visible:focus-outline opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 focus-visible:opacity-100"
               >
                 <Plus aria-hidden="true" className="h-3.5 w-3.5" />
               </button>
@@ -98,7 +98,7 @@ export function MonthView({
                 className={cn(
                   "pointer-events-none relative z-[1] text-[12px] font-semibold",
                   isToday
-                    ? "inline-flex h-[22px] w-[22px] items-center justify-center self-start rounded-full bg-primary text-white"
+                    ? "inline-flex h-[22px] w-[22px] items-center justify-center self-start rounded-full bg-primary-fill text-primary-foreground"
                     : "text-foreground",
                 )}
               >

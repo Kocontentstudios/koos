@@ -271,14 +271,17 @@ export function CreateBrandForm({
       {/* Welcome banner — first step only */}
       {step === 0 && (
         <div className="mb-6 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-xl border border-[var(--border)] bg-surface-2 px-4 py-3 text-[13px] text-[var(--text-secondary)]">
-          <Info className="size-4 shrink-0 text-primary" aria-hidden="true" />
+          <Info
+            className="size-4 shrink-0 text-primary-text"
+            aria-hidden="true"
+          />
           <span>
             Welcome! Let&apos;s set up your brand first. This helps us create
             better strategies for you.
           </span>
           <Link
             href="/brand/onboarding"
-            className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2 hover:text-primary"
+            className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2 hover:text-primary-text"
           >
             <Sparkles aria-hidden="true" className="size-3.5" />
             Or let KO ask you instead

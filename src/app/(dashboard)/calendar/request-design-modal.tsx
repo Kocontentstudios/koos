@@ -329,7 +329,7 @@ export function RequestDesignModal({
 
               <div className="space-y-1.5">
                 <Label htmlFor="rd-type">
-                  Design Type <span className="text-primary">*</span>
+                  Design Type <span className="text-primary-text">*</span>
                 </Label>
                 <Select
                   value={designType}
@@ -396,7 +396,7 @@ export function RequestDesignModal({
                     )}
                     <Link
                       href="/brand"
-                      className="text-[13px] text-primary hover:underline"
+                      className="text-[13px] text-primary-text hover:underline"
                     >
                       Replace in Brand Settings
                     </Link>

@@ -77,7 +77,7 @@ function OptionRow({
               className={cn(
                 "min-h-[36px] rounded-full border px-3.5 py-1.5 text-[13px] transition-colors",
                 active
-                  ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary"
+                  ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary-text"
                   : "border-transparent bg-[rgba(255,255,255,0.06)] text-[var(--text-secondary)] hover:bg-[rgba(19,139,200,0.12)] hover:text-foreground",
               )}
             >

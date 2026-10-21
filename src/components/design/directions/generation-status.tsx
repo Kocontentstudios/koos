@@ -55,7 +55,7 @@ export function GenerationProgress({
 
   return (
     <div className="flex flex-col items-center gap-5 py-4 text-center">
-      <span className="flex size-12 items-center justify-center rounded-full bg-[rgba(19,139,200,0.15)] text-primary">
+      <span className="flex size-12 items-center justify-center rounded-full bg-[rgba(19,139,200,0.15)] text-primary-text">
         <Spinner className="size-6" />
       </span>
       <div className="flex flex-col items-center gap-1.5">

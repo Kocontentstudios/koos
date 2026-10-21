@@ -74,7 +74,7 @@ function ComboboxItemIndicator({
   return (
     <ComboboxPrimitive.ItemIndicator
       data-slot="combobox-item-indicator"
-      className={cn("text-primary", className)}
+      className={cn("text-primary-text", className)}
       {...props}
     >
       <CheckIcon className="size-4" />

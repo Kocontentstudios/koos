@@ -244,7 +244,7 @@ export default async function DashboardPage({
     needsBrandPolish
       ? {
           icon: Target,
-          tint: "bg-[rgba(19,139,200,0.1)] text-primary",
+          tint: "bg-[rgba(19,139,200,0.1)] text-primary-text",
           title: "Complete Your Brand",
           desc: "Add your logo and platforms for richer AI output.",
           href: "/brand/create",
@@ -400,11 +400,12 @@ export default async function DashboardPage({
           <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-[15px] font-bold text-foreground">
-                <CalendarDays size={16} className="text-primary" /> This Week
+                <CalendarDays size={16} className="text-primary-text" /> This
+                Week
               </h3>
               <Link
                 href="/calendar"
-                className="text-[13px] font-medium text-primary hover:text-[var(--primary-hover)]"
+                className="text-[13px] font-medium text-primary-text hover:text-primary-text-hover"
               >
                 Open calendar
               </Link>
@@ -450,7 +451,7 @@ export default async function DashboardPage({
               </h3>
               <Link
                 href="/design-request"
-                className="text-[13px] font-medium text-primary hover:text-[var(--primary-hover)]"
+                className="text-[13px] font-medium text-primary-text hover:text-primary-text-hover"
               >
                 View all
               </Link>
@@ -496,7 +497,7 @@ export default async function DashboardPage({
           {/* Ring */}
           <div className="rounded-2xl border border-[var(--border)] bg-surface-1 p-5 md:p-6">
             <h3 className="mb-5 flex items-center gap-2 text-[15px] font-bold text-foreground">
-              <PieChart size={16} className="text-primary" /> Your Progress
+              <PieChart size={16} className="text-primary-text" /> Your Progress
             </h3>
             <div className="flex flex-col items-center gap-4">
               <div className="relative h-[140px] w-[140px]">
@@ -618,7 +619,7 @@ export default async function DashboardPage({
               <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-secondary)]">
                 {c.desc}
               </p>
-              <span className="absolute bottom-5 right-5 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-[var(--text-muted)] transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+              <span className="absolute bottom-5 right-5 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-[var(--text-muted)] transition-colors group-hover:bg-primary-fill group-hover:text-primary-foreground">
                 <ArrowRight size={16} />
               </span>
             </Link>
@@ -648,7 +649,7 @@ export default async function DashboardPage({
             </h3>
             <Link
               href="/calendar"
-              className="text-[13px] font-medium text-primary hover:text-[var(--primary-hover)]"
+              className="text-[13px] font-medium text-primary-text hover:text-primary-text-hover"
             >
               View all
             </Link>

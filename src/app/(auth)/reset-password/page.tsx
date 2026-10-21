@@ -32,9 +32,9 @@ function CardShell({ children }: { children: React.ReactNode }) {
         >
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>
@@ -73,7 +73,7 @@ function ResetPasswordForm() {
         <div className="mt-8 text-center">
           <p className="text-sm text-[var(--text-secondary)]">
             <Link
-              className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+              className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
               href="/forgot-password"
             >
               Request a new link.
@@ -157,10 +157,10 @@ function ResetPasswordForm() {
         {/* Submit */}
         <button
           className={cn(
-            "w-full bg-primary text-white rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
+            "w-full bg-primary-fill text-primary-foreground rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
             pending
               ? "opacity-50 cursor-not-allowed"
-              : "hover:bg-[var(--primary-hover)]",
+              : "hover:bg-primary-fill-hover",
           )}
           disabled={pending}
           type="submit"
@@ -180,7 +180,7 @@ function ResetPasswordForm() {
       <div className="mt-8 text-center">
         <p className="text-sm text-[var(--text-secondary)]">
           <Link
-            className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+            className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
             href="/login"
           >
             Back to sign in.

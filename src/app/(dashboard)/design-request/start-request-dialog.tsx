@@ -64,7 +64,7 @@ function OptionCard({
           "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
           quiet
             ? "bg-[var(--border)] text-[var(--text-secondary)]"
-            : "bg-[rgba(19,139,200,0.15)] text-primary",
+            : "bg-[rgba(19,139,200,0.15)] text-primary-text",
         )}
       >
         <Icon aria-hidden="true" className="h-4 w-4" />

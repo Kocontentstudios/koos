@@ -553,7 +553,7 @@ function QueueItem({
         )}
         <Link
           href={`/admin/tickets/${row.id}`}
-          className="inline-flex h-9 items-center rounded-[10px] px-2.5 text-[13px] font-semibold text-primary hover:underline"
+          className="inline-flex h-9 items-center rounded-[10px] px-2.5 text-[13px] font-semibold text-primary-text hover:underline"
         >
           View / update
         </Link>

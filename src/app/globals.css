@@ -30,11 +30,25 @@
   --nav-border: rgba(255, 255, 255, 0.08);
 
   /* --- Action / Primary --------------------------------------------------- */
+  /* The brand blue as an accent: focus rings, borders, dots, bars, icons.
+     Never a fill behind text (white on it is 3.78:1) and never text itself
+     (4.02:1 on --surface-container-highest here, 3.34:1 on the light page).
+     theme-contrast.test.ts rejects either pairing anywhere in src. */
   --primary: #138bc8;
-  --primary-hover: #0f7eb8;
-  --primary-active: #0c5f8a;
+  /* Fills that carry --primary-foreground. Same hue as --primary, lightness
+     only, so white clears 4.5:1 at every state (5.08, 5.85, 6.95). One set
+     serves both themes because the label, not the page, is what it carries. */
+  --primary-fill: #1075a8;
+  --primary-fill-hover: #0f6b9a;
+  --primary-fill-active: #0c5f8a;
   --primary-disabled: #1a3a4a;
+  --primary-disabled-foreground: #7c90a3;
   --primary-foreground: #ffffff;
+  /* --primary as text. Lifted here, darkened in light mode, so a link or
+     eyebrow clears 4.5:1 on every surface and on the brand tints up to 20%
+     that icon tiles and chips sit on. Hover moves away from the ground. */
+  --primary-text: #1fa6ea;
+  --primary-text-hover: #45b4ed;
   /* A tint for backgrounds only. At 12-15% alpha it measures about 1.2:1
      against the surfaces, so it is never a focus indicator; --ring is. */
   --accent-glow: rgba(19, 139, 200, 0.15);
@@ -144,7 +158,7 @@
   /* Sidebar aliases */
   --sidebar-background: var(--nav);
   --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
+  --sidebar-primary: var(--primary-fill);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: var(--surface-2);
   --sidebar-accent-foreground: var(--foreground);
@@ -172,6 +186,12 @@
      matching the dark token's profile. */
   --skeleton: #d5dee9;
   --accent-glow: rgba(19, 139, 200, 0.12);
+
+  --primary-text: #0e6490;
+  --primary-text-hover: #0c577e;
+  /* The disabled fill stays dark navy in light mode; --text-muted on it was
+     2.11:1, unreadable even before the button's 50% opacity. */
+  --primary-disabled-foreground: #a7b6c7;
 
   /* Text hierarchy */
   --foreground: #0f172a;
@@ -230,10 +250,14 @@
   --color-surface-2: var(--surface-2);
   --color-nav: var(--nav);
   --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-active: var(--primary-active);
+  --color-primary-fill: var(--primary-fill);
+  --color-primary-fill-hover: var(--primary-fill-hover);
+  --color-primary-fill-active: var(--primary-fill-active);
   --color-primary-disabled: var(--primary-disabled);
+  --color-primary-disabled-foreground: var(--primary-disabled-foreground);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
+  --color-primary-text-hover: var(--primary-text-hover);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
 

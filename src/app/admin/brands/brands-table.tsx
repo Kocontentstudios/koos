@@ -65,7 +65,7 @@ export function BrandsTable({ brands }: { brands: BrandListRow[] }) {
                 <td className="px-4 py-3">
                   <Link
                     href={`/admin/brands/${b.id}`}
-                    className="font-medium text-primary hover:underline"
+                    className="font-medium text-primary-text hover:underline"
                   >
                     {b.name}
                   </Link>
@@ -92,7 +92,7 @@ export function BrandsTable({ brands }: { brands: BrandListRow[] }) {
                   {b.ticketCount > 0 ? (
                     <Link
                       href={`/admin/tickets?view=all&brand=${b.id}`}
-                      className="font-medium text-primary hover:underline"
+                      className="font-medium text-primary-text hover:underline"
                     >
                       {b.ticketCount}
                       <span className="sr-only">{` tickets for ${b.name}`}</span>

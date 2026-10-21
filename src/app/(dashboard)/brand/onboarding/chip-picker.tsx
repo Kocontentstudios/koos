@@ -134,7 +134,7 @@ export function ChipPicker({
                 className={cn(
                   "inline-flex min-h-[40px] items-center gap-1.5 rounded-full border px-4 py-2 text-[13px] transition-colors disabled:opacity-40",
                   active
-                    ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary"
+                    ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary-text"
                     : "border-transparent bg-[rgba(255,255,255,0.06)] text-[var(--text-secondary)] hover:bg-[rgba(19,139,200,0.12)] hover:text-foreground",
                 )}
               >

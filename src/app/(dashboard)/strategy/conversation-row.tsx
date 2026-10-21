@@ -159,12 +159,12 @@ export function ConversationRow({
           <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
             {new Date(conversation.updatedAt).toLocaleDateString()}
             {conversation.mode === "design" && (
-              <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary">
+              <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary-text">
                 Design
               </span>
             )}
             {conversation.strategyId && (
-              <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary">
+              <span className="rounded-full bg-[var(--accent-glow)] px-1.5 py-px text-[10px] font-medium text-primary-text">
                 Campaign
               </span>
             )}

@@ -44,7 +44,7 @@ export default function GlobalError({
             cursor: "pointer",
             borderRadius: "10px",
             border: "none",
-            background: "#138bc8",
+            background: "#1075a8",
             color: "#ffffff",
             fontWeight: 600,
             fontSize: "0.875rem",

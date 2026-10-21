@@ -71,9 +71,9 @@ export function ChatInput({
             onClick={handleSend}
             disabled={!value.trim() || isLoading}
             aria-label="Send message"
-            className="w-9 h-9 rounded-full bg-primary flex items-center justify-center hover:bg-[var(--primary-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
+            className="w-9 h-9 rounded-full bg-primary-fill flex items-center justify-center hover:bg-primary-fill-hover disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
           >
-            <Send className="w-4 h-4 text-white" />
+            <Send className="w-4 h-4 text-primary-foreground" />
           </button>
         )}
       </div>

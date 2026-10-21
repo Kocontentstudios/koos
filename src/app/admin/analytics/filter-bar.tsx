@@ -88,7 +88,7 @@ export function AnalyticsFilterBar({
             </span>
             <Link
               href={clearHref}
-              className="text-[13px] font-semibold text-primary hover:underline"
+              className="text-[13px] font-semibold text-primary-text hover:underline"
             >
               Clear all
             </Link>

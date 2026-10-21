@@ -86,9 +86,9 @@ function RegisterForm() {
         >
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>
@@ -229,10 +229,10 @@ function RegisterForm() {
           {/* Submit */}
           <button
             className={cn(
-              "w-full bg-primary text-white rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
+              "w-full bg-primary-fill text-primary-foreground rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
               anyPending
                 ? "opacity-50 cursor-not-allowed"
-                : "hover:bg-[var(--primary-hover)]",
+                : "hover:bg-primary-fill-hover",
             )}
             disabled={anyPending}
             type="submit"
@@ -310,7 +310,7 @@ function RegisterForm() {
           <p className="text-sm text-[var(--text-secondary)]">
             Already have an account?{" "}
             <Link
-              className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+              className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
               href={`/login${next ? `?next=${encodeURIComponent(next)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ""}` : ""}`}
             >
               Sign in.

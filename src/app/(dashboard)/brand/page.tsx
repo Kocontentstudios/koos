@@ -267,7 +267,7 @@ export default async function BrandProfilePage() {
                 {platforms.map((p) => (
                   <span
                     key={p}
-                    className="rounded-full bg-[rgba(19,139,200,0.12)] px-2.5 py-1 text-xs font-medium text-primary"
+                    className="rounded-full bg-[rgba(19,139,200,0.12)] px-2.5 py-1 text-xs font-medium text-primary-text"
                   >
                     {p}
                   </span>

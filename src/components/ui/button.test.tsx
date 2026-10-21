@@ -10,11 +10,16 @@ describe("Button", () => {
       screen.getByRole("button", { name: "Start Creating" }),
     ).toBeInTheDocument();
   });
-  it("applies the primary background by default", () => {
+  /* White on the brand --primary is 3.78:1; the fill tokens hold 5.08, 5.85
+     and 6.95 at rest, hover and pressed (theme-contrast.test.ts). */
+  it("paints the default variant on the primary fill tokens, not --primary", () => {
     render(<Button>Go</Button>);
-    expect(screen.getByRole("button", { name: "Go" }).className).toMatch(
-      /bg-primary/,
-    );
+    const cls = screen.getByRole("button", { name: "Go" }).className;
+    expect(cls).toMatch(/(?:^|\s)bg-primary-fill(?:\s|$)/);
+    expect(cls).toContain("hover:bg-primary-fill-hover");
+    expect(cls).toContain("active:bg-primary-fill-active");
+    expect(cls).toContain("text-primary-foreground");
+    expect(cls).not.toMatch(/(?:^|[\s:])bg-primary(?:\s|$)/);
   });
   it("renders a secondary (outline) variant with a border", () => {
     render(<Button variant="secondary">Cancel</Button>);

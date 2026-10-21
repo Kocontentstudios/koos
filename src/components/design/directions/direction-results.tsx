@@ -76,7 +76,7 @@ function EmptyResults({ onChooseImagery }: { onChooseImagery: () => void }) {
       className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center"
       style={{ borderColor: "var(--border-control)" }}
     >
-      <span className="flex size-11 items-center justify-center rounded-full bg-[rgba(19,139,200,0.15)] text-primary">
+      <span className="flex size-11 items-center justify-center rounded-full bg-[rgba(19,139,200,0.15)] text-primary-text">
         <LayoutTemplate aria-hidden="true" className="size-5" />
       </span>
       <div className="flex flex-col gap-1">

@@ -109,8 +109,8 @@ export function ImageDropzone({
           className={cn(
             "flex size-11 items-center justify-center rounded-full transition-colors",
             active
-              ? "bg-primary text-primary-foreground"
-              : "bg-[rgba(19,139,200,0.15)] text-primary",
+              ? "bg-primary-fill text-primary-foreground"
+              : "bg-[rgba(19,139,200,0.15)] text-primary-text",
           )}
         >
           <ImageUp className="size-5" />

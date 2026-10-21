@@ -626,7 +626,7 @@ Full viewport height (100vh). Two-column split:
 
 66.   a) Login button (left, outline): transparent bg, \#FFFFFF text, 1px solid rgba(19,139,200,0.4) border. Height: 48px. Padding: 0 24px. Border-radius: 10px. Hover: bg rgba(19,139,200,0.08), border rgba(19,139,200,0.6).
 
-67.   b) Start Creating button (right, filled): \#138BC8 bg, \#FFFFFF text. Height: 48px. Padding: 0 28px. Border-radius: 10px. Hover: \#0F7EB8.
+67.   b) Start Creating button (right, filled): Primary Fill \#1075A8 bg, \#FFFFFF text. Height: 48px. Padding: 0 28px. Border-radius: 10px. Hover: \#0F6B9A (Primary Fill Hover).
 
 68. Spacer: pushes footer to bottom.
 
@@ -702,7 +702,7 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 84. Spacer: 8px.
 
-85. Forgot password link: 13px/\#138BC8. Hover: underline. (Functionality: post-MVP, can show Coming Soon toast).
+85. Forgot password link: 13px/Primary Text (`--primary-text`). Hover: underline. (Functionality: post-MVP, can show Coming Soon toast).
 
 86. Spacer: 24px.
 
@@ -714,7 +714,7 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 90. Spacer: 20px.
 
-91. Secondary link: Need an account? Create one. 14px/\#138BC8. Click switches card to Register mode.
+91. Secondary link: Need an account? Create one. 14px/Primary Text (`--primary-text`). Click switches card to Register mode.
 
 92. Spacer: 16px.
 
@@ -820,7 +820,7 @@ Capture everything KO needs to know about the user's brand. This is the foundati
 
 * Subtitle: Tell us about your business. This helps our AI build better strategies and our designers create on-brand assets. (14px/400/\#A7B6C7).
 
-* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: \#138BC8 text \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#7C90A3 muted text.
+* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: Primary Text (`--primary-text`) \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#7C90A3 muted text.
 
 * Form area: single column, max-width 640px, centered.
 
@@ -905,7 +905,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#7C90A3.
 
-* Enabled Next button: bg \#138BC8, text \#FFFFFF.
+* Enabled Next button: bg Primary Fill \#1075A8, text \#FFFFFF.
 
 * Final Save button (Step 3): same disabled/enabled logic based on Step 1 completion.
 
@@ -972,7 +972,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Strategy card: background Surface 1 (\#00162E), border 1px solid rgba(19,139,200,0.3), border-radius 12px, padding 20px. Left border: 3px solid \#138BC8.
 
-* Card header: STRATEGY badge (11px/500/\#138BC8, bg rgba(19,139,200,0.15), pill) \+ campaign name (18px/600/\#FFFFFF).
+* Card header: STRATEGY badge (11px/500/Primary Text (`--primary-text`), bg rgba(19,139,200,0.15), pill) \+ campaign name (18px/600/\#FFFFFF).
 
 * Sections stacked vertically, each with:
 
@@ -992,7 +992,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#7C90A3. Placeholder: Ask KO about your campaign...
 
-* Send button: 36px circle, bg \#138BC8, white paper plane icon (18px). Disabled when textarea empty (bg \#1A3A4A). Hover when enabled: \#0F7EB8.
+* Send button: 36px circle, bg Primary Fill \#1075A8, white paper plane icon (18px). Disabled when textarea empty (bg \#1A3A4A). Hover when enabled: \#0F6B9A (Primary Fill Hover).
 
 * Focus state: 2px solid `--ring` outline around the container while the text area has keyboard focus (`has-[textarea:focus-visible]:focus-outline`); the text area itself draws none.
 
@@ -1062,7 +1062,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Day cell: minimum height 100px. Background: transparent. Border: 1px solid rgba(255,255,255,0.04).
 
-* Day number: 13px/400, top-left of cell, padding 6px. Current day: \#138BC8 \+ bold. Other days: \#A7B6C7. Other month days (padding): \#7C90A3 at 50% opacity.
+* Day number: 13px/400, top-left of cell, padding 6px. Current day: 12px/600 white in a 22px Primary Fill \#1075A8 circle. Other days: \#A7B6C7. Other month days (padding): \#7C90A3 at 50% opacity.
 
 * Items in cell: small cards stacked vertically, max 2 visible (+ N more indicator if overflow).
 
@@ -1084,7 +1084,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 1 row. Each column \= one day.
 
-* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#7C90A3. Date 18px/600/\#FFFFFF. Current day: date in \#138BC8.
+* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#7C90A3. Date 18px/600/\#FFFFFF. Current day: date in Primary Text (`--primary-text`).
 
 * Column: items stacked vertically. Gap: 8px between items.
 
@@ -1188,7 +1188,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 *   Content: 14px/400/\#FFFFFF. E.g., Slide 1: Hook — Did you know the average skincare product has 25 ingredients? We use 5\. Here is why each one matters. Slide 2-5: One ingredient per slide with a short benefit description. End slide: CTA to shop the kit.
 
-*   If text is long: show max 6 lines with Expand button (13px/\#138BC8) to reveal full text.
+*   If text is long: show max 6 lines with Expand button (13px/Primary Text (`--primary-text`)) to reveal full text.
 
 * Divider.
 
@@ -1224,7 +1224,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 *     Download button: secondary, outline, full width. Text: Download All (ZIP).
 
-*     View Full Size link: ghost, 13px/\#138BC8. Opens lightbox gallery.
+*     View Full Size link: ghost, 13px/Primary Text (`--primary-text`). Opens lightbox gallery.
 
 * Divider.
 
@@ -1296,11 +1296,11 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Divider \+ label: YOUR BRAND ASSETS (14px/600/\#FFFFFF).
 
-* Logo preview: 64px thumbnail of uploaded logo \+ filename. If no logo: dashed box with Upload a logo in your Brand Settings link (\#138BC8).
+* Logo preview: 64px thumbnail of uploaded logo \+ filename. If no logo: dashed box with Upload a logo in your Brand Settings link (Primary Text (`--primary-text`)).
 
 * Brand colors: row of color swatches (24px circles) \+ hex values. Primary, Secondary, Additional.
 
-* Edit brand assets link: 13px/\#138BC8, ghost. Routes to /brand.
+* Edit brand assets link: 13px/Primary Text (`--primary-text`), ghost. Routes to /brand.
 
 * Divider \+ label: EXTRA NOTES (14px/600/\#FFFFFF).
 
@@ -1350,7 +1350,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 | :---- | :---- | :---- | :---- |
 | Submitted | \#D4A954 (Gold) | Ticket received by KO design team | Wait for assignment |
 | Assigned | \#85B7EB (Blue) | A designer has been assigned | Wait for delivery |
-| In Progress | \#138BC8 (KO Blue) | Designer is actively working | Wait for delivery |
+| In Progress | Primary Text (`--primary-text`) on a 16% tint of itself (KO Blue) | Designer is actively working | Wait for delivery |
 | Ready for Review | \#97C459 (Green) | Design is complete, awaiting approval | Review and approve/request revision |
 | Delivered | \#97C459 (Green) | Design approved and delivered | Download assets, mark as ready |
 | Revision Requested | \#D4A954 (Gold) | User asked for changes | Wait for revised delivery |
@@ -1405,7 +1405,7 @@ Interim paywall until payments are integrated. A new workspace sees this page in
 
 ### **Layout**
 
-* Standalone top bar (no sidebar): KO mark (48px, 15px radius, primary) + KO OS / Brand Brain, context line Your brand. Your workspace. (hidden below 768px), theme toggle, Sign out (ghost; icon only below 640px).
+* Standalone top bar (no sidebar): KO mark (48px, 15px radius, Primary Fill) + KO OS / Brand Brain, context line Your brand. Your workspace. (hidden below 768px), theme toggle, Sign out (ghost; icon only below 640px).
 
 * Eyebrow: lock icon + ACCOUNT ACCESS · PENDING APPROVAL (14px/600, uppercase, --nav-text).
 
@@ -1431,7 +1431,7 @@ Interim paywall until payments are integrated. A new workspace sees this page in
 
 KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disciplined (repeatable components, strict spacing scale, consistent hierarchy). Modern and human (high contrast where it matters, readable type, subtle motion).
 
-* KO Blue (\#138BC8) is the single action colour for CTAs and active states. Do not use it as decoration.
+* KO Blue (\#138BC8) is the single action colour for CTAs and active states. Do not use it as decoration. Under a label it is drawn as Primary Fill, and as text as Primary Text (9.2).
 
 * Hover states deepen colour, never brighten.
 
@@ -1452,12 +1452,30 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 
 | Token | Value | Usage |
 | :---- | :---- | :---- |
-| Primary | \#138BC8 | Primary CTAs, active states, key highlights, focus indicators |
-| Hover | \#0F7EB8 | Hover state for primary actions — deeper |
-| Active | \#0C5F8A | Pressed/clicked state |
-| Disabled | \#1A3A4A | Disabled buttons, inactive elements |
+| Primary (`--primary`) | \#138BC8 | The brand blue as an accent: focus ring, borders, active-nav bar, dots, progress bars, chart marks, icon tints. Never a fill behind text and never text itself (see below) |
+| Primary Fill (`--primary-fill`) | \#1075A8 | Every fill that carries a label: primary buttons, the KO mark, the KO chat avatar, today's date, completed steps, filled badges |
+| Primary Fill Hover (`--primary-fill-hover`) | \#0F6B9A | Hover state of a primary fill — deeper |
+| Primary Fill Active (`--primary-fill-active`) | \#0C5F8A | Pressed/clicked state |
+| Primary Foreground (`--primary-foreground`) | \#FFFFFF | The label on any primary fill |
+| Disabled (`--primary-disabled`) | \#1A3A4A | Disabled buttons, inactive elements |
+| Disabled Foreground (`--primary-disabled-foreground`) | \#7C90A3 dark, \#A7B6C7 light | The label on a disabled primary button |
 | Accent Glow | rgba(19,139,200,0.15) | Background tints only: icon tiles, chips, selected fills, hover glow. Never a focus indicator (1.2:1 against the surfaces) |
 | Ring (`--ring`) | \#138BC8 (= Primary) | The focus indicator, both themes. Drawn as a 2px solid outline by `focus-outline`; see 12.2. Never at partial alpha |
+
+* The fill tokens are the same in both themes: they are measured against the white label they carry, not against the page. Same hue as Primary, lightness only.
+
+* Why Primary is split: one value cannot serve both jobs. White on \#138BC8 is 3.78:1, so a fill has to be darker; but as text on the dark surfaces a darker blue loses contrast, so text has to be lighter. Primary keeps the brand value for everything that is not text and not under text. `src/app/primary-token-usage.test.ts` fails the build if `src/` puts a label on `bg-primary`, `background: var(--primary)` or `#138BC8`, uses `text-primary` / `color: var(--primary)`, or references the retired `--primary-hover` / `--primary-active`.
+
+### **Primary as Text**
+
+| Token | Dark | Light | Usage |
+| :---- | :---- | :---- | :---- |
+| Primary Text (`--primary-text`, `text-primary-text`) | \#1FA6EA | \#0E6490 | Links, eyebrows, active labels, brand-blue icons on a tint, the In Progress ticket badge |
+| Primary Text Hover (`--primary-text-hover`) | \#45B4ED | \#0C577E | Hover on a primary-text link. Moves away from the ground in each theme, so hover never costs contrast |
+
+* Both clear 4.5:1 on every surface token in their theme and on every brand tint `src/` paints (rgba(19,139,200,0.06–0.2), `bg-primary/15`, Accent Glow) over Base, Surface 1 and Surface 2. Measured values are in 12.1.
+
+* Transactional email cannot read CSS variables, so `EMAIL_BRAND` in `src/lib/email-templates.ts` inlines the light values (\#0E6490 links, \#1075A8 buttons). The gate test holds them equal to the tokens.
 
 ### **Text Colors**
 
@@ -1552,14 +1570,20 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 ### **Primary (Filled)**
 
-| State | Background | Text | Border | Shadow/Glow |
-| :---- | :---- | :---- | :---- | :---- |
-| Default | \#138BC8 | \#FFFFFF | none | none |
-| Hover | \#0F7EB8 | \#FFFFFF | none | 0 4px 12px rgba(19,139,200,0.2) |
-| Active | \#0C5F8A | \#FFFFFF | none | none (translateY \+1px) |
-| Disabled | \#1A3A4A | \#7C90A3 | none | none |
-| Focus | \#138BC8 | \#FFFFFF | none | 2px solid `--ring` outline, 2px offset |
-| Loading | \#138BC8 | \#FFFFFF | none | Inline spinner \+ present-participle label (Saving…) |
+| State | Background | Text | Contrast | Border | Shadow/Glow |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| Default | \#1075A8 (`--primary-fill`) | \#FFFFFF | 5.08:1 | none | none |
+| Hover | \#0F6B9A (`--primary-fill-hover`) | \#FFFFFF | 5.85:1 | none | 0 4px 12px rgba(19,139,200,0.2) |
+| Active | \#0C5F8A (`--primary-fill-active`) | \#FFFFFF | 6.95:1 | none | none (translateY \+1px) |
+| Disabled | \#1A3A4A | \#7C90A3 dark, \#A7B6C7 light (`--primary-disabled-foreground`) | 3.65:1 dark, 5.81:1 light, before the 50% disabled opacity | none | none |
+| Focus | \#1075A8 | \#FFFFFF | 5.08:1 | none | 2px solid `--ring` outline, 2px offset |
+| Loading | \#1075A8 | \#FFFFFF | 5.08:1 | none | Inline spinner \+ present-participle label (Saving…) |
+
+* Same values in both themes. Classes: `bg-primary-fill text-primary-foreground hover:bg-primary-fill-hover active:bg-primary-fill-active` (the `default` variant of `src/components/ui/button.tsx`). A hand-rolled primary button (auth forms, chat send) uses the same four classes, never `bg-primary` and never `hover:opacity-*`, which lightens the fill under the label.
+
+* Disabled text is exempt from WCAG AA; the floor here is 3:1 so it stays legible. It was \#7C90A3 in both themes until 2026-10-21, which was 2.11:1 on the dark navy fill in light mode.
+
+* Link variant: `text-primary-text`, underline on hover.
 
 ### **Secondary (Outline)**
 
@@ -1718,7 +1742,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Horizontal layout. Each step: circle (24px) \+ label below (12px).
 
-* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text \#138BC8. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#7C90A3, bg transparent, text \#7C90A3.
+* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text Primary Text (`--primary-text`). Completed: bg Primary Fill \#1075A8, text \#FFFFFF, checkmark icon. Future: border \#7C90A3, bg transparent, text \#7C90A3.
 
 * Connector line between steps: 2px height. Completed: \#138BC8. Future: rgba(255,255,255,0.06).
 
@@ -1872,8 +1896,17 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Ring on Surface 2 | 4.40:1 on \#001F3D | 3.78:1 on \#FFFFFF |
 | Ring, weakest pair | 4.02:1 on \#002550 | 3.07:1 on \#E2E8F0 |
 | Ring on the sidebar (dark in both themes) | 4.21:1 on \#00204F | 4.21:1 on \#00204F |
+| White on Primary Fill (rest / hover / pressed) | \#FFFFFF on \#1075A8 / \#0F6B9A / \#0C5F8A \= 5.08 / 5.85 / 6.95:1 | same tokens, same ratios |
+| Primary Text on Base | \#1FA6EA on \#000D20 \= 7.14:1 | \#0E6490 on \#EDF1F7 \= 5.71:1 |
+| Primary Text on Surface 2 | 6.10:1 on \#001F3D | 6.47:1 on \#FFFFFF |
+| Primary Text, weakest surface | 5.58:1 on \#002550 | 5.25:1 on \#E2E8F0 |
+| Primary Text, weakest brand tint (20%) | 4.64:1 over \#001F3D | 4.58:1 over \#EDF1F7 |
+| Primary Text Hover, weakest surface | \#45B4ED, 6.52:1 on \#002550 | \#0C577E, 6.36:1 on \#E2E8F0 |
+| Disabled label on Disabled fill | \#7C90A3 on \#1A3A4A \= 3.65:1 | \#A7B6C7 on \#1A3A4A \= 5.81:1 |
 
-* Known open item, escalated to Oluwaseyi (brand decision): white label text on the Primary fill is \#FFFFFF on \#138BC8 \= 3.78:1. Button labels are 13px/600, which is not large text, so this fails 4.5:1. A darker fill such as \#0F75A8 gives 5.08:1. Do not change `--primary` without that decision. If it does change, `--ring` follows it by default and must be re-checked: \#0F75A8 as a ring is 2.99:1 on dark `--surface-container-highest` (\#002550), so the ring would need its own dark-theme value. The gate test will say so.
+* For the record: \#FFFFFF on the brand \#138BC8 is 3.78:1, and \#138BC8 as text is 4.40:1 on dark Surface 2, 4.02:1 on \#002550 and 3.34:1 on the light page. That is why fills and text have their own tokens (9.2) while the ring stays on \#138BC8, which clears 3:1 everywhere.
+
+* The gate also measures the split: white on each fill token, Primary Text and its hover on every surface and on every brand-tint alpha found in `src/`, the disabled label at 3:1, and `landing.css` and `EMAIL_BRAND` against the same values.
 
 ## **12.2 Focus Management**
 

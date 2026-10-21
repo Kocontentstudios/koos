@@ -241,7 +241,7 @@ export function DeliveredClient({
                         link this is rather than a page of identical "View"s. */}
                     <Link
                       href={`/admin/tickets/${row.id}`}
-                      className="font-semibold text-primary hover:underline"
+                      className="font-semibold text-primary-text hover:underline"
                     >
                       View
                       <span className="sr-only">

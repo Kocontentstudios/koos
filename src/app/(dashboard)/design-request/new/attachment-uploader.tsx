@@ -155,7 +155,7 @@ export function AttachmentUploader({
         <FileUp size={20} className="text-[var(--text-muted)]" />
         <span className="text-[13px] text-[var(--text-secondary)]">
           Drag and drop files here, or{" "}
-          <span className="font-semibold text-primary">browse</span>
+          <span className="font-semibold text-primary-text">browse</span>
         </span>
         <span className="text-[11px] text-[var(--text-muted)]">
           {ALLOWED_UPLOAD_SUMMARY}. Up to 100 MB each.

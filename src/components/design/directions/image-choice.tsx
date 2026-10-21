@@ -41,7 +41,7 @@ function ChoiceCard({
         dropActive && "bg-[var(--accent-glow)]",
       )}
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(19,139,200,0.15)] text-primary">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(19,139,200,0.15)] text-primary-text">
         <Icon aria-hidden="true" className="size-4" />
       </span>
       <span className="flex flex-col gap-1">

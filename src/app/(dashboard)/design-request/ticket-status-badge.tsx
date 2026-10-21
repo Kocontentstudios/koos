@@ -8,7 +8,7 @@ const STATUS_COLOR: Record<TicketStatus, string> = {
   draft: "var(--text-muted)",
   submitted: "var(--status-pending-fg)",
   assigned: "var(--status-progress-fg)",
-  in_progress: "var(--primary)",
+  in_progress: "var(--primary-text)",
   ready_for_review: "var(--status-ready-fg)",
   delivered: "var(--status-ready-fg)",
   revision_requested: "var(--status-pending-fg)",

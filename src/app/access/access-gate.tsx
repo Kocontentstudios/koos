@@ -49,7 +49,7 @@ export function AccessGate({
             >
               <span
                 aria-hidden="true"
-                className="flex size-10 items-center justify-center rounded-[12px] bg-[var(--accent-glow)] text-primary sm:size-12 [:root[data-theme=light]_&]:text-[var(--primary-active)]"
+                className="flex size-10 items-center justify-center rounded-[12px] bg-[var(--accent-glow)] text-primary-text sm:size-12"
               >
                 <Icon className="size-6 sm:size-[26px]" />
               </span>
