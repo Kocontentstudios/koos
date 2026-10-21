@@ -20,7 +20,8 @@ wrong at once and every one of them returned a perfectly valid PNG:
 
 - `logoPlacement` includes `"none"` and the art-director prompt said nothing
   about the logo, so the model chose `"none"` freely.
-- resvg does not fail loudly. Handed an image it cannot decode — a damaged
+- The renderer's rasteriser (sharp/librsvg via `@vercel/og` when sharp is
+  importable, resvg-wasm fallback otherwise) does not fail loudly. Handed an image it cannot decode — a damaged
   IDAT, a truncated upload, a CMYK JPEG — it skips the node and returns a
   valid PNG of everything else, so a design rendered with an empty corner and
   nothing threw. `probeLogo` draws the mark on its own first and looks at the

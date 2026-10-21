@@ -9,8 +9,9 @@ import { crc32, createInflate } from "node:zlib";
  * the parts that cannot (colour conversion, IDCT). They refuse a truncated
  * upload or a decompression bomb before libvips allocates for it, and they
  * catch truncations libpng would quietly pad out. They are NOT proof the
- * renderer can draw the file: resvg rejects well-framed files these accept,
- * and panics on some. That proof is the re-encode.
+ * renderer can draw the file: its rasteriser (sharp/librsvg via next/og)
+ * rejects well-framed files these accept, and panics on some. That proof is
+ * the re-encode.
  */
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

@@ -4,8 +4,9 @@ import { type PngHeader, pngScanlineLayout } from "./decode-check";
 /**
  * Real PNG and JPEG bytes for upload tests, built rather than checked in (no
  * binaries in the repo). Both decode in a real decoder: the PNG through any
- * zlib, the JPEG through satori and resvg, which is what makes them worth more
- * than a header stub that only a header reader would accept.
+ * zlib, the JPEG through satori and the rasteriser next/og uses
+ * (sharp/librsvg), which is what makes them worth more than a header stub that
+ * only a header reader would accept.
  */
 
 export const PNG_SIGNATURE = Buffer.from([

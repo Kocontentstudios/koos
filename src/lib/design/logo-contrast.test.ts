@@ -198,8 +198,8 @@ describe("a ground that is not one tone", () => {
   });
 });
 
-/* The fallback decode path: a picture the decoder refuses but resvg renders
-   fine. Leaving it unmeasured means no contrast check on a whole delivery
+/* The fallback decode path: a picture the decoder refuses but the renderer
+   draws fine. Leaving it unmeasured means no contrast check on a whole delivery
    route — a native model may answer in JPEG, and a dark mark would be stamped
    invisible onto a dark composition with nothing to say so.
 

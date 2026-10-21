@@ -13,7 +13,8 @@ import {
   svgRasterBox,
   withViewBox,
 } from "@/lib/images/rasterize";
-import { reencodeImage } from "@/lib/images/reencode";
+import { type ReencodeOptions, reencodeImage } from "@/lib/images/reencode";
+import { type SafeSvg, sanitizeSvg } from "@/lib/images/svg-sanitize";
 import {
   getObjectBytes,
   STORAGE_PREFIXES,
@@ -49,11 +50,18 @@ export interface LogoLoadResult {
 const SVG_RASTER_WIDTH = 600;
 
 /* A logo is drawn a few hundred pixels wide at most, so a larger file is
-   scaled to this before the renderer sees it, with no visible change, and the
-   decoded copy stays bounded. */
-const LOGO_MAX_SIDE = 4096;
-/* Refused from the header: 256 MB of RGBA before any pixel is drawn. */
-const LOGO_MAX_INPUT_PIXELS = 8192 * 8192;
+   scaled to fit 1024 px before the renderer sees it, with no visible change.
+   At 4096 a valid 2560 px cutout re-encoded to 9.4 MB, past what the renderer
+   parses, and was reported as damaged (round-3 critic C4). A browser draws a
+   JPEG whose end marker is missing, and logos saved that way drew before the
+   re-encode, so that one fault is tolerated here. Input is refused from the
+   header past 256 MB of RGBA. */
+export const LOGO_REENCODE: ReencodeOptions = {
+  maxInputPixels: 8192 * 8192,
+  maxOutputSide: 1024,
+  minOutputSide: 256,
+  tolerateMissingJpegEnd: true,
+};
 
 const NOT_OURS =
   "the file is not in KO OS storage, so it may have been uploaded elsewhere";
@@ -67,8 +75,6 @@ const VECTOR_FAILED = "the SVG could not be converted for the design renderer";
 export const LOGO_UNDECODABLE_IN_RENDER =
   "the design renderer could not decode the file";
 
-/* Faults that are about the file the brand uploaded, as opposed to ours or
-   the image model's. Only these justify telling someone to replace it. */
 const NOT_DRAWABLE =
   "the design renderer could not decode it — the file may be damaged, or saved in a colour mode we cannot read";
 
@@ -133,10 +139,17 @@ export async function loadBrandLogo(
   }
 
   if (type === "svg") {
+    let safe: SafeSvg;
     try {
-      const rastered = await rasterizeSvg(withViewBox(bytes), {
+      safe = await sanitizeSvg(withViewBox(bytes));
+    } catch (err) {
+      console.error("brand logo SVG refused by the sanitiser", err);
+      return { logo: null, fault: NOT_DRAWABLE };
+    }
+    try {
+      const rastered = await rasterizeSvg(safe, {
         background: "transparent",
-        ...svgRasterBox(bytes, SVG_RASTER_WIDTH),
+        ...svgRasterBox(safe.bytes, SVG_RASTER_WIDTH),
       });
       return confirmDrawable({
         bytes: rastered,
@@ -148,15 +161,13 @@ export async function loadBrandLogo(
     }
   }
 
-  /* The uploaded bytes never reach the renderer. resvg aborts the whole
-     process on some malformed PNGs (a palette whose length is not a multiple
-     of three), so the probe below would kill the job instead of reporting. */
+  /* The uploaded bytes never reach the renderer. Its PNG decoder aborts the
+     whole process on some malformed PNGs (a palette whose length is not a
+     multiple of three), so the probe below would kill the job instead of
+     reporting. */
   let clean: Uint8Array;
   try {
-    ({ bytes: clean } = await reencodeImage(bytes, type, {
-      maxInputPixels: LOGO_MAX_INPUT_PIXELS,
-      maxOutputSide: LOGO_MAX_SIDE,
-    }));
+    ({ bytes: clean } = await reencodeImage(bytes, type, LOGO_REENCODE));
   } catch (err) {
     console.error("brand logo could not be decoded", err);
     return { logo: null, fault: NOT_DRAWABLE };

@@ -6,8 +6,8 @@ import { probeLogo } from "./logo-probe";
 const png = (bytes: Uint8Array) => ({ bytes, contentType: "image/png" });
 
 /**
- * The blocker this module exists for: resvg does not throw on an image node it
- * cannot decode. It skips the node and returns a valid PNG of everything else,
+ * The blocker this module exists for: next/og's rasteriser (sharp/librsvg)
+ * does not throw on an image node it cannot decode. It skips the node and returns a valid PNG of everything else,
  * so the design renders, the logo is absent, and nothing anywhere knows.
  * Catching an exception was never going to work, because there is no
  * exception — the only honest test is to draw it and look.

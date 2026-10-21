@@ -20,7 +20,7 @@ describe("decodePngRgba", () => {
     expect(again?.pixels).toEqual(original.pixels);
   });
 
-  /* Deliberately narrow: it reads what resvg emits and refuses the rest,
+  /* Deliberately narrow: it reads what next/og emits and refuses the rest,
      rather than pretending to be a general decoder. */
   it.each([
     ["not a png", new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9])],

@@ -6,6 +6,8 @@ import {
   fontExtension,
   fontRejectionMessage,
 } from "@/lib/design/render/font-file";
+import { detectImageType } from "@/lib/images/detect";
+import { sanitizeSvg, UnsafeSvgError } from "@/lib/images/svg-sanitize";
 import {
   isStorageConfigured,
   publicUrl,
@@ -81,6 +83,22 @@ export async function POST(request: Request) {
         status: 400,
       },
     );
+  }
+
+  /* Judged by the bytes as well as the declared type, since the logo loader
+     sniffs: an SVG uploaded as image/png is still drawn as an SVG. The
+     loader runs the same sanitiser on every render, so this only moves the
+     refusal to where the message can name the file. */
+  const isSvg =
+    !wantsFont &&
+    (ext === "svg" || detectImageType(new Uint8Array(buffer)) === "svg");
+  if (isSvg) {
+    try {
+      await sanitizeSvg(new Uint8Array(buffer));
+    } catch (err) {
+      if (!(err instanceof UnsafeSvgError)) throw err;
+      return NextResponse.json({ error: err.userMessage }, { status: 400 });
+    }
   }
 
   const prefix = wantsFont ? STORAGE_PREFIXES.fonts : STORAGE_PREFIXES.logos;

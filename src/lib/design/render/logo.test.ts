@@ -34,13 +34,13 @@ vi.mock("@/lib/design/render/logo-probe", () => ({
 
 /* A passthrough here, so the stub bytes below reach the stubbed probe.
    logo-reencode.smoke.test.ts runs the real libvips step on real files. */
-vi.mock("@/lib/images/reencode", () => ({
+vi.mock("@/lib/images/reencode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/images/reencode")>()),
   reencodeImage: (...args: unknown[]) => reencodeImage(...args),
 }));
 
-const { LOGO_FILE_FAULTS, loadBestLogo, loadBrandLogo } = await import(
-  "@/lib/design/render/logo"
-);
+const { LOGO_FILE_FAULTS, LOGO_REENCODE, loadBestLogo, loadBrandLogo } =
+  await import("@/lib/design/render/logo");
 
 const BASE = "https://cdn.example.test";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
@@ -211,7 +211,7 @@ describe("loadBrandLogo", () => {
     expect(logo?.darkest).toBe(0.81);
   });
 
-  /* The blocker: resvg skips an image node it cannot decode instead of
+  /* The blocker: the rasteriser skips an image node it cannot decode instead of
      throwing, so a damaged file rendered a design with an empty corner and
      every check called it a success. */
   it("reports a file the renderer silently declined to draw", async () => {
@@ -243,8 +243,9 @@ describe("loadBrandLogo", () => {
     expect(probeLogo.mock.calls[0][0].bytes).toEqual(PNG);
   });
 
-  /* resvg aborts the process on some malformed PNGs, so the stored bytes must
-     never reach the probe: only what the re-encode produced does. */
+  /* The renderer's PNG decoder aborts the process on some malformed PNGs, so
+     the stored bytes must never reach the probe: only what the re-encode
+     produced does. */
   it("probes and returns the re-encoded bytes, never the stored ones", async () => {
     const reencoded = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 7, 7, 7]);
     reencodeImage.mockResolvedValue({
@@ -256,10 +257,11 @@ describe("loadBrandLogo", () => {
     getObjectBytes.mockResolvedValue(Buffer.from(PNG));
 
     const { logo } = await loadBrandLogo(`${BASE}/logos/u1/a.png`);
-    expect(reencodeImage).toHaveBeenCalledWith(new Uint8Array(PNG), "png", {
-      maxInputPixels: 8192 * 8192,
-      maxOutputSide: 4096,
-    });
+    expect(reencodeImage).toHaveBeenCalledWith(
+      new Uint8Array(PNG),
+      "png",
+      LOGO_REENCODE,
+    );
     expect(probeLogo.mock.calls[0][0].bytes).toBe(reencoded);
     expect(logo?.bytes).toBe(reencoded);
   });
@@ -287,6 +289,45 @@ describe("loadBrandLogo", () => {
     getObjectBytes.mockResolvedValue(Buffer.from(svg('viewBox="0 0 10 10"')));
     await loadBrandLogo(`${BASE}/logos/u1/a.svg`);
     expect(reencodeImage).not.toHaveBeenCalled();
+  });
+
+  /* Round-3 critic C4 and C3: a 2560 px cutout re-encoded past what the
+     renderer parses, and a JPEG missing its end marker, which every browser
+     draws, both came back as "damaged". */
+  it("fits a logo to 1024 px and tolerates a missing JPEG end marker", () => {
+    expect(LOGO_REENCODE).toMatchObject({
+      maxOutputSide: 1024,
+      tolerateMissingJpegEnd: true,
+    });
+  });
+
+  /* Round-3 critic B8: the SVG went straight to the renderer, which decoded
+     an embedded PNG and aborted the process. */
+  it("refuses an SVG that reaches outside itself, without rasterising it", async () => {
+    getObjectBytes.mockResolvedValue(
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="http://169.254.169.254/latest/meta-data/"/></svg>',
+      ),
+    );
+    const { logo, fault } = await loadBrandLogo(`${BASE}/logos/u1/a.svg`);
+    expect(logo).toBeNull();
+    expect(fault).toMatch(/could not decode it/);
+    expect(LOGO_FILE_FAULTS).toContain(fault);
+    expect(rasterizeSvg).not.toHaveBeenCalled();
+  });
+
+  it("rasterises the sanitised document, not the stored text", async () => {
+    getObjectBytes.mockResolvedValue(
+      Buffer.from(
+        '<!-- exported --><svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"><rect width="30" height="10"/></svg>',
+      ),
+    );
+    await loadBrandLogo(`${BASE}/logos/u1/a.svg`);
+    const [safe, opts] = rasterizeSvg.mock.calls[0];
+    expect(new TextDecoder().decode(safe.bytes)).toBe(
+      '<svg viewBox="0 0 30 10" xmlns="http://www.w3.org/2000/svg" width="30" height="10"><rect width="30" height="10"></rect></svg>',
+    );
+    expect(opts).toMatchObject({ width: 600, height: 200 });
   });
 
   it("reports a vector the renderer choked on", async () => {

@@ -10,10 +10,16 @@
    the state by this constant rather than by its own copy of the wording. */
 export const IMAGE_NOT_USABLE_PREFIX = "This image can't be used";
 
+/* The browser refuses a fully transparent image before upload and the loader
+   refuses it at generation, in the same words. */
+export const TRANSPARENT_IMAGE_REASON =
+  "every pixel in it is transparent, so nothing would show. Choose another image.";
+
 export const MAX_DESIGN_IMAGE_BYTES = 20 * 1024 * 1024;
 
-/* The browser normalises to this long edge. The server cap is looser so a
-   client that skipped normalisation still works within what resvg rasterises
+/* The browser normalises to this long edge, and the server loader fits what
+   it reads to the same bound. The server's input cap is looser so a client
+   that skipped normalisation still works, within what libvips decodes
    comfortably inside a lambda, and anything beyond is refused outright. */
 export const NORMALISED_LONG_EDGE = 2560;
 export const MAX_DESIGN_IMAGE_SIDE = 4096;

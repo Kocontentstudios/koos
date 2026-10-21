@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
+  TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
 import {
   fitWithinLongEdge,
@@ -117,13 +118,16 @@ let bitmap: { width: number; height: number; close: ReturnType<typeof vi.fn> };
 let createImageBitmap: ReturnType<typeof vi.fn>;
 let toBlob: ReturnType<typeof vi.spyOn>;
 let alphaValue: number;
+let fillValue: number;
 let encodedSize: number | null;
 
 function makeContext(): FakeContext {
   const fake: FakeContext = {
     drawImage: vi.fn(),
     getImageData: vi.fn((_x: number, _y: number, w: number, h: number) => {
-      const data = new Uint8ClampedArray(Math.min(w * h, 64) * 4).fill(255);
+      const data = new Uint8ClampedArray(Math.min(w * h, 64) * 4).fill(
+        fillValue,
+      );
       data[data.length - 1] = alphaValue;
       return { data };
     }),
@@ -141,6 +145,7 @@ function makeContext(): FakeContext {
 
 beforeEach(() => {
   alphaValue = 255;
+  fillValue = 255;
   encodedSize = 1234;
   ctx = makeContext();
   bitmap = { width: 1000, height: 500, close: vi.fn() };
@@ -347,6 +352,40 @@ describe("normalizeImageForUpload: what it refuses", () => {
     expect(bitmap.close).toHaveBeenCalled();
   });
 
+  /* Round-3 critic C6: 4 of 232 browser outputs were fully transparent and
+     were only refused at generation, after the upload. */
+  it.each([
+    ["PNG", PNG_HEAD, "image/png"],
+    ["WEBP", WEBP_HEAD, "image/webp"],
+  ])(
+    "refuses a fully transparent %s before uploading it",
+    async (_label, head, type) => {
+      fillValue = 0;
+      alphaValue = 0;
+      expect(await reasonOf(normalizeImageForUpload(fileOf(head, type)))).toBe(
+        "blank",
+      );
+      expect(toBlob).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses the loader's own words for a transparent image", async () => {
+    fillValue = 0;
+    alphaValue = 0;
+    await expect(
+      normalizeImageForUpload(fileOf(PNG_HEAD, "image/png")),
+    ).rejects.toThrow(
+      `${IMAGE_NOT_USABLE_PREFIX}: ${TRANSPARENT_IMAGE_REASON}`,
+    );
+  });
+
+  it("keeps an image whose only visible pixel is faint", async () => {
+    fillValue = 0;
+    alphaValue = 1;
+    const out = await normalizeImageForUpload(fileOf(PNG_HEAD, "image/png"));
+    expect(out.type).toBe("image/png");
+  });
+
   it("refuses when the re-encoded file would still be over 20 MB", async () => {
     alphaValue = 0;
     encodedSize = MAX_DESIGN_IMAGE_BYTES + 1;
@@ -377,6 +416,7 @@ describe("normalizeImageForUpload: what it refuses", () => {
     "undecodable",
     "encode_failed",
     "too_large_after_encode",
+    "blank",
   ])("starts the %s message with IMAGE_NOT_USABLE_PREFIX", (reason) => {
     expect(new ImageNotUsableError(reason).message).toMatch(
       new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: \\S`),
