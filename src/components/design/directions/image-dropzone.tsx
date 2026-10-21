@@ -126,7 +126,18 @@ export function ImageDropzone({
               </>
             )}
           </span>
-          <span id={hintId} className="text-[12px] text-[var(--text-muted)]">
+          {/* Muted text is 4.14:1 on the drag tint and 4.31:1 on the hover
+              wash in dark mode, so the hint steps up a tier whenever the zone
+              is tinted. */}
+          <span
+            id={hintId}
+            className={cn(
+              "text-[12px]",
+              active
+                ? "text-[var(--text-secondary)]"
+                : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]",
+            )}
+          >
             {DESIGN_IMAGE_SUMMARY}.
             <PointerOnly> You can also paste one.</PointerOnly>
           </span>

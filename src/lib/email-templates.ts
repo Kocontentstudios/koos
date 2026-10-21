@@ -35,7 +35,7 @@ export interface BuiltEmail {
  * where the brand #138bc8 is 3.78:1 as text and under a white label.
  * theme-contrast.test.ts holds these equal to the tokens. */
 export const EMAIL_BRAND = {
-  link: "#0e6490",
+  link: "#0d5e87",
   buttonFill: "#1075a8",
 } as const;
 

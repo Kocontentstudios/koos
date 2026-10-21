@@ -3,6 +3,17 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "@/lib/design/palette";
 import { EMAIL_BRAND } from "@/lib/email-templates";
+import {
+  FILL_TOKENS,
+  groundTokens,
+  readAppThemes,
+  readLandingThemes,
+} from "@/lib/theme/primary-policy";
+import {
+  resolveToken as resolve,
+  stripCssComments as stripComments,
+  type Tokens,
+} from "@/lib/theme/tokens";
 import { normalizeHex } from "@/lib/validation/hex";
 
 /**
@@ -24,60 +35,6 @@ const SRC = path.join(process.cwd(), "src");
 const TEXT_AA = 4.5;
 const NON_TEXT_AA = 3;
 
-type Tokens = Map<string, string>;
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-/** Custom properties declared directly in the one rule whose selector is
- * exactly `selector`. Throws rather than returning an empty map, so a renamed
- * selector fails loudly instead of measuring nothing. */
-function declarations(css: string, selector: string): Tokens {
-  const source = stripComments(css);
-  const opener = new RegExp(
-    `(?:^|[{};])\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{`,
-    "g",
-  );
-  const matches = [...source.matchAll(opener)];
-  if (matches.length !== 1) {
-    throw new Error(`expected one "${selector}" rule, found ${matches.length}`);
-  }
-  const bodyStart = (matches[0].index ?? 0) + matches[0][0].length;
-  const body = source.slice(bodyStart, source.indexOf("}", bodyStart));
-  if (body.includes("{")) {
-    throw new Error(
-      `"${selector}" has a nested rule; the parser cannot see it`,
-    );
-  }
-  const tokens: Tokens = new Map();
-  for (const [, name, value] of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
-    tokens.set(name, value.trim());
-  }
-  if (tokens.size === 0) throw new Error(`"${selector}" declares no tokens`);
-  return tokens;
-}
-
-/** Both declarations sit on <html>, so a var() resolves against the merged
- * set: a light override of --surface-1 also changes --card: var(--surface-1). */
-function theme(css: string, base: string, light: string) {
-  const dark = declarations(css, base);
-  return {
-    dark,
-    light: new Map([...dark, ...declarations(css, light)]) as Tokens,
-  };
-}
-
-function resolve(tokens: Tokens, name: string, seen: string[] = []): string {
-  if (seen.includes(name)) {
-    throw new Error(`cycle: ${[...seen, name].join(" -> ")}`);
-  }
-  const value = tokens.get(name);
-  if (value === undefined) throw new Error(`${name} is not declared`);
-  const alias = /^var\((--[\w-]+)\)$/.exec(value);
-  return alias ? resolve(tokens, alias[1], [...seen, name]) : value;
-}
-
 /** A solid hex or a thrown error. palette.contrastRatio silently maps anything
  * it cannot parse to near-black, which would pass every check on a light
  * ground; a translucent token has to be composited before it can be measured. */
@@ -95,16 +52,10 @@ function ratio(tokens: Tokens, fg: string, bg: string): number {
 }
 
 const globals = readFileSync(path.join(APP, "globals.css"), "utf8");
-const APP_THEMES = theme(globals, ":root", ':root[data-theme="light"]');
+const APP_THEMES = readAppThemes();
 
-/** Every token a block of text or a control can be painted onto. --accent is
- * the highlighted-menu-item fill, so text sits on it too. */
-const GROUND = /^--(background|surface(-[\w-]+)?|card|popover|muted|accent)$/;
 const TEXT_TOKENS = ["--foreground", "--text-secondary", "--text-muted"];
-
-function grounds(tokens: Tokens): string[] {
-  return [...tokens.keys()].filter((name) => GROUND.test(name)).sort();
-}
+const grounds = groundTokens;
 
 describe("contrastRatio (WCAG 2.x relative luminance)", () => {
   it.each([
@@ -196,15 +147,13 @@ describe.each([
    surface and 3.34:1 on the light page. So a label on a primary fill uses
    --primary-fill*, and the blue as text uses --primary-text*. These pin both
    splits; primary-token-usage.test.ts keeps src from reaching around them. */
-const FILLS = [
-  "--primary-fill",
-  "--primary-fill-hover",
-  "--primary-fill-active",
-] as const;
+const FILLS = FILL_TOKENS;
 const PRIMARY_TEXT = ["--primary-text", "--primary-text-hover"] as const;
 
-/** The grounds a brand tint (icon tile, chip, selected row) is laid on. */
-const TINT_GROUNDS = ["--background", "--surface-1", "--surface-2"];
+/* A brand tint (icon tile, chip, selected row, hover wash) can be laid on any
+   surface, so it is measured over every one. Round 1 measured only Base and
+   Surface 1-2 and claimed the rest: a 20% tint over
+   --surface-container-highest put --primary-text at 4.28:1 dark, 4.25:1 light. */
 const BRAND_RGB = [19, 139, 200] as const;
 
 /** Every alpha a brand tint is painted at, read from src so a stronger tint
@@ -293,7 +242,7 @@ describe.each([
 
   const alphas = brandTintAlphas(tokens);
   const tintPairs = PRIMARY_TEXT.flatMap((fg) =>
-    TINT_GROUNDS.flatMap((bg) =>
+    grounds(tokens).flatMap((bg) =>
       alphas.map((alpha) => [fg, alpha, bg] as const),
     ),
   );
@@ -304,6 +253,24 @@ describe.each([
       expect(contrastRatio(solid(tokens, fg), ground)).toBeGreaterThanOrEqual(
         TEXT_AA,
       );
+    },
+  );
+
+  /* In Progress, Published, SourcePill and the calendar's design badges all
+     draw --status-progress-fg on --status-progress-bg. Light #1f7ab5 measured
+     3.91:1 on a white card and 3.22:1 over --surface-container-highest. */
+  it.each(grounds(tokens))(
+    `--status-progress-fg on its tint over %s clears ${TEXT_AA}:1`,
+    (bg) => {
+      const tint = /^rgba\(19,\s*139,\s*200,\s*([\d.]+)\)$/.exec(
+        resolve(tokens, "--status-progress-bg"),
+      );
+      if (!tint)
+        throw new Error("--status-progress-bg is no longer a brand tint");
+      const ground = composite(Number(tint[1]), solid(tokens, bg));
+      expect(
+        contrastRatio(solid(tokens, "--status-progress-fg"), ground),
+      ).toBeGreaterThanOrEqual(TEXT_AA);
     },
   );
 
@@ -329,12 +296,7 @@ describe("transactional email inlines the light primary tokens", () => {
 });
 
 describe("landing.css keeps the app's text and primary contracts", () => {
-  const landing = readFileSync(path.join(APP, "landing.css"), "utf8");
-  const LANDING = theme(
-    landing,
-    ".landing-page",
-    ':root[data-theme="light"] .landing-page',
-  );
+  const LANDING = readLandingThemes();
   const LANDING_GROUNDS = ["--base", "--surface-1", "--surface-2"];
 
   describe.each([
@@ -354,7 +316,7 @@ describe("landing.css keeps the app's text and primary contracts", () => {
       },
     );
 
-    it.each([...FILLS, "--primary-foreground", "--primary-text", "--primary"])(
+    it.each([...FILLS, "--primary-foreground", ...PRIMARY_TEXT, "--primary"])(
       "%s matches globals.css",
       (name) => {
         expect(solid(tokens, name)).toBe(solid(app, name));

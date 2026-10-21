@@ -33,7 +33,8 @@
   /* The brand blue as an accent: focus rings, borders, dots, bars, icons.
      Never a fill behind text (white on it is 3.78:1) and never text itself
      (4.02:1 on --surface-container-highest here, 3.34:1 on the light page).
-     theme-contrast.test.ts rejects either pairing anywhere in src. */
+     src/app/primary-token-usage.test.ts rejects either pairing anywhere in
+     src, however it is written (src/lib/theme/primary-usage.ts). */
   --primary: #138bc8;
   /* Fills that carry --primary-foreground. Same hue as --primary, lightness
      only, so white clears 4.5:1 at every state (5.08, 5.85, 6.95). One set
@@ -45,9 +46,10 @@
   --primary-disabled-foreground: #7c90a3;
   --primary-foreground: #ffffff;
   /* --primary as text. Lifted here, darkened in light mode, so a link or
-     eyebrow clears 4.5:1 on every surface and on the brand tints up to 20%
-     that icon tiles and chips sit on. Hover moves away from the ground. */
-  --primary-text: #1fa6ea;
+     eyebrow clears 4.5:1 on every surface token and on every brand tint src
+     paints (up to 20%) over any of them; the weakest pair is a 20% tint over
+     --surface-container-highest. Hover moves away from the ground. */
+  --primary-text: #30adec;
   --primary-text-hover: #45b4ed;
   /* A tint for backgrounds only. At 12-15% alpha it measures about 1.2:1
      against the surfaces, so it is never a focus indicator; --ring is. */
@@ -187,7 +189,7 @@
   --skeleton: #d5dee9;
   --accent-glow: rgba(19, 139, 200, 0.12);
 
-  --primary-text: #0e6490;
+  --primary-text: #0d5e87;
   --primary-text-hover: #0c577e;
   /* The disabled fill stays dark navy in light mode; --text-muted on it was
      2.11:1, unreadable even before the button's 50% opacity. */
@@ -229,9 +231,11 @@
 
   /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
      amber/red drop below readable contrast on white surfaces. Darken them for
-     light mode (the low-alpha tint backgrounds stay legible as-is). */
+     light mode (the low-alpha tint backgrounds stay legible as-is).
+     --status-progress-fg is held to 4.5:1 over its tint on every surface by
+     theme-contrast.test.ts; #1f7ab5 measured 3.91:1 on a white card. */
   --status-draft-fg: #475569;
-  --status-progress-fg: #1f7ab5;
+  --status-progress-fg: #175c89;
   --status-ready-fg: #4d7c0f;
   --status-pending-fg: #a16207;
   --status-error-fg: #c0392b;
@@ -472,17 +476,6 @@ h6 {
   border-color: rgba(19, 139, 200, 0.3);
 }
 
-.gradient-primary {
-  background: linear-gradient(135deg, #138bc8, #0a6d9e);
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #138bc8, #aec6fe);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
 .ai-glow {
   box-shadow: 0 0 16px rgba(19, 139, 200, 0.4);
 }
@@ -531,20 +524,6 @@ h6 {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-}
-
-.progress-bar {
-  height: 4px;
-  border-radius: 9999px;
-  background: var(--surface-container-high);
-  overflow: hidden;
-}
-
-.progress-bar-fill {
-  height: 100%;
-  border-radius: 9999px;
-  background: linear-gradient(90deg, #138bc8, #0a6d9e);
-  transition: width 0.5s ease;
 }
 
 /* Base form styling lives in @layer base so Tailwind utility classes
@@ -641,14 +620,16 @@ h6 {
    (navy) in dark mode and brand-blue in light mode. In light mode the band text
    and badges flip to white so they read on the blue. The logo tile is excluded
    (it keeps its own surface/border) by scoping the white-text rule to
-   .brand-header-info.
+   .brand-header-info. The blue is --primary-fill (white 5.08:1); the badges
+   sit on --primary-fill-active (6.95:1), solid, because a translucent white
+   pill over the band pulled white down to 3.23:1.
    ─────────────────────────────────────────────────────────────────────────── */
 .brand-header-band {
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
 }
 :root[data-theme="light"] .brand-header-band {
-  background: #0f7eb8;
+  background: var(--primary-fill);
   border-bottom-color: rgba(255, 255, 255, 0.15);
 }
 :root[data-theme="light"]
@@ -676,6 +657,7 @@ h6 {
   color: var(--text-secondary);
 }
 :root[data-theme="light"] .brand-header-band .brand-badge {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--primary-fill-active);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
   color: #ffffff;
 }

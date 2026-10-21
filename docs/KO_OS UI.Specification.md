@@ -1453,7 +1453,7 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 | Token | Value | Usage |
 | :---- | :---- | :---- |
 | Primary (`--primary`) | \#138BC8 | The brand blue as an accent: focus ring, borders, active-nav bar, dots, progress bars, chart marks, icon tints. Never a fill behind text and never text itself (see below) |
-| Primary Fill (`--primary-fill`) | \#1075A8 | Every fill that carries a label: primary buttons, the KO mark, the KO chat avatar, today's date, completed steps, filled badges |
+| Primary Fill (`--primary-fill`) | \#1075A8 | Every fill that carries a label: primary buttons, the KO mark (sidebar, onboarding welcome, auth), the KO chat avatar, today's date, completed steps, filled badges, the light-mode brand-profile band. The workspace initial avatar and the landing founder avatar start a gradient on it; the far stop is darkened until white clears 4.5:1 at both stops and every point between (\#6E4AFF and \#9733F5, worst 5.05:1) |
 | Primary Fill Hover (`--primary-fill-hover`) | \#0F6B9A | Hover state of a primary fill — deeper |
 | Primary Fill Active (`--primary-fill-active`) | \#0C5F8A | Pressed/clicked state |
 | Primary Foreground (`--primary-foreground`) | \#FFFFFF | The label on any primary fill |
@@ -1464,18 +1464,20 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 
 * The fill tokens are the same in both themes: they are measured against the white label they carry, not against the page. Same hue as Primary, lightness only.
 
-* Why Primary is split: one value cannot serve both jobs. White on \#138BC8 is 3.78:1, so a fill has to be darker; but as text on the dark surfaces a darker blue loses contrast, so text has to be lighter. Primary keeps the brand value for everything that is not text and not under text. `src/app/primary-token-usage.test.ts` fails the build if `src/` puts a label on `bg-primary`, `background: var(--primary)` or `#138BC8`, uses `text-primary` / `color: var(--primary)`, or references the retired `--primary-hover` / `--primary-active`.
+* Why Primary is split: one value cannot serve both jobs. White on \#138BC8 is 3.78:1, so a fill has to be darker; but as text on the dark surfaces a darker blue loses contrast, so text has to be lighter. Primary keeps the brand value for everything that is not text and not under text.
+
+* The gate is an allowlist, not a list of known mistakes. `src/app/primary-token-usage.test.ts` runs `src/lib/theme/primary-usage.ts` over every file in `src/`. Any colour in the brand family (hue 192-215, saturation 0.4 or more, lightness 0.2-0.65) is caught however it is written: a token, a Tailwind name (`bg-ring`, `bg-sidebar-ring`), a hex, an `rgb()`, a gradient stop, an SVG `fill`, a `selection:` / `file:` / `placeholder:` / `before:` box, or a CSS rule that styles text inside another rule's fill. Behind a label only the three fill tokens may sit, and the label is measured against them. A brand gradient under a label is measured at both stops and every point between, in sRGB and oklab. As text only Primary Text, its hover and `--status-progress-fg` may appear. A brand tint under half alpha is measured with each label colour over every surface token. The retired `--primary-hover` / `--primary-active` and their values (\#0F7EB8, \#0A6D9E) are rejected anywhere in `src/`.
 
 ### **Primary as Text**
 
 | Token | Dark | Light | Usage |
 | :---- | :---- | :---- | :---- |
-| Primary Text (`--primary-text`, `text-primary-text`) | \#1FA6EA | \#0E6490 | Links, eyebrows, active labels, brand-blue icons on a tint, the In Progress ticket badge |
+| Primary Text (`--primary-text`, `text-primary-text`) | \#30ADEC | \#0D5E87 | Links, eyebrows, active labels, brand-blue icons on a tint, the In Progress ticket badge, the light landing hero headline (with its hover as the second stop) |
 | Primary Text Hover (`--primary-text-hover`) | \#45B4ED | \#0C577E | Hover on a primary-text link. Moves away from the ground in each theme, so hover never costs contrast |
 
-* Both clear 4.5:1 on every surface token in their theme and on every brand tint `src/` paints (rgba(19,139,200,0.06–0.2), `bg-primary/15`, Accent Glow) over Base, Surface 1 and Surface 2. Measured values are in 12.1.
+* Both clear 4.5:1 on every surface token in their theme and on every brand tint `src/` paints (rgba(19,139,200,0.06–0.2), `bg-primary/15`, Accent Glow) over every one of those surfaces, Surface Container Highest included. Round 1 (\#1FA6EA / \#0E6490) measured only over Base and Surface 1-2 and fell to 4.30:1 / 4.24:1 on a 20% tint over Surface Container Highest; both values are lightness-only moves in the same hue. Measured values are in 12.1.
 
-* Transactional email cannot read CSS variables, so `EMAIL_BRAND` in `src/lib/email-templates.ts` inlines the light values (\#0E6490 links, \#1075A8 buttons). The gate test holds them equal to the tokens.
+* Transactional email cannot read CSS variables, so `EMAIL_BRAND` in `src/lib/email-templates.ts` inlines the light values (\#0D5E87 links, \#1075A8 buttons). The gate test holds them equal to the tokens.
 
 ### **Text Colors**
 
@@ -1489,14 +1491,18 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 
 ### **Status Colors**
 
-| Status | Background | Text | Usage |
-| :---- | :---- | :---- | :---- |
-| Draft | rgba(255,255,255,0.06) | \#A7B6C7 | Unpublished, not started |
-| In Progress | rgba(19,139,200,0.15) | \#85B7EB | Working on it |
-| Ready | rgba(99,153,34,0.18) | \#97C459 | Content/design ready |
-| Published | rgba(19,139,200,0.15) | \#85B7EB | Live/posted |
-| Pending | rgba(212,169,84,0.15) | \#D4A954 | Waiting for designer |
-| Error | rgba(212,117,117,0.08) | \#D47575 | Something went wrong |
+| Status | Background (dark / light) | Text dark | Text light | Usage |
+| :---- | :---- | :---- | :---- | :---- |
+| Draft | rgba(255,255,255,0.06) / rgba(15,23,42,0.05) | \#A7B6C7 | \#475569 | Unpublished, not started |
+| In Progress | rgba(19,139,200,0.15) | \#85B7EB | \#175C89 | Working on it |
+| Ready | rgba(99,153,34,0.18) | \#97C459 | \#4D7C0F | Content/design ready |
+| Published | rgba(19,139,200,0.15) | \#85B7EB | \#175C89 | Live/posted |
+| Pending | rgba(212,169,84,0.15) | \#D4A954 | \#A16207 | Waiting for designer |
+| Error | rgba(212,117,117,0.08) | \#D47575 | \#C0392B | Something went wrong |
+
+* Tokens: `--status-{draft,progress,ready,pending,error}-{bg,fg}` in `globals.css`. The light text values are the dark ones darkened for white surfaces; the tints are shared.
+
+* In Progress and Published (`--status-progress-fg`) are held to 4.5:1 over their tint on every surface token by `theme-contrast.test.ts`: 6.51:1 dark over Surface 2, 6.02:1 light over a white card, worst 4.96:1 light over \#E2E8F0. The light value was \#1F7AB5 until 2026-10-21, which measured 3.91:1 on a white card (the FEAT-033 source pill) and 3.22:1 over \#E2E8F0.
 
 ### **Borders, Dividers & Effects**
 
@@ -1897,16 +1903,19 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Ring, weakest pair | 4.02:1 on \#002550 | 3.07:1 on \#E2E8F0 |
 | Ring on the sidebar (dark in both themes) | 4.21:1 on \#00204F | 4.21:1 on \#00204F |
 | White on Primary Fill (rest / hover / pressed) | \#FFFFFF on \#1075A8 / \#0F6B9A / \#0C5F8A \= 5.08 / 5.85 / 6.95:1 | same tokens, same ratios |
-| Primary Text on Base | \#1FA6EA on \#000D20 \= 7.14:1 | \#0E6490 on \#EDF1F7 \= 5.71:1 |
-| Primary Text on Surface 2 | 6.10:1 on \#001F3D | 6.47:1 on \#FFFFFF |
-| Primary Text, weakest surface | 5.58:1 on \#002550 | 5.25:1 on \#E2E8F0 |
-| Primary Text, weakest brand tint (20%) | 4.64:1 over \#001F3D | 4.58:1 over \#EDF1F7 |
+| Primary Text on Base | \#30ADEC on \#000D20 \= 7.71:1 | \#0D5E87 on \#EDF1F7 \= 6.24:1 |
+| Primary Text on Surface 2 | 6.58:1 on \#001F3D | 7.08:1 on \#FFFFFF |
+| Primary Text, weakest surface | 6.02:1 on \#002550 | 5.74:1 on \#E2E8F0 |
+| Primary Text, weakest brand tint (20% over the weakest surface) | 4.64:1 over \#002550 | 4.63:1 over \#E2E8F0 |
 | Primary Text Hover, weakest surface | \#45B4ED, 6.52:1 on \#002550 | \#0C577E, 6.36:1 on \#E2E8F0 |
+| Primary Text Hover, weakest brand tint | 5.03:1 | 5.13:1 |
+| In Progress text on its tint, weakest surface | \#85B7EB, 5.97:1 over \#002550 | \#175C89, 4.96:1 over \#E2E8F0 |
+| White on the brand band / its badges (light) | n/a (the band is Surface 2) | 5.08:1 on Primary Fill / 6.95:1 on Primary Fill Active |
 | Disabled label on Disabled fill | \#7C90A3 on \#1A3A4A \= 3.65:1 | \#A7B6C7 on \#1A3A4A \= 5.81:1 |
 
 * For the record: \#FFFFFF on the brand \#138BC8 is 3.78:1, and \#138BC8 as text is 4.40:1 on dark Surface 2, 4.02:1 on \#002550 and 3.34:1 on the light page. That is why fills and text have their own tokens (9.2) while the ring stays on \#138BC8, which clears 3:1 everywhere.
 
-* The gate also measures the split: white on each fill token, Primary Text and its hover on every surface and on every brand-tint alpha found in `src/`, the disabled label at 3:1, and `landing.css` and `EMAIL_BRAND` against the same values.
+* The gate also measures the split: white on each fill token, Primary Text and its hover on every surface and on every brand-tint alpha found in `src/` over every surface, the In Progress pair on its tint over every surface, the disabled label at 3:1, and `landing.css` and `EMAIL_BRAND` against the same values. The usage scan (9.2) measures what the token gate cannot see: the pairs `src/` actually writes.
 
 ## **12.2 Focus Management**
 

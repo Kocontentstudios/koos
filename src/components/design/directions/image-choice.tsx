@@ -53,7 +53,14 @@ function ChoiceCard({
         </span>
       </span>
       {hint ? (
-        <span className="mt-auto text-[11px] text-[var(--text-muted)]">
+        <span
+          className={cn(
+            "mt-auto text-[11px]",
+            dropActive
+              ? "text-[var(--text-secondary)]"
+              : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]",
+          )}
+        >
           {hint}
         </span>
       ) : null}

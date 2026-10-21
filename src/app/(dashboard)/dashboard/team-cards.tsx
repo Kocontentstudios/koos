@@ -12,7 +12,8 @@ export function InviteTeamCard() {
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold">Invite Your Team</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
+          {/* Muted text falls to 4.07:1 on this brand wash; secondary holds. */}
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
             Bring teammates into this workspace to manage brands, campaigns, and
             design requests together.
           </p>
