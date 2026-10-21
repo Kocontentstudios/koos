@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
 
 /**
@@ -12,7 +12,7 @@ import { can } from "@/lib/auth/workspace-access";
  * which redirects here and would loop.
  */
 export default async function NoBrandsPage() {
-  const { dbUser, role } = await getActiveWorkspace();
+  const { dbUser, role } = await requireOpenWorkspace();
   if (!dbUser) redirectToLogin();
   // Anyone who can create a brand belongs on the create screen instead.
   if (can(role, "create_brand")) redirect("/brand/create");

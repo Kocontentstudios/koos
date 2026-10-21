@@ -6,7 +6,7 @@ import { Fragment } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { pairColourLabels } from "@/lib/brand/colour-labels";
 import { hasCompletedBrand } from "@/lib/brand-profile";
@@ -86,7 +86,7 @@ export default async function BrandProfilePage() {
   const { dbUser } = await getAuthUser();
   if (!dbUser) redirectToLogin();
 
-  const { workspace, role } = await getActiveWorkspace();
+  const { workspace, role } = await requireOpenWorkspace();
   const brand = workspace
     ? await getActiveBrandForMember(workspace.id, dbUser.id)
     : null;

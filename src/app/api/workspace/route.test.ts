@@ -27,7 +27,12 @@ vi.mock("@/lib/db/queries", () => ({
 import { DELETE, GET, PATCH } from "./route";
 import { POST as SWITCH } from "./switch/route";
 
-const WORKSPACE = { id: "w1", name: "Acme", logoUrl: null };
+const WORKSPACE = {
+  id: "w1",
+  name: "Acme",
+  logoUrl: null,
+  accessStatus: "approved",
+};
 const OWNER = { dbUser: { id: "u1" }, workspace: WORKSPACE, role: "owner" };
 const MEMBER = {
   dbUser: { id: "u2" },

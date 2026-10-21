@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { redirectToLogin } from "@/lib/auth/redirects";
+import { isActiveWorkspaceOpen } from "@/lib/auth/require-open-workspace";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import { alignLabelsToColours } from "@/lib/brand/colour-labels";
 import { parseAdditionalColors } from "@/lib/brand-profile";
 import {
@@ -34,6 +36,9 @@ export async function saveBrandProfile(
   const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser) return { ok: false, error: "Not authenticated" };
   if (!workspace) redirectToLogin();
+  if (!isActiveWorkspaceOpen({ dbUser, workspace, role })) {
+    return { ok: false, error: WORKSPACE_PENDING_ERROR };
+  }
 
   const parsed = brandProfileSchema.safeParse(raw);
   if (!parsed.success) {

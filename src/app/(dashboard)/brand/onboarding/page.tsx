@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { rowsToUiMessages } from "@/lib/ai/chat-messages";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
 import {
   getActiveBrandForMember,
@@ -15,7 +15,7 @@ export default async function BrandOnboardingPage() {
   const { dbUser } = await getAuthUser();
   if (!dbUser) redirectToLogin();
 
-  const { workspace, role } = await getActiveWorkspace();
+  const { workspace, role } = await requireOpenWorkspace();
   const brand = workspace
     ? await getActiveBrandForMember(workspace.id, dbUser.id)
     : null;

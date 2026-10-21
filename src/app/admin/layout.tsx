@@ -42,6 +42,12 @@ export default async function AdminLayout({
                 <Link href="/admin/users" className="hover:text-foreground">
                   Users
                 </Link>
+                <Link
+                  href="/admin/workspaces"
+                  className="hover:text-foreground"
+                >
+                  Access
+                </Link>
                 <Link href="/admin/settings" className="hover:text-foreground">
                   Settings
                 </Link>

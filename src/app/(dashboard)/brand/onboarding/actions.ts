@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isActiveWorkspaceOpen } from "@/lib/auth/require-open-workspace";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import {
   PLACEHOLDER_BRAND_NAME,
   parseAdditionalColors,
@@ -34,6 +36,9 @@ export async function startConversationalOnboarding(): Promise<
 > {
   const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser || !workspace) return { ok: false, error: "Not authenticated" };
+  if (!isActiveWorkspaceOpen({ dbUser, workspace, role })) {
+    return { ok: false, error: WORKSPACE_PENDING_ERROR };
+  }
 
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   if (existing) return { ok: true, brandId: existing.id };
