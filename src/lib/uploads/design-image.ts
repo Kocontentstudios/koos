@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { jpegDecodes, pngDecodes } from "@/lib/images/decode-check";
 import { detectImageType } from "@/lib/images/detect";
+import { reencodeImage } from "@/lib/images/reencode";
 import {
   getObjectBytes,
   ObjectTooLargeError,
@@ -21,9 +22,18 @@ import {
  * The browser normalises before upload and the presign route binds the
  * declared type and size, but neither is proof of the bytes: the PUT goes
  * straight from the browser to R2, and a client can skip the normaliser or a
- * PUT can be cut short. This is the one place the real bytes are judged (type,
- * size, and that the pixel data decodes), and it runs before they reach satori
- * or resvg, which draw a corrupt image as nothing rather than failing.
+ * PUT can be cut short. This is the one place the real bytes are judged.
+ *
+ * The guarantee: the bytes this returns were encoded by this process, never
+ * the stored file. Cheap checks run first (key, size, type sniff, the 4096 px
+ * cap, then a structural decode check that refuses truncated and corrupt
+ * files and decompression bombs without decoding pixels). What passes is then
+ * decoded by libvips, refusing on the first decoder warning, and re-encoded as
+ * a plain 8-bit sRGB PNG or JPEG (see reencodeImage). So satori and resvg
+ * never see an uploaded file's own bytes: a file that would abort the
+ * renderer process, or that it would draw as nothing, is refused here with
+ * the user-facing message instead. A fully transparent image is refused too,
+ * since drawn it is indistinguishable from no image.
  */
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -37,7 +47,8 @@ export type DesignImageFault =
   | "not_png_or_jpeg"
   | "type_mismatch"
   | "unreadable"
-  | "too_many_pixels";
+  | "too_many_pixels"
+  | "blank";
 
 const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
 
@@ -49,12 +60,17 @@ const REASONS: Record<DesignImageFault, string> = {
   type_mismatch: "its contents do not match its file type. Upload it again.",
   unreadable: "it could not be read and may be damaged. Choose another image.",
   too_many_pixels: `it is larger than ${MAX_DESIGN_IMAGE_SIDE} px on one side. Choose a smaller image.`,
+  blank:
+    "every pixel in it is transparent, so nothing would show. Choose another image.",
 };
 
 /** `fault` is for logs and metrics; `message` is safe to show the user. */
 export class DesignImageError extends Error {
-  constructor(readonly fault: DesignImageFault) {
-    super(`${IMAGE_NOT_USABLE_PREFIX}: ${REASONS[fault]}`);
+  constructor(
+    readonly fault: DesignImageFault,
+    options?: ErrorOptions,
+  ) {
+    super(`${IMAGE_NOT_USABLE_PREFIX}: ${REASONS[fault]}`, options);
     this.name = "DesignImageError";
   }
 }
@@ -114,12 +130,25 @@ export async function loadDesignImage(
   const decodes = type === "png" ? await pngDecodes(bytes) : jpegDecodes(bytes);
   if (!decodes) throw new DesignImageError("unreadable");
 
+  const clean = await reencodeOrRefuse(bytes, type);
+  if (!clean.visible) throw new DesignImageError("blank");
+
   return {
-    bytes,
+    bytes: clean.bytes,
     contentType: type === "png" ? "image/png" : "image/jpeg",
-    width: size.width,
-    height: size.height,
+    width: clean.width,
+    height: clean.height,
   };
+}
+
+async function reencodeOrRefuse(bytes: Buffer, type: "png" | "jpeg") {
+  try {
+    return await reencodeImage(bytes, type, {
+      maxInputPixels: MAX_DESIGN_IMAGE_SIDE * MAX_DESIGN_IMAGE_SIDE,
+    });
+  } catch (err) {
+    throw new DesignImageError("unreadable", { cause: err });
+  }
 }
 
 /* Only the faults that are the file's own become DesignImageError. A storage

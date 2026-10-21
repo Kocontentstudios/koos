@@ -12,6 +12,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { ImageResponse } from "next/og";
+import sharp from "sharp";
 import {
   buildJpeg,
   buildPng,
@@ -270,15 +271,21 @@ describe("loadDesignImage refuses what is not a whole PNG or JPEG", () => {
 });
 
 describe("loadDesignImage", () => {
-  it("returns a PNG's bytes, type and size", async () => {
-    const bytes = png(1200, 800);
-    getObjectBytes.mockResolvedValue(bytes);
+  it("returns a PNG's type and size, with bytes it encoded itself", async () => {
+    const stored = png(1200, 800);
+    getObjectBytes.mockResolvedValue(stored);
     const image = await loadDesignImage(PNG_KEY, BRAND);
-    expect(image).toEqual({
-      bytes,
+    expect(image).toMatchObject({
       contentType: "image/png",
       width: 1200,
       height: 800,
+    });
+    expect(image.bytes.equals(stored)).toBe(false);
+    expect(await sharp(image.bytes).metadata()).toMatchObject({
+      format: "png",
+      width: 1200,
+      height: 800,
+      depth: "uchar",
     });
   });
 
@@ -409,6 +416,7 @@ describe("loadDesignImage", () => {
     "type_mismatch",
     "unreadable",
     "too_many_pixels",
+    "blank",
   ])("starts the %s message with IMAGE_NOT_USABLE_PREFIX", (fault) => {
     expect(new DesignImageError(fault).message).toMatch(
       new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: \\S`),
@@ -524,20 +532,22 @@ describe("loadDesignImage proves the image decodes", () => {
   });
 
   it("accepts an interlaced PNG and a multi-chunk IDAT", async () => {
-    getObjectBytes.mockResolvedValue(buildPng(37, 23, { interlaced: true }));
+    getObjectBytes.mockResolvedValue(
+      buildPng(37, 23, { interlaced: true, colourType: 2 }),
+    );
     await expect(loadDesignImage(PNG_KEY, BRAND)).resolves.toMatchObject({
       width: 37,
       height: 23,
     });
 
-    const stream = deflateSync(Buffer.alloc(23 * (1 + 37 * 4)));
+    const stream = deflateSync(Buffer.alloc(23 * (1 + 37 * 3)));
     const split = Buffer.concat([
       PNG_SIGNATURE,
       ihdrChunk({
         width: 37,
         height: 23,
         bitDepth: 8,
-        colourType: 6,
+        colourType: 2,
         interlaced: false,
       }),
       pngChunk("IDAT", stream.subarray(0, 5)),
@@ -546,6 +556,142 @@ describe("loadDesignImage proves the image decodes", () => {
     ]);
     getObjectBytes.mockResolvedValue(split);
     await expect(loadDesignImage(PNG_KEY, BRAND)).resolves.toBeTruthy();
+  });
+});
+
+/* Round-2 critic B5/B6: a structural check cannot match resvg rule for rule,
+   so what the loader returns is a fresh encode, never the stored bytes.
+   design-image.render-gate.smoke.test.ts draws the whole hostile corpus. */
+describe("loadDesignImage re-encodes what it accepts", () => {
+  const opaque = (width: number, height: number) =>
+    sharp({
+      create: { width, height, channels: 3, background: "#2a6f97" },
+    });
+
+  async function refusal(key: string, bytes: Buffer) {
+    getObjectBytes.mockResolvedValue(bytes);
+    const err = await loadDesignImage(key, BRAND).catch((e: unknown) => e);
+    if (!(err instanceof DesignImageError)) {
+      throw new Error(`expected a DesignImageError, got ${String(err)}`);
+    }
+    return err;
+  }
+
+  /* The file that aborted the renderer: 16x16 indexed, a 4-byte PLTE, every
+     CRC valid. It passes the structural check; libpng refuses it. */
+  it("refuses a palette whose length is not a multiple of 3", async () => {
+    const palette = Buffer.concat([
+      PNG_SIGNATURE,
+      ihdrChunk({
+        width: 16,
+        height: 16,
+        bitDepth: 8,
+        colourType: 3,
+        interlaced: false,
+      }),
+      pngChunk("PLTE", Buffer.from([0, 0, 255, 9])),
+      pngChunk("IDAT", deflateSync(Buffer.alloc(16 * 17))),
+      pngChunk("IEND"),
+    ]);
+    const err = await refusal(PNG_KEY, palette);
+    expect(err.fault).toBe("unreadable");
+    expect(err.message.startsWith(`${IMAGE_NOT_USABLE_PREFIX}: `)).toBe(true);
+    expect(err.cause).toBeInstanceOf(Error);
+  });
+
+  /* Well framed, so the marker-chain check passes, but the frame names a
+     quantisation table that is never defined. resvg drew it as nothing. */
+  it("refuses a JPEG that references a missing table", async () => {
+    const whole = await opaque(64, 48).jpeg().toBuffer();
+    const sof = whole.indexOf(Buffer.from([0xff, 0xc0]));
+    whole[sof + 4 + 6 + 2] = 3;
+    const err = await refusal(JPG_KEY, whole);
+    expect(err.fault).toBe("unreadable");
+  });
+
+  it("refuses an image with no visible pixel as blank", async () => {
+    const clear = await sharp({
+      create: {
+        width: 40,
+        height: 30,
+        channels: 4,
+        background: { r: 255, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const err = await refusal(PNG_KEY, clear);
+    expect(err.fault).toBe("blank");
+    expect(err.message).toBe(
+      `${IMAGE_NOT_USABLE_PREFIX}: every pixel in it is transparent, so nothing would show. Choose another image.`,
+    );
+  });
+
+  it("keeps a PNG's alpha and pixels", async () => {
+    const pixels = Buffer.alloc(8 * 4 * 4);
+    for (let i = 0; i < pixels.length; i += 4) {
+      pixels.set([i % 256, 40, 200, i < 64 ? 0 : 128], i);
+    }
+    const stored = await sharp(pixels, {
+      raw: { width: 8, height: 4, channels: 4 },
+    })
+      .png()
+      .toBuffer();
+    getObjectBytes.mockResolvedValue(stored);
+    const image = await loadDesignImage(PNG_KEY, BRAND);
+    const back = await sharp(image.bytes).raw().toBuffer();
+    expect(back.equals(pixels)).toBe(true);
+  });
+
+  it("returns a 16-bit PNG as 8-bit", async () => {
+    const stored = await opaque(20, 10).toColourspace("rgb16").png().toBuffer();
+    expect(stored[24]).toBe(16);
+    getObjectBytes.mockResolvedValue(stored);
+    const image = await loadDesignImage(PNG_KEY, BRAND);
+    expect(image.bytes[24]).toBe(8);
+  });
+
+  it("returns a CMYK JPEG as an sRGB one", async () => {
+    const stored = await opaque(32, 32).toColourspace("cmyk").jpeg().toBuffer();
+    expect((await sharp(stored).metadata()).space).toBe("cmyk");
+    getObjectBytes.mockResolvedValue(stored);
+    const image = await loadDesignImage(JPG_KEY, BRAND);
+    expect(image.contentType).toBe("image/jpeg");
+    expect(await sharp(image.bytes).metadata()).toMatchObject({
+      format: "jpeg",
+      space: "srgb",
+      channels: 3,
+    });
+  });
+
+  /* resvg ignores EXIF orientation; the browser that showed the user their
+     photo does not. The loader turns it the way the user saw it. */
+  it("applies EXIF orientation and reports the turned size", async () => {
+    const stored = await opaque(60, 20)
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+    getObjectBytes.mockResolvedValue(stored);
+    const image = await loadDesignImage(JPG_KEY, BRAND);
+    expect([image.width, image.height]).toEqual([20, 60]);
+    const meta = await sharp(image.bytes).metadata();
+    expect([meta.width, meta.height, meta.orientation]).toEqual([
+      20,
+      60,
+      undefined,
+    ]);
+  });
+
+  it("strips metadata", async () => {
+    const stored = await opaque(16, 16)
+      .withMetadata({ exif: { IFD0: { Copyright: "someone" } } })
+      .jpeg()
+      .toBuffer();
+    getObjectBytes.mockResolvedValue(stored);
+    const image = await loadDesignImage(JPG_KEY, BRAND);
+    const meta = await sharp(image.bytes).metadata();
+    expect(meta.exif).toBeUndefined();
+    expect(meta.icc).toBeUndefined();
   });
 });
 
