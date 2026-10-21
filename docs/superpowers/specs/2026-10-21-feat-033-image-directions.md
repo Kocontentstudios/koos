@@ -28,7 +28,7 @@ Satori renders a subset of HTML/CSS. Restricting the renderer to that subset mak
 | PR | Scope |
 |---|---|
 | **1 (this spec)** | Image choice (own image or KO imagery), upload with preview/remove/replace, two directions as layer documents with a "why this works" list, results screen, PNG and JPG download, regenerate. Calendar post and Design Studio entry points. |
-| 2 | Editor: canvas select/drag/resize/rotate/snap, Design and Layers panels, undo/redo, versions (save, restore, up to 30), format switch. |
+| 2 | Editor: canvas select/drag/resize/rotate/snap, Design and Layers panels, undo/redo, versions (save, restore, up to 30), format switch. Text fit while editing is a browser estimate (font-metric advance widths read from the same TTFs satori loads, with 1em assumed for any glyph the font lacks, so emoji and CJK estimate wide, never narrow). The server re-fits with the satori measurer on save, and the saved document is the server's. Decided with Oluwaseyi 2026-10-21: the server measurer costs 0.4-1.3 s per probe set, too slow for every keystroke. |
 | 3 | Edit with AI: free-text and chips, scope (whole design or selection), proposal preview with changed elements outlined, brand checks, accept/decline/try again, accept saves a version. |
 
 ## PR 1 contracts
