@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { countWorkspaceBrands, getWorkspacesForUser } from "@/lib/db/queries";
 import { SettingsClient } from "./settings-client";
 
 export default async function WorkspaceSettingsPage() {
-  const { dbUser, workspace, role } = await getActiveWorkspace();
+  const { dbUser, workspace, role } = await requireOpenWorkspace();
   if (!dbUser) redirectToLogin();
   if (!can(role, "manage_settings")) redirect("/dashboard");
 

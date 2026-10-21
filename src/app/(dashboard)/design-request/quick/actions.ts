@@ -1,7 +1,9 @@
 "use server";
 
+import { isActiveWorkspaceOpen } from "@/lib/auth/require-open-workspace";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import { createBrand, getActiveBrandForMember } from "@/lib/db/queries";
 
 /**
@@ -18,6 +20,9 @@ export async function ensureQuickRequestBrand(
 ): Promise<{ ok: true; brandId: string } | { ok: false; error: string }> {
   const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser || !workspace) return { ok: false, error: "Not authenticated" };
+  if (!isActiveWorkspaceOpen({ dbUser, workspace, role })) {
+    return { ok: false, error: WORKSPACE_PENDING_ERROR };
+  }
 
   const name = businessName.trim();
   if (!name) return { ok: false, error: "Enter your business name" };

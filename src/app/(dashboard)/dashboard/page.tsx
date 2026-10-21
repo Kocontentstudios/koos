@@ -17,7 +17,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ProductTour } from "@/components/tour/product-tour";
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
 import { hasCompletedBrand } from "@/lib/brand-profile";
 import { getSetupState } from "@/lib/dashboard/setup-state";
@@ -74,7 +74,7 @@ export default async function DashboardPage({
      may look at, so the redirect is replaced by a locked preview. Every other
      guarded route keeps requireBrand exactly as it is — those pages need brand
      data to function, and the gate is what guarantees they have it. */
-  const { dbUser, workspace, role } = await getActiveWorkspace();
+  const { dbUser, workspace, role } = await requireOpenWorkspace();
   if (!dbUser) redirectToLogin();
   const activeBrand = await getActiveBrandForMember(workspace.id, dbUser.id);
 

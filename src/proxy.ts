@@ -12,6 +12,7 @@ const APP_HOST = "app.kocontentstudios.com";
 // Real URL paths that belong to the app. Route groups like (dashboard) are
 // stripped from the URL, so these are the actual path prefixes.
 const appPrefixes = [
+  "/access",
   "/login",
   "/register",
   "/auth",
@@ -31,6 +32,7 @@ const appPrefixes = [
 const marketingPrefixes = ["/privacy", "/terms"];
 
 const protectedRoutes = [
+  "/access",
   "/dashboard",
   "/brand",
   "/strategy",

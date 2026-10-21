@@ -34,6 +34,7 @@ vi.mock("@/lib/db/queries", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import {
   addLogoVariation,
   removeLogoVariation,
@@ -55,7 +56,7 @@ describe("saveBrandProfile", () => {
     checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b" } });
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "ws-1" },
+      workspace: { id: "ws-1", accessStatus: "approved" },
       role: "owner",
     });
   });
@@ -298,7 +299,7 @@ describe("saveBrandProfile — capability gates", () => {
     checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b" } });
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "ws-1" },
+      workspace: { id: "ws-1", accessStatus: "approved" },
       role: "contributor",
     });
   });
@@ -340,7 +341,7 @@ describe("saveBrandProfile snapshot", () => {
     checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b" } });
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "ws-1" },
+      workspace: { id: "ws-1", accessStatus: "approved" },
       role: "owner",
     });
   });
@@ -397,7 +398,7 @@ describe("saveBrandProfile additionalColors", () => {
     checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b" } });
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "ws-1" },
+      workspace: { id: "ws-1", accessStatus: "approved" },
       role: "owner",
     });
     getActiveBrandForMember.mockResolvedValue({
@@ -514,7 +515,7 @@ describe("logo variations", () => {
     vi.clearAllMocks();
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "ws-1" },
+      workspace: { id: "ws-1", accessStatus: "approved" },
       role: "owner",
     });
     checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b1" } });
@@ -601,5 +602,38 @@ describe("logo variations", () => {
 
     expect((await removeLogoVariation("b1", "a1")).ok).toBe(false);
     expect(removeBrandLogo).not.toHaveBeenCalled();
+  });
+});
+
+/* A server action is a reachable POST endpoint whether or not the gate page
+   links to it, so a pending account must not be able to create or edit a
+   brand by calling it directly. */
+describe("saveBrandProfile behind the access gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getActiveBrandForMember.mockResolvedValue(null);
+    createBrand.mockResolvedValue({ id: "new-brand" });
+  });
+
+  it("refuses a pending workspace before writing anything", async () => {
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1", role: "user" },
+      workspace: { id: "ws-1", accessStatus: "pending" },
+      role: "owner",
+    });
+    const res = await saveBrandProfile(validInput);
+    expect(res).toEqual({ ok: false, error: WORKSPACE_PENDING_ERROR });
+    expect(createBrand).not.toHaveBeenCalled();
+    expect(updateBrand).not.toHaveBeenCalled();
+  });
+
+  it("lets staff save in a pending workspace", async () => {
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1", role: "admin" },
+      workspace: { id: "ws-1", accessStatus: "pending" },
+      role: "owner",
+    });
+    const res = await saveBrandProfile(validInput);
+    expect(res).toMatchObject({ ok: true });
   });
 });

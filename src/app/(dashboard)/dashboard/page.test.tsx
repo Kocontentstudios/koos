@@ -48,7 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getActiveWorkspaceMock.mockResolvedValue({
     dbUser: { id: "u1", firstName: "Ada", tourCompletedAt: null },
-    workspace: { id: "ws-1" },
+    workspace: { id: "ws-1", accessStatus: "approved" },
     role: "owner",
   });
   canMock.mockReturnValue(true);

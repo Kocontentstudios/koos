@@ -525,6 +525,8 @@ All pages and views that exist in the KO OS MVP.
 | Design Ticket Detail | /design-request/:id | View status of submitted ticket | Yes |
 | Design Delivered View | /calendar/item/:id/design | View delivered design assets | Yes (in drawer) |
 | Account Menu | Dropdown only | Profile, Privacy Policy, Logout | Yes |
+| Access Gate | /access | Shown instead of every app page while the workspace awaits approval (8J) | Pending workspaces only |
+| Workspace Access (admin) | /admin/workspaces | Approve or revoke workspaces held at the gate | Admin only |
 
 # **7\. Navigation Model**
 
@@ -1394,6 +1396,34 @@ Provide a legal baseline accessible from within the product.
 * Back button: ghost, top-left. Back to app. Routes to previous page.
 
 * Accessible from: entry page footer AND profile dropdown menu.
+
+## **8J. Access Gate (Pending Approval)**
+
+### **Purpose**
+
+Interim paywall until payments are integrated. A new workspace sees this page in place of the app until an admin approves it after the onboarding call and payment. Operations: `docs/runbooks/access-gate.md`.
+
+### **Layout**
+
+* Standalone top bar (no sidebar): KO mark (48px, 15px radius, primary) + KO OS / Brand Brain, context line Your brand. Your workspace. (hidden below 768px), theme toggle, Sign out (ghost; icon only below 640px).
+
+* Eyebrow: lock icon + ACCOUNT ACCESS · PENDING APPROVAL (14px/600, uppercase, --nav-text).
+
+* H1: Everything your brand needs, in one workspace. (display, 42px/52px desktop, 36px tablet, 28px mobile). Subtitle 20px/--text-secondary. Signed in as <email> 13px/--text-muted.
+
+* Offer grid: 8 cards in sidebar order and icons (src/app/access/offers.ts). 4 columns from 1280px, 2 from 640px, 1 below. Card: --card, 1px --border, 16px radius, 48px icon tile on --accent-glow.
+
+* At 1280px and up the page fills the viewport: the grid stretches its rows so the booking panel sits at the bottom edge.
+
+* Booking panel: heading + one line, primary Book a call link (60px tall, opens cal.com in a new tab). Stacks full-width below 640px.
+
+* Footnote: Booking a call does not unlock your account. Access is enabled after payment confirmation and approval.
+
+### **States**
+
+* Member of another, approved workspace: a panel above the booking panel offers Open <workspace> (secondary button, loading Opening…).
+
+* Approved or staff: the route redirects to /dashboard, never renders.
 
 # **9\. KO OS Design System (Dark Mode)**
 
