@@ -576,7 +576,7 @@ Items appear in this exact order. Each item: height 44px, padding 0 16px, icon 2
 | :---- | :---- | :---- | :---- |
 | Hamburger / Toggle | Left | Collapse sidebar icon | Open drawer icon |
 | Page Title | Center-Left | 22px/600/\#FFFFFF | 18px/600/\#FFFFFF (centered) |
-| Brand Name | Below title | 13px/\#7C90A3 — Shows active brand name | Hidden (space constraint) |
+| Brand Name | Below title | 13px/\#93A3B3 — Shows active brand name | Hidden (space constraint) |
 | Profile Avatar | Right | 36px circle, \#00204F bg, initials or icon | Same |
 | Notification Bell | Right of avatar | 20px icon, \#A7B6C7, red dot for unread | Same |
 
@@ -630,7 +630,7 @@ Full viewport height (100vh). Two-column split:
 
 68. Spacer: pushes footer to bottom.
 
-69. Footer: Privacy Policy link (13px/\#7C90A3). Hover: \#FFFFFF \+ underline.
+69. Footer: Privacy Policy link (13px/\#93A3B3). Hover: \#FFFFFF \+ underline.
 
 ### **Right Column — Looping Visual**
 
@@ -698,7 +698,7 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 82. Spacer: 16px.
 
-83. Password field: same style as email. Label: Password. Placeholder: Enter your password. Right side of input: eye icon button (show/hide toggle). Icon: 20px, \#7C90A3, hover \#FFFFFF.
+83. Password field: same style as email. Label: Password. Placeholder: Enter your password. Right side of input: eye icon button (show/hide toggle). Icon: 20px, \#93A3B3, hover \#FFFFFF.
 
 84. Spacer: 8px.
 
@@ -710,7 +710,7 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 88. Spacer: 20px.
 
-89. Divider: horizontal line (rgba(255,255,255,0.06)) with or text centered (12px/\#7C90A3).
+89. Divider: horizontal line (rgba(255,255,255,0.06)) with or text centered (12px/\#93A3B3).
 
 90. Spacer: 20px.
 
@@ -770,7 +770,7 @@ The app shell wraps all authenticated pages. It provides consistent navigation, 
 
 * Height: 56px. Background: transparent (content scrolls behind) OR \#000D20 with bottom border 1px solid rgba(255,255,255,0.06) if page is scrolled.
 
-* Left section: Sidebar collapse toggle (icon button, 40px, ghost) \+ page title (22px/600/\#FFFFFF) \+ brand name below (13px/\#7C90A3, e.g., using: Killa Skincare).
+* Left section: Sidebar collapse toggle (icon button, 40px, ghost) \+ page title (22px/600/\#FFFFFF) \+ brand name below (13px/\#93A3B3, e.g., using: Killa Skincare).
 
 * Right section: Notification bell (20px icon, \#A7B6C7, red dot 8px for unread) \+ avatar button (36px circle, \#00204F bg, white initials, 13px/600).
 
@@ -820,7 +820,7 @@ Capture everything KO needs to know about the user's brand. This is the foundati
 
 * Subtitle: Tell us about your business. This helps our AI build better strategies and our designers create on-brand assets. (14px/400/\#A7B6C7).
 
-* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: \#138BC8 text \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#7C90A3 muted text.
+* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: \#138BC8 text \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#93A3B3 muted text.
 
 * Form area: single column, max-width 640px, centered.
 
@@ -865,7 +865,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Default state: dashed border 2px rgba(255,255,255,0.12), border-radius 10px, background \#00162E, padding 32px, text centered.
 
-* Content: Upload icon (24px, \#7C90A3) \+ primary text Click to upload or drag and drop (14px/\#A7B6C7) \+ subtext PNG, SVG, or JPG up to 5MB (12px/\#7C90A3).
+* Content: Upload icon (24px, \#93A3B3) \+ primary text Click to upload or drag and drop (14px/\#A7B6C7) \+ subtext PNG, SVG, or JPG up to 5MB (12px/\#93A3B3).
 
 * Hover state: dashed border rgba(19,139,200,0.6), background rgba(19,139,200,0.04), cursor pointer.
 
@@ -903,7 +903,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Required fields (Step 1): validated on blur. Empty \= red border \+ inline error.
 
-* Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#7C90A3.
+* Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#93A3B3.
 
 * Enabled Next button: bg \#138BC8, text \#FFFFFF.
 
@@ -937,7 +937,7 @@ The primary workspace where users chat with the AI to create content strategies.
 
 * When user first lands here, the chat area shows a welcome screen:
 
-* Centered content: KO icon (48px, \#7C90A3 at 30% opacity).
+* Centered content: KO icon (48px, \#93A3B3 at 30% opacity).
 
 * Title: What are you working on? (24px/600/\#FFFFFF).
 
@@ -964,7 +964,7 @@ The primary workspace where users chat with the AI to create content strategies.
 | Padding | 14px 18px | 14px 18px |
 | Font | 14px/400/160% | 14px/400/160% |
 | Avatar | KO icon (24px, blue circle, left of bubble) | None (or user initials) |
-| Timestamp | 12px/\#7C90A3, below bubble | 12px/\#7C90A3, below bubble |
+| Timestamp | 12px/\#93A3B3, below bubble | 12px/\#93A3B3, below bubble |
 
 ### **AI Strategy Output Display**
 
@@ -976,7 +976,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Sections stacked vertically, each with:
 
-*   Section label: 12px/500/\#7C90A3, uppercase, letter-spacing 0.5px.
+*   Section label: 12px/500/\#93A3B3, uppercase, letter-spacing 0.5px.
 
 *   Section value: 14px/400/\#FFFFFF.
 
@@ -990,7 +990,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Container: Surface 1 (\#00162E), border 1px solid rgba(255,255,255,0.06), border-radius 12px, padding 10px 14px.
 
-* Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#7C90A3. Placeholder: Ask KO about your campaign...
+* Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#93A3B3. Placeholder: Ask KO about your campaign...
 
 * Send button: 36px circle, bg \#138BC8, white paper plane icon (18px). Disabled when textarea empty (bg \#1A3A4A). Hover when enabled: \#0F7EB8.
 
@@ -1058,11 +1058,11 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 5-6 rows depending on the month.
 
-* Grid header: day names (Mon, Tue, Wed...) in 12px/500/\#7C90A3, centered.
+* Grid header: day names (Mon, Tue, Wed...) in 12px/500/\#93A3B3, centered.
 
 * Day cell: minimum height 100px. Background: transparent. Border: 1px solid rgba(255,255,255,0.04).
 
-* Day number: 13px/400, top-left of cell, padding 6px. Current day: \#138BC8 \+ bold. Other days: \#A7B6C7. Other month days (padding): \#7C90A3 at 50% opacity.
+* Day number: 13px/400, top-left of cell, padding 6px. Current day: \#138BC8 \+ bold. Other days: \#A7B6C7. Other month days (padding): \#93A3B3 at 50% opacity.
 
 * Items in cell: small cards stacked vertically, max 2 visible (+ N more indicator if overflow).
 
@@ -1072,7 +1072,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Design indicator: small blue dot (4px, \#138BC8) on right edge of mini card.
 
-* Overflow: \+2 more (11px/\#7C90A3, italic). Clicking opens Day view for that date.
+* Overflow: \+2 more (11px/\#93A3B3, italic). Clicking opens Day view for that date.
 
 * Hover on cell: bg rgba(255,255,255,0.02).
 
@@ -1084,7 +1084,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 1 row. Each column \= one day.
 
-* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#7C90A3. Date 18px/600/\#FFFFFF. Current day: date in \#138BC8.
+* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#93A3B3. Date 18px/600/\#FFFFFF. Current day: date in \#138BC8.
 
 * Column: items stacked vertically. Gap: 8px between items.
 
@@ -1092,7 +1092,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Card content:
 
-*   Time: 11px/\#7C90A3 (e.g., 9:00 AM).
+*   Time: 11px/\#93A3B3 (e.g., 9:00 AM).
 
 *   Platform: 11px/\#A7B6C7 (e.g., Instagram).
 
@@ -1128,7 +1128,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grouped by date: date header (14px/600/\#FFFFFF, sticky at top when scrolling).
 
-* Each item: horizontal row. Time (11px/\#7C90A3) \+ Platform (11px/\#A7B6C7) \+ Title (13px/\#FFFFFF) \+ Design status badge.
+* Each item: horizontal row. Time (11px/\#93A3B3) \+ Platform (11px/\#A7B6C7) \+ Title (13px/\#FFFFFF) \+ Design status badge.
 
 * Row hover: bg rgba(255,255,255,0.02). Click: opens Calendar Item Detail drawer.
 
@@ -1160,7 +1160,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Slides up from bottom. Full width. Max-height: 90vh. Border-radius: 16px 16px 0 0\.
 
-* Drag handle: 40px x 4px rounded bar, \#7C90A3, centered at top.
+* Drag handle: 40px x 4px rounded bar, \#93A3B3, centered at top.
 
 * Animation: slide up 12px \+ fade, 320ms.
 
@@ -1178,13 +1178,13 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Title: 20px/600/\#FFFFFF. E.g., 5 Ingredients That Make Us Different.
 
-* Date & Time row: Calendar icon (14px, \#7C90A3) \+ Monday, June 16, 2026 at 9:00 AM (13px/\#A7B6C7).
+* Date & Time row: Calendar icon (14px, \#93A3B3) \+ Monday, June 16, 2026 at 9:00 AM (13px/\#A7B6C7).
 
 * Divider: 1px solid rgba(255,255,255,0.06), margin 16px 0\.
 
 * Caption / Brief section:
 
-*   Label: CAPTION BRIEF (12px/500/\#7C90A3, uppercase).
+*   Label: CAPTION BRIEF (12px/500/\#93A3B3, uppercase).
 
 *   Content: 14px/400/\#FFFFFF. E.g., Slide 1: Hook — Did you know the average skincare product has 25 ingredients? We use 5\. Here is why each one matters. Slide 2-5: One ingredient per slide with a short benefit description. End slide: CTA to shop the kit.
 
@@ -1194,9 +1194,9 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Design section:
 
-*   Label: DESIGN ASSET (12px/500/\#7C90A3, uppercase).
+*   Label: DESIGN ASSET (12px/500/\#93A3B3, uppercase).
 
-*   If design NOT required: text No design needed for this item. (13px/\#7C90A3).
+*   If design NOT required: text No design needed for this item. (13px/\#93A3B3).
 
 *   If design required, no ticket yet:
 
@@ -1210,7 +1210,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 *     Status badge: Design Submitted (11px/\#D4A954, bg rgba(212,169,84,0.15)).
 
-*     Ticket ID: \#DT-00123 (13px/\#7C90A3).
+*     Ticket ID: \#DT-00123 (13px/\#93A3B3).
 
 *     Due date: Expected by Wednesday, June 18 (13px/\#A7B6C7).
 
@@ -1230,7 +1230,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Status section:
 
-*   Label: STATUS (12px/500/\#7C90A3, uppercase).
+*   Label: STATUS (12px/500/\#93A3B3, uppercase).
 
 *   Dropdown: Draft (default), In Progress, Ready, Published.
 
@@ -1272,7 +1272,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Slides up from bottom, full width, max-height 90vh. Border-radius: 16px 16px 0 0\.
 
-* Drag handle: 40x4px rounded bar, \#7C90A3, centered. Swipe down to close.
+* Drag handle: 40x4px rounded bar, \#93A3B3, centered. Swipe down to close.
 
 ### **Modal Header**
 
@@ -1334,7 +1334,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Ticket summary card:
 
-*   Ticket ID: \#DT-00124 (13px/\#7C90A3).
+*   Ticket ID: \#DT-00124 (13px/\#93A3B3).
 
 *   Design type: Instagram Carousel — 5 slides (13px/\#FFFFFF).
 
@@ -1367,13 +1367,13 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Card content:
 
-*   Row 1: Ticket ID (\#DT-00124, 12px/\#7C90A3) \+ Status badge (right-aligned) \+ Date submitted.
+*   Row 1: Ticket ID (\#DT-00124, 12px/\#93A3B3) \+ Status badge (right-aligned) \+ Date submitted.
 
 *   Row 2: Design type (14px/500/\#FFFFFF) \+ Campaign name (13px/\#A7B6C7).
 
 *   Row 3: Content item title (13px/\#A7B6C7).
 
-*   Row 4: Due date (12px/\#7C90A3) \+ thumbnail preview (if delivered, 48px).
+*   Row 4: Due date (12px/\#93A3B3) \+ thumbnail preview (if delivered, 48px).
 
 * Card hover: Surface 2 bg, accent border. Click: opens ticket detail.
 
@@ -1387,7 +1387,7 @@ Provide a legal baseline accessible from within the product.
 
 * Page title: Privacy Policy (32px/700/\#FFFFFF).
 
-* Last updated: \[Date\] (13px/\#7C90A3).
+* Last updated: \[Date\] (13px/\#93A3B3).
 
 * Content: standard sections (Information We Collect, How We Use It, Data Sharing, Your Rights, Contact).
 
@@ -1465,20 +1465,24 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 | :---- | :---- | :---- | :---- |
 | Text Primary | \#FFFFFF | \#0F172A | Headings, primary content, button text on primary bg |
 | Text Secondary | \#A7B6C7 | \#475569 | Body copy, descriptions, secondary labels, inactive nav items |
-| Text Muted | \#7C90A3 | \#58687B | Placeholders, timestamps, helper text, meta info |
+| Text Muted | \#93A3B3 | \#4F5D6F | Placeholders, timestamps, helper text, meta info |
 
-* Every text token clears 4.5:1 on every surface token in its theme, including popovers and dialogs (`--surface-2`). Text Muted was \#6F8599 (dark, 4.35:1 on `--surface-2`) and \#7C8DA1 (light, 3.40:1 on a white dialog) until 2026-10-21; both were lightness-only moves in the same hue. Measured values are in 12.1.
+* Every text token clears 4.5:1 on every surface token in its theme, including popovers and dialogs (`--surface-2`), and on every translucent tint (Hover, Accent Glow, each status background) composited over any of those surfaces. Hint text sits on hovered and drag-active cards, so the surface alone is not enough.
+* History, all lightness-only moves in the same hue. Text Muted dark: \#6F8599 (4.35:1 on `--surface-2`), then \#7C90A3 (4.15:1 on Accent Glow over a dialog), now \#93A3B3. Light: \#7C8DA1 (3.40:1 on a white dialog), then \#58687B (3.92:1 on the Ready tint over \#E2E8F0), now \#4F5D6F. Measured values are in 12.1.
+* Muted stays the quietest tier but sits closer to Secondary than it did: on a dialog it is 6.44:1 against Secondary's 8.04:1 (dark) and 6.71:1 against 7.58:1 (light). Use weight or size, not a lighter colour, when muted text needs to recede further.
 
 ### **Status Colors**
 
-| Status | Background | Text | Usage |
-| :---- | :---- | :---- | :---- |
-| Draft | rgba(255,255,255,0.06) | \#A7B6C7 | Unpublished, not started |
-| In Progress | rgba(19,139,200,0.15) | \#85B7EB | Working on it |
-| Ready | rgba(99,153,34,0.18) | \#97C459 | Content/design ready |
-| Published | rgba(19,139,200,0.15) | \#85B7EB | Live/posted |
-| Pending | rgba(212,169,84,0.15) | \#D4A954 | Waiting for designer |
-| Error | rgba(212,117,117,0.08) | \#D47575 | Something went wrong |
+| Status | Background | Text (dark) | Text (light) | Usage |
+| :---- | :---- | :---- | :---- | :---- |
+| Draft | rgba(255,255,255,0.06); light rgba(15,23,42,0.05) | \#A7B6C7 | \#475569 | Unpublished, not started |
+| In Progress | rgba(19,139,200,0.15) | \#85B7EB | \#196190 | Working on it |
+| Ready | rgba(99,153,34,0.18) | \#97C459 | \#3F660C | Content/design ready |
+| Published | rgba(19,139,200,0.15) | \#85B7EB | \#196190 | Live/posted |
+| Pending | rgba(212,169,84,0.15) | \#D4A954 | \#8C5506 | Waiting for designer |
+| Error | rgba(212,117,117,0.08) | \#D57A7A | \#B23528 | Something went wrong |
+
+* Each text colour clears 4.5:1 on its own background composited over every surface in its theme. Until 2026-10-21 light In Progress was \#1F7AB5 (3.89:1 as a pill on a white dialog), Ready \#4D7C0F, Pending \#A16207 and Error \#C0392B, and dark Error was \#D47575 (4.42:1 over \#002550). The Error status text is now a shade off the Error token (\#D47575, used for inline error text on plain surfaces); that is deliberate, not drift.
 
 ### **Borders, Dividers & Effects**
 
@@ -1557,7 +1561,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Default | \#138BC8 | \#FFFFFF | none | none |
 | Hover | \#0F7EB8 | \#FFFFFF | none | 0 4px 12px rgba(19,139,200,0.2) |
 | Active | \#0C5F8A | \#FFFFFF | none | none (translateY \+1px) |
-| Disabled | \#1A3A4A | \#7C90A3 | none | none |
+| Disabled | \#1A3A4A | \#93A3B3 | none | none |
 | Focus | \#138BC8 | \#FFFFFF | none | 2px solid `--ring` outline, 2px offset |
 | Loading | \#138BC8 | \#FFFFFF | none | Inline spinner \+ present-participle label (Saving…) |
 
@@ -1597,11 +1601,11 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 | State | Background | Text | Border | Notes |
 | :---- | :---- | :---- | :---- | :---- |
-| Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#7C90A3 |
+| Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#93A3B3 |
 | Hover | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.1) | Slightly stronger border |
 | Focus | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | 2px solid `--ring` outline, 2px offset. A focus border colour never paints: `* { border-color }` in globals.css is unlayered and beats every utility |
 | Error | \#00162E | \#FFFFFF | 1px solid \#8B4040 | Error text: 12px/\#D47575 below |
-| Disabled | \#001224 | \#7C90A3 | 1px solid rgba(255,255,255,0.04) | No interaction |
+| Disabled | \#001224 | \#93A3B3 | 1px solid rgba(255,255,255,0.04) | No interaction |
 
 * Height: 44px. Border-radius: 10px. Padding: 0 14px. Font: 14px/400.
 
@@ -1609,7 +1613,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Textarea: same styling, min-height 80px, padding 12px 14px, resize vertical.
 
-* Select: same styling \+ dropdown arrow icon (16px, \#7C90A3) on right.
+* Select: same styling \+ dropdown arrow icon (16px, \#93A3B3) on right.
 
 ## **10.3 Cards**
 
@@ -1646,7 +1650,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Background: Surface 1\. Border: 1px solid rgba(255,255,255,0.06). Border-radius: 8px. Padding: 12px.
 
-* Time: 11px/\#7C90A3. Platform: 11px/\#A7B6C7. Title: 13px/500/\#FFFFFF.
+* Time: 11px/\#93A3B3. Platform: 11px/\#A7B6C7. Title: 13px/500/\#FFFFFF.
 
 * Content type badge: 10px pill. Design status badge: 10px pill (color per status).
 
@@ -1684,7 +1688,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Full width, max-height 90vh, border-radius 16px 16px 0 0\.
 
-* Drag handle: 40x4px, \#7C90A3, rounded, centered top.
+* Drag handle: 40x4px, \#93A3B3, rounded, centered top.
 
 * Open: translateY(100%) to 0, 320ms. Close: swipe down or backdrop tap.
 
@@ -1718,7 +1722,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Horizontal layout. Each step: circle (24px) \+ label below (12px).
 
-* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text \#138BC8. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#7C90A3, bg transparent, text \#7C90A3.
+* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text \#138BC8. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#93A3B3, bg transparent, text \#93A3B3.
 
 * Connector line between steps: 2px height. Completed: \#138BC8. Future: rgba(255,255,255,0.06).
 
@@ -1860,14 +1864,19 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 * Non-text indicators (focus rings, control boundaries) need 3:1 against what they sit on (WCAG 1.4.11).
 
 * Gate: `src/app/theme-contrast.test.ts` reads the tokens out of `globals.css` (and `landing.css`) for both themes and fails the build if any text token drops below 4.5:1, or `--ring` below 3:1, on any surface token. Surfaces are found by name, so a new `--surface-*` is measured the day it lands.
+* The same gate composites every translucent tint over every surface, the way the browser does, and measures Text Primary, Secondary and Muted on each, plus each status text on its own status background. Every `rgba()` token must be classed as a text tint, a sidebar tint, or something text never sits on (borders, divider, backdrop, skeleton), so a new tint cannot land unmeasured. `landing.css` must use the app's Text Muted.
 
 | Pair | Dark | Light |
 | :---- | :---- | :---- |
 | Text Primary on Base | \#FFFFFF on \#000D20 \= 19.47:1 | \#0F172A on \#EDF1F7 \= 15.75:1 |
 | Text Secondary on Base | \#A7B6C7 on \#000D20 \= 9.42:1 | \#475569 on \#EDF1F7 \= 6.68:1 |
-| Text Muted on Base | \#7C90A3 on \#000D20 \= 5.91:1 | \#58687B on \#EDF1F7 \= 5.03:1 |
-| Text Muted on Surface 2 (dialogs, popovers) | 5.05:1 on \#001F3D | 5.70:1 on \#FFFFFF |
-| Text Muted, weakest pair | 4.62:1 on \#002550 | 4.63:1 on \#E2E8F0 |
+| Text Muted on Base | \#93A3B3 on \#000D20 \= 7.54:1 | \#4F5D6F on \#EDF1F7 \= 5.92:1 |
+| Text Muted on Surface 2 (dialogs, popovers) | 6.44:1 on \#001F3D | 6.71:1 on \#FFFFFF |
+| Text Muted on Hover over Surface 2 | 5.51:1 | 6.05:1 |
+| Text Muted on Accent Glow over Surface 2 (drag-active drop zone) | 5.31:1 | 5.82:1 |
+| Text Muted, weakest pair | 4.61:1 on the Pending tint over \#002550 | 4.61:1 on the Ready tint over \#E2E8F0 |
+| In Progress pill (source pill) on Surface 2 | 5.97:1 or better | \#196190 on 15% Primary over \#FFFFFF \= 5.59:1 |
+| Status text, weakest pair | 4.61:1 (Error over \#002550) | 4.60:1 (Pending over \#E2E8F0) |
 | Ring on Base | \#138BC8 on \#000D20 \= 5.15:1 | 3.34:1 on \#EDF1F7 |
 | Ring on Surface 2 | 4.40:1 on \#001F3D | 3.78:1 on \#FFFFFF |
 | Ring, weakest pair | 4.02:1 on \#002550 | 3.07:1 on \#E2E8F0 |

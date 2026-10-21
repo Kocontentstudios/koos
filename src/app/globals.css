@@ -42,10 +42,12 @@
   /* --- Text --------------------------------------------------------------- */
   --foreground: #ffffff;
   --text-secondary: #a7b6c7;
-  /* Lifted from #6f8599, which was 4.35:1 on --surface-2 (popovers, dialogs).
-     Same hue, lightness only; 4.62:1 on --surface-container-highest, the
-     surface it contrasts with least. src/app/theme-contrast.test.ts holds it. */
-  --text-muted: #7c90a3;
+  /* Held to 4.5:1 on every surface AND on every translucent tint composited
+     over one: hint text sits on hovered and drag-active cards, and #7c90a3
+     fell to 4.15:1 there. Same hue, lightness only; the weakest pair is
+     --status-pending-bg over --surface-container-highest at 4.6:1.
+     src/app/theme-contrast.test.ts holds it. */
+  --text-muted: #93a3b3;
 
   /* --- Status bg / fg pairs ---------------------------------------------- */
   --status-draft-bg: rgba(255, 255, 255, 0.06);
@@ -57,7 +59,8 @@
   --status-pending-bg: rgba(212, 169, 84, 0.15);
   --status-pending-fg: #d4a954;
   --status-error-bg: rgba(212, 117, 117, 0.08);
-  --status-error-fg: #d47575;
+  /* #d47575 was 4.42:1 on its own tint over --surface-container-highest. */
+  --status-error-fg: #d57a7a;
 
   /* --- Borders & effects -------------------------------------------------- */
   --border: rgba(255, 255, 255, 0.06);
@@ -176,9 +179,10 @@
   /* Text hierarchy */
   --foreground: #0f172a;
   --text-secondary: #475569;
-  /* Darkened from #7c8da1 (3.40:1 on a white dialog). Same hue, lightness
-     only; 4.63:1 on #e2e8f0, the surface it contrasts with least. */
-  --text-muted: #58687b;
+  /* Held to 4.5:1 on every surface and every tint over one, like the dark
+     value. #58687b fell to 3.9:1 on --status-ready-bg over #e2e8f0. Same hue,
+     lightness only. */
+  --text-muted: #4f5d6f;
 
   /* Borders & dividers */
   --border: #e2e8f0;
@@ -207,14 +211,15 @@
   --status-draft-bg: rgba(15, 23, 42, 0.05);
   --hover: rgba(15, 23, 42, 0.05);
 
-  /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
-     amber/red drop below readable contrast on white surfaces. Darken them for
-     light mode (the low-alpha tint backgrounds stay legible as-is). */
+  /* Status foregrounds are tuned for the dark navy shell, so light mode
+     darkens them. Each is measured on its own tint composited over every
+     surface: the earlier values (#1f7ab5, #4d7c0f, #a16207, #c0392b) fell to
+     3.2-4.1:1 there, and the source pill on a white dialog read 3.89:1. */
   --status-draft-fg: #475569;
-  --status-progress-fg: #1f7ab5;
-  --status-ready-fg: #4d7c0f;
-  --status-pending-fg: #a16207;
-  --status-error-fg: #c0392b;
+  --status-progress-fg: #196190;
+  --status-ready-fg: #3f660c;
+  --status-pending-fg: #8c5506;
+  --status-error-fg: #b23528;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@
             --accent-glow: rgba(19, 139, 200, 0.15);
             --text-primary: #FFFFFF;
             --text-secondary: #A7B6C7;
-            --text-muted: #7C90A3;
+            --text-muted: #93A3B3;
             --text-faint: #475569;
             --border: rgba(255, 255, 255, 0.06);
             --easing: cubic-bezier(0.2, 0, 0, 1);
@@ -1578,7 +1578,7 @@
     --surface-2: #FFFFFF;
     --text-primary: #0F172A;
     --text-secondary: #475569;
-    --text-muted: #58687B;
+    --text-muted: #4F5D6F;
     --text-faint: #AEB9C7;
     --border: #E2E8F0;
     --accent-glow: rgba(19, 139, 200, 0.12);
