@@ -22,8 +22,8 @@ vi.mock("next/navigation", () => ({
 
 /* Canvas-backed and network-backed children are irrelevant to the banner wire
    and would drag jsdom into unrelated failures. */
-vi.mock("@/components/design/generate-design-button", () => ({
-  GenerateDesignButton: () => null,
+vi.mock("@/components/design/directions/generate-directions-button", () => ({
+  GenerateDirectionsButton: () => null,
 }));
 
 const calendar: SerializedCalendar = {

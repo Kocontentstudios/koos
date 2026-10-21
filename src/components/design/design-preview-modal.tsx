@@ -220,6 +220,13 @@ export function DesignPreviewModal({
                           unoptimized
                         />
                       ) : null}
+                      {/* Directions carry their own name; a legacy row has
+                          none and keeps the renderer label alone. */}
+                      {generation.direction ? (
+                        <span className="px-1 text-[13px] font-semibold text-foreground">
+                          {generation.direction.title}
+                        </span>
+                      ) : null}
                       <span className="flex flex-wrap gap-x-2 px-1 pb-1 text-[12px] text-[var(--text-muted)]">
                         <span>{RENDERER_LABEL[generation.renderer]}</span>
                         {resolutionLabel(generation) ? (

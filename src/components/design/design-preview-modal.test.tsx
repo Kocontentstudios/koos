@@ -213,3 +213,19 @@ describe("what the modal shows when a run does not go cleanly", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+describe("DesignPreviewModal directions", () => {
+  it("names a direction and leaves a legacy row as it was", () => {
+    renderModal({
+      generations: [
+        {
+          ...generation,
+          direction: { title: "Playful product story", reasons: ["a"] },
+        },
+        { ...generation, id: "g2", direction: null },
+      ],
+    });
+    expect(screen.getAllByText("Playful product story")).toHaveLength(1);
+    expect(screen.getAllByText("Exact brand colours & logo")).toHaveLength(2);
+  });
+});

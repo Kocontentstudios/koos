@@ -4,7 +4,7 @@ import { Clock, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { GenerateDesignButton } from "@/components/design/generate-design-button";
+import { GenerateDirectionsButton } from "@/components/design/directions/generate-directions-button";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -416,16 +416,12 @@ export function CalendarItemDrawer({
                     {/* designRequired was a planning hint from calendar
                         generation, never an entitlement — gating the button on
                         it hid the feature on most items. */}
-                    <GenerateDesignButton
+                    <GenerateDirectionsButton
                       brandId={brandId}
+                      entry="calendar"
                       calendarItemId={item.id}
                       label="Generate with AI"
-                      ticketContext={{
-                        calendarItemId: item.id,
-                        designType: item.designType ?? item.contentType,
-                        dimensions: item.dimensions,
-                        brief: item.brief ?? item.caption ?? item.title,
-                      }}
+                      size="lg"
                     />
                   </>
                 )}

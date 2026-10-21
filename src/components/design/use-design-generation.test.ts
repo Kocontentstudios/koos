@@ -268,3 +268,90 @@ describe("a superseded run cannot overwrite fresh state", () => {
     expect(urls().some((u) => u.includes("ids=old"))).toBe(false);
   });
 });
+
+/* FEAT-033: the progress modal steps on the job's real events, and the
+   directions path needs the image sent and the failed count kept. */
+describe("progress, image and failed count", () => {
+  it("walks starting, running and fetching from the job's own reports", async () => {
+    const seen: string[] = [];
+    let report: ((p: unknown) => void) | undefined;
+    let finish: ((v: unknown) => void) | undefined;
+    pollGenerationJob.mockImplementation(
+      (_id: string, opts: { onProgress: (p: unknown) => void }) => {
+        report = opts.onProgress;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    let running: Promise<unknown> = Promise.resolve();
+    act(() => {
+      running = result.current.generate(ARGS);
+    });
+    seen.push(String(result.current.stage));
+    await waitFor(() => expect(report).toBeDefined());
+
+    act(() => report?.({ done: 1, total: 3, label: "Rendering designs…" }));
+    seen.push(String(result.current.stage));
+    expect(result.current.progress).toEqual({ done: 1, total: 3 });
+    expect(result.current.progressLabel).toBe("Rendering designs…");
+
+    await act(async () => {
+      finish?.({ generationIds: ["g1", "g2"], failed: [] });
+      await running;
+    });
+    expect(seen).toEqual(["starting", "running"]);
+    expect(result.current.stage).toBeNull();
+    expect(result.current.progress).toBeNull();
+  });
+
+  it("sends the chosen image through to the route", async () => {
+    const { result } = renderHook(() => useDesignGeneration());
+    await act(async () => {
+      await result.current.generate({
+        ...ARGS,
+        image: { source: "upload", key: `design-images/${BRAND}/a.png` },
+      });
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init.body)).image).toEqual({
+      source: "upload",
+      key: `design-images/${BRAND}/a.png`,
+    });
+  });
+
+  it("resolves to the rendered rows and counts the ones that failed", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/api/design/generate")
+        ? new Response(JSON.stringify({ jobId: "job-1" }), { status: 200 })
+        : new Response(
+            JSON.stringify({
+              generations: [row("g1"), row("g2", "failed")],
+            }),
+            { status: 200 },
+          ),
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    let rows: unknown[] = [];
+    await act(async () => {
+      rows = await result.current.generate(ARGS);
+    });
+    expect(rows.map((r) => (r as { id: string }).id)).toEqual(["g1"]);
+    expect(result.current.failedCount).toBe(1);
+
+    act(() => result.current.reset());
+    expect(result.current.failedCount).toBe(0);
+  });
+
+  it("resolves to nothing when the run fails", async () => {
+    pollGenerationJob.mockRejectedValue(new Error("This image can't be used."));
+    const { result } = renderHook(() => useDesignGeneration());
+    let rows: unknown[] = ["unset"];
+    await act(async () => {
+      rows = await result.current.generate(ARGS);
+    });
+    expect(rows).toEqual([]);
+    expect(result.current.error).toBe("This image can't be used.");
+  });
+});

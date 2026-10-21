@@ -85,6 +85,8 @@ stable for the lifetime of one login) where available.
 | `design_ticket_submitted` | design ticket created | `design_type`, `from_calendar_item` |
 | `design_request_start_opened` | Design Tickets chooser opened | `label` (which CTA) |
 | `design_request_start_selected` | a start path chosen in the chooser | `option` (`direct`/`calendar`/`campaign`) |
+| `design_image_choice` | (client) a design run starts from the image choice, at the calendar drawer or Design Studio (FEAT-033) | `source` (`upload`/`ko`) |
+| `design_downloaded` | (client) a generated direction is downloaded | `format` (`png`/`jpg`) |
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
@@ -94,6 +96,12 @@ want to begin from the calendar: compare the `calendar` share of
 `design_request_start_selected` against `from_calendar_item` on
 `design_ticket_submitted`. `opened` minus the sum of `selected` is the
 chooser's abandon rate — the evidence for whether it reads as simple.
+
+`design_image_choice` fires when the run actually starts, not when the
+upload step opens, so backing out of the drop zone is not counted as a choice.
+With the server's `design_directions_generated` it forms the FEAT-033 funnel:
+choice, then directions delivered, then `design_downloaded`. A slot
+regenerate is not a new choice and fires nothing.
 
 The pre-existing `usage_events` DB table keeps recording independently.
 
