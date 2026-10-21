@@ -20,6 +20,10 @@ export const STORAGE_PREFIXES = {
      storageKeyFrom can pin it: the document parser reads bytes BY KEY, and the
      prefix is what stops a caller pointing it at any other object. */
   brandDocs: "brand-docs",
+  /* Images a user uploads to place in a generated design. Pinned like the
+     others because a design document names its assets by key and the renderer
+     reads them by key. */
+  designImages: "design-images",
 } as const;
 
 export type StoragePrefix =
@@ -117,13 +121,42 @@ export function storageKeyFrom(
   return key;
 }
 
-/** Fetch an object's raw bytes (e.g. to bundle into a zip). */
-export async function getObjectBytes(key: string): Promise<Buffer> {
+export class ObjectTooLargeError extends Error {
+  constructor(
+    readonly key: string,
+    readonly maxBytes: number,
+  ) {
+    super(`Object exceeds ${maxBytes} bytes: ${key}`);
+    this.name = "ObjectTooLargeError";
+  }
+}
+
+/**
+ * Fetch an object's raw bytes (e.g. to bundle into a zip).
+ *
+ * `maxBytes` is for objects a browser wrote through a presigned PUT, whose
+ * size the server never saw: the signature does not bind Content-Length, so a
+ * client can claim 1 MB and upload gigabytes. The cap is a Range request for
+ * one byte past the limit rather than a check of the reported length, so the
+ * process never buffers more than the cap plus one byte whatever the object.
+ */
+export async function getObjectBytes(
+  key: string,
+  opts?: { maxBytes?: number },
+): Promise<Buffer> {
+  const maxBytes = opts?.maxBytes;
   const res = await client().send(
-    new GetObjectCommand({ Bucket: env("R2_BUCKET"), Key: key }),
+    new GetObjectCommand({
+      Bucket: env("R2_BUCKET"),
+      Key: key,
+      ...(maxBytes === undefined ? {} : { Range: `bytes=0-${maxBytes}` }),
+    }),
   );
   const bytes = await res.Body?.transformToByteArray();
   if (!bytes) throw new Error(`Empty object: ${key}`);
+  if (maxBytes !== undefined && bytes.byteLength > maxBytes) {
+    throw new ObjectTooLargeError(key, maxBytes);
+  }
   return Buffer.from(bytes);
 }
 
