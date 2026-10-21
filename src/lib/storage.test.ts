@@ -107,4 +107,23 @@ describe("storageKeyFrom", () => {
       storageKeyFrom(`${BASE}/fonts/u1/x.ttf`, STORAGE_PREFIXES.fonts),
     ).toBe("fonts/u1/x.ttf");
   });
+
+  /* Design documents pin logos/, generated/ and design-images/. The last must
+     resolve, and must not be reachable from a caller pinning a sibling. */
+  it("pins the design-images prefix like the others", () => {
+    const pinned = [
+      STORAGE_PREFIXES.logos,
+      STORAGE_PREFIXES.generated,
+      STORAGE_PREFIXES.designImages,
+    ];
+    expect(storageKeyFrom(`${BASE}/design-images/b1/x.png`, pinned)).toBe(
+      "design-images/b1/x.png",
+    );
+    expect(
+      storageKeyFrom(`${BASE}/design-images/b1/x.png`, STORAGE_PREFIXES.logos),
+    ).toBeNull();
+    expect(
+      storageKeyFrom(`${BASE}/design-images-evil/b1/x.png`, pinned),
+    ).toBeNull();
+  });
 });
