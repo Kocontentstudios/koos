@@ -31,24 +31,15 @@ export function readPngSize(bytes: Uint8Array): PngSize | null {
   return readPngDimensions(bytes);
 }
 
-export function bytesPerPixel(
-  byteLength: number,
-  { width, height }: PngSize,
-): number {
-  return byteLength / (width * height);
-}
+/* One definition, shared with the runtime gate (src/lib/design/quality/checks).
+   The threshold was measured here first; it now guards real deliveries too, and
+   two copies would drift the moment one was retuned. */
+import {
+  BLANK_MAX_BYTES_PER_PIXEL,
+  bytesPerPixel,
+} from "@/lib/design/quality/checks";
 
-/**
- * A flat frame is a rendering failure that still returns HTTP 200, so the eval
- * has to catch it. PNG compresses uniform colour to almost nothing, which makes
- * compressed density a reliable proxy without decoding pixels.
- *
- * Measured on this project's own output: a solid 1024x1024 PNG is 0.003 B/px,
- * while the least detailed real design (a soft gradient plate) is 0.622 B/px —
- * a 208x gap. The threshold sits between, ~17x above blank and ~12x below the
- * lowest real sample.
- */
-export const BLANK_MAX_BYTES_PER_PIXEL = 0.05;
+export { BLANK_MAX_BYTES_PER_PIXEL, bytesPerPixel };
 
 export function looksBlank(bytes: Uint8Array, size: PngSize): boolean {
   return bytesPerPixel(bytes.length, size) < BLANK_MAX_BYTES_PER_PIXEL;

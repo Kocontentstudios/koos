@@ -1,3 +1,7 @@
+import {
+  cornersBlockedByFooter,
+  type FooterSpec,
+} from "@/lib/design/render/footer";
 import type { DesignSpec } from "@/lib/design/spec";
 
 export type LogoCorner = Exclude<DesignSpec["logoPlacement"], "none">;
@@ -155,17 +159,29 @@ export function resolveLogoPlacement({
   hasLogo,
   layout,
   logoFree,
+  footer,
 }: {
   modelChoice: DesignSpec["logoPlacement"];
   hasLogo: boolean;
   layout: DesignSpec["layout"];
   logoFree: boolean;
+  /** When a footer band is drawn it covers the bottom corners, so a mark
+   *  placed there lands on the contact details (KOOS-AI-001 phase 2). */
+  footer?: FooterSpec;
 }): DesignSpec["logoPlacement"] {
   if (!hasLogo || logoFree) return "none";
-  return modelChoice !== "none" &&
-    allowedCornersFor(layout).includes(modelChoice)
-    ? modelChoice
-    : defaultLogoCornerFor(layout);
+
+  const blocked = footer ? cornersBlockedByFooter(footer) : [];
+  const free = allowedCornersFor(layout).filter(
+    (corner) => !blocked.includes(corner),
+  );
+
+  if (modelChoice !== "none" && free.includes(modelChoice)) return modelChoice;
+
+  const fallback = defaultLogoCornerFor(layout);
+  /* The layout's own default can be under the band too — split-left defaults
+     to a bottom corner and keeps only the right-hand ones. */
+  return free.includes(fallback) ? fallback : (free[0] ?? "none");
 }
 
 /* Inset from the plate edge, matched to the 8% padding the copy already uses

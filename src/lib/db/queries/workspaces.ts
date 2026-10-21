@@ -5,6 +5,11 @@ import {
   evaluateBrandAccess,
   type WorkspaceRole,
 } from "@/lib/auth/workspace-access";
+import {
+  isWorkspaceOpen,
+  WORKSPACE_PENDING_ERROR,
+  type WorkspaceAccessStatus,
+} from "@/lib/auth/workspace-approval";
 import { db } from "@/lib/db/client";
 import {
   brands,
@@ -49,6 +54,7 @@ export interface WorkspaceMembership {
     name: string;
     logoUrl: string | null;
     ownerId: string;
+    accessStatus: WorkspaceAccessStatus;
   };
 }
 
@@ -66,6 +72,7 @@ export async function getWorkspacesForUser(
         name: workspaces.name,
         logoUrl: workspaces.logoUrl,
         ownerId: workspaces.ownerId,
+        accessStatus: workspaces.accessStatus,
       },
     })
     .from(workspaceMembers)
@@ -115,21 +122,27 @@ export type BrandAccess =
  * Fetch-and-authorize in one call. Every code path that touches a brand on
  * behalf of a user goes through here — routes must not fetch a brand and
  * check ownership themselves. 404 for "not yours" (no existence leak),
- * 403 for "yours but capability denied".
+ * 403 for "yours but capability denied" or "yours but not yet approved".
+ *
+ * The approval gate keys on the BRAND's workspace, not the caller's active
+ * one: a teammate in an approved client workspace keeps working there even
+ * while their own personal workspace is pending.
  */
 export async function checkBrandAccess(
   userId: string,
   brandId: string,
   capability: Capability,
 ): Promise<BrandAccess> {
-  const [brand] = await db
-    .select()
+  const [row] = await db
+    .select({ brand: brands, accessStatus: workspaces.accessStatus })
     .from(brands)
+    .innerJoin(workspaces, eq(brands.workspaceId, workspaces.id))
     .where(eq(brands.id, brandId))
     .limit(1);
-  if (!brand) {
+  if (!row) {
     return { ok: false, status: 404, error: "Brand not found" };
   }
+  const { brand, accessStatus } = row;
   const membership = await getMembership(brand.workspaceId, userId);
   // Only assignment-scoped memberships need the lookup; owners, admins and
   // workspace-wide contributors skip the query entirely.
@@ -144,6 +157,17 @@ export async function checkBrandAccess(
     assignedBrandIds,
   });
   if (!decision.ok) return decision;
+  if (accessStatus !== "approved") {
+    // Only a pending workspace pays for the role lookup.
+    const [user] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!isWorkspaceOpen(accessStatus, user?.role ?? "")) {
+      return { ok: false, status: 403, error: WORKSPACE_PENDING_ERROR };
+    }
+  }
   return { ok: true, brand };
 }
 

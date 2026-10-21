@@ -26,9 +26,12 @@ overrides:
   js-yaml: ^4.3.2
   hono: ^4.13.5
   fast-uri: ^3.1.7
-  # Only 5.0.8 patches GHSA-mh99-v99m-4gvg (no 1.x fix exists); 5.x is a dual
+  # 5.0.8 patched GHSA-mh99-v99m-4gvg and 5.0.12 patches the quadratic-time
+  # `{a},b}` expansion (CPU DoS). No 1.x fix exists for either; 5.x is a dual
   # CJS/ESM package so the old minimatch@3 consumer can still require() it.
-  brace-expansion: ^5.0.8
+  # ^5.0.8 ALLOWED 5.0.9 and that is what the lockfile resolved, which is the
+  # permissive-floor mistake this block's own comment warns about.
+  brace-expansion: ^5.0.12
   # AI SDK provider-utils pins undici@5, which carries 11 open advisories
   # (WebSocket DoS, CRLF injection, request smuggling); all fixed in 6.28+.
   undici: ^6.28.0

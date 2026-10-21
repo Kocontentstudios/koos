@@ -9,7 +9,7 @@ const toastError = vi.fn();
 const toastInfo = vi.fn();
 vi.mock("sonner", () => ({
   toast: {
-    error: (m: string) => toastError(m),
+    error: (m: string, o?: unknown) => toastError(m, o),
     info: (m: string) => toastInfo(m),
     success: vi.fn(),
   },
@@ -284,6 +284,108 @@ describe("when something goes wrong", () => {
   it("says nothing about truncation for a document read whole", async () => {
     render(<Harness />);
     pick(pdf());
+    await waitFor(() => expect(onProposal).toHaveBeenCalled());
+    expect(toastInfo).not.toHaveBeenCalled();
+  });
+});
+
+/* KOOS-V1-BUG-026: "The client was unable to attach/upload a brand document
+   and left the website." A toast that states the problem and then strands the
+   user is most of the way to losing them — the ticket asks for a failure that
+   can be retried without restarting onboarding, and for a log that says what
+   actually broke. */
+describe("recovering from a failed upload", () => {
+  const failParse = () =>
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("presign")
+        ? new Response(
+            JSON.stringify({ key: "brand-docs/u1/a.pdf", url: "https://put" }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({ error: "We couldn't read that document." }),
+            { status: 422 },
+          ),
+    );
+
+  it("offers a retry alongside the reason", async () => {
+    failParse();
+    render(<Harness />);
+    pick(pdf());
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const options = toastError.mock.calls[0][1] as
+      | { action?: { label: string; onClick: () => void } }
+      | undefined;
+    expect(options?.action?.label).toMatch(/try again/i);
+  });
+
+  it("retries the same file rather than asking the user to find it again", async () => {
+    failParse();
+    render(<Harness />);
+    pick(pdf("brand-guidelines.pdf"));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+
+    // The next attempt succeeds.
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("presign")
+        ? new Response(
+            JSON.stringify({ key: "brand-docs/u1/a.pdf", url: "https://put" }),
+            { status: 200 },
+          )
+        : new Response(JSON.stringify({ proposal: PROPOSAL }), { status: 200 }),
+    );
+    const options = toastError.mock.calls[0][1] as {
+      action: { onClick: () => void };
+    };
+    options.action.onClick();
+
+    await waitFor(() => expect(onProposal).toHaveBeenCalled());
+    expect(onProposal.mock.calls[0][1]).toBe("brand-guidelines.pdf");
+  });
+
+  it("logs the failure with the file that caused it", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    failParse();
+    render(<Harness />);
+    pick(pdf("brand-guidelines.pdf"));
+
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(JSON.stringify(error.mock.calls[0])).toMatch(
+      /brand-guidelines\.pdf/,
+    );
+    error.mockRestore();
+  });
+});
+
+/* KOOS-V1-FEAT-031: a scanned deck is now read from its pages. That is worth
+   saying — text lifted off artwork is likelier to be wrong than text read from
+   a text layer, and the user is about to confirm it into their brand. */
+describe("a document read from its pages", () => {
+  it("says so, so the summary gets a closer look", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("presign")
+        ? new Response(
+            JSON.stringify({ key: "brand-docs/u1/a.pdf", url: "https://put" }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({ proposal: PROPOSAL, readVisually: true }),
+            { status: 200 },
+          ),
+    );
+    render(<Harness />);
+    pick(pdf());
+
+    await waitFor(() => expect(onProposal).toHaveBeenCalled());
+    expect(toastInfo).toHaveBeenCalled();
+    expect(toastInfo.mock.calls[0][0]).toMatch(/pages|scan/i);
+  });
+
+  it("says nothing extra for a document with a text layer", async () => {
+    render(<Harness />);
+    pick(pdf());
+
     await waitFor(() => expect(onProposal).toHaveBeenCalled());
     expect(toastInfo).not.toHaveBeenCalled();
   });

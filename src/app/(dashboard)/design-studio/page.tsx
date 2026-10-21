@@ -1,5 +1,5 @@
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import {
   getActiveBrandForMember,
   listDesignGenerationsForBrand,
@@ -10,7 +10,7 @@ import { DesignStudioClient } from "./design-studio-client";
 /** Guarded by workspace membership only, not requireBrand: the studio should
  * be reachable from the sidebar even before a brand profile is complete. */
 export default async function DesignStudioPage() {
-  const { dbUser, workspace } = await getActiveWorkspace();
+  const { dbUser, workspace } = await requireOpenWorkspace();
   if (!dbUser || !workspace) redirectToLogin();
 
   const brand = await getActiveBrandForMember(workspace.id, dbUser.id);

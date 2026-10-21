@@ -26,6 +26,11 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
 }));
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
+const readScannedPdf = vi.fn();
+vi.mock("@/lib/ai/onboarding/scanned-pdf", () => ({
+  MAX_VISION_PDF_BYTES: 4 * 1024 * 1024,
+  readScannedPdf: (args: unknown) => readScannedPdf(args),
+}));
 
 import { brandFieldKeys } from "@/lib/ai/tools/proposals";
 import { docxFixture, pdfFixture, pptxFixture } from "@/lib/documents/fixtures";
@@ -60,6 +65,7 @@ beforeEach(() => {
   getObjectBytes.mockResolvedValue(
     pdfFixture(["Okra Kitchen", "Our colour is forest green."]),
   );
+  readScannedPdf.mockResolvedValue(null);
   generateObject.mockResolvedValue({
     object: {
       summary: "Okra Kitchen, a Lagos meal-prep brand.",
@@ -246,5 +252,84 @@ describe("what comes back", () => {
   it("500s when the model call fails", async () => {
     generateObject.mockRejectedValue(new Error("bedrock down"));
     expect((await call()).status).toBe(500);
+  });
+});
+
+/* KOOS-V1-FEAT-031. A client uploaded a brand deck, was told "that file has no
+   readable text", and left. The deck was fine — it simply had no text layer,
+   which is what a designed or scanned PDF looks like. The bytes go to the
+   model instead of the user being sent away to find another export. */
+describe("a PDF with no text layer", () => {
+  const textless = () => pdfFixture([]);
+
+  it("reads the pages instead of refusing the file", async () => {
+    getObjectBytes.mockResolvedValue(textless());
+    readScannedPdf.mockResolvedValue({
+      summary: "A coffee roaster's brand guidelines.",
+      fields: { name: "Okra Kitchen", primaryColor: "forest green" },
+    });
+
+    const res = await call({ fileName: "Brand Guidelines.pdf" });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      proposal: { data: { fields: Record<string, string> } };
+    };
+    expect(body.proposal.data.fields.name).toBe("Okra Kitchen");
+  });
+
+  it("hands the reader the file and the conversation so far", async () => {
+    getObjectBytes.mockResolvedValue(textless());
+    readScannedPdf.mockResolvedValue({
+      summary: "s",
+      fields: { name: "Okra Kitchen" },
+    });
+
+    await call({
+      fileName: "Brand Guidelines.pdf",
+      conversation: "user: We are Okra Kitchen.",
+    });
+
+    expect(readScannedPdf.mock.calls[0][0]).toMatchObject({
+      fileName: "Brand Guidelines.pdf",
+      conversation: "user: We are Okra Kitchen.",
+    });
+  });
+
+  /* So the confirmation card can say how it was read: a page read visually is
+     worth checking more carefully than one read from a text layer. */
+  it("says the document was read from the pages", async () => {
+    getObjectBytes.mockResolvedValue(textless());
+    readScannedPdf.mockResolvedValue({
+      summary: "s",
+      fields: { name: "Okra Kitchen" },
+    });
+
+    const body = (await call()).json() as Promise<{ readVisually?: boolean }>;
+
+    expect((await body).readVisually).toBe(true);
+  });
+
+  it("keeps the original message when the pages cannot be read either", async () => {
+    getObjectBytes.mockResolvedValue(textless());
+    readScannedPdf.mockResolvedValue(null);
+
+    const res = await call();
+
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /scan or images only/i,
+    );
+  });
+
+  /* A .txt or .docx with no text is empty, not scanned — there are no pages to
+     look at, and a vision call would spend money to learn that. */
+  it("does not try to read a text-less DOCX visually", async () => {
+    getObjectBytes.mockResolvedValue(docxFixture([]));
+
+    const res = await call({ fileName: "empty.docx" });
+
+    expect(res.status).toBe(422);
+    expect(readScannedPdf).not.toHaveBeenCalled();
   });
 });

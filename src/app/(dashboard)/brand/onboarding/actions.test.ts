@@ -19,6 +19,7 @@ vi.mock("@/lib/db/queries", () => ({
     checkBrandAccess(u, b, p),
 }));
 
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import { PLACEHOLDER_BRAND_NAME } from "@/lib/brand-profile";
 import { saveVisualIdentity, startConversationalOnboarding } from "./actions";
 
@@ -32,7 +33,7 @@ describe("startConversationalOnboarding", () => {
   function signedInAs(role: string) {
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "w1" },
+      workspace: { id: "w1", accessStatus: "approved" },
       role,
     });
   }
@@ -95,7 +96,7 @@ describe("saveVisualIdentity", () => {
     vi.clearAllMocks();
     getActiveWorkspace.mockResolvedValue({
       dbUser: { id: "u1" },
-      workspace: { id: "w1" },
+      workspace: { id: "w1", accessStatus: "approved" },
       role: "owner",
     });
     checkBrandAccess.mockResolvedValue({ ok: true });
@@ -182,5 +183,26 @@ describe("saveVisualIdentity", () => {
     const patch = updateBrand.mock.calls[0][1] as Record<string, unknown>;
     expect(patch.brandFontUrl).toBeNull();
     expect(patch.bodyFontUrl).toBe("https://cdn/fonts/u1/body.ttf");
+  });
+});
+
+describe("startConversationalOnboarding behind the access gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getActiveBrandForMember.mockResolvedValue(null);
+  });
+
+  /* Conversational onboarding is the first AI spend a new account reaches,
+     so this is the cheapest place for an unpaid account to run up a bill. */
+  it("refuses a pending workspace without minting a brand", async () => {
+    getActiveWorkspace.mockResolvedValue({
+      dbUser: { id: "u1", role: "user" },
+      workspace: { id: "w1", accessStatus: "pending" },
+      role: "owner",
+    });
+    const res = await startConversationalOnboarding();
+    expect(res).toEqual({ ok: false, error: WORKSPACE_PENDING_ERROR });
+    expect(createBrand).not.toHaveBeenCalled();
+    expect(getActiveBrandForMember).not.toHaveBeenCalled();
   });
 });

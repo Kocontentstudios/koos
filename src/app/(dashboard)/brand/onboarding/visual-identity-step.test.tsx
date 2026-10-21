@@ -577,3 +577,43 @@ describe("two font slots, independent of each other", () => {
     expect(saved.bodyFontUrl).toBe("");
   });
 });
+
+/* KOOS-V1-BUG-030, the onboarding half. The step is reached again whenever a
+   user returns to finish setup, and a logo already on the brand was not shown
+   — so the step asked for a file the brand already had. */
+describe("VisualIdentityStep with a logo already saved", () => {
+  const SAVED = "https://cdn.example.com/logos/u1/acme-mark.png";
+
+  it("shows the saved logo instead of an empty slot", () => {
+    renderStep({ initial: { logoUrl: SAVED } });
+
+    const img = screen.getByRole("img", { name: /logo/i }) as HTMLImageElement;
+    expect(img.src).toBe(SAVED);
+  });
+
+  it("keeps the saved logo when the step is saved untouched", async () => {
+    const { onSave } = renderStep({ initial: { logoUrl: SAVED } });
+
+    await userEvent.click(screen.getByRole("button", { name: /save|finish/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ logoUrl: SAVED }),
+    );
+  });
+
+  /* "Provide clear Remove and Replace actions" — the remove control must say
+     what it removes, not "Remove file". */
+  it("names what the remove control removes", () => {
+    renderStep({ initial: { logoUrl: SAVED } });
+
+    expect(
+      screen.getByRole("button", { name: /remove logo/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("still shows an empty slot for a brand with no logo", () => {
+    renderStep();
+
+    expect(screen.queryByRole("img", { name: /logo/i })).toBeNull();
+  });
+});

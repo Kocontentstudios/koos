@@ -59,3 +59,44 @@ describe("buildOnboardingPrompt coverage", () => {
     expect(prompt).toMatch(/do not list the options yourself/i);
   });
 });
+
+/* KOOS-V1-BUG-028: a user whose profile was already filled in was put through
+   the whole questionnaire again. With the transcript restored KO can see what
+   was asked, but a COMPLETE profile needs its own opening — the ticket
+   specifies the wording. */
+describe("buildOnboardingPrompt for a complete profile", () => {
+  const context = {
+    brandProfile: "Acme — we roast coffee",
+    audience: "Cafés",
+    brandVoice: "Warm",
+    existingCampaigns: "",
+    previousConversations: "",
+  };
+
+  it("opens by saying the profile is up to date", () => {
+    const prompt = buildOnboardingPrompt(context, { profileComplete: true });
+
+    expect(prompt).toContain(
+      "Your profile is up to date. Would you like to add or update anything?",
+    );
+  });
+
+  it("offers review, update or finish instead of another questionnaire", () => {
+    const prompt = buildOnboardingPrompt(context, { profileComplete: true });
+
+    expect(prompt).toMatch(/review/i);
+    expect(prompt).toMatch(/finish/i);
+  });
+
+  it("still interviews when the profile is incomplete", () => {
+    const prompt = buildOnboardingPrompt(context, { profileComplete: false });
+
+    expect(prompt).not.toContain("Your profile is up to date");
+  });
+
+  it("interviews by default, so an unaware caller never skips onboarding", () => {
+    expect(buildOnboardingPrompt(context)).not.toContain(
+      "Your profile is up to date",
+    );
+  });
+});

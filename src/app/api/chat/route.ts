@@ -5,6 +5,7 @@ import {
   streamText,
   type UIMessage,
 } from "ai";
+import { after } from "next/server";
 import { flattenMessageText } from "@/lib/ai/chat-messages";
 import { buildMemoryBlock, summarizeIntoMemory } from "@/lib/ai/memory";
 import type { ChatBrandContext } from "@/lib/ai/prompts/chat";
@@ -17,11 +18,13 @@ import { buildBrandTools, providerSupportsTools } from "@/lib/ai/tools";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
+import { isBasicsComplete } from "@/lib/brand-profile";
 import {
   checkBrandAccess,
   createConversation,
   createMessage,
   getConversationById,
+  setBrandOnboardingConversation,
   touchConversation,
   updateConversationTitle,
 } from "@/lib/db/queries";
@@ -90,6 +93,14 @@ export async function POST(req: Request) {
     return Response.json({ error: ensured.error }, { status: ensured.status });
   }
 
+  /* The brand remembers WHICH chat is its onboarding session, because the
+     conversation itself cannot say so: onboarding is persisted under the
+     'strategy' mode. Without this the page had nothing to reopen, so every
+     visit started a new chat and asked everything again (KOOS-V1-BUG-027). */
+  if (ensured.created && mode === "onboarding") {
+    await setBrandOnboardingConversation(brandId, conversationId);
+  }
+
   if (ensured.created) {
     await captureServerEvent({
       distinctId: dbUser.id,
@@ -110,7 +121,12 @@ export async function POST(req: Request) {
     mode === "design"
       ? buildDesignRequestChatPrompt(brandContext)
       : mode === "onboarding"
-        ? buildOnboardingPrompt(brandContext)
+        ? buildOnboardingPrompt(brandContext, {
+            /* From the brand row the access check already loaded, never from
+               the client: a returning user with a filled-in profile was being
+               interviewed from scratch (KOOS-V1-BUG-028). */
+            profileComplete: isBasicsComplete(access.brand),
+          })
         : buildChatPrompt({ memorySummary: await buildMemoryBlock(brandId) });
   const modelMessages = await convertToModelMessages(messages);
 
@@ -161,35 +177,42 @@ export async function POST(req: Request) {
         console.error("chat persistence failed", err);
       }
 
-      // Best-effort brand memory update. Runs for both modes so design-mode
-      // conversations still accrue durable brand facts; summarizeIntoMemory
-      // already swallows its own errors.
-      if (lastUserMessage?.role === "user") {
-        await summarizeIntoMemory({
-          brandId,
-          userText: flattenMessageText(lastUserMessage),
-          assistantText: text,
-        });
-      }
-
-      // First turn of a new conversation: replace the truncated first-message
-      // title with a short AI-generated one. Best-effort — a failure here must
-      // never affect the chat itself.
-      if (ensured.created && firstUserMessage) {
-        try {
-          const { text: rawTitle } = await generateText({
-            model: getModel("chat"),
-            prompt: buildTitlePrompt(
-              flattenMessageText(firstUserMessage),
-              text,
-            ),
+      /* Everything below is a SECOND model call, and the response stream stays
+         open until this callback resolves — so awaiting them here leaves the
+         client at status "streaming" long after the answer is on screen, where
+         handleSend silently refuses to send (KOOS-V1-BUG-025). after() lets
+         the turn end and the work continue. */
+      after(async () => {
+        // Best-effort brand memory update. Runs for both modes so design-mode
+        // conversations still accrue durable brand facts; summarizeIntoMemory
+        // already swallows its own errors.
+        if (lastUserMessage?.role === "user") {
+          await summarizeIntoMemory({
+            brandId,
+            userText: flattenMessageText(lastUserMessage),
+            assistantText: text,
           });
-          const title = cleanGeneratedTitle(rawTitle);
-          if (title) await updateConversationTitle(conversationId, title);
-        } catch (err) {
-          console.error("conversation title generation failed", err);
         }
-      }
+
+        // First turn of a new conversation: replace the truncated first-message
+        // title with a short AI-generated one. Best-effort — a failure here must
+        // never affect the chat itself.
+        if (ensured.created && firstUserMessage) {
+          try {
+            const { text: rawTitle } = await generateText({
+              model: getModel("chat"),
+              prompt: buildTitlePrompt(
+                flattenMessageText(firstUserMessage),
+                text,
+              ),
+            });
+            const title = cleanGeneratedTitle(rawTitle);
+            if (title) await updateConversationTitle(conversationId, title);
+          } catch (err) {
+            console.error("conversation title generation failed", err);
+          }
+        }
+      });
     },
   });
 

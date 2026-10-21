@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isActiveWorkspaceOpen } from "@/lib/auth/require-open-workspace";
 import { getActiveWorkspace } from "@/lib/auth/workspace";
 import { can } from "@/lib/auth/workspace-access";
+import { WORKSPACE_PENDING_ERROR } from "@/lib/auth/workspace-approval";
 import {
   PLACEHOLDER_BRAND_NAME,
   parseAdditionalColors,
@@ -15,6 +17,7 @@ import {
   checkBrandAccess,
   createBrand,
   getActiveBrandForMember,
+  setBrandOnboardingConversation,
   updateBrand,
 } from "@/lib/db/queries";
 
@@ -33,6 +36,9 @@ export async function startConversationalOnboarding(): Promise<
 > {
   const { dbUser, workspace, role } = await getActiveWorkspace();
   if (!dbUser || !workspace) return { ok: false, error: "Not authenticated" };
+  if (!isActiveWorkspaceOpen({ dbUser, workspace, role })) {
+    return { ok: false, error: WORKSPACE_PENDING_ERROR };
+  }
 
   const existing = await getActiveBrandForMember(workspace.id, dbUser.id);
   if (existing) return { ok: true, brandId: existing.id };
@@ -110,4 +116,25 @@ export async function saveVisualIdentity(
   revalidatePath("/brand");
   revalidatePath("/dashboard");
   return { ok: true, snapshot: toBrandSnapshot(updated) };
+}
+
+/**
+ * Forget the saved onboarding session so the next turn starts a fresh chat.
+ *
+ * The answers already written to the brand profile are deliberately untouched:
+ * "start over" means start the conversation again, not discard the brand
+ * (KOOS-V1-BUG-027).
+ */
+export async function restartOnboarding(
+  brandId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { dbUser } = await getActiveWorkspace();
+  if (!dbUser) return { ok: false, error: "Not authenticated" };
+
+  const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
+  if (!access.ok) return { ok: false, error: access.error };
+
+  await setBrandOnboardingConversation(brandId, null);
+  revalidatePath("/brand/onboarding");
+  return { ok: true };
 }

@@ -64,6 +64,24 @@ export const conversationModeEnum = pgEnum("conversation_mode", [
   "design",
 ]);
 
+/* FEAT-032. The renderer switches on these; the free-text label is what the
+   user calls it. */
+export const logoVariantEnum = pgEnum("logo_variant", [
+  "primary",
+  "horizontal",
+  "vertical",
+  "icon",
+  "wordmark",
+  "alternate",
+]);
+
+/** Which background a cut of the logo is drawn for. */
+export const logoBackgroundEnum = pgEnum("logo_background", [
+  "any",
+  "light",
+  "dark",
+]);
+
 export const assetTypeEnum = pgEnum("asset_type", [
   "logo",
   "image",
@@ -71,6 +89,12 @@ export const assetTypeEnum = pgEnum("asset_type", [
 ]);
 
 export const userRoleEnum = pgEnum("user_role", ["user", "designer", "admin"]);
+
+/** Mirrors WORKSPACE_ACCESS_STATUSES in src/lib/auth/workspace-approval.ts. */
+export const workspaceAccessStatusEnum = pgEnum("workspace_access_status", [
+  "pending",
+  "approved",
+]);
 
 // Declared in descending privilege: Postgres orders an enum by declaration
 // order, and the member listings sort on this column to surface the most
@@ -217,16 +241,31 @@ export const emailVerificationTokens = pgTable("email_verification_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const workspaces = pgTable("workspaces", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  logoUrl: text("logo_url"),
-  ownerId: uuid("owner_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    logoUrl: text("logo_url"),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Interim paywall: a workspace is unusable until an admin approves it
+      after the client's onboarding call and payment. Workspaces predating the
+      gate were approved by migration 0036. */
+    accessStatus: workspaceAccessStatusEnum("access_status")
+      .notNull()
+      .default("pending"),
+    accessDecidedAt: timestamp("access_decided_at"),
+    /** Null for grandfathered workspaces and after the deciding admin is deleted. */
+    accessDecidedBy: uuid("access_decided_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("workspaces_access_status_idx").on(t.accessStatus)],
+);
 
 export const workspaceMembers = pgTable(
   "workspace_members",
@@ -310,6 +349,11 @@ export const brands = pgTable(
     onboardingStatus: onboardingStatusEnum("onboarding_status")
       .notNull()
       .default("draft"),
+    /* Which chat IS the onboarding one. Conversations only carry
+       'strategy' | 'design' and an onboarding chat is stored as 'strategy', so
+       without this there is no way to reopen the right one and every visit
+       started KO from the first question (KOOS-V1-BUG-027 / BUG-028). */
+    onboardingConversationId: uuid("onboarding_conversation_id"),
     /* No completion column on purpose (KOS-V1-BUG-011): setup completion is
        derived from the fields below by brandProfileCompletion(). A stored copy
        goes stale the moment the formula changes, and every display surface
@@ -383,6 +427,15 @@ export const brandAssets = pgTable("brand_assets", {
   assetType: assetTypeEnum("asset_type").notNull(),
   fileUrl: text("file_url").notNull(),
   fileName: text("file_name").notNull(),
+  /* Logo variations (FEAT-032). Null on every non-logo asset, and on logos
+     uploaded before this shipped — an unlabelled mark is usable anywhere,
+     which is what it already was. */
+  logoVariant: logoVariantEnum("logo_variant"),
+  logoBackground: logoBackgroundEnum("logo_background")
+    .notNull()
+    .default("any"),
+  label: text("label"),
+  isPreferred: boolean("is_preferred").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

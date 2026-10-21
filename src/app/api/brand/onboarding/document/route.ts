@@ -10,6 +10,7 @@ import {
   omitUnfilled,
   SYSTEM_PROMPT,
 } from "@/lib/ai/onboarding/extraction";
+import { readScannedPdf } from "@/lib/ai/onboarding/scanned-pdf";
 import { getModel } from "@/lib/ai/provider";
 import { ProposalSchema } from "@/lib/ai/tools/proposals";
 import { getAuthUser } from "@/lib/auth/get-user";
@@ -114,9 +115,17 @@ export async function POST(req: Request) {
     );
   }
 
-  /* A scanned deck parses fine and contains no text. Saying so is far more
-     useful than an empty confirmation card, and it names the fix. */
-  if (!extracted.text) {
+  /* A scanned or fully-designed deck parses fine and contains no text. For a
+     PDF there are still pages to look at, so the file goes to the model rather
+     than the user being sent away to find another export (KOOS-V1-FEAT-031).
+     Other formats have no pages — an empty .docx is empty, and a vision call
+     would spend money to discover that. */
+  let visual: Awaited<ReturnType<typeof readScannedPdf>> = null;
+  if (!extracted.text && extension === "pdf") {
+    visual = await readScannedPdf({ bytes, fileName, conversation });
+  }
+
+  if (!extracted.text && !visual) {
     return Response.json(
       {
         error:
@@ -127,24 +136,27 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { object } = await generateObject({
-      model: getModel("brand"),
-      schema: extractionSchema,
-      system: SYSTEM_PROMPT,
-      prompt: documentTranscript({
-        fileName,
-        text: extracted.text,
-        truncated: extracted.truncated,
-        conversation,
-      }),
-      // Unbounded output truncates mid-JSON on Bedrock and surfaces as a
-      // schema-mismatch retry loop rather than a token error.
-      maxOutputTokens: EXTRACTION_OUTPUT_TOKEN_CAP,
-    });
+    const { object } = visual
+      ? { object: { summary: visual.summary, fields: visual.fields } }
+      : await generateObject({
+          model: getModel("brand"),
+          schema: extractionSchema,
+          system: SYSTEM_PROMPT,
+          prompt: documentTranscript({
+            fileName,
+            text: extracted.text,
+            truncated: extracted.truncated,
+            conversation,
+          }),
+          // Unbounded output truncates mid-JSON on Bedrock and surfaces as a
+          // schema-mismatch retry loop rather than a token error.
+          maxOutputTokens: EXTRACTION_OUTPUT_TOKEN_CAP,
+        });
 
     const proposal = {
       kind: "brand_fields" as const,
       summary: object.summary,
+      /* Already filtered on the visual path; omitUnfilled is idempotent. */
       data: { fields: omitUnfilled(object.fields) },
     };
 
@@ -176,6 +188,9 @@ export async function POST(req: Request) {
       proposal: validated.data,
       fileName,
       truncated: extracted.truncated,
+      /* The confirmation card says how it was read: a page read visually is
+         worth checking more carefully than one read from a text layer. */
+      readVisually: Boolean(visual),
     });
   } catch (err) {
     console.error("document extraction model call failed", err);

@@ -9,6 +9,7 @@ import {
   fitHeadlineSize,
   HEADLINE_STEPS,
 } from "@/lib/design/render/copy-fit";
+import { footerBandHeight } from "./footer";
 
 const spec = {
   headline: "Lagos Launch Week",
@@ -267,5 +268,71 @@ describe("bannerBandFor", () => {
       });
       expect(1 - band).toBeGreaterThan(0.4);
     }
+  });
+});
+
+/* KOOS-AI-001 phase 2. The footer band is drawn over the bottom of the frame,
+   so the copy box has to shrink by its height — otherwise the headline is
+   sized for space the contact details are standing in, and satori neither
+   shrinks nor clips (the bug KOOS-BUG-023 exists for). */
+describe("copy space with a footer", () => {
+  const canvas = { width: 1080, height: 1350 };
+  const withFooter = {
+    footerStyle: "bar" as const,
+    footerLines: ["Call [PHONE NUMBER]", "Delivery across Yaba"],
+  };
+  const noFooter = { footerStyle: "none" as const, footerLines: [] };
+
+  it("gives the copy less height when a band is drawn", () => {
+    const free = copySpaceFor("hero-center", canvas, undefined, noFooter);
+    const reduced = copySpaceFor("hero-center", canvas, undefined, withFooter);
+
+    expect(reduced.height).toBeLessThan(free.height);
+  });
+
+  it("reserves exactly the band's height", () => {
+    const free = copySpaceFor("hero-center", canvas, undefined, noFooter);
+    const reduced = copySpaceFor("hero-center", canvas, undefined, withFooter);
+
+    expect(free.height - reduced.height).toBeCloseTo(
+      footerBandHeight(withFooter, canvas),
+      5,
+    );
+  });
+
+  it("is unchanged when the caller passes no footer at all", () => {
+    expect(copySpaceFor("hero-center", canvas)).toEqual(
+      copySpaceFor("hero-center", canvas, undefined, noFooter),
+    );
+  });
+});
+
+/* The headline is sized from the space the layout leaves. With a footer that
+   space is smaller, so the same words must come back no larger. */
+describe("headline sizing with a footer", () => {
+  const canvas = { width: 1080, height: 1350 };
+  const copy = {
+    headline: "Weekend pies, baked fresh every single Friday morning",
+    subheadline: "Order before six",
+    cta: "Order now",
+  };
+
+  it("never sizes the headline into the band", () => {
+    const free = fitHeadlineSize({
+      spec: { ...copy, footerStyle: "none", footerLines: [] },
+      layout: "hero-center",
+      canvas,
+    });
+    const withFooter = fitHeadlineSize({
+      spec: {
+        ...copy,
+        footerStyle: "bar",
+        footerLines: ["Call [PHONE NUMBER]", "Delivery across Yaba"],
+      },
+      layout: "hero-center",
+      canvas,
+    });
+
+    expect(withFooter).toBeLessThanOrEqual(free);
   });
 });

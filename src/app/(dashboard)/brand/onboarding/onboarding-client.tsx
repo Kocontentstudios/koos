@@ -5,7 +5,7 @@ import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { Send, Sparkles, Square, Volume2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ProposalCard } from "@/components/ai/proposal-card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ import {
   stripPollMarker,
 } from "@/lib/onboarding/chips";
 import { BrandSnapshotCard } from "../brand-snapshot-card";
-import { saveVisualIdentity } from "./actions";
+import { restartOnboarding, saveVisualIdentity } from "./actions";
 import { ChipPicker } from "./chip-picker";
 import {
   DocumentInput,
@@ -39,6 +39,10 @@ import {
 interface OnboardingClientProps {
   brandId: string;
   brandContext: ChatBrandContext;
+  /** The saved onboarding chat to reopen, when the brand has one. */
+  conversationId?: string;
+  /** Its transcript, so KO carries on rather than re-interviewing. */
+  initialMessages?: UIMessage[];
 }
 
 /* The poll marker is protocol between the prompt and ChipPicker, never
@@ -92,10 +96,26 @@ function ReadAloudButton({
 export function OnboardingClient({
   brandId,
   brandContext,
+  conversationId: savedConversationId,
+  initialMessages = [],
 }: OnboardingClientProps) {
   const router = useRouter();
-  const conversationId = useState(() => crypto.randomUUID())[0];
+  /* Seeded from the brand's saved session. Minting a fresh id on every mount
+     is what made a refresh start the interview again (KOOS-V1-BUG-027). */
+  const [conversationId, setConversationId] = useState(
+    () => savedConversationId ?? crypto.randomUUID(),
+  );
+  const [resumed] = useState(() => initialMessages.length > 0);
+  const [confirmingRestart, setConfirmingRestart] = useState(false);
   const [input, setInput] = useState("");
+  /* An answer typed while KO is still replying. handleSend used to drop these
+     on the floor: a client pressed Enter five times in fifty seconds and the
+     app showed her nothing (KOOS-V1-BUG-025). Held here and sent the moment
+     the turn ends, because the intent was to answer the question on screen. */
+  const [queued, setQueued] = useState<string | null>(null);
+  /* The last thing the user tried to say, kept so a failed turn can be retried
+     rather than retyped. */
+  const [lastAttempt, setLastAttempt] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<BrandSnapshotFields | null>(null);
   /* Sits between the conversation and the snapshot: the chat cannot carry a
      file upload, and the design engine needs a logo and colours more than it
@@ -118,8 +138,9 @@ export function OnboardingClient({
     [brandContext, brandId, conversationId],
   );
 
-  const { messages, status, sendMessage, stop, error } = useChat({
+  const { messages, status, sendMessage, setMessages, stop, error } = useChat({
     transport,
+    messages: initialMessages,
   });
   const isLoading = status === "submitted" || status === "streaming";
 
@@ -142,13 +163,41 @@ export function OnboardingClient({
     );
   }
 
+  const say = useCallback(
+    (text: string) => {
+      setLastAttempt(text);
+      sendMessage(
+        { text },
+        { body: { brandContext, brandId, conversationId, mode: "onboarding" } },
+      );
+    },
+    [sendMessage, brandContext, brandId, conversationId],
+  );
+
+  useEffect(() => {
+    if (isLoading || !queued) return;
+    /* Cleared before sending: the effect re-runs on the status change that
+       sending causes, and a queue still holding the text would send it twice. */
+    setQueued(null);
+    say(queued);
+  }, [isLoading, queued, say]);
+
+  async function handleRestart() {
+    setConfirmingRestart(false);
+    await restartOnboarding(brandId);
+    setConversationId(crypto.randomUUID());
+    setMessages([]);
+  }
+
   function handleSend() {
     const text = input.trim();
-    if (!text || isLoading) return;
-    sendMessage(
-      { text },
-      { body: { brandContext, brandId, conversationId, mode: "onboarding" } },
-    );
+    if (!text) return;
+    if (isLoading) {
+      setQueued(text);
+      setInput("");
+      return;
+    }
+    say(text);
     setInput("");
   }
 
@@ -332,6 +381,15 @@ export function OnboardingClient({
         {error && (
           <div className="max-w-[85%] px-4 py-3 rounded-xl bg-[var(--status-error-bg)] text-[var(--status-error-fg)] text-sm">
             {error.message}
+            {lastAttempt && (
+              <button
+                type="button"
+                onClick={() => say(lastAttempt)}
+                className="mt-2 block underline underline-offset-2 hover:no-underline"
+              >
+                Try again
+              </button>
+            )}
           </div>
         )}
 
@@ -381,6 +439,45 @@ export function OnboardingClient({
           </div>
         )}
       </div>
+
+      {resumed && (
+        <div className="mx-4 mb-2 rounded-xl border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm">
+          {confirmingRestart ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span>
+                Start the conversation again? Your saved brand details are kept.
+              </span>
+              <button
+                type="button"
+                onClick={handleRestart}
+                className="underline underline-offset-2 hover:no-underline"
+              >
+                Yes, start over
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingRestart(false)}
+                className="text-[var(--text-secondary)] underline underline-offset-2 hover:no-underline"
+              >
+                Keep going
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[var(--text-secondary)]">
+                Picking up where you left off.
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmingRestart(true)}
+                className="underline underline-offset-2 hover:no-underline"
+              >
+                Start over
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-background border-t border-[rgba(255,255,255,0.06)]">
         <div className="relative flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)]">
@@ -436,6 +533,14 @@ export function OnboardingClient({
             </button>
           )}
         </div>
+        {queued && (
+          <p
+            role="status"
+            className="mt-1.5 px-1 text-[11px] text-[var(--text-secondary)]"
+          >
+            KO is still replying — your answer will send next.
+          </p>
+        )}
         {/* The optional upload step FEAT-018 asks for. It sits under the input
             rather than as a chat turn: an offer the user can take at any point
             in the conversation, not a question that blocks the next one. */}

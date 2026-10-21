@@ -31,6 +31,13 @@ interface StepProps {
   onChange: (patch: Partial<CreateBrandState>) => void;
 }
 
+/** Mirrors storedFontName: says a logo IS on file, and what kind. */
+function storedLogoName(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const extension = /\.([a-z0-9]+)(?:\?|$)/i.exec(url)?.[1]?.toLowerCase();
+  return extension ? `Current logo (.${extension})` : "Current logo";
+}
+
 export function StepVisual({ state, onChange }: StepProps) {
   /* Guarded: localStorage drafts are restored with a raw JSON.parse and a
      shallow merge, so a corrupted draft can hand us a non-array here. */
@@ -40,8 +47,16 @@ export function StepVisual({ state, onChange }: StepProps) {
   const additionalColors = Array.isArray(state.additionalColors)
     ? state.additionalColors
     : [];
-  const [logoFileName, setLogoFileName] = useState<string | null>(null);
-  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
+  /* Seeded from the stored URL, for the same reason the fonts below are: a
+     brand that already had a logo was shown the empty upload prompt every
+     time its owner came back, so the only way to see what was on file was to
+     upload it again (KOOS-V1-BUG-030). */
+  const [logoFileName, setLogoFileName] = useState<string | null>(() =>
+    storedLogoName(state.logoUrl),
+  );
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(
+    () => state.logoUrl || null,
+  );
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   /* Seeded from the stored URLs so an existing brand shows that a font IS set
@@ -104,7 +119,10 @@ export function StepVisual({ state, onChange }: StepProps) {
         </Select>
       </Field>
 
-      {state.hasLogo === "Yes" && (
+      {/* A brand onboarded through the chat can hold a logo while the has-logo
+          question was never answered, and gating on the answer alone hid the
+          logo it already had — invisible and unremovable. */}
+      {(state.hasLogo === "Yes" || Boolean(state.logoUrl)) && (
         <div className="flex flex-col gap-2">
           <Label>Logo Upload</Label>
           <p className="flex items-center gap-1.5 text-[12px] text-[var(--text-muted)]">
@@ -114,6 +132,7 @@ export function StepVisual({ state, onChange }: StepProps) {
           <FileUpload
             accept="image/png,image/svg+xml,image/jpeg"
             maxSizeMb={5}
+            label="logo"
             onFileSelected={handleFileSelected}
             onRemove={handleRemoveLogo}
             fileName={logoFileName}

@@ -22,6 +22,8 @@ const SPEC: DesignSpec = {
   logoPlacement: "bottom-right",
   logoFree: false,
   logoFreeQuote: "",
+  footerStyle: "none" as const,
+  footerLines: [],
   backgroundPrompt: "warm city skyline at dusk",
   backgroundTreatment: "photographic",
   nativePrompt: "unused in the composite route",

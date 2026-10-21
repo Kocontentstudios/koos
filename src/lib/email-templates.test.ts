@@ -16,6 +16,7 @@ import {
   ticketReviewTeamEmail,
   ticketStatusEmail,
   welcomeEmail,
+  workspaceApprovedEmail,
   workspaceInviteEmail,
 } from "./email-templates";
 
@@ -379,5 +380,29 @@ describe("ticketReminderEmail", () => {
     });
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("workspaceApprovedEmail", () => {
+  it("names the workspace, greets the owner and links the dashboard", () => {
+    const { subject, html } = workspaceApprovedEmail({
+      firstName: "Ada",
+      workspaceName: "Killa Skincare",
+      dashboardUrl: "https://app/dashboard",
+    });
+    expect(subject).toBe("Your KO OS workspace is ready");
+    expect(html).toContain("Ada");
+    expect(html).toContain("Killa Skincare");
+    expect(html).toContain('href="https://app/dashboard"');
+  });
+
+  it("escapes a workspace name the owner typed", () => {
+    const { html } = workspaceApprovedEmail({
+      firstName: "Ada",
+      workspaceName: '<img src=x onerror="alert(1)">',
+      dashboardUrl: "https://app/dashboard",
+    });
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
   });
 });

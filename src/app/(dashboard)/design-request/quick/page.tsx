@@ -1,12 +1,12 @@
 import { redirectToLogin } from "@/lib/auth/redirects";
-import { getActiveWorkspace } from "@/lib/auth/workspace";
+import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { getActiveBrandForMember } from "@/lib/db/queries";
 import { QuickRequestForm } from "./quick-request-form";
 
 /** Deliberately guarded by workspace membership only, never requireBrand:
  * this page exists precisely for users whose brand profile is incomplete. */
 export default async function QuickDesignRequestPage() {
-  const { dbUser, workspace } = await getActiveWorkspace();
+  const { dbUser, workspace } = await requireOpenWorkspace();
   if (!dbUser || !workspace) redirectToLogin();
 
   const brand = await getActiveBrandForMember(workspace.id, dbUser.id);

@@ -15,6 +15,7 @@ import {
   type ResolvedAttachment,
   sortByPrecedence,
 } from "@/lib/design/attachments";
+import { orderLogoCandidates } from "@/lib/design/logo-variants";
 import { formatTicketNumber } from "@/lib/design/ticket";
 import {
   type BrandSummary,
@@ -57,6 +58,8 @@ export interface DesignContext {
   /** Other approved logo marks the brand holds, beyond the profile one. The
    *  renderer picks whichever reads best on the design's ground. */
   logoAssetUrls: string[];
+  /** Ordered for loadBestLogo: the user's default first (FEAT-032). */
+  logoCandidates: string[];
 }
 
 export interface ResolveDesignContextArgs {
@@ -72,8 +75,15 @@ export interface ResolveDesignContextArgs {
 export class DesignContextError extends Error {}
 
 /** Cap on how much of one attachment reaches the model, so a long strategy
- *  cannot crowd out everything else the user attached. */
-const MAX_ATTACHMENT_CHARS = 4000;
+ *  cannot crowd out everything else the user attached.
+ *
+ *  Raised from 4000 when briefs became format-routed: a routed brief carries
+ *  eight or nine sections, each answered even when the answer is short, and
+ *  two of the eight briefs in the design-brief eval already exceeded 4000
+ *  characters. What a clamp cuts is the tail, which is where Visual Direction,
+ *  Branding Requirements and the Production Note sit — so the truncation was
+ *  silently removing the art direction and the renderer's own limitation. */
+const MAX_ATTACHMENT_CHARS = 8000;
 
 function clamp(text: string | null | undefined): string | null {
   const trimmed = text?.trim();
@@ -227,6 +237,7 @@ export async function resolveDesignContext({
      the brand's assets, and issuing the same query twice per generation is a
      round trip for nothing. */
   const brandAssets = await getBrandAssets(brandId);
+  const logoAssets = brandAssets.filter((asset) => asset.assetType === "logo");
   const resolved = await Promise.all(
     refs.map((ref) => loadAttachment(ref, brandId, brandAssets)),
   );
@@ -253,8 +264,19 @@ export async function resolveDesignContext({
     platform: merged.platform,
     scheduledFor: merged.scheduledFor,
     referenceUrls: merged.referenceUrls,
-    logoAssetUrls: brandAssets
-      .filter((asset) => asset.assetType === "logo")
-      .map((asset) => asset.fileUrl),
+    logoAssetUrls: logoAssets.map((asset) => asset.fileUrl),
+    /* The order loadBestLogo should try them in. It picks by measuring
+       contrast and keeps the first on a tie, so this is where a user's chosen
+       default gets its say between marks that both read well (FEAT-032). */
+    logoCandidates: orderLogoCandidates(
+      logoAssets.map((asset) => ({
+        fileUrl: asset.fileUrl,
+        logoVariant: asset.logoVariant ?? null,
+        logoBackground: asset.logoBackground ?? "any",
+        label: asset.label ?? null,
+        isPreferred: asset.isPreferred ?? false,
+      })),
+      brand.logoUrl,
+    ),
   };
 }

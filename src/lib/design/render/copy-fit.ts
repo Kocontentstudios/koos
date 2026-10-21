@@ -1,5 +1,6 @@
 import type { Canvas } from "@/lib/design/canvas";
 import type { DesignSpec } from "@/lib/design/spec";
+import { type FooterSpec, footerBandHeight } from "./footer";
 
 /**
  * How big the headline can be before the copy stops fitting.
@@ -126,8 +127,13 @@ export function copySpaceFor(
   canvas: Canvas,
   /** The band actually used, when the caller has already sized it. */
   bannerBand: number = BANNER_BAND.min,
+  /** The footer, whose band stands in the bottom of the frame. Without this
+   *  the headline is sized for space the contact details occupy, and satori
+   *  neither shrinks nor clips (KOOS-BUG-023). */
+  footer?: FooterSpec,
 ): { width: number; height: number } {
-  const { width, height } = canvas;
+  const { width, height: full } = canvas;
+  const height = full - (footer ? footerBandHeight(footer, canvas) : 0);
   // Must match the layouts' own pad exactly, or this measures a phantom box.
   const pad = Math.min(width, height) * 0.08;
 
@@ -158,12 +164,20 @@ export function fitHeadlineSize({
   canvas,
   bannerBand,
 }: {
-  spec: Pick<DesignSpec, "headline" | "subheadline" | "cta">;
+  spec: Pick<DesignSpec, "headline" | "subheadline" | "cta"> &
+    Partial<FooterSpec>;
   layout: DesignSpec["layout"];
   canvas: Canvas;
   bannerBand?: number;
 }): number {
-  const space = copySpaceFor(layout, canvas, bannerBand);
+  /* The footer rides on the spec, so a caller that already has one does not
+     have to remember to pass it separately — forgetting would size the
+     headline into the band. */
+  const footer =
+    spec.footerStyle && spec.footerLines
+      ? { footerStyle: spec.footerStyle, footerLines: spec.footerLines }
+      : undefined;
+  const space = copySpaceFor(layout, canvas, bannerBand, footer);
   const reference = Math.min(canvas.width, canvas.height);
   const steps = HEADLINE_STEPS.map((step) => reference * step);
 

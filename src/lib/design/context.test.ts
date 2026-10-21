@@ -261,3 +261,51 @@ describe("approved logo marks", () => {
     expect(context.logoAssetUrls).toEqual([]);
   });
 });
+
+/* FEAT-032. loadBestLogo picks by measuring contrast and keeps the first
+   candidate when two tie, so the ORDER it receives is the only say a user has
+   between marks that both read well. */
+describe("the order the renderer tries a brand's marks in", () => {
+  it("offers the user's default ahead of the profile logo", async () => {
+    getBrandAssets.mockResolvedValue([
+      {
+        id: "a1",
+        assetType: "logo",
+        fileUrl: "u/stacked.png",
+        fileName: "s",
+        isPreferred: true,
+        logoBackground: "any",
+        logoVariant: "vertical",
+        label: "Stacked",
+      },
+    ]);
+
+    getBrandById.mockResolvedValue({ ...BRAND, logoUrl: "u/profile.png" });
+
+    const context = await resolveDesignContext({ brandId: BRAND.id });
+
+    expect(context.logoCandidates[0]).toBe("u/stacked.png");
+    expect(context.logoCandidates).toContain("u/profile.png");
+  });
+
+  it("leads with the profile logo when no variation is the default", async () => {
+    getBrandAssets.mockResolvedValue([
+      {
+        id: "a1",
+        assetType: "logo",
+        fileUrl: "u/other.png",
+        fileName: "o",
+        isPreferred: false,
+        logoBackground: "any",
+        logoVariant: null,
+        label: null,
+      },
+    ]);
+
+    getBrandById.mockResolvedValue({ ...BRAND, logoUrl: "u/profile.png" });
+
+    const context = await resolveDesignContext({ brandId: BRAND.id });
+
+    expect(context.logoCandidates[0]).toBe("u/profile.png");
+  });
+});
