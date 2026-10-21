@@ -5,8 +5,8 @@ import { PNG_SIGNATURE, pngChunk } from "./image-fixtures";
 /**
  * The FEAT-033 round-2 critic corpus, rebuilt in memory (no binaries in the
  * repo): valid files from libvips' own encoders, and well-framed mutations of
- * them that a structural check accepts but resvg panics on, throws on, or
- * draws as nothing. Every one is something a member can PUT to a presigned
+ * them that a structural check accepts but the renderer (next/og, so
+ * sharp/librsvg) panics on, throws on, or draws as nothing. Every one is something a member can PUT to a presigned
  * design-image URL, or upload as a logo.
  *
  * Source: /tmp/feat-033/critique/upload-repro-r2/tools/gen-corpus.mjs,
@@ -548,8 +548,9 @@ function pngChunks(bytes: Buffer): Chunk[] {
 const rebuild = (chunks: Chunk[]) =>
   png(...chunks.map(({ type, data }) => pngChunk(type, data)));
 
-/* The PLTE-length cases are the ones that abort resvg: a palette of 4, 5, 7
-   or 8 bytes panics it inside next/og with SIGABRT. */
+/* The PLTE-length cases are the ones that abort the renderer's Rust PNG
+   decoder: a palette of 4, 5, 7 or 8 bytes panics it inside next/og with
+   SIGABRT. */
 function paletteFuzz(sources: Record<string, Buffer>): Record<string, Buffer> {
   const withPalette = (base: Buffer, data: Buffer) =>
     rebuild(

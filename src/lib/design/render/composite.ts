@@ -176,8 +176,8 @@ export async function renderCompositeDesign({
   };
 }
 
-/** Satori renders lazily inside the stream's start(), so a satori or resvg
- * failure surfaces at arrayBuffer(), not at construction — which is why every
+/** Satori renders lazily inside the stream's start(), so a satori or
+ * rasteriser (sharp/librsvg) failure surfaces at arrayBuffer(), not at construction — which is why every
  * caller has to await this to know whether it worked.
  *
  * An empty fonts array makes satori throw "No fonts are loaded"; omitting the

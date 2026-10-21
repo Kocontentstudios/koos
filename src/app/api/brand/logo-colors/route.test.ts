@@ -39,7 +39,9 @@ const PNG = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0,
 ]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
-const SVG = new TextEncoder().encode('<svg xmlns="x"><rect/></svg>');
+const SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>',
+);
 
 const call = (logoUrl: string = LOGO_URL) =>
   POST(
@@ -126,6 +128,28 @@ describe("an SVG logo is rasterised before it is read", () => {
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toMatch(/svg/i);
     expect(extractLogoColors).not.toHaveBeenCalled();
+  });
+
+  /* Round-3 critic B8: this route rasterised the stored SVG inside the
+     request, so an embedded PNG the renderer's decoder panics on aborted the
+     instance serving it. */
+  it("refuses an SVG the sanitiser rejects, without rasterising it", async () => {
+    getObjectBytes.mockResolvedValue(
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///etc/passwd"/></svg>',
+      ),
+    );
+    const res = await call();
+    expect(res.status).toBe(422);
+    expect(rasterizeSvg).not.toHaveBeenCalled();
+    expect(extractLogoColors).not.toHaveBeenCalled();
+  });
+
+  it("rasterises the sanitised document", async () => {
+    await call();
+    expect(new TextDecoder().decode(rasterizeSvg.mock.calls[0][0].bytes)).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect></rect></svg>',
+    );
   });
 
   it("does not rasterise a raster format", async () => {

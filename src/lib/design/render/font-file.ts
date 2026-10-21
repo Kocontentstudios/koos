@@ -15,7 +15,7 @@
  *
  * Hand-written rather than delegated to a font library: the only parser in the
  * bundle is the one inside next/og, which is not exported, and trial-rendering
- * every file is a full satori + resvg pass. This reads header fields only, so
+ * every file is a full satori + rasteriser pass. This reads header fields only, so
  * it is O(number of tables) and allocates nothing but the table index. It is
  * necessary but NOT sufficient — a structurally perfect font can still defeat
  * satori (an unsupported GSUB lookup, a variable-font axis table), which is why

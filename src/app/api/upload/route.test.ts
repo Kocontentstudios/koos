@@ -33,6 +33,11 @@ function upload(file: File | null) {
 const png = (bytes = 10, type = "image/png") =>
   new File([new Uint8Array(bytes)], "logo.png", { type });
 
+const PLAIN_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+const svgFile = (svg: string, type = "image/svg+xml") =>
+  new File([svg], "logo.svg", { type });
+
 /* The 5MB cap and the png/jpeg/svg allowlist are the only thing standing
    between an authenticated user and arbitrary objects in a public-read bucket,
    and neither had a test. */
@@ -57,11 +62,11 @@ describe("POST /api/upload", () => {
   });
 
   it.each([
-    ["image/png", "png"],
-    ["image/jpeg", "jpg"],
-    ["image/svg+xml", "svg"],
-  ])("accepts %s with the right extension", async (type, ext) => {
-    await POST(upload(png(10, type)));
+    ["image/png", "png", png(10, "image/png")],
+    ["image/jpeg", "jpg", png(10, "image/jpeg")],
+    ["image/svg+xml", "svg", svgFile(PLAIN_SVG)],
+  ])("accepts %s with the right extension", async (_type, ext, file) => {
+    await POST(upload(file));
     expect(uploadObject.mock.calls[0][0].key).toMatch(new RegExp(`\\.${ext}$`));
   });
 
@@ -244,5 +249,69 @@ describe("POST /api/upload — fonts", () => {
       new Request("http://x/api/upload", { method: "POST", body }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+/* Round-3 critic B8: an SVG logo embedding a PNG the renderer's decoder
+   panics on aborted every design job for its brand. The loader sanitises on
+   every render; refusing at upload is where the message can name the file. */
+describe("POST /api/upload, SVG logos", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    guardWorkspaceRoute.mockResolvedValue({ ctx: { dbUser: { id: "u1" } } });
+    isStorageConfigured.mockReturnValue(true);
+    uploadObject.mockResolvedValue(undefined);
+  });
+
+  it("stores the file as uploaded once it passes", async () => {
+    const res = await POST(upload(svgFile(PLAIN_SVG)));
+    expect(res.status).toBe(200);
+    const stored = uploadObject.mock.calls[0][0].body as Buffer;
+    expect(stored.toString()).toBe(PLAIN_SVG);
+  });
+
+  it.each([
+    [
+      "an external reference",
+      '<svg xmlns="http://www.w3.org/2000/svg"><image href="http://169.254.169.254/"/></svg>',
+      /links to a file or address outside itself/,
+    ],
+    [
+      "a DOCTYPE",
+      '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>',
+      /declares a DOCTYPE/,
+    ],
+    [
+      "a broken embedded PNG",
+      '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="/></svg>',
+      /an image embedded in it could not be read/,
+    ],
+    ["malformed XML", "<svg><g></svg>", /not a well-formed SVG/],
+  ])(
+    "refuses %s with a message that says what to do",
+    async (_label, svg, reason) => {
+      const res = await POST(upload(svgFile(svg)));
+      expect(res.status).toBe(400);
+      const { error } = await res.json();
+      expect(error).toMatch(/^This SVG can't be used as a logo: /);
+      expect(error).toMatch(reason);
+      expect(error).toMatch(
+        /Export it again as a plain SVG, or upload a PNG\.$/,
+      );
+      expect(uploadObject).not.toHaveBeenCalled();
+    },
+  );
+
+  it("judges an SVG by its bytes, whatever type it claims", async () => {
+    const res = await POST(
+      upload(
+        svgFile(
+          '<svg xmlns="http://www.w3.org/2000/svg"><use href="other.svg#a"/></svg>',
+          "image/png",
+        ),
+      ),
+    );
+    expect(res.status).toBe(400);
+    expect(uploadObject).not.toHaveBeenCalled();
   });
 });

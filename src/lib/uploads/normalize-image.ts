@@ -9,6 +9,7 @@ import {
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
   NORMALISED_LONG_EDGE,
+  TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
 
 /**
@@ -16,10 +17,11 @@ import {
  *
  * Three jobs in one pass, all of which the server would otherwise pay for or
  * get wrong: WEBP becomes PNG or JPEG because satori cannot draw WEBP; a
- * 7000 px phone photo becomes 2560 px because resvg rasterises huge images
- * slowly and with a large memory cost inside a lambda; and decoding through
- * createImageBitmap applies EXIF orientation and drops EXIF metadata such as
- * location, which a canvas never carries over.
+ * 7000 px phone photo becomes 2560 px, the bound the server loader fits to
+ * anyway, so the upload is no bigger than what will be drawn; and decoding
+ * through createImageBitmap applies EXIF orientation and drops EXIF metadata
+ * such as location, which a canvas never carries over. A fully transparent
+ * image is refused here, before the upload, rather than at generation.
  */
 
 export type ImageNotUsableReason =
@@ -28,7 +30,8 @@ export type ImageNotUsableReason =
   | "too_many_pixels"
   | "undecodable"
   | "encode_failed"
-  | "too_large_after_encode";
+  | "too_large_after_encode"
+  | "blank";
 
 const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
 
@@ -41,6 +44,7 @@ const REASONS: Record<ImageNotUsableReason, string> = {
   encode_failed:
     "it couldn't be prepared for upload. Try again or choose another image.",
   too_large_after_encode: "it is too detailed to upload. Choose a smaller one.",
+  blank: TRANSPARENT_IMAGE_REASON,
 };
 
 /** `reason` is for analytics; `message` is safe to show the user. */
@@ -107,10 +111,11 @@ export async function normalizeImageForUpload(
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(bitmap, 0, 0, width, height);
 
-    const type: DesignImageStoredType =
-      source !== "jpeg" && hasTransparency(ctx, width, height)
-        ? "image/png"
-        : "image/jpeg";
+    const alpha = source === "jpeg" ? OPAQUE : scanAlpha(ctx, width, height);
+    if (!alpha.anyVisible) throw new ImageNotUsableError("blank");
+    const type: DesignImageStoredType = alpha.anyTransparent
+      ? "image/png"
+      : "image/jpeg";
     if (type === "image/jpeg") flattenOntoWhite(ctx, width, height);
 
     const blob = await encode(canvas, type);
@@ -211,21 +216,33 @@ async function decodeOriented(file: File): Promise<ImageBitmap> {
   }
 }
 
+interface AlphaScan {
+  anyTransparent: boolean;
+  anyVisible: boolean;
+}
+
+const OPAQUE: AlphaScan = { anyTransparent: false, anyVisible: true };
+
 /* An image keeps PNG when it has even one transparent pixel, whether it
    arrived as PNG or WEBP, so a cut-out sticker keeps its cut-out. An opaque
    one (a screenshot, an export with a flat background) is several times
    larger than the same pixels as JPEG, and nothing is lost by converting it.
-   JPEG has no alpha to look for. */
-function hasTransparency(
+   JPEG has no alpha to look for. One with no pixel above alpha 0 draws
+   exactly like no image. */
+function scanAlpha(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-): boolean {
+): AlphaScan {
   const { data } = ctx.getImageData(0, 0, width, height);
-  for (let alpha = 3; alpha < data.length; alpha += 4) {
-    if (data[alpha] < 255) return true;
+  let anyTransparent = false;
+  let anyVisible = false;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 255) anyTransparent = true;
+    if (data[i] > 0) anyVisible = true;
+    if (anyTransparent && anyVisible) break;
   }
-  return false;
+  return { anyTransparent, anyVisible };
 }
 
 /* A JPEG source is never scanned for alpha, and some engines leave the edges

@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { jpegDecodes, pngDecodes } from "@/lib/images/decode-check";
 import { detectImageType } from "@/lib/images/detect";
-import { reencodeImage } from "@/lib/images/reencode";
+import {
+  ImageOverBudgetError,
+  type ReencodeOptions,
+  reencodeImage,
+} from "@/lib/images/reencode";
 import {
   getObjectBytes,
   ObjectTooLargeError,
@@ -14,6 +18,8 @@ import {
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
   MAX_DESIGN_IMAGE_SIDE,
+  NORMALISED_LONG_EDGE,
+  TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
 
 /**
@@ -29,11 +35,12 @@ import {
  * cap, then a structural decode check that refuses truncated and corrupt
  * files and decompression bombs without decoding pixels). What passes is then
  * decoded by libvips, refusing on the first decoder warning, and re-encoded as
- * a plain 8-bit sRGB PNG or JPEG (see reencodeImage). So satori and resvg
- * never see an uploaded file's own bytes: a file that would abort the
- * renderer process, or that it would draw as nothing, is refused here with
- * the user-facing message instead. A fully transparent image is refused too,
- * since drawn it is indistinguishable from no image.
+ * a plain 8-bit sRGB PNG or JPEG of at most 2560 px and 6.5 MB (see
+ * reencodeImage). So satori and the rasteriser (sharp/librsvg) never see an
+ * uploaded file's own bytes: a file that would abort the renderer process, or
+ * that it would draw as nothing, is refused here with the user-facing message
+ * instead. A fully transparent image is refused too, since drawn it is
+ * indistinguishable from no image.
  */
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -48,6 +55,7 @@ export type DesignImageFault =
   | "type_mismatch"
   | "unreadable"
   | "too_many_pixels"
+  | "too_detailed"
   | "blank";
 
 const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
@@ -60,8 +68,21 @@ const REASONS: Record<DesignImageFault, string> = {
   type_mismatch: "its contents do not match its file type. Upload it again.",
   unreadable: "it could not be read and may be damaged. Choose another image.",
   too_many_pixels: `it is larger than ${MAX_DESIGN_IMAGE_SIDE} px on one side. Choose a smaller image.`,
-  blank:
-    "every pixel in it is transparent, so nothing would show. Choose another image.",
+  too_detailed:
+    "it has too much fine detail to place on a design, even scaled down. Choose another image.",
+  blank: TRANSPARENT_IMAGE_REASON,
+};
+
+/* Fitted to the browser normaliser's own bound, so an image is the same size
+   whether or not the client normalised it. 1080 is the width of every canvas:
+   below it a full-bleed image is visibly upscaled, so an image that only fits
+   the byte budget smaller than that is refused. A missing JPEG end marker
+   stays a refusal here, unlike a logo: the normaliser always writes one, so
+   its absence means a PUT cut short, which "upload it again" fixes. */
+export const DESIGN_IMAGE_REENCODE: ReencodeOptions = {
+  maxInputPixels: MAX_DESIGN_IMAGE_SIDE * MAX_DESIGN_IMAGE_SIDE,
+  maxOutputSide: NORMALISED_LONG_EDGE,
+  minOutputSide: 1080,
 };
 
 /** `fault` is for logs and metrics; `message` is safe to show the user. */
@@ -143,10 +164,11 @@ export async function loadDesignImage(
 
 async function reencodeOrRefuse(bytes: Buffer, type: "png" | "jpeg") {
   try {
-    return await reencodeImage(bytes, type, {
-      maxInputPixels: MAX_DESIGN_IMAGE_SIDE * MAX_DESIGN_IMAGE_SIDE,
-    });
+    return await reencodeImage(bytes, type, DESIGN_IMAGE_REENCODE);
   } catch (err) {
+    if (err instanceof ImageOverBudgetError) {
+      throw new DesignImageError("too_detailed", { cause: err });
+    }
     throw new DesignImageError("unreadable", { cause: err });
   }
 }

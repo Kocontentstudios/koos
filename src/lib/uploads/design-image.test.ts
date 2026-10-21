@@ -8,6 +8,23 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   getObjectBytes: (...a: unknown[]) => getObjectBytes(...a),
 }));
 
+/* The real re-encode unless a test swaps in a refusal it cannot otherwise
+   reach (no image under the caps misses the byte budget at 1080 px). */
+const reencodeStub = vi.hoisted(() => ({
+  next: null as null | (() => Promise<never>),
+}));
+vi.mock("@/lib/images/reencode", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/images/reencode")>();
+  return {
+    ...actual,
+    reencodeImage: (...a: Parameters<typeof actual.reencodeImage>) => {
+      const stub = reencodeStub.next;
+      reencodeStub.next = null;
+      return stub ? stub() : actual.reencodeImage(...a);
+    },
+  };
+});
+
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -22,6 +39,11 @@ import {
   PNG_SIGNATURE,
   pngChunk,
 } from "@/lib/images/image-fixtures";
+import { photographicCutoutPng } from "@/lib/images/large-image-fixtures";
+import {
+  ImageOverBudgetError,
+  RENDERER_IMAGE_BYTE_BUDGET,
+} from "@/lib/images/reencode";
 import { ObjectTooLargeError } from "@/lib/storage";
 import {
   DesignImageError,
@@ -363,11 +385,11 @@ describe("loadDesignImage", () => {
     );
   });
 
-  it("accepts exactly 4096 px", async () => {
+  it("accepts exactly 4096 px, fitted to the normaliser's 2560", async () => {
     getObjectBytes.mockResolvedValue(png(4096, 4096));
     await expect(loadDesignImage(PNG_KEY, BRAND)).resolves.toMatchObject({
-      width: 4096,
-      height: 4096,
+      width: 2560,
+      height: 2560,
     });
   });
 
@@ -416,6 +438,7 @@ describe("loadDesignImage", () => {
     "type_mismatch",
     "unreadable",
     "too_many_pixels",
+    "too_detailed",
     "blank",
   ])("starts the %s message with IMAGE_NOT_USABLE_PREFIX", (fault) => {
     expect(new DesignImageError(fault).message).toMatch(
@@ -559,8 +582,9 @@ describe("loadDesignImage proves the image decodes", () => {
   });
 });
 
-/* Round-2 critic B5/B6: a structural check cannot match resvg rule for rule,
-   so what the loader returns is a fresh encode, never the stored bytes.
+/* Round-2 critic B5/B6: a structural check cannot match the renderer's
+   decoder rule for rule, so what the loader returns is a fresh encode, never
+   the stored bytes.
    design-image.render-gate.smoke.test.ts draws the whole hostile corpus. */
 describe("loadDesignImage re-encodes what it accepts", () => {
   const opaque = (width: number, height: number) =>
@@ -600,7 +624,8 @@ describe("loadDesignImage re-encodes what it accepts", () => {
   });
 
   /* Well framed, so the marker-chain check passes, but the frame names a
-     quantisation table that is never defined. resvg drew it as nothing. */
+     quantisation table that is never defined. The renderer drew it as
+     nothing. */
   it("refuses a JPEG that references a missing table", async () => {
     const whole = await opaque(64, 48).jpeg().toBuffer();
     const sof = whole.indexOf(Buffer.from([0xff, 0xc0]));
@@ -664,8 +689,8 @@ describe("loadDesignImage re-encodes what it accepts", () => {
     });
   });
 
-  /* resvg ignores EXIF orientation; the browser that showed the user their
-     photo does not. The loader turns it the way the user saw it. */
+  /* The renderer ignores EXIF orientation; the browser that showed the user
+     their photo does not. The loader turns it the way the user saw it. */
   it("applies EXIF orientation and reports the turned size", async () => {
     const stored = await opaque(60, 20)
       .withMetadata({ orientation: 6 })
@@ -779,4 +804,61 @@ describe("every image the loader accepts is drawn", () => {
       expect(failures).toEqual([]);
     },
   );
+});
+
+/* Round-3 critic B7: the re-encode had no output bound, so the normaliser's
+   own 2560 px cutout came back at 9.4 MB, past the 7,499,820 bytes the
+   renderer parses, and threw inside the composite. */
+describe("loadDesignImage bounds what it hands the renderer", () => {
+  it("fits a client that skipped the normaliser to its 2560 px", async () => {
+    getObjectBytes.mockResolvedValue(
+      await sharp({
+        create: { width: 4000, height: 1000, channels: 3, background: "#123" },
+      })
+        .jpeg()
+        .toBuffer(),
+    );
+    const image = await loadDesignImage(JPG_KEY, BRAND);
+    expect([image.width, image.height]).toEqual([2560, 640]);
+    const meta = await sharp(image.bytes).metadata();
+    expect([meta.width, meta.height]).toEqual([2560, 640]);
+  });
+
+  it("steps a cutout over the byte budget down until it fits", async () => {
+    getObjectBytes.mockResolvedValue(await photographicCutoutPng(2560));
+    const image = await loadDesignImage(PNG_KEY, BRAND);
+    expect(image.bytes.length).toBeLessThanOrEqual(RENDERER_IMAGE_BYTE_BUDGET);
+    expect(image.width).toBe(image.height);
+    expect(image.width).toBeLessThan(2560);
+    expect(image.width).toBeGreaterThanOrEqual(1080);
+    const meta = await sharp(image.bytes).metadata();
+    expect([meta.format, meta.width, meta.hasAlpha]).toEqual([
+      "png",
+      image.width,
+      true,
+    ]);
+  }, 30_000);
+
+  it("refuses an image that cannot fit as too detailed, not as damaged", async () => {
+    reencodeStub.next = () =>
+      Promise.reject(new ImageOverBudgetError("over at the floor"));
+    getObjectBytes.mockResolvedValue(png(64, 64));
+    const err = await loadDesignImage(PNG_KEY, BRAND).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DesignImageError);
+    expect((err as DesignImageError).fault).toBe("too_detailed");
+    expect((err as DesignImageError).message).toBe(
+      `${IMAGE_NOT_USABLE_PREFIX}: it has too much fine detail to place on a design, even scaled down. Choose another image.`,
+    );
+    expect((err as DesignImageError).cause).toBeInstanceOf(
+      ImageOverBudgetError,
+    );
+  });
+
+  /* The normaliser always writes an end marker, so its absence means a PUT
+     cut short: unlike a logo, a design image is refused for it. */
+  it("still refuses a JPEG missing its end marker", async () => {
+    getObjectBytes.mockResolvedValue(jpeg(40, 30).subarray(0, -2));
+    const err = await loadDesignImage(JPG_KEY, BRAND).catch((e: unknown) => e);
+    expect((err as DesignImageError).fault).toBe("unreadable");
+  });
 });

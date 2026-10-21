@@ -25,9 +25,10 @@ import {
   type HostileImage,
   hostileImageCorpus,
 } from "@/lib/images/hostile-image-fixtures";
+import { photographicCutoutPng } from "@/lib/images/large-image-fixtures";
 import { reencodeImage } from "@/lib/images/reencode";
 import { type ImageToDraw, renderInChild } from "@/lib/images/render-in-child";
-import { LOGO_FILE_FAULTS, loadBrandLogo } from "./logo";
+import { LOGO_FILE_FAULTS, LOGO_REENCODE, loadBrandLogo } from "./logo";
 
 /**
  * FEAT-033 round-2 critic: loadBrandLogo handed the stored bytes straight to
@@ -38,7 +39,6 @@ import { LOGO_FILE_FAULTS, loadBrandLogo } from "./logo";
 
 const BASE = "https://cdn.example.test";
 const LOGO_URL = `${BASE}/logos/u1/a.png`;
-const LOGO_LIMITS = { maxInputPixels: 8192 * 8192, maxOutputSide: 4096 };
 
 /* Every pixel transparent. They reach the probe, which is what reports them
    ("could not decode it"); they cannot reach a design. The overflow bomb is
@@ -195,7 +195,7 @@ describe("a valid logo looks the same after the re-encode", () => {
 
   async function meanDifference(image: HostileImage) {
     const contentType = image.type === "png" ? "image/png" : "image/jpeg";
-    const clean = await reencodeImage(image.bytes, image.type, LOGO_LIMITS);
+    const clean = await reencodeImage(image.bytes, image.type, LOGO_REENCODE);
     const [before, after] = await Promise.all([
       draw(image.bytes, contentType),
       draw(clean.bytes, contentType),
@@ -246,4 +246,73 @@ describe("a valid logo looks the same after the re-encode", () => {
     },
     60_000,
   );
+});
+
+/* Round-3 critic C4 and C3, both regressions against round 2: a valid 2560 px
+   cutout logo re-encoded at 4096 px to 9.4 MB, past what the renderer parses,
+   and a JPEG logo whose end marker is missing (every browser draws one) was
+   refused. Both were reported to the brand as damaged. */
+describe("logos round 3 reported as damaged", () => {
+  beforeAll(() => {
+    process.env.R2_PUBLIC_BASE_URL = BASE;
+  });
+
+  async function probedFor(bytes: Buffer, url = LOGO_URL) {
+    getObjectBytes.mockResolvedValue(bytes);
+    probed.length = 0;
+    const { fault } = await loadBrandLogo(url);
+    return { fault, reached: probed[0] };
+  }
+
+  it("loads and draws a 2560 px photographic cutout", async () => {
+    const { fault, reached } = await probedFor(
+      await photographicCutoutPng(2560),
+    );
+    expect(fault).toBeNull();
+    const meta = await sharp(Buffer.from(reached.bytes)).metadata();
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(
+      1024,
+    );
+    const run = renderInChild([
+      {
+        name: "cutout",
+        contentType: reached.contentType,
+        bytes: reached.bytes,
+      },
+    ]);
+    expect(run.verdicts).toEqual({ cutout: "drawn" });
+  }, 60_000);
+
+  it("loads and draws a JPEG logo with no end marker", async () => {
+    const corpus = await hostileImageCorpus();
+    const whole = corpus.find((i) => i.name === "s-baseline.jpg");
+    if (!whole) throw new Error("fixture missing");
+    const { fault, reached } = await probedFor(
+      whole.bytes.subarray(0, -2),
+      `${BASE}/logos/u1/a.jpg`,
+    );
+    expect(fault).toBeNull();
+    const run = renderInChild([
+      {
+        name: "no-eoi",
+        contentType: reached.contentType,
+        bytes: reached.bytes,
+      },
+    ]);
+    expect(run.verdicts).toEqual({ "no-eoi": "drawn" });
+  }, 60_000);
+
+  it("still refuses a JPEG logo cut off inside its scan", async () => {
+    const corpus = await hostileImageCorpus();
+    const whole = corpus.find((i) => i.name === "s-baseline.jpg");
+    if (!whole) throw new Error("fixture missing");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { fault, reached } = await probedFor(
+      whole.bytes.subarray(0, Math.floor(whole.bytes.length * 0.6)),
+      `${BASE}/logos/u1/a.jpg`,
+    );
+    vi.mocked(console.error).mockRestore();
+    expect(reached).toBeUndefined();
+    expect(fault).toMatch(/could not decode it/);
+  });
 });
