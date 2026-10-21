@@ -1,12 +1,12 @@
-import { ImageResponse } from "next/og";
 import { canvasFor } from "@/lib/design/canvas";
 import { LOGO_NOT_LEGIBLE, logoBackingFor } from "@/lib/design/logo-contrast";
 import { logoBoxIn } from "@/lib/design/logo-placement";
 import { type ResolvedPalette, resolvePalette } from "@/lib/design/palette";
 import type { DesignSpec } from "@/lib/design/spec";
 import { decodePngRgba, regionInk } from "@/lib/images/png-pixels";
-import { brandFontFaults, type LoadedFont, loadBrandFonts } from "./fonts";
+import { loadBrandFonts } from "./fonts";
 import { layoutElement } from "./layouts";
+import { fontFallbackDrawer } from "./rasterize";
 
 export interface CompositeInput {
   spec: DesignSpec;
@@ -79,43 +79,8 @@ export async function renderCompositeDesign({
       logoAspect: logo?.aspect,
     });
 
-  /* Two ways a brand face is lost, and both have to reach the user. This is
-     the quiet one: the file was declined while being read, so the render below
-     succeeds in the bundled faces and nothing about the result says the
-     typeface was dropped. */
-  const usedBrandFace = fonts.some((f) => f.fromBrand);
-  let brandFontFault: string | null =
-    brandFontFaults({
-      heading: brand.brandFontUrl,
-      body: brand.bodyFontUrl,
-    })[0] ?? null;
-  const draw = async (element: React.ReactElement) => {
-    try {
-      return await rasterize(element, canvas, fonts);
-    } catch (error) {
-      /* Structure cannot predict every face satori refuses: an unsupported GSUB
-       lookup or a variable-font axis table parses perfectly and still throws
-       here. So the brand's typeface is dropped and the design is rendered
-       again rather than lost — a bad font must cost the typeface, never the
-       design.
-
-       Only when a brand face was actually loaded. Retrying a render that used
-       the bundled faces would blame the font for a renderer fault, and the
-       original error is rethrown if the retry fails for the same reason. */
-      if (!usedBrandFace) throw error;
-      /* Deliberately not the exception text: satori's messages are internals
-       ("Cannot read properties of undefined (reading '257')") that mean
-       nothing to the person who uploaded a font. The structural reasons above
-       are written for a reader; this one has no reader-facing detail to give,
-       so it says only what is true. */
-      brandFontFault = "the design renderer could not use it";
-      try {
-        return await rasterize(element, canvas, await loadBrandFonts(null));
-      } catch {
-        throw error;
-      }
-    }
-  };
+  const drawer = fontFallbackDrawer(fonts, brand);
+  const draw = (element: React.ReactElement) => drawer.draw(element, canvas);
 
   /* Two passes when a mark is being placed, because the only honest reading of
      what sits under it is the finished picture.
@@ -171,36 +136,7 @@ export async function renderCompositeDesign({
     width: canvas.width,
     height: canvas.height,
     palette,
-    brandFontFault,
+    brandFontFault: drawer.fault(),
     logoFault,
   };
-}
-
-/** Satori renders lazily inside the stream's start(), so a satori or resvg
- * failure surfaces at arrayBuffer(), not at construction — which is why every
- * caller has to await this to know whether it worked.
- *
- * An empty fonts array makes satori throw "No fonts are loaded"; omitting the
- * option entirely lets it fall back to its bundled face, so a font outage
- * degrades typography instead of failing the whole render. */
-async function rasterize(
-  element: React.ReactElement,
-  canvas: { width: number; height: number },
-  fonts: LoadedFont[],
-): Promise<Uint8Array> {
-  const response = new ImageResponse(element, {
-    width: canvas.width,
-    height: canvas.height,
-    ...(fonts.length > 0
-      ? {
-          fonts: fonts.map((f) => ({
-            name: f.name,
-            data: f.data,
-            weight: f.weight,
-            style: f.style,
-          })),
-        }
-      : {}),
-  });
-  return new Uint8Array(await response.arrayBuffer());
 }
