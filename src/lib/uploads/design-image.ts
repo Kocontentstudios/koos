@@ -1,0 +1,138 @@
+import { randomUUID } from "node:crypto";
+import { readImageDimensions } from "@/lib/design/png-dimensions";
+import { detectImageType } from "@/lib/images/detect";
+import {
+  getObjectBytes,
+  ObjectTooLargeError,
+  STORAGE_PREFIXES,
+} from "@/lib/storage";
+import {
+  type DesignImageExtension,
+  type DesignImageStoredType,
+  MAX_DESIGN_IMAGE_BYTES,
+  MAX_DESIGN_IMAGE_SIDE,
+} from "./design-image-limits";
+
+/**
+ * A user's uploaded design image, read back by key at generation.
+ *
+ * The browser normalises before upload and the presign route checks what the
+ * client claims, but neither is proof: the PUT goes straight from the browser
+ * to R2, so the object can be anything of any size. This is the one place the
+ * real bytes are judged, and it runs before they reach satori or resvg.
+ */
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const UUID_ONLY = new RegExp(`^${UUID}$`);
+const KEY_TAIL = new RegExp(`^${UUID}\\.(png|jpg)$`);
+
+export type DesignImageFault =
+  | "foreign_key"
+  | "missing"
+  | "too_large"
+  | "not_png_or_jpeg"
+  | "type_mismatch"
+  | "unreadable"
+  | "too_many_pixels";
+
+const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
+
+const REASONS: Record<DesignImageFault, string> = {
+  foreign_key: "it was not uploaded for this brand. Choose another image.",
+  missing: "the upload could not be found. Upload it again.",
+  too_large: `it is larger than ${MAX_MB} MB. Choose a smaller image.`,
+  not_png_or_jpeg: "it is not a PNG or JPEG file. Choose another image.",
+  type_mismatch: "its contents do not match its file type. Upload it again.",
+  unreadable: "it could not be read and may be damaged. Choose another image.",
+  too_many_pixels: `it is larger than ${MAX_DESIGN_IMAGE_SIDE} px on one side. Choose a smaller image.`,
+};
+
+/** `fault` is for logs and metrics; `message` is safe to show the user. */
+export class DesignImageError extends Error {
+  constructor(readonly fault: DesignImageFault) {
+    super(`This image can't be used: ${REASONS[fault]}`);
+    this.name = "DesignImageError";
+  }
+}
+
+export interface DesignImage {
+  bytes: Buffer;
+  contentType: DesignImageStoredType;
+  width: number;
+  height: number;
+}
+
+export function designImageKeyFor(
+  brandId: string,
+  ext: DesignImageExtension,
+): string {
+  /* The brand id becomes a path segment, so anything but a UUID could carry a
+     slash or a traversal into the key the browser is then allowed to write. */
+  if (!UUID_ONLY.test(brandId)) throw new Error("Invalid brand id");
+  return `${STORAGE_PREFIXES.designImages}/${brandId}/${randomUUID()}.${ext}`;
+}
+
+/* Matches only the exact shape designImageKeyFor produces. Anything looser
+   (a nested path, an encoded segment, an uppercase id) is a key this code
+   never minted, so it is refused rather than interpreted. */
+export function isDesignImageKeyFor(key: string, brandId: string): boolean {
+  if (!UUID_ONLY.test(brandId)) return false;
+  const prefix = `${STORAGE_PREFIXES.designImages}/${brandId}/`;
+  return key.startsWith(prefix) && KEY_TAIL.test(key.slice(prefix.length));
+}
+
+export async function loadDesignImage(
+  key: string,
+  brandId: string,
+): Promise<DesignImage> {
+  if (!isDesignImageKeyFor(key, brandId)) {
+    throw new DesignImageError("foreign_key");
+  }
+  const bytes = await readCapped(key);
+
+  const type = detectImageType(bytes);
+  if (type !== "png" && type !== "jpeg") {
+    throw new DesignImageError("not_png_or_jpeg");
+  }
+  const keyType = key.endsWith(".png") ? "png" : "jpeg";
+  if (type !== keyType) throw new DesignImageError("type_mismatch");
+
+  const size = readImageDimensions(bytes);
+  if (!size) throw new DesignImageError("unreadable");
+  if (
+    size.width > MAX_DESIGN_IMAGE_SIDE ||
+    size.height > MAX_DESIGN_IMAGE_SIDE
+  ) {
+    throw new DesignImageError("too_many_pixels");
+  }
+
+  return {
+    bytes,
+    contentType: type === "png" ? "image/png" : "image/jpeg",
+    width: size.width,
+    height: size.height,
+  };
+}
+
+/* Only the faults that are the file's own become DesignImageError. A storage
+   outage is rethrown as-is: telling the user to choose another image when R2
+   is down would send them to fix something that is not broken. */
+async function readCapped(key: string): Promise<Buffer> {
+  try {
+    return await getObjectBytes(key, { maxBytes: MAX_DESIGN_IMAGE_BYTES });
+  } catch (err) {
+    if (err instanceof ObjectTooLargeError) {
+      throw new DesignImageError("too_large");
+    }
+    const name = err instanceof Error ? err.name : "";
+    if (name === "NoSuchKey" || name === "NotFound") {
+      throw new DesignImageError("missing");
+    }
+    /* A ranged read of a zero-byte object is answered 416, not with an empty
+       body: an empty upload is simply not an image. */
+    if (name === "InvalidRange") {
+      throw new DesignImageError("not_png_or_jpeg");
+    }
+    throw err;
+  }
+}
