@@ -29,8 +29,11 @@ export function draftOf(over: Partial<DirectionDraft> = {}): DirectionDraft {
     title: "Morning bake story",
     rationale: [
       "Leads with the croissant, the product commuters queue for",
-      "Warm cream ground echoes the bakery's ovens",
+      "Speaks to commuters on their way to work",
     ],
+    productName: "almond croissants",
+    productLook:
+      "golden crescent pastries topped with flaked almonds and icing sugar",
     ...over,
   };
 }
@@ -41,14 +44,14 @@ export function contrastingDraft(
 ): DirectionDraft {
   return draftOf({
     layout: "quote-card",
-    headline: "Your Saturday table is waiting",
+    headline: "Your weekend table is waiting",
     subheadline: "Slow brunch, good coffee, no rush",
     cta: "Book a table",
     backgroundPrompt: "a sunlit cafe table set for two with coffee",
     title: "Weekend table invitation",
     rationale: [
       "Speaks to weekend brunch, the occasion in the brief",
-      "Quote card puts the invitation itself centre stage",
+      "The headline invites weekend brunch regulars in",
     ],
     ...over,
   });

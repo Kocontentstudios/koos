@@ -1,87 +1,143 @@
 # Design directions eval
 
-Measures whether one real model call gives the user **two different concepts**
-for the same brief, inside the contract, with "why this works" reasons that
-say something about *their* brief (FEAT-033).
+Measures whether the model gives the user **two different concepts** for the
+same brief, written to length, stating only the brief's facts, with "why
+this works" reasons that are true of the design, and whether KO imagery shows
+the product the brief names (FEAT-033).
 
 ```
-pnpm eval:design-directions                       # all cases
-pnpm eval:design-directions --case conference-ko
+pnpm eval:design-directions                         # all cases
+pnpm eval:design-directions --case bakery-ko
 pnpm eval:design-directions --image path/to/photo.png
+pnpm eval:design-directions --no-plates             # skip the plate model
+pnpm eval:design-directions --out /tmp/plates       # where plates are saved
 ```
 
-Paid lane. One `generateObject` call per case against `getModel("strategy")`
-(two when the redraft rule fires), text plus the photograph on the upload
-cases, **no image generation**. Run it before shipping a change to
-`src/lib/jobs/directions/`, `src/lib/ai/prompts/design-directions.ts` or the
+Paid lane, Bedrock. Run with `AWS_BEARER_TOKEN_BEDROCK=` (empty) so the SigV4
+keys are used; the runner clears it too. Per case: one `generateObject` call,
+one more when the fit pass or the redraft rule fires. On KO cases that name a
+product, the real plate model paints each direction's plate through
+`paintCheckedPlate` (with its check and one retry), and the eval takes its own
+look at every plate it keeps. Plates are never uploaded; they are written to
+`--out` (default `qa-reports/eval/design-directions-plates`) for a person to
+look at. Run it before shipping a change to `src/lib/jobs/directions/`,
+`src/lib/ai/prompts/design-directions.ts`, `src/lib/design/quality/` or either
 model, and nightly. Not part of `pnpm test`.
 
-It calls the production function, `draftDirections`, so finalising, the
-redraft rule and the layout rule are measured exactly as they ship. The
-upload cases attach `--image`, defaulting to
-`/tmp/feat-033/fixtures/cutout.png` when it exists; without one they run
-text-only and the report says so. The JSON report lands in
-`qa-reports/eval/design-directions.json` with every direction's copy and
-reasons.
+It calls the production functions (`draftDirections`, `paintCheckedPlate`),
+so the fit pass, finalising, the redraft rule, the layout rule and the plate
+retry are measured as they ship. The upload cases attach `--image`,
+defaulting to `/tmp/feat-033/fixtures/cutout.png` when it exists. The JSON
+report lands in `qa-reports/eval/design-directions.json` with every
+direction, every draft, every dropped reason with its cause, and every plate.
+
+## Two lanes
+
+Round 1 scored only what `finalizeReasons` selected, with the same grounding
+rule the selection used, so part of its pass was true by construction. Round
+2 scores two lanes apart:
+
+- **The model's own answer**: `drafts`, exactly as the first call returned
+  them, before the fit pass rewrites anything and before `finalize.ts`
+  settles it. These say whether the prompt works.
+- **Delivered**: `directions`, after every rule. Most of these are enforced in
+  code (`claims.ts`, `finalize.ts`), so anything short of the threshold is a
+  bug. They are invariants, not a measure of the model.
 
 ## What it scores
 
-Deterministically, in `score.ts`. Each metric has one right answer given the
-output, so nothing goes to a judge.
+Deterministically, in `score.ts`, except the plate look.
 
-| Metric | Meaning | Threshold |
-|---|---|---|
-| `twoDirections` | Every case delivered two | 1.0 |
-| `layoutsDiffer` | The two layouts differ (after the forcing rule) | 1.0 |
-| `withinLimits` | Every delivered direction parses `directionSpecSchema` (title ≤ 40, 2-4 reasons ≤ 90) | 1.0 |
-| `groundedShare` | Delivered reasons sharing a content word with the brief or brand facts (`isGroundedReason`) | ≥ 0.8 |
-| `fillerShare` | Delivered reasons that are praise and name nothing ("eye-catching", "stands out") | ≤ 0.1 |
-| `jargonShare` | Delivered reasons that read out the spec (a layout id, a hex code) or the prompt ("Direction 1") | 0 |
-| `cutShare` | Delivered reasons that are a model sentence shortened to fit | ≤ 0.2 |
-| `meanDistinctness` | Mean of `1 - worst overlap` between a case's two directions | ≥ 0.7 |
-| `finalNearDuplicates` | Pairs still near-duplicate after the redraft rule | 0 |
+| Lane | Metric | Meaning | Threshold |
+|---|---|---|---|
+| model | `modelWithinLimits` | Drafts with every field inside the contract unaided (title 40, headline 70, subheadline 140, CTA 32, footer line 60, 2-4 reasons of 90) | ≥ 0.8 |
+| model | `modelGroundedShare` | Reasons naming a specific fact of the brief (`isGrounded`) | ≥ 0.8 |
+| model | `modelSpatialShare` | Reasons claiming a position, size, light, colour or type (`spatialClaim`) | ≤ 0.1 |
+| model | `modelInventedShare` | Copy fields and reasons stating a number, day, month or claim the brief and brand never gave (`inventedFacts`) | ≤ 0.05 |
+| model | `modelCutOffShare` | Reasons that read as unfinished (`looksCutOff`) | ≤ 0.05 |
+| delivered | `countRight` | Two directions, or one on a regenerate | 1.0 |
+| delivered | `layoutsDiffer` | The pair's layouts differ; a regenerate avoids both existing layouts | 1.0 |
+| delivered | `withinLimits` | Every direction parses `directionSpecSchema` | 1.0 |
+| delivered | `groundedShare` | Delivered reasons that are grounded | ≥ 0.8 |
+| delivered | `fillerShare` | Praise that names nothing ("eye-catching") | ≤ 0.1 |
+| delivered | `jargon`, `spatial`, `cutOff`, `falseClaims`, `invented` | Counts of delivered reasons or copy that read out the spec, claim geometry, were cut, are not true of the copy (`reasonHolds`), or state an invented fact | 0 each |
+| delivered | `meanDistinctness` | Mean of 1 - worst word overlap (pair, or regenerate against both existing) | ≥ 0.7 |
+| delivered | `finalNearDuplicates` | Pairs still near-duplicate after the redraft rule | 0 |
+| delivered | `productNamed` | Product cases where every direction named the brief's product | 1.0 |
+| plates | `plateShowsProduct` | KO plates on product cases that the eval's own look says show the product; a plate drawn flat after two misses counts as not showing it | ≥ 0.8 |
+| plates | `wrongProductPlates` | Delivered plates showing something else: what round 1 shipped | 0 |
 
-The structural rows are enforced in code after the model answers, so anything
-below 1.0 there is a bug. The quality rows are the model's own, with margin.
-Model-alone figures (layouts, limits, grounding, first-call duplicates) are
-printed beside them: they show how much of each pass is the model and how
-much is the deterministic rules.
-
-### Distinctness
-
-`text-overlap.ts` compares content-word stems (stopwords dropped, plurals and
-verb endings folded) as Jaccard overlap on four views: headline, title, all
-copy, and the painted scene (KO cases only; on an upload both directions use
-the same photograph by design). Distinctness is one minus the worst of them.
-
-The brand name is ignored everywhere. The brief's own words are ignored in
-the copy and scene views only: both directions must carry the brief's facts
-(the price, the deadline, "apply by"), so those are compared on what each
-direction added. The headline and title are the concept and are compared
-whole. This was calibrated on the first run, where two genuinely different
-concepts for the bakery scored 0.39 copy overlap purely from both stating
-"₦4,500 a slice from Monday, 7am pickup".
-
-A pair is a near-duplicate at headline ≥ 0.5, title ≥ 0.5, copy ≥ 0.45 or
-scene ≥ 0.6. At runtime that triggers one redraft of the later direction.
+Thresholds were written before the first round-2 run and are frozen in
+`cases.ts` (`DIRECTIONS_EVAL_THRESHOLDS`).
 
 ### Grounding
 
-A reason is grounded when it shares a content stem with the brief, the title,
-the design type or what the brand says about itself, minus design vocabulary
-any reason could use ("brand", "colour", "layout"). A brief holding a date or
-a price also grounds the words "date", "time", "deadline" or "price", "fee",
-"free", since "the date sits in the footer" answers "Friday 14 March" without
-repeating it.
+`isGrounded` (finalize.ts) counts a reason as grounded when it names a
+specific fact of the brief, or two of the brief's own words. Specific facts
+are the product's words, the brief's numbers and day or month names, the
+words for a price, a time or a date when the brief holds one, and the
+brand's audience where the brief names it too ("commuters"). Design
+vocabulary ("brand", "colour", "layout", "new", "launch") never counts.
+Round 1 needed one shared word with the brief or the whole brand profile, so
+"Warm tones feel inviting and friendly" passed because the tone said "warm".
+
+### Invented facts
+
+`inventedFacts` (claims.ts) lists every number (digits or words, money with
+any currency spelling, times, percentages), day, month and claim word (free,
+delivery, award, organic, limited and so on) in a text that the brief and
+brand profile do not hold. A count must count the same thing: "12 artisans"
+does not borrow the twelve of "twelve throws", while "12 new throws" does.
+"Free" is accepted for "zero fees"; "handmade" for "handwoven".
+
+### True reasons
+
+`reasonHolds` (claims.ts) rejects a reason that invents a fact, makes a
+spatial, colour or type claim, names a piece of copy that does not carry
+what it says ("the subheadline gives the price" when it does not), quotes
+copy that is not drawn, or describes an image nobody checked: anything about
+the image on a design drawn flat, and on KO imagery, any prop or setting from
+the plate's scene that the plate check never looked for. The job applies it
+twice: when the directions are written, and again on the design delivered,
+after the gate's correction and the plate check.
+
+### The plate
+
+The product's check (`quality/plate-check.ts`) asks whether the plate's main
+subject is the named product, whatever the angle or plating. The eval's own
+look asks a different question first (name the main subject), then whether
+that is the product, through the same vision path (`quality/vision.ts`).
+
+### Distinctness
+
+`text-overlap.ts` compares content-word stems as Jaccard overlap on four
+views: headline, title, all copy, and the painted scene (KO only). The brand
+name is ignored everywhere; the brief's own words in the copy and scene
+views; and the product's description in the scene view, because every KO
+scene must now show the same product. A pair is a near-duplicate at headline
+≥ 0.5, title ≥ 0.5, copy ≥ 0.45 or scene ≥ 0.6, which triggers one redraft.
 
 ## Cases
 
 | Case | Category | Image | What it covers |
 |---|---|---|---|
-| `bakery-upload` | food | upload | Product launch with price and pickup time, photograph attached |
+| `bakery-upload` | food | upload | The live run's brief: price, day and pickup time, photograph attached |
+| `bakery-ko` | food | KO | The same brief on KO imagery, where round 1 painted a tart, a cake and bread rolls |
+| `textile-launch-ko` | product | KO | A count ("twelve throws") that round 1 turned into "12 Artisans" |
+| `textile-launch-regenerate` | product | KO | One new direction apart from two existing ones |
 | `valentine-box-upload` | offer | upload | An occasion and a deadline on the same photograph |
-| `fintech-ko` | finance | KO | A promise with three numbers |
+| `fintech-ko` | finance | KO | A promise with numbers and no physical product |
 | `conference-ko` | event | KO | Speaker, date, venue: the facts both directions must keep |
 | `recruitment-ko` | recruitment | KO | No logo; a role and a deadline |
 | `eid-greeting-ko` | celebration | KO | No facts and no offer: difference must come from the concept alone |
 | `fitness-ko` | service | KO | A schedule and a free first class |
+
+## Results, 2026-10-22
+
+Run 4 on `us.anthropic.claude-sonnet-4-6` and Bedrock stable-image-core:
+PASS across 10 cases. Model lane: within limits 1.00, grounded 0.80, spatial
+0.07, invented 0.03, cut off 0.00. Delivered: every structural row at its
+threshold, grounded 0.97, distinctness mean 0.81 (worst 0.60), product named
+1.00. Plates: 5 of 5 show the product, none wrong, none retried. Run 3 also
+passed; runs 1 and 2 failed on the model lane and led to the prompt and
+checker changes in this round.

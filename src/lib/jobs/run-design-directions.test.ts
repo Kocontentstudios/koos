@@ -59,6 +59,10 @@ vi.mock("@/lib/design/document/measure", async () => {
 });
 const loadBestLogo = vi.fn();
 const createNotification = vi.fn();
+const checkPlateShowsProduct = vi.fn();
+vi.mock("@/lib/design/quality/plate-check", () => ({
+  checkPlateShowsProduct: (input: unknown) => checkPlateShowsProduct(input),
+}));
 vi.mock("@/lib/design/render/logo", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   loadBestLogo: (args: unknown) => loadBestLogo(args),
@@ -135,6 +139,7 @@ beforeEach(() => {
   uploadObject.mockResolvedValue(undefined);
   loadBestLogo.mockResolvedValue({ logo: null, fault: null });
   createNotification.mockResolvedValue(undefined);
+  checkPlateShowsProduct.mockResolvedValue({ shows: true, seen: "" });
   loadDesignImage.mockResolvedValue({
     bytes: Buffer.from(designPng(1200, 1200)),
     contentType: "image/png",
@@ -313,12 +318,115 @@ describe("the KO imagery path", () => {
     );
   });
 
+  it("retries the delivered PNG's upload once before losing a rendered direction", async () => {
+    let failedOnce = false;
+    uploadObject.mockImplementation(async ({ key }: { key: string }) => {
+      if (!failedOnce && /^generated\/[^/]+\/[0-9a-f-]+\.png$/.test(key)) {
+        failedOnce = true;
+        throw new Error("ssl/tls alert bad record mac");
+      }
+    });
+    const outcome = await run({ image: { source: "ko" } });
+    expect(
+      (outcome.result as { generationIds: string[] }).generationIds,
+    ).toHaveLength(2);
+  });
+
   it("fails the job only when no direction rendered", async () => {
     rasterizeDocument.mockRejectedValue(new Error("resvg crashed"));
     await expect(run({ image: { source: "ko" } })).rejects.toThrow(
       "Design generation failed",
     );
     expect(recordUsageEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("the product on KO imagery", () => {
+  const usage = () => recordUsageEvent.mock.calls[0][0].metadata;
+
+  it("checks each plate against the brief's product", async () => {
+    await run({ image: { source: "ko" } });
+    expect(checkPlateShowsProduct).toHaveBeenCalledTimes(2);
+    expect(checkPlateShowsProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ product: "almond croissants" }),
+    );
+    expect(usage()).toMatchObject({
+      imageCalls: 2,
+      plateChecks: ["passed", "passed"],
+    });
+  });
+
+  it("counts the retry as an image call and draws flat after two misses", async () => {
+    /* Both plates are checked before either retry: first-round misses for
+       both, then one retry passes and the other misses again. */
+    checkPlateShowsProduct
+      .mockResolvedValueOnce({ shows: false, seen: "a round tart" })
+      .mockResolvedValueOnce({ shows: false, seen: "bread rolls" })
+      .mockResolvedValueOnce({ shows: true, seen: "" })
+      .mockResolvedValue({ shows: false, seen: "bread rolls" });
+    await run({ image: { source: "ko" } });
+    expect(plateModel.generate).toHaveBeenCalledTimes(4);
+    expect(usage().imageCalls).toBe(4);
+    expect([...usage().plateChecks].sort()).toEqual([
+      "failed",
+      "passed-on-retry",
+    ]);
+    const flat = ["row-1", "row-2"].filter(
+      (id) =>
+        !documentOf(id).elements.some(
+          (e: { type: string }) => e.type === "image",
+        ),
+    );
+    expect(flat).toHaveLength(1);
+    expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
+  });
+
+  /* A reason written before the plate was painted cannot promise what the
+     plate shows; once the check fails it is not shown. */
+  it("drops a reason about the image from a direction drawn flat", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            rationale: [
+              "The photo shows the almond croissants themselves",
+              "Leads with the croissant, the product commuters queue for",
+              "Speaks to commuters on their way to work",
+            ],
+          }),
+          contrastingDraft(),
+        ],
+      },
+    });
+    checkPlateShowsProduct.mockResolvedValue({ shows: false, seen: "a cake" });
+    await run({ image: { source: "ko" } });
+    const stored = updatesFor("row-1").find((p) => p.rationale)?.rationale;
+    expect(stored.reasons).not.toContain(
+      "The photo shows the almond croissants themselves",
+    );
+    expect(stored.reasons.length).toBeGreaterThanOrEqual(2);
+    expect(usage().reasonsDropped).toBeGreaterThanOrEqual(1);
+  });
+
+  it("keeps the image reason when the check confirmed the plate", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            rationale: [
+              "The photo shows the almond croissants themselves",
+              "Leads with the croissant, the product commuters queue for",
+            ],
+          }),
+          contrastingDraft(),
+        ],
+      },
+    });
+    await run({ image: { source: "ko" } });
+    const stored = updatesFor("row-1").find((p) => p.rationale)?.rationale;
+    expect(stored.reasons).toContain(
+      "The photo shows the almond croissants themselves",
+    );
   });
 });
 
@@ -346,7 +454,7 @@ describe("regenerating one direction", () => {
     layout: "hero-center",
     title: "Almond gift box",
     headline: "Give a box of almond joy",
-    subheadline: "Twelve pastries, one ribbon",
+    subheadline: "A box of pastries, one ribbon",
     cta: "Pre-order",
     backgroundPrompt: "a ribboned pastry box on linen",
   });

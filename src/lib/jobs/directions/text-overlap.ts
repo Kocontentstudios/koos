@@ -1,6 +1,6 @@
 /**
  * Word-level comparison for directions: how much two directions say the same
- * thing, and whether a reason is anchored in what the user actually told us.
+ * thing, and the words a reason should not be made of.
  *
  * Deterministic on purpose. "Are these two concepts different?" has a cheap,
  * checkable proxy (do they share their words?) that catches the failure that
@@ -67,6 +67,9 @@ export interface ComparableDirection {
   subheadline?: string;
   cta?: string;
   backgroundPrompt: string;
+  /** What the brief's product looks like. Every KO scene must show it, so
+   *  its words are not evidence that two scenes are one. */
+  productLook?: string;
 }
 
 export interface DirectionOverlap {
@@ -128,10 +131,15 @@ export function directionOverlap(
     contentStems(a.title, ignore),
     contentStems(b.title, ignore),
   );
+  const sceneShared = new Set([
+    ...beyondBrief,
+    ...contentStems(a.productLook),
+    ...contentStems(b.productLook),
+  ]);
   const scene = compareScenes
     ? jaccard(
-        contentStems(a.backgroundPrompt, beyondBrief),
-        contentStems(b.backgroundPrompt, beyondBrief),
+        contentStems(a.backgroundPrompt, sceneShared),
+        contentStems(b.backgroundPrompt, sceneShared),
       )
     : null;
   return {
@@ -174,17 +182,4 @@ const JARGON =
 
 export function usesJargon(reason: string): boolean {
   return JARGON.test(reason);
-}
-
-/**
- * Whether a reason names something from the brief or the brand: shares at
- * least one content word with them. A reason that only restates its own
- * headline, or only praises the design, shares none.
- */
-export function isGroundedReason(
-  reason: string,
-  facts: ReadonlySet<string>,
-): boolean {
-  for (const s of contentStems(reason)) if (facts.has(s)) return true;
-  return false;
 }

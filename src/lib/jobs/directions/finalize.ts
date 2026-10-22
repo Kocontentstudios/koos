@@ -1,140 +1,80 @@
 import type { AspectRatio } from "@/lib/ai/image/types";
 import {
-  DIRECTION_REASON_MAX,
+  type DrawnCopy,
+  type FactLedger,
+  type ImageState,
+  inventedFacts,
+  looksCutOff,
+  productFromBrief,
+  reasonHolds,
+} from "./claims";
+import {
+  COPY_LIMITS,
   DIRECTION_REASONS_MAX,
   DIRECTION_REASONS_MIN,
-  DIRECTION_TITLE_MAX,
   type DirectionDraft,
   type DirectionSpec,
+  DRAFT_LIMITS,
 } from "./schema";
-import {
-  contentStems,
-  isGroundedReason,
-  soundsLikeFiller,
-  usesJargon,
-} from "./text-overlap";
+import { contentStems, soundsLikeFiller, usesJargon } from "./text-overlap";
 
 /**
- * Brings a model draft inside the direction contract, deterministically.
+ * Brings a direction inside the contract, deterministically, after the model
+ * has had its one chance to rewrite (brief.ts).
  *
- * Over-long text is shortened at a clause or word boundary, never mid-word
- * and never with an ellipsis: these strings are shown as finished copy on the
- * results card. Reasons are kept best first: ones that name something from
- * the brief, then plain ones, while praise that names nothing ("eye-catching",
- * "clean and modern") and spec jargon (layout ids, hex codes) go first when
- * enough better ones remain. A draft left with fewer than two is topped up
- * from its lens.
+ * Nothing here cuts a clause in half or adds an ellipsis. Text over its
+ * limit keeps whole clauses when the clauses that fit still say something;
+ * otherwise the field falls back to something true (the brief's own title
+ * for a headline) or is left off (a subheadline, a button, a footer line, a
+ * reason). Every reason shown is one reasonHolds accepts for the copy that is
+ * actually drawn, topped up when needed with reasons built from that copy.
  */
 
-const CLAUSE_BREAK = /[,;:]\s|\s[-–—]\s/g;
+/* Where a sentence can end with what came before it still whole: a full
+   stop, a semicolon, a colon, a dash, or a comma that opens a new clause.
+   A comma inside a list is not one of them: "names the product, price" is a
+   list cut in half. */
+const BREAKS =
+  /[.!?;:](?=\s)|\s[-–—](?=\s)|,(?=\s+(so|which|because|while|where|since|as|before|after|when|then|with)\b)/gi;
 
-export function clampText(text: string, max: number): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (clean.length <= max) return clean;
-  const window = clean.slice(0, max + 1);
-  let cut = -1;
-  for (const match of window.matchAll(CLAUSE_BREAK)) {
-    if (match.index !== undefined && match.index <= max) cut = match.index;
-  }
-  /* A clause break in the first half would throw away most of the reason;
-     a word boundary keeps more of what was said. */
-  if (cut < max * 0.5) cut = window.lastIndexOf(" ");
-  if (cut <= 0) cut = max;
-  return trimDanglingWords(clean.slice(0, cut));
+function clean(text: string | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
 }
 
-/* A word-boundary cut can stop on "at a" or "and the", which reads as a
-   sentence that broke off. Those are dropped until a content word ends it. */
-const DANGLING =
-  /[\s,;:–—-]+$|\s+(a|an|the|and|or|but|of|to|in|on|at|for|with|without|by|from|as|so|that|than|its|their|your|our|is|are|single|every|each|any|some|more|most|very|own|this|these|those|into|while|when|where|which|who|not|no)$/i;
-
-function trimDanglingWords(text: string): string {
-  let out = text.trim();
-  for (let previous = ""; previous !== out; ) {
-    previous = out;
-    out = out.replace(DANGLING, "").trim();
-  }
-  return out;
+function trimEnd(text: string): string {
+  return text.replace(/[\s,;:.–—-]+$/, "").trim();
 }
 
-function finalizeReasons(
-  reasons: string[],
-  facts: ReadonlySet<string>,
-  fallback: string[],
-): string[] {
-  const seen = new Set<string>();
-  const candidates: { text: string; tier: number }[] = [];
-  for (const reason of reasons) {
-    const text = clampText(reason, DIRECTION_REASON_MAX);
-    const key = text.toLowerCase();
-    if (!text || seen.has(key)) continue;
-    seen.add(key);
-    const grounded = isGroundedReason(text, facts);
-    const unfit = usesJargon(text) || (soundsLikeFiller(text) && !grounded);
-    /* Best first: names the brief and was written to length, then names the
-       brief but had to be shortened, then the rest. A shortened reason is a
-       sentence someone cut, so it is shown only when there are not two
-       whole ones to show instead. */
-    const whole = text === reason.replace(/\s+/g, " ").trim();
-    const tier = unfit ? 4 : (grounded ? 0 : 2) + (whole ? 0 : 1);
-    candidates.push({ text, tier });
+/**
+ * The longest run of whole clauses within `max`, or null when the clauses
+ * that fit would not read as finished (a fragment shorter than a third of
+ * the room, or one ending on "the").
+ */
+export function clampAtClause(text: string, max: number): string | null {
+  const whole = clean(text);
+  if (whole.length <= max) return whole;
+  let best: string | null = null;
+  for (const match of whole.matchAll(BREAKS)) {
+    const end = match.index ?? 0;
+    if (end > max) break;
+    const kept = trimEnd(whole.slice(0, end));
+    if (kept.length >= max / 3 && !looksCutOff(kept)) best = kept;
   }
-
-  const kept: string[] = [];
-  for (let tier = 0; tier <= 4; tier += 1) {
-    const atTier = candidates.filter((c) => c.tier === tier);
-    if (tier > 0 && kept.length >= DIRECTION_REASONS_MIN) break;
-    kept.push(...atTier.map((c) => c.text));
-  }
-  /* Within the kept set, the model's own order: it usually leads with the
-     reason that matters most. */
-  kept.sort(
-    (a, b) =>
-      candidates.findIndex((c) => c.text === a) -
-      candidates.findIndex((c) => c.text === b),
-  );
-
-  for (const extra of fallback) {
-    if (kept.length >= DIRECTION_REASONS_MIN) break;
-    if (!seen.has(extra.toLowerCase())) kept.push(extra);
-  }
-  return kept.slice(0, DIRECTION_REASONS_MAX);
+  return best;
 }
 
-export function finalizeDirection(
-  draft: DirectionDraft,
-  {
-    aspectRatio,
-    facts,
-    fallbackReasons,
-    fallbackTitle,
-  }: {
-    /** The canvas the user asked for. Both directions are drawn on it,
-     *  whatever ratio the model wrote back. */
-    aspectRatio: AspectRatio;
-    facts: ReadonlySet<string>;
-    fallbackReasons: string[];
-    fallbackTitle: string;
-  },
-): DirectionSpec {
-  const title =
-    clampText(draft.title, DIRECTION_TITLE_MAX) ||
-    clampText(fallbackTitle, DIRECTION_TITLE_MAX);
-  return {
-    ...draft,
-    aspectRatio,
-    title,
-    rationale: finalizeReasons(
-      draft.rationale,
-      facts,
-      fallbackReasons.map((r) => clampText(r, DIRECTION_REASON_MAX)),
-    ),
-  };
+/** What makes a reason about THIS brief rather than any brief. */
+export interface GroundingAnchors {
+  /** Specific facts: the product's words, the brief's numbers and days, and
+   *  the words for a price, a time or a date when the brief holds one. */
+  hard: Set<string>;
+  /** Every other content word of the brief and its title. */
+  brief: Set<string>;
 }
 
 /* Words every rationale may use without saying anything about the brief.
-   Left in, "uses the brand colours" would count as grounded for any brand
-   whose overview happens to say "brand". */
+   Left in, "uses the brand colours" would count as grounded for any brief
+   that happens to say "brand". */
 const DESIGN_VOCABULARY = new Set(
   [
     "brand",
@@ -159,31 +99,380 @@ const DESIGN_VOCABULARY = new Set(
     "message",
     "customer",
     "audience",
+    "new",
+    "launch",
+    "available",
+    "announce",
+    "promote",
+    "order",
   ].map((w) => [...contentStems(w)][0] ?? w),
 );
 
-/* A brief that carries a date or a price is answered by a reason about "the
-   date" or "the price", which shares no literal word with "Friday 14 March"
-   or "₦4,500". These name the kind of fact, and count only when the brief
-   actually holds one. */
-const WHEN =
-  /\b(\d{1,2}(:\d{2})?\s?(am|pm)|(mon|tues|wednes|thurs|fri|satur|sun)day|weekdays?|weekends?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|june?|july?|aug(ust)?|sep(tember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/i;
-const WHEN_WORDS = ["date", "time", "day", "deadline", "schedule"];
-const PRICE =
-  /([₦$£€]\s?\d|\d[\d,]*\s?(naira|ngn|usd|kobo)|\bfree\b|\bfees?\b|\bprice)/i;
-const PRICE_WORDS = ["price", "cost", "fee", "free", "offer", "saving"];
+const KIND_WORDS: { has: RegExp; words: string[] }[] = [
+  {
+    has: /[₦$£€]\s?\d|\d[\d,]*\s?(naira|ngn|usd|kobo)|\bfree\b|\bfees?\b|\bprice/i,
+    words: ["price", "cost", "fee", "free", "offer", "saving"],
+  },
+  {
+    has: /\d{1,2}(:\d{2})?\s?(am|pm)\b/i,
+    words: ["time", "hour", "morning", "evening", "pickup", "early"],
+  },
+  {
+    has: /\b(mon|tues|wednes|thurs|fri|satur|sun)day|weekend|weekday|january|february|march|april|may|june|july|august|september|october|november|december\b/i,
+    words: ["date", "day", "deadline", "start", "week"],
+  },
+];
 
-/** The content words a reason can be grounded in: the brief and what the
- *  brand says about itself, minus design vocabulary. */
-export function groundingFacts(sources: (string | null | undefined)[]) {
-  const facts = new Set<string>();
-  const add = (words: Iterable<string>) => {
-    for (const s of words) if (!DESIGN_VOCABULARY.has(s)) facts.add(s);
-  };
-  for (const source of sources) {
-    add(contentStems(source));
-    if (source && WHEN.test(source)) add(contentStems(WHEN_WORDS.join(" ")));
-    if (source && PRICE.test(source)) add(contentStems(PRICE_WORDS.join(" ")));
+export function groundingAnchors({
+  briefText,
+  title,
+  product,
+  ledger,
+  audience = "",
+}: {
+  briefText: string;
+  title: string;
+  product: string;
+  ledger: FactLedger;
+  /** The brand's audience. Its words count as specific only where the brief
+   *  names them too ("commuters"): then a reason about them is about this
+   *  brief, not about any post for the brand. */
+  audience?: string | null;
+}): GroundingAnchors {
+  const hard = new Set<string>(contentStems(product));
+  const briefStems = contentStems(`${briefText} ${title}`);
+  for (const s of contentStems(audience)) {
+    if (briefStems.has(s) && !DESIGN_VOCABULARY.has(s)) hard.add(s);
   }
-  return facts;
+  for (const value of ledger.numbers.keys()) hard.add(String(value));
+  for (const name of ledger.calendar) {
+    for (const s of contentStems(name)) hard.add(s);
+  }
+  const source = `${briefText} ${title}`;
+  for (const kind of KIND_WORDS) {
+    if (kind.has.test(source)) {
+      for (const s of contentStems(kind.words.join(" "))) hard.add(s);
+    }
+  }
+  const brief = new Set(
+    [...contentStems(source)].filter((s) => !DESIGN_VOCABULARY.has(s)),
+  );
+  return { hard, brief };
+}
+
+/**
+ * A reason is grounded when it names a specific fact of the brief (the
+ * product, a number, a day, or the price, time or date as such), or two of
+ * the brief's own words. One shared word is not enough: round 1 counted
+ * "Warm tones feel inviting and friendly" as grounded because the brand's
+ * tone said "warm".
+ */
+export function isGrounded(reason: string, anchors: GroundingAnchors): boolean {
+  const stems = contentStems(reason);
+  for (const value of reason.match(/\d[\d,]*/g) ?? []) {
+    stems.add(value.replace(/,/g, ""));
+  }
+  let briefWords = 0;
+  for (const s of stems) {
+    if (anchors.hard.has(s)) return true;
+    if (anchors.brief.has(s)) briefWords += 1;
+  }
+  return briefWords >= 2;
+}
+
+/** Everything the checks need, built once per job from the brief. */
+export interface DirectionChecks {
+  ledger: FactLedger;
+  briefText: string;
+  /** The brand's target audience, for grounding (groundingAnchors). */
+  audience?: string | null;
+  /** The brief's title, the headline of last resort: it is the user's own
+   *  words, so it can never carry an invented fact. */
+  title: string;
+}
+
+export interface ReasonSettings {
+  copy: DrawnCopy;
+  checks: DirectionChecks;
+  product: string;
+  image: ImageState;
+  /** The scene the plate was asked for, on KO imagery (reasonHolds). */
+  paintedScene?: string;
+}
+
+function anchorsFor({ checks, product }: ReasonSettings): GroundingAnchors {
+  return groundingAnchors({
+    briefText: checks.briefText,
+    title: checks.title,
+    product,
+    ledger: checks.ledger,
+    audience: checks.audience,
+  });
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const MONEY_IN = /([₦$£€]\s?|\bN(?=\d))\d[\d,]*(\.\d+)?k?|\d[\d,]*\s?naira/i;
+const TIME_IN = /\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i;
+const DAY_IN =
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekends?|weekdays?)\b/i;
+const DATE_IN =
+  /\b\d{1,2}(st|nd|rd|th)?\s+(january|february|march|april|june|july|august|september|october|november|december)\b|\b(january|february|march|april|june|july|august|september|october|november|december)\s+\d{1,2}\b/i;
+
+/**
+ * Reasons that are true by construction, read off the copy being drawn. Used
+ * only to top a direction up to two when the model's own did not survive.
+ */
+export function factualReasons(settings: ReasonSettings): string[] {
+  const { copy, product, image } = settings;
+  const drawn = [copy.headline, copy.subheadline, copy.cta, ...copy.footerLines]
+    .filter(Boolean)
+    .join(" ");
+  const candidates: string[] = [];
+  const productStems = [...contentStems(product)];
+  const headline = contentStems(copy.headline);
+  if (productStems.length > 0 && productStems.every((s) => headline.has(s))) {
+    candidates.push(`The headline names the ${product} straight away`);
+  }
+  const money = MONEY_IN.exec(drawn)?.[0];
+  if (money)
+    candidates.push(`It gives the ${money.trim()} price, so nobody has to ask`);
+  const time = TIME_IN.exec(drawn)?.[0];
+  if (time)
+    candidates.push(`It says ${time.trim()}, so people know when to come`);
+  const date = DATE_IN.exec(drawn)?.[0] ?? DAY_IN.exec(drawn)?.[0];
+  if (date)
+    candidates.push(
+      `${capitalise(date.trim())} is written on the design itself`,
+    );
+  if (productStems.length > 0 && (image === "verified" || image === "seen")) {
+    candidates.push(`The image shows the ${product} itself`);
+  }
+  if (copy.cta) candidates.push(`The button asks for one thing: "${copy.cta}"`);
+  candidates.push("One message, so it reads in a single glance");
+  return candidates.filter(
+    (reason) =>
+      reason.length <= COPY_LIMITS.reason &&
+      reasonHolds(reason, {
+        copy,
+        ledger: settings.checks.ledger,
+        briefText: settings.checks.briefText,
+        product,
+        image,
+        paintedScene: settings.paintedScene,
+      }).ok,
+  );
+}
+
+export interface SettledReason {
+  text: string;
+  /** Why a reason the model wrote was left off, for the log and the eval. */
+  dropped?: string;
+}
+
+/**
+ * The reasons to show: the model's own that are true of this design, best
+ * first, topped up from factualReasons. Run when the direction is written
+ * (image "pending") and again on the design actually delivered, because the
+ * gate's correction can change the copy and the plate check decides what the
+ * image shows.
+ */
+export function settleReasons(
+  reasons: string[],
+  settings: ReasonSettings,
+): { reasons: string[]; dropped: { reason: string; why: string }[] } {
+  const anchors = anchorsFor(settings);
+  const dropped: { reason: string; why: string }[] = [];
+  const seen = new Set<string>();
+  const kept: { text: string; tier: number; order: number }[] = [];
+  reasons.forEach((raw, order) => {
+    const text = clampAtClause(raw, COPY_LIMITS.reason);
+    if (!text) {
+      dropped.push({ reason: raw, why: "too long to keep whole" });
+      return;
+    }
+    const key = text.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (looksCutOff(text)) {
+      dropped.push({ reason: raw, why: "reads as cut off" });
+      return;
+    }
+    if (usesJargon(text)) {
+      dropped.push({ reason: raw, why: "reads out the spec" });
+      return;
+    }
+    const holds = reasonHolds(text, {
+      copy: settings.copy,
+      ledger: settings.checks.ledger,
+      briefText: settings.checks.briefText,
+      product: settings.product,
+      image: settings.image,
+      paintedScene: settings.paintedScene,
+    });
+    if (!holds.ok) {
+      dropped.push({ reason: raw, why: holds.why });
+      return;
+    }
+    const grounded = isGrounded(text, anchors);
+    /* Best first: grounded and whole, grounded but shortened, plain, then
+       praise that names nothing, kept only to reach two. */
+    const shortened = text !== clean(raw);
+    const tier =
+      soundsLikeFiller(text) && !grounded
+        ? 3
+        : (grounded ? 0 : 2) + (shortened ? 1 : 0);
+    kept.push({ text, tier, order });
+  });
+
+  const chosen: typeof kept = [];
+  for (let tier = 0; tier <= 3; tier += 1) {
+    if (tier > 0 && chosen.length >= DIRECTION_REASONS_MIN) break;
+    chosen.push(...kept.filter((k) => k.tier === tier));
+  }
+  /* The model's own order within what is kept: it usually leads with the
+     reason that matters most. */
+  chosen.sort((a, b) => a.order - b.order);
+  const out = chosen.map((k) => k.text);
+  for (const extra of factualReasons(settings)) {
+    if (out.length >= DIRECTION_REASONS_MIN) break;
+    if (!seen.has(extra.toLowerCase())) out.push(extra);
+  }
+  return { reasons: out.slice(0, DIRECTION_REASONS_MAX), dropped };
+}
+
+type CopyField = "headline" | "subheadline" | "cta";
+
+/** Why a piece of copy cannot go on the design as written, or null. */
+export function copyFault(
+  text: string,
+  max: number,
+  ledger: FactLedger,
+): string | null {
+  const whole = clean(text);
+  if (whole.length > max) return `${whole.length} characters, limit ${max}`;
+  const invented = inventedFacts(whole, ledger);
+  if (invented.length > 0) {
+    return `states ${invented.join(", ")}, which the brief does not`;
+  }
+  return null;
+}
+
+/** A field's text if it can be drawn, its whole clauses if those can, or
+ *  null when neither can. */
+function fitCopy(
+  text: string | undefined,
+  max: number,
+  ledger: FactLedger,
+): string | null {
+  const whole = clean(text);
+  if (!whole) return null;
+  if (!copyFault(whole, max, ledger)) return whole;
+  const clauses = clampAtClause(whole, max);
+  return clauses && !copyFault(clauses, max, ledger) ? clauses : null;
+}
+
+export interface FinalizeReport {
+  /** Copy fields that could not be drawn as the model wrote them, and what
+   *  was drawn instead. */
+  copyFallbacks: { field: string; from: string; to: string | null }[];
+  reasonsDropped: { reason: string; why: string }[];
+}
+
+export function finalizeDirection(
+  draft: DirectionDraft,
+  {
+    aspectRatio,
+    checks,
+    fallbackTitle,
+    image = "pending",
+    paintedScene,
+  }: {
+    /** The canvas the user asked for. Both directions are drawn on it,
+     *  whatever ratio the model wrote back. */
+    aspectRatio: AspectRatio;
+    checks: DirectionChecks;
+    /** The concept's lead, for a title that could not be kept. */
+    fallbackTitle: string;
+    image?: ImageState;
+    /** The scene a KO plate will be painted from. */
+    paintedScene?: string;
+  },
+): { direction: DirectionSpec; report: FinalizeReport } {
+  const copyFallbacks: FinalizeReport["copyFallbacks"] = [];
+  const fit = (
+    field: CopyField | "footer",
+    text: string | undefined,
+    max: number,
+  ) => {
+    const out = fitCopy(text, max, checks.ledger);
+    if (clean(text) && out !== clean(text)) {
+      copyFallbacks.push({ field, from: clean(text), to: out });
+    }
+    return out;
+  };
+
+  const headline =
+    fit("headline", draft.headline, COPY_LIMITS.headline) ??
+    fitCopy(checks.title, COPY_LIMITS.headline, checks.ledger) ??
+    fitCopy(capitalise(fallbackTitle), COPY_LIMITS.headline, checks.ledger) ??
+    "Design direction";
+  const headlineFallback = copyFallbacks.find((f) => f.field === "headline");
+  if (headlineFallback) headlineFallback.to = headline;
+  const subheadline = fit(
+    "subheadline",
+    draft.subheadline,
+    COPY_LIMITS.subheadline,
+  );
+  const cta = fit("cta", draft.cta, COPY_LIMITS.cta);
+  const footerLines = (draft.footerLines ?? [])
+    .map((line) => fit("footer", line, COPY_LIMITS.footerLine))
+    .filter((line): line is string => Boolean(line));
+
+  const title =
+    clampAtClause(draft.title, COPY_LIMITS.title) ??
+    clampAtClause(capitalise(fallbackTitle), COPY_LIMITS.title) ??
+    "Design direction";
+
+  const product = productFromBrief(
+    draft.productName,
+    `${checks.briefText} ${checks.title}`,
+  );
+  const productLook = product
+    ? clean(draft.productLook).slice(0, DRAFT_LIMITS.productLook)
+    : "";
+
+  const copy: DrawnCopy = {
+    headline,
+    subheadline: subheadline ?? undefined,
+    cta: cta ?? undefined,
+    footerLines,
+  };
+  const { reasons, dropped } = settleReasons(draft.rationale, {
+    copy,
+    checks,
+    product,
+    image,
+    paintedScene,
+  });
+
+  const { subheadline: _sub, cta: _cta, ...rest } = draft;
+  return {
+    direction: {
+      ...rest,
+      ...(copy.subheadline ? { subheadline: copy.subheadline } : {}),
+      ...(copy.cta ? { cta: copy.cta } : {}),
+      headline,
+      footerLines,
+      footerStyle: footerLines.length > 0 ? draft.footerStyle : "none",
+      aspectRatio,
+      title,
+      rationale: reasons,
+      productName: product,
+      productLook,
+    },
+    report: { copyFallbacks, reasonsDropped: dropped },
+  };
 }

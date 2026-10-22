@@ -1,4 +1,4 @@
-import { clampText } from "./finalize";
+import { DRAFT_LIMITS } from "./schema";
 
 /**
  * Rescues a directions answer that is complete but malformed, so the user
@@ -13,21 +13,28 @@ import { clampText } from "./finalize";
  *    lengths by feel, and two specs per call doubles the single-spec route's
  *    exposure to one overshoot failing everything.
  *
- * Text fields are shortened at a word boundary to the schema's own limits.
- * Anything else (a missing field, a wrong enum) is left to fail, because
- * inventing a value is worse than asking again.
+ * Text fields over the draft schema's parse limits, which sit far past the
+ * contract, are shortened at a word boundary only so the answer parses; the
+ * fit pass in brief.ts then has the model rewrite them, and finalize.ts never
+ * draws a cut clause. Anything else (a missing field, a wrong enum) is left
+ * to fail, because inventing a value is worse than asking again.
  */
 
 const LIMITS = {
-  headline: 70,
-  subheadline: 140,
-  cta: 32,
-  title: 80,
+  headline: DRAFT_LIMITS.headline,
+  subheadline: DRAFT_LIMITS.subheadline,
+  cta: DRAFT_LIMITS.cta,
+  title: DRAFT_LIMITS.title,
+  productName: DRAFT_LIMITS.productName,
+  productLook: DRAFT_LIMITS.productLook,
 } as const;
-const FOOTER_LINE = 60;
-const FOOTER_LINES = 3;
-const REASON = 200;
-const REASONS = 6;
+
+function clampWords(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max + 1).lastIndexOf(" ");
+  return clean.slice(0, cut > 0 ? cut : max).trim();
+}
 
 function unwrapDirections(parsed: unknown): unknown[] | null {
   if (Array.isArray(parsed)) return parsed;
@@ -49,21 +56,25 @@ function clampDirection(value: unknown): unknown {
   for (const [field, max] of Object.entries(LIMITS)) {
     const text = direction[field];
     if (typeof text === "string" && text.length > max) {
-      direction[field] = clampText(text, max);
+      direction[field] = clampWords(text, max);
     }
   }
   if (Array.isArray(direction.footerLines)) {
     direction.footerLines = direction.footerLines
-      .slice(0, FOOTER_LINES)
+      .slice(0, DRAFT_LIMITS.footerLines)
       .map((line) =>
-        typeof line === "string" ? clampText(line, FOOTER_LINE) : line,
+        typeof line === "string"
+          ? clampWords(line, DRAFT_LIMITS.footerLine)
+          : line,
       );
   }
   if (Array.isArray(direction.rationale)) {
     direction.rationale = direction.rationale
-      .slice(0, REASONS)
+      .slice(0, DRAFT_LIMITS.reasons)
       .map((reason) =>
-        typeof reason === "string" ? clampText(reason, REASON) : reason,
+        typeof reason === "string"
+          ? clampWords(reason, DRAFT_LIMITS.reason)
+          : reason,
       );
   }
   return direction;
@@ -85,5 +96,44 @@ export async function repairDirectionsText({
   const repaired = JSON.stringify({
     directions: directions.map(clampDirection),
   });
+  return repaired === text ? null : repaired;
+}
+
+/**
+ * The fit pass's answer, rescued from the same two shapes: `fixes` as a JSON
+ * string, or the array bare. The first round-2 eval run lost a whole
+ * rewrite to "No object generated" on the real model.
+ */
+export async function repairFitText({
+  text,
+}: {
+  text: string;
+}): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  let fixes: unknown = Array.isArray(parsed)
+    ? parsed
+    : (parsed as { fixes?: unknown } | null)?.fixes;
+  if (typeof fixes === "string") {
+    const raw = fixes;
+    try {
+      fixes = JSON.parse(raw);
+    } catch {
+      /* Seen on the real model: the string held unescaped quotes from the
+         copy it was rewriting ("The word "Free" appears…"), so it is not
+         JSON. Each entry still has a readable shape. */
+      fixes = [
+        ...raw.matchAll(
+          /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"(.*?)"\s*\}(?=\s*(,|\]|$))/g,
+        ),
+      ].map((m) => ({ id: m[1], text: m[2] }));
+    }
+  }
+  if (!Array.isArray(fixes)) return null;
+  const repaired = JSON.stringify({ fixes });
   return repaired === text ? null : repaired;
 }

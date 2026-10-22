@@ -1,5 +1,6 @@
 import type { DesignCategory } from "@/lib/ai/design-training/playbooks";
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
+import type { PriorDirection } from "@/lib/jobs/directions/brief";
 
 /**
  * Brand and brief fixtures for the directions eval. Varied on purpose: six
@@ -22,31 +23,111 @@ export interface DirectionsEvalCase {
     aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
     briefText: string;
   };
+  /** The product the brief names, when it names one: every direction must
+   *  name it, and on KO cases every plate must show it. */
+  product?: string;
+  /** Set for a regenerate: one direction, apart from both of these. */
+  regenerate?: { existing: PriorDirection[] };
 }
+
+const CRUMB: BrandSummary = {
+  name: "Crumb & Co.",
+  overview: "Neighbourhood bakery in Lekki, Lagos, baking French pastry.",
+  targetAudience: "Commuters and weekend brunch regulars",
+  tone: "Warm, unfussy, a little playful",
+  primaryColor: "#FFF4E6",
+  secondaryColor: "#C2410C",
+  additionalColors: ["#3B2416"],
+};
+
+const BAKERY_REQUEST = {
+  title: "Strawberry mille-feuille launch",
+  designType: "Instagram Post",
+  dimensions: "1080x1350",
+  platform: "Instagram",
+  aspectRatio: "4:5" as const,
+  briefText:
+    "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
+};
+
+const LOOM: BrandSummary = {
+  name: "Lagos Loom",
+  overview: "Handwoven aso-oke textiles for modern homes.",
+  tone: "Warm and confident",
+  primaryColor: "#0F172A",
+  secondaryColor: "#F97316",
+};
+
+/* From variant a's eval, where "12 Artisans" was written for a brief about
+   twelve throws: the case that tests a count borrowed from another noun. */
+const LOOM_REQUEST = {
+  title: "Autumn collection launch",
+  designType: "Instagram Post",
+  dimensions: "1080x1350",
+  platform: "Instagram",
+  aspectRatio: "4:5" as const,
+  briefText:
+    "Announce the autumn aso-oke collection, launching 3 November. Twelve new throws and cushions in rust and indigo, each woven by one artisan in Iseyin.",
+};
 
 export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
   {
     id: "bakery-upload",
-    brand: {
-      name: "Crumb & Co.",
-      overview: "Neighbourhood bakery in Lekki, Lagos, baking French pastry.",
-      targetAudience: "Commuters and weekend brunch regulars",
-      tone: "Warm, unfussy, a little playful",
-      primaryColor: "#FFF4E6",
-      secondaryColor: "#C2410C",
-      additionalColors: ["#3B2416"],
-    },
+    brand: CRUMB,
     hasLogo: true,
     imageSource: "upload",
     category: "food",
-    request: {
-      title: "Strawberry mille-feuille launch",
-      designType: "Instagram Post",
-      dimensions: "1080x1350",
-      platform: "Instagram",
-      aspectRatio: "4:5",
-      briefText:
-        "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
+    request: BAKERY_REQUEST,
+    product: "strawberry mille-feuille",
+  },
+  /* The live run's brief on KO imagery: round 1 painted a tart, a cake and
+     bread rolls for it. */
+  {
+    id: "bakery-ko",
+    brand: CRUMB,
+    hasLogo: true,
+    imageSource: "ko",
+    category: "food",
+    request: BAKERY_REQUEST,
+    product: "strawberry mille-feuille",
+  },
+  {
+    id: "textile-launch-ko",
+    brand: LOOM,
+    hasLogo: true,
+    imageSource: "ko",
+    category: "product",
+    request: LOOM_REQUEST,
+    product: "aso-oke throws",
+  },
+  {
+    id: "textile-launch-regenerate",
+    brand: LOOM,
+    hasLogo: true,
+    imageSource: "ko",
+    category: "product",
+    request: LOOM_REQUEST,
+    product: "aso-oke throws",
+    regenerate: {
+      existing: [
+        {
+          title: "Countdown to launch",
+          layout: "hero-center",
+          headline: "3 November: autumn arrives",
+          subheadline: "Twelve new throws and cushions in rust and indigo",
+          cta: "Shop the collection",
+          backgroundPrompt:
+            "a stack of rust and indigo aso-oke throws on a wooden bench",
+        },
+        {
+          title: "The weaver's hand",
+          layout: "split-left",
+          headline: "Woven by one artisan in Iseyin",
+          subheadline: "Each throw from one loom, one pair of hands",
+          cta: "See the collection",
+          backgroundPrompt: "hands at a narrow-strip loom weaving indigo cloth",
+        },
+      ],
     },
   },
   {
@@ -186,26 +267,45 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
   },
 ];
 
-/* Frozen with the feature. The structural rules (two directions, layouts
-   apart, contract limits) are enforced in code after the model answers, so
-   anything below 1.0 there is a bug, not a bad day. The quality numbers are
-   the model's own and carry a margin. */
+/* Round 2, frozen before the run. Two lanes:
+   - delivered: enforced in code after the model answers, so anything short
+     of these is a bug, not a bad day;
+   - model: the model's own first answer, before the fit pass rewrites it and
+     before finalize.ts settles it. These carry a margin because the model is
+     non-deterministic, and they are what says the prompt works. */
 export const DIRECTIONS_EVAL_THRESHOLDS = {
-  minTwoDirections: 1,
+  minCountRight: 1,
   minLayoutsDiffer: 1,
   minWithinLimits: 1,
-  /** Share of "why this works" reasons that name something from the brief or
-   *  the brand (text-overlap.ts, isGroundedReason). */
+  /** Model drafts with every field inside the contract unaided. Round 1
+   *  measured 0.14 and 0.71 on the same prompt. */
+  minModelWithinLimits: 0.8,
+  /** Model reasons naming a specific fact of the brief, or two of its words
+   *  (finalize.ts, isGrounded). Round 1's 0.77 was on a one-word rule. */
+  minModelGroundedShare: 0.8,
+  /** Model reasons claiming a position, size or light. */
+  maxModelSpatialShare: 0.1,
+  /** Model copy fields and reasons stating a fact the brief does not hold. */
+  maxModelInventedShare: 0.05,
+  /** Model reasons that read as unfinished. */
+  maxModelCutOffShare: 0.05,
   minGroundedShare: 0.8,
-  /** Share that are praise any design could claim and name nothing. */
   maxFillerShare: 0.1,
-  /** Share that read out the spec (a layout id, a hex code) or the prompt. */
-  maxJargonShare: 0,
-  /** Share shown shortened. A cut sentence reads as one that broke off, so
-   *  the finaliser prefers whole ones; this says how often it could not. */
-  maxCutShare: 0.2,
-  /** Mean of 1 - worst word overlap between a case's two directions. */
+  maxJargon: 0,
+  maxSpatial: 0,
+  maxCutOff: 0,
+  /** Delivered reasons not true of the delivered copy. */
+  maxFalseClaims: 0,
+  maxInvented: 0,
+  /** Mean of 1 - worst word overlap: the pair, or the regenerated direction
+   *  against both existing ones. */
   minMeanDistinctness: 0.7,
-  /** Pairs still near-duplicate after the redraft rule. */
   maxFinalNearDuplicates: 0,
+  /** Product cases where every direction named the brief's product. */
+  minProductNamed: 1,
+  /** KO plates for a product case that show it, by the eval's own look; a
+   *  plate drawn flat after two misses counts as not showing it. */
+  minPlateShowsProduct: 0.8,
+  /** Delivered plates showing something else: what round 1 shipped. */
+  maxWrongProductPlates: 0,
 } as const;

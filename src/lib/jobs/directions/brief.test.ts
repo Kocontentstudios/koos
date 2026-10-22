@@ -27,7 +27,6 @@ function input(over: Record<string, unknown> = {}) {
     imageSource: "ko" as const,
     image: null,
     lenses,
-    category: "food" as const,
     recentLayouts: [],
     ...over,
   };
@@ -182,6 +181,99 @@ describe("draftDirections", () => {
     expect(generateObject).toHaveBeenCalledTimes(1);
   });
 
+  describe("the fit pass", () => {
+    const overlong = draftOf({
+      headline: "Seven minutes from your door",
+      cta: "Pre-order your almond croissants today before they go",
+    });
+    const fitPrompt = (i: number) =>
+      (generateObject.mock.calls[i][0] as { prompt: string }).prompt;
+
+    it("asks once for every field that cannot be drawn, and applies the rewrites", async () => {
+      generateObject
+        .mockResolvedValueOnce(answer(overlong, contrastingDraft()))
+        .mockResolvedValueOnce({
+          object: {
+            fixes: [
+              { id: "0.headline", text: "Almond croissants for the commute" },
+              { id: "0.cta", text: "Order for pickup" },
+            ],
+          },
+        });
+      const result = await draftDirections(input());
+      expect(generateObject).toHaveBeenCalledTimes(2);
+      expect(fitPrompt(1)).toContain('id "0.headline"');
+      expect(fitPrompt(1)).toContain("states Seven");
+      expect(fitPrompt(1)).toContain('id "0.cta"');
+      expect(result.fit).toEqual({ asked: 2, fixed: 2 });
+      expect(result.directions[0].headline).toBe(
+        "Almond croissants for the commute",
+      );
+      expect(result.directions[0].cta).toBe("Order for pickup");
+      /* The eval scores the model's own answer, not the rewrite. */
+      expect(result.drafts[0].cta).toBe(overlong.cta);
+      expect(result.modelCalls).toBe(2);
+    });
+
+    it("ignores a rewrite that still breaks a rule, and never cuts a clause", async () => {
+      generateObject
+        .mockResolvedValueOnce(answer(overlong, contrastingDraft()))
+        .mockResolvedValueOnce({
+          object: {
+            fixes: [
+              { id: "0.headline", text: "Seven minutes away, every morning" },
+              { id: "0.cta", text: "Pre-order your almond croissants today" },
+            ],
+          },
+        });
+      const result = await draftDirections(input());
+      expect(result.fit).toEqual({ asked: 2, fixed: 0 });
+      expect(result.directions[0].headline).toBe("Croissant launch");
+      expect(result.directions[0].cta).toBeUndefined();
+    });
+
+    it("settles the design as written when the fit call fails", async () => {
+      generateObject
+        .mockResolvedValueOnce(answer(overlong, contrastingDraft()))
+        .mockRejectedValueOnce(new Error("throttled"));
+      const result = await draftDirections(input());
+      expect(result.directions).toHaveLength(2);
+      for (const direction of result.directions) {
+        expect(directionSpecSchema.safeParse(direction).success).toBe(true);
+      }
+    });
+
+    it("rewrites a reason that claims a position or invents a fact", async () => {
+      generateObject
+        .mockResolvedValueOnce(
+          answer(
+            draftOf({
+              rationale: [
+                "The croissant fills two-thirds of the frame",
+                "Leads with the croissant, the product commuters queue for",
+              ],
+            }),
+            contrastingDraft(),
+          ),
+        )
+        .mockResolvedValueOnce({
+          object: {
+            fixes: [
+              {
+                id: "0.rationale.0",
+                text: "The headline names the croissants commuters want",
+              },
+            ],
+          },
+        });
+      const result = await draftDirections(input());
+      expect(fitPrompt(1)).toContain('id "0.rationale.0"');
+      expect(result.directions[0].rationale).toContain(
+        "The headline names the croissants commuters want",
+      );
+    });
+  });
+
   describe("regenerating one direction", () => {
     const existing = [
       {
@@ -194,7 +286,7 @@ describe("draftDirections", () => {
       },
       {
         title: "Weekend table invitation",
-        headline: "Your Saturday table is waiting",
+        headline: "Your weekend table is waiting",
         backgroundPrompt: "a sunlit cafe table",
         layout: "quote-card",
       },
@@ -207,7 +299,7 @@ describe("draftDirections", () => {
             layout: "hero-center",
             title: "Almond gift box",
             headline: "Give a box of almond joy",
-            subheadline: "Twelve pastries, one ribbon",
+            subheadline: "A box of pastries, one ribbon",
             cta: "Pre-order",
             backgroundPrompt: "a ribboned pastry box on linen",
           }),
@@ -230,8 +322,8 @@ describe("draftDirections", () => {
           answer(
             draftOf({
               layout: "banner-bottom",
-              title: "Saturday table",
-              headline: "Your Saturday table is waiting",
+              title: "Weekend table",
+              headline: "Your weekend table is waiting",
             }),
           ),
         )
@@ -241,7 +333,7 @@ describe("draftDirections", () => {
               layout: "banner-bottom",
               title: "Almond gift box",
               headline: "Give a box of almond joy",
-              subheadline: "Twelve pastries, one ribbon",
+              subheadline: "A box of pastries, one ribbon",
               cta: "Pre-order",
               backgroundPrompt: "a ribboned pastry box on linen",
             }),

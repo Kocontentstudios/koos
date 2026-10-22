@@ -3,7 +3,6 @@ import {
   contentStems,
   directionOverlap,
   distinctness,
-  isGroundedReason,
   isNearDuplicate,
   jaccard,
   soundsLikeFiller,
@@ -59,7 +58,7 @@ describe("near-duplicate detection", () => {
       base,
       {
         title: "Table for two",
-        headline: "Your Saturday table is waiting",
+        headline: "Your weekend table is waiting",
         subheadline: "Slow brunch, good coffee, no rush",
         cta: "Book a table",
         backgroundPrompt: "a sunlit cafe table set for two",
@@ -148,24 +147,13 @@ describe("jargon", () => {
   });
 });
 
-describe("reasons", () => {
-  const facts = contentStems(
-    "Launch our almond croissant for Lagos commuters before work",
-  );
-
-  it("treats praise with no anchor as filler", () => {
+describe("filler", () => {
+  it("treats praise any design could claim as filler", () => {
     expect(soundsLikeFiller("Eye-catching and modern, it stands out")).toBe(
       true,
     );
-    expect(isGroundedReason("Eye-catching and modern", facts)).toBe(false);
-  });
-
-  it("grounds a reason that names something from the brief", () => {
-    expect(
-      isGroundedReason("Leads with the almond croissant itself", facts),
-    ).toBe(true);
-    expect(
-      isGroundedReason("Speaks to commuters grabbing breakfast", facts),
-    ).toBe(true);
+    expect(soundsLikeFiller("Leads with the almond croissant itself")).toBe(
+      false,
+    );
   });
 });

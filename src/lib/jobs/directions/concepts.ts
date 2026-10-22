@@ -3,8 +3,6 @@ import {
   playbook,
 } from "@/lib/ai/design-training/playbooks";
 import type { DesignSpec } from "@/lib/design/spec";
-import { clampText } from "./finalize";
-import { DIRECTION_REASON_MAX } from "./schema";
 
 /**
  * The two concepts a pair of directions is built on.
@@ -86,26 +84,4 @@ export function planConcepts(
 export function regenerationConcept(category: DesignCategory): ConceptLens {
   const leads = leadsFor(category);
   return angle(leads[2] ?? leads[1] ?? leads[0]);
-}
-
-function capitalise(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-/**
- * Reasons that are true by construction, for a draft that came back with
- * fewer than two usable ones. They name the lens and the playbook, so they
- * stay grounded rather than becoming the filler finalizeDirection removes.
- */
-export function lensReasons(
-  lens: ConceptLens,
-  category: DesignCategory,
-): string[] {
-  const reasons = [
-    `${capitalise(lens.lead)} leads, the first thing a ${category} post has to land`,
-    lens.id === "say"
-      ? "The headline carries the message, so it reads even as a thumbnail"
-      : "The image does the selling and the copy names what it shows",
-  ];
-  return reasons.map((r) => clampText(r, DIRECTION_REASON_MAX));
 }

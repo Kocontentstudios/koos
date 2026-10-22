@@ -3,8 +3,7 @@ import {
   DESIGN_CATEGORIES,
   playbook,
 } from "@/lib/ai/design-training/playbooks";
-import { lensReasons, planConcepts, regenerationConcept } from "./concepts";
-import { DIRECTION_REASON_MAX } from "./schema";
+import { planConcepts, regenerationConcept } from "./concepts";
 
 describe("planConcepts", () => {
   it("leads the first direction with the playbook's first priority", () => {
@@ -36,22 +35,5 @@ describe("planConcepts", () => {
     const [a, b] = planConcepts("event");
     const c = regenerationConcept("event");
     expect([a.lead, b.lead]).not.toContain(c.lead);
-  });
-});
-
-describe("lensReasons", () => {
-  it("stays inside the reason limit for every category and lens", () => {
-    for (const category of DESIGN_CATEGORIES) {
-      for (const lens of [
-        ...planConcepts(category),
-        regenerationConcept(category),
-      ]) {
-        const reasons = lensReasons(lens, category);
-        expect(reasons).toHaveLength(2);
-        for (const reason of reasons) {
-          expect(reason.length).toBeLessThanOrEqual(DIRECTION_REASON_MAX);
-        }
-      }
-    }
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { contrastingDraft, draftOf } from "./fixtures";
-import { repairDirectionsText } from "./repair";
-import { directionsResponseSchema } from "./schema";
+import { repairDirectionsText, repairFitText } from "./repair";
+import { DRAFT_LIMITS, directionsResponseSchema } from "./schema";
 
 const pair = [draftOf(), contrastingDraft()];
 const valid = (text: string | null) =>
@@ -19,18 +19,16 @@ describe("repairDirectionsText", () => {
     expect(valid(repaired)).toBe(true);
   });
 
-  it("shortens text that overshoots a hard spec limit at a word boundary", async () => {
+  /* Only past the parse limits, far beyond the contract: a 40-character
+     button is left for the fit pass to rewrite whole, because a cut here
+     would reach the design. */
+  it("trims only text past the parse limits, at a word boundary", async () => {
+    const runaway = `Book your free first class on WhatsApp ${"and bring a friend along ".repeat(4)}`;
     const long = [
       draftOf({
         cta: "Book your free first class on WhatsApp",
-        headline:
-          "Six in the morning, every weekday, at our Yaba studio: the hardest forty-five minutes",
-        footerLines: [
-          "Studio 4, 12 Herbert Macaulay Way, Yaba, Lagos, opposite the Unilag gate",
-          "b",
-          "c",
-          "d",
-        ],
+        subheadline: runaway.repeat(3),
+        footerLines: ["a", "b", "c", "d"],
       }),
       contrastingDraft(),
     ];
@@ -39,10 +37,11 @@ describe("repairDirectionsText", () => {
     });
     expect(valid(repaired)).toBe(true);
     const [first] = JSON.parse(repaired as string).directions;
-    expect(first.cta).toBe("Book your free first class");
-    expect("Book your free first class on WhatsApp".startsWith(first.cta)).toBe(
-      true,
+    expect(first.cta).toBe("Book your free first class on WhatsApp");
+    expect(first.subheadline.length).toBeLessThanOrEqual(
+      DRAFT_LIMITS.subheadline,
     );
+    expect(runaway.repeat(3).startsWith(first.subheadline)).toBe(true);
     expect(first.footerLines).toHaveLength(3);
   });
 
@@ -84,5 +83,36 @@ describe("repairDirectionsText", () => {
     ["a scalar", "7"],
   ])("leaves %s to fail", async (_label, text) => {
     expect(await repairDirectionsText({ text })).toBeNull();
+  });
+});
+
+describe("repairFitText", () => {
+  it("unwraps fixes returned as a JSON string", async () => {
+    const fixes = [{ id: "0.cta", text: "Order ahead" }];
+    const repaired = await repairFitText({
+      text: JSON.stringify({ fixes: JSON.stringify(fixes) }),
+    });
+    expect(JSON.parse(repaired as string)).toEqual({ fixes });
+  });
+
+  /* The real answer from the round-2 eval's fitness case. */
+  it("reads entries whose text carries unescaped quotes", async () => {
+    const text = JSON.stringify({
+      fixes:
+        '[{"id": "1.rationale.1", "text": "The word "Free" appears in the headline so the offer registers immediately."}]',
+    });
+    const repaired = await repairFitText({ text });
+    expect(JSON.parse(repaired as string)).toEqual({
+      fixes: [
+        {
+          id: "1.rationale.1",
+          text: 'The word "Free" appears in the headline so the offer registers immediately.',
+        },
+      ],
+    });
+  });
+
+  it("leaves an answer it cannot read to fail", async () => {
+    expect(await repairFitText({ text: "not json" })).toBeNull();
   });
 });

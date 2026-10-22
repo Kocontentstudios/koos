@@ -1,17 +1,11 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 import { anchorsBlock } from "@/lib/ai/design-training/anchors";
 import { brandPalette } from "@/lib/ai/prompts/design-spec";
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
-import { getModel } from "@/lib/ai/provider";
 import {
   allowedCornersFor,
   resolveLogoPlacement,
 } from "@/lib/design/logo-placement";
-import {
-  readJpegDimensions,
-  readPngDimensions,
-} from "@/lib/design/png-dimensions";
 import {
   footerLinesFor,
   hasFooter,
@@ -25,6 +19,7 @@ import {
 import { normalizeHex } from "@/lib/validation/hex";
 import type { DesignFault } from "./checks";
 import { faultSummary } from "./gate";
+import { askVision, imageMediaType } from "./vision";
 
 /**
  * The rubric judge — module 06 §10 and §11 of the AI Design Training System.
@@ -844,14 +839,6 @@ export function buildJudgeUserPrompt({
   ].join("\n\n");
 }
 
-/** PNG or JPEG, read from the bytes rather than from a caller's content type —
- *  the adapters have returned a JPEG labelled as a PNG before. */
-function mediaTypeOf(bytes: Uint8Array): string | null {
-  if (readPngDimensions(bytes)) return "image/png";
-  if (readJpegDimensions(bytes)) return "image/jpeg";
-  return null;
-}
-
 /**
  * Whether there is anything worth showing the judge.
  *
@@ -865,7 +852,7 @@ function visualEvidence(
 ): { bytes: Uint8Array; mediaType: string } | null {
   if (!bytes?.length) return null;
   if (faults.some((fault) => fault.code === "blank-frame")) return null;
-  const mediaType = mediaTypeOf(bytes);
+  const mediaType = imageMediaType(bytes);
   return mediaType ? { bytes, mediaType } : null;
 }
 
@@ -887,28 +874,6 @@ function readScores(raw: unknown): RubricScores | null {
     scores[category] = score;
   }
   return scores;
-}
-
-async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
-  /* The loser of the race still settles. Without a handler its rejection is
-     unhandled and crashes the worker that the fail-soft path exists to
-     protect. */
-  void work.catch(() => {});
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`design judge timed out after ${ms}ms`)),
-          ms,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export interface JudgeAndCorrectArgs {
@@ -978,49 +943,28 @@ async function judgePass(
   const sawImage = evidence !== null;
 
   try {
-    const { object } = await withTimeout(
-      generateObject({
-        /* The same feature as the art director this reviews: a critic weaker
-           than the thing it judges is a rubber stamp, and "strategy" is the
-           registry's reasoning tier (provider-config.ts). It is also the only
-           one the design pipeline already depends on, so the judge cannot be
-           the reason a brand with one configured feature stops working. The
-           per-feature override exists if an operator wants to split them. */
-        model: getModel("strategy"),
-        schema: judgeSchema(renderer, hasLogo),
-        maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
-        abortSignal: AbortSignal.timeout(args.timeoutMs ?? JUDGE_TIMEOUT_MS),
-        system: buildJudgeSystemPrompt({ renderer, brand, hasLogo }),
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: buildJudgeUserPrompt({
-                  spec,
-                  renderer,
-                  faults,
-                  brief,
-                  sawImage,
-                  hasLogo,
-                }),
-              },
-              ...(evidence
-                ? [
-                    {
-                      type: "image" as const,
-                      image: evidence.bytes,
-                      mediaType: evidence.mediaType,
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ],
+    /* The same feature as the art director this reviews (vision.ts). It is
+       also the only one the design pipeline already depends on, so the judge
+       cannot be the reason a brand with one configured feature stops
+       working. The per-feature override exists if an operator wants to split
+       them. */
+    const timeoutMs = args.timeoutMs ?? JUDGE_TIMEOUT_MS;
+    const object = await askVision({
+      schema: judgeSchema(renderer, hasLogo),
+      maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
+      timeoutMs,
+      label: "design judge",
+      system: buildJudgeSystemPrompt({ renderer, brand, hasLogo }),
+      text: buildJudgeUserPrompt({
+        spec,
+        renderer,
+        faults,
+        brief,
+        sawImage,
+        hasLogo,
       }),
-      args.timeoutMs ?? JUDGE_TIMEOUT_MS,
-    );
+      image: evidence,
+    });
 
     const scores = readScores(object?.scores);
     if (!scores) return unchanged;

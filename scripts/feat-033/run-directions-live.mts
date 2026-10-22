@@ -1,19 +1,20 @@
 /**
  * Runs the FEAT-033 directions job end to end against the LOCAL database and
- * the configured R2 bucket: one upload-path job, one KO-imagery job, and a
- * regenerate of the KO job's first direction. Real model, real plate model,
- * real storage. The local-verify counterpart of the integration test.
+ * the configured R2 bucket: one upload-path job per photo, one KO-imagery
+ * job, and a regenerate of the KO job's first direction. Real model, real
+ * plate model and plate check, real storage. The local-verify counterpart of
+ * the integration test.
  *
  *   corepack pnpm tsx --env-file=<file with AI_*, AWS_*, R2_*> \
- *     scripts/feat-033/run-directions-live.mts [outDir] [photo.png|jpg]
+ *     scripts/feat-033/run-directions-live.mts [outDir] [photo.png|jpg ...]
  *
  * Refuses any DATABASE_URL that is not the docker database on localhost:5434,
  * because .env points at the shared staging database. Writes only under
  * design-images/{qa brand}/ and generated/{qa brand}/ in the bucket, the
  * usual local-verify practice. Saves each direction's PNG and document to
- * outDir (default /tmp/feat-033/u3-b) and prints timings and image-call
+ * outDir (default /tmp/feat-033/u3-r2) and prints timings and image-call
  * counts, counted by wrapping the plate adapter rather than trusting the
- * job's own counter.
+ * job's own counter, plus the round-2 outcomes from the usage row.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -28,10 +29,17 @@ process.env.DATABASE_URL = LOCAL_DB;
 // A stale bearer token hijacks auth from the SigV4 keys (verify skill).
 process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 
-const outDir = process.argv[2] ?? "/tmp/feat-033/u3-b";
-const photoPath = process.argv[3] ?? "/tmp/feat-033/fixtures/cutout.png";
+const outDir = process.argv[2] ?? "/tmp/feat-033/u3-r2";
+const photoPaths =
+  process.argv.length > 3
+    ? process.argv.slice(3)
+    : [
+        "/tmp/feat-033/fixtures/cutout.png",
+        "/tmp/feat-033/fixtures/photo-a.jpg",
+      ];
 
 const { default: postgres } = await import("postgres");
+const { default: sharp } = await import("sharp");
 const { getPlateAdapter } = await import("@/lib/ai/image");
 const { resolveDesignContext } = await import("@/lib/design/context");
 const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
@@ -137,6 +145,9 @@ async function run(
       layout: row.spec.layout,
       title: row.rationale.title,
       headline: row.spec.headline,
+      subheadline: row.spec.subheadline ?? null,
+      cta: row.spec.cta ?? null,
+      footerLines: row.spec.footerLines,
       reasons: row.rationale.reasons,
       assets: row.document.elements.flatMap((e: { asset?: { key: string } }) =>
         e.asset ? [e.asset.key] : [],
@@ -150,6 +161,13 @@ async function run(
     imageCallsCounted: imageCalls,
     imageCallsOnUsageRow: usage.metadata.imageCalls,
     renderers: usage.metadata.renderers,
+    plateChecks: usage.metadata.plateChecks,
+    fitAsked: usage.metadata.fitAsked,
+    fitFixed: usage.metadata.fitFixed,
+    copyFallbacks: usage.metadata.copyFallbacks,
+    reasonsDropped: usage.metadata.reasonsDropped,
+    qualityFaults: usage.metadata.qualityFaults,
+    modelCalls: usage.metadata.modelCalls,
     progress: [...new Set(progress)],
     directions: report,
   };
@@ -157,19 +175,37 @@ async function run(
   return summary;
 }
 
-const photo = new Uint8Array(await readFile(photoPath));
-const ext = photoPath.endsWith(".png") ? "png" : "jpg";
-const uploadKey = designImageKeyFor(brandId, ext);
-await uploadObject({
-  key: uploadKey,
-  body: photo,
-  contentType: ext === "png" ? "image/png" : "image/jpeg",
-});
-
 const results = [];
-results.push(
-  await run("upload", { image: { source: "upload", key: uploadKey } }),
-);
+const uploadKeys: string[] = [];
+for (const photoPath of photoPaths) {
+  const ext = photoPath.endsWith(".png") ? "png" : "jpg";
+  /* What the browser's normaliser sends (normalize-image.ts): the image
+     fitted inside 2560 px, PNG kept PNG, everything else JPEG. Uploading
+     the raw fixture would test a path no browser takes. */
+  const fitted = sharp(await readFile(photoPath)).resize(2560, 2560, {
+    fit: "inside",
+    withoutEnlargement: true,
+  });
+  const photo = new Uint8Array(
+    ext === "png"
+      ? await fitted.png().toBuffer()
+      : await fitted.jpeg({ quality: 92 }).toBuffer(),
+  );
+  const uploadKey = designImageKeyFor(brandId, ext);
+  uploadKeys.push(uploadKey);
+  await uploadObject({
+    key: uploadKey,
+    body: photo,
+    contentType: ext === "png" ? "image/png" : "image/jpeg",
+  });
+  const name = `upload-${photoPath
+    .split("/")
+    .pop()
+    ?.replace(/\.\w+$/, "")}`;
+  results.push(
+    await run(name, { image: { source: "upload", key: uploadKey } }),
+  );
+}
 const ko = await run("ko", { image: { source: "ko" } });
 results.push(ko);
 const first = ko.directions.find((d) => d.slot === 0) ?? ko.directions[0];
@@ -181,7 +217,7 @@ results.push(
 );
 await writeFile(
   join(outDir, "live-summary.json"),
-  JSON.stringify({ brandId, uploadKey, results }, null, 2),
+  JSON.stringify({ brandId, uploadKeys, brief, results }, null, 2),
 );
 await sql.end();
 process.exit(0);

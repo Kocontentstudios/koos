@@ -88,7 +88,7 @@ stable for the lifetime of one login) where available.
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
-| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault), `regenerated`, `image_calls`, `redrafted`, `layouts_forced` |
+| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the product check turned down at least once), `plates_failed` (plates turned down twice, so the direction was drawn flat) |
 | `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
 
 The two `design_request_start_*` events answer whether design requests actually
@@ -103,7 +103,9 @@ image choice → directions delivered → download. It fires server-side from
 written, so it counts deliveries, never attempts: an unusable upload or a job
 where nothing rendered fires nothing. `image_calls` is the cost outcome the
 feature names: always 0 when `source = upload`, one per direction when
-`source = ko`. The same job also fires `design_generated`, so the quality-gate
+`source = ko`, plus one for each plate the product check rejected (it is
+painted once more; `plates_rejected` counts these). The same job also fires
+`design_generated`, so the quality-gate
 series on that event does not read as a drop to zero when the entry points
 switch from variants to directions.
 
@@ -111,7 +113,14 @@ The pre-existing `usage_events` DB table keeps recording independently. A
 directions job writes one `design_generated` usage row (one quota unit) whose
 metadata carries `renderers` (`composite:upload` per direction on an upload,
 `composite:<plate adapter>` on KO imagery) and `imageCalls`, so the cost
-outcome is visible in Postgres even where PostHog is not configured.
+outcome is visible in Postgres even where PostHog is not configured. The same
+row records the FEAT-033 round-2 quality outcomes: `plateChecks` (per plate:
+`passed`, `passed-on-retry`, `failed`, `unchecked` or `not-applicable`),
+`fitAsked` and `fitFixed` (copy and reasons the model was asked to rewrite
+because they ran over their limit, invented a fact or claimed a position, and
+how many rewrites passed), `copyFallbacks` (copy that still could not be drawn
+as written and fell back or was left off) and `reasonsDropped` (reasons not
+shown because they were not true of the delivered design).
 
 ## Funnels
 

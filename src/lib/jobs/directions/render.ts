@@ -153,6 +153,7 @@ export function renderDirectionGuarded({
   fonts,
   outOfTime,
   onFirstRender,
+  copyHolds = () => true,
 }: {
   id: string;
   spec: DesignSpec;
@@ -161,6 +162,9 @@ export function renderDirectionGuarded({
   fonts: { fonts: LoadedFont[]; fault: string | null };
   outOfTime: () => boolean;
   onFirstRender?: () => void;
+  /** Whether a corrected spec's copy may be drawn: within its limits and
+   *  stating only the brief's facts. The judge rewrites copy too. */
+  copyHolds?: (spec: DesignSpec) => boolean;
 }): Promise<Guarded<DocumentRender>> {
   return guardRender(documentRenderer(context, assets, fonts), spec, {
     renderer: "composite",
@@ -176,7 +180,9 @@ export function renderDirectionGuarded({
        does not draw (a plate prompt, the native prompt) would buy an
        identical second render. */
     acceptCorrection: (corrected) =>
-      corrected.layout === spec.layout && drawsDifferently(spec, corrected),
+      corrected.layout === spec.layout &&
+      drawsDifferently(spec, corrected) &&
+      copyHolds(corrected),
     onFirstRender,
   });
 }

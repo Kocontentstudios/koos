@@ -12,36 +12,125 @@ export const DIRECTION_REASON_MAX = 90;
 export const DIRECTION_REASONS_MIN = 2;
 export const DIRECTION_REASONS_MAX = 4;
 
-/** The contract every stored direction satisfies. */
-export const directionSpecSchema = designSpecSchema.extend({
+/** The hard limits every delivered direction meets: the DesignSpec's own
+ *  copy limits plus the direction fields. */
+export const COPY_LIMITS = {
+  title: DIRECTION_TITLE_MAX,
+  headline: 70,
+  subheadline: 140,
+  cta: 32,
+  footerLine: 60,
+  reason: DIRECTION_REASON_MAX,
+} as const;
+
+/** What the prompt asks for, well inside the hard limits, so a model that
+ *  overshoots its target by a few words still lands inside the contract. */
+export const COPY_TARGETS = {
+  title: { words: 4, chars: 32 },
+  headline: { words: 7, chars: 50 },
+  subheadline: { words: 16, chars: 100 },
+  cta: { words: 4, chars: 24 },
+  footerLine: { words: 6, chars: 40 },
+  reason: { words: 12, chars: 75 },
+} as const;
+
+/* Parse limits, far past the contract. An answer over these is not a long
+   sentence but a broken one; repair.ts trims to them so the answer parses,
+   and the fit pass in brief.ts then rewrites anything over the contract. */
+export const DRAFT_LIMITS = {
+  title: 120,
+  headline: 200,
+  subheadline: 300,
+  cta: 100,
+  footerLine: 150,
+  footerLines: 3,
+  reason: 300,
+  reasons: 6,
+  productName: 120,
+  productLook: 400,
+} as const;
+
+const directionFields = {
   title: z.string().min(1).max(DIRECTION_TITLE_MAX),
   rationale: z
     .array(z.string().min(1).max(DIRECTION_REASON_MAX))
     .min(DIRECTION_REASONS_MIN)
     .max(DIRECTION_REASONS_MAX),
-});
+  /** The product the brief names, in its words, or "" when it names none.
+   *  The plate check asks whether the painted image shows it. */
+  productName: z.string().max(DRAFT_LIMITS.productName),
+  /** What that product looks like, concretely, for the plate prompt. */
+  productLook: z.string().max(DRAFT_LIMITS.productLook),
+};
+
+/** The contract every stored direction satisfies. */
+export const directionSpecSchema = designSpecSchema.extend(directionFields);
 
 export type DirectionSpec = z.infer<typeof directionSpecSchema>;
 
 /* What the model is held to is looser than the contract on purpose. One
    reason at 94 characters would otherwise fail the whole object, and the user
    would get "The AI returned an unusable response" instead of two designs.
-   finalizeDirection brings every draft inside the contract deterministically,
-   and the eval measures how often the model met it unaided. */
+   The prompt asks for the targets above; brief.ts asks the model once to
+   rewrite anything over the contract, and finalize.ts settles what is left
+   without ever cutting a clause in half. The eval measures how often the
+   model met the contract unaided. */
 export const directionDraftSchema = designSpecSchema.extend({
+  headline: z
+    .string()
+    .min(1)
+    .max(DRAFT_LIMITS.headline)
+    .describe(
+      `At most ${COPY_TARGETS.headline.words} words and ${COPY_TARGETS.headline.chars} characters.`,
+    ),
+  subheadline: z
+    .string()
+    .max(DRAFT_LIMITS.subheadline)
+    .optional()
+    .describe(
+      `At most ${COPY_TARGETS.subheadline.words} words and ${COPY_TARGETS.subheadline.chars} characters.`,
+    ),
+  cta: z
+    .string()
+    .max(DRAFT_LIMITS.cta)
+    .optional()
+    .describe(
+      `At most ${COPY_TARGETS.cta.words} words and ${COPY_TARGETS.cta.chars} characters.`,
+    ),
+  footerLines: z
+    .array(z.string().max(DRAFT_LIMITS.footerLine))
+    .max(DRAFT_LIMITS.footerLines)
+    .default([])
+    .describe(`Each line at most ${COPY_TARGETS.footerLine.chars} characters.`),
   title: z
     .string()
     .min(1)
-    .max(80)
+    .max(DRAFT_LIMITS.title)
     .describe(
-      `The direction's name, 2 to 5 words and at most ${DIRECTION_TITLE_MAX} characters, e.g. "Playful product story".`,
+      `The direction's name, 2 to ${COPY_TARGETS.title.words} words and at most ${COPY_TARGETS.title.chars} characters, e.g. "Playful product story".`,
     ),
   rationale: z
-    .array(z.string().min(1).max(200))
+    .array(z.string().min(1).max(DRAFT_LIMITS.reason))
     .min(1)
-    .max(6)
+    .max(DRAFT_LIMITS.reasons)
     .describe(
-      `${DIRECTION_REASONS_MIN} to ${DIRECTION_REASONS_MAX} reasons this design works, each at most ${DIRECTION_REASON_MAX} characters.`,
+      `${DIRECTION_REASONS_MIN} to ${DIRECTION_REASONS_MAX} reasons, each one sentence of at most ${COPY_TARGETS.reason.words} words and ${COPY_TARGETS.reason.chars} characters.`,
+    ),
+  /* Defaulted so a model that leaves the product out still produces a
+     design: the plate is then simply not checked for one. */
+  productName: z
+    .string()
+    .max(DRAFT_LIMITS.productName)
+    .default("")
+    .describe(
+      'The product the brief names, copied from the brief, e.g. "almond croissant". Empty string when the brief names no physical product.',
+    ),
+  productLook: z
+    .string()
+    .max(DRAFT_LIMITS.productLook)
+    .default("")
+    .describe(
+      "What that product looks like, concretely enough that a painter who has never seen one draws the right thing: shape, layers, colours, garnish, how it is served. Empty string when productName is empty.",
     ),
 });
 
@@ -55,7 +144,13 @@ export function directionsResponseSchema(count: number) {
 
 /** The spec without the direction fields, as the spec column stores it. */
 export function designSpecOf(direction: DirectionSpec): DesignSpec {
-  const { title: _title, rationale: _rationale, ...spec } = direction;
+  const {
+    title: _title,
+    rationale: _rationale,
+    productName: _productName,
+    productLook: _productLook,
+    ...spec
+  } = direction;
   return spec;
 }
 

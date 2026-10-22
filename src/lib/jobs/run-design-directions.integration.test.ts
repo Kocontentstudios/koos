@@ -9,13 +9,18 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
  * byte checks on the upload. Only the paid and remote edges are doubles: the
  * language model, the plate model and the bucket.
  *
- * Runs against the docker database on 5434 and nothing else. The URL is set
- * here rather than read from the environment, because .env points at the
- * shared staging database, and the suite skips itself when the local one is
+ * Opt-in, so the gate lane stays free of a database: it runs only when
+ * KOOS_INTEGRATION_DATABASE_URL names a database on this machine, never the
+ * shared staging one .env points at, and skips itself when that database is
  * down or does not have migration 0037 yet.
+ *
+ *   KOOS_INTEGRATION_DATABASE_URL=postgres://koos:koos@localhost:5434/koos \
+ *     corepack pnpm vitest run src/lib/jobs/run-design-directions.integration.test.ts
  */
 
-const LOCAL_DB = "postgres://koos:koos@localhost:5434/koos";
+const LOCAL_DB = process.env.KOOS_INTEGRATION_DATABASE_URL ?? "";
+const isLocal =
+  /^postgres(ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1)(:\d+)?\//.test(LOCAL_DB);
 const PUBLIC_BASE = "https://cdn.test.example";
 
 const generateObject = vi.fn();
@@ -64,10 +69,11 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
 }));
 
 const previousUrl = process.env.DATABASE_URL;
-process.env.DATABASE_URL = LOCAL_DB;
+if (isLocal) process.env.DATABASE_URL = LOCAL_DB;
 vi.stubEnv("R2_PUBLIC_BASE_URL", PUBLIC_BASE);
 
 async function localDatabaseReady(): Promise<boolean> {
+  if (!isLocal) return false;
   const probe = postgres(LOCAL_DB, { max: 1, connect_timeout: 2 });
   try {
     const rows = await probe`

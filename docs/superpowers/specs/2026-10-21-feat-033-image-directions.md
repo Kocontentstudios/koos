@@ -90,14 +90,18 @@ New request field `image: { source: "upload", key } | { source: "ko" }`. Its pre
 
 1. **Two specs from one model call.** One `generateObject` returns `{ directions: [DirectionSpec, DirectionSpec] }`. A `DirectionSpec` is a `DesignSpec` plus `rationale: string[]` (2 to 4 short reasons, shown as "why this works").
    - The two must differ in layout. Code enforces it: when the model repeats a layout, the second direction gets the first layout not used by the first direction and not in recent layout memory.
+   - Each direction also names the brief's product (`productName`, which must be in the brief, and `productLook`, what it looks like), or "" when the brief names none.
+   - **Written to length, only the brief's facts** (round 2). Copy and reasons over their limit, stating a number, day, month or claim the brief and brand never gave (`inventedFacts` in `src/lib/jobs/directions/claims.ts`), or a reason claiming a position, size, light, colour or type, go back to the model once, in one call, to be rewritten whole. What still fails is never cut inside a clause and never gets an ellipsis: whole clauses are kept when they still say something, otherwise a headline falls back to the brief's title and a subheadline, button, footer line or reason is left off.
+   - **Reasons are true of the design delivered.** `reasonHolds` rejects a reason whose named piece of copy does not carry what it says, that quotes copy not drawn, or that describes an image nobody checked. The job applies it again after rendering, against the kept spec and what the plate check found, and stores the reasons that survive, topped up to two from the copy itself.
 2. **Imagery.**
    - `upload`: the user's image is that direction's image element. No image-model call is made.
    - `ko`: one plate per direction from `getPlateAdapter()`, stored at `generated/{brandId}/plates/{uuid}.png` and referenced from the document, so later edits never pay for it again.
+   - **The plate shows the product** (round 2). The plate prompt names the product first. When the brief names one, `checkPlateShowsProduct` (`src/lib/design/quality/plate-check.ts`, through the judge's vision path) asks whether the plate's main subject is that product. A rejected plate is painted once more, leading with `productLook` and naming what was painted instead, so a rejected direction costs two plate calls, not one; a second rejection draws the direction flat rather than over the wrong product. Each plate's outcome is recorded on the usage row (`plateChecks`).
    - A failed plate still yields a design on a flat brand colour, as today.
 3. Each direction runs through the existing pre-delivery gate (`renderGuarded` semantics: deterministic checks, one judge correction).
 4. Each direction is one `design_generations` row, `renderer = composite`, holding the document and rationale. The job result lists both ids.
 5. Quota: one generation is one quota unit, as today.
-6. **Regenerating one direction.** Request field `regenerateOf: generationId` (requires `image`). The job produces exactly one direction, whose layout differs from that generation's layout and from its sibling's. On the KO path that is one plate call, not two. One quota unit. The new row records the same job-level `image_source`. The UI swaps it into that slot; nothing is discarded, so Design Studio history gains no orphan row.
+6. **Regenerating one direction.** Request field `regenerateOf: generationId` (requires `image`). The job produces exactly one direction, whose layout differs from that generation's layout and from its sibling's. On the KO path that is one plate call, not two (two when the plate check rejects the first). One quota unit. The new row records the same job-level `image_source`. The UI swaps it into that slot; nothing is discarded, so Design Studio history gains no orphan row.
 7. **Progress.** The directions path reports `JobProgress` with a `stage` field the UI maps to its four steps: `brief` (writing the two directions), `imagery` (plates, KO path only), `render` (`done`/`total` count rendered directions) and `checks` (the pre-delivery gate). `label` stays human text. The UI keys off `stage`, never off `label`.
 
 ### Upload
@@ -158,7 +162,7 @@ These are the seams the parallel units build against.
   - `title`: up to 40 characters, e.g. "Playful product story"
   - `rationale`: 2 to 4 strings, each up to 90 characters
 
-  Both are stored in `design_generations.rationale` as `{ title, reasons }`.
+  Both are stored in `design_generations.rationale` as `{ title, reasons, set, slot }`: `set` and `slot` pair a direction with its sibling, so a regenerate finds the direction on screen beside it however often either slot was regenerated (`currentSibling`, over the whole set). The serializer exposes only `title` and `reasons`.
 - **`SerializedGeneration`** (`src/lib/design/serialize.ts`) gains:
   - `direction: { title: string; reasons: string[] } | null`
   - `imageSource: "upload" | "ko" | null`

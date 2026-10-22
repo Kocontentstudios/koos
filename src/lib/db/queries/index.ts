@@ -968,7 +968,14 @@ export async function updateDesignGeneration(
   data: Partial<
     Pick<
       typeof designGenerations.$inferInsert,
-      "imageKey" | "status" | "error" | "width" | "height" | "spec" | "document"
+      | "imageKey"
+      | "status"
+      | "error"
+      | "width"
+      | "height"
+      | "spec"
+      | "document"
+      | "rationale"
     >
   >,
 ) {

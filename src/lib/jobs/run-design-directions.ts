@@ -28,10 +28,13 @@ import { mapWithConcurrency } from "./calendar-assembly";
 import { recentLayoutsFor, settleLogo } from "./design-logo-settle";
 import { notifyBrandAssetFaults, notifyLogoLeftOff } from "./design-notify";
 import { draftDirections, type PriorDirection } from "./directions/brief";
+import type { ImageState } from "./directions/claims";
 import { planConcepts, regenerationConcept } from "./directions/concepts";
 import { renderConcurrency } from "./directions/concurrency";
+import { copyFault, settleReasons } from "./directions/finalize";
 import {
   type PlacedAsset,
+  type PlateCheck,
   paintPlate,
   storeDrawnMark,
 } from "./directions/imagery";
@@ -40,7 +43,7 @@ import {
   type DirectionAssets,
   renderDirectionGuarded,
 } from "./directions/render";
-import { currentSibling, designSpecOf } from "./directions/schema";
+import { COPY_LIMITS, currentSibling, designSpecOf } from "./directions/schema";
 import type { JobRuntime } from "./run-generation";
 
 export type DirectionsImage =
@@ -69,6 +72,20 @@ interface RegenerationTarget {
   slot: number;
   /** The direction being replaced and its live sibling, when there is one. */
   existing: PriorDirection[];
+}
+
+/* The round-2 live run lost a finished direction to one TLS "bad record
+   mac" on this upload, which the S3 client does not retry. The render is the
+   expensive part and is already done, so one more attempt is cheap. */
+async function storeDelivered(key: string, bytes: Uint8Array): Promise<void> {
+  const put = () =>
+    uploadObject({ key, body: bytes, contentType: "image/png" });
+  try {
+    await put();
+  } catch (err) {
+    console.error("design upload failed once; retrying", err);
+    await put();
+  }
 }
 
 function priorDirection(row: {
@@ -180,7 +197,6 @@ export async function generateDirectionsWork(
       ? { bytes: new Uint8Array(upload.bytes), contentType: upload.contentType }
       : null,
     lenses: target ? [regenerationConcept(category)] : planConcepts(category),
-    category,
     recentLayouts: recent,
     memorySummary,
     existing: target?.existing ?? [],
@@ -222,6 +238,8 @@ export async function generateDirectionsWork(
 
   let imageCalls = 0;
   let images: (PlacedAsset | null)[];
+  let imageStates: ImageState[];
+  const plateChecks: PlateCheck[] = [];
   if (upload) {
     const photo: PlacedAsset = {
       ref: { key: upload.key },
@@ -231,22 +249,35 @@ export async function generateDirectionsWork(
       },
     };
     images = settled.map(() => photo);
+    imageStates = settled.map(() => (brief.imageSeen ? "seen" : "unverified"));
   } else {
     let painted = 0;
     stage("imagery", 0, "Creating imagery…");
-    images = await Promise.all(
-      settled.map(async ({ spec }) => {
-        imageCalls += 1;
+    const plates = await Promise.all(
+      settled.map(async ({ spec }, i) => {
+        const { productName, productLook } = brief.directions[i];
         const plate = await paintPlate({
           adapter: plateAdapter as NonNullable<typeof plateAdapter>,
           spec,
+          product: productName
+            ? { name: productName, look: productLook }
+            : null,
           brandId,
         });
+        imageCalls += plate.imageCalls;
         painted += 1;
         stage("imagery", painted, `Created ${painted} of ${count} images…`);
         return plate;
       }),
     );
+    images = plates.map((plate) => plate.placed);
+    for (const plate of plates) plateChecks.push(plate.check);
+    imageStates = plates.map((plate): ImageState => {
+      if (!plate.placed) return "none";
+      return plate.check === "passed" || plate.check === "passed-on-retry"
+        ? "verified"
+        : "unverified";
+    });
   }
 
   const prepared = await prepareDocumentFonts(
@@ -298,6 +329,25 @@ export async function generateDirectionsWork(
   const failed: string[] = [];
   const brandFontFaults: string[] = prepared.fault ? [prepared.fault] : [];
   const qualityFaults: string[] = [];
+  for (const check of plateChecks) {
+    if (check === "failed") {
+      qualityFaults.push(
+        "the generated image did not show the product, so the design was drawn without one",
+      );
+    }
+  }
+  let reasonsReplaced = 0;
+  const { ledger } = brief.checks;
+  const copyHolds = (spec: DesignSpec) =>
+    !copyFault(spec.headline, COPY_LIMITS.headline, ledger) &&
+    !(
+      spec.subheadline &&
+      copyFault(spec.subheadline, COPY_LIMITS.subheadline, ledger)
+    ) &&
+    !(spec.cta && copyFault(spec.cta, COPY_LIMITS.cta, ledger)) &&
+    spec.footerLines.every(
+      (line) => !copyFault(line, COPY_LIMITS.footerLine, ledger),
+    );
   const judgeVerdicts: string[] = [];
   const correctionsKept: string[] = [];
   const logoFaults: string[] = [];
@@ -357,6 +407,7 @@ export async function generateDirectionsWork(
         context,
         assets,
         fonts: prepared,
+        copyHolds,
         outOfTime: () => runtime.shouldPause(),
         onFirstRender: () => {
           counted = true;
@@ -364,7 +415,29 @@ export async function generateDirectionsWork(
         },
       });
       const key = `${STORAGE_PREFIXES.generated}/${brandId}/${randomUUID()}.png`;
-      await uploadObject({ key, body: result.bytes, contentType: "image/png" });
+      await storeDelivered(key, result.bytes);
+      /* The reasons were written before the image was painted and before the
+         gate could change the copy, so they are held again to what was
+         actually delivered: the kept spec and what the image is known to
+         show. */
+      const direction = brief.directions[i];
+      const drawnSpec = result.logoUnplaced
+        ? { ...result.spec, logoPlacement: "none" as const }
+        : result.spec;
+      const settledReasons = settleReasons(direction.rationale, {
+        copy: drawnSpec,
+        checks: brief.checks,
+        product: direction.productName,
+        image: assets.image ? imageStates[i] : "none",
+        paintedScene: upload ? undefined : direction.backgroundPrompt,
+      });
+      if (settledReasons.dropped.length > 0) {
+        reasonsReplaced += settledReasons.dropped.length;
+        console.error("direction reasons not true of the delivered design", {
+          id: row.id,
+          dropped: settledReasons.dropped,
+        });
+      }
       await updateDesignGeneration(row.id, {
         imageKey: key,
         status: "succeeded",
@@ -374,9 +447,12 @@ export async function generateDirectionsWork(
         /* The spec column is what layout memory and every later surface
            read, so it records what was drawn: the kept correction, and no
            corner for a mark that never made it onto the design. */
-        spec: result.logoUnplaced
-          ? { ...result.spec, logoPlacement: "none" as const }
-          : result.spec,
+        spec: drawnSpec,
+        rationale: storedRationale(
+          { title: direction.title, rationale: settledReasons.reasons },
+          set,
+          target?.slot ?? i,
+        ),
       });
       succeeded.push(row.id);
       if (result.brandFontFault && !prepared.fault) {
@@ -451,6 +527,19 @@ export async function generateDirectionsWork(
       layoutsForced: brief.layoutsForced,
       redrafted: brief.redrafted,
       modelCalls: brief.modelCalls,
+      /* Round-2 outcomes: how often the model had to be asked to rewrite,
+         what still fell back, how many reasons were not true of the
+         delivered design, and what the plate check concluded per plate. */
+      fitAsked: brief.fit.asked,
+      fitFixed: brief.fit.fixed,
+      copyFallbacks: brief.reports.reduce(
+        (n, r) => n + r.copyFallbacks.length,
+        0,
+      ),
+      reasonsDropped:
+        brief.reports.reduce((n, r) => n + r.reasonsDropped.length, 0) +
+        reasonsReplaced,
+      plateChecks,
     },
   });
 
@@ -470,6 +559,10 @@ export async function generateDirectionsWork(
       image_calls: imageCalls,
       redrafted: brief.redrafted,
       layouts_forced: brief.layoutsForced,
+      plates_rejected: plateChecks.filter(
+        (c) => c !== "passed" && c !== "not-applicable" && c !== "unchecked",
+      ).length,
+      plates_failed: plateChecks.filter((c) => c === "failed").length,
     },
   });
   /* Kept for continuity: the quality-gate series on design_generated would
