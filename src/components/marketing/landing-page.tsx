@@ -412,7 +412,7 @@ export function LandingPage() {
           <div className="hero-visual-card hero-visual-card-1">
             <div className="hvc-header">
               {/* White initials need 4.5:1 at both stops: the old #D47575 end
-                  was 3.47:1. */}
+                  was 3.18:1. */}
               <div
                 className="hvc-avatar"
                 style={{

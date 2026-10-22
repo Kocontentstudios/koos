@@ -337,7 +337,7 @@ describe.each([
   );
 
   /* The semantic hues paint text directly (text-success, the Pro Tip heading,
-     the landing form notices); light #97c459 on white was 1.53:1. */
+     the landing form notices); light #97c459 on white was 2.03:1. */
   const semantic = ["success", "warning", "error"].flatMap((hue) =>
     grounds(tokens).map((surface) => [hue, surface] as const),
   );

@@ -108,6 +108,7 @@ export function TopHeader({
                       aria-busy={pending}
                     />
                   }
+                  nativeButton
                   closeOnClick={false}
                   className="w-full text-left text-[13px] text-[var(--text-secondary)] hover:text-[var(--status-error-fg)]"
                 >

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { changePasswordAction, updateProfileAction } from "./actions";
 
@@ -239,13 +239,12 @@ export function SettingsClient({ user }: SettingsClientProps) {
           <p className="mb-4 text-sm text-[var(--text-secondary)]">
             Replay the guided tour of KO OS.
           </p>
-          <Button
-            render={<Link href="/dashboard?tour=1" />}
-            variant="secondary"
-            size="lg"
+          <Link
+            href="/dashboard?tour=1"
+            className={buttonVariants({ variant: "secondary", size: "lg" })}
           >
             Replay Tour
-          </Button>
+          </Link>
         </CardContent>
       </Card>
     </div>

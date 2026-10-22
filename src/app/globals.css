@@ -242,7 +242,7 @@
   --status-error-fg: #b23528;
 
   /* The semantic hues are also text (text-success, the Pro Tip heading, inline
-     errors); the dark values were 1.64, 1.77 and 2.58:1 on the light page.
+     errors); the dark values were 1.79, 1.93 and 2.81:1 on the light page.
      They share the status foregrounds' light values. */
   --success: #3f660c;
   --warning: #8b5506;
@@ -567,7 +567,7 @@ h6 {
 
   /* A placeholder is text the user reads, so it is held to 4.5:1 like any
      other: --text-muted at full opacity. --on-surface-variant at 0.5 measured
-     2.1 to 2.3:1 on every field in both themes. */
+     2.9 to 3.1:1 dark and 2.2 to 2.3:1 light on every field ground. */
   input::placeholder,
   textarea::placeholder {
     color: var(--text-muted);

@@ -50,11 +50,13 @@ export function TeamOverviewCard({
         </div>
         {/* Avatar stack (overlapping circles), per the prototype */}
         <div className="flex -space-x-2">
+          {/* White initials need 4.5:1 at both stops: the old #e8a0b0 end
+              was 2.08:1. */}
           {names.slice(0, 4).map((n) => (
             <div
               key={n}
               title={n}
-              className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--border)] bg-gradient-to-br from-[#e8a0b0] to-[#7c5cff] text-[10px] font-semibold text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--border)] bg-gradient-to-br from-[#b4436c] to-[#7e22ce] text-[10px] font-semibold text-white"
             >
               {n
                 .split(" ")
