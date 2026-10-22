@@ -5,6 +5,7 @@ import {
   type Built,
   type Context,
   logoElement,
+  overlaps,
   px,
   type Rect,
   rect,
@@ -32,6 +33,7 @@ import {
   veiled,
   veilFor,
 } from "./image";
+import { HEADLINE_OVER_FOOTER, HIERARCHY, SIZES } from "./looks";
 import {
   CUTOUT_SHARES,
   copyBottom,
@@ -148,8 +150,16 @@ async function flatCard(ctx: Context, frame: CardFrame): Promise<Built> {
     "center",
   );
   commitFaults(ctx, stack);
+  /* The logo's corner is inside the card region (logoBoxIn insets it for
+     the card layouts). A card hugging the copy left the mark outside it,
+     floating over a bare corner of the ground. */
+  const holdsLogo = ctx.logoBox !== null && overlaps(ctx.logoBox, frame.region);
   return finish(ctx, frame, [
-    cardShape(ctx, frame, cardAround(stack, frame.pad)),
+    cardShape(
+      ctx,
+      frame,
+      holdsLogo ? frame.region : cardAround(stack, frame.pad),
+    ),
     ...(await placeStack(stack)),
   ]);
 }
@@ -178,25 +188,57 @@ async function subjectAboveCopy(
 ): Promise<Built | null> {
   const { region, pad } = frame;
   const gap = subjectGap(ctx);
-  const leastTop = region.y + pad + minSubjectHeight(ctx) + gap * 2;
+  const topFor = (subjectHeight: number) =>
+    region.y + pad + Math.ceil(subjectHeight) + gap * 2;
+  const leastTop = topFor(minSubjectHeight(ctx));
+  /* Larger subject shares first, then the subject at its minimum, then
+     smaller still, but only while the headline would otherwise lose the
+     hierarchy: one set to keep the subject at its minimum read smaller
+     than the footer (21px against 28px). The subject gives way first then,
+     and says so (framedImage marks a subject under its minimum as not
+     clean); copy merely too long for the layout shrinks as it always has. */
+  const floor = headlineFloor(ctx, frame);
+  const tops = Array.from(
+    new Set([
+      ...CUTOUT_SHARES.map((share) =>
+        Math.max(px(ctx.height * share), leastTop),
+      ),
+      leastTop,
+      ...UNDERSIZED_SUBJECT.map((share) =>
+        topFor(minSubjectHeight(ctx) * share),
+      ),
+    ]),
+  );
+  /* The first that sets the copy cleanly; else the largest subject whose
+     headline keeps the hierarchy; else the largest headline. */
   let stack: Stack | null = null;
-  for (const share of CUTOUT_SHARES) {
-    const lowerTop = Math.max(px(ctx.height * share), leastTop);
+  let leading: Stack | null = null;
+  let largest: Stack | null = null;
+  for (const lowerTop of tops) {
     const lower = rect(
       region.x,
       lowerTop,
       region.width,
       region.y + region.height - lowerTop,
     );
-    stack = await stackOnCard(
+    const candidate = await stackOnCard(
       ctx,
       frame,
       lower,
       flatCardColors(ctx, frame.variant),
       "end",
     );
-    if (stack.faults.length === 0) break;
+    if (candidate.faults.length === 0) {
+      stack = candidate;
+      break;
+    }
+    if (candidate.headline.fontSize >= floor) leading ??= candidate;
+    if (leading && lowerTop <= leastTop) break;
+    if (!largest || candidate.headline.fontSize > largest.headline.fontSize) {
+      largest = candidate;
+    }
   }
+  stack ??= leading ?? largest;
   if (!stack) throw new Error("No subject share was tried");
   const copy = await placeStack(stack);
   const subjectBottom =
@@ -222,6 +264,25 @@ async function subjectAboveCopy(
     ...copy,
   ];
   return finish(ctx, frame, elements);
+}
+
+/** Shares of its minimum height a subject steps down through when the
+ *  headline cannot keep the hierarchy beside a subject at the minimum. */
+const UNDERSIZED_SUBJECT = [0.9, 0.8, 0.7];
+
+/** The least headline that still leads: HEADLINE_OVER_FOOTER times the
+ *  footer's type, and never under the subheadline's minimum. */
+function headlineFloor(ctx: Context, frame: CardFrame): number {
+  const footerSize = Math.max(
+    0,
+    ...(frame.foot?.elements ?? []).map((e) =>
+      e.type === "text" ? e.fontSize : 0,
+    ),
+  );
+  return Math.max(
+    Math.ceil(footerSize * HEADLINE_OVER_FOOTER),
+    Math.round(ctx.ref * SIZES.subheadline.min * HIERARCHY),
+  );
 }
 
 /** What the subject must stay out of: the copy as placed, quote mark and

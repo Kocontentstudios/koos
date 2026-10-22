@@ -18,10 +18,11 @@ import {
  * The render worker: no input can hold the event loop, a render past its
  * limit is stopped, and the pool recovers for the next one.
  *
- * The hostile input is the one that looped satori forever: a single
- * grapheme of stacked combining marks in a box narrower than it, which the
- * schema now refuses (text-safety.ts). It is drawn here past the schema on
- * purpose, as the case the worker exists for.
+ * The hostile input is the shape that loops satori forever: break-word on
+ * a line narrower than one grapheme cluster (six conjoining jamo, drawn as
+ * six letters). The schema refuses that cluster and the layer renderer
+ * never breaks words on so narrow a line (document/render.tsx), so it is
+ * built here by hand, past both, as the case the workers exist for.
  */
 
 cacheOgAssets();
@@ -61,7 +62,15 @@ function textDoc(text: string, width: number): DesignDocument {
   return { version: 1, ...CANVAS, background: "#FFFFFF", elements: [element] };
 }
 
-const HANG = "Z̷̢̛͓̳̦͍̞̓̍͛";
+function hangingElement() {
+  return (
+    <div style={{ display: "flex", width: 300 }}>
+      <div style={{ fontSize: 100, wordBreak: "break-word" }}>
+        {"ᄀ".repeat(6)}
+      </div>
+    </div>
+  );
+}
 
 describe("renderPng", () => {
   it("draws what the main thread would draw", async () => {
@@ -93,14 +102,9 @@ describe("renderPng", () => {
       ticks += 1;
     }, 50);
     const started = performance.now();
-    const hang = renderPng(
-      documentElement(textDoc(HANG, 300), {}),
-      CANVAS,
-      fonts,
-      {
-        limitMs: 2_000,
-      },
-    );
+    const hang = renderPng(hangingElement(), CANVAS, fonts, {
+      limitMs: 2_000,
+    });
     await expect(hang).rejects.toBeInstanceOf(RenderTimeoutError);
     const waited = performance.now() - started;
     clearInterval(ticker);
@@ -118,10 +122,31 @@ describe("renderPng", () => {
       fonts,
     );
     expect(decodePngRgba(next)?.width).toBe(CANVAS.width);
-    expect(renderPoolStats().spawns).toBe(after.spawns + 1);
+    expect(renderPoolStats().workers).toBeLessThanOrEqual(
+      renderPoolStats().size,
+    );
+  }, 60_000);
+
+  /* Round 3 had one worker: one stuck document held five ordinary renders
+     queued behind it for the whole limit. */
+  it("keeps drawing other renders while one runs to its limit", async () => {
+    expect(renderPoolStats().size).toBeGreaterThanOrEqual(2);
+    const started = performance.now();
+    const hang = renderPng(hangingElement(), CANVAS, fonts, {
+      limitMs: 8_000,
+    }).catch((error: unknown) => error);
+    const ordinary = await Promise.all(
+      ["One", "Two", "Three", "Four", "Five"].map(async (word) => {
+        await renderPng(documentElement(textDoc(word, 900), {}), CANVAS, fonts);
+        return performance.now() - started;
+      }),
+    );
+    expect(Math.max(...ordinary)).toBeLessThan(5_000);
+    expect(await hang).toBeInstanceOf(RenderTimeoutError);
   }, 60_000);
 
   it("rejects with the renderer's own message when satori throws, and keeps the worker", async () => {
+    await renderPng(documentElement(textDoc("Warm", 900), {}), CANVAS, fonts);
     const spawns = renderPoolStats().spawns;
     await expect(
       renderPng(
@@ -134,7 +159,7 @@ describe("renderPng", () => {
     expect(renderPoolStats().spawns).toBe(spawns);
   }, 60_000);
 
-  it("runs queued renders one after another, each with its own result", async () => {
+  it("runs queued renders, each with its own result", async () => {
     const words = ["One", "Two", "Three", "Four"];
     const results = await Promise.all(
       words.map((word) =>

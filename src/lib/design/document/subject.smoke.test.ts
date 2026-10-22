@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { canvasFor } from "@/lib/design/canvas";
 import { loadBrandFonts } from "@/lib/design/render/fonts";
 import type { ImageFacts } from "./builders/ground";
+import { HEADLINE_OVER_FOOTER, HIERARCHY } from "./builders/looks";
 import {
   LAYOUTS,
   LOGO,
@@ -17,10 +18,12 @@ import {
 import { documentFromSpec } from "./from-spec";
 import { measureImage } from "./image-facts";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
+import type { DesignDocument, DesignElement } from "./schema";
 import {
   measureSubject,
   SUBJECT_MIN_SHARE,
   type SubjectBox,
+  type SubjectReport,
   subjectFromAlpha,
 } from "./subject";
 
@@ -59,6 +62,30 @@ beforeAll(async () => {
 });
 
 const COPIES = { realistic: REALISTIC, worst: WORST_CASE };
+
+/* A card too short for its copy beside a subject at the minimum gives the
+   subject up first, down to 70% of the minimum, so the headline still
+   leads the small print (card.ts subjectAboveCopy). That fault is the rule
+   working: the subject is whole, nothing is on it, and the headline leads. */
+function yieldedToHeadline(doc: DesignDocument, report: SubjectReport) {
+  const size = (keep: (e: DesignElement) => boolean) =>
+    Math.max(
+      0,
+      ...doc.elements.map((e) =>
+        e.type === "text" && keep(e) ? e.fontSize : 0,
+      ),
+    );
+  const footer = size((e) => e.type === "text" && e.role === "footer");
+  const subheadline = size((e) => e.id === "subheadline");
+  const headline = size((e) => e.id === "headline");
+  return (
+    report.overlaps.length === 0 &&
+    report.visibleShare > 0.995 &&
+    report.edgeShare >= SUBJECT_MIN_SHARE * 0.7 - 0.005 &&
+    headline >= footer * HEADLINE_OVER_FOOTER &&
+    headline >= subheadline * HIERARCHY
+  );
+}
 
 describe.each(LAYOUTS)("%s", (layout) => {
   it.each(RATIOS)(
@@ -100,6 +127,7 @@ describe.each(LAYOUTS)("%s", (layout) => {
         );
         if (!report) throw new Error(`${label}: no image drawn`);
         if (build.subjectFault) {
+          if (yieldedToHeadline(build.document, report)) continue;
           faulted.push(
             `${label}: ${build.subjectFault.slice(0, 40)} edge ${report.edgeShare.toFixed(2)} on it ${report.overlaps.map((o) => o.id).join(",")}`,
           );

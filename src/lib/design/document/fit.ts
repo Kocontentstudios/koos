@@ -383,12 +383,15 @@ export async function hasOrphan(
 
 /**
  * A width at which a headline that would end on a lone word ends on two or
- * more instead, by taking one more line at the same size.
+ * more instead: a wider one within the box first, then one more line at
+ * the same size.
  *
  * A one-word last line reads as a mistake ("Now In A / Bottle" with "Bottle"
- * alone). Balancing already leaves the last line as full
- * as the line count allows, so when it is still a lone word the fix is one
- * more line, which spreads the words again. Every candidate keeps its line
+ * alone). Balancing narrows the run as far as its line count allows, which
+ * can leave the last word alone where a wider line would have pulled a
+ * second word down with it; narrowing only, round 3 still left 17% of
+ * headlines ending on one word. Failing that, one more line spreads the
+ * words again. Every candidate keeps its line
  * breaks when narrowed by the wrap slack, so Chromium, which shapes a little
  * wider, breaks the same way. Null when no such width fits `maxHeight` and
  * `maxLines`; the orphan then stays, which costs a little polish, never a
@@ -403,18 +406,35 @@ export async function widthWithoutOrphan(
   limits: { maxHeight: number; maxLines: number; box: number },
 ): Promise<{ width: number; height: number; lines: number } | null> {
   if (!(await hasOrphan(measurer, text, look, drawn))) return null;
+  const slack = wrapSlack(limits.box);
+  const step = Math.max(2, Math.round(look.fontSize / 4));
+  const stableAt = async (width: number, height: number) =>
+    (await measurer.height(text, look, width - slack)) === height;
+  for (
+    let width = drawn + step;
+    width <= Math.floor(limits.box);
+    width += step
+  ) {
+    const height = await measurer.height(text, look, width);
+    if (lineCount(height, look) > fitted.lines) continue;
+    if (
+      (await stableAt(width, height)) &&
+      !(await hasOrphan(measurer, text, look, width))
+    ) {
+      return { width, height, lines: lineCount(height, look) };
+    }
+  }
   const lines = fitted.lines + 1;
   if (lines > limits.maxLines) return null;
   const widest = await measurer.widestWord(text, look);
-  const slack = wrapSlack(limits.box);
-  const step = Math.max(2, Math.round(look.fontSize / 4));
   for (let width = drawn - step; width - slack >= widest; width -= step) {
     const height = await measurer.height(text, look, width);
     if (lineCount(height, look) > lines || height > limits.maxHeight) break;
     if (lineCount(height, look) < lines) continue;
-    const stable =
-      (await measurer.height(text, look, width - slack)) === height;
-    if (stable && !(await hasOrphan(measurer, text, look, width))) {
+    if (
+      (await stableAt(width, height)) &&
+      !(await hasOrphan(measurer, text, look, width))
+    ) {
       return { width, height, lines };
     }
   }

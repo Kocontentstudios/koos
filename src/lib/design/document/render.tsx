@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactElement } from "react";
+import { MAX_GLYPH_EM } from "@/lib/design/render/font-file";
 import { breakableText } from "./line-breaks";
 import type {
   ButtonElement,
@@ -90,46 +91,70 @@ export const SATORI_SHAPING = {
 } as const;
 
 /**
- * The codepoints a browser must draw from its colour-emoji face for emoji
- * to match satori, which draws every emoji sequence as one 1em picture.
+ * The family the editor registers its colour-emoji face under, sized so a
+ * picture is 1em. Every run lists it after the brand face (textRunStyle),
+ * so a browser draws emoji as satori does, each sequence one 1em picture;
+ * satori skips a family it has no face for.
  *
- * The joiners matter as much as the pictures: without U+200D, U+20E3 and
- * the tag characters in the face's range the browser draws a family, a
- * keycap or a subdivision flag as its separate parts, several pictures wide,
- * and a headline the PNG sets on two lines wrapped to three (36px past its
- * box at 4:5). Regional indicators (flags) and skin tones sit inside
- * U+1F000-1FAFF.
+ * A family of its own, not a unicode-range face inside the brand family: a
+ * browser draws a grapheme cluster in the first family that covers all of
+ * it. Inside the brand family a keycap took the brand's "#" plus a
+ * combining keycap, 10% wider than satori's picture (a subheadline 18px
+ * past its box), and a plain © or ↔, which satori draws as text, took the
+ * emoji face. Here the brand draws every cluster it covers whole, and the
+ * emoji face takes the rest: ZWJ sequences, flags, keycaps, pictographs.
  */
-export const EMOJI_UNICODE_RANGE =
-  "U+00A9,U+00AE,U+200D,U+203C,U+2049,U+20E3,U+2122,U+2139,U+2190-2BFF,U+FE0F,U+1F000-1FAFF,U+E0020-E007F";
+export const EMOJI_FONT_FAMILY = "KOOS Emoji";
+
+/** Code points in the longest grapheme cluster: the most glyphs satori can
+ *  draw for one unit it never breaks inside. */
+function longestCluster(text: string): number {
+  let longest = 1;
+  for (const { segment } of clusterSegmenter().segment(text)) {
+    longest = Math.max(longest, Array.from(segment).length);
+  }
+  return longest;
+}
+
+let segmenter: Intl.Segmenter | null = null;
+function clusterSegmenter(): Intl.Segmenter {
+  segmenter ??= new Intl.Segmenter("en", { granularity: "grapheme" });
+  return segmenter;
+}
 
 /**
  * The narrowest line a run may break words on.
  *
- * Satori never returns when break-word meets a line narrower than one glyph:
- * it keeps splitting a grapheme that cannot be split. A schema-valid edit (a
- * box dragged narrower than a letter, a button narrower than its padding)
- * would hang the renderer, so below this width words do not break and the
- * run overflows instead. Three ems plus the tracking is wider than any glyph
- * the bundled or fallback faces draw; every builder box is many times it.
+ * Satori never returns when break-word meets a line narrower than one
+ * grapheme cluster: it keeps splitting a cluster that cannot be split. It
+ * measures a cluster glyph by glyph, adding the tracking after each, so no
+ * cluster of n code points is wider than n glyphs of MAX_GLYPH_EM plus n
+ * trackings (an emoji it draws as a picture is 1em). Below that width words
+ * do not break and the run overflows instead, which holds for any text the
+ * schema accepts, in any face, at any size. Builder boxes are many times it.
  */
 export function minBreakableWidth(
   look: Pick<TextLook, "fontSize" | "letterSpacing">,
+  text = "",
 ): number {
-  return look.fontSize * (3 + Math.max(0, look.letterSpacing));
+  return (
+    look.fontSize *
+    longestCluster(text) *
+    (MAX_GLYPH_EM + Math.max(0, look.letterSpacing))
+  );
 }
 
 export function textRunStyle(
   look: TextLook,
   fonts: FontFamilies = DEFAULT_FONT_FAMILIES,
-  /** The width the run is laid out in, when known. */
-  lineWidth?: number,
+  /** The width the run is laid out in and the text it holds, when known. */
+  line?: { width: number; text: string },
 ): CSSProperties {
   const breaksWords =
-    lineWidth === undefined || lineWidth >= minBreakableWidth(look);
+    line === undefined || line.width >= minBreakableWidth(look, line.text);
   return {
     display: "block",
-    fontFamily: look.font === "heading" ? fonts.heading : fonts.body,
+    fontFamily: `${look.font === "heading" ? fonts.heading : fonts.body}, "${EMOJI_FONT_FAMILY}"`,
     fontSize: look.fontSize,
     fontWeight: look.fontWeight,
     fontStyle: look.italic ? "italic" : "normal",
@@ -266,7 +291,12 @@ function TextLayer({
         justifyContent: "center",
       }}
     >
-      <div style={textRunStyle(element, fonts, element.width)}>
+      <div
+        style={textRunStyle(element, fonts, {
+          width: element.width,
+          text: element.text,
+        })}
+      >
         {breakableText(element.text)}
       </div>
     </div>
@@ -309,7 +339,7 @@ function ButtonLayer({
               color: element.color,
             },
             fonts,
-            labelWidth,
+            { width: labelWidth, text: element.label },
           ),
           maxWidth: labelWidth,
         }}

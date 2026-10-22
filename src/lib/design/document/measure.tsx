@@ -51,7 +51,10 @@ let graphemes: Intl.Segmenter | null = null;
 
 /** The distinct graphemes of `text`, in groups short enough to set on one
  *  line of a probe. Vertical reach depends only on which glyphs occur, so
- *  each glyph is drawn once. */
+ *  each glyph is drawn once, as a word of its own: next/og picks fallback
+ *  faces word by word, and an unspaced group of double-stacked capitals
+ *  (Ẩ, Ể) drew in another face than the copy's words did, 5px shorter, so
+ *  the headline spilled past its box. */
 function glyphGroups(text: string, look: TextLook): string[] {
   graphemes ??= new Intl.Segmenter("en", { granularity: "grapheme" });
   const unique = Array.from(
@@ -62,15 +65,16 @@ function glyphGroups(text: string, look: TextLook): string[] {
     ),
   );
   /* Generous per-glyph width so a group never runs off its probe; widest
-     glyphs (W, emoji, CJK) advance about 1.2em plus tracking. */
-  const perGlyph = look.fontSize * (1.4 + Math.max(0, look.letterSpacing));
+     glyphs (W, emoji, CJK) advance about 1.2em plus tracking, and the
+     space after each about 0.3em. */
+  const perGlyph = look.fontSize * (1.7 + Math.max(0, look.letterSpacing) * 2);
   const perGroup = Math.max(
     1,
     Math.floor((MAX_INK_PROBE_WIDTH - look.fontSize * 4) / perGlyph),
   );
   const groups: string[] = [];
   for (let i = 0; i < unique.length; i += perGroup) {
-    groups.push(unique.slice(i, i + perGroup).join(""));
+    groups.push(unique.slice(i, i + perGroup).join(" "));
   }
   return groups;
 }
@@ -92,9 +96,9 @@ function marker(): ReactElement {
   );
 }
 
-function runStyle(look: TextLook, lineWidth?: number) {
+function runStyle(look: TextLook, line?: { width: number; text: string }) {
   return {
-    ...textRunStyle({ ...look, color: "#000000" }, undefined, lineWidth),
+    ...textRunStyle({ ...look, color: "#000000" }, undefined, line),
     flexShrink: 0,
   };
 }
@@ -186,7 +190,9 @@ export function createRendererMeasurer({
                 flexShrink: 0,
               }}
             >
-              <div style={runStyle(look, w)}>{breakableText(text)}</div>
+              <div style={runStyle(look, { width: w, text })}>
+                {breakableText(text)}
+              </div>
             </div>
             {marker()}
           </div>,
@@ -238,9 +244,9 @@ export function createRendererMeasurer({
             MAX_INK_PROBE_WIDTH,
             pad * 2 +
               Math.ceil(
-                Array.from(group).length *
+                Array.from(group.replaceAll(" ", "")).length *
                   look.fontSize *
-                  (1.4 + Math.max(0, look.letterSpacing)),
+                  (1.7 + Math.max(0, look.letterSpacing) * 2),
               ),
           );
           const height = line + pad * 2;

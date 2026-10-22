@@ -22,6 +22,8 @@ export interface FontShape {
   signature?: number[];
   numGlyphs?: number;
   unitsPerEm?: number;
+  /** Every glyph's advance, in font units. */
+  advance?: number;
   headMagic?: number;
   indexToLocFormat?: number;
   numberOfHMetrics?: number;
@@ -109,9 +111,9 @@ function maxp(numGlyphs: number): Uint8Array {
   return new Uint8Array(t.buffer);
 }
 
-function hmtx(numGlyphs: number): Uint8Array {
+function hmtx(numGlyphs: number, advance = 500): Uint8Array {
   const t = table(numGlyphs * 4);
-  for (let i = 0; i < numGlyphs; i++) t.setUint16(i * 4, 500);
+  for (let i = 0; i < numGlyphs; i++) t.setUint16(i * 4, advance);
   return new Uint8Array(t.buffer);
 }
 
@@ -222,7 +224,7 @@ export function buildFont(shape: FontShape = {}): Uint8Array {
       ["glyf", GLYF],
       ["head", head(shape)],
       ["hhea", hhea(shape, numGlyphs)],
-      ["hmtx", hmtx(Math.max(numGlyphs, 1))],
+      ["hmtx", hmtx(Math.max(numGlyphs, 1), shape.advance)],
       ["loca", loca(shape, numGlyphs)],
       ["maxp", maxp(numGlyphs)],
       ["name", name()],

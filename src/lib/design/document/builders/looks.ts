@@ -13,7 +13,9 @@ import { BUTTON_LINE_HEIGHT } from "../render";
 
 export const SIZES = {
   subheadline: { size: 0.036, min: 0.027 },
-  cta: { size: 0.032, min: 0.024 },
+  /* 29px on 1080, over 2.6% of the short side: at 21px the button read
+     as a footnote on a phone. */
+  cta: { size: 0.032, min: 0.027 },
   footer: { size: 0.026, min: 0.019 },
 } as const;
 
@@ -46,6 +48,10 @@ export const HERO_OVER_PHOTO: HeadlineLimits = { top: 1, maxLines: 3 };
 /** The smallest headline-to-subheadline size ratio that still reads as a
  *  headline. */
 export const HIERARCHY = 1.3;
+
+/** The smallest headline-to-footer size ratio: a headline nearer the
+ *  footer's size than this reads as one more line of small print. */
+export const HEADLINE_OVER_FOOTER = 1.5;
 
 /** Headline sizes in px, largest first, from `limits.top` down the ladder,
  *  none smaller than `floor`. */

@@ -13,7 +13,10 @@ import { documentFromSpec, specTextFault } from "./from-spec";
 import { designDocumentSchema } from "./schema";
 import {
   DocumentTextFault,
-  MAX_CODE_POINTS_PER_CLUSTER,
+  documentEmojiFault,
+  isEmojiCluster,
+  MAX_EMOJI_IN_SEQUENCE,
+  MAX_EMOJI_PER_DOCUMENT,
   MAX_EMOJI_PER_TEXT,
   normalizeText,
   TEXT_CLUSTER_TOO_COMPLEX,
@@ -35,10 +38,14 @@ describe("textFault", () => {
     ["Latin", "Fresh croissants, baked before sunrise"],
     ["accented capitals", "Réservez Égjpqy Ågjpqy Ügjpq Éjq"],
     ["Yoruba with precomposed letters", "Ẹ ṣé o, ọjà tuntun ní Ìbàdàn"],
-    ["Greek polytonic", "Ἀρχὴ ἥμισυ παντός"],
+    ["Greek", "Φρέσκα κρουασάν κάθε πρωί"],
     ["Cyrillic", "Свежие круассаны каждое утро"],
     ["Korean", "매일 아침 신선한 크루아상"],
     ["Han with a variation selector", "葛\u{E0100}城"],
+    [
+      "England, Scotland and Wales",
+      "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} 🏴\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}",
+    ],
     ...Object.entries(SCRIPTS).flatMap(([name, copy]) =>
       [copy.headline, copy.subheadline, copy.cta].map(
         (text): [string, string] => [name, text],
@@ -54,14 +61,72 @@ describe("textFault", () => {
     expect(faultOf(typed)).toBeNull();
   });
 
-  it("allows the emoji keycap's two marks and refuses a third", () => {
+  it("allows the emoji keycap's two marks and drops a stray third", () => {
     expect(faultOf("1\u{FE0F}\u{20E3}")).toBeNull();
-    expect(faultOf("1\u{FE0F}\u{20E3}\u{FE0F}")).toBe(TEXT_CLUSTER_TOO_COMPLEX);
+    expect(normalizeText("1\u{FE0F}\u{20E3}\u{FE0F}")).toBe(
+      "1\u{FE0F}\u{20E3}",
+    );
+    expect(faultOf("1\u{20E3}\u{20E3}\u{20E3}")).toBe(TEXT_CLUSTER_TOO_COMPLEX);
   });
 
-  it("refuses a joiner chain longer than any real emoji sequence", () => {
-    const chain = Array(MAX_CODE_POINTS_PER_CLUSTER).fill("👨").join("‍");
-    expect(faultOf(chain)).toBe(TEXT_CLUSTER_TOO_COMPLEX);
+  /* A browser draws a sequence no emoji set knows as its separate
+     pictures, so unjoining it draws the same thing as one unit per person. */
+  it("unjoins a chain longer than any real emoji sequence", () => {
+    const family = Array(MAX_EMOJI_IN_SEQUENCE).fill("👨").join("‍");
+    expect(normalizeText(family)).toBe(family);
+    const chain = Array(MAX_EMOJI_IN_SEQUENCE + 1)
+      .fill("👨")
+      .join("‍");
+    expect(normalizeText(chain)).toBe("👨".repeat(MAX_EMOJI_IN_SEQUENCE + 1));
+    expect(faultOf(chain)).toBeNull();
+  });
+
+  /* Six jamo in a row are one cluster satori draws as six letters; at 100px
+     in a 300px box that looped it until the worker was killed. */
+  it("composes Hangul typed as jamo and refuses jamo that form no syllable", () => {
+    const typed = "한국어".normalize("NFD");
+    expect(Array.from(typed).length).toBe(8);
+    expect(normalizeText(typed)).toBe("한국어");
+    expect(faultOf(typed)).toBeNull();
+    expect(faultOf("ᄀ".repeat(6))).toBe(TEXT_CLUSTER_TOO_COMPLEX);
+    expect(faultOf("ᄒᆞᆫ")).toBe(TEXT_CLUSTER_TOO_COMPLEX);
+    expect(faultOf("ᄀ")).toBeNull();
+  });
+
+  it("keeps the three subdivision flags and strips tag characters elsewhere", () => {
+    const scotland = "🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
+    expect(normalizeText(scotland)).toBe(scotland);
+    expect(isEmojiCluster(scotland)).toBe(true);
+    expect(normalizeText(`a${"\u{E0061}".repeat(11)}`)).toBe("a");
+    expect(normalizeText(`🏴${"\u{E0061}".repeat(10)}\u{E007F}`)).toBe("🏴");
+  });
+
+  it("strips joiners and selectors that join nothing", () => {
+    expect(normalizeText("a\u200Db")).toBe("ab");
+    expect(normalizeText("#\u{FE0F} tag")).toBe("# tag");
+    expect(normalizeText("⸻\u{FE0F}")).toBe("⸻");
+    expect(normalizeText("©\u{FE0E}")).toBe("©");
+    expect(normalizeText("葛\u{E0100}城")).toBe("葛城");
+    expect(normalizeText("❤\u{FE0F}")).toBe("❤\u{FE0F}");
+    expect(normalizeText("1\u{FE0F}\u{20E3}")).toBe("1\u{FE0F}\u{20E3}");
+    const family = "👨‍👩‍👧‍👦";
+    expect(normalizeText(family)).toBe(family);
+  });
+
+  it("is idempotent", () => {
+    for (const text of [
+      `a\u200D${"\u{E0061}".repeat(3)}b`,
+      "#\u{FE0F}\u{FE0F}\u20E3",
+      "👨‍👩‍👧‍👦‍👦‍👦",
+      "ᄀᄀᄀ가ᅡᆨ",
+    ]) {
+      expect(normalizeText(normalizeText(text))).toBe(normalizeText(text));
+    }
+  });
+
+  it("refuses a skin tone on something that is not a person", () => {
+    expect(faultOf("a🏽")).toBe(TEXT_CLUSTER_TOO_COMPLEX);
+    expect(faultOf("👍🏽")).toBeNull();
   });
 
   it("caps emoji per run", () => {
@@ -69,6 +134,21 @@ describe("textFault", () => {
     expect(faultOf("🥐".repeat(MAX_EMOJI_PER_TEXT + 1))).toBe(
       TEXT_TOO_MANY_EMOJI,
     );
+  });
+
+  it("caps distinct emoji over a whole document", () => {
+    const pool = Array.from({ length: MAX_EMOJI_PER_DOCUMENT + 1 }, (_, i) =>
+      String.fromCodePoint(0x1f600 + i),
+    );
+    const half = Math.ceil(pool.length / 2);
+    expect(documentEmojiFault([pool.slice(0, half).join("")])).toBeNull();
+    expect(
+      documentEmojiFault([
+        pool.slice(0, half).join(""),
+        pool.slice(half).join(""),
+      ])?.code,
+    ).toBe(TEXT_TOO_MANY_EMOJI);
+    expect(documentEmojiFault(["🥐🥐", "🥐"])).toBeNull();
   });
 
   it("keeps line breaks and tabs, which are not control characters to it", () => {
