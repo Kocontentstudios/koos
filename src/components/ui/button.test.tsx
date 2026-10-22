@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Button } from "./button";
+import { ButtonControl } from "./button-control";
 
 describe("Button", () => {
   it("renders its children", () => {
@@ -172,4 +174,55 @@ describe("Button loading state", () => {
       );
     },
   );
+});
+
+/**
+ * Server Components render Button (brand/page.tsx, calendar/page.tsx), so
+ * Button runs as a plain function on the server and everything it returns is
+ * serialised to the client. jsdom never serialises, which is how round 3's
+ * click guard crashed /brand with this suite green. Calling Button the way the
+ * server does and walking its output pins that it creates no function.
+ */
+describe("Button rendered from a Server Component", () => {
+  const functionsIn = (node: unknown, at = "Button"): string[] => {
+    if (typeof node === "function") return [at];
+    if (Array.isArray(node)) {
+      return node.flatMap((child, i) => functionsIn(child, `${at}[${i}]`));
+    }
+    if (!isValidElement(node)) return [];
+    const name =
+      typeof node.type === "string"
+        ? node.type
+        : ((node.type as { name?: string }).name ?? "?");
+    return Object.entries(node.props as Record<string, unknown>).flatMap(
+      ([key, value]) => functionsIn(value, `${at} > ${name}.${key}`),
+    );
+  };
+
+  it.each([
+    ["idle", {}],
+    ["loading", { loading: true, loadingText: "Saving…" }],
+    ["disabled", { disabled: true }],
+    ["a link render", { render: <a href="/brand">Brand</a> }],
+  ] as const)("returns no function when %s", (_, props) => {
+    for (const variant of [
+      "default",
+      "secondary",
+      "ghost",
+      "icon",
+      "outline",
+      "destructive",
+      "link",
+    ] as const) {
+      expect(
+        functionsIn(Button({ variant, children: "Save", ...props })),
+      ).toEqual([]);
+    }
+  });
+
+  it("hands the loading flag to the client control, which owns the guard", () => {
+    const element = Button({ loading: true, children: "Save" });
+    expect(element.type).toBe(ButtonControl);
+    expect(element.props).toMatchObject({ loading: true, "aria-busy": true });
+  });
 });

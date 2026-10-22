@@ -1,8 +1,8 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Loader2Icon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ButtonControl, type ButtonControlProps } from "./button-control";
 
 const buttonVariants = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-[10px] border border-transparent bg-clip-padding text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 outline-none select-none focus-visible:focus-outline disabled:pointer-events-none data-loading:cursor-progress aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -43,7 +43,7 @@ const buttonVariants = cva(
   },
 );
 
-type ButtonProps = ButtonPrimitive.Props &
+type ButtonProps = Omit<ButtonControlProps, "loading"> &
   VariantProps<typeof buttonVariants> & {
     /** When true, shows a spinner, sets aria-busy and swallows clicks. The
      * button keeps its resting fill: loading means working, not disabled. */
@@ -60,29 +60,19 @@ function Button({
   loadingText,
   disabled,
   children,
-  onClick,
   ...props
 }: ButtonProps) {
-  /* Swallowing the click, rather than disabling, keeps the label on the fill
-     its contrast is measured against. Enter in a form submits through a
-     synthetic click on the submit button, so this blocks that too. */
-  const swallowWhileLoading: ButtonProps["onClick"] = (event) => {
-    if (loading) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    onClick?.(event);
-  };
+  /* No function is created here: button.tsx renders from Server Components
+     (brand/page.tsx), and the click guard lives in ButtonControl. */
   return (
-    <ButtonPrimitive
+    <ButtonControl
       data-slot="button"
       data-loading={loading || undefined}
       aria-busy={loading || undefined}
+      loading={loading}
       disabled={disabled}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-      onClick={swallowWhileLoading}
     >
       {loading ? (
         <>
@@ -92,7 +82,7 @@ function Button({
       ) : (
         children
       )}
-    </ButtonPrimitive>
+    </ButtonControl>
   );
 }
 
