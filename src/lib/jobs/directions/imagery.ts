@@ -85,17 +85,21 @@ export function platePrompt(
     "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos";
   const tail = [scene, place, plain].filter(Boolean).join(". ");
   if (!product) {
+    if (setting && !rejected?.lettering) return `In ${setting}: ${tail}`;
     return rejected?.lettering
       ? `Nothing in the image carries any writing; the last attempt painted lettering, which is wrong. ${tail}`
       : tail;
   }
+  /* Said up front as well: at the end of a long prompt the setting lost to
+     the model's default street (round-3 live run, again European). */
+  const where = setting ? `, in ${setting}` : "";
   if (!rejected) {
-    return `A ${product.name}, clearly recognisable, as the subject. ${tail}`;
+    return `A ${product.name}, clearly recognisable, as the subject${where}. ${tail}`;
   }
   const wrong = rejected.lettering
     ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
     : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
-  return `${product.look || product.name}. The ${product.name} is the clear subject, whole and unmistakable; ${wrong}. ${tail}`;
+  return `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
 }
 
 function drawable(

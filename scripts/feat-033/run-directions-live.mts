@@ -8,7 +8,7 @@
  * the integration test.
  *
  *   corepack pnpm tsx --env-file=<file with AI_*, AWS_*, R2_*> \
- *     scripts/feat-033/run-directions-live.mts [outDir]
+ *     scripts/feat-033/run-directions-live.mts [outDir] [--only <job>]
  *
  * Refuses any DATABASE_URL that is not the docker database on localhost:5434,
  * because .env points at the shared staging database. Creates its own QA
@@ -32,7 +32,13 @@ process.env.DATABASE_URL = LOCAL_DB;
 // A stale bearer token hijacks auth from the SigV4 keys (verify skill).
 process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 
-const outDir = process.argv[2] ?? "/tmp/feat-033/u3-r3";
+const outDir =
+  process.argv[2] && !process.argv[2].startsWith("--")
+    ? process.argv[2]
+    : "/tmp/feat-033/u3-r3";
+const only = process.argv.includes("--only")
+  ? process.argv[process.argv.indexOf("--only") + 1]
+  : null;
 const FIXTURES = "/tmp/feat-033/fixtures";
 
 const { default: postgres } = await import("postgres");
@@ -179,6 +185,13 @@ async function uploadPhoto(brandId: string, photoPath: string) {
 }
 
 async function run(job: Job) {
+  if (only && job.name !== only) {
+    return {
+      job: job.name,
+      skipped: true,
+      directions: [] as { id: string; slot: number }[],
+    };
+  }
   progress.length = 0;
   imageCalls = 0;
   const brandId = brands[job.brand];
@@ -351,7 +364,7 @@ results.push(
   }),
 );
 await writeFile(
-  join(outDir, "live-summary.json"),
+  join(outDir, only ? `live-summary-${only}.json` : "live-summary.json"),
   JSON.stringify({ brands, results }, null, 2),
 );
 await sql.end();

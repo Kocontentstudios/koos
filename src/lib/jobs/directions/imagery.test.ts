@@ -179,6 +179,11 @@ describe("platePrompt", () => {
   it("sets the scene where the brand is and keeps packaging unlettered", () => {
     const prompt = platePrompt(draftOf(), PRODUCT, undefined, "Lekki, Lagos");
     expect(prompt).toContain("Set in Lekki, Lagos");
+    expect(
+      prompt.startsWith(
+        `A ${PRODUCT.name}, clearly recognisable, as the subject, in Lekki, Lagos.`,
+      ),
+    ).toBe(true);
     expect(prompt).toContain("plain and unbranded, with no label text");
   });
 
