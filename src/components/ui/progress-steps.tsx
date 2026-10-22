@@ -14,6 +14,9 @@ interface ProgressStepsProps {
 const CONNECTOR =
   "absolute top-[11px] right-[calc(50%+16px)] left-[calc(-50%+16px)] h-0.5 rounded-full";
 
+/* The active step's text is --status-progress-fg, not --primary: primary as
+   12px text is 3.78:1 on white and 4.40:1 on the dark dialog. The ring is a
+   non-text indicator, so --primary clears 3:1 there. */
 export function ProgressSteps({ steps, current }: ProgressStepsProps) {
   return (
     <ol className="grid auto-cols-[minmax(0,1fr)] grid-flow-col">
@@ -42,7 +45,8 @@ export function ProgressSteps({ steps, current }: ProgressStepsProps) {
               className={cn(
                 "flex size-6 items-center justify-center rounded-full text-[11px] font-semibold",
                 isCompleted && "bg-primary text-white",
-                isActive && "ring-2 ring-primary text-primary bg-transparent",
+                isActive &&
+                  "ring-2 ring-primary text-[var(--status-progress-fg)] bg-transparent",
                 !isCompleted &&
                   !isActive &&
                   "text-[var(--text-muted)] border border-[var(--border)]",
@@ -53,7 +57,7 @@ export function ProgressSteps({ steps, current }: ProgressStepsProps) {
             <span
               className={cn(
                 "px-1 text-center text-[12px] leading-tight",
-                isActive && "text-primary font-medium",
+                isActive && "text-[var(--status-progress-fg)] font-medium",
                 isCompleted && "text-foreground",
                 !isCompleted && !isActive && "text-[var(--text-muted)]",
               )}

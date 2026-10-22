@@ -89,7 +89,7 @@ describe("SettingsClient", () => {
     const busy = await within(screen.getByRole("dialog")).findByRole("button", {
       name: "Deleting…",
     });
-    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-disabled", "true");
     expect(busy).toHaveAttribute("aria-busy", "true");
 
     /* React entangles later transitions with a pending async action, so an

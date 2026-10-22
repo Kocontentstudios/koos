@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { TOAST_TEXT_TOKENS } from "@/components/ui/sonner";
 import { contrastRatio } from "@/lib/design/palette";
 import { normalizeHex } from "@/lib/validation/hex";
 
@@ -358,6 +359,14 @@ describe.each([
     ).toBeGreaterThanOrEqual(NON_TEXT_AA);
   });
 
+  /* The active progress step's number and label. --primary as that text was
+     3.78:1 on white and 4.40:1 on the dark dialog. */
+  it.each(grounds(tokens))(`progress text on %s clears ${TEXT_AA}:1`, (bg) => {
+    expect(ratio(tokens, "--status-progress-fg", bg)).toBeGreaterThanOrEqual(
+      TEXT_AA,
+    );
+  });
+
   /* --status-error-fg is the one error text token (UI Spec §9.2): pills,
      inline field errors, upload rejections. --error is its old name and must
      not drift back to a second value; #d47575 was 3.18:1 on a light card. */
@@ -453,6 +462,18 @@ describe("destructive fills", () => {
     expect(offenders).toEqual([]);
   });
 
+  /* There is no --color-destructive, so text-destructive and
+     bg-destructive/10 paint nothing: a destructive badge or menu item looked
+     like any other. Error text is --status-error-fg on --status-error-bg. */
+  it("paints no text or fill with the undefined destructive colour", () => {
+    const offenders = sourceLines()
+      .filter(({ line }) =>
+        /(?:^|[\s:"'])(?:text|bg)-destructive(?:\/\d+)?(?=[\s"'])/.test(line),
+      )
+      .map(({ at }) => at);
+    expect(offenders).toEqual([]);
+  });
+
   it("has no white-on-error foreground token left to reach for", () => {
     const offenders = sourceLines()
       .filter(({ line }) => /error-foreground/.test(line))
@@ -508,5 +529,52 @@ describe("the focus indicator", () => {
       }),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+/* The flow's own messages ("Sent to the design team as DT-1042", "The JPG
+   couldn't be made") are rich toasts. Sonner's light palette measured 4.26:1
+   (success), 4.35:1 (error, info) and 3.07:1 (warning). The tints are read
+   from the installed sonner, so an upgrade that moves them is re-measured. */
+describe("rich toasts", () => {
+  const sonnerCss = readFileSync(
+    path.join(process.cwd(), "node_modules/sonner/dist/styles.css"),
+    "utf8",
+  );
+
+  function hslToHex(value: string): string {
+    const match = /^hsl\(\s*([\d.]+),\s*([\d.]+)%,\s*([\d.]+)%\s*\)$/.exec(
+      value,
+    );
+    if (!match) throw new Error(`"${value}" is not an hsl() colour`);
+    const [h, s, l] = [+match[1], +match[2] / 100, +match[3] / 100];
+    const a = s * Math.min(l, 1 - l);
+    const channel = (n: number) => {
+      const k = (n + h / 30) % 12;
+      const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return Math.round(v * 255)
+        .toString(16)
+        .padStart(2, "0");
+    };
+    return `#${channel(0)}${channel(8)}${channel(4)}`;
+  }
+
+  describe.each([
+    ["light", APP_THEMES.light],
+    ["dark", APP_THEMES.dark],
+  ] as const)("%s theme", (name, tokens) => {
+    const sonner = declarations(
+      sonnerCss,
+      `[data-sonner-toaster][data-sonner-theme='${name}']`,
+    );
+    it.each(Object.entries(TOAST_TEXT_TOKENS))(
+      `%s text (%s) clears ${TEXT_AA}:1 on its tint`,
+      (type, token) => {
+        const tint = hslToHex(resolve(sonner, `--${type}-bg`));
+        expect(
+          Number(contrastRatio(solid(tokens, token), tint).toFixed(2)),
+        ).toBeGreaterThanOrEqual(TEXT_AA);
+      },
+    );
   });
 });

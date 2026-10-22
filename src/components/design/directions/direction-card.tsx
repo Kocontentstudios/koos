@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Check,
   Download,
   ImageOff,
   RefreshCw,
@@ -30,6 +31,11 @@ function Eyebrow({ index }: { index: number }) {
     </p>
   );
 }
+
+/** Focusable by script only: a regenerate that replaces the card moves focus
+ *  here so the keyboard user lands on the new direction. */
+const SLOT_CARD =
+  "flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface-1 outline-none focus-visible:focus-outline";
 
 const CARD_TITLE =
   "font-display text-[16px] leading-snug font-bold text-foreground";
@@ -191,7 +197,7 @@ function DesignPreview({
   );
 }
 
-function RegenerateError({ message }: { message: string }) {
+function CardError({ message }: { message: string }) {
   return (
     <p
       role="alert"
@@ -284,6 +290,27 @@ function DownloadPng({
   );
 }
 
+/** Said on the card it is about, not in a toast: a toast sits over the
+ *  dialog's own footer, and on a phone hid "Stay here" for its lifetime. The
+ *  region is always mounted (sr-only while empty, so it takes no gap) so a
+ *  screen reader announces the message the moment it lands. */
+function SentNotice({ message }: { message: string | null }) {
+  return (
+    <p
+      role="status"
+      data-slot="sent-notice"
+      className="flex items-start gap-1.5 text-[12px] font-medium text-[var(--status-ready-fg)] empty:sr-only"
+    >
+      {message ? (
+        <>
+          <Check aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+          {message}
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 export interface DirectionCardProps extends RegenerateSlotProps {
   generation: SerializedGeneration;
   index: number;
@@ -292,6 +319,11 @@ export interface DirectionCardProps extends RegenerateSlotProps {
   onDownloadJpg: () => void;
   sendingToTeam: boolean;
   onSendToTeam: () => void;
+  /** Set once this design has a ticket; sending it again would open a
+   *  duplicate. */
+  sentMessage: string | null;
+  /** A download or send that failed on this card. */
+  actionErrors: string[];
 }
 
 export function DirectionCard({
@@ -302,6 +334,8 @@ export function DirectionCard({
   onDownloadJpg,
   sendingToTeam,
   onSendToTeam,
+  sentMessage,
+  actionErrors,
   ...regenerate
 }: DirectionCardProps) {
   const size = sizeOf(generation);
@@ -313,7 +347,9 @@ export function DirectionCard({
   return (
     <article
       aria-labelledby={`direction-${generation.id}`}
-      className="flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface-1"
+      data-direction-slot={index}
+      tabIndex={-1}
+      className={SLOT_CARD}
     >
       <header className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -367,8 +403,12 @@ export function DirectionCard({
         ) : null}
 
         {regenerate.regenerateError ? (
-          <RegenerateError message={regenerate.regenerateError} />
+          <CardError message={regenerate.regenerateError} />
         ) : null}
+        {actionErrors.map((message) => (
+          <CardError key={message} message={message} />
+        ))}
+        <SentNotice message={sentMessage} />
 
         {/* Even rows rather than a wrapping flex row, which leaves ragged
             gaps. Sized by the card, not the viewport: "Send to design team"
@@ -400,11 +440,16 @@ export function DirectionCard({
               onClick={onSendToTeam}
               loading={sendingToTeam}
               loadingText="Sending…"
-              disabled={busy}
+              disabled={busy || sentMessage !== null}
+              focusableWhenDisabled={sentMessage !== null}
               className="col-span-2 @sm:col-span-1"
             >
-              <Send aria-hidden="true" />
-              Send to design team
+              {sentMessage ? (
+                <Check aria-hidden="true" />
+              ) : (
+                <Send aria-hidden="true" />
+              )}
+              {sentMessage ? "Sent to design team" : "Send to design team"}
               <span className="sr-only"> (direction {index + 1})</span>
             </Button>
             <RegenerateButton
@@ -442,7 +487,9 @@ export function FailedDirectionCard({
           ? `Regenerating direction ${index + 1}`
           : `Direction ${index + 1} did not render`
       }
-      className="flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface-1"
+      data-direction-slot={index}
+      tabIndex={-1}
+      className={SLOT_CARD}
     >
       <header className="flex flex-col gap-0.5 px-4 pt-3.5 pb-3">
         <Eyebrow index={index} />
@@ -472,7 +519,7 @@ export function FailedDirectionCard({
       <div className="flex flex-1 flex-col gap-4 p-4">
         {regenerate.regenerating ? <ReasonsPlaceholder /> : null}
         {regenerate.regenerateError ? (
-          <RegenerateError message={regenerate.regenerateError} />
+          <CardError message={regenerate.regenerateError} />
         ) : null}
         <div className="mt-auto flex justify-end">
           <RegenerateButton index={index} {...regenerate} />

@@ -572,17 +572,49 @@ describe("DesignDirectionsDialog", () => {
         status: 200,
       }),
     );
+    const calm = within(screen.getByRole("article", { name: "Calm" }));
     await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith(
-        "Sent to the design team as DT-42",
-      ),
+      expect(
+        screen
+          .getByRole("article", { name: "Calm" })
+          .querySelector("[data-slot=sent-notice]"),
+      ).toHaveTextContent("Sent to the design team as DT-42"),
     );
+    expect(toastSuccess).not.toHaveBeenCalled();
     expect(
-      within(screen.getByRole("article", { name: "Calm" })).getByRole(
+      calm.getByRole("button", { name: /sent to design team/i }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      within(screen.getByRole("article", { name: "Bold" })).getByRole(
         "button",
         { name: /send to design team/i },
       ),
     ).toBeEnabled();
+  });
+
+  it("says on the card when sending fails, and clears it on a retry", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    await openResults(design);
+    const calm = () => within(screen.getByRole("article", { name: "Calm" }));
+    await userEvent.click(
+      calm().getByRole("button", { name: /send to design team/i }),
+    );
+    ticketDone(
+      new Response(JSON.stringify({ error: "The design team is offline." }), {
+        status: 500,
+      }),
+    );
+    expect(await calm().findByRole("alert")).toHaveTextContent(
+      "The design team is offline.",
+    );
+    expect(toastError).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      calm().getByRole("button", { name: /send to design team/i }),
+    );
+    expect(calm().queryByRole("alert")).toBeNull();
   });
 
   /* Rows from before directions (or a server that has not shipped them yet)

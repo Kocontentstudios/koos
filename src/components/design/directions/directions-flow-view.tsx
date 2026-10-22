@@ -9,7 +9,11 @@ import { DialogFooter } from "@/components/ui/dialog";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
-import { DirectionResults, type DirectionSlot } from "./direction-results";
+import {
+  DirectionResults,
+  type DirectionSlot,
+  type SendNotice,
+} from "./direction-results";
 import { useEscapeLayer } from "./escape-layer";
 import { FlowDescription, FlowTitle } from "./flow-heading";
 import { type ImageSource, resultsHeading, startOverLabel } from "./flow-logic";
@@ -52,6 +56,7 @@ export type DirectionsView =
       regeneratingSlot: number | null;
       regenerateError: { slot: number; message: string } | null;
       sendingId: string | null;
+      sendNotices: Record<string, SendNotice>;
     };
 
 export interface DirectionsHandlers {
@@ -308,6 +313,7 @@ export function DirectionsFlowView({
             regeneratingSlot={view.regeneratingSlot}
             regenerateError={view.regenerateError}
             sendingId={view.sendingId}
+            sendNotices={view.sendNotices}
             onRegenerate={handlers.onRegenerate}
             onSendToTeam={handlers.onSendToTeam}
             onChooseImagery={handlers.onBackToChoice}

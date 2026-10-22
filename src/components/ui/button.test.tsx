@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Button } from "./button";
 
@@ -79,7 +80,7 @@ describe("Button loading state", () => {
       </Button>,
     );
     const button = screen.getByRole("button", { name: "Saving…" });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAttribute("aria-busy", "true");
     await user.click(button);
     expect(onClick).not.toHaveBeenCalled();
@@ -90,6 +91,69 @@ describe("Button loading state", () => {
     const button = screen.getByRole("button", { name: "Save" });
     expect(button).toBeEnabled();
     expect(button).not.toHaveAttribute("aria-busy");
+  });
+
+  /* A natively disabled button drops focus to <body> when it starts
+     loading, stranding the keyboard user who pressed it. */
+  it("keeps keyboard focus when it starts loading", async () => {
+    const user = userEvent.setup();
+    function Saver() {
+      const [saving, setSaving] = useState(false);
+      return (
+        <Button
+          loading={saving}
+          loadingText="Saving…"
+          onClick={() => setSaving(true)}
+        >
+          Save
+        </Button>
+      );
+    }
+    render(<Saver />);
+    await user.tab();
+    await user.keyboard("{Enter}");
+    const busy = screen.getByRole("button", { name: "Saving…" });
+    expect(busy).toHaveFocus();
+    expect(busy).not.toHaveAttribute("disabled");
+  });
+
+  it("ignores Enter and Space while loading", async () => {
+    const onClick = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Button loading onClick={onClick}>
+        Save
+      </Button>,
+    );
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Save" })).toHaveFocus();
+    await user.keyboard("{Enter} ");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("does not submit its form while loading", async () => {
+    const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+    const user = userEvent.setup();
+    render(
+      <form onSubmit={onSubmit}>
+        <input aria-label="Name" />
+        <Button type="submit" loading>
+          Save
+        </Button>
+      </form>,
+    );
+    await user.type(screen.getByLabelText("Name"), "x{Enter}");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("stays natively disabled when disabled and loading", () => {
+    render(
+      <Button disabled loading>
+        Save
+      </Button>,
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   /* An explicitly disabled button must stay disabled regardless of loading. */

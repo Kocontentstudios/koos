@@ -55,4 +55,14 @@ describe("ProgressSteps", () => {
       connectors(container).map((el) => el.hasAttribute("data-reached")),
     ).toEqual([true, true, false]);
   });
+
+  it("draws the active step's number and label in an AA text colour", () => {
+    render(<ProgressSteps steps={RUN} current={1} />);
+    const label = screen.getByText("Imagery");
+    const number = screen.getByText("2");
+    for (const el of [label, number.parentElement as HTMLElement]) {
+      expect(el.className).toContain("text-[var(--status-progress-fg)]");
+      expect(el.className).not.toMatch(/(^|\s)text-primary(\s|$)/);
+    }
+  });
 });

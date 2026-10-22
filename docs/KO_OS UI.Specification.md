@@ -744,7 +744,7 @@ Same layout as Login, differences:
 
 ### **Loading & Error States**
 
-* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is disabled and carries `aria-busy`. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
+* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is inert (clicks, Enter and Space do nothing, and it cannot submit its form) and carries `aria-busy`. It is `aria-disabled`, not natively `disabled`, so it keeps keyboard focus: a natively disabled button drops focus to `<body>` the moment it starts loading. An explicitly `disabled` button stays natively disabled. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
 * Network error: banner appears below the card. Background \#1A3A4A, border-left 3px `--status-error-fg`, text \#A7B6C7, padding 12px 16px.
 
@@ -1729,6 +1729,10 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Manual close: X button, icon-only ghost, 16px.
 
+* Rich toasts keep Sonner's tinted backgrounds, but the text of each type is the matching status token: success `--status-ready-fg`, error `--status-error-fg`, info `--status-progress-fg`, warning `--status-pending-fg`. Sonner's own light text measured 3.07-4.35:1 on its tints; the tokens clear 5.5:1 or more in both themes. `src/app/theme-contrast.test.ts` measures them against the installed Sonner's tints.
+
+* Never the only place an action in a dialog reports its outcome: a toast sits over the dialog's footer (on a phone it hid "Stay here" for its whole lifetime). Say it on the thing it is about, in a `role="status"` region that is mounted before the message lands (the design-direction card's "Sent to the design team as DT-1042").
+
 * Stacking: max 3 visible, newer pushes older up.
 
 ## **10.8 Segmented Control (View Toggle)**
@@ -1747,7 +1751,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Horizontal layout. Each step: circle (24px) \+ label below (12px), centred in an equal-width column, so every connector is the same length whatever the labels say. Labels wrap inside their column rather than pushing a connector shorter.
 
-* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text \#138BC8. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#93A3B3, bg transparent, text \#93A3B3.
+* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, number and label in `--status-progress-fg` (\#85B7EB dark, \#196190 light). `--primary` as 12px text measured 3.78:1 on white and 4.40:1 on the dark dialog; the 2px ring is a non-text indicator, so `--primary` clears 3:1 there. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#93A3B3, bg transparent, text \#93A3B3.
 
 * Connector line between steps: 2px height, centre to centre, stopping 4px short of each circle. Completed: \#138BC8. Future: `--border`.
 
@@ -1930,6 +1934,10 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 * Trap focus within modals/drawers when open (Tab cycles within, Escape closes).
 
 * Return focus to trigger element when modal/drawer closes.
+
+* Focus never falls to `<body>`. A control that starts a wait keeps focus through it (see Loading & Error States). When the focused control is replaced, focus moves to its replacement on purpose: a regenerated design direction focuses its new card, which announces the new direction's title. A user who moved elsewhere during the wait keeps their place.
+
+* A scrolling container clips whatever crosses its edge, focus outlines included. Give it room for the 4px an outline reaches past its control (the directions dialog's scroller spans the popup's padding), or use `focus-outline-inset` for edge controls. `*.layout.test.tsx` files measure this in headless Chromium, since jsdom has no layout.
 
 ## **12.3 Screen Readers**
 

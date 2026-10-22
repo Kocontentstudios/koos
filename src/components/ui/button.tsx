@@ -5,12 +5,12 @@ import { Loader2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-[10px] border border-transparent bg-clip-padding text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 outline-none select-none focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-[10px] border border-transparent bg-clip-padding text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 outline-none select-none focus-visible:focus-outline disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground hover:bg-[var(--primary-hover)] active:bg-[var(--primary-active)] disabled:bg-[var(--primary-disabled)] disabled:text-[var(--text-muted)]",
+          "bg-primary text-primary-foreground hover:bg-[var(--primary-hover)] active:bg-[var(--primary-active)] disabled:bg-[var(--primary-disabled)] disabled:text-[var(--text-muted)] aria-disabled:bg-[var(--primary-disabled)] aria-disabled:text-[var(--text-muted)]",
         secondary:
           "bg-transparent text-foreground border border-[var(--border-accent)] hover:bg-[rgba(19,139,200,0.08)] hover:border-[rgba(19,139,200,0.6)]",
         ghost:
@@ -45,7 +45,8 @@ const buttonVariants = cva(
 
 type ButtonProps = ButtonPrimitive.Props &
   VariantProps<typeof buttonVariants> & {
-    /** When true, shows a spinner, disables the button, and sets aria-busy. */
+    /** When true, shows a spinner, disables the button (keeping it focusable),
+     *  and sets aria-busy. */
     loading?: boolean;
     /** Optional label to show while `loading` (e.g. "Saving…"). Falls back to children. */
     loadingText?: React.ReactNode;
@@ -58,6 +59,7 @@ function Button({
   loading = false,
   loadingText,
   disabled,
+  focusableWhenDisabled,
   children,
   ...props
 }: ButtonProps) {
@@ -67,6 +69,10 @@ function Button({
       data-loading={loading || undefined}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
+      /* A natively disabled button drops keyboard focus to <body> the moment
+         it starts loading, so a keyboard user who pressed it is lost. While
+         loading it is aria-disabled instead: still focused, still inert. */
+      focusableWhenDisabled={focusableWhenDisabled || (loading && !disabled)}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     >

@@ -2,7 +2,6 @@
 
 import type { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import { trackImageChoice } from "@/components/design/design-analytics";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import {
@@ -19,7 +18,7 @@ import {
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
-import type { DirectionSlot } from "./direction-results";
+import type { DirectionSlot, SendNotice } from "./direction-results";
 import {
   type DirectionsEntry,
   DirectionsFlowView,
@@ -49,6 +48,16 @@ export interface DesignDirectionsDialogProps {
    *  slot's regenerate, so the caller knows new designs may exist. */
   onRunStart?: () => void;
 }
+
+export const DIRECTIONS_POPUP_CLASS =
+  "grid-rows-[minmax(0,1fr)] gap-0 sm:max-h-[92vh] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:[&_[data-slot=dialog-close]]:size-11 [@media(hover:none)]:[&_[data-slot=dialog-close]]:size-11";
+
+/* Scroll the contents, not the popup: the close button is positioned against
+   the popup, so scrolling that carries the X off-screen. The scroller spans
+   the popup's padding (-m-4 p-4) because a scroll box clips whatever crosses
+   its edge: flush with the content, it cut the 2px-offset focus outline off
+   every edge control, and the footer could not bleed to the popup's edge. */
+export const DIRECTIONS_SCROLL_CLASS = "-m-4 flex flex-col overflow-y-auto p-4";
 
 function slotsOf(design: DesignGenerationState): DirectionSlot[] {
   return [
@@ -87,6 +96,9 @@ export function DesignDirectionsDialog({
     message: string;
   } | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sendNotices, setSendNotices] = useState<Record<string, SendNotice>>(
+    {},
+  );
   const lastImage = useRef<DesignImageChoice | null>(null);
 
   const slots = slotsOf(design).map((slot, i) => replaced[i] ?? slot);
@@ -96,6 +108,7 @@ export function DesignDirectionsDialog({
     setReplaced({});
     setRegeneratingSlot(null);
     setRegenerateError(null);
+    setSendNotices({});
   }
 
   function start(image: DesignImageChoice) {
@@ -168,20 +181,25 @@ export function DesignDirectionsDialog({
   }
 
   async function sendToTeam(generation: SerializedGeneration) {
+    const notify = (notice: SendNotice) =>
+      setSendNotices((current) => ({ ...current, [generation.id]: notice }));
     setSendingId(generation.id);
+    setSendNotices(({ [generation.id]: _retried, ...rest }) => rest);
     try {
       const ticketNumber = await sendGenerationToTeam({
         brandId: args.brandId,
         generation,
         ticketContext,
       });
-      toast.success(sentToTeamMessage(ticketNumber));
+      notify({ tone: "sent", message: sentToTeamMessage(ticketNumber) });
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Could not send to the design team.",
-      );
+      notify({
+        tone: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not send to the design team.",
+      });
     } finally {
       setSendingId((id) => (id === generation.id ? null : id));
     }
@@ -306,6 +324,7 @@ export function DesignDirectionsDialog({
                 regeneratingSlot,
                 regenerateError,
                 sendingId,
+                sendNotices,
               };
 
   return (
@@ -314,14 +333,9 @@ export function DesignDirectionsDialog({
           small viewport, and covering the backdrop would remove
           tap-outside-to-dismiss. */}
       <DialogContent
-        className={cn(
-          "grid-rows-[minmax(0,1fr)] gap-0 sm:max-h-[92vh] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:[&_[data-slot=dialog-close]]:size-11 [@media(hover:none)]:[&_[data-slot=dialog-close]]:size-11",
-          dialogWidthFor(view),
-        )}
+        className={cn(DIRECTIONS_POPUP_CLASS, dialogWidthFor(view))}
       >
-        {/* Scroll the contents, not the popup: the close button is positioned
-            against the popup, so scrolling that carries the X off-screen. */}
-        <div className="flex flex-col overflow-y-auto">
+        <div className={DIRECTIONS_SCROLL_CLASS}>
           <FlowChromeProvider value="dialog">
             <EscapeLayerProvider value={escapeLayers.stack}>
               <DirectionsFlowView

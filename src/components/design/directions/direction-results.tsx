@@ -1,8 +1,7 @@
 "use client";
 
 import { ImageIcon, LayoutTemplate, Sparkles } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { trackDesignDownload } from "@/components/design/design-analytics";
 import { Button } from "@/components/ui/button";
 import { generationFileName } from "@/lib/design/download-name";
@@ -19,6 +18,13 @@ export interface DirectionSlot {
   generation: SerializedGeneration | null;
 }
 
+/** How sending one design to the team ended, shown on that design's card. */
+export type SendNotice =
+  | { tone: "sent"; message: string }
+  | { tone: "error"; message: string };
+
+const JPG_FAILED = "The JPG couldn't be made. Download the PNG instead.";
+
 export interface DirectionResultsProps {
   slots: DirectionSlot[];
   source: ImageSource | null;
@@ -27,6 +33,8 @@ export interface DirectionResultsProps {
   regenerateError: { slot: number; message: string } | null;
   /** The design being sent to the design team, so only its card spins. */
   sendingId: string | null;
+  /** Keyed by generation id. */
+  sendNotices: Record<string, SendNotice>;
   onRegenerate: (slot: number) => void;
   onSendToTeam: (generation: SerializedGeneration) => void;
   onChooseImagery: () => void;
@@ -45,6 +53,40 @@ async function downloadJpeg(generation: SerializedGeneration): Promise<void> {
       : null;
   const jpeg = await pngToJpeg(png, size);
   saveBlob(jpeg, jpegFileName(generationFileName(generation)));
+}
+
+function focusWasDropped(): boolean {
+  const active = document.activeElement;
+  return (
+    !active ||
+    active === document.body ||
+    active.getAttribute("role") === "dialog"
+  );
+}
+
+/** A regenerate that succeeds swaps the card for a new one, taking the
+ *  focused Regenerate button with it. Focus then lands on the new card, but
+ *  only if it was dropped: a user who tabbed elsewhere during the wait keeps
+ *  their place. Synchronous, in the commit that removed the button: the
+ *  dialog's focus manager checks in a microtask whether focus fell to
+ *  <body> and, if so, parks it on the popup, which a screen reader announces
+ *  as the whole dialog before the card. Focused here first, it never falls. */
+function useFocusRegeneratedSlot(
+  grid: RefObject<HTMLDivElement | null>,
+  regeneratingSlot: number | null,
+) {
+  const previous = useRef(regeneratingSlot);
+  useLayoutEffect(() => {
+    const finished = previous.current;
+    previous.current = regeneratingSlot;
+    if (finished === null || regeneratingSlot !== null) return;
+    const card = grid.current?.querySelector<HTMLElement>(
+      `[data-direction-slot="${finished}"]`,
+    );
+    if (card && !card.contains(document.activeElement) && focusWasDropped()) {
+      card.focus();
+    }
+  }, [grid, regeneratingSlot]);
 }
 
 function SourcePill({
@@ -102,6 +144,7 @@ export function DirectionResults({
   regeneratingSlot,
   regenerateError,
   sendingId,
+  sendNotices,
   onRegenerate,
   onSendToTeam,
   onChooseImagery,
@@ -109,6 +152,9 @@ export function DirectionResults({
   /* Keyed to the design, not one shared flag: converting one card must not
      make the other claim to be working too. */
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [jpgFailedId, setJpgFailedId] = useState<string | null>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  useFocusRegeneratedSlot(grid, regeneratingSlot);
 
   if (slots.length === 0) {
     return <EmptyResults onChooseImagery={onChooseImagery} />;
@@ -122,11 +168,12 @@ export function DirectionResults({
 
   async function handleJpeg(generation: SerializedGeneration) {
     setConvertingId(generation.id);
+    setJpgFailedId((id) => (id === generation.id ? null : id));
     try {
       await downloadJpeg(generation);
       trackDesignDownload(generation, "jpg");
     } catch {
-      toast.error("The JPG couldn't be made. Download the PNG instead.");
+      setJpgFailedId(generation.id);
     } finally {
       setConvertingId((id) => (id === generation.id ? null : id));
     }
@@ -140,7 +187,7 @@ export function DirectionResults({
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div ref={grid} className="grid gap-4 sm:grid-cols-2">
         {slots.map(({ id, generation }, index) => {
           const regenerate = {
             regenerating: regeneratingSlot === index,
@@ -150,6 +197,7 @@ export function DirectionResults({
               regenerateError?.slot === index ? regenerateError.message : null,
             onRegenerate: () => onRegenerate(index),
           };
+          const notice = sendNotices[id];
           return generation ? (
             <DirectionCard
               key={id}
@@ -160,6 +208,11 @@ export function DirectionResults({
               onDownloadJpg={() => void handleJpeg(generation)}
               sendingToTeam={sendingId === id}
               onSendToTeam={() => onSendToTeam(generation)}
+              sentMessage={notice?.tone === "sent" ? notice.message : null}
+              actionErrors={[
+                ...(jpgFailedId === id ? [JPG_FAILED] : []),
+                ...(notice?.tone === "error" ? [notice.message] : []),
+              ]}
               {...regenerate}
             />
           ) : (

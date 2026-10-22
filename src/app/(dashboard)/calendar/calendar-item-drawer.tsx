@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Pencil, Sparkles, Trash2 } from "lucide-react";
+import { Clock, Pencil, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -30,6 +30,10 @@ import {
   updateCalendarItemAction,
   updateCalendarItemStatusAction,
 } from "./actions";
+import {
+  CALENDAR_DRAWER_CLASS,
+  CalendarItemActions,
+} from "./calendar-item-actions";
 import { draftFromItem, ItemFormFields } from "./item-form";
 import type { CalendarItem, CalendarItemStatus } from "./types";
 import { sourceLabel, statusLabel } from "./types";
@@ -266,10 +270,7 @@ export function CalendarItemDrawer({
   return (
     <>
       <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetContent
-          side="right"
-          className="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-md"
-        >
+        <SheetContent side="right" className={CALENDAR_DRAWER_CLASS}>
           {item && !editing && (
             <>
               <SheetHeader className="gap-2 pr-10">
@@ -383,55 +384,31 @@ export function CalendarItemDrawer({
                 </Section>
               </div>
 
-              <SheetFooter className="flex-row items-center gap-2 border-t border-[var(--border)]">
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  className="mr-auto gap-1.5 text-[var(--status-error-fg)] hover:text-[var(--status-error-fg)]"
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  <Trash2 aria-hidden="true" className="h-4 w-4" />
-                  Delete
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  onClick={() => handleOpenChange(false)}
-                >
-                  Close
-                </Button>
-                {submitted ? (
-                  <Button variant="secondary" size="lg" disabled>
-                    Design Ticket Submitted
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      onClick={onRequestDesign}
-                    >
-                      Send to design team
-                    </Button>
-                    {/* designRequired was a planning hint from calendar
-                        generation, never an entitlement — gating the button on
-                        it hid the feature on most items. */}
-                    <GenerateDesignButton
-                      brandId={brandId}
-                      entry="calendar"
-                      calendarItemId={item.id}
-                      label="Generate with AI"
-                      size="lg"
-                      ticketContext={{
-                        calendarItemId: item.id,
-                        designType: item.designType ?? item.contentType,
-                        dimensions: item.dimensions,
-                        brief: item.brief ?? item.caption ?? item.title,
-                      }}
-                    />
-                  </>
-                )}
-              </SheetFooter>
+              <CalendarItemActions
+                submitted={submitted}
+                onDelete={() => setConfirmingDelete(true)}
+                onClose={() => handleOpenChange(false)}
+                onRequestDesign={onRequestDesign}
+                generate={
+                  /* designRequired was a planning hint from calendar
+                     generation, never an entitlement: gating the button on
+                     it hid the feature on most items. */
+                  <GenerateDesignButton
+                    brandId={brandId}
+                    entry="calendar"
+                    calendarItemId={item.id}
+                    label="Generate with AI"
+                    size="lg"
+                    className="w-full"
+                    ticketContext={{
+                      calendarItemId: item.id,
+                      designType: item.designType ?? item.contentType,
+                      dimensions: item.dimensions,
+                      brief: item.brief ?? item.caption ?? item.title,
+                    }}
+                  />
+                }
+              />
             </>
           )}
 
