@@ -138,6 +138,22 @@ describe("measureSubject", () => {
     expect(report?.overlaps.map((o) => o.id)).toEqual(["accent-rule"]);
   });
 
+  /* Round-3 eval: a photo framed in half the canvas cropped its large
+     subject, and the hidden part of the box "overlapped" the copy beside
+     the frame, so every layout looked covered. */
+  it("counts only the drawn part of a cropped subject as coverable", () => {
+    const halfImage = { ...image, width: 540 };
+    const wide = { x: 0.1, y: 0.2, w: 0.8, h: 0.6 };
+    const copy = shape("cta", { x: 600, y: 600, width: 300, height: 80 });
+    const doc: DesignDocument = {
+      ...docWith(copy),
+      elements: [halfImage, copy],
+    };
+    const report = measureSubject(doc, IMAGE, wide);
+    expect(report?.visibleShare).toBeLessThan(0.995);
+    expect(report?.overlaps).toEqual([]);
+  });
+
   it("counts the clear space around the subject as part of it", () => {
     const gap = 1080 * SUBJECT_GAP;
     const near = shape("accent-rule", {

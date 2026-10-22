@@ -148,3 +148,19 @@ describe("repairDirectionsText, round-2 probes", () => {
     ]);
   });
 });
+
+describe("repairDirectionsText, round-3 eval", () => {
+  it("reads an off-list background treatment as photographic", async () => {
+    const text = JSON.stringify({
+      directions: [
+        { ...draftOf(), backgroundTreatment: "photographic lifestyle" },
+        contrastingDraft(),
+      ],
+    });
+    const repaired = await repairDirectionsText({ text, count: 2 });
+    expect(valid(repaired)).toBe(true);
+    expect(JSON.parse(repaired ?? "{}").directions[0].backgroundTreatment).toBe(
+      "photographic",
+    );
+  });
+});

@@ -258,7 +258,11 @@ export function measureSubject(
   const visible = shown ? intersection(shown, canvas) : null;
   const area = box.width * box.height;
   const ref = Math.min(doc.width, doc.height);
-  const guard = grown(box, ref * SUBJECT_GAP);
+  /* Only the part of the subject that is drawn can be covered: a photo
+     cropped by its frame leaves the rest of its subject box over whatever
+     sits beside the frame, which is copy by design in a split layout. The
+     crop itself is visibleShare's to report. */
+  const guard = grown(visible ?? box, ref * SUBJECT_GAP);
   const overlaps: SubjectOverlap[] = [];
   for (const other of doc.elements) {
     if (!guardsSubject(other, doc)) continue;

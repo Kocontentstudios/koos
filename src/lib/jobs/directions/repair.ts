@@ -1,4 +1,8 @@
+import { designSpecSchema } from "@/lib/design/spec";
 import { DRAFT_LIMITS } from "./schema";
+
+const BACKGROUND_TREATMENTS =
+  designSpecSchema.shape.backgroundTreatment.options;
 
 /**
  * Rescues a directions answer that is complete but malformed, so the user
@@ -58,6 +62,18 @@ function clampDirection(value: unknown): unknown {
     if (typeof text === "string" && text.length > max) {
       direction[field] = clampWords(text, max);
     }
+  }
+  /* Round-3 eval: an off-list treatment lost a whole case. It only steers
+     the plate prompt's wording, and every directions image is a photograph
+     or a plate painted as one, so this is the one enum with a true value to
+     fall back to. */
+  if (
+    typeof direction.backgroundTreatment === "string" &&
+    !(BACKGROUND_TREATMENTS as readonly string[]).includes(
+      direction.backgroundTreatment,
+    )
+  ) {
+    direction.backgroundTreatment = "photographic";
   }
   /* Seen shapes that are the right content in the wrong container. */
   if (direction.footerLines === null) direction.footerLines = [];
