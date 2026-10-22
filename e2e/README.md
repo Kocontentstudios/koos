@@ -45,7 +45,8 @@ server. If the probe stops seeing a kind of ground, it fails there first.
 ## Running it
 
 From the repo root, with the local database running
-(`docker start koos-dev-db`) and migrated:
+(`docker start koos-dev-db`) and migrated, and Chromium installed once per
+machine (`corepack pnpm exec playwright install chromium`):
 
 ```sh
 corepack pnpm e2e:contrast
