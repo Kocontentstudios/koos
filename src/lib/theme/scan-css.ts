@@ -5,6 +5,8 @@ import {
   checkGrounds,
   checkTextColors,
   declsOf,
+  FADE_ON_FILL,
+  fadesFill,
   isFamily,
   maxAlpha,
   type Paint,
@@ -132,6 +134,9 @@ export function scanCss(
     )
       continue;
     const at = (match.index ?? 0) + match[0].indexOf("{");
+    if (fadesFill(declsOf(match[2]))) {
+      problems.push(`${fileName}:${lineOf(at)} ${FADE_ON_FILL}`);
+    }
     for (const selector of splitTopLevel(prelude, ",")) {
       const themes = themesOfSelector(selector);
       rules.push({

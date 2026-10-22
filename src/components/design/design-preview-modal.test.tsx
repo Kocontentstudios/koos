@@ -43,11 +43,11 @@ describe("DesignPreviewModal send action", () => {
   /* Regression: this button swapped its own label to "Sending…" but never
      showed a spinner, so it was the one action in the app whose pending state
      didn't match the rest. It now uses Button's own loading prop. */
-  it("shows a spinner and disables itself while sending", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<never>(() => {})),
-    );
+  /* Loading is not disabled: the busy button keeps its fill and swallows the
+     second click instead, so the request goes out once. */
+  it("shows a spinner and sends once while sending", async () => {
+    const fetchMock = vi.fn(() => new Promise<never>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderModal();
 
@@ -56,8 +56,9 @@ describe("DesignPreviewModal send action", () => {
     await user.click(send);
 
     const busy = await screen.findByRole("button", { name: /Sending…/ });
-    expect(busy).toBeDisabled();
     expect(busy).toHaveAttribute("aria-busy", "true");
+    await user.click(busy);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("stays disabled while a generation is still running", () => {

@@ -381,3 +381,33 @@ export function contextFor(policy: ScanPolicy, fileName: string): Context {
     textColors: listed(policy.textTokens),
   };
 }
+
+/* Opacity or a filter on a labelled fill, or on anything wrapping one, repaints
+   the fill lighter under its label: `hover:opacity-90` on the link around the
+   auth KO mark put white at 4.26:1. The fill tokens are measured only as
+   written, so a fade over one is rejected rather than measured. */
+export const FILL_IN_CLASSES =
+  /(?:^|[\s:!])(?:bg|from|via|to)-primary-fill\b|var\(--primary-fill/;
+export const FADE_IN_CLASSES =
+  /(?:^|[\s:!])(?:opacity-(?!(?:0|100)(?:\s|$))[\w.[]|brightness-|contrast-|saturate-|mix-blend-(?!normal\b)|\[(?:opacity|filter|mix-blend-mode):)/;
+export const FADE_ON_FILL =
+  "opacity or a filter over a labelled --primary-fill: change the fill token (--primary-fill-hover) instead";
+
+export function fadesFill(decls: [string, string][]): boolean {
+  const paintsFill = decls.some(
+    ([prop, value]) =>
+      prop.startsWith("background") && /var\(--primary-fill/.test(value),
+  );
+  if (!paintsFill) return false;
+  return decls.some(([prop, value]) => {
+    if (prop === "opacity") {
+      const n = value.endsWith("%")
+        ? Number.parseFloat(value) / 100
+        : Number(value);
+      return n > 0 && n < 1;
+    }
+    if (prop === "filter") return value !== "none";
+    if (prop === "mix-blend-mode") return value !== "normal";
+    return false;
+  });
+}

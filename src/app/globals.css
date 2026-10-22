@@ -73,7 +73,8 @@
   --status-pending-bg: rgba(212, 169, 84, 0.15);
   --status-pending-fg: #d4a954;
   --status-error-bg: rgba(212, 117, 117, 0.08);
-  --status-error-fg: #d47575;
+  /* #d47575 was 4.42:1 over its tint on --surface-container-highest. */
+  --status-error-fg: #d57a7a;
 
   /* --- Borders & effects -------------------------------------------------- */
   --border: rgba(255, 255, 255, 0.06);
@@ -229,16 +230,23 @@
   --status-draft-bg: rgba(15, 23, 42, 0.05);
   --hover: rgba(15, 23, 42, 0.05);
 
-  /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
-     amber/red drop below readable contrast on white surfaces. Darken them for
-     light mode (the low-alpha tint backgrounds stay legible as-is).
-     --status-progress-fg is held to 4.5:1 over its tint on every surface by
-     theme-contrast.test.ts; #1f7ab5 measured 3.91:1 on a white card. */
+  /* Status foregrounds are tuned for the dark navy shell and darkened here,
+     same hue, until each clears 4.5:1 over its own tint on every light
+     surface, the page and #e2e8f0 included (theme-contrast.test.ts). The tints
+     do not stay legible on their own: #4d7c0f, #a16207 and #c0392b measured
+     3.43, 3.69 and 4.12:1 at their worst. */
   --status-draft-fg: #475569;
   --status-progress-fg: #175c89;
-  --status-ready-fg: #4d7c0f;
-  --status-pending-fg: #a16207;
-  --status-error-fg: #c0392b;
+  --status-ready-fg: #3f660c;
+  --status-pending-fg: #8b5506;
+  --status-error-fg: #b23528;
+
+  /* The semantic hues are also text (text-success, the Pro Tip heading, inline
+     errors); the dark values were 1.64, 1.77 and 2.58:1 on the light page.
+     They share the status foregrounds' light values. */
+  --success: #3f660c;
+  --warning: #8b5506;
+  --error: #b23528;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -557,10 +565,13 @@ h6 {
       box-shadow 0.2s ease;
   }
 
+  /* A placeholder is text the user reads, so it is held to 4.5:1 like any
+     other: --text-muted at full opacity. --on-surface-variant at 0.5 measured
+     2.1 to 2.3:1 on every field in both themes. */
   input::placeholder,
   textarea::placeholder {
-    color: var(--on-surface-variant);
-    opacity: 0.5;
+    color: var(--text-muted);
+    opacity: 1;
   }
 }
 

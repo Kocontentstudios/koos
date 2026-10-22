@@ -744,7 +744,7 @@ Same layout as Login, differences:
 
 ### **Loading & Error States**
 
-* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is disabled and carries `aria-busy`. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
+* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is not disabled: it keeps its resting fill at full opacity (Primary Fill, white label, 5.08:1), carries `aria-busy` and `data-loading`, and swallows clicks, including the synthetic click an Enter key sends to a form's submit button. Loading means "I am working"; disabled means "wait". A disabled fill under a Saving… label measured 1.87:1 dark and 2.04:1 light until 2026-10-22. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
 * Network error: banner appears below the card. Background \#1A3A4A, border-left 3px \#D47575, text \#A7B6C7, padding 12px 16px.
 
@@ -1062,7 +1062,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Day cell: minimum height 100px. Background: transparent. Border: 1px solid rgba(255,255,255,0.04).
 
-* Day number: 13px/400, top-left of cell, padding 6px. Current day: 12px/600 white in a 22px Primary Fill \#1075A8 circle. Other days: \#A7B6C7. Other month days (padding): \#7C90A3 at 50% opacity.
+* Day number: 13px/400, top-left of cell, padding 6px. Current day: 12px/600 white in a 22px Primary Fill \#1075A8 circle. Other days: Text Primary. Other month days (padding): Text Muted at full opacity. Padding days are still drill-in targets, so their numbers are held to 4.5:1; the old 40% opacity put them at 3.76:1 dark and 2.50:1 light.
 
 * Items in cell: small cards stacked vertically, max 2 visible (+ N more indicator if overflow).
 
@@ -1466,7 +1466,11 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 
 * Why Primary is split: one value cannot serve both jobs. White on \#138BC8 is 3.78:1, so a fill has to be darker; but as text on the dark surfaces a darker blue loses contrast, so text has to be lighter. Primary keeps the brand value for everything that is not text and not under text.
 
-* The gate is an allowlist, not a list of known mistakes. `src/app/primary-token-usage.test.ts` runs `src/lib/theme/primary-usage.ts` over every file in `src/`. Any colour in the brand family (hue 192-215, saturation 0.4 or more, lightness 0.2-0.65) is caught however it is written: a token, a Tailwind name (`bg-ring`, `bg-sidebar-ring`), a hex, an `rgb()`, a gradient stop, an SVG `fill`, a `selection:` / `file:` / `placeholder:` / `before:` box, or a CSS rule that styles text inside another rule's fill. Behind a label only the three fill tokens may sit, and the label is measured against them. A brand gradient under a label is measured at both stops and every point between, in sRGB and oklab. As text only Primary Text, its hover and `--status-progress-fg` may appear. A brand tint under half alpha is measured with each label colour over every surface token. The retired `--primary-hover` / `--primary-active` and their values (\#0F7EB8, \#0A6D9E) are rejected anywhere in `src/`.
+* Two checks hold this, and neither is enough alone.
+
+  * **The source gate** (`src/app/primary-token-usage.test.ts`, under 2s) runs `src/lib/theme/primary-usage.ts` over every `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts` and `.css` file in `src/`. It reads string literals in `className`, inline `style` objects with literal values and CSS rules. In those, any colour in the brand family (hue 192-215, saturation 0.4 or more, lightness 0.2-0.65) written as a token, a Tailwind theme name (`bg-ring`, `bg-sidebar-ring`), a hex or an `rgb()` may sit behind a label only as one of the three fill tokens, and the label is measured against it. A `from-` / `via-` / `to-` gradient stop under a label is measured at both stops and every point between. As text only Primary Text, its hover and `--status-progress-fg` may appear. A brand tint under half alpha is measured with each label colour over every surface token. Opacity, a filter or a blend mode on a labelled `--primary-fill` is rejected: in markup on the fill or on any element that wraps it, in CSS in the rule that paints it. The retired `--primary-hover` / `--primary-active` and their values (\#0F7EB8, \#0A6D9E) are rejected anywhere in `src/`.
+  * **What the source gate cannot see.** A ground held in a const, a lookup map, a `cva` variant or a prop; an interpolated class name; an `[background:]` arbitrary property or a `bg-[linear-gradient()]`; `hsl()`, `oklch()` and `color-mix()`; Tailwind palette blues (`bg-sky-600`); SVG shape fills; `before:` boxes; inset box-shadow fills; local custom properties; CSS nesting, `@apply`, `:is()` and unrelated class names; HTML strings. On the 50-pattern evasion corpus it catches 8. It is a cheap first line, not the guarantee.
+  * **The rendered check** (`e2e/contrast/`, periodic lane, 5 to 12 minutes, see `e2e/README.md`) loads the landing page, login, the dashboard with its sidebar, calendar, Design Studio, strategy, brand, design tickets, the onboarding welcome and onboarding start in both themes. It measures every visible text run, field value and placeholder against the pixels actually painted behind it, at rest and under hover, press and keyboard focus on every control, and runs axe-core's `color-contrast` rule alongside. It catches all 50 corpus patterns; the source gate covers the two state-only controls (`data-[state=on]:`, `aria-[current=page]:`) that do not render at rest. Run it before shipping any colour change.
 
 ### **Primary as Text**
 
@@ -1485,7 +1489,7 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 | :---- | :---- | :---- | :---- |
 | Text Primary | \#FFFFFF | \#0F172A | Headings, primary content, button text on primary bg |
 | Text Secondary | \#A7B6C7 | \#475569 | Body copy, descriptions, secondary labels, inactive nav items |
-| Text Muted | \#7C90A3 | \#58687B | Placeholders, timestamps, helper text, meta info |
+| Text Muted | \#7C90A3 | \#58687B | Placeholders (at full opacity), timestamps, helper text, meta info |
 
 * Every text token clears 4.5:1 on every surface token in its theme, including popovers and dialogs (`--surface-2`). Text Muted was \#6F8599 (dark, 4.35:1 on `--surface-2`) and \#7C8DA1 (light, 3.40:1 on a white dialog) until 2026-10-21; both were lightness-only moves in the same hue. Measured values are in 12.1.
 
@@ -1495,12 +1499,18 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 | :---- | :---- | :---- | :---- | :---- |
 | Draft | rgba(255,255,255,0.06) / rgba(15,23,42,0.05) | \#A7B6C7 | \#475569 | Unpublished, not started |
 | In Progress | rgba(19,139,200,0.15) | \#85B7EB | \#175C89 | Working on it |
-| Ready | rgba(99,153,34,0.18) | \#97C459 | \#4D7C0F | Content/design ready |
+| Ready | rgba(99,153,34,0.18) | \#97C459 | \#3F660C | Content/design ready |
 | Published | rgba(19,139,200,0.15) | \#85B7EB | \#175C89 | Live/posted |
-| Pending | rgba(212,169,84,0.15) | \#D4A954 | \#A16207 | Waiting for designer |
-| Error | rgba(212,117,117,0.08) | \#D47575 | \#C0392B | Something went wrong |
+| Pending | rgba(212,169,84,0.15) | \#D4A954 | \#8B5506 | Waiting for designer |
+| Error | rgba(212,117,117,0.08) | \#D57A7A | \#B23528 | Something went wrong |
 
-* Tokens: `--status-{draft,progress,ready,pending,error}-{bg,fg}` in `globals.css`. The light text values are the dark ones darkened for white surfaces; the tints are shared.
+* Tokens: `--status-{draft,progress,ready,pending,error}-{bg,fg}` in `globals.css`. The light text values are the dark ones darkened, same hue, until each clears 4.5:1 over its own tint on every light surface; the tints are shared. A pill can sit on the page or on a card, so `theme-contrast.test.ts` holds every status pair to 4.5:1 over its tint on every surface token in both themes, and each fg as bare text too.
+
+* Every pill, weakest surface: light Ready, Pending and Error 4.63:1 over \#E2E8F0 (5.57, 5.55 and 5.65:1 on a white card; 4.97, 4.96 and 5.01:1 on the page); Draft 5.59:1. Dark Error 4.61:1 over \#002550, the weakest dark pair; Ready 6.01, Pending 5.44, Draft 6.25:1.
+
+* Until 2026-10-22 light Ready was \#4D7C0F, Pending \#A16207 and Error \#C0392B (3.43, 3.69 and 4.12:1 at their worst; 3.68, 3.95 and 4.45:1 on the page), and dark Error was \#D47575 (4.42:1 over \#002550). The design-ticket badge drew its fg on a 16% `color-mix` of itself; it now uses the same tint tokens (`TICKET_STATUS_TONE` in `ticket-status-badge.tsx`).
+
+* The semantic hues (`--success`, `--warning`, `--error`) are also text: the checklist's done state, the Pro Tip heading, inline field errors. In light mode they take the light status values (\#3F660C, \#8B5506, \#B23528; worst 5.46, 5.01 and 4.96:1). The dark values were 1.64, 1.77 and 2.58:1 on the light page.
 
 * In Progress and Published (`--status-progress-fg`) are held to 4.5:1 over their tint on every surface token by `theme-contrast.test.ts`: 6.51:1 dark over Surface 2, 6.02:1 light over a white card, worst 4.96:1 light over \#E2E8F0. The light value was \#1F7AB5 until 2026-10-21, which measured 3.91:1 on a white card (the FEAT-033 source pill) and 3.22:1 over \#E2E8F0.
 
@@ -1581,13 +1591,15 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Default | \#1075A8 (`--primary-fill`) | \#FFFFFF | 5.08:1 | none | none |
 | Hover | \#0F6B9A (`--primary-fill-hover`) | \#FFFFFF | 5.85:1 | none | 0 4px 12px rgba(19,139,200,0.2) |
 | Active | \#0C5F8A (`--primary-fill-active`) | \#FFFFFF | 6.95:1 | none | none (translateY \+1px) |
-| Disabled | \#1A3A4A | \#7C90A3 dark, \#A7B6C7 light (`--primary-disabled-foreground`) | 3.65:1 dark, 5.81:1 light, before the 50% disabled opacity | none | none |
+| Disabled | \#1A3A4A | \#7C90A3 dark, \#A7B6C7 light (`--primary-disabled-foreground`) | 3.65:1 dark, 5.81:1 light, at full opacity | none | none |
 | Focus | \#1075A8 | \#FFFFFF | 5.08:1 | none | 2px solid `--ring` outline, 2px offset |
-| Loading | \#1075A8 | \#FFFFFF | 5.08:1 | none | Inline spinner \+ present-participle label (Saving…) |
+| Loading | \#1075A8, and the hover and active fills under the pointer | \#FFFFFF | 5.08:1 (5.85 / 6.95:1 hovered / pressed) | none | Inline spinner \+ present-participle label (Saving…), `aria-busy`, clicks swallowed, not disabled |
 
-* Same values in both themes. Classes: `bg-primary-fill text-primary-foreground hover:bg-primary-fill-hover active:bg-primary-fill-active` (the `default` variant of `src/components/ui/button.tsx`). A hand-rolled primary button (auth forms, chat send) uses the same four classes, never `bg-primary` and never `hover:opacity-*`, which lightens the fill under the label.
+* Same values in both themes. Classes: `bg-primary-fill text-primary-foreground hover:bg-primary-fill-hover active:bg-primary-fill-active` (the `default` variant of `src/components/ui/button.tsx`). A hand-rolled primary button (auth forms, chat send) uses the same four classes, never `bg-primary` and never `hover:opacity-*`, which lightens the fill under the label. That holds for any ancestor too: the auth KO mark's link had `hover:opacity-90` and put white at 4.26:1; it now hovers through `group-hover:bg-primary-fill-hover` on the mark.
 
-* Disabled text is exempt from WCAG AA; the floor here is 3:1 so it stays legible. It was \#7C90A3 in both themes until 2026-10-21, which was 2.11:1 on the dark navy fill in light mode.
+* Nothing that carries text recedes by opacity. The landing hero's side cards were at 0.7 group opacity, which put the white avatar initials at 3.00:1 and the blue badge at 3.21:1 in light mode; they now recede by their surface (Surface 1 mixed 55% into Base) with every label at full colour.
+
+* Disabled text is exempt from WCAG AA; the floor here is 3:1 so it stays legible. It was \#7C90A3 in both themes until 2026-10-21, which was 2.11:1 on the dark navy fill in light mode. The primary variant paints disabled with its own tokens and no opacity, so the ratios above are what renders; the other variants still fade to 50% when disabled.
 
 * Link variant: `text-primary-text`, underline on hover.
 
@@ -1910,12 +1922,14 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Primary Text Hover, weakest surface | \#45B4ED, 6.52:1 on \#002550 | \#0C577E, 6.36:1 on \#E2E8F0 |
 | Primary Text Hover, weakest brand tint | 5.03:1 | 5.13:1 |
 | In Progress text on its tint, weakest surface | \#85B7EB, 5.97:1 over \#002550 | \#175C89, 4.96:1 over \#E2E8F0 |
+| Ready / Pending / Error text on its tint, weakest surface | 6.01 / 5.44 / 4.61:1 over \#002550 | 4.63 / 4.63 / 4.63:1 over \#E2E8F0 |
+| Placeholder (Text Muted, full opacity), weakest surface | 4.62:1 on \#002550 | 4.63:1 on \#E2E8F0 |
 | White on the brand band / its badges (light) | n/a (the band is Surface 2) | 5.08:1 on Primary Fill / 6.95:1 on Primary Fill Active |
 | Disabled label on Disabled fill | \#7C90A3 on \#1A3A4A \= 3.65:1 | \#A7B6C7 on \#1A3A4A \= 5.81:1 |
 
 * For the record: \#FFFFFF on the brand \#138BC8 is 3.78:1, and \#138BC8 as text is 4.40:1 on dark Surface 2, 4.02:1 on \#002550 and 3.34:1 on the light page. That is why fills and text have their own tokens (9.2) while the ring stays on \#138BC8, which clears 3:1 everywhere.
 
-* The gate also measures the split: white on each fill token, Primary Text and its hover on every surface and on every brand-tint alpha found in `src/` over every surface, the In Progress pair on its tint over every surface, the disabled label at 3:1, and `landing.css` and `EMAIL_BRAND` against the same values. The usage scan (9.2) measures what the token gate cannot see: the pairs `src/` actually writes.
+* The gate also measures the split: white on each fill token, Primary Text and its hover on every surface and on every brand-tint alpha found in `src/` over every surface, the In Progress pair on its tint over every surface, the disabled label at 3:1, and `landing.css` and `EMAIL_BRAND` against the same values. Every status pill over its tint on every surface, and each status and semantic hue as bare text, is measured the same way. The usage scan (9.2) measures what the token gate cannot see: the pairs `src/` actually writes. The rendered check (9.2, `e2e/README.md`) measures what neither can: what the browser paints.
 
 ## **12.2 Focus Management**
 

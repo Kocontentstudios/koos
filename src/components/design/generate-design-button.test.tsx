@@ -53,13 +53,17 @@ describe("GenerateDesignButton", () => {
     expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  it("spins, announces busy and refuses a second click while generating", () => {
+  it("spins, announces busy and refuses a second click while generating", async () => {
     design.pending = true;
     const { container } = render(<GenerateDesignButton brandId="b1" />);
     const button = screen.getByRole("button", { name: /Generating…/ });
-    expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+    await userEvent.click(button);
+    expect(
+      screen.queryByRole("button", { name: /use a specific image/i }),
+    ).toBeNull();
+    expect(design.generate).not.toHaveBeenCalled();
   });
 
   /* Every entry point goes through this button, so none can skip the image

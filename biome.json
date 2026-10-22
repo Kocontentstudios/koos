@@ -9,6 +9,7 @@
     "includes": [
       "src/**",
       "scripts/**",
+      "e2e/**",
       "*.ts",
       "*.mjs",
       "!src/app/landing.css"

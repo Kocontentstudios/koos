@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
-import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { requestPasswordReset } from "../actions";
 
 type ForgotPasswordState = { error?: string; success?: string } | null;
@@ -95,25 +94,14 @@ export default function ForgotPasswordPage() {
             </div>
 
             {/* Submit */}
-            <button
-              className={cn(
-                "w-full bg-primary-fill text-primary-foreground rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
-                pending
-                  ? "opacity-50 cursor-not-allowed"
-                  : "hover:bg-primary-fill-hover",
-              )}
-              disabled={pending}
+            <Button
               type="submit"
+              loading={pending}
+              loadingText="Sending…"
+              className="mt-1 h-10 w-full rounded-xl py-2.5 text-sm"
             >
-              {pending ? (
-                <>
-                  <Spinner />
-                  Sending…
-                </>
-              ) : (
-                "Send Reset Link"
-              )}
-            </button>
+              Send Reset Link
+            </Button>
           </form>
         )}
 

@@ -69,10 +69,7 @@ export function MonthView({
             // be a button — the drill target is a full-bleed overlay instead.
             <div
               key={key}
-              className={cn(
-                "group relative flex min-h-[64px] flex-col gap-1 border-b border-r border-[var(--border)] p-1.5 sm:min-h-[96px]",
-                !inMonth && "opacity-40",
-              )}
+              className="group relative flex min-h-[64px] flex-col gap-1 border-b border-r border-[var(--border)] p-1.5 sm:min-h-[96px]"
             >
               <button
                 type="button"
@@ -99,7 +96,9 @@ export function MonthView({
                   "pointer-events-none relative z-[1] text-[12px] font-semibold",
                   isToday
                     ? "inline-flex h-[22px] w-[22px] items-center justify-center self-start rounded-full bg-primary-fill text-primary-foreground"
-                    : "text-foreground",
+                    : inMonth
+                      ? "text-foreground"
+                      : "text-[var(--text-muted)]",
                 )}
               >
                 {day.getUTCDate()}

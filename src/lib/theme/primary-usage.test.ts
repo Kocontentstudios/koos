@@ -344,6 +344,88 @@ describe("what the brand blue may still do is left alone", () => {
   });
 });
 
+/* Round 2 left `hover:opacity-90` on the link around the auth KO mark: white
+   on the faded fill measured 4.26:1. The fade sat on the parent, where a
+   per-element pair check never looks. */
+describe("a fade over a labelled fill is rejected", () => {
+  it.each([
+    [
+      "opacity on an ancestor of the fill",
+      `<a href="/" className="inline-flex hover:opacity-90"><span className="bg-primary-fill text-primary-foreground">KO</span></a>`,
+    ],
+    [
+      "opacity on the fill itself",
+      `<span className="bg-primary-fill text-white opacity-60">Faded</span>`,
+    ],
+    [
+      "hover opacity on a primary button",
+      `<button type="button" className="bg-primary-fill text-primary-foreground hover:opacity-70">Go</button>`,
+    ],
+    [
+      "a brightness filter",
+      `<span className="bg-primary-fill text-white brightness-150">Bright</span>`,
+    ],
+    [
+      "a blend mode",
+      `<span className="bg-primary-fill text-white mix-blend-screen">Blend</span>`,
+    ],
+    [
+      "an arbitrary opacity",
+      `<div className="[opacity:0.8]"><span className="bg-primary-fill text-white">KO</span></div>`,
+    ],
+  ])("TSX: %s", (_label, tsx) => {
+    expect(scan(tsx).join("\n")).toContain("opacity or a filter");
+  });
+
+  it("CSS: opacity on a rule that paints the fill", () => {
+    expect(
+      scan(
+        ".chip { background: var(--primary-fill); color: #fff; opacity: 0.6; }",
+        "fixture.css",
+      ).join("\n"),
+    ).toContain("opacity or a filter");
+  });
+
+  it.each([
+    [
+      "reveal from opacity-0",
+      `<span className="bg-primary-fill text-white opacity-0 group-hover:opacity-100">Show</span>`,
+    ],
+    [
+      "opacity on an unrelated label",
+      `<p className="opacity-80 text-foreground">Note</p>`,
+    ],
+    [
+      "opacity on an unlabelled fill dot",
+      `<span className="size-2 rounded-full bg-primary-fill opacity-60" />`,
+    ],
+    [
+      "hover through the fill token",
+      `<a href="/" className="group"><span className="bg-primary-fill text-white group-hover:bg-primary-fill-hover">KO</span></a>`,
+    ],
+  ])("stays clean: %s", (_label, tsx) => {
+    expect(scan(tsx)).toEqual([]);
+  });
+
+  it("CSS stays clean: an opaque fill rule", () => {
+    expect(
+      scan(
+        ".chip { background: var(--primary-fill); color: #fff; opacity: 1; }",
+        "fixture.css",
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads .jsx with JSX syntax", () => {
+    expect(
+      scan(
+        `export const A = () => <span className="bg-primary text-white">x</span>;`,
+        "fixture.jsx",
+      ),
+    ).not.toEqual([]);
+  });
+});
+
 describe("splitVariants", () => {
   it.each([
     ["group-hover:bg-primary", ["group-hover"], "bg-primary"],

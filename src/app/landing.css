@@ -208,10 +208,6 @@
             box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
         }
 
-        :root[data-theme="light"] .nav-link {
-            color: #64748B;
-        }
-
         :root[data-theme="light"] .nav-link:hover {
             color: #0F172A;
         }
@@ -419,11 +415,17 @@
             animation-delay: 0s;
         }
 
+        /* The side cards recede by their surface, not by group opacity: a 0.7
+           fade put the avatar's white at 3.00:1 and the blue badge at 3.21:1. */
+        .hero-visual-card-2,
+        .hero-visual-card-3 {
+            background: color-mix(in srgb, var(--surface-1) 55%, var(--base));
+        }
+
         .hero-visual-card-2 {
             top: 80px;
             left: 5%;
             width: 240px;
-            opacity: 0.7;
             z-index: 2;
             animation-delay: -2s;
         }
@@ -432,7 +434,6 @@
             top: 100px;
             right: 5%;
             width: 240px;
-            opacity: 0.7;
             z-index: 2;
             animation-delay: -4s;
         }
@@ -1498,10 +1499,6 @@
                 background: rgba(255, 255, 255, 0.96);
                 border-color: rgba(15, 23, 42, 0.08);
                 box-shadow: 0 12px 40px rgba(15, 23, 42, 0.14);
-            }
-
-            :root[data-theme="light"] .nav-links .nav-link {
-                color: #64748B;
             }
 
             :root[data-theme="light"] .nav-links .nav-link:hover {

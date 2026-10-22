@@ -15,6 +15,9 @@ import { scanPrimaryUsage } from "@/lib/theme/primary-usage";
  */
 
 const SRC = path.join(process.cwd(), "src");
+/* Every source extension src/ can hold: round 2's walk read only .ts, .tsx
+   and .css, so a fill pair in a .jsx or .mts file passed the gate. */
+const SCANNED = /\.(?:[cm]?[jt]sx?|css)$/;
 
 describe("src pairs no label with the brand blue outside the fill and text tokens", () => {
   it("has no misuse of the primary family anywhere", () => {
@@ -22,7 +25,7 @@ describe("src pairs no label with the brand blue outside the fill and text token
     const problems: string[] = [];
     for (const entry of readdirSync(SRC, { recursive: true })) {
       const rel = String(entry);
-      if (!/\.(tsx?|css)$/.test(rel) || /\.test\.tsx?$/.test(rel)) continue;
+      if (!SCANNED.test(rel) || /\.test\.[cm]?[jt]sx?$/.test(rel)) continue;
       const source = readFileSync(path.join(SRC, rel), "utf8");
       problems.push(...scanPrimaryUsage(`src/${rel}`, source, policy));
     }

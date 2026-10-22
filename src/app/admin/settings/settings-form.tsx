@@ -75,7 +75,6 @@ export function SettingsForm({
         variant="default"
         loading={pending}
         loadingText="Saving…"
-        disabled={pending}
         onClick={submit}
         className="self-start"
       >

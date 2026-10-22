@@ -75,7 +75,11 @@ describe("Button loading state", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
-  it("marks itself busy and disabled so the click cannot repeat", async () => {
+  /* Loading is not disabled (CLAUDE.md "Every wait gets an affordance"): the
+     disabled fill under a "Saving…" label measured 1.87:1 dark, 2.04:1 light.
+     The label stays on the fill it is measured against and the click is
+     swallowed instead. */
+  it("marks itself busy and swallows the click, without disabling", async () => {
     const onClick = vi.fn();
     const user = userEvent.setup();
     render(
@@ -84,10 +88,48 @@ describe("Button loading state", () => {
       </Button>,
     );
     const button = screen.getByRole("button", { name: "Saving…" });
-    expect(button).toBeDisabled();
+    expect(button).toBeEnabled();
     expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveAttribute("data-loading");
     await user.click(button);
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps the resting fill and full opacity while loading", () => {
+    render(<Button loading>Save</Button>);
+    const cls = screen.getByRole("button", { name: "Save" }).className;
+    expect(cls).toMatch(/(?:^|\s)bg-primary-fill(?:\s|$)/);
+    expect(cls).not.toMatch(/(?:^|\s)(?:data-loading:|aria-busy:)?opacity-/);
+  });
+
+  it("does not submit its form while loading, by click or by Enter", async () => {
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    const user = userEvent.setup();
+    render(
+      <form onSubmit={onSubmit}>
+        <input aria-label="Name" />
+        <Button type="submit" loading loadingText="Saving…">
+          Save
+        </Button>
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: "Saving…" }));
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "a{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not bubble the swallowed click to a clickable parent", async () => {
+    const onRowClick = vi.fn();
+    const user = userEvent.setup();
+    render(
+      // biome-ignore lint/a11y/noStaticElementInteractions: a clickable row is the case under test
+      // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard is covered by the form test above
+      <div onClick={onRowClick}>
+        <Button loading>Save</Button>
+      </div>,
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onRowClick).not.toHaveBeenCalled();
   });
 
   it("stays busy-free and enabled when idle", () => {
@@ -97,9 +139,37 @@ describe("Button loading state", () => {
     expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  /* An explicitly disabled button must stay disabled regardless of loading. */
   it("respects an explicit disabled alongside loading", () => {
-    render(<Button disabled>Save</Button>);
+    render(
+      <Button disabled loading>
+        Save
+      </Button>,
+    );
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
+
+  /* The default variant has its own disabled tokens (3.65:1 dark, 5.81:1
+     light). The 50% opacity the other variants use would halve that under the
+     label, so the spec's 3:1 floor would only hold before it. */
+  it("paints a disabled primary on its disabled tokens, at full opacity", () => {
+    render(<Button disabled>Save</Button>);
+    const cls = screen.getByRole("button", { name: "Save" }).className;
+    expect(cls).toContain("disabled:bg-primary-disabled");
+    expect(cls).toContain("disabled:text-primary-disabled-foreground");
+    expect(cls).not.toMatch(/disabled:opacity-/);
+  });
+
+  it.each(["secondary", "ghost", "outline"] as const)(
+    "still fades a disabled %s button",
+    (variant) => {
+      render(
+        <Button variant={variant} disabled>
+          Save
+        </Button>,
+      );
+      expect(screen.getByRole("button", { name: "Save" }).className).toContain(
+        "disabled:opacity-50",
+      );
+    },
+  );
 });

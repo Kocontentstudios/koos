@@ -1,8 +1,16 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { TICKET_STATUS_TONE } from "@/app/(dashboard)/design-request/ticket-status-badge";
 import { contrastRatio } from "@/lib/design/palette";
 import { EMAIL_BRAND } from "@/lib/email-templates";
+import {
+  contrast,
+  over,
+  parseColor,
+  type Rgba,
+  withAlpha,
+} from "@/lib/theme/color";
 import {
   FILL_TOKENS,
   groundTokens,
@@ -10,6 +18,7 @@ import {
   readLandingThemes,
 } from "@/lib/theme/primary-policy";
 import {
+  colorIn,
   resolveToken as resolve,
   stripCssComments as stripComments,
   type Tokens,
@@ -256,24 +265,6 @@ describe.each([
     },
   );
 
-  /* In Progress, Published, SourcePill and the calendar's design badges all
-     draw --status-progress-fg on --status-progress-bg. Light #1f7ab5 measured
-     3.91:1 on a white card and 3.22:1 over --surface-container-highest. */
-  it.each(grounds(tokens))(
-    `--status-progress-fg on its tint over %s clears ${TEXT_AA}:1`,
-    (bg) => {
-      const tint = /^rgba\(19,\s*139,\s*200,\s*([\d.]+)\)$/.exec(
-        resolve(tokens, "--status-progress-bg"),
-      );
-      if (!tint)
-        throw new Error("--status-progress-bg is no longer a brand tint");
-      const ground = composite(Number(tint[1]), solid(tokens, bg));
-      expect(
-        contrastRatio(solid(tokens, "--status-progress-fg"), ground),
-      ).toBeGreaterThanOrEqual(TEXT_AA);
-    },
-  );
-
   it("keeps --primary as the focus ring, which only needs 3:1", () => {
     expect(resolve(tokens, "--ring")).toBe(resolve(tokens, "--primary"));
   });
@@ -282,6 +273,94 @@ describe.each([
     expect(tokens.has("--primary-hover")).toBe(false);
     expect(tokens.has("--primary-active")).toBe(false);
   });
+});
+
+/* A status pill is its fg on a translucent tint of the status hue, and a pill
+   can sit on any surface, so each pair is measured over every one. Light
+   ready, pending and error measured 3.68, 3.95 and 4.45:1 on the page before
+   2026-10-22, while the globals comment called the tints "legible as-is". */
+const STATUSES = ["draft", "progress", "ready", "pending", "error"] as const;
+
+function paint(tokens: Tokens, value: string): Rgba {
+  const mix = /^color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%,\s*transparent\)$/.exec(
+    value,
+  );
+  const color = mix
+    ? withAlpha(paint(tokens, mix[1]), Number(mix[2]) / 100)
+    : colorIn(tokens, value);
+  if (!color) throw new Error(`cannot measure "${value}"`);
+  return color;
+}
+
+/** fg over bg over the surface, at 8-bit precision as the browser paints. */
+function onSurface(tokens: Tokens, fg: string, bg: string, surface: string) {
+  const quantize = (c: Rgba) => parseColor(toHexColor(c)) as Rgba;
+  const ground = quantize(
+    over(paint(tokens, bg), paint(tokens, `var(${surface})`)),
+  );
+  return contrast(quantize(over(paint(tokens, fg), ground)), ground);
+}
+
+function toHexColor(c: Rgba): string {
+  return `#${[c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+}
+
+describe.each([
+  ["dark", APP_THEMES.dark],
+  ["light", APP_THEMES.light],
+] as const)("status pills, %s theme", (_name, tokens) => {
+  const pills = STATUSES.flatMap((status) =>
+    grounds(tokens).map((surface) => [status, surface] as const),
+  );
+  it.each(pills)(
+    `--status-%s-fg on its tint over %s clears ${TEXT_AA}:1`,
+    (status, surface) => {
+      expect(
+        onSurface(
+          tokens,
+          `var(--status-${status}-fg)`,
+          `var(--status-${status}-bg)`,
+          surface,
+        ),
+      ).toBeGreaterThanOrEqual(TEXT_AA);
+    },
+  );
+
+  /* Status fgs are also bare text: inline errors, the pending note. */
+  it.each(pills)(
+    `--status-%s-fg as text on %s clears ${TEXT_AA}:1`,
+    (status, surface) => {
+      expect(
+        onSurface(tokens, `var(--status-${status}-fg)`, "transparent", surface),
+      ).toBeGreaterThanOrEqual(TEXT_AA);
+    },
+  );
+
+  /* The semantic hues paint text directly (text-success, the Pro Tip heading,
+     the landing form notices); light #97c459 on white was 1.53:1. */
+  const semantic = ["success", "warning", "error"].flatMap((hue) =>
+    grounds(tokens).map((surface) => [hue, surface] as const),
+  );
+  it.each(semantic)(
+    `--%s as text on %s clears ${TEXT_AA}:1`,
+    (hue, surface) => {
+      expect(
+        onSurface(tokens, `var(--${hue})`, "transparent", surface),
+      ).toBeGreaterThanOrEqual(TEXT_AA);
+    },
+  );
+
+  const tickets = Object.entries(TICKET_STATUS_TONE).flatMap(([status, tone]) =>
+    grounds(tokens).map((surface) => [status, surface, tone] as const),
+  );
+  it.each(tickets)(
+    `the %s ticket badge over %s clears ${TEXT_AA}:1`,
+    (_status, surface, tone) => {
+      expect(
+        onSurface(tokens, tone.fg, tone.bg, surface),
+      ).toBeGreaterThanOrEqual(TEXT_AA);
+    },
+  );
 });
 
 describe("transactional email inlines the light primary tokens", () => {

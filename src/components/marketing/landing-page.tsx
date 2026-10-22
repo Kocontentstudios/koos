@@ -411,10 +411,12 @@ export function LandingPage() {
           </div>
           <div className="hero-visual-card hero-visual-card-1">
             <div className="hvc-header">
+              {/* White initials need 4.5:1 at both stops: the old #D47575 end
+                  was 3.47:1. */}
               <div
                 className="hvc-avatar"
                 style={{
-                  background: "linear-gradient(135deg, #D47575, #A855F7)",
+                  background: "linear-gradient(135deg, #B4436C, #7E22CE)",
                 }}
               >
                 PO

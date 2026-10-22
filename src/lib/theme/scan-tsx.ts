@@ -9,6 +9,9 @@ import {
   checkTextColors,
   declsOf,
   emptyBox,
+  FADE_IN_CLASSES,
+  FADE_ON_FILL,
+  FILL_IN_CLASSES,
   maxAlpha,
   type Paint,
   paintFrom,
@@ -181,6 +184,26 @@ export function descendantTexts(ctx: Context, node: JsxNode): Paint[] {
   return out;
 }
 
+function classText(node: JsxNode): string {
+  for (const attr of attributesOf(node).properties) {
+    if (!ts.isJsxAttribute(attr) || !attr.initializer) continue;
+    const name = attr.name.getText();
+    if (name === "className" || name === "class") {
+      return stringPieces(attr.initializer)
+        .map((p) => p.text)
+        .join(" ");
+    }
+  }
+  return "";
+}
+
+function paintsFill(node: JsxNode): boolean {
+  return (
+    FILL_IN_CLASSES.test(classText(node)) ||
+    jsxChildren(node).some((c) => isJsx(c) && paintsFill(c))
+  );
+}
+
 export const INLINE_STYLE = /style\s*=\s*\\?(["'])([\s\S]*?)\\?\1/g;
 
 export function scanTs(
@@ -194,7 +217,7 @@ export function scanTs(
     source,
     ts.ScriptTarget.Latest,
     true,
-    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    /\.[jt]sx$/.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const report = (node: ts.Node, why: string) => {
     const { line } = file.getLineAndCharacterOfPosition(node.getStart(file));
@@ -203,6 +226,13 @@ export function scanTs(
 
   const visit = (node: ts.Node) => {
     if (isJsx(node)) {
+      if (
+        FADE_IN_CLASSES.test(classText(node)) &&
+        carriesLabel(node) &&
+        paintsFill(node)
+      ) {
+        report(node, FADE_ON_FILL);
+      }
       const boxes = elementBoxes(ctx, node);
       const svgText = containsSvgText(node);
       for (const [key, box] of boxes) {

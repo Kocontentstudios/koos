@@ -4,8 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useActionState, useState } from "react";
-import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { resetPassword } from "../actions";
 
 type ResetPasswordState = { error?: string } | null;
@@ -155,25 +154,14 @@ function ResetPasswordForm() {
         </div>
 
         {/* Submit */}
-        <button
-          className={cn(
-            "w-full bg-primary-fill text-primary-foreground rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
-            pending
-              ? "opacity-50 cursor-not-allowed"
-              : "hover:bg-primary-fill-hover",
-          )}
-          disabled={pending}
+        <Button
           type="submit"
+          loading={pending}
+          loadingText="Resetting…"
+          className="mt-1 h-10 w-full rounded-xl py-2.5 text-sm"
         >
-          {pending ? (
-            <>
-              <Spinner />
-              Resetting…
-            </>
-          ) : (
-            "Reset Password"
-          )}
-        </button>
+          Reset Password
+        </Button>
       </form>
 
       {/* Footer */}
