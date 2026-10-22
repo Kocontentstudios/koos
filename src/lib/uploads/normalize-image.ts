@@ -8,9 +8,15 @@ import {
   type DesignImageStoredType,
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
+  NO_SUBJECT_REASON,
   NORMALISED_LONG_EDGE,
   TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
+import {
+  looksBlank,
+  measureSubject,
+  subjectThumbnailSize,
+} from "./subject-check";
 
 /**
  * Re-encode a picked image in the browser before it is uploaded.
@@ -21,7 +27,8 @@ import {
  * anyway, so the upload is no bigger than what will be drawn; and decoding
  * through createImageBitmap applies EXIF orientation and drops EXIF metadata
  * such as location, which a canvas never carries over. A fully transparent
- * image is refused here, before the upload, rather than at generation.
+ * image, or a blank or near-uniform one (subject-check.ts), is refused here,
+ * before the upload, rather than at generation.
  */
 
 export type ImageNotUsableReason =
@@ -31,7 +38,8 @@ export type ImageNotUsableReason =
   | "undecodable"
   | "encode_failed"
   | "too_large_after_encode"
-  | "blank";
+  | "blank"
+  | "no_subject";
 
 const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
 
@@ -45,6 +53,7 @@ const REASONS: Record<ImageNotUsableReason, string> = {
     "it couldn't be prepared for upload. Try again or choose another image.",
   too_large_after_encode: "it is too detailed to upload. Choose a smaller one.",
   blank: TRANSPARENT_IMAGE_REASON,
+  no_subject: NO_SUBJECT_REASON,
 };
 
 /** `reason` is for analytics; `message` is safe to show the user. */
@@ -113,6 +122,7 @@ export async function normalizeImageForUpload(
 
     const alpha = source === "jpeg" ? OPAQUE : scanAlpha(ctx, width, height);
     if (!alpha.anyVisible) throw new ImageNotUsableError("blank");
+    if (hasNoSubject(canvas)) throw new ImageNotUsableError("no_subject");
     const type: DesignImageStoredType = alpha.anyTransparent
       ? "image/png"
       : "image/jpeg";
@@ -243,6 +253,23 @@ function scanAlpha(
     if (anyTransparent && anyVisible) break;
   }
   return { anyTransparent, anyVisible };
+}
+
+/* Measured on a thumbnail the browser draws from the full canvas, as the
+   server measures one libvips draws from the decoded pixels. The two
+   resamplers differ a little; the thresholds leave room for that. */
+function hasNoSubject(canvas: HTMLCanvasElement): boolean {
+  const size = subjectThumbnailSize(canvas.width, canvas.height);
+  const thumb = document.createElement("canvas");
+  thumb.width = size.width;
+  thumb.height = size.height;
+  const ctx = thumb.getContext("2d");
+  if (!ctx) return false;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(canvas, 0, 0, size.width, size.height);
+  const { data } = ctx.getImageData(0, 0, size.width, size.height);
+  return looksBlank(measureSubject(data, size.width, size.height));
 }
 
 /* A JPEG source is never scanned for alpha, and some engines leave the edges

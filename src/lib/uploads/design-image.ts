@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
-import { jpegDecodes, pngDecodes } from "@/lib/images/decode-check";
+import {
+  jpegDecodes,
+  jpegHasUndrawableFrame,
+  pngDecodes,
+} from "@/lib/images/decode-check";
 import { detectImageType } from "@/lib/images/detect";
 import {
   ImageOverBudgetError,
   type ReencodeOptions,
   reencodeImage,
+  UnsupportedJpegError,
 } from "@/lib/images/reencode";
 import {
   getObjectBytes,
@@ -18,9 +23,15 @@ import {
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
   MAX_DESIGN_IMAGE_SIDE,
+  NO_SUBJECT_REASON,
   NORMALISED_LONG_EDGE,
   TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
+import {
+  looksBlank,
+  measureSubject,
+  SUBJECT_THUMBNAIL_SIDE,
+} from "./subject-check";
 
 /**
  * A user's uploaded design image, read back by key at generation.
@@ -32,7 +43,7 @@ import {
  *
  * The guarantee: the bytes this returns were encoded by this process, never
  * the stored file. Cheap checks run first (key, size, type sniff, the 4096 px
- * cap, then a structural decode check that refuses truncated and corrupt
+ * cap, a JPEG frame browsers draw, then a structural decode check that refuses truncated and corrupt
  * files and decompression bombs without decoding pixels). What passes is then
  * decoded by libvips, refusing on the first decoder warning, and re-encoded as
  * a plain 8-bit sRGB PNG or JPEG of at most 2560 px and 6.5 MB (see
@@ -40,7 +51,8 @@ import {
  * uploaded file's own bytes: a file that would abort the renderer process, or
  * that it would draw as nothing, is refused here with the user-facing message
  * instead. A fully transparent image is refused too, since drawn it is
- * indistinguishable from no image.
+ * indistinguishable from no image, and so is a blank or near-uniform one
+ * (subject-check.ts), which would otherwise become the design's hero.
  */
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -56,7 +68,9 @@ export type DesignImageFault =
   | "unreadable"
   | "too_many_pixels"
   | "too_detailed"
-  | "blank";
+  | "unsupported_jpeg"
+  | "blank"
+  | "no_subject";
 
 const MAX_MB = MAX_DESIGN_IMAGE_BYTES / (1024 * 1024);
 
@@ -70,7 +84,10 @@ const REASONS: Record<DesignImageFault, string> = {
   too_many_pixels: `it is larger than ${MAX_DESIGN_IMAGE_SIDE} px on one side. Choose a smaller image.`,
   too_detailed:
     "it has too much fine detail to place on a design, even scaled down. Choose another image.",
+  unsupported_jpeg:
+    "it is saved in a kind of JPEG most apps can't open. Save it again as a standard JPEG or PNG.",
   blank: TRANSPARENT_IMAGE_REASON,
+  no_subject: NO_SUBJECT_REASON,
 };
 
 /* Fitted to the browser normaliser's own bound, so an image is the same size
@@ -83,6 +100,7 @@ export const DESIGN_IMAGE_REENCODE: ReencodeOptions = {
   maxInputPixels: MAX_DESIGN_IMAGE_SIDE * MAX_DESIGN_IMAGE_SIDE,
   maxOutputSide: NORMALISED_LONG_EDGE,
   minOutputSide: 1080,
+  thumbnailSide: SUBJECT_THUMBNAIL_SIDE,
 };
 
 /** `fault` is for logs and metrics; `message` is safe to show the user. */
@@ -146,6 +164,9 @@ export async function loadDesignImage(
   ) {
     throw new DesignImageError("too_many_pixels");
   }
+  if (type === "jpeg" && jpegHasUndrawableFrame(bytes)) {
+    throw new DesignImageError("unsupported_jpeg");
+  }
   /* After the size cap, so the inflate check never meets a header promising
      more than 4096 x 4096 pixels. */
   const decodes = type === "png" ? await pngDecodes(bytes) : jpegDecodes(bytes);
@@ -153,6 +174,9 @@ export async function loadDesignImage(
 
   const clean = await reencodeOrRefuse(bytes, type);
   if (!clean.visible) throw new DesignImageError("blank");
+  if (clean.thumbnail && hasNoSubject(clean.thumbnail)) {
+    throw new DesignImageError("no_subject");
+  }
 
   return {
     bytes: clean.bytes,
@@ -162,12 +186,25 @@ export async function loadDesignImage(
   };
 }
 
+function hasNoSubject(thumbnail: {
+  data: Buffer;
+  width: number;
+  height: number;
+}): boolean {
+  return looksBlank(
+    measureSubject(thumbnail.data, thumbnail.width, thumbnail.height),
+  );
+}
+
 async function reencodeOrRefuse(bytes: Buffer, type: "png" | "jpeg") {
   try {
     return await reencodeImage(bytes, type, DESIGN_IMAGE_REENCODE);
   } catch (err) {
     if (err instanceof ImageOverBudgetError) {
       throw new DesignImageError("too_detailed", { cause: err });
+    }
+    if (err instanceof UnsupportedJpegError) {
+      throw new DesignImageError("unsupported_jpeg", { cause: err });
     }
     throw new DesignImageError("unreadable", { cause: err });
   }

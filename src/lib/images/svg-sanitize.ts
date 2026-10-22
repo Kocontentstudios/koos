@@ -1,4 +1,4 @@
-import { SaxesParser, type SaxesTagNS } from "saxes";
+import { type SaxesAttributeNS, SaxesParser, type SaxesTagNS } from "saxes";
 import { detectImageType, IMAGE_MIME } from "./detect";
 import {
   ImageOverBudgetError,
@@ -31,6 +31,17 @@ import {
  *    no @import. A CSS escape can spell url( or @import in a way no pattern
  *    sees, so a <style> block may hold no backslash at all, and an attribute
  *    none beside a "(" (an attribute cannot hold an @import).
+ *  - A src attribute is held to the href rule, and xml:base, which would
+ *    turn a "#fragment" into a URL, is refused.
+ *  - No <script> and no on* event attribute. Neither rasteriser runs them,
+ *    but the upload route stores the file as uploaded on the public bucket.
+ *  - Bounds a logo never reaches, each one the renderer fails on, slowly or
+ *    silently, with a message about damage: nesting over MAX_DEPTH (libxml2
+ *    stops at 256), a name over MAX_NAME_LENGTH (libxml2 stops at 50,000),
+ *    <use> references that expand past MAX_DRAWN_ELEMENTS or form a cycle
+ *    (ten levels of ten took librsvg 8.6 s to give up on), and a root size
+ *    with a coordinate over MAX_COORDINATE or proportions past MAX_ASPECT.
+ *  (FEAT-033 round-5 attack corpus, svg-attack-fixtures.ts.)
  *
  * The output is serialised from the parse events (comments, processing
  * instructions and the XML declaration are dropped), so the renderer parses
@@ -50,7 +61,9 @@ export type UnsafeSvgReason =
   | "doctype"
   | "external_reference"
   | "embedded_image"
-  | "too_complex";
+  | "too_complex"
+  | "active_content"
+  | "bad_dimensions";
 
 const USER_REASONS: Record<UnsafeSvgReason, string> = {
   not_svg: "it is not a well-formed SVG file",
@@ -59,6 +72,9 @@ const USER_REASONS: Record<UnsafeSvgReason, string> = {
   external_reference: "it links to a file or address outside itself",
   embedded_image: "an image embedded in it could not be read",
   too_complex: "it has more elements or embedded images than a logo needs",
+  active_content:
+    "it contains scripts or event handlers, which a logo never needs",
+  bad_dimensions: "its size or proportions are not ones a logo is drawn at",
 };
 
 export class UnsafeSvgError extends Error {
@@ -82,6 +98,13 @@ export class UnsafeSvgError extends Error {
 export const MAX_SVG_INPUT_BYTES = 5 * 1024 * 1024;
 const MAX_ELEMENTS = 50_000;
 const MAX_EMBEDDED_IMAGES = 8;
+const MAX_DEPTH = 100;
+const MAX_NAME_LENGTH = 1_000;
+/* Elements drawn once every <use> is expanded. librsvg's own limit is
+   higher, and it spends seconds reaching it. */
+const MAX_DRAWN_ELEMENTS = 100_000;
+const MAX_COORDINATE = 1_000_000;
+const MAX_ASPECT = 100;
 
 /* Drawn inside a logo, which is a few hundred pixels wide, so a logo's bound.
    A PNG at 1024 px is at most about 4.2 MB, inside the renderer's budget. */
@@ -94,12 +117,20 @@ const EMBEDDED_IMAGE_LIMITS = {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XINCLUDE_NS = "http://www.w3.org/2001/XInclude";
+const XML_NS = "http://www.w3.org/XML/1998/namespace";
 const EMBEDDED_RASTER = /^data:image\/(?:png|jpe?g);base64,([\s\S]*)$/i;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const CSS_URL_ARGUMENT = /url\s*\(\s*["']?\s*([^"')\s]*)/gi;
 
 interface EmbeddedJob {
   base64: string;
+}
+
+/* The element tree as far as <use> expansion needs it. */
+interface UseNode {
+  children: UseNode[];
+  /** The id a <use> on this element points at. */
+  uses: string | null;
 }
 
 export async function sanitizeSvg(input: Uint8Array): Promise<SafeSvg> {
@@ -132,6 +163,9 @@ function serialise(text: string): (string | EmbeddedJob)[] {
   let embedded = 0;
   let sawRoot = false;
   let styleText: string | null = null;
+  const ids = new Map<string, UseNode>();
+  const open: UseNode[] = [];
+  let root: UseNode | null = null;
 
   const parser = new SaxesParser({ xmlns: true });
   parser.on("error", (err) => {
@@ -145,12 +179,26 @@ function serialise(text: string): (string | EmbeddedJob)[] {
     if (elements > MAX_ELEMENTS) {
       throw new UnsafeSvgError("too_complex", `over ${MAX_ELEMENTS} elements`);
     }
+    if (tag.name.length > MAX_NAME_LENGTH) {
+      throw new UnsafeSvgError("too_complex", "an element name that long");
+    }
+    if (depth >= MAX_DEPTH) {
+      throw new UnsafeSvgError("too_complex", `nested over ${MAX_DEPTH} deep`);
+    }
     if (depth === 0) {
       if (tag.local !== "svg" || (tag.uri !== SVG_NS && tag.uri !== "")) {
         throw new UnsafeSvgError("not_svg", `root is <${tag.name}>`);
       }
+      checkRootSize(tag);
       sawRoot = true;
     }
+    if (tag.local === "script") {
+      throw new UnsafeSvgError("active_content", `<${tag.name}>`);
+    }
+    const node: UseNode = { children: [], uses: null };
+    open.at(-1)?.children.push(node);
+    open.push(node);
+    root ??= node;
     if (tag.uri === XINCLUDE_NS) {
       throw new UnsafeSvgError("external_reference", `<${tag.name}>`);
     }
@@ -158,9 +206,17 @@ function serialise(text: string): (string | EmbeddedJob)[] {
       throw new UnsafeSvgError("external_reference", `<${tag.name}> on href`);
     }
 
-    parts.push(`<${tag.name}`);
+    parts.push(`<${elementName(tag)}`);
+    if (depth === 0) parts.push(` xmlns="${SVG_NS}"`);
     for (const attr of Object.values(tag.attributes)) {
-      const isReference = attr.local === "href" && attr.prefix !== "xmlns";
+      checkAttributeName(attr);
+      if (attr.name === "xmlns") continue;
+      if (attr.local === "id" && (attr.uri === "" || attr.uri === XML_NS)) {
+        ids.set(attr.value, node);
+      }
+      const isReference =
+        (attr.local === "href" || attr.local === "src") &&
+        attr.prefix !== "xmlns";
       if (!isReference) {
         if (!cssReferencesOnlyFragments(attr.value)) {
           throw new UnsafeSvgError("external_reference", `${attr.name}`);
@@ -169,6 +225,7 @@ function serialise(text: string): (string | EmbeddedJob)[] {
         continue;
       }
       if (attr.value.startsWith("#")) {
+        if (tag.local === "use") node.uses = attr.value.slice(1);
         parts.push(` ${attr.name}="${escapeAttribute(attr.value)}"`);
         continue;
       }
@@ -206,12 +263,122 @@ function serialise(text: string): (string | EmbeddedJob)[] {
       styleText = null;
     }
     depth -= 1;
-    parts.push(`</${tag.name}>`);
+    open.pop();
+    parts.push(`</${elementName(tag)}>`);
   });
 
   parser.write(text).close();
-  if (!sawRoot) throw new UnsafeSvgError("not_svg", "no root element");
+  if (!sawRoot || !root) throw new UnsafeSvgError("not_svg", "no root element");
+  const drawn = expandedSize(root, ids);
+  if (drawn.elements > MAX_DRAWN_ELEMENTS || drawn.depth > MAX_DEPTH) {
+    throw new UnsafeSvgError(
+      "too_complex",
+      Number.isFinite(drawn.elements)
+        ? `${drawn.elements} elements ${drawn.depth} deep once <use> is expanded`
+        : "a <use> cycle",
+    );
+  }
   return parts;
+}
+
+/* SVG elements are written unprefixed under one default namespace on the
+   root. A prefixed root (<s:svg xmlns:s=...>) is valid XML that the upload
+   accepts, but satori finds an image's size by looking for "<svg" and failed
+   it as undrawable; and a nested default xmlns would otherwise move
+   unprefixed children out of the SVG namespace this rule now puts them in. */
+function elementName(tag: { uri: string; local: string; name: string }) {
+  return tag.uri === SVG_NS || tag.uri === "" ? tag.local : tag.name;
+}
+
+function checkAttributeName(attr: SaxesAttributeNS): void {
+  if (attr.name.length > MAX_NAME_LENGTH) {
+    throw new UnsafeSvgError("too_complex", "an attribute name that long");
+  }
+  if (attr.uri === XML_NS && attr.local === "base") {
+    throw new UnsafeSvgError("external_reference", "xml:base");
+  }
+  if (attr.prefix === "" && /^on/i.test(attr.local)) {
+    throw new UnsafeSvgError("active_content", attr.name);
+  }
+}
+
+/* The elements drawn and how deeply they nest once every <use> is
+   expanded, walked without recursion: a chain of 20,000 uses would overflow
+   the stack. librsvg gives up past 500 nested layers. Infinity for a
+   cycle. */
+function expandedSize(
+  root: UseNode,
+  ids: Map<string, UseNode>,
+): { elements: number; depth: number } {
+  const done = new Map<UseNode, { elements: number; depth: number }>();
+  const visiting = new Set<UseNode>();
+  const stack: UseNode[] = [root];
+  const cycle = {
+    elements: Number.POSITIVE_INFINITY,
+    depth: Number.POSITIVE_INFINITY,
+  };
+  while (stack.length > 0) {
+    const node = stack[stack.length - 1];
+    const target = node.uses === null ? undefined : ids.get(node.uses);
+    const deps = target ? [...node.children, target] : node.children;
+    if (!visiting.has(node)) {
+      visiting.add(node);
+      for (const dep of deps) {
+        if (visiting.has(dep) && !done.has(dep)) return cycle;
+        if (!done.has(dep)) stack.push(dep);
+      }
+      continue;
+    }
+    stack.pop();
+    if (done.has(node)) continue;
+    let elements = 1;
+    let depth = 0;
+    for (const dep of deps) {
+      const size = done.get(dep);
+      elements += size?.elements ?? 0;
+      depth = Math.max(depth, size?.depth ?? 0);
+    }
+    done.set(node, {
+      elements: Math.min(elements, MAX_DRAWN_ELEMENTS + 1),
+      depth: depth + 1,
+    });
+  }
+  return done.get(root) ?? { elements: 0, depth: 0 };
+}
+
+const LENGTH =
+  /^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*(?:px|pt|pc|mm|cm|in|q)?\s*$/i;
+
+/* Reads the root's declared size the way svgRasterBox will: viewBox first,
+   else width and height. Percentages say nothing about the drawing. */
+function checkRootSize(tag: SaxesTagNS): void {
+  const value = (local: string) =>
+    Object.values(tag.attributes).find(
+      (attr) => attr.local === local && attr.uri === "",
+    )?.value;
+  const box = value("viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const lengths = ["width", "height"].map((side) => {
+    const match = LENGTH.exec(value(side) ?? "");
+    return match ? Number(match[1]) : null;
+  });
+  const numbers = [...(box ?? []), ...lengths.filter((n) => n !== null)];
+  if (
+    numbers.some((n) => !Number.isFinite(n) || Math.abs(n) > MAX_COORDINATE)
+  ) {
+    throw new UnsafeSvgError("bad_dimensions", "a coordinate out of range");
+  }
+  const [width, height] =
+    box?.length === 4 ? [box[2], box[3]] : [lengths[0] ?? 0, lengths[1] ?? 0];
+  if (
+    width > 0 &&
+    height > 0 &&
+    Math.max(width / height, height / width) > MAX_ASPECT
+  ) {
+    throw new UnsafeSvgError("bad_dimensions", `${width} x ${height}`);
+  }
 }
 
 /* SMIL can swap an href after load. Neither rasteriser animates today, so

@@ -15,6 +15,11 @@ export const IMAGE_NOT_USABLE_PREFIX = "This image can't be used";
 export const TRANSPARENT_IMAGE_REASON =
   "every pixel in it is transparent, so nothing would show. Choose another image.";
 
+/* Refused the same way for a blank or near-uniform image (subject-check.ts),
+   which would otherwise become a design's hero. */
+export const NO_SUBJECT_REASON =
+  "it looks blank, or almost all one colour, so there is nothing in it to show. Choose a photo with your product, place or people in it.";
+
 export const MAX_DESIGN_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /* The browser normalises to this long edge, and the server loader fits what

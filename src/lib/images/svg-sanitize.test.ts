@@ -8,6 +8,7 @@ import {
   svgLogo,
 } from "./hostile-svg-fixtures";
 import { buildJpeg } from "./image-fixtures";
+import { svgIntrinsicRatio } from "./rasterize";
 import {
   MAX_SVG_INPUT_BYTES,
   sanitizeSvg,
@@ -104,10 +105,32 @@ describe("sanitizeSvg keeps what a logo is made of", () => {
     ]);
   });
 
-  it("accepts an SVG with no namespace, which the renderer draws too", async () => {
+  it("accepts an SVG with no namespace, writing it in the SVG namespace", async () => {
     await expect(
       sanitised('<svg viewBox="0 0 1 1"><rect width="1" height="1"/></svg>'),
-    ).resolves.toContain("<rect");
+    ).resolves.toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"></rect></svg>',
+    );
+  });
+
+  /* Round-5 corpus: satori failed a prefixed root as undrawable. */
+  it("writes a prefixed SVG root and its children unprefixed", async () => {
+    const out = await sanitised(
+      '<s:svg xmlns:s="http://www.w3.org/2000/svg" viewBox="0 0 2 1"><s:rect width="1" height="1"/></s:svg>',
+    );
+    expect(out).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" viewBox="0 0 2 1"><rect width="1" height="1"></rect></svg>',
+    );
+    expect(svgIntrinsicRatio(text(out))).toBe(2);
+  });
+
+  it("keeps one default namespace, so no element leaves the SVG one", async () => {
+    const out = await sanitised(
+      '<svg xmlns="http://www.w3.org/2000/svg"><g xmlns="urn:other"><rect/></g></svg>',
+    );
+    expect(out).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg"><g><rect></rect></g></svg>',
+    );
   });
 });
 
@@ -370,9 +393,141 @@ describe("sanitizeSvg refuses what could reach outside or crash the renderer", (
     "external_reference",
     "embedded_image",
     "too_complex",
+    "active_content",
+    "bad_dimensions",
   ])("tells the uploader what to do about %s", (reason) => {
     expect(new UnsafeSvgError(reason, "detail").userMessage).toMatch(
       /^This SVG can't be used as a logo: [a-z].+\. Export it again as a plain SVG, or upload a PNG\.$/,
     );
+  });
+});
+
+/* FEAT-033 round 5: the attack corpus (svg-attack-fixtures.ts) run through
+   every logo path in child processes found these accepted at upload and then
+   failing, slowly or silently, at render, or stored as uploaded with active
+   content. */
+describe("sanitizeSvg refuses what the attack corpus found", () => {
+  it.each([
+    [
+      "an HTML img src in foreignObject",
+      '<foreignObject width="9" height="9"><div xmlns="http://www.w3.org/1999/xhtml"><img src="http://169.254.169.254/x"/></div></foreignObject>',
+    ],
+    [
+      "xml:base, which turns a fragment into a URL",
+      '<g xml:base="http://169.254.169.254/"><use href="#d"/></g><circle id="d" r="1"/>',
+    ],
+  ])("refuses %s as an external reference", async (_label, body) => {
+    expect((await refusal(svgLogo(body))).reason).toBe("external_reference");
+  });
+
+  it.each([
+    ["a script element", "<script>fetch('http://x.test')</script>"],
+    ["a CDATA script", "<script><![CDATA[1]]></script>"],
+    ["an onload attribute", '<rect width="1" height="1" onload="fetch(1)"/>'],
+    ["an upper-case handler", '<rect width="1" height="1" ONCLICK="x()"/>'],
+  ])("refuses %s as active content", async (_label, body) => {
+    expect((await refusal(svgLogo(body))).reason).toBe("active_content");
+  });
+
+  it("keeps attributes that only start like a handler's prefix", async () => {
+    const out = await sanitised(
+      svgLogo('<rect width="1" height="1" opacity="0.5"/>'),
+    );
+    expect(out).toContain('opacity="0.5"');
+  });
+
+  it("refuses nesting deeper than a logo has", async () => {
+    const deep = `${"<g>".repeat(100)}<rect/>${"</g>".repeat(100)}`;
+    expect((await refusal(svgLogo(deep))).reason).toBe("too_complex");
+    const fine = `${"<g>".repeat(90)}<rect/>${"</g>".repeat(90)}`;
+    await expect(sanitizeSvg(text(svgLogo(fine)))).resolves.toBeTruthy();
+  });
+
+  it("refuses an element or attribute name past what the renderer parses", async () => {
+    expect((await refusal(svgLogo(`<${"a".repeat(1_001)}/>`))).reason).toBe(
+      "too_complex",
+    );
+    expect(
+      (await refusal(svgLogo(`<rect ${"a".repeat(1_001)}="1"/>`))).reason,
+    ).toBe("too_complex");
+  });
+
+  /* Ten levels of ten: 10^10 drawn elements. librsvg spent 8.6 s per render
+     reaching its own limit. */
+  it("refuses <use> that expands exponentially", async () => {
+    let defs = '<g id="l0"><rect width="1" height="1"/></g>';
+    for (let level = 1; level <= 10; level += 1) {
+      defs += `<g id="l${level}">${`<use href="#l${level - 1}"/>`.repeat(10)}</g>`;
+    }
+    const err = await refusal(
+      svgLogo(`<defs>${defs}</defs><use href="#l10"/>`),
+    );
+    expect(err.reason).toBe("too_complex");
+    expect(err.message).toMatch(/once <use> is expanded/);
+  });
+
+  it("refuses a <use> chain nested deeper than the renderer draws, without overflowing the stack", async () => {
+    const groups = ['<g id="c0"><rect width="1" height="1"/></g>'];
+    for (let i = 1; i < 20_000; i += 1) {
+      groups.push(`<g id="c${i}"><use href="#c${i - 1}"/></g>`);
+    }
+    const svg = svgLogo(`<defs>${groups.join("")}</defs><use href="#c19999"/>`);
+    expect((await refusal(svg)).reason).toBe("too_complex");
+  });
+
+  it("refuses a <use> cycle", async () => {
+    const svg = svgLogo(
+      '<g id="a"><use href="#b"/></g><g id="b"><use href="#a"/></g>',
+    );
+    expect((await refusal(svg)).message).toMatch(/cycle/);
+  });
+
+  it("keeps ordinary reuse: a mark used a hundred times", async () => {
+    const svg = svgLogo(
+      `<defs><g id="dot"><circle r="2"/><circle r="1" fill="#fff"/></g></defs>${'<use href="#dot"/>'.repeat(100)}`,
+    );
+    await expect(sanitizeSvg(text(svg))).resolves.toBeTruthy();
+  });
+
+  it.each([
+    [
+      "a viewBox with an exponent coordinate",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1e308 1e308"/>',
+    ],
+    [
+      "a width of a hundred million",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100000000" height="1"/>',
+    ],
+    [
+      "a 1:1,000,000 viewBox",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1000000"/>',
+    ],
+    [
+      "a 200:1 width and height",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="2000px" height="10px"/>',
+    ],
+  ])("refuses %s", async (_label, svg) => {
+    expect((await refusal(svg)).reason).toBe("bad_dimensions");
+  });
+
+  it.each([
+    [
+      "a 20:1 wordmark",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 100"/>',
+    ],
+    [
+      "a percentage size",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 10 10"/>',
+    ],
+    [
+      "an Illustrator point size",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="612pt" height="792pt"/>',
+    ],
+    [
+      "a viewBox with commas and an offset",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5,-5,310,110"/>',
+    ],
+  ])("keeps %s", async (_label, svg) => {
+    await expect(sanitizeSvg(text(svg))).resolves.toBeTruthy();
   });
 });

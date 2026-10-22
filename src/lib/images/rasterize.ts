@@ -140,12 +140,23 @@ export function svgIntrinsicRatio(bytes: Uint8Array): number {
    where the number is derived, not in whatever draws it. */
 const MAX_RASTER_SIDE = 4096;
 
+/* The raster is a PNG the renderer inlines as one base64 attribute, which
+   libxml2 caps at 7,499,820 bytes of image. An SVG can fill every pixel with
+   incompressible noise (feTurbulence, or a noise PNG tiled with <use>), and
+   a PNG of noise is 4 bytes a pixel: a tall logo's 600 x 4096 box came out
+   at 8.4 to 8.7 MB and threw in the render (round-4 critic C4). A million
+   pixels is at most about 4 MB, well inside the 6.5 MB budget, and still
+   600 x 1666 for a tall mark drawn a few hundred pixels high. */
+export const MAX_RASTER_PIXELS = 1_000_000;
+
 /**
  * The box to rasterise an SVG into, at its own proportions.
  *
  * Both sides are bounded together. Clamping only the height turned a very tall
  * mark into a 600 x 4096 box — a 14x horizontal stretch, silently — because
- * the width stayed at its requested value while the height was cut.
+ * the width stayed at its requested value while the height was cut. The area
+ * is bounded too (MAX_RASTER_PIXELS), so the encoded raster fits the
+ * renderer whatever the SVG draws.
  */
 export function svgRasterBox(
   bytes: Uint8Array,
@@ -162,6 +173,11 @@ export function svgRasterBox(
   if (width > MAX_RASTER_SIDE) {
     width = MAX_RASTER_SIDE;
     height = width / ratio;
+  }
+  if (width * height > MAX_RASTER_PIXELS) {
+    const scale = Math.sqrt(MAX_RASTER_PIXELS / (width * height));
+    width = Math.floor(width * scale);
+    height = Math.floor(height * scale);
   }
   return {
     width: Math.max(1, Math.round(width)),

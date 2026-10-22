@@ -325,7 +325,7 @@ describe("loadBrandLogo", () => {
     await loadBrandLogo(`${BASE}/logos/u1/a.svg`);
     const [safe, opts] = rasterizeSvg.mock.calls[0];
     expect(new TextDecoder().decode(safe.bytes)).toBe(
-      '<svg viewBox="0 0 30 10" xmlns="http://www.w3.org/2000/svg" width="30" height="10"><rect width="30" height="10"></rect></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 10" width="30" height="10"><rect width="30" height="10"></rect></svg>',
     );
     expect(opts).toMatchObject({ width: 600, height: 200 });
   });

@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { jpegHasUndrawableFrame } from "./decode-check";
 
 /**
  * Decodes an uploaded PNG or JPEG with a strict decoder and writes it out
@@ -44,6 +45,8 @@ export interface CleanImage {
   /** False when every pixel is fully transparent: drawn, it leaves the slot
    *  exactly as empty as no image at all. */
   visible: boolean;
+  /** RGBA fitted inside `thumbnailSide`, when that option is set. */
+  thumbnail?: { data: Buffer; width: number; height: number };
 }
 
 export interface ReencodeOptions {
@@ -57,6 +60,8 @@ export interface ReencodeOptions {
   maxOutputBytes?: number;
   /** Retry once with an end marker appended when a JPEG lacks one. */
   tolerateMissingJpegEnd?: boolean;
+  /** Also return an RGBA thumbnail of the decoded pixels this size. */
+  thumbnailSide?: number;
 }
 
 /* Measured with next 16.4.1, sharp 0.35.5 (libvips 8.18.7, libxml2 2.15.4):
@@ -72,6 +77,14 @@ export class UndecodableImageError extends Error {
   constructor(reason: string, options?: ErrorOptions) {
     super(reason, options);
     this.name = "UndecodableImageError";
+  }
+}
+
+/** A JPEG coded in a way browsers do not draw (see jpegHasUndrawableFrame). */
+export class UnsupportedJpegError extends UndecodableImageError {
+  constructor() {
+    super("JPEG frame is not baseline, extended or progressive Huffman");
+    this.name = "UnsupportedJpegError";
   }
 }
 
@@ -115,6 +128,9 @@ export async function reencodeImage(
   format: CleanFormat,
   options: ReencodeOptions,
 ): Promise<CleanImage> {
+  if (format === "jpeg" && jpegHasUndrawableFrame(input)) {
+    throw new UnsupportedJpegError();
+  }
   try {
     return await reencodeOnce(input, format, options);
   } catch (err) {
@@ -156,6 +172,9 @@ async function reencodeOnce(
     return {
       ...encoded,
       visible: raw.channels === RGB_CHANNELS || anyAlpha(raw.data),
+      ...(options.thumbnailSide && {
+        thumbnail: await thumbnailOf(raw, options.thumbnailSide),
+      }),
     };
   } catch (err) {
     if (
@@ -212,6 +231,42 @@ async function decodeToRaw(
   return { data, width: info.width, height: info.height, channels };
 }
 
+interface EncodeStep {
+  quality: number;
+  width: number;
+  height: number;
+}
+
+/* The next, smaller encode after one of `bytes` came out over budget, or the
+   reason there is none. */
+function nextStep(
+  step: EncodeStep,
+  bytes: number,
+  raw: RawImage,
+  format: CleanFormat,
+  {
+    minOutputSide,
+    maxOutputBytes,
+  }: Required<Pick<ReencodeOptions, "minOutputSide" | "maxOutputBytes">>,
+): EncodeStep | string {
+  if (format === "jpeg" && step.quality < JPEG_QUALITY_STEPS.length - 1) {
+    return { ...step, quality: step.quality + 1 };
+  }
+  const longEdge = Math.max(step.width, step.height);
+  if (longEdge <= minOutputSide) return `the floor is ${minOutputSide}`;
+  const ratio = Math.min(
+    STEP_MAX_RATIO,
+    Math.max(STEP_MIN_RATIO, Math.sqrt(maxOutputBytes / bytes) * STEP_AIM),
+  );
+  const nextLongEdge = Math.max(minOutputSide, Math.floor(longEdge * ratio));
+  const scale = nextLongEdge / Math.max(raw.width, raw.height);
+  return {
+    quality: step.quality,
+    width: Math.max(1, Math.round(raw.width * scale)),
+    height: Math.max(1, Math.round(raw.height * scale)),
+  };
+}
+
 async function encodeWithinBudget(
   raw: RawImage,
   format: CleanFormat,
@@ -220,44 +275,89 @@ async function encodeWithinBudget(
     maxOutputBytes = RENDERER_IMAGE_BYTE_BUDGET,
   }: ReencodeOptions,
 ): Promise<{ bytes: Buffer; width: number; height: number }> {
-  let { width, height } = raw;
-  let quality = 0;
+  const limits = { minOutputSide, maxOutputBytes };
+  let step = await skipPredictedOverruns(raw, format, limits);
   for (let attempt = 1; ; attempt += 1) {
-    const bytes = await encodeAt(raw, width, height, format, quality);
-    if (bytes.length <= maxOutputBytes) return { bytes, width, height };
-
-    const longEdge = Math.max(width, height);
-    const out = `${bytes.length} bytes at ${width}x${height}`;
+    const bytes = await encodeAt(raw, step, format);
+    if (bytes.length <= maxOutputBytes) {
+      return { bytes, width: step.width, height: step.height };
+    }
+    const out = `${bytes.length} bytes at ${step.width}x${step.height}`;
     if (attempt >= MAX_ENCODES) {
       throw new ImageOverBudgetError(`${out} after ${attempt} encodes`);
     }
-    if (format === "jpeg" && quality < JPEG_QUALITY_STEPS.length - 1) {
-      quality += 1;
-      continue;
+    const next = nextStep(step, bytes.length, raw, format, limits);
+    if (typeof next === "string") {
+      throw new ImageOverBudgetError(`${out}, ${next}`);
     }
-    if (longEdge <= minOutputSide) {
-      throw new ImageOverBudgetError(`${out}, the floor is ${minOutputSide}`);
-    }
-    const ratio = Math.min(
-      STEP_MAX_RATIO,
-      Math.max(
-        STEP_MIN_RATIO,
-        Math.sqrt(maxOutputBytes / bytes.length) * STEP_AIM,
+    step = next;
+  }
+}
+
+/* A full encode of a dense 2560 px image costs 0.5 to 1.4 s, and one that
+   comes out over budget is thrown away. Encoding a few evenly spaced bands of
+   rows predicts the full size to within 4% (real cutouts, photos, noise) for
+   a tenth of the work, so the steps a prediction shows to be well over budget
+   are walked on predictions, and only the step that should fit is encoded in
+   full. The full encode still decides: a prediction never refuses and never
+   accepts. Only steps at the decoded size are predicted, since the bands
+   would have to be resized to predict a smaller one. */
+const SAMPLE_BANDS = 8;
+const SAMPLE_BAND_ROWS = 32;
+const MIN_ROWS_TO_SAMPLE = 4 * SAMPLE_BANDS * SAMPLE_BAND_ROWS;
+const PREDICTION_DOUBT = 1.15;
+
+async function skipPredictedOverruns(
+  raw: RawImage,
+  format: CleanFormat,
+  limits: Required<Pick<ReencodeOptions, "minOutputSide" | "maxOutputBytes">>,
+): Promise<EncodeStep> {
+  let step: EncodeStep = { quality: 0, width: raw.width, height: raw.height };
+  if (raw.height < MIN_ROWS_TO_SAMPLE) return step;
+  const sample = sampleBands(raw);
+  while (step.width === raw.width && step.height === raw.height) {
+    const sampled = await encodeAt(
+      sample,
+      { quality: step.quality, width: sample.width, height: sample.height },
+      format,
+    );
+    const predicted = (sampled.length * raw.height) / sample.height;
+    if (predicted <= limits.maxOutputBytes * PREDICTION_DOUBT) break;
+    const next = nextStep(step, predicted, raw, format, limits);
+    if (typeof next === "string") break;
+    step = next;
+  }
+  return step;
+}
+
+function sampleBands(raw: RawImage): RawImage {
+  const rowBytes = raw.width * raw.channels;
+  const bands: Buffer[] = [];
+  for (let i = 0; i < SAMPLE_BANDS; i += 1) {
+    const centre = Math.floor(((i + 0.5) * raw.height) / SAMPLE_BANDS);
+    const start = Math.min(
+      raw.height - SAMPLE_BAND_ROWS,
+      Math.max(0, centre - SAMPLE_BAND_ROWS / 2),
+    );
+    bands.push(
+      raw.data.subarray(
+        start * rowBytes,
+        (start + SAMPLE_BAND_ROWS) * rowBytes,
       ),
     );
-    const nextLongEdge = Math.max(minOutputSide, Math.floor(longEdge * ratio));
-    const scale = nextLongEdge / Math.max(raw.width, raw.height);
-    width = Math.max(1, Math.round(raw.width * scale));
-    height = Math.max(1, Math.round(raw.height * scale));
   }
+  return {
+    data: Buffer.concat(bands),
+    width: raw.width,
+    height: SAMPLE_BANDS * SAMPLE_BAND_ROWS,
+    channels: raw.channels,
+  };
 }
 
 async function encodeAt(
   raw: RawImage,
-  width: number,
-  height: number,
+  { width, height, quality }: EncodeStep,
   format: CleanFormat,
-  quality: number,
 ): Promise<Buffer> {
   let pipeline = sharp(raw.data, {
     raw: { width: raw.width, height: raw.height, channels: raw.channels },
@@ -268,15 +368,36 @@ async function encodeAt(
   /* Filtered, as a browser writes PNG: a photographic cutout comes out a fifth
      to a third smaller than unfiltered, so it fits the budget at a larger
      size. zlib level 3 is its fast matcher; level 6 took up to 5 s on smooth
-     2560 px images, against 0.6 s here, for 3% smaller files. */
+     2560 px images, against 0.6 s here, for 3% smaller files. Huffman
+     optimisation is off for JPEG: it buffers every coefficient for a second
+     pass, a quarter of the time per encode, and under glibc the freed buffers
+     stayed resident, about 90 MB per encode of a 2560 px image (a q100 noise
+     JPEG peaked at 536 MB). Pixels are identical; files are 8 to 16% larger. */
   return format === "png"
     ? pipeline.png({ adaptiveFiltering: true, compressionLevel: 3 }).toBuffer()
     : pipeline
         .jpeg({
           quality: JPEG_QUALITY_STEPS[quality],
           chromaSubsampling: "4:4:4",
+          optimiseCoding: false,
         })
         .toBuffer();
+}
+
+async function thumbnailOf(raw: RawImage, side: number) {
+  const { data, info } = await sharp(raw.data, {
+    raw: { width: raw.width, height: raw.height, channels: raw.channels },
+  })
+    .resize({
+      width: side,
+      height: side,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height };
 }
 
 function anyAlpha(rgba: Buffer): boolean {
