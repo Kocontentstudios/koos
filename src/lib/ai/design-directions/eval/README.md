@@ -70,6 +70,39 @@ Deterministically, in `score.ts`, except the plate look.
 Thresholds were written before the first round-2 run and are frozen in
 `cases.ts` (`DIRECTIONS_EVAL_THRESHOLDS`).
 
+## The rendered lane (round 3)
+
+Round 2 never drew a design, so it could not see headlines on the pastry, a
+cropped product, facts the brief gave and the design dropped, gibberish on a
+plate, or a blank photo accepted as a hero. Each case now runs as the job
+does, without storage or the judge gate: the upload normalised as the
+browser would (`normalise.ts`) and passed through every loader check
+(`designImageFromBytes`), the subject looked at (`lookAtPhoto`, a plate's own
+look, or a cut-out's alpha), the layout chosen (`chooseLayout` with the
+builders' subject check), and the document rendered. Renders, layer
+documents and plates land in `--out` (default
+`qa-reports/eval/design-directions-renders`). Two metrics are measured twice
+on purpose, so neither is true by construction: copy over the subject (the
+document's geometry, and a look at the PNG) and invented facts (a text judge
+reading the copy against the brief and profile, not `inventedFacts`, which
+filtered it). Scored in `render-score.ts`; thresholds in `RENDER_THRESHOLDS`,
+frozen before the first round-3 run.
+
+| Metric | Meaning | Threshold |
+|---|---|---|
+| `copyOverSubject` | Delivered directions with copy, a button, the rule or the logo on the drawn part of a known subject (`measureSubject`) | 0 |
+| `lookTextOverSubjectShare` | The eval's look at the PNG says text sits on the product or a face | ≤ 0.15 |
+| `croppedShare` | Known subjects cut by their frame or under 35% of the shorter side | ≤ 0.25 |
+| `caseFactCoverage` | The brief's hard facts (`briefFacts`) stated by at least one direction | 1.0 |
+| `directionFactCoverage` | The same, per direction | ≥ 0.9 |
+| `judgeInventedShare` | Directions where the judge finds a statement the brief does not support | ≤ 0.15 |
+| `letteredPlateShare` | Delivered plates the eval's look finds any writing on | ≤ 0.1 |
+| refusals | `workshop-blank-upload` (photo-a.jpg, near-white) refused; no good photo refused | all / 0 |
+
+Reported, not gated: `subjectKnownShare`, `lookCutShare` (the look calls a
+framed photo "cut" far more often than the geometry does), `judgeMissingShare`
+(the judge also lists soft details such as "autumn" as missing).
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a
@@ -131,6 +164,12 @@ scene must now show the same product. A pair is a near-duplicate at headline
 | `recruitment-ko` | recruitment | KO | No logo; a role and a deadline |
 | `eid-greeting-ko` | celebration | KO | No facts and no offer: difference must come from the concept alone |
 | `fitness-ko` | service | KO | A schedule and a free first class |
+| `cafe-photo-upload` | food | busy-cafe-espresso.jpg | A busy scene with bright windows: copy must find room off the machine |
+| `fashion-portrait-upload` | product | portrait-fashion.jpg | A person: copy may never cover the face |
+| `workshop-blank-upload` | event | photo-a.jpg | A near-white photo the loader must refuse before any model call |
+
+The photo fixtures are royalty-free stock in `/tmp/feat-033/fixtures` (kept
+out of the repo, they are binaries).
 
 ## Results, 2026-10-22
 
@@ -141,3 +180,43 @@ threshold, grounded 0.97, distinctness mean 0.81 (worst 0.60), product named
 1.00. Plates: 5 of 5 show the product, none wrong, none retried. Run 3 also
 passed; runs 1 and 2 failed on the model lane and led to the prompt and
 checker changes in this round.
+
+## Results, round 3 (2026-10-22)
+
+Three full runs on `us.anthropic.claude-sonnet-4-6` and Bedrock
+stable-image-core, 13 cases each. All three FAIL; the failures are real and
+listed, not tuned away.
+
+| Metric | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| model: within limits / grounded / spatial | 1.00 / 0.84 / 0.09 | 1.00 / 0.82 / 0.10 | 1.00 / 0.82 / 0.07 |
+| model: invented (max 0.05) | **0.09** | **0.07** | **0.12** |
+| delivered: invented, false, cut, spatial | 0 | 0 | 0 |
+| distinctness mean / worst | 0.80 / 0.60 | 0.75 / 0.60 | 0.82 / 0.67 |
+| plates show the product (min 0.8) | 0.80 | 1.00 | **0.40** |
+| copy over subject (max 0) | **1** | 0 | 0 |
+| look: text over subject | 0.00 | 0.00 | 0.00 |
+| cropped | 0.06 | 0.00 | 0.18 |
+| brief facts, any direction / per direction | 1.00 / 1.00 | **0.82** / 1.00 | 1.00 / 1.00 |
+| judge: invented (max 0.15) | **0.43** | **0.26** | **0.39** |
+| lettered plates (max 0.1) | 0.00 | **0.17** | 0.00 |
+| blank photo refused | 1/1 | 1/1 | 1/1 |
+
+What changed between runs, from what each found: after run 1, the subject
+check counts a layout as covering when the drawn document puts copy on the
+subject whatever the builder reported (the conference case), lettering on
+unreadable screen detail stopped drawing six non-product plates flat, and a
+count joined by "and" stays whole. After run 2, `measureSubject` counts
+overlap only on the drawn part of a cropped subject (every textile layout had
+failed), and an off-list `backgroundTreatment` is repaired (the textile case
+errored, which is run 2's 0.82 fact coverage). Run 3 lost the photo looks on
+the last four cases to Bedrock "unable to process" errors (subject known
+0.48), and its plate check passed a man in striped robes as aso-oke throws;
+the check's question now rules out a person wearing the product.
+
+Open: the judge's invented share. The detector catches every fact-shaped
+invention the probes named, but the model also writes claims no pattern can
+see ("designing for Lagos's climate", "One weave", "Your first month is
+free" for "zero transfer fees for your first month", "just show up" on a
+book-on-WhatsApp brief). Closing it needs a semantic check of the copy in the
+product, a paid call per job, which is a decision, not a fix.

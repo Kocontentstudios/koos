@@ -95,7 +95,9 @@ export interface PlateVerdict {
   lettering: boolean;
 }
 
-const SYSTEM = `You check images for a design studio before a client sees them. The first question is identity: is the thing in the picture the named product? A different item of the same kind (a tart for a mille-feuille, a cake for a pastry, a cushion for a throw, bread for a croissant) is NOT the product. Presentation is NOT the question: the angle, crop, plating, number of pieces, background and lighting do not matter, and a description of how it might look is only a hint to recognise it. Then say where the subject is, list what else is in the picture, and say whether any writing appears: generated images often paint made-up brand names or squiggles that look like text on labels and packaging, and those count. Judge only what is visible.`;
+/* "A person wearing or holding": the round-3 eval saw a man in striped robes
+   pass as aso-oke throws. */
+const SYSTEM = `You check images for a design studio before a client sees them. The first question is identity: is the thing in the picture the named product? A different item of the same kind (a tart for a mille-feuille, a cake for a pastry, a cushion for a throw, bread for a croissant) is NOT the product, and neither is a person wearing or holding something like it when the product is the object itself. Presentation is NOT the question: the angle, crop, plating, number of pieces, background and lighting do not matter, and a description of how it might look is only a hint to recognise it. Then say where the subject is, list what else is in the picture, and say whether any writing appears: generated images often paint made-up brand names or squiggles that look like text on labels and packaging, and those count. Judge only what is visible.`;
 
 async function smaller(
   bytes: Uint8Array,
