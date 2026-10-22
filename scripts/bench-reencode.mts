@@ -90,7 +90,7 @@ const CASES: Case[] = [
   { label: "SVG logo sanitiser", kind: "svg", build: typicalLogo },
 ];
 
-const peakRssMb = () => process.resourceUsage().maxRSS / 1024;
+const { peakRssMB: peakRssMb } = await import("../src/lib/images/peak-rss");
 
 async function measure(kind: Kind, file: string, options: ReencodeOptions) {
   const { jpegDecodes, pngDecodes } = await import(

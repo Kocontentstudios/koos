@@ -7,6 +7,7 @@ import {
   inflatedPngSize,
   inflatesToLayout,
   jpegDecodes,
+  jpegHasUndrawableFrame,
   type PngHeader,
   pngDecodes,
   pngScanlineLayout,
@@ -369,6 +370,60 @@ describe("jpegDecodes", () => {
   it("refuses a second start-of-image marker", () => {
     const parts = jpegParts(8, 8);
     expect(jpegDecodes(joinJpeg({ ...parts, app0: [0xff, 0xd8] }))).toBe(false);
+  });
+
+  it("refuses a second frame header", () => {
+    const parts = jpegParts(8, 8);
+    const frame = [...parts.frame, ...parts.frame];
+    expect(jpegDecodes(joinJpeg({ ...parts, frame }))).toBe(false);
+  });
+});
+
+/* Round-4 critic C3: an arithmetic-coded frame marker over Huffman data
+   decoded as noise with no warning, and was drawn. */
+describe("JPEG frame types", () => {
+  const withFrame = (marker: number) => {
+    const parts = jpegParts(8, 8);
+    return joinJpeg({
+      ...parts,
+      frame: [0xff, marker, ...parts.frame.slice(2)],
+    });
+  };
+  const DRAWABLE = [0xc0, 0xc1, 0xc2];
+  const LOSSLESS_HIERARCHICAL = [0xc3, 0xc5, 0xc6, 0xc7];
+  const ARITHMETIC = [0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf];
+  const hex = (m: number) => m.toString(16);
+
+  it.each(DRAWABLE.map(hex))("allows Huffman frame %s", (marker) => {
+    const bytes = withFrame(Number.parseInt(marker, 16));
+    expect(jpegHasUndrawableFrame(bytes)).toBe(false);
+    expect(jpegDecodes(bytes)).toBe(true);
+  });
+
+  it.each([...LOSSLESS_HIERARCHICAL, ...ARITHMETIC].map(hex))(
+    "refuses frame %s",
+    (marker) => {
+      const bytes = withFrame(Number.parseInt(marker, 16));
+      expect(jpegHasUndrawableFrame(bytes)).toBe(true);
+      expect(jpegDecodes(bytes)).toBe(false);
+    },
+  );
+
+  /* DHT (C4), JPG (C8) and DAC (CC) share the range but are not frames. */
+  it("reads past table segments in the frame range to the frame", () => {
+    const parts = jpegParts(8, 8);
+    const dac = [0xff, 0xcc, 0x00, 0x04, 0x00, 0x10];
+    const bytes = joinJpeg({ ...parts, tables: [...parts.tables, ...dac] });
+    expect(jpegHasUndrawableFrame(bytes)).toBe(false);
+    expect(jpegHasUndrawableFrame(withFrame(0xc9))).toBe(true);
+  });
+
+  it("leaves a file it cannot walk to the decoder", () => {
+    expect(jpegHasUndrawableFrame(Buffer.from("not a jpeg"))).toBe(false);
+    expect(jpegHasUndrawableFrame(buildJpeg(8, 8).subarray(0, 4))).toBe(false);
+    expect(
+      jpegHasUndrawableFrame(joinJpeg({ ...jpegParts(8, 8), frame: [] })),
+    ).toBe(false);
   });
 });
 

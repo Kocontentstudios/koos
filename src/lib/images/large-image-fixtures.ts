@@ -261,6 +261,35 @@ async function noiseJpeg(progressive: boolean): Promise<Buffer> {
 }
 
 /**
+ * The costliest load the round-4 critic found (C1): 2560 px of noise as a
+ * progressive JPEG at quality 100 with full-resolution chroma, 19.2 MB, which
+ * took 1.84 to 2.57 s and peaked at 517 to 534 MB. Progressive decoding holds
+ * every coefficient, and every encode of it lands over the byte budget.
+ *
+ * Noise alone averages to flat grey on the subject check's thumbnail and is
+ * refused as no_subject, after the full re-encode. `withSubject` paints a
+ * black square over the middle fifth so the same cost ends in an accept.
+ */
+export async function progressiveQ100NoiseJpeg({
+  withSubject = false,
+}: {
+  withSubject?: boolean;
+} = {}): Promise<Buffer> {
+  const side = 2560;
+  const pixels = randomBytes(side * side * 3, 23);
+  if (withSubject) {
+    for (let y = 1024; y < 1536; y += 1) {
+      pixels.fill(0, (y * side + 1024) * 3, (y * side + 1536) * 3);
+    }
+  }
+  return sharp(pixels, {
+    raw: { width: side, height: side, channels: 3 },
+  })
+    .jpeg({ quality: 100, progressive: true, chromaSubsampling: "4:4:4" })
+    .toBuffer();
+}
+
+/**
  * The most bytes per pixel a file under the 20 MB and 4096 px caps can
  * decode to: one random byte a pixel expands to three or four on re-encode.
  * The tRNS one is the worst cost the critic measured (3.5 s, 405 MB).

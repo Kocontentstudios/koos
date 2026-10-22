@@ -51,6 +51,7 @@ describe("SVG detection", () => {
     ["a doctype first", "<!DOCTYPE svg><svg></svg>"],
     ["a leading comment", "<!-- exported by a tool --><svg></svg>"],
     ["leading whitespace", "\n\n  <svg></svg>"],
+    ["a prefixed root", '<s:svg xmlns:s="http://www.w3.org/2000/svg"></s:svg>'],
     ["an uppercase tag", "<SVG></SVG>"],
   ])("recognises SVG with %s", (_label, source) => {
     expect(detectImageType(text(source))).toBe("svg");

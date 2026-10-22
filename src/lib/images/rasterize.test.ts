@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_RASTER_PIXELS,
   svgIntrinsicRatio,
   svgRasterBox,
   withViewBox,
@@ -120,6 +121,26 @@ describe("svgRasterBox", () => {
     const box = svgRasterBox(bytes('<svg viewBox="0 0 100 1"/>'), 600);
     expect(Math.max(box.width, box.height)).toBeLessThanOrEqual(4096);
     expect(box.width / box.height).toBeCloseTo(100, 0);
+  });
+
+  /* Round-4 critic C4: a tall noisy logo rasterised at 600 x 4096 encoded
+     to 8.4 MB, past the renderer's 7,499,820. */
+  it("bounds the area, keeping the shape", () => {
+    const box = svgRasterBox(bytes('<svg viewBox="0 0 600 4096"/>'), 600);
+    expect(box.width * box.height).toBeLessThanOrEqual(MAX_RASTER_PIXELS);
+    expect(box.width / box.height).toBeCloseTo(600 / 4096, 2);
+    expect(box.height).toBeGreaterThan(2500);
+  });
+
+  it("leaves an ordinary wordmark at the preferred width", () => {
+    expect(svgRasterBox(bytes('<svg viewBox="0 0 300 100"/>'), 600)).toEqual({
+      width: 600,
+      height: 200,
+    });
+    expect(svgRasterBox(bytes('<svg viewBox="0 0 1 1"/>'), 600)).toEqual({
+      width: 600,
+      height: 600,
+    });
   });
 
   it("never returns a zero side", () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
+  NO_SUBJECT_REASON,
   TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
 import {
@@ -13,6 +14,7 @@ import {
   normalizeImageForUpload,
   readWebpDimensions,
 } from "./normalize-image";
+import { SUBJECT_THUMBNAIL_SIDE } from "./subject-check";
 
 const PNG_HEAD = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_HEAD = [0xff, 0xd8, 0xff, 0xe0];
@@ -114,12 +116,34 @@ interface FakeContext {
 }
 
 let ctx: FakeContext;
+/* The subject check draws a second, thumbnail-sized canvas. */
+let thumbCtx: FakeContext;
+let thumbnail: (width: number, height: number) => Uint8ClampedArray;
 let bitmap: { width: number; height: number; close: ReturnType<typeof vi.fn> };
 let createImageBitmap: ReturnType<typeof vi.fn>;
 let toBlob: ReturnType<typeof vi.spyOn>;
 let alphaValue: number;
 let fillValue: number;
 let encodedSize: number | null;
+
+/* Left half black, right half white: plainly a subject. */
+function twoTone(width: number, height: number): Uint8ClampedArray {
+  const data = new Uint8ClampedArray(width * height * 4).fill(255);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width / 2; x += 1) {
+      data.fill(0, (y * width + x) * 4, (y * width + x) * 4 + 3);
+    }
+  }
+  return data;
+}
+
+function makeThumbContext(): FakeContext {
+  const fake = makeContext();
+  fake.getImageData = vi.fn((_x: number, _y: number, w: number, h: number) => ({
+    data: thumbnail(w, h),
+  }));
+  return fake;
+}
 
 function makeContext(): FakeContext {
   const fake: FakeContext = {
@@ -148,11 +172,18 @@ beforeEach(() => {
   fillValue = 255;
   encodedSize = 1234;
   ctx = makeContext();
+  thumbnail = twoTone;
+  thumbCtx = makeThumbContext();
   bitmap = { width: 1000, height: 500, close: vi.fn() };
   createImageBitmap = vi.fn(async () => bitmap);
   vi.stubGlobal("createImageBitmap", createImageBitmap);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-    () => ctx as unknown as CanvasRenderingContext2D,
+    function (this: HTMLCanvasElement) {
+      const isThumb =
+        this.width <= SUBJECT_THUMBNAIL_SIDE &&
+        this.height <= SUBJECT_THUMBNAIL_SIDE;
+      return (isThumb ? thumbCtx : ctx) as unknown as CanvasRenderingContext2D;
+    },
   );
   toBlob = vi
     .spyOn(HTMLCanvasElement.prototype, "toBlob")
@@ -417,10 +448,90 @@ describe("normalizeImageForUpload: what it refuses", () => {
     "encode_failed",
     "too_large_after_encode",
     "blank",
+    "no_subject",
   ])("starts the %s message with IMAGE_NOT_USABLE_PREFIX", (reason) => {
     expect(new ImageNotUsableError(reason).message).toMatch(
       new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: \\S`),
     );
+  });
+});
+
+/* FEAT-033 U3 live critic: a photo of a blank white sheet became a design's
+   hero. Refused before upload, on the same measure the loader uses. */
+describe("normalizeImageForUpload: blank and subject-free images", () => {
+  const nearWhite = (width: number, height: number) => {
+    const data = new Uint8ClampedArray(width * height * 4).fill(255);
+    for (let i = 0; i < data.length; i += 4) data[i] = 250 + (i % 5);
+    return data;
+  };
+
+  it("refuses a near-uniform image before uploading it", async () => {
+    thumbnail = nearWhite;
+    expect(
+      await reasonOf(normalizeImageForUpload(fileOf(JPEG_HEAD, "image/jpeg"))),
+    ).toBe("no_subject");
+    expect(toBlob).not.toHaveBeenCalled();
+    expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+
+  it("uses the loader's own words", async () => {
+    thumbnail = nearWhite;
+    await expect(
+      normalizeImageForUpload(fileOf(PNG_HEAD, "image/png")),
+    ).rejects.toThrow(`${IMAGE_NOT_USABLE_PREFIX}: ${NO_SUBJECT_REASON}`);
+  });
+
+  /* A dark square on a white field, on the 64 x 32 thumbnail of a 1000 x
+     500 image: 4 x 4 pixels (0.8%) is a subject, 2 x 2 (0.2%) is below the
+     coverage floor and too small to carry the edge measure either. */
+  const darkSquare =
+    (side: number) =>
+    (width: number, height: number): Uint8ClampedArray => {
+      const data = nearWhite(width, height);
+      for (let r = 0; r < side; r += 1) {
+        for (let c = 0; c < side; c += 1) {
+          const at = ((8 + r) * width + 30 + c) * 4;
+          data.fill(40, at, at + 3);
+        }
+      }
+      return data;
+    };
+
+  it("keeps a small product on white", async () => {
+    thumbnail = darkSquare(4);
+    const out = await normalizeImageForUpload(fileOf(JPEG_HEAD, "image/jpeg"));
+    expect(out.type).toBe("image/jpeg");
+  });
+
+  it("refuses a speck on white", async () => {
+    thumbnail = darkSquare(2);
+    expect(
+      await reasonOf(normalizeImageForUpload(fileOf(JPEG_HEAD, "image/jpeg"))),
+    ).toBe("no_subject");
+  });
+
+  it("measures a thumbnail drawn from the full canvas", async () => {
+    bitmap.width = 6000;
+    bitmap.height = 4000;
+    await normalizeImageForUpload(fileOf(JPEG_HEAD, "image/jpeg"));
+    expect(thumbCtx.drawImage).toHaveBeenCalledWith(
+      expect.any(HTMLCanvasElement),
+      0,
+      0,
+      64,
+      43,
+    );
+    expect(thumbCtx.getImageData).toHaveBeenCalledWith(0, 0, 64, 43);
+    expect(thumbCtx.imageSmoothingQuality).toBe("high");
+  });
+
+  it("checks for transparency first, in its own words", async () => {
+    fillValue = 0;
+    alphaValue = 0;
+    thumbnail = nearWhite;
+    expect(
+      await reasonOf(normalizeImageForUpload(fileOf(PNG_HEAD, "image/png"))),
+    ).toBe("blank");
   });
 });
 

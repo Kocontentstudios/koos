@@ -22,9 +22,14 @@ import {
 import {
   RENDERER_IMAGE_BYTE_BUDGET,
   RENDERER_MAX_IMAGE_BYTES,
+  reencodeImage,
 } from "@/lib/images/reencode";
 import { type ImageToDraw, renderInChild } from "@/lib/images/render-in-child";
-import { DesignImageError, loadDesignImage } from "./design-image";
+import {
+  DESIGN_IMAGE_REENCODE,
+  DesignImageError,
+  loadDesignImage,
+} from "./design-image";
 import {
   IMAGE_NOT_USABLE_PREFIX,
   MAX_DESIGN_IMAGE_BYTES,
@@ -80,11 +85,30 @@ const BLANK = [
   "m-max-4096-rgba16-transparent.png",
 ];
 
+/* Arithmetic-coded and lossless frames, which browsers do not draw
+   (round-4 critic C3). */
+const UNSUPPORTED_JPEG = [
+  "j-base-sof-marker-c3-lossless.jpg",
+  "j-base-sof-marker-c9-arith.jpg",
+  "j-prog-sof-marker-c3-lossless.jpg",
+  "j-prog-sof-marker-c9-arith.jpg",
+];
+
+/* Valid files of a flat colour or two, refused as no_subject. */
+const SUBJECTLESS_VALID = ["s-3x2-interlaced.png"];
+
 interface Outcome {
   image: HostileImage;
   accepted?: ImageToDraw & { width: number; height: number };
   refused?: unknown;
+  /* The re-encode a subject-free refusal threw away. The renderer never sees
+     it, but it is drawn too, so the decode half of the gate keeps every file
+     libvips accepted rather than only those with a subject. */
+  reencoded?: ImageToDraw;
 }
+
+const faultOf = (refused: unknown) =>
+  refused instanceof DesignImageError ? refused.fault : String(refused);
 
 describe("loadDesignImage against the hostile corpus", () => {
   let outcomes: Outcome[];
@@ -107,7 +131,14 @@ describe("loadDesignImage against the hostile corpus", () => {
           },
         });
       } catch (refused) {
-        outcomes.push({ image, refused });
+        outcomes.push({
+          image,
+          refused,
+          reencoded:
+            faultOf(refused) === "no_subject"
+              ? await reencodedAsDrawn(image)
+              : undefined,
+        });
       }
     }
   }, 120_000);
@@ -140,6 +171,12 @@ describe("loadDesignImage against the hostile corpus", () => {
     expect(accepted).toEqual([]);
   });
 
+  it("refuses arithmetic-coded and lossless JPEG frames as unsupported", () => {
+    for (const name of UNSUPPORTED_JPEG) {
+      expect(faultOf(byName(name).refused), name).toBe("unsupported_jpeg");
+    }
+  });
+
   it("refuses a fully transparent image as blank", () => {
     for (const name of BLANK) {
       const { refused } = byName(name);
@@ -152,19 +189,30 @@ describe("loadDesignImage against the hostile corpus", () => {
      everything. Every file libvips encoded itself is a real image. */
   it("accepts every valid image it was given", () => {
     const valid = outcomes.filter(
-      ({ image }) => image.name.startsWith("s-") && !BLANK.includes(image.name),
+      ({ image }) =>
+        image.name.startsWith("s-") &&
+        !BLANK.includes(image.name) &&
+        !SUBJECTLESS_VALID.includes(image.name),
     );
-    expect(valid.length).toBeGreaterThanOrEqual(23);
+    expect(valid.length).toBeGreaterThanOrEqual(22);
     const refused = valid
       .filter(({ refused }) => refused)
       .map(({ image, refused }) => `${image.name}: ${String(refused)}`);
     expect(refused).toEqual([]);
   });
 
+  it("refuses a valid flat file as no_subject, and draws its re-encode", () => {
+    for (const name of SUBJECTLESS_VALID) {
+      expect(faultOf(byName(name).refused), name).toBe("no_subject");
+      expect(byName(name).reencoded, name).toBeDefined();
+    }
+  });
+
   it("hands on only a plain 8-bit PNG or a baseline JPEG", () => {
-    for (const { accepted } of outcomes) {
-      if (!accepted) continue;
-      const { bytes, contentType, name } = accepted;
+    for (const { accepted, reencoded } of outcomes) {
+      const drawn = accepted ?? reencoded;
+      if (!drawn) continue;
+      const { bytes, contentType, name } = drawn;
       if (contentType === "image/png") {
         expect(bytes[24], `${name} bit depth`).toBe(8);
         expect([2, 6], `${name} colour type`).toContain(bytes[25]);
@@ -179,9 +227,10 @@ describe("loadDesignImage against the hostile corpus", () => {
   });
 
   it("draws everything it accepted, and the renderer survives it", () => {
-    const accepted = outcomes.flatMap(({ accepted }) =>
-      accepted ? [accepted] : [],
-    );
+    const accepted = outcomes.flatMap(({ accepted, reencoded }) => {
+      const drawn = accepted ?? reencoded;
+      return drawn ? [drawn] : [];
+    });
     expect(accepted.length).toBeGreaterThan(60);
 
     const run = renderInChild(accepted);
@@ -196,6 +245,19 @@ describe("loadDesignImage against the hostile corpus", () => {
     expect(Object.keys(run.verdicts)).toHaveLength(accepted.length);
   }, 120_000);
 });
+
+async function reencodedAsDrawn(image: HostileImage): Promise<ImageToDraw> {
+  const { bytes } = await reencodeImage(
+    image.bytes,
+    image.type,
+    DESIGN_IMAGE_REENCODE,
+  );
+  return {
+    name: image.name,
+    contentType: image.type === "png" ? "image/png" : "image/jpeg",
+    bytes,
+  };
+}
 
 /* Proof the gate can fail: the same harness, handed the stored bytes the
    loader now refuses, sees the abort and the empty slot it exists to catch. */
@@ -238,7 +300,11 @@ describe("loadDesignImage keeps images at the size limits drawable", () => {
     bytes: Buffer;
   }
   let inputs: Sized[];
-  let loaded: Map<string, Awaited<ReturnType<typeof loadDesignImage>>>;
+  let loaded: Map<
+    string,
+    { bytes: Buffer; contentType: string; width: number; height: number }
+  >;
+  let subjectless: string[];
   let unbounded: Buffer;
 
   const loadedAs = (name: string) => {
@@ -262,11 +328,31 @@ describe("loadDesignImage keeps images at the size limits drawable", () => {
       ...(await attackerSizedImages()),
     ];
     loaded = new Map();
+    subjectless = [];
     for (const input of inputs) {
       getObjectBytes.mockResolvedValue(input.bytes);
-      loaded.set(input.name, await loadDesignImage(KEY[input.type], BRAND));
+      try {
+        loaded.set(input.name, await loadDesignImage(KEY[input.type], BRAND));
+      } catch (err) {
+        if (faultOf(err) !== "no_subject") throw err;
+        /* Pure noise averages to flat grey on the subject check's thumbnail,
+           so the loader refuses it. The byte budget must hold for it anyway:
+           the same density with a subject on top would be accepted. */
+        subjectless.push(input.name);
+        const { bytes, width, height } = await reencodeImage(
+          input.bytes,
+          input.type,
+          DESIGN_IMAGE_REENCODE,
+        );
+        const contentType = input.type === "png" ? "image/png" : "image/jpeg";
+        loaded.set(input.name, { bytes, contentType, width, height });
+      }
     }
   }, 120_000);
+
+  it("accepts the photographic images and refuses only pure noise as subjectless", () => {
+    expect(subjectless.filter((name) => !name.startsWith("huge-"))).toEqual([]);
+  });
 
   it("reproduces the round-3 break: unbounded, the cutout is over the limit", () => {
     expect(unbounded.length).toBeGreaterThan(RENDERER_MAX_IMAGE_BYTES);
@@ -280,7 +366,7 @@ describe("loadDesignImage keeps images at the size limits drawable", () => {
     }
   });
 
-  it("accepts every one, within the byte budget and the normaliser's bound", () => {
+  it("keeps every one within the byte budget and the normaliser's bound", () => {
     for (const { name } of inputs) {
       const image = loadedAs(name);
       expect(image.bytes.length, name).toBeLessThanOrEqual(

@@ -228,6 +228,13 @@ export async function pngDecodes(bytes: Uint8Array): Promise<boolean> {
 const SOF_MARKERS = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
 ]);
+
+/* Huffman-coded baseline, extended and progressive frames, the only ones
+   browsers draw. Lossless (C3), hierarchical (C5-C7) and arithmetic-coded
+   (C9-CB, CD-CF) files are refused: the browser normaliser cannot open them,
+   so none comes from it, and libvips decodes an arithmetic marker over
+   Huffman data as noise without a single warning (round-4 critic C3). */
+const DRAWABLE_FRAMES = new Set([0xc0, 0xc1, 0xc2]);
 const SOS = 0xda;
 const EOI = 0xd9;
 const SOI = 0xd8;
@@ -280,6 +287,7 @@ export function jpegDecodes(bytes: Uint8Array): boolean {
     if (length < 2 || end > bytes.length) return false;
 
     if (SOF_MARKERS.has(marker)) {
+      if (sawFrame || !DRAWABLE_FRAMES.has(marker)) return false;
       const components = bytes[offset + 7];
       if (length < 8 || components < 1 || length !== 8 + 3 * components) {
         return false;
@@ -296,6 +304,29 @@ export function jpegDecodes(bytes: Uint8Array): boolean {
     } else {
       offset = end;
     }
+  }
+  return false;
+}
+
+/**
+ * True when the JPEG's frame header, the first before any scan, is one
+ * DRAWABLE_FRAMES excludes. A file whose segments cannot be walked to a frame
+ * is not judged here: the structural check and the decoder refuse it.
+ */
+export function jpegHasUndrawableFrame(bytes: Uint8Array): boolean {
+  if (bytes[0] !== 0xff || bytes[1] !== SOI) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 2;
+  while (offset + 3 < bytes.length) {
+    if (bytes[offset] !== 0xff) return false;
+    while (bytes[offset + 1] === 0xff) offset += 1;
+    const marker = bytes[offset + 1];
+    offset += 2;
+    if (marker === TEM || isRestart(marker)) continue;
+    if (marker === SOS || marker === EOI) return false;
+    if (SOF_MARKERS.has(marker)) return !DRAWABLE_FRAMES.has(marker);
+    if (offset + 2 > bytes.length) return false;
+    offset += view.getUint16(offset);
   }
   return false;
 }

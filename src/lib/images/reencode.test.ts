@@ -8,6 +8,7 @@ import {
   RENDERER_MAX_IMAGE_BYTES,
   reencodeImage,
   UndecodableImageError,
+  UnsupportedJpegError,
 } from "./reencode";
 
 const LIMITS = { maxInputPixels: 4096 * 4096, minOutputSide: 1 };
@@ -196,6 +197,19 @@ describe("reencodeImage", () => {
     const err = await refusal(reencodeImage(bytes, "jpeg", LIMITS));
     expect(err.name).toBe("UndecodableImageError");
     expect(err.message.length).toBeGreaterThan(0);
+  });
+
+  /* The brand-logo path and SVG-embedded JPEGs meet this here rather than in
+     the design-image loader. */
+  it("refuses an arithmetic-coded frame before decoding it", async () => {
+    const stored = await solid(64, 48).jpeg().toBuffer();
+    const sof = stored.indexOf(Buffer.from([0xff, 0xc0]));
+    stored[sof + 1] = 0xc9;
+    const err = await reencodeImage(stored, "jpeg", LIMITS).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(UnsupportedJpegError);
+    expect(err).toBeInstanceOf(UndecodableImageError);
   });
 
   it("keeps the decoder's own error as the cause", async () => {

@@ -25,6 +25,14 @@ vi.mock("@/lib/images/reencode", async (importOriginal) => {
   };
 });
 
+/* The fixtures here are flat by construction (a hand-coded grey JPEG, 1-bit
+   PNGs), which the subject check refuses. It has its own suite on real
+   pixels, design-image.subject.test.ts; here it always finds a subject. */
+vi.mock("./subject-check", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./subject-check")>()),
+  looksBlank: () => false,
+}));
+
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -398,6 +406,25 @@ describe("loadDesignImage", () => {
     expect(await faultOf(loadDesignImage(PNG_KEY, BRAND))).toBe("unreadable");
   });
 
+  /* Round-4 critic C3: browsers do not draw these, and libvips decodes an
+     arithmetic marker over Huffman data as noise without a warning. */
+  it.each([
+    ["arithmetic", 0xc9],
+    ["arithmetic progressive", 0xca],
+    ["lossless", 0xc3],
+    ["hierarchical", 0xc5],
+  ])("refuses a %s JPEG with its own message", async (_label, marker) => {
+    const parts = jpegParts(64, 48);
+    const frame = [0xff, marker, ...parts.frame.slice(2)];
+    getObjectBytes.mockResolvedValue(joinJpeg({ ...parts, frame }));
+    const err = await loadDesignImage(JPG_KEY, BRAND).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DesignImageError);
+    expect((err as DesignImageError).fault).toBe("unsupported_jpeg");
+    expect((err as Error).message).toMatch(
+      new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: it is saved in a kind of JPEG`),
+    );
+  });
+
   it("refuses a JPEG with no frame header", async () => {
     getObjectBytes.mockResolvedValue(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     expect(await faultOf(loadDesignImage(JPG_KEY, BRAND))).toBe("unreadable");
@@ -439,7 +466,9 @@ describe("loadDesignImage", () => {
     "unreadable",
     "too_many_pixels",
     "too_detailed",
+    "unsupported_jpeg",
     "blank",
+    "no_subject",
   ])("starts the %s message with IMAGE_NOT_USABLE_PREFIX", (fault) => {
     expect(new DesignImageError(fault).message).toMatch(
       new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: \\S`),
