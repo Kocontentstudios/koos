@@ -56,8 +56,11 @@ export const DIRECTIONS_POPUP_CLASS =
    the popup, so scrolling that carries the X off-screen. The scroller spans
    the popup's padding (-m-4 p-4) because a scroll box clips whatever crosses
    its edge: flush with the content, it cut the 2px-offset focus outline off
-   every edge control, and the footer could not bleed to the popup's edge. */
-export const DIRECTIONS_SCROLL_CLASS = "-m-4 flex flex-col overflow-y-auto p-4";
+   every edge control, and the footer could not bleed to the popup's edge.
+   Padding does not stop the browser scrolling a newly focused control flush
+   with the edge, which clipped its outline again; scroll-padding does. */
+export const DIRECTIONS_SCROLL_CLASS =
+  "-m-4 flex flex-col overflow-y-auto p-4 scroll-py-2";
 
 function slotsOf(design: DesignGenerationState): DirectionSlot[] {
   return [
@@ -327,8 +330,22 @@ export function DesignDirectionsDialog({
                 sendNotices,
               };
 
+  /* A click beside the dialog is usually a slip, and closing resets the
+     flow; it may only dismiss when nothing would be thrown away. Escape and
+     the X stay deliberate ways out. */
+  const pointerDismissable =
+    view.step === "choose" ||
+    (view.step === "upload" && view.upload.status === "idle") ||
+    (view.step === "results" &&
+      view.regeneratingSlot === null &&
+      view.sendingId === null);
+
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      disablePointerDismissal={!pointerDismissable}
+    >
       {/* Bottom sheet on phones, as the design preview is: a design fills a
           small viewport, and covering the backdrop would remove
           tap-outside-to-dismiss. */}

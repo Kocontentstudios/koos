@@ -187,11 +187,121 @@ async function clippedOutlines(view: DirectionsView, width: number) {
   }
 }
 
+/* Round 5: at rest every outline fitted, but Tab scrolls the next control
+   into view flush with the scroller's edge, and the outline past that edge
+   was cut off. Only a walk that scrolls, in a viewport short enough to need
+   it, sees that. */
+async function outlinesClippedWhileTabbing(
+  view: DirectionsView,
+  width: number,
+  height: number,
+) {
+  const markup = dialogMarkup(view);
+  const page = await browser.newPage({ viewport: { width, height } });
+  try {
+    await page.setContent(pageHtml(markup, await appCssFor(markup), "dark"));
+    await page.evaluate(() => document.fonts.ready);
+    const stops = await page
+      .locator("[data-testid=scroller]")
+      .evaluate(
+        (scroller) =>
+          scroller.querySelectorAll("button, a[href], [tabindex='0']").length,
+      );
+    const clipped: string[] = [];
+    let scrolled = false;
+    for (let stop = 0; stop < stops; stop++) {
+      await page.keyboard.press("Tab");
+      const result = await page.evaluate((reach) => {
+        const scroller = document.querySelector<HTMLElement>(
+          "[data-testid=scroller]",
+        );
+        const el = document.activeElement as HTMLElement | null;
+        if (!scroller || !el || !scroller.contains(el)) return null;
+        const box = scroller.getBoundingClientRect();
+        const top = box.top + scroller.clientTop;
+        const left = box.left + scroller.clientLeft;
+        const r = el.getBoundingClientRect();
+        const sides = [
+          r.left - reach < left - 0.5 && "left",
+          r.right + reach > left + scroller.clientWidth + 0.5 && "right",
+          r.top - reach < top - 0.5 && "top",
+          r.bottom + reach > top + scroller.clientHeight + 0.5 && "bottom",
+        ].filter(Boolean);
+        const name = (el.getAttribute("aria-label") ?? el.textContent ?? "")
+          .trim()
+          .slice(0, 40);
+        return {
+          clip: sides.length ? `${name}: ${sides.join(", ")}` : null,
+          scrollTop: scroller.scrollTop,
+        };
+      }, OUTLINE_REACH);
+      if (!result) continue;
+      if (result.scrollTop > 0) scrolled = true;
+      if (result.clip) clipped.push(result.clip);
+    }
+    return { clipped, scrolled };
+  } finally {
+    await page.close();
+  }
+}
+
 describe.each(VIEWS)("directions dialog, %s", (_name, view) => {
   it.each(WIDTHS)(
     "keeps every focus outline inside the scroll box at %ipx",
     async (width) => {
       expect(await clippedOutlines(view, width)).toEqual([]);
+    },
+  );
+});
+
+describe("directions dialog results, tabbing through a scrolled list", () => {
+  const results = VIEWS.find(([name]) => name === "results")?.[1];
+  if (!results) throw new Error("results view missing");
+
+  it.each([
+    [390, 700],
+    [768, 600],
+    [768, 900],
+    [1024, 700],
+    [1440, 700],
+  ])(
+    "keeps the focused outline inside the scroll box at %ipx x %ipx",
+    async (width, height) => {
+      const { clipped, scrolled } = await outlinesClippedWhileTabbing(
+        results,
+        width,
+        height,
+      );
+      expect(scrolled).toBe(true);
+      expect(clipped).toEqual([]);
+    },
+  );
+});
+
+/* Round 5: at 640-1024px the results width replaced the base 2rem gutter
+   and the popup ran from 0 to the viewport's edge. */
+describe("directions dialog results width", () => {
+  const results = VIEWS.find(([name]) => name === "results")?.[1];
+  if (!results) throw new Error("results view missing");
+
+  it.each([640, 768, 1024, 1100, 1440])(
+    "leaves at least a 1rem gutter each side at %ipx",
+    async (width) => {
+      const markup = dialogMarkup(results);
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      try {
+        await page.setContent(
+          pageHtml(markup, await appCssFor(markup), "light"),
+        );
+        const box = await page
+          .getByRole("dialog")
+          .evaluate((el) => el.getBoundingClientRect().toJSON());
+        expect(box.left).toBeGreaterThanOrEqual(15.5);
+        expect(width - box.right).toBeGreaterThanOrEqual(15.5);
+        expect(box.width).toBeLessThanOrEqual(1024);
+      } finally {
+        await page.close();
+      }
     },
   );
 });

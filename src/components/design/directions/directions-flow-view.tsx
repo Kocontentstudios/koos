@@ -80,9 +80,13 @@ const CHOOSE_TITLE: Record<DirectionsEntry, string> = {
   studio: "Choose imagery for this design",
 };
 
-/** The dialog widens for results so two portrait designs sit side by side. */
+/** The dialog widens for results so two portrait designs sit side by side.
+ *  The results width keeps the base 1rem gutter each side: a bare
+ *  sm:max-w-5xl replaces it and ran the card edge to edge at 640-1024px. */
 export function dialogWidthFor(view: DirectionsView): string {
-  return view.step === "results" ? "sm:max-w-5xl" : "sm:max-w-xl";
+  return view.step === "results"
+    ? "sm:max-w-[min(64rem,calc(100%-2rem))]"
+    : "sm:max-w-xl";
 }
 
 function Header({
