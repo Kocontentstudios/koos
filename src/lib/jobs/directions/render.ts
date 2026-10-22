@@ -11,6 +11,13 @@ import {
   type DesignDocument,
   designDocumentSchema,
 } from "@/lib/design/document/schema";
+import {
+  measureSubject,
+  SUBJECT_COVERED,
+  type SubjectBox,
+  type SubjectReport,
+  subjectFromAlpha,
+} from "@/lib/design/document/subject";
 import { resolvePalette } from "@/lib/design/palette";
 import type { LoadedFont } from "@/lib/design/render/fonts";
 import {
@@ -31,6 +38,12 @@ export interface DocumentRender {
   logoFault: string | null;
   /** The copy could not be set at the layout's type scale (from-spec.ts). */
   copyFault: string | null;
+  /** No arrangement of the layout kept the copy off the subject or showed
+   *  it whole (subject.ts). */
+  subjectFault: string | null;
+  /** The subject rule measured on the drawn document, when the image has a
+   *  known subject. */
+  subject: SubjectReport | null;
   logoUnplaced?: true;
 }
 
@@ -42,6 +55,17 @@ export interface DirectionAssets {
   imageFacts?: ImageFacts | null;
   /** The mark as drawn, with the loader's contrast reading. */
   logo: { placed: PlacedAsset; loaded: LoadedLogo } | null;
+  /** Where the subject is in the image, from the plate check or the photo
+   *  look. A cut-out's comes from its alpha when this is absent. */
+  subject?: SubjectBox | null;
+}
+
+/** The subject box the builders keep clear: the one given, else a
+ *  cut-out's visible pixels. */
+export function subjectOf(assets: DirectionAssets): SubjectBox | null {
+  if (!assets.image) return null;
+  if (assets.subject) return assets.subject;
+  return assets.imageFacts?.cutout ? subjectFromAlpha(assets.imageFacts) : null;
 }
 
 /** The spec fields a document actually draws. A correction that changes
@@ -89,6 +113,7 @@ export function documentRenderer(
       canvas: canvasFor(spec.aspectRatio),
       image: assets.image?.ref ?? null,
       imageFacts: assets.imageFacts ?? null,
+      subject: assets.subject ?? null,
       logo: logo
         ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
         : null,
@@ -120,6 +145,8 @@ export function documentRenderer(
       brandFontFault: fonts.fault ?? rendered.brandFontFault,
       logoFault: rendered.logoFault,
       copyFault: built.copyFault,
+      subjectFault: built.subjectFault,
+      subject: measuredSubject(rendered.document, assets),
     };
   }
 
@@ -142,6 +169,51 @@ export function documentRenderer(
       };
     }
   };
+}
+
+/** Whether `spec` keeps its copy off `subject`: the builders' own verdict
+ *  (documentFromSpec's subjectFault), without drawing a pixel. */
+export function subjectFaultChecker(
+  context: DesignContext,
+  assets: DirectionAssets,
+  fonts: { fonts: LoadedFont[] },
+): (spec: DesignSpec, subject: SubjectBox) => Promise<string | null> {
+  const measurer = createRendererMeasurer({ fonts: fonts.fonts });
+  return async (spec, subject) => {
+    const logo = spec.logoPlacement === "none" ? null : assets.logo;
+    const built = await documentFromSpec({
+      spec,
+      palette: resolvePalette(spec.palette, context.brand),
+      canvas: canvasFor(spec.aspectRatio),
+      image: assets.image?.ref ?? null,
+      imageFacts: assets.imageFacts ?? null,
+      subject,
+      logo: logo
+        ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
+        : null,
+      measurer,
+    });
+    /* A builder can settle for "cropped" while its fallback arrangement
+       still lays a line over the subject (round-3 eval, conference); the
+       measurement of the document is what decides. */
+    const facts = assets.imageFacts;
+    const measured = facts
+      ? measureSubject(built.document, facts, subject)
+      : null;
+    if (measured && measured.overlaps.length > 0) return SUBJECT_COVERED;
+    return built.subjectFault;
+  };
+}
+
+/** The subject rule on a finished document, or null without a subject. */
+export function measuredSubject(
+  doc: DesignDocument,
+  assets: DirectionAssets,
+): SubjectReport | null {
+  const subject = subjectOf(assets);
+  const facts = assets.imageFacts;
+  if (!subject || !facts) return null;
+  return measureSubject(doc, facts, subject);
 }
 
 /** One direction through the shared pre-delivery gate (design-gate.ts). */

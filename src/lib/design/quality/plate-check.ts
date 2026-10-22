@@ -1,23 +1,65 @@
 import { z } from "zod";
+import type { SubjectBox } from "@/lib/design/document/subject";
 import { askVision, imageMediaType } from "./vision";
 
 /**
- * Does a painted plate show the product the brief named?
+ * One look at the image a design is built on, before any copy goes on it.
  *
  * Round 1's KO plates showed a round tart, a round cake and bread rolls for
  * a strawberry mille-feuille, and the design said "mille-feuille" over them.
- * A plate model draws the nearest thing it knows; nothing downstream looked.
- * This looks, once per plate, through the same vision path as the judge.
+ * Round 2's showed the product but wrote gibberish brand names on a bottle,
+ * and its headlines sat on the pastry because nothing said where the pastry
+ * was. So one call, through the same vision path as the judge, answers all
+ * of it: is this the product, where is it, what else is in the picture, and
+ * is there lettering anywhere.
  */
 
 export const PLATE_CHECK_TIMEOUT_MS = 20_000;
-const PLATE_CHECK_MAX_OUTPUT_TOKENS = 300;
+const PLATE_CHECK_MAX_OUTPUT_TOKENS = 600;
 /** Long edge sent to the model. A product is recognisable far below the
  *  plate's own size, and a smaller image is a faster, cheaper answer that
  *  stays well inside the provider's per-image limit. */
 const CHECK_EDGE = 768;
 
-const verdictSchema = z.object({
+/* Percentages, not shares: the model places a box more reliably in the
+   units people use for it. */
+const boxSchema = z
+  .object({
+    left: z.number(),
+    top: z.number(),
+    right: z.number(),
+    bottom: z.number(),
+  })
+  .describe(
+    "A tight box around it, in percent of the image's width (left, right) and height (top, bottom), 0 to 100.",
+  );
+
+/* The model's box is a rough one; the copy keeps this much more space
+   around it, as a share of each side. */
+const BOX_SLACK = 0.02;
+
+/** A vision box in percent, as a subject box in shares, or null when it is
+ *  not a box at all. */
+export function subjectBoxFrom(
+  box: { left: number; top: number; right: number; bottom: number } | null,
+): SubjectBox | null {
+  if (!box) return null;
+  const values = [box.left, box.top, box.right, box.bottom];
+  if (!values.every((v) => Number.isFinite(v))) return null;
+  /* Some answers come back in shares despite the instruction. */
+  const scale = values.every((v) => v <= 1.0001) ? 1 : 100;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v / scale));
+  const [left, right] = [box.left, box.right].map(clamp).sort((a, b) => a - b);
+  const [top, bottom] = [box.top, box.bottom].map(clamp).sort((a, b) => a - b);
+  if (right - left < 0.01 || bottom - top < 0.01) return null;
+  const x = Math.max(0, left - BOX_SLACK);
+  const y = Math.max(0, top - BOX_SLACK);
+  const w = Math.min(1, right + BOX_SLACK) - x;
+  const h = Math.min(1, bottom + BOX_SLACK) - y;
+  return { x, y, w, h };
+}
+
+const plateSchema = z.object({
   mainSubject: z
     .string()
     .describe(
@@ -26,7 +68,18 @@ const verdictSchema = z.object({
   showsProduct: z
     .boolean()
     .describe(
-      "True only if the named product is clearly visible and recognisable as that product.",
+      "True only if the named product is clearly visible and recognisable as that product. True when no product is named.",
+    ),
+  subjectBox: boxSchema,
+  visibleItems: z
+    .array(z.string())
+    .describe(
+      "Every distinct thing visible, a few words each: the subject, props, food, drinks, people, setting.",
+    ),
+  lettering: z
+    .boolean()
+    .describe(
+      "True if a product, its packaging, a label, a sign, a garment or a wall carries letters, words, numbers, a brand name, a logo, or marks that imitate writing. Tiny interface detail on a phone or computer screen that cannot be read as words does not count.",
     ),
 });
 
@@ -34,9 +87,15 @@ export interface PlateVerdict {
   shows: boolean;
   /** What the checker saw instead, in its words: fed back into the retry. */
   seen: string;
+  /** Where the subject is, for the layout to keep copy off it. */
+  subject: SubjectBox | null;
+  /** Everything visible, for checking what a reason says the image shows. */
+  items: string[];
+  /** Writing, real or imitation, painted into the image. */
+  lettering: boolean;
 }
 
-const SYSTEM = `You check product photographs for a design studio before a client sees them. The question is identity: is the thing in the picture the named product? A different item of the same kind (a tart for a mille-feuille, a cake for a pastry, a cushion for a throw, bread for a croissant) is NOT the product. Presentation is NOT the question: the angle, crop, plating, number of pieces, background and lighting do not matter, and a description of how it might look is only a hint to recognise it. Judge only what is visible.`;
+const SYSTEM = `You check images for a design studio before a client sees them. The first question is identity: is the thing in the picture the named product? A different item of the same kind (a tart for a mille-feuille, a cake for a pastry, a cushion for a throw, bread for a croissant) is NOT the product. Presentation is NOT the question: the angle, crop, plating, number of pieces, background and lighting do not matter, and a description of how it might look is only a hint to recognise it. Then say where the subject is, list what else is in the picture, and say whether any writing appears: generated images often paint made-up brand names or squiggles that look like text on labels and packaging, and those count. Judge only what is visible.`;
 
 async function smaller(
   bytes: Uint8Array,
@@ -66,6 +125,8 @@ export async function checkPlateShowsProduct({
   timeoutMs = PLATE_CHECK_TIMEOUT_MS,
 }: {
   bytes: Uint8Array;
+  /** Empty when the brief names no product: the look still finds the
+   *  subject and any lettering. */
   product: string;
   look: string;
   timeoutMs?: number;
@@ -74,12 +135,14 @@ export async function checkPlateShowsProduct({
   if (!image) return null;
   try {
     const answer = await askVision({
-      schema: verdictSchema,
+      schema: plateSchema,
       system: SYSTEM,
       text: [
-        `The product: ${product}.`,
-        look ? `A hint for recognising it: ${look}.` : null,
-        "Is the main subject of this image that product, recognisably? Answer true if it is, however it is shot or plated. Say what the main subject actually is.",
+        product ? `The product: ${product}.` : "No product is named.",
+        product && look ? `A hint for recognising it: ${look}.` : null,
+        product
+          ? "Is the main subject of this image that product, recognisably? Answer true if it is, however it is shot or plated. Say what the main subject actually is, and box the product."
+          : "Say what the main subject is, and box it.",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -90,11 +153,83 @@ export async function checkPlateShowsProduct({
     });
     if (typeof answer?.showsProduct !== "boolean") return null;
     return {
-      shows: answer.showsProduct,
+      shows: product ? answer.showsProduct : true,
       seen: typeof answer.mainSubject === "string" ? answer.mainSubject : "",
+      subject: subjectBoxFrom(answer.subjectBox ?? null),
+      items: Array.isArray(answer.visibleItems)
+        ? answer.visibleItems.filter((i): i is string => typeof i === "string")
+        : [],
+      lettering: answer.lettering === true,
     };
   } catch (err) {
     console.error("plate check unavailable", err);
+    return null;
+  }
+}
+
+const photoSchema = z.object({
+  mainSubject: z
+    .string()
+    .describe("The photograph's main subject, in a few plain words."),
+  subjectBox: boxSchema,
+  isPerson: z
+    .boolean()
+    .describe("True if the main subject is a person or people."),
+  faceBox: boxSchema
+    .nullable()
+    .describe(
+      "When the main subject is a person: a tight box around their head and shoulders. Null otherwise.",
+    ),
+  visibleItems: z
+    .array(z.string())
+    .describe(
+      "Every distinct thing visible, a few words each: the subject, props, food, drinks, people, setting.",
+    ),
+});
+
+export interface PhotoLook {
+  description: string;
+  /** The main subject: the product, or the whole person. */
+  subject: SubjectBox | null;
+  /** A person's head and shoulders: the part copy may never cover when the
+   *  whole person leaves no room for it. */
+  face: SubjectBox | null;
+  items: string[];
+}
+
+/**
+ * Where the subject of the client's own photograph is, and what is in it.
+ * A cut-out needs none of this: its subject is its visible pixels. Null when
+ * there is no answer; the layout then has nothing to keep clear, as before.
+ */
+export async function lookAtPhoto(
+  bytes: Uint8Array,
+  timeoutMs = PLATE_CHECK_TIMEOUT_MS,
+): Promise<PhotoLook | null> {
+  const image = await smaller(bytes);
+  if (!image) return null;
+  try {
+    const answer = await askVision({
+      schema: photoSchema,
+      system:
+        "You look at a client's photograph so a designer can lay text around its subject. Say plainly what the main subject is, box it tightly, box a person's head and shoulders, and list what is visible. Judge only what is visible.",
+      text: "Box the main subject: the product if there is one, otherwise what the photograph is of. Then list what is visible.",
+      image,
+      maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
+      timeoutMs,
+      label: "photo subject",
+    });
+    const items = Array.isArray(answer?.visibleItems)
+      ? answer.visibleItems.filter((i): i is string => typeof i === "string")
+      : [];
+    return {
+      description: [answer?.mainSubject ?? "", ...items].join(", "),
+      subject: subjectBoxFrom(answer?.subjectBox ?? null),
+      face: answer?.isPerson ? subjectBoxFrom(answer.faceBox ?? null) : null,
+      items,
+    };
+  } catch (err) {
+    console.error("photo subject unavailable", err);
     return null;
   }
 }

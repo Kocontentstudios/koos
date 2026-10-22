@@ -3,7 +3,10 @@ import type { ImageAdapter } from "@/lib/ai/image/types";
 import { buildBackgroundPlatePrompt } from "@/lib/ai/prompts/design-spec";
 import type { DocumentAsset } from "@/lib/design/document/rasterize";
 import type { AssetRef } from "@/lib/design/document/schema";
-import { checkPlateShowsProduct } from "@/lib/design/quality/plate-check";
+import {
+  checkPlateShowsProduct,
+  type PlateVerdict,
+} from "@/lib/design/quality/plate-check";
 import type { LoadedLogo } from "@/lib/design/render/logo";
 import type { DesignSpec } from "@/lib/design/spec";
 import { detectImageType } from "@/lib/images/detect";
@@ -28,17 +31,21 @@ export interface PlateProduct {
 
 /** What the plate check concluded, recorded per plate. */
 export type PlateCheck =
-  /** The first plate shows the product. */
+  /** The first plate shows the product (or, with none named, its subject)
+   *  and carries no lettering. */
   | "passed"
   /** The first did not; the one retry did. */
   | "passed-on-retry"
-  /** Neither did, so the direction is drawn flat rather than over the wrong
-   *  product. */
+  /** Neither showed the product, so the direction is drawn flat rather than
+   *  over the wrong product. */
   | "failed"
-  /** The checker could not answer; the plate is used, unverified. */
-  | "unchecked"
-  /** The brief names no product, so there is nothing to check for. */
-  | "not-applicable";
+  /** Both showed the product with made-up writing painted on it, so the
+   *  direction is drawn flat rather than with fake brand names on it. */
+  | "failed-lettering"
+  /** The checker could not answer, or the model named a product the brief
+   *  never mentions so there was nothing to check it against; the plate is
+   *  used, unverified. */
+  | "unchecked";
 
 export interface CheckedPlate {
   image: { bytes: Uint8Array; contentType: string } | null;
@@ -47,6 +54,9 @@ export interface CheckedPlate {
   imageCalls: number;
   /** What the checker saw on each rejected plate. */
   seen: string[];
+  /** The check's look at the delivered plate: where the subject is and what
+   *  is in it. Null when there is no plate or no answer. */
+  look: PlateVerdict | null;
 }
 
 /**
@@ -56,20 +66,36 @@ export interface CheckedPlate {
  * best. The first attempt names the product and leaves the direction's own
  * scene to set it apart from its sibling: leading both with the same long
  * description painted the same plate twice. A retry, after the check said
- * the product was missing, leads with the full description and names what
- * was painted instead.
+ * the product was missing or lettered, leads with the full description and
+ * names what was wrong.
  */
 export function platePrompt(
   spec: DesignSpec,
   product: PlateProduct | null,
-  rejected?: string,
+  rejected?: { seen?: string; lettering?: boolean },
+  setting?: string | null,
 ): string {
   const scene = buildBackgroundPlatePrompt(spec);
-  if (!product) return scene;
-  if (!rejected) {
-    return `A ${product.name}, clearly recognisable, as the subject. ${scene}`;
+  /* Round 2 painted a Lagos bakery's pastry on a European street and wrote
+     "MIOCZEBC PRALEF" on a zobo bottle. */
+  const place = setting
+    ? `Set in ${setting}: its own streets, interiors, people and light`
+    : null;
+  const plain =
+    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos";
+  const tail = [scene, place, plain].filter(Boolean).join(". ");
+  if (!product) {
+    return rejected?.lettering
+      ? `Nothing in the image carries any writing; the last attempt painted lettering, which is wrong. ${tail}`
+      : tail;
   }
-  return `${product.look || product.name}. The ${product.name} is the clear subject, whole and unmistakable; the last attempt showed ${rejected} instead, which is wrong. ${scene}`;
+  if (!rejected) {
+    return `A ${product.name}, clearly recognisable, as the subject. ${tail}`;
+  }
+  const wrong = rejected.lettering
+    ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
+    : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
+  return `${product.look || product.name}. The ${product.name} is the clear subject, whole and unmistakable; ${wrong}. ${tail}`;
 }
 
 function drawable(
@@ -86,12 +112,19 @@ function drawable(
   return { bytes: plate.bytes, contentType: DRAWABLE[type].contentType };
 }
 
+function rejection(verdict: PlateVerdict, product: PlateProduct | null) {
+  if (product && !verdict.shows) return { seen: verdict.seen };
+  if (verdict.lettering) return { lettering: true };
+  return null;
+}
+
 /**
- * Paints one plate and, when the brief names a product, checks it shows that
- * product (quality/plate-check.ts). A rejected plate is painted once more
- * with the product insisted on and what was wrong named; if that one is
- * rejected too the direction is drawn flat. A design on a brand colour is
- * honest; the wrong product under the product's name is not.
+ * Paints one plate and looks at it (quality/plate-check.ts): does it show
+ * the product the brief names, where is it, and is there writing on it. A
+ * rejected plate is painted once more with what was wrong named; if that
+ * one is rejected too the direction is drawn flat. A design on a brand
+ * colour is honest; the wrong product, or the right one wearing a made-up
+ * brand name, is not.
  *
  * Null image on any plate-model failure, as the composite route does: a
  * design without a plate beats no design. That includes a plate satori
@@ -102,10 +135,17 @@ export async function paintCheckedPlate({
   adapter,
   spec,
   product,
+  productUnchecked = false,
+  setting = null,
 }: {
   adapter: ImageAdapter;
   spec: DesignSpec;
   product: PlateProduct | null;
+  /** The model named a product the brief does not: the plate is still
+   *  looked at, but cannot be checked for it. */
+  productUnchecked?: boolean;
+  /** Where the brand is, for the scene (brandSetting). */
+  setting?: string | null;
 }): Promise<CheckedPlate> {
   let imageCalls = 0;
   const paint = async (prompt: string) => {
@@ -121,42 +161,74 @@ export async function paintCheckedPlate({
       return null;
     }
   };
+  const look = (bytes: Uint8Array) =>
+    checkPlateShowsProduct({
+      bytes,
+      product: product?.name ?? "",
+      look: product?.look ?? "",
+    });
+  const passed = productUnchecked ? "unchecked" : "passed";
 
-  const first = await paint(platePrompt(spec, product));
-  if (!first) return { image: null, check: "unchecked", imageCalls, seen: [] };
-  if (!product) {
-    return { image: first, check: "not-applicable", imageCalls, seen: [] };
+  const first = await paint(platePrompt(spec, product, undefined, setting));
+  if (!first) {
+    return {
+      image: null,
+      check: "unchecked",
+      imageCalls,
+      seen: [],
+      look: null,
+    };
   }
-  const verdict = await checkPlateShowsProduct({
-    bytes: first.bytes,
-    product: product.name,
-    look: product.look,
-  });
-  if (!verdict)
-    return { image: first, check: "unchecked", imageCalls, seen: [] };
-  if (verdict.shows)
-    return { image: first, check: "passed", imageCalls, seen: [] };
+  const verdict = await look(first.bytes);
+  if (!verdict) {
+    return {
+      image: first,
+      check: "unchecked",
+      imageCalls,
+      seen: [],
+      look: null,
+    };
+  }
+  const firstRejection = rejection(verdict, product);
+  if (!firstRejection) {
+    return { image: first, check: passed, imageCalls, seen: [], look: verdict };
+  }
 
-  const seen = [verdict.seen];
+  const seen = [
+    verdict.lettering ? `${verdict.seen} (lettered)` : verdict.seen,
+  ];
   const second = await paint(
-    platePrompt(spec, product, verdict.seen || "something else"),
+    platePrompt(spec, product, firstRejection, setting),
   );
-  if (!second) return { image: null, check: "failed", imageCalls, seen };
-  const again = await checkPlateShowsProduct({
-    bytes: second.bytes,
-    product: product.name,
-    look: product.look,
-  });
-  if (!again) return { image: second, check: "unchecked", imageCalls, seen };
-  if (again.shows) {
-    return { image: second, check: "passed-on-retry", imageCalls, seen };
+  const failedAs = firstRejection.lettering ? "failed-lettering" : "failed";
+  if (!second)
+    return { image: null, check: failedAs, imageCalls, seen, look: null };
+  const again = await look(second.bytes);
+  if (!again) {
+    return { image: second, check: "unchecked", imageCalls, seen, look: null };
   }
-  seen.push(again.seen);
-  console.error("plate did not show the product twice; rendering flat", {
-    product: product.name,
+  const secondRejection = rejection(again, product);
+  if (!secondRejection) {
+    return {
+      image: second,
+      check: productUnchecked ? "unchecked" : "passed-on-retry",
+      imageCalls,
+      seen,
+      look: again,
+    };
+  }
+  seen.push(again.lettering ? `${again.seen} (lettered)` : again.seen);
+  console.error("plate rejected twice; rendering flat", {
+    product: product?.name ?? null,
     seen,
   });
-  return { image: null, check: "failed", imageCalls, seen };
+  return {
+    image: null,
+    check: secondRejection.lettering ? "failed-lettering" : "failed",
+    imageCalls,
+    seen,
+    look: null,
+  };
 }
 
 /**
@@ -165,21 +237,12 @@ export async function paintCheckedPlate({
  * stored is not referenced: the direction is drawn flat.
  */
 export async function paintPlate({
-  adapter,
-  spec,
-  product,
   brandId,
-}: {
-  adapter: ImageAdapter;
-  spec: DesignSpec;
-  product: PlateProduct | null;
+  ...painting
+}: Parameters<typeof paintCheckedPlate>[0] & {
   brandId: string;
 }): Promise<Omit<CheckedPlate, "image"> & { placed: PlacedAsset | null }> {
-  const { image, ...outcome } = await paintCheckedPlate({
-    adapter,
-    spec,
-    product,
-  });
+  const { image, ...outcome } = await paintCheckedPlate(painting);
   if (!image) return { ...outcome, placed: null };
   /* Named for what the bytes are. The plate models this project uses
      return PNG; a JPEG stored under .png would be served with the wrong

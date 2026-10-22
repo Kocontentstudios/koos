@@ -49,6 +49,23 @@ vi.mock("@/lib/design/quality/judge", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   judgeAndCorrect: (args: unknown) => judgeAndCorrect(args),
 }));
+/* The vision look is a paid call like the models: the plate always shows
+   the product, the photo's subject is where the test says. */
+vi.mock("@/lib/design/quality/plate-check", () => ({
+  checkPlateShowsProduct: async () => ({
+    shows: true,
+    seen: "almond croissants",
+    subject: { x: 0.3, y: 0.35, w: 0.4, h: 0.4 },
+    items: ["almond croissants"],
+    lettering: false,
+  }),
+  lookAtPhoto: async () => ({
+    description: "almond croissants on a plate",
+    subject: { x: 0.3, y: 0.35, w: 0.4, h: 0.4 },
+    face: null,
+    items: ["almond croissants", "a plate"],
+  }),
+}));
 vi.mock("@/lib/analytics/posthog-server", () => ({
   captureServerEvent: vi.fn(),
 }));
@@ -307,6 +324,113 @@ describe.runIf(ready)("directions job against the local database", () => {
       replacement.spec.layout,
     );
   }, 180_000);
+
+  /* Round-2 code critic: with no lock, two regenerates on the two slots
+     each read the same old pair and both took the same layout. End to end
+     here; the next test holds the lock across two connections. */
+  it("gives two concurrent regenerates on the two slots different layouts", async () => {
+    const live = await sql`select id, spec, rationale from design_generations
+        where brand_id = ${brandId} and image_source = 'ko' and status = 'succeeded'
+        order by created_at desc`;
+    const set = live[0].rationale.set;
+    const shown = [0, 1].map(
+      (slot) =>
+        live.find((r) => r.rationale.set === set && r.rationale.slot === slot)
+          ?.id,
+    );
+    expect(shown.every(Boolean)).toBe(true);
+    /* Both answers propose the same free layout, which is what a model
+       shown the same pair tends to do. */
+    generateObject.mockImplementation(async (o: { schema?: unknown }) => ({
+      object: {
+        directions: [
+          mods.draftOf({
+            layout: "banner-bottom",
+            title: "Almond gift box",
+            headline: "Give a box of almond joy",
+            subheadline: "Pastries for the commute",
+            cta: "Pre-order",
+            backgroundPrompt: "a ribboned pastry box on linen",
+          }),
+        ],
+      },
+      schema: o.schema,
+    }));
+    const [a, b] = await Promise.all(
+      shown.map((id) => job({ image: { source: "ko" }, regenerateOf: id })),
+    );
+    generateObject.mockReset();
+    const ids = [a, b].map(
+      (o) => (o.result as { generationIds: string[] }).generationIds[0],
+    );
+    const made = await sql`select id, spec, status from design_generations
+        where id in ${sql(ids)}`;
+    expect(made.map((r) => r.status)).toEqual(["succeeded", "succeeded"]);
+    expect(made[0].spec.layout).not.toBe(made[1].spec.layout);
+  }, 240_000);
+
+  /* The race itself, made wide: each claim takes 300 ms to decide, about
+     what building candidate documents costs. Without the set's lock both
+     read the same rows and pick the same layout. */
+  it("serialises layout claims on one set", async () => {
+    const { claimDirectionLayout } = await import("@/lib/db/queries");
+    const { layoutsHeld, layoutCandidates } = await import(
+      "./directions/layouts"
+    );
+    const set = randomUUID();
+    const [first, second] = await Promise.all(
+      [0, 1].map(async (slot) => {
+        const [row] = await sql`insert into design_generations
+            (brand_id, user_id, source, spec, renderer, provider, model, status, rationale)
+          values (${brandId}, ${userId}, 'quick',
+            ${sql.json({ layout: "hero-center" })}, 'composite', 'upload', 'none', 'pending',
+            ${sql.json({ title: "t", reasons: [], set, slot })})
+          returning id`;
+        return { id: row.id as string, slot };
+      }),
+    );
+    /* Two connections, as two server instances would have. */
+    const { drizzle } = await import("drizzle-orm/postgres-js");
+    const schema = await import("@/lib/db/schema");
+    const clients = [0, 1].map(() => postgres(LOCAL_DB, { max: 1 }));
+    const databases = clients.map((client) => drizzle(client, { schema }));
+    const claim = ({ id, slot }: { id: string; slot: number }) =>
+      claimDirectionLayout({
+        database: databases[slot] as never,
+        brandId,
+        setId: set,
+        rowId: id,
+        choose: async (rows) => {
+          const held = layoutsHeld(
+            rows.filter((r) => r.id !== id),
+            { id, set, slot },
+            new Date(),
+          ).filter((l) => l !== "hero-center");
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          const layout = layoutCandidates("split-left", held)[0];
+          return { spec: { layout }, result: layout };
+        },
+      });
+    const picked = await Promise.all([claim(first), claim(second)]).finally(
+      () => Promise.all(clients.map((c) => c.end({ timeout: 2 }))),
+    );
+    expect(picked[0]).not.toBe(picked[1]);
+    const stored = await sql`select spec from design_generations
+        where id in ${sql([first.id, second.id])}`;
+    expect(new Set(stored.map((r) => r.spec.layout)).size).toBe(2);
+  });
+
+  it("refuses a blank upload with the reason, writing nothing", async () => {
+    const before = (await rowsFor()).length;
+    const blank = `design-images/${brandId}/${randomUUID()}.png`;
+    const { encodePngRgba } = await import("@/lib/images/png-pixels");
+    const pixels = new Uint8Array(600 * 600 * 4).fill(253);
+    bucket.set(blank, encodePngRgba({ width: 600, height: 600, pixels }));
+    await expect(
+      job({ image: { source: "upload", key: blank } }),
+    ).rejects.toThrow(/^This image can't be used: it looks blank/);
+    expect((await rowsFor()).length).toBe(before);
+  });
 
   it("fails an upload that is not really a PNG, writing nothing", async () => {
     const before = (await rowsFor()).length;

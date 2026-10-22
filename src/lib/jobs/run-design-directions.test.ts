@@ -20,7 +20,9 @@ vi.mock("@/lib/ai/image", () => ({
   getNativeAdapters: () => [],
 }));
 vi.mock("@/lib/ai/memory", () => ({ buildMemoryBlock: async () => "" }));
+const claimDirectionLayout = vi.fn();
 vi.mock("@/lib/db/queries", () => ({
+  claimDirectionLayout: (input: unknown) => claimDirectionLayout(input),
   createDesignGeneration: (row: unknown) => createDesignGeneration(row),
   updateDesignGeneration: (id: string, patch: unknown) =>
     updateDesignGeneration(id, patch),
@@ -57,11 +59,32 @@ vi.mock("@/lib/design/document/measure", async () => {
   const { monospaceMeasurer } = await import("@/lib/design/document/fixtures");
   return { createRendererMeasurer: () => monospaceMeasurer() };
 });
+/* Off by default: the real builders decide. On, every build reports the
+   subject covered, the case no layout can fix. */
+let forceCovered = false;
+vi.mock("@/lib/design/document/from-spec", async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import("@/lib/design/document/from-spec")>();
+  const { SUBJECT_COVERED } = await import("@/lib/design/document/subject");
+  return {
+    ...real,
+    documentFromSpec: async (
+      input: Parameters<typeof real.documentFromSpec>[0],
+    ) => {
+      const built = await real.documentFromSpec(input);
+      return forceCovered && input.image
+        ? { ...built, subjectFault: SUBJECT_COVERED }
+        : built;
+    },
+  };
+});
 const loadBestLogo = vi.fn();
 const createNotification = vi.fn();
 const checkPlateShowsProduct = vi.fn();
+const lookAtPhoto = vi.fn();
 vi.mock("@/lib/design/quality/plate-check", () => ({
   checkPlateShowsProduct: (input: unknown) => checkPlateShowsProduct(input),
+  lookAtPhoto: (bytes: unknown) => lookAtPhoto(bytes),
 }));
 vi.mock("@/lib/design/render/logo", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -72,8 +95,14 @@ const { generateDirectionsWork, RegenerateTargetError } = await import(
   "./run-design-directions"
 );
 const { DesignImageError } = await import("@/lib/uploads/design-image");
-const { BRAND_ID, contrastingDraft, designPng, directionsContext, draftOf } =
-  await import("./directions/fixtures");
+const {
+  BRAND_ID,
+  contrastingDraft,
+  designPng,
+  directionsContext,
+  draftOf,
+  verdict,
+} = await import("./directions/fixtures");
 
 const UPLOAD_KEY = `design-images/${BRAND_ID}/2b1e0c8e-0b6a-4b0e-9a37-3a3c1f0a7d11.png`;
 const SET = "9c0e8f5a-3b2d-4c1e-8f7a-6d5c4b3a2f10";
@@ -97,6 +126,7 @@ const runtime = {
 };
 
 let rowCount = 0;
+const claimed = new Map<string, Record<string, unknown>>();
 
 function run(request: Record<string, unknown>) {
   return generateDirectionsWork(
@@ -121,6 +151,7 @@ const documentOf = (id: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  forceCovered = false;
   progress.length = 0;
   rowCount = 0;
   generateObject.mockResolvedValue({
@@ -131,15 +162,50 @@ beforeEach(() => {
     bytes: designPng(1024, 1280),
     contentType: "image/png",
   }));
-  createDesignGeneration.mockImplementation(async (row: object) => ({
-    ...row,
-    id: `row-${++rowCount}`,
-  }));
+  claimed.clear();
+  createDesignGeneration.mockImplementation(async (row: object) => {
+    const created = { ...row, id: `row-${++rowCount}` };
+    claimed.set(created.id, created);
+    return created;
+  });
   updateDesignGeneration.mockResolvedValue(undefined);
   uploadObject.mockResolvedValue(undefined);
   loadBestLogo.mockResolvedValue({ logo: null, fault: null });
   createNotification.mockResolvedValue(undefined);
-  checkPlateShowsProduct.mockResolvedValue({ shows: true, seen: "" });
+  checkPlateShowsProduct.mockResolvedValue({
+    shows: true,
+    seen: "",
+    subject: null,
+    items: [],
+    lettering: false,
+  });
+  lookAtPhoto.mockResolvedValue(null);
+  /* The set as the database would hold it: every row created so far, with
+     the layout each claim settled. */
+  claimDirectionLayout.mockImplementation(
+    async ({
+      rowId,
+      choose,
+    }: {
+      rowId: string;
+      choose: (rows: unknown[]) => Promise<{ spec: unknown; result: unknown }>;
+    }) => {
+      const stored = ((await listDirectionSet(BRAND_ID, SET)) ?? []).map(
+        (r: { createdAt?: Date }) => ({ createdAt: new Date(0), ...r }),
+      );
+      const rows = [
+        ...stored,
+        ...createDesignGeneration.mock.results.map((_r, n) => ({
+          status: "pending",
+          createdAt: new Date(Date.now() - 1000 + n),
+          ...claimed.get(`row-${n + 1}`),
+        })),
+      ];
+      const { spec, result } = await choose(rows);
+      claimed.set(rowId, { ...claimed.get(rowId), spec });
+      return result;
+    },
+  );
   loadDesignImage.mockResolvedValue({
     bytes: Buffer.from(designPng(1200, 1200)),
     contentType: "image/png",
@@ -360,10 +426,10 @@ describe("the product on KO imagery", () => {
     /* Both plates are checked before either retry: first-round misses for
        both, then one retry passes and the other misses again. */
     checkPlateShowsProduct
-      .mockResolvedValueOnce({ shows: false, seen: "a round tart" })
-      .mockResolvedValueOnce({ shows: false, seen: "bread rolls" })
-      .mockResolvedValueOnce({ shows: true, seen: "" })
-      .mockResolvedValue({ shows: false, seen: "bread rolls" });
+      .mockResolvedValueOnce(verdict(false, "a round tart"))
+      .mockResolvedValueOnce(verdict(false, "bread rolls"))
+      .mockResolvedValueOnce(verdict(true, ""))
+      .mockResolvedValue(verdict(false, "bread rolls"));
     await run({ image: { source: "ko" } });
     expect(plateModel.generate).toHaveBeenCalledTimes(4);
     expect(usage().imageCalls).toBe(4);
@@ -398,7 +464,7 @@ describe("the product on KO imagery", () => {
         ],
       },
     });
-    checkPlateShowsProduct.mockResolvedValue({ shows: false, seen: "a cake" });
+    checkPlateShowsProduct.mockResolvedValue(verdict(false, "a cake"));
     await run({ image: { source: "ko" } });
     const stored = updatesFor("row-1").find((p) => p.rationale)?.rationale;
     expect(stored.reasons).not.toContain(
@@ -621,5 +687,217 @@ describe("generateDesignWork", () => {
     );
     expect(outcome.result).toMatchObject({ imageSource: "upload" });
     expect(createDesignGeneration).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* A real photograph-like PNG: measureImage has to decode it for the subject
+   rule to place anything. */
+async function photo(width: number, height: number): Promise<Uint8Array> {
+  const { encodePngRgba } = await import("@/lib/images/png-pixels");
+  const pixels = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    pixels[i * 4] = 200 - (i % width) / 4;
+    pixels[i * 4 + 1] = 140;
+    pixels[i * 4 + 2] = 90 + Math.floor(i / width) / 6;
+    pixels[i * 4 + 3] = 255;
+  }
+  return encodePngRgba({ width, height, pixels });
+}
+
+describe("copy kept off the subject", () => {
+  const usage = () => recordUsageEvent.mock.calls[0][0].metadata;
+  const subject = { x: 0.3, y: 0.35, w: 0.4, h: 0.4 };
+
+  async function overlapsOf(
+    id: string,
+    size: { width: number; height: number },
+  ) {
+    const { measureSubject } = await import("@/lib/design/document/subject");
+    return measureSubject(documentOf(id), size, subject);
+  }
+
+  it("lays each KO direction out around the product the plate check boxed", async () => {
+    const bytes = await photo(400, 500);
+    plateModel.generate.mockImplementation(async () => ({
+      bytes,
+      contentType: "image/png",
+    }));
+    checkPlateShowsProduct.mockResolvedValue(
+      verdict(true, "almond croissants", { subject, items: ["croissants"] }),
+    );
+    await run({ image: { source: "ko" } });
+    expect(usage().subjectKnown).toEqual([true, true]);
+    for (const id of ["row-1", "row-2"]) {
+      const report = await overlapsOf(id, { width: 400, height: 500 });
+      expect(report).not.toBeNull();
+      expect(report?.overlaps).toEqual([]);
+    }
+    expect(claimDirectionLayout).toHaveBeenCalledTimes(2);
+  });
+
+  it("looks at an uploaded photograph once and keeps copy off its subject", async () => {
+    const bytes = await photo(600, 600);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(bytes),
+      contentType: "image/png",
+      width: 600,
+      height: 600,
+    });
+    lookAtPhoto.mockResolvedValue({
+      description: "almond croissants, a plate",
+      subject,
+      face: null,
+      items: ["almond croissants", "a plate"],
+    });
+    await run({ image: { source: "upload", key: UPLOAD_KEY } });
+    expect(lookAtPhoto).toHaveBeenCalledTimes(1);
+    expect(plateModel.generate).not.toHaveBeenCalled();
+    for (const id of ["row-1", "row-2"]) {
+      const report = await overlapsOf(id, { width: 600, height: 600 });
+      expect(report).not.toBeNull();
+      expect(report?.overlaps).toEqual([]);
+    }
+  });
+});
+
+describe("quality_faults", () => {
+  /* Round-2 code critic: a plate failure was counted even when that
+     direction then failed to render, and two faults on one direction
+     counted twice. docs/analytics.md counts delivered directions. */
+  it("counts delivered directions with a fault, not fault strings", async () => {
+    checkPlateShowsProduct
+      .mockResolvedValueOnce(verdict(false, "a cake"))
+      .mockResolvedValueOnce(verdict(true, ""))
+      .mockResolvedValue(verdict(false, "a cake"));
+    rasterizeDocument.mockImplementation(
+      async (input: { doc: { elements: { type: string }[] } }) => {
+        if (!input.doc.elements.some((e) => e.type === "image")) {
+          throw new Error("render failed");
+        }
+        return {
+          bytes: designPng(1080, 1350),
+          contentType: "image/png",
+          width: 1080,
+          height: 1350,
+          document: input.doc,
+          logoFault: null,
+          brandFontFault: null,
+        };
+      },
+    );
+    await run({ image: { source: "ko" } });
+    const metadata = recordUsageEvent.mock.calls[0][0].metadata;
+    expect(metadata.failed).toBe(1);
+    expect(metadata.plateChecks).toContain("failed");
+    expect(metadata.qualityFaults).toBe(0);
+    expect(
+      captureServerEvent.mock.calls.find(
+        ([e]) => e.event === "design_directions_generated",
+      )?.[0].properties.quality_faults,
+    ).toBe(0);
+  });
+});
+
+describe("an unusable upload", () => {
+  /* Round-2 live run: a near-blank white photo became two designs' hero. */
+  it("is refused with the reason before any model call or row", async () => {
+    loadDesignImage.mockRejectedValue(new DesignImageError("no_subject"));
+    await expect(
+      run({ image: { source: "upload", key: UPLOAD_KEY } }),
+    ).rejects.toThrow(/^This image can't be used: it looks blank/);
+    expect(generateObject).not.toHaveBeenCalled();
+    expect(createDesignGeneration).not.toHaveBeenCalled();
+    expect(lookAtPhoto).not.toHaveBeenCalled();
+  });
+});
+
+describe("the brief's facts", () => {
+  it("draws a fact a direction left out and records coverage", async () => {
+    await run({ image: { source: "ko" } });
+    const [first] = createDesignGeneration.mock.calls.map(([r]) => r);
+    expect(first.spec.footerLines).toContain("Weekends");
+    const metadata = recordUsageEvent.mock.calls[0][0].metadata;
+    expect(metadata.briefFacts).toBeGreaterThan(0);
+    expect(metadata.briefFactsDelivered).toBe(metadata.briefFacts);
+  });
+});
+
+describe("the set's lock", () => {
+  /* Round-2 code critic: two regenerates on the two slots each avoided the
+     same old pair and both landed on split-left. */
+  it("avoids the layout a concurrent regenerate on the other slot claimed", async () => {
+    const target = {
+      id: "old-1",
+      brandId: BRAND_ID,
+      status: "succeeded",
+      spec: draftOf({ layout: "hero-center" }),
+      rationale: {
+        title: "Morning bake story",
+        reasons: [],
+        set: SET,
+        slot: 0,
+      },
+      createdAt: new Date(Date.now() - 600_000),
+    };
+    const sibling = {
+      ...target,
+      id: "old-2",
+      spec: contrastingDraft({ layout: "quote-card" }),
+      rationale: { title: "Weekend", reasons: [], set: SET, slot: 1 },
+    };
+    const concurrent = {
+      ...sibling,
+      id: "other-job",
+      status: "pending",
+      spec: contrastingDraft({ layout: "split-left" }),
+      createdAt: new Date(Date.now() - 1000),
+    };
+    getDesignGenerationById.mockResolvedValue(target);
+    listDirectionSet.mockResolvedValue([concurrent, target, sibling]);
+    generateObject.mockResolvedValue({
+      object: { directions: [draftOf({ layout: "split-left" })] },
+    });
+    await run({ image: { source: "ko" }, regenerateOf: "old-1" });
+    const delivered = updatesFor("row-1").find((p) => p.spec)?.spec;
+    expect(["hero-center", "quote-card", "split-left"]).not.toContain(
+      delivered.layout,
+    );
+    expect(claimDirectionLayout).toHaveBeenCalledWith(
+      expect.objectContaining({ setId: SET, rowId: "row-1" }),
+    );
+  });
+});
+
+describe("a subject no layout can keep copy off", () => {
+  beforeEach(() => {
+    forceCovered = true;
+  });
+
+  it("fails each direction with the reason instead of shipping the overlap", async () => {
+    const bytes = await photo(600, 600);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(bytes),
+      contentType: "image/png",
+      width: 600,
+      height: 600,
+    });
+    lookAtPhoto.mockResolvedValue({
+      description: "a crowd",
+      subject: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+      face: null,
+      items: [],
+    });
+    await expect(
+      run({ image: { source: "upload", key: UPLOAD_KEY } }),
+    ).rejects.toThrow(/could not be kept off the product in any layout/);
+    for (const id of ["row-1", "row-2"]) {
+      expect(updatesFor(id).at(-1)).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining("could not be kept off the product"),
+      });
+    }
+    expect(rasterizeDocument).not.toHaveBeenCalledWith(
+      expect.objectContaining({ doc: expect.anything() }),
+    );
   });
 });

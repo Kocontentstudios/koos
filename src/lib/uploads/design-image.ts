@@ -148,12 +148,22 @@ export async function loadDesignImage(
     throw new DesignImageError("foreign_key");
   }
   const bytes = await readCapped(key);
+  return designImageFromBytes(bytes, key.endsWith(".png") ? "png" : "jpeg");
+}
 
+/**
+ * Every check loadDesignImage makes after the read, on bytes already in
+ * hand: for the directions eval, which must refuse and accept exactly what
+ * production does without a bucket.
+ */
+export async function designImageFromBytes(
+  bytes: Buffer,
+  keyType: "png" | "jpeg",
+): Promise<DesignImage> {
   const type = detectImageType(bytes);
   if (type !== "png" && type !== "jpeg") {
     throw new DesignImageError("not_png_or_jpeg");
   }
-  const keyType = key.endsWith(".png") ? "png" : "jpeg";
   if (type !== keyType) throw new DesignImageError("type_mismatch");
 
   const size = readImageDimensions(bytes);

@@ -9,7 +9,7 @@ import type { DirectionDraft } from "./schema";
 export function draftOf(over: Partial<DirectionDraft> = {}): DirectionDraft {
   return {
     layout: "hero-center",
-    headline: "Fresh croissants every morning",
+    headline: "Warm almond croissants every morning",
     subheadline: "Baked before sunrise in Lekki",
     cta: "Order for pickup",
     footerStyle: "none",
@@ -22,7 +22,7 @@ export function draftOf(over: Partial<DirectionDraft> = {}): DirectionDraft {
     logoPlacement: "top-right",
     logoFree: false,
     logoFreeQuote: "",
-    backgroundPrompt: "a bakery counter at dawn with fresh croissants",
+    backgroundPrompt: "a bakery counter at dawn with almond croissants",
     backgroundTreatment: "photographic",
     nativePrompt: "a bakery poster",
     aspectRatio: "4:5",
@@ -111,4 +111,18 @@ export function designPng(width: number, height: number): Uint8Array {
   view.setUint32(16, width);
   view.setUint32(20, height);
   return bytes;
+}
+
+/** A plate check's answer: the product shown or not, nothing lettered, and
+ *  no subject box unless one is given. */
+export function verdict(
+  shows: boolean,
+  seen: string,
+  extra: Partial<{
+    subject: { x: number; y: number; w: number; h: number } | null;
+    items: string[];
+    lettering: boolean;
+  }> = {},
+) {
+  return { shows, seen, subject: null, items: [], lettering: false, ...extra };
 }

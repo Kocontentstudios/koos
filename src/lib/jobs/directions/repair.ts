@@ -59,6 +59,19 @@ function clampDirection(value: unknown): unknown {
       direction[field] = clampWords(text, max);
     }
   }
+  /* Seen shapes that are the right content in the wrong container. */
+  if (direction.footerLines === null) direction.footerLines = [];
+  if (typeof direction.footerLines === "string") {
+    direction.footerLines = direction.footerLines.trim()
+      ? [direction.footerLines]
+      : [];
+  }
+  if (typeof direction.rationale === "string") {
+    direction.rationale = direction.rationale
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map((reason) => reason.trim())
+      .filter(Boolean);
+  }
   if (Array.isArray(direction.footerLines)) {
     direction.footerLines = direction.footerLines
       .slice(0, DRAFT_LIMITS.footerLines)
@@ -82,8 +95,13 @@ function clampDirection(value: unknown): unknown {
 
 export async function repairDirectionsText({
   text,
+  count,
 }: {
   text: string;
+  /** How many directions were asked for. A regenerate asks for one while
+   *  showing the model two, and an answer with both is the asked-for one
+   *  first, not an unusable response. */
+  count?: number;
 }): Promise<string | null> {
   let parsed: unknown;
   try {
@@ -93,10 +111,19 @@ export async function repairDirectionsText({
   }
   const directions = unwrapDirections(parsed);
   if (!directions) return null;
+  const kept =
+    count !== undefined && directions.length > count
+      ? directions.slice(0, count)
+      : directions;
   const repaired = JSON.stringify({
-    directions: directions.map(clampDirection),
+    directions: kept.map(clampDirection),
   });
   return repaired === text ? null : repaired;
+}
+
+/** repairDirectionsText for a call that asked for `count` directions. */
+export function repairDirectionsFor(count: number) {
+  return ({ text }: { text: string }) => repairDirectionsText({ text, count });
 }
 
 /**

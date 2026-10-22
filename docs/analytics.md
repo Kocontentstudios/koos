@@ -88,7 +88,7 @@ stable for the lifetime of one login) where available.
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
-| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the product check turned down at least once), `plates_failed` (plates turned down twice, so the direction was drawn flat) |
+| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering), `plates_failed` (plates turned down twice, so the direction was drawn flat) |
 | `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
 
 The two `design_request_start_*` events answer whether design requests actually
@@ -115,12 +115,24 @@ metadata carries `renderers` (`composite:upload` per direction on an upload,
 `composite:<plate adapter>` on KO imagery) and `imageCalls`, so the cost
 outcome is visible in Postgres even where PostHog is not configured. The same
 row records the FEAT-033 round-2 quality outcomes: `plateChecks` (per plate:
-`passed`, `passed-on-retry`, `failed`, `unchecked` or `not-applicable`),
+`passed`, `passed-on-retry`, `failed` for the wrong product twice,
+`failed-lettering` for made-up writing twice, or `unchecked`),
 `fitAsked` and `fitFixed` (copy and reasons the model was asked to rewrite
-because they ran over their limit, invented a fact or claimed a position, and
-how many rewrites passed), `copyFallbacks` (copy that still could not be drawn
-as written and fell back or was left off) and `reasonsDropped` (reasons not
-shown because they were not true of the delivered design).
+because they ran over their limit, invented a fact, read as cut off or
+claimed a position, light, colour or type, and how many rewrites passed),
+`copyFallbacks` (copy that still could not be drawn as written and fell back
+or was left off) and `reasonsDropped` (reasons not shown because they were
+not true of the delivered design). Round 3 adds `qualityFaults` as delivered
+directions with a fault (as on the event), `subjectKnown` (per direction:
+whether the layout knew where the product or person was), `layoutsRelaid`
+(directions moved to another layout to keep copy off the subject),
+`subjectFaults` (per direction: null, the cropped fault, or the covered fault
+that failed it), `briefFacts` and `briefFactsDelivered` (the brief's hard
+facts and how many at least one delivered direction states), `factsAdded`
+(footer lines drawn in for facts a direction left out), `factsLeftOff` (facts
+a direction still does not state, with the reason) and `productSources`
+(where each plate's product name came from: `model`, `sibling`, `brief` or
+`none`).
 
 ## Funnels
 

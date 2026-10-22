@@ -1054,6 +1054,72 @@ export async function listDirectionSet(brandId: string, setId: string) {
     .orderBy(desc(designGenerations.createdAt));
 }
 
+/** A row of a direction set as claimDirectionLayout reads it. */
+export type DirectionSetRow = Awaited<
+  ReturnType<typeof listDirectionSet>
+>[number];
+
+/**
+ * Settles one direction's layout while no other job can settle one in the
+ * same set. Two regenerates on the two slots of a pair otherwise read the
+ * same sibling, avoid the same layouts and land on the same one (round-2
+ * code critic). The lock is a transaction-scoped advisory lock on the set,
+ * so it is released on commit or on any failure, and `choose` sees every row
+ * committed before it, including the other job's pending row and its
+ * claimed layout.
+ */
+export async function claimDirectionLayout<T>({
+  brandId,
+  setId,
+  rowId,
+  choose,
+  database = db,
+}: {
+  brandId: string;
+  setId: string;
+  rowId: string;
+  choose: (
+    rows: DirectionSetRow[],
+  ) => Promise<{ spec: typeof designGenerations.$inferInsert.spec; result: T }>;
+  /** One process holds one connection (client.ts), so it can never race
+   *  itself; the test passes a second connection to show the lock holds
+   *  across instances, which is where production races. */
+  database?: typeof db;
+}): Promise<T> {
+  return database.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`direction-set:${setId}`}, 0))`,
+    );
+    const rows = await tx
+      .select({
+        id: designGenerations.id,
+        status: designGenerations.status,
+        spec: designGenerations.spec,
+        rationale: designGenerations.rationale,
+        createdAt: designGenerations.createdAt,
+      })
+      .from(designGenerations)
+      .where(
+        and(
+          eq(designGenerations.brandId, brandId),
+          sql`${designGenerations.rationale}->>'set' = ${setId}`,
+        ),
+      )
+      .orderBy(desc(designGenerations.createdAt));
+    const { spec, result } = await choose(rows);
+    await tx
+      .update(designGenerations)
+      .set({ spec })
+      .where(
+        and(
+          eq(designGenerations.id, rowId),
+          eq(designGenerations.brandId, brandId),
+        ),
+      );
+    return result;
+  });
+}
+
 /** Successful design generations charged to a workspace since `since`.
  * usage_events has no workspace column, so this joins through the brand. */
 export async function countDesignGenerationsForWorkspace(

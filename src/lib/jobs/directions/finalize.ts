@@ -1,6 +1,8 @@
 import type { AspectRatio } from "@/lib/ai/image/types";
+import type { DesignElement } from "@/lib/design/document/schema";
 import {
   type DrawnCopy,
+  documentParts,
   type FactLedger,
   type ImageState,
   inventedFacts,
@@ -198,6 +200,37 @@ export interface ReasonSettings {
   image: ImageState;
   /** The scene the plate was asked for, on KO imagery (reasonHolds). */
   paintedScene?: string;
+  /** What a look at the image found in it (reasonHolds). */
+  imageDescription?: string;
+  /** The delivered design, once drawn: reasons are then checked against its
+   *  parts, and it can supply true reasons of its own (documentReasons). */
+  drawn?: DrawnDesign;
+}
+
+/** What documentReasons reads off a delivered design. */
+export interface DrawnDesign {
+  document: {
+    width: number;
+    height: number;
+    elements: DesignElement[];
+  };
+  /** The subject rule's measurement, when the image has a known subject. */
+  subject?: { ok: boolean } | null;
+}
+
+function holdsFor(settings: ReasonSettings, reason: string) {
+  return reasonHolds(reason, {
+    copy: settings.copy,
+    ledger: settings.checks.ledger,
+    briefText: settings.checks.briefText,
+    product: settings.product,
+    image: settings.image,
+    paintedScene: settings.paintedScene,
+    imageDescription: settings.imageDescription,
+    elements: settings.drawn
+      ? documentParts(settings.drawn.document.elements)
+      : undefined,
+  });
 }
 
 function anchorsFor({ checks, product }: ReasonSettings): GroundingAnchors {
@@ -251,19 +284,88 @@ export function factualReasons(settings: ReasonSettings): string[] {
     candidates.push(`The image shows the ${product} itself`);
   }
   if (copy.cta) candidates.push(`The button asks for one thing: "${copy.cta}"`);
-  candidates.push("One message, so it reads in a single glance");
   return candidates.filter(
     (reason) =>
-      reason.length <= COPY_LIMITS.reason &&
-      reasonHolds(reason, {
-        copy,
-        ledger: settings.checks.ledger,
-        briefText: settings.checks.briefText,
-        product,
-        image,
-        paintedScene: settings.paintedScene,
-      }).ok,
+      reason.length <= COPY_LIMITS.reason && holdsFor(settings, reason).ok,
   );
+}
+
+const CORNER_WORDS: Record<string, string> = {
+  "top-left": "top left",
+  "top-right": "top right",
+  "bottom-left": "bottom left",
+  "bottom-right": "bottom right",
+};
+
+function cornerOf(
+  box: { x: number; y: number; width: number; height: number },
+  doc: DrawnDesign["document"],
+): string | null {
+  const cx = (box.x + box.width / 2) / doc.width;
+  const cy = (box.y + box.height / 2) / doc.height;
+  const horizontal = cx < 0.34 ? "left" : cx > 0.66 ? "right" : null;
+  const vertical = cy < 0.34 ? "top" : cy > 0.66 ? "bottom" : null;
+  return horizontal && vertical
+    ? CORNER_WORDS[`${vertical}-${horizontal}`]
+    : null;
+}
+
+/**
+ * Reasons read off the delivered document itself, each true by measurement:
+ * the type sizes, the logo's corner, the subject rule. They may say where
+ * things are because they are written after the layout, not before it.
+ */
+export function documentReasons(drawn: DrawnDesign): string[] {
+  const { document: doc } = drawn;
+  const reasons: string[] = [];
+  const texts = doc.elements.filter(
+    (e): e is Extract<DesignElement, { type: "text" }> =>
+      e.type === "text" && !e.hidden,
+  );
+  const headline = texts.find((t) => t.role === "headline");
+  if (
+    headline &&
+    texts.every((t) => t === headline || t.fontSize < headline.fontSize)
+  ) {
+    reasons.push("The headline is set larger than every other line");
+  }
+  if (drawn.subject?.ok) {
+    reasons.push("The product is drawn whole, with no copy laid over it");
+  }
+  const logo = doc.elements.find((e) => e.type === "logo" && !e.hidden);
+  const corner = logo ? cornerOf(logo, doc) : null;
+  if (corner) reasons.push(`The brand's logo is in the ${corner} corner`);
+  return reasons;
+}
+
+/**
+ * Reasons true of any copy, by construction: each quotes a field that is
+ * drawn. The floor that keeps "why this works" at two whatever the model
+ * wrote and whatever the checks refused.
+ */
+export function copyReasons(copy: DrawnCopy): string[] {
+  const quote = (lead: string, text: string | undefined) => {
+    const clean = (text ?? "").trim();
+    if (!clean) return null;
+    const whole = `${lead} "${clean}"`;
+    if (whole.length <= COPY_LIMITS.reason) return whole;
+    const words = clean.split(/\s+/);
+    for (let n = words.length - 1; n >= 2; n -= 1) {
+      const opening = `${lead.replace(/ reads$| says$| adds$/, " opens with")} "${words.slice(0, n).join(" ")}"`;
+      if (opening.length <= COPY_LIMITS.reason) return opening;
+    }
+    return null;
+  };
+  const reasons = [
+    quote("The headline reads", copy.headline),
+    quote("The subheadline adds", copy.subheadline),
+    quote("The button says", copy.cta),
+    quote("The footer adds", copy.footerLines[0]),
+  ].filter((r): r is string => r !== null);
+  if (reasons.length < DIRECTION_REASONS_MIN) {
+    reasons.push("Nothing competes with the headline, so it reads at once");
+  }
+  return reasons;
 }
 
 export interface SettledReason {
@@ -304,14 +406,7 @@ export function settleReasons(
       dropped.push({ reason: raw, why: "reads out the spec" });
       return;
     }
-    const holds = reasonHolds(text, {
-      copy: settings.copy,
-      ledger: settings.checks.ledger,
-      briefText: settings.checks.briefText,
-      product: settings.product,
-      image: settings.image,
-      paintedScene: settings.paintedScene,
-    });
+    const holds = holdsFor(settings, text);
     if (!holds.ok) {
       dropped.push({ reason: raw, why: holds.why });
       return;
@@ -336,9 +431,20 @@ export function settleReasons(
      reason that matters most. */
   chosen.sort((a, b) => a.order - b.order);
   const out = chosen.map((k) => k.text);
-  for (const extra of factualReasons(settings)) {
+  /* Topped up in order of how much each says about this brief. The copy
+     quotes come last and cannot run out, so a direction always shows two
+     (round-2 critic: every candidate before them could be refused). */
+  const topUps = [
+    ...factualReasons(settings),
+    ...(settings.drawn ? documentReasons(settings.drawn) : []),
+    ...copyReasons(settings.copy),
+  ];
+  for (const extra of topUps) {
     if (out.length >= DIRECTION_REASONS_MIN) break;
-    if (!seen.has(extra.toLowerCase())) out.push(extra);
+    if (out.some((kept) => kept.toLowerCase() === extra.toLowerCase())) {
+      continue;
+    }
+    out.push(extra);
   }
   return { reasons: out.slice(0, DIRECTION_REASONS_MAX), dropped };
 }
@@ -353,6 +459,9 @@ export function copyFault(
 ): string | null {
   const whole = clean(text);
   if (whole.length > max) return `${whole.length} characters, limit ${max}`;
+  /* The model's own cut-off copy ("Treat yourself to the", "Something
+     sweet is coming…") goes back to it like any other fault. */
+  if (looksCutOff(whole)) return "reads as an unfinished sentence";
   const invented = inventedFacts(whole, ledger);
   if (invented.length > 0) {
     return `states ${invented.join(", ")}, which the brief does not`;
@@ -379,6 +488,9 @@ export interface FinalizeReport {
    *  was drawn instead. */
   copyFallbacks: { field: string; from: string; to: string | null }[];
   reasonsDropped: { reason: string; why: string }[];
+  /** The product as the model named and described it, before it was held
+   *  to the brief (resolveBriefProducts). */
+  modelProduct: { name: string; look: string };
 }
 
 export function finalizeDirection(
@@ -473,6 +585,13 @@ export function finalizeDirection(
       productName: product,
       productLook,
     },
-    report: { copyFallbacks, reasonsDropped: dropped },
+    report: {
+      copyFallbacks,
+      reasonsDropped: dropped,
+      modelProduct: {
+        name: clean(draft.productName),
+        look: clean(draft.productLook).slice(0, DRAFT_LIMITS.productLook),
+      },
+    },
   };
 }

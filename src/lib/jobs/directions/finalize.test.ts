@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { factLedger, looksCutOff } from "./claims";
 import {
   clampAtClause,
+  copyFault,
+  copyReasons,
   type DirectionChecks,
+  documentReasons,
   factualReasons,
   finalizeDirection,
   groundingAnchors,
@@ -314,5 +317,173 @@ describe("factualReasons", () => {
       image: "none",
     });
     expect(reasons.join(" ")).not.toMatch(/price|image/);
+  });
+});
+
+/* u3-r2-code/reasons-probe.log: an event brief with no product, a CTA too
+   long to keep, and two reasons the checks refuse. Round 2 delivered none. */
+describe("the two-reason floor", () => {
+  const meetupBrief =
+    "Promote our Lekki founders meetup. Talks from local founders, networking, light refreshments. RSVP on our website.";
+  const meetupChecks: DirectionChecks = {
+    ledger: factLedger([
+      meetupBrief,
+      "Founders meetup",
+      "Lekki Founders Circle",
+    ]),
+    briefText: meetupBrief,
+    title: "Founders meetup",
+    audience: "early-stage founders",
+  };
+  const meetup: DirectionDraft = {
+    ...draft,
+    headline: "Build alongside Lekki founders",
+    subheadline: "Talks, networking and light refreshments",
+    cta: "Reserve your seat on our website before it fills",
+    productName: "",
+    productLook: "",
+    backgroundPrompt:
+      "a single speaker on a small stage, warm evening light, audience in silhouette",
+    rationale: [
+      "Bold headline at the top grabs attention",
+      "Warm evening light makes it feel welcoming",
+    ],
+  };
+
+  for (const [label, paintedScene] of [
+    ["KO", meetup.backgroundPrompt],
+    ["upload", undefined],
+  ] as const) {
+    it(`keeps two true reasons on the ${label} path`, () => {
+      const { direction } = finalizeDirection(meetup, {
+        aspectRatio: "4:5",
+        checks: meetupChecks,
+        fallbackTitle: "show the moment",
+        paintedScene,
+      });
+      expect(direction.rationale.length).toBeGreaterThanOrEqual(2);
+      expect(directionSpecSchema.safeParse(direction).success).toBe(true);
+    });
+  }
+
+  it("never drops below two, whatever the model wrote", () => {
+    const headlines = [
+      "Hi",
+      "Strawberry mille-feuille is here",
+      "A very long headline that goes on and on to the edge of seventy ch",
+    ];
+    for (const headline of headlines) {
+      for (const subheadline of [undefined, "₦4,500 a slice from Monday"]) {
+        for (const cta of [undefined, "Order now"]) {
+          for (const rationale of [
+            ["Bold type at the top"],
+            ["Soft light", "Deep burgundy tones"],
+            [],
+          ]) {
+            const settled = settleReasons(rationale, {
+              copy: { headline, subheadline, cta, footerLines: [] },
+              checks,
+              product: "",
+              image: "none",
+            });
+            expect(settled.reasons.length).toBeGreaterThanOrEqual(2);
+            for (const reason of settled.reasons) {
+              expect(reason.length).toBeLessThanOrEqual(COPY_LIMITS.reason);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("quotes only copy that is drawn", () => {
+    expect(copyReasons({ headline: "Hi there", footerLines: [] })).toEqual([
+      'The headline reads "Hi there"',
+      "Nothing competes with the headline, so it reads at once",
+    ]);
+    expect(
+      copyReasons({
+        headline: "Strawberry mille-feuille is here",
+        cta: "Order now",
+        footerLines: [],
+      }),
+    ).toEqual([
+      'The headline reads "Strawberry mille-feuille is here"',
+      'The button says "Order now"',
+    ]);
+  });
+});
+
+describe("documentReasons", () => {
+  const text = (id: string, role: string, fontSize: number, y: number) => ({
+    id,
+    type: "text" as const,
+    role,
+    fontSize,
+    x: 80,
+    y,
+    width: 900,
+    height: fontSize * 1.2,
+  });
+
+  it("says only what the document measures", () => {
+    const doc = {
+      width: 1080,
+      height: 1350,
+      elements: [
+        text("headline", "headline", 96, 200),
+        text("subheadline", "subheadline", 40, 400),
+        { id: "logo", type: "logo", x: 900, y: 40, width: 120, height: 60 },
+      ],
+    };
+    expect(
+      documentReasons({ document: doc as never, subject: { ok: true } }),
+    ).toEqual([
+      "The headline is set larger than every other line",
+      "The product is drawn whole, with no copy laid over it",
+      "The brand's logo is in the top right corner",
+    ]);
+  });
+
+  it("claims nothing the document contradicts", () => {
+    const doc = {
+      width: 1080,
+      height: 1350,
+      elements: [
+        text("headline", "headline", 40, 200),
+        text("subheadline", "subheadline", 48, 400),
+        { id: "logo", type: "logo", x: 480, y: 40, width: 120, height: 60 },
+      ],
+    };
+    expect(
+      documentReasons({ document: doc as never, subject: { ok: false } }),
+    ).toEqual([]);
+  });
+});
+
+describe("copyFault on the model's own copy", () => {
+  /* u3-r2-code/finalize-probe.log case B: drawn as written. */
+  it("sends cut-off copy back like any other fault", () => {
+    for (const copy of [
+      "Treat yourself to the",
+      "Something sweet is coming…",
+      "Layers of",
+    ]) {
+      expect(copyFault(copy, 70, checks.ledger)).toBe(
+        "reads as an unfinished sentence",
+      );
+    }
+    expect(
+      copyFault("Strawberry mille-feuille is here", 70, checks.ledger),
+    ).toBe(null);
+  });
+
+  it("falls back to the brief's title rather than draw a cut headline", () => {
+    const { direction, report } = finalizeDirection(
+      { ...draft, headline: "Treat yourself to the" },
+      { aspectRatio: "4:5", checks, fallbackTitle: "show the product" },
+    );
+    expect(direction.headline).toBe("Strawberry mille-feuille launch");
+    expect(report.copyFallbacks[0]).toMatchObject({ field: "headline" });
   });
 });

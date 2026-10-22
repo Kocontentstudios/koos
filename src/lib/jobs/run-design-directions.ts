@@ -6,6 +6,7 @@ import { buildMemoryBlock } from "@/lib/ai/memory";
 import type { DirectionsImageSource } from "@/lib/ai/prompts/design-directions";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
+  claimDirectionLayout,
   createDesignGeneration,
   getDesignGenerationById,
   listDirectionSet,
@@ -19,15 +20,26 @@ import {
 } from "@/lib/design/direction-rationale";
 import { measureImage } from "@/lib/design/document/image-facts";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
+import {
+  SUBJECT_COVERED,
+  type SubjectBox,
+  subjectFromAlpha,
+} from "@/lib/design/document/subject";
 import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
+import { lookAtPhoto, type PhotoLook } from "@/lib/design/quality/plate-check";
 import type { DesignSpec } from "@/lib/design/spec";
 import { STORAGE_PREFIXES, uploadObject } from "@/lib/storage";
 import { loadDesignImage } from "@/lib/uploads/design-image";
 import { mapWithConcurrency } from "./calendar-assembly";
-import { recentLayoutsFor, settleLogo } from "./design-logo-settle";
+import {
+  recentLayoutsFor,
+  respecForLayout,
+  settleLogo,
+} from "./design-logo-settle";
 import { notifyBrandAssetFaults, notifyLogoLeftOff } from "./design-notify";
 import { draftDirections, type PriorDirection } from "./directions/brief";
+import { brandSetting, briefFacts, factStated } from "./directions/brief-facts";
 import type { ImageState } from "./directions/claims";
 import { planConcepts, regenerationConcept } from "./directions/concepts";
 import { renderConcurrency } from "./directions/concurrency";
@@ -38,12 +50,15 @@ import {
   paintPlate,
   storeDrawnMark,
 } from "./directions/imagery";
+import { layoutsHeld } from "./directions/layouts";
 import { createStageReporter } from "./directions/progress";
 import {
   type DirectionAssets,
   renderDirectionGuarded,
+  subjectFaultChecker,
 } from "./directions/render";
 import { COPY_LIMITS, currentSibling, designSpecOf } from "./directions/schema";
+import { chooseLayout, type LayoutChoice } from "./directions/subject-layout";
 import type { JobRuntime } from "./run-generation";
 
 export type DirectionsImage =
@@ -64,6 +79,17 @@ export class RegenerateTargetError extends Error {
   constructor() {
     super("The design you asked to regenerate no longer exists.");
     this.name = "RegenerateTargetError";
+  }
+}
+
+/** Every layout put the copy over the product. The direction fails with
+ *  this, in the user's words, rather than shipping the overlap. */
+export class SubjectCoveredError extends Error {
+  constructor() {
+    super(
+      "The copy could not be kept off the product in any layout. Try a photo with more room around the product, or shorter copy.",
+    );
+    this.name = "SubjectCoveredError";
   }
 }
 
@@ -239,7 +265,12 @@ export async function generateDirectionsWork(
   let imageCalls = 0;
   let images: (PlacedAsset | null)[];
   let imageStates: ImageState[];
+  /* What a look at each direction's image found in it, for the reasons, and
+     where its subject is, for the layout. */
+  const descriptions: (string | undefined)[] = settled.map(() => undefined);
+  const subjectBoxes: (SubjectBox | null)[][] = settled.map(() => []);
   const plateChecks: PlateCheck[] = [];
+  let photoLook: PhotoLook | null = null;
   if (upload) {
     const photo: PlacedAsset = {
       ref: { key: upload.key },
@@ -250,9 +281,21 @@ export async function generateDirectionsWork(
     };
     images = settled.map(() => photo);
     imageStates = settled.map(() => (brief.imageSeen ? "seen" : "unverified"));
+    photoLook = await lookAtPhoto(photo.asset.bytes);
+    if (photoLook) {
+      for (let i = 0; i < settled.length; i += 1) {
+        descriptions[i] = photoLook.description;
+      }
+    }
   } else {
     let painted = 0;
     stage("imagery", 0, "Creating imagery…");
+    const setting = brandSetting(context.briefText, [
+      context.brandSummary.overview,
+      context.brandSummary.businessType,
+      context.brandSummary.offer,
+      context.brandSummary.differentiators,
+    ]);
     const plates = await Promise.all(
       settled.map(async ({ spec }, i) => {
         const { productName, productLook } = brief.directions[i];
@@ -262,6 +305,11 @@ export async function generateDirectionsWork(
           product: productName
             ? { name: productName, look: productLook }
             : null,
+          productUnchecked:
+            !productName &&
+            Boolean(brief.reports[i]?.modelProduct.name) &&
+            brief.productSources[i] === "none",
+          setting,
           brandId,
         });
         imageCalls += plate.imageCalls;
@@ -272,6 +320,11 @@ export async function generateDirectionsWork(
     );
     images = plates.map((plate) => plate.placed);
     for (const plate of plates) plateChecks.push(plate.check);
+    plates.forEach((plate, i) => {
+      if (!plate.placed || !plate.look) return;
+      descriptions[i] = [plate.look.seen, ...plate.look.items].join(", ");
+      subjectBoxes[i] = [plate.look.subject];
+    });
     imageStates = plates.map((plate): ImageState => {
       if (!plate.placed) return "none";
       return plate.check === "passed" || plate.check === "passed-on-retry"
@@ -311,6 +364,16 @@ export async function generateDirectionsWork(
       );
     }
   }
+  if (upload && images[0]) {
+    const measured = await facts.get(images[0]);
+    /* A cut-out's subject is its visible pixels, which are exact; the look
+       is only for a photograph, where the whole subject comes first and a
+       person's head and shoulders second. */
+    const boxes = measured?.cutout
+      ? [subjectFromAlpha(measured)]
+      : [photoLook?.subject ?? null, photoLook?.face ?? null];
+    for (let i = 0; i < settled.length; i += 1) subjectBoxes[i] = boxes;
+  }
 
   const largestImage = Math.max(
     0,
@@ -328,15 +391,28 @@ export async function generateDirectionsWork(
   const succeeded: string[] = [];
   const failed: string[] = [];
   const brandFontFaults: string[] = prepared.fault ? [prepared.fault] : [];
-  const qualityFaults: string[] = [];
-  for (const check of plateChecks) {
+  /* Per direction, so quality_faults counts directions carrying a fault, as
+     docs/analytics.md defines it, not fault strings. */
+  const faultsByRow = new Map<string, string[]>();
+  const addFault = (id: string, fault: string) =>
+    faultsByRow.set(id, [...(faultsByRow.get(id) ?? []), fault]);
+  plateChecks.forEach((check, i) => {
     if (check === "failed") {
-      qualityFaults.push(
+      addFault(
+        rows[i].id,
         "the generated image did not show the product, so the design was drawn without one",
       );
     }
-  }
+    if (check === "failed-lettering") {
+      addFault(
+        rows[i].id,
+        "the generated image kept painting made-up writing on the product, so the design was drawn without one",
+      );
+    }
+  });
   let reasonsReplaced = 0;
+  const layoutChoices: (LayoutChoice | null)[] = rows.map(() => null);
+  const deliveredSpecs: DesignSpec[] = [];
   const { ledger } = brief.checks;
   const copyHolds = (spec: DesignSpec) =>
     !copyFault(spec.headline, COPY_LIMITS.headline, ledger) &&
@@ -386,6 +462,7 @@ export async function generateDirectionsWork(
 
   await mapWithConcurrency(rows, concurrency, async (row, i) => {
     let counted = false;
+    const slot = target?.slot ?? i;
     try {
       const mark = marks[i];
       const image = images[i];
@@ -398,14 +475,47 @@ export async function generateDirectionsWork(
       };
       /* A mark that loaded but could not be stored is not on the document,
          so the spec must not keep its corner either. */
-      const spec = assets.logo
-        ? settled[i].spec
-        : { ...settled[i].spec, logoPlacement: "none" as const };
+      const unmarked = (spec: DesignSpec) =>
+        assets.logo ? spec : { ...spec, logoPlacement: "none" as const };
+      const faultOf = subjectFaultChecker(context, assets, prepared);
+      /* Under the set's lock, so a concurrent regenerate on the other slot
+         settles its layout before or after this one, never alongside it. */
+      const choice = await claimDirectionLayout({
+        brandId,
+        setId: set,
+        rowId: row.id,
+        choose: async (setRows) => {
+          const held = layoutsHeld(
+            setRows,
+            { id: row.id, set, slot, replacing: request.regenerateOf },
+            new Date(),
+          );
+          const picked = await chooseLayout({
+            spec: unmarked(settled[i].spec),
+            held,
+            subjects: assets.image ? subjectBoxes[i] : [],
+            faultOf,
+            relayout: (spec, layout) =>
+              unmarked(
+                respecForLayout(spec, layout, {
+                  modelChoice: brief.directions[i].logoPlacement,
+                  hasLogo: Boolean(assets.logo),
+                }),
+              ),
+          });
+          return { spec: picked.spec, result: picked };
+        },
+      });
+      layoutChoices[i] = choice;
+      /* No layout kept the copy off the product: a design with the headline
+         across the pastry is not delivered, it fails with the reason, and
+         without paying for a render that would only show the overlap. */
+      if (choice.fault === SUBJECT_COVERED) throw new SubjectCoveredError();
       const result = await renderDirectionGuarded({
         id: row.id,
-        spec,
+        spec: choice.spec,
         context,
-        assets,
+        assets: { ...assets, subject: choice.subject },
         fonts: prepared,
         copyHolds,
         outOfTime: () => runtime.shouldPause(),
@@ -414,22 +524,31 @@ export async function generateDirectionsWork(
           reportRendered();
         },
       });
+      /* The gate's correction rewrites copy, and longer copy can reach the
+         subject the first layout kept clear. */
+      if (result.subjectFault === SUBJECT_COVERED) {
+        throw new SubjectCoveredError();
+      }
+      if (result.subjectFault) addFault(row.id, result.subjectFault);
       const key = `${STORAGE_PREFIXES.generated}/${brandId}/${randomUUID()}.png`;
       await storeDelivered(key, result.bytes);
       /* The reasons were written before the image was painted and before the
          gate could change the copy, so they are held again to what was
-         actually delivered: the kept spec and what the image is known to
-         show. */
+         actually delivered: the kept spec, the drawn document and what the
+         image is known to show. */
       const direction = brief.directions[i];
       const drawnSpec = result.logoUnplaced
         ? { ...result.spec, logoPlacement: "none" as const }
         : result.spec;
+      deliveredSpecs[i] = drawnSpec;
       const settledReasons = settleReasons(direction.rationale, {
         copy: drawnSpec,
         checks: brief.checks,
         product: direction.productName,
         image: assets.image ? imageStates[i] : "none",
         paintedScene: upload ? undefined : direction.backgroundPrompt,
+        imageDescription: assets.image ? descriptions[i] : undefined,
+        drawn: { document: result.document, subject: result.subject },
       });
       if (settledReasons.dropped.length > 0) {
         reasonsReplaced += settledReasons.dropped.length;
@@ -451,7 +570,7 @@ export async function generateDirectionsWork(
         rationale: storedRationale(
           { title: direction.title, rationale: settledReasons.reasons },
           set,
-          target?.slot ?? i,
+          slot,
         ),
       });
       succeeded.push(row.id);
@@ -460,7 +579,7 @@ export async function generateDirectionsWork(
       }
       if (result.logoFault) logoFaults.push(result.logoFault);
       const fault = [result.fault, result.copyFault].filter(Boolean).join("; ");
-      if (fault) qualityFaults.push(fault);
+      if (fault) addFault(row.id, fault);
       if (result.correction) judgeVerdicts.push(result.correction);
       if (result.correctionKept) correctionsKept.push(row.id);
     } catch (err) {
@@ -492,7 +611,16 @@ export async function generateDirectionsWork(
   }
 
   if (succeeded.length === 0) {
-    throw new Error("Design generation failed. Please try again.");
+    /* When every direction failed the same honest way, say so: "try again"
+       would only fail again on the same photograph. */
+    const covered = rows.every(
+      (_, i) => layoutChoices[i]?.fault === SUBJECT_COVERED,
+    );
+    throw new Error(
+      covered
+        ? new SubjectCoveredError().message
+        : "Design generation failed. Please try again.",
+    );
   }
 
   /* Rows keep the order the directions were written in, so the results
@@ -501,6 +629,24 @@ export async function generateDirectionsWork(
   const generationIds = rows
     .map((row) => row.id)
     .filter((id) => succeeded.includes(id));
+  const qualityFaults = generationIds.filter(
+    (id) => (faultsByRow.get(id) ?? []).length > 0,
+  ).length;
+
+  /* Brief facts as delivered: the gate's correction can rewrite copy after
+     the facts were drawn in, so coverage is measured again on what shipped. */
+  const hardFacts = briefFacts(context.briefText ?? "");
+  const delivered = deliveredSpecs.filter(Boolean);
+  const factsDelivered = hardFacts.filter((fact) =>
+    delivered.some((spec) =>
+      factStated(
+        fact,
+        [spec.headline, spec.subheadline, spec.cta, ...spec.footerLines]
+          .filter(Boolean)
+          .join(" \n "),
+      ),
+    ),
+  ).length;
 
   /* One usage row is one quota unit (countDesignGenerationsForWorkspace), so
      two directions cost what one generation always has. */
@@ -521,7 +667,7 @@ export async function generateDirectionsWork(
       directions: generationIds.length,
       regenerateOf: request.regenerateOf ?? null,
       source: context.source,
-      qualityFaults: qualityFaults.length,
+      qualityFaults,
       judgeVerdicts: judgeVerdicts.length,
       correctionsKept: correctionsKept.length,
       layoutsForced: brief.layoutsForced,
@@ -540,13 +686,25 @@ export async function generateDirectionsWork(
         brief.reports.reduce((n, r) => n + r.reasonsDropped.length, 0) +
         reasonsReplaced,
       plateChecks,
+      /* Round-3 outcomes: copy kept off the subject (and how), the brief's
+         facts drawn, and where each plate's product name came from. */
+      subjectKnown: subjectBoxes.map((boxes) => boxes.some(Boolean)),
+      layoutsRelaid: layoutChoices.filter(
+        (choice, i) => choice && choice.spec.layout !== settled[i].spec.layout,
+      ).length,
+      subjectFaults: layoutChoices.map((choice) => choice?.fault ?? null),
+      briefFacts: hardFacts.length,
+      briefFactsDelivered: factsDelivered,
+      factsAdded: brief.factCoverage.added.length,
+      factsLeftOff: brief.factCoverage.leftOff,
+      productSources: brief.productSources,
     },
   });
 
   const shared = {
     brand_id: brandId,
     session_id: sessionId ?? null,
-    quality_faults: qualityFaults.length,
+    quality_faults: qualityFaults,
   };
   await captureServerEvent({
     distinctId: userId,
@@ -560,9 +718,11 @@ export async function generateDirectionsWork(
       redrafted: brief.redrafted,
       layouts_forced: brief.layoutsForced,
       plates_rejected: plateChecks.filter(
-        (c) => c !== "passed" && c !== "not-applicable" && c !== "unchecked",
+        (c) => c !== "passed" && c !== "unchecked",
       ).length,
-      plates_failed: plateChecks.filter((c) => c === "failed").length,
+      plates_failed: plateChecks.filter(
+        (c) => c === "failed" || c === "failed-lettering",
+      ).length,
     },
   });
   /* Kept for continuity: the quality-gate series on design_generated would

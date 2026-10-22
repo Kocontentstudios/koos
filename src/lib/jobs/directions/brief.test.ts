@@ -58,11 +58,34 @@ describe("draftDirections", () => {
   it("repairs a stringified directions array instead of failing the job", async () => {
     generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
     await draftDirections(input());
-    const { repairDirectionsText } = await import("./repair");
-    expect(
-      (generateObject.mock.calls[0][0] as { experimental_repairText: unknown })
-        .experimental_repairText,
-    ).toBe(repairDirectionsText);
+    const repair = (
+      generateObject.mock.calls[0][0] as {
+        experimental_repairText: (o: { text: string }) => Promise<string>;
+      }
+    ).experimental_repairText;
+    const fixed = await repair({
+      text: JSON.stringify({
+        directions: JSON.stringify([draftOf(), draftOf()]),
+      }),
+    });
+    expect(JSON.parse(fixed).directions).toHaveLength(2);
+  });
+
+  /* Round-2 code critic: a regenerate asks for one direction while showing
+     the model two, and an answer with both failed the whole job. */
+  it("keeps the first direction when a regenerate answers with more", async () => {
+    generateObject.mockResolvedValue(answer(draftOf()));
+    await draftDirections(input({ lenses: [lenses[0]] }));
+    const repair = (
+      generateObject.mock.calls[0][0] as {
+        experimental_repairText: (o: { text: string }) => Promise<string>;
+      }
+    ).experimental_repairText;
+    const fixed = await repair({
+      text: JSON.stringify({ directions: [draftOf(), contrastingDraft()] }),
+    });
+    expect(JSON.parse(fixed).directions).toHaveLength(1);
+    expect(JSON.parse(fixed).directions[0].headline).toBe(draftOf().headline);
   });
 
   it("hands each direction its own concept and the direction rules", async () => {
@@ -137,7 +160,7 @@ describe("draftDirections", () => {
     const twin = draftOf({
       layout: "split-left",
       title: "Morning bake",
-      headline: "Fresh croissants, every single morning",
+      headline: "Warm almond croissants, every single morning",
     });
     const fresh = contrastingDraft();
     generateObject

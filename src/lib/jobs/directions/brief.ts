@@ -12,7 +12,14 @@ import {
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import type { DesignContext } from "@/lib/design/context";
-import { factLedger, inventedFacts, looksCutOff, spatialClaim } from "./claims";
+import { coverBriefFacts, type FactCoverage } from "./brief-facts";
+import {
+  factLedger,
+  inventedFacts,
+  looksCutOff,
+  resolveBriefProducts,
+  spatialClaim,
+} from "./claims";
 import type { ConceptLens } from "./concepts";
 import {
   copyFault,
@@ -21,11 +28,12 @@ import {
   finalizeDirection,
 } from "./finalize";
 import { forceDistinctLayouts } from "./layouts";
-import { repairDirectionsText, repairFitText } from "./repair";
+import { repairDirectionsFor, repairFitText } from "./repair";
 import {
   COPY_LIMITS,
   type DirectionDraft,
   type DirectionSpec,
+  DRAFT_LIMITS,
   directionsResponseSchema,
 } from "./schema";
 import {
@@ -84,6 +92,11 @@ export interface DraftDirectionsResult {
    *  existing. Null when there is nothing to compare. */
   overlap: DirectionOverlap | null;
   modelCalls: number;
+  /** Where each direction's product name came from: the model's own words,
+   *  its sibling's, the brief's, or none. */
+  productSources: ("model" | "sibling" | "brief" | "none")[];
+  /** The brief's hard facts and which direction states each. */
+  factCoverage: FactCoverage;
 }
 
 /** The fit pass's answer: the rewritten text for each field it was asked
@@ -335,7 +348,7 @@ export async function draftDirections({
       schema: directionsResponseSchema(count),
       system,
       maxOutputTokens: DIRECTIONS_MAX_OUTPUT_TOKENS,
-      experimental_repairText: repairDirectionsText,
+      experimental_repairText: repairDirectionsFor(count),
       messages: [
         {
           role: "user",
@@ -474,13 +487,40 @@ export async function draftDirections({
     }
   }
 
+  const products = resolveBriefProducts(
+    reports.map((r) => r.modelProduct.name),
+    `${checks.briefText} ${checks.title}`,
+  );
+  const looks = reports.map((r) => r.modelProduct.look);
+  const named = directions.map((d, i) => {
+    const { name, from } = products[i];
+    if (!name) return { ...d, productName: "", productLook: "" };
+    const look = looks[i] || looks.find(Boolean) || "";
+    /* The model's own name still helps recognise the product when the
+       brief's words for it are fewer ("strawberry" of "Strawberry
+       Napoleon"). */
+    const hint =
+      from === "model" || !reports[i].modelProduct.name
+        ? look
+        : `${reports[i].modelProduct.name}. ${look}`.trim();
+    return {
+      ...d,
+      productName: name,
+      productLook: hint.slice(0, DRAFT_LIMITS.productLook),
+    };
+  });
+  const { directions: covered, coverage: factCoverage } = coverBriefFacts(
+    named,
+    checks.briefText,
+  );
+
   const forced = forceDistinctLayouts(
-    directions.map((d) => d.layout),
+    covered.map((d) => d.layout),
     recentLayouts,
     existing.map((d) => d.layout),
   );
   let layoutsForced = 0;
-  const settled = directions.map((d, i) => {
+  const settled = covered.map((d, i) => {
     if (forced[i] === d.layout) return d;
     layoutsForced += 1;
     return { ...d, layout: forced[i] };
@@ -497,5 +537,7 @@ export async function draftDirections({
     redrafted,
     overlap: worst?.overlap ?? null,
     modelCalls,
+    productSources: products.map((p) => p.from),
+    factCoverage,
   };
 }

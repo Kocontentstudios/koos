@@ -43,7 +43,8 @@ Write to length. Count the words before you answer; text over its limit is rewri
 - each footer line: at most ${t.footerLine.chars} characters.
 - each reason: 6 to ${t.reason.words} words, at most ${t.reason.chars} characters (hard limit ${COPY_LIMITS.reason}).
 
-Only the brief's facts. Every number, price, time, day, date, count, duration, distance, quantity and claim in the headline, subheadline, cta, footer and reasons must be written in the brief or the brand profile above. Do not add any: no "12 artisans" when the brief says twelve throws, no "seven minutes from your door", no "free delivery", no "award-winning", no "fresh daily" unless the brief says so. A detail the brief did not give is left out, not guessed.
+Only the brief's facts. Every number, price, time, day, date, count, duration, distance, quantity and claim in the headline, subheadline, cta, footer and reasons must be written in the brief or the brand profile above. Do not add any: no "12 artisans" when the brief says twelve throws, no "seven minutes from your door", no "free delivery", no "award-winning", no "fresh daily" unless the brief says so. A detail the brief did not give is left out, not guessed. Keep the brief's own words around its facts: no "from ₦4,500" for "₦4,500 a slice", no "before 7am" for "pickup from 7am", no "only", "now", "fresh", "best", "#1", "today", "tonight" or a holiday unless the brief says it.
+Every hard fact the brief gives (day, date, time, price, ages, place, contact, quantity) appears somewhere in each direction's copy or footer; a direction that leaves one out has the brief's own words for it added to its footer.
 
 - "title": the concept's name, e.g. "Playful product story" or "Morning ritual". Name the idea, not the brand, and never repeat the headline: the title describes the concept to the client, the headline is the copy on the design.
 - "rationale": ${DIRECTION_REASONS_MIN} to ${DIRECTION_REASONS_MAX} reasons, shown to the client on a small card as "why this works". Each reason is 6 to ${t.reason.words} words: one plain sentence, no comma-joined second thought, no explanation tacked on the end. Count the words.
@@ -81,6 +82,7 @@ function imageBlock(source: DirectionsImageSource, attached: boolean): string {
   return [
     'Imagery: KO paints a separate text-free image for each direction from its "backgroundPrompt", led by "productLook".',
     "When the brief names a product, every direction's image shows that product, recognisably, as its subject: the backgroundPrompt describes the product itself first (from productLook), then the setting. Give each direction its own scene that serves its concept: a different viewpoint, setting or treatment of the same product, never a different product and never the same scene relit.",
+    "Set each scene where the brand is (its city or neighbourhood in the profile above): local interiors, streets and people. Packaging, bottles and boxes are plain and unlabelled: the image model writes made-up brand names on anything with a label.",
   ].join(" ");
 }
 
@@ -192,7 +194,7 @@ export function buildFitPrompt(
     "Some fields you wrote cannot go on the design as they are. Rewrite each one so it keeps its meaning and its job, and fix every problem listed.",
     `The brief: ${context.briefText ?? ""}`.trim(),
     context.title ? `Its title: ${context.title}` : null,
-    "Rules: stay within the character limit with room to spare; state only facts the brief or the brand gives (no numbers, prices, times, days, counts, durations or claims it does not hold); a reason never says where anything sits, how big it is, or how light falls on it; finish every sentence, with no trailing dash, comma or ellipsis.",
+    "Rules: stay within the character limit with room to spare; state only facts the brief or the brand gives (no numbers, prices, times, days, counts, durations or claims it does not hold, and no 'from', 'before', 'only' or 'now' in front of a fact unless the brief puts it there); a reason never says where anything sits, how big it is, how light falls on it, or what colour or type anything is set in; finish every sentence, with no trailing dash, comma or ellipsis.",
     listed,
     'Return every id once in "fixes", with the rewritten text.',
   ]

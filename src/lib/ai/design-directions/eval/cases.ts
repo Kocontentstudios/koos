@@ -28,7 +28,16 @@ export interface DirectionsEvalCase {
   product?: string;
   /** Set for a regenerate: one direction, apart from both of these. */
   regenerate?: { existing: PriorDirection[] };
+  /** The upload's file, normalised as the browser does before the loader
+   *  sees it. Upload cases without one use --image. */
+  imageFile?: string;
+  /** The loader must refuse this upload; the case passes only if it does. */
+  expectRefused?: boolean;
 }
+
+/** Where the fixture photographs live: royalty-free stock, kept out of the
+ *  repo because they are binaries. */
+export const EVAL_FIXTURES = "/tmp/feat-033/fixtures";
 
 const CRUMB: BrandSummary = {
   name: "Crumb & Co.",
@@ -263,6 +272,78 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       aspectRatio: "4:5",
       briefText:
         "New 6am HIIT class every weekday at our Yaba studio. Your first class is free; book on WhatsApp.",
+    },
+  },
+  /* Round 3: real photographs. A busy scene where copy must find the one
+     calm area, and a portrait where copy may never cover the face. */
+  {
+    id: "cafe-photo-upload",
+    brand: {
+      name: "Brew Lab",
+      overview: "Specialty coffee bar in Yaba, Lagos.",
+      targetAudience: "Remote workers and students",
+      tone: "Easygoing, curious, precise about coffee",
+      primaryColor: "#1C1917",
+      secondaryColor: "#D97706",
+    },
+    hasLogo: false,
+    imageSource: "upload",
+    category: "food",
+    imageFile: `${EVAL_FIXTURES}/busy-cafe-espresso.jpg`,
+    request: {
+      title: "Espresso flight launch",
+      designType: "Instagram Post",
+      dimensions: "1080x1080",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText:
+        "Our new single-origin espresso flight is here: three shots for ₦6,000, every weekday from 8am at our Yaba bar. Walk in, no booking needed.",
+    },
+    product: "single-origin espresso flight",
+  },
+  {
+    id: "fashion-portrait-upload",
+    brand: {
+      name: "Adire House",
+      overview: "Contemporary adire womenswear studio in Ikoyi, Lagos.",
+      targetAudience: "Women who dress for work and weekends in one wardrobe",
+      tone: "Assured, warm, unhurried",
+      primaryColor: "#F5F0E6",
+      secondaryColor: "#1E3A8A",
+    },
+    hasLogo: false,
+    imageSource: "upload",
+    category: "product",
+    imageFile: `${EVAL_FIXTURES}/portrait-fashion.jpg`,
+    request: {
+      title: "Harmattan dress pre-order",
+      designType: "Instagram Post",
+      dimensions: "1080x1350",
+      platform: "Instagram",
+      aspectRatio: "4:5",
+      briefText:
+        "Pre-orders open for the Harmattan linen dress, ₦38,000, from Friday 1 November on adirehouse.ng.",
+    },
+    product: "Harmattan linen dress",
+  },
+  /* Round-2 live run: a near-blank white photo was accepted and became two
+     designs' hero. The loader must refuse it. */
+  {
+    id: "workshop-blank-upload",
+    brand: CRUMB,
+    hasLogo: true,
+    imageSource: "upload",
+    category: "event",
+    imageFile: `${EVAL_FIXTURES}/photo-a.jpg`,
+    expectRefused: true,
+    request: {
+      title: "Kids' croissant workshop",
+      designType: "Instagram Post",
+      dimensions: "1080x1080",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText:
+        "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.",
     },
   },
 ];

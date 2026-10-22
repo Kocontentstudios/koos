@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  briefSpanFor,
   type DrawnCopy,
+  documentParts,
   factLedger,
   inventedFacts,
   looksCutOff,
   productFromBrief,
   type ReasonContext,
   reasonHolds,
+  resolveBriefProducts,
   spatialClaim,
 } from "./claims";
 
@@ -47,7 +50,10 @@ describe("inventedFacts", () => {
   });
 
   it("catches a price, time, day or month that is not in the brief", () => {
-    expect(inventedFacts("₦3,900 this week", bakery)).toEqual(["₦3,900"]);
+    expect(inventedFacts("₦3,900 this week", bakery)).toEqual([
+      "₦3,900",
+      "this week",
+    ]);
     expect(inventedFacts("Ready by 6:30am", bakery)).toContain("6:30");
     expect(inventedFacts("Every Friday", bakery)).toEqual(["friday"]);
     expect(inventedFacts("Launching in December", textile)).toEqual(["dec"]);
@@ -278,5 +284,203 @@ describe("productFromBrief", () => {
   it("drops one the model made up", () => {
     expect(productFromBrief("Strawberry tart", BAKERY_BRIEF)).toBe("");
     expect(productFromBrief("", BAKERY_BRIEF)).toBe("");
+  });
+});
+
+/* The round-2 code critic's probes (u3-r2-code/claims-probe.log): every one
+   of these reached a delivered design. Each is checked against the bakery
+   brief, which states a price, a day and a time and none of these. */
+describe("inventedFacts, round-2 probes", () => {
+  const caught: [string, string][] = [
+    ["Open Sat & Sun", "saturday"],
+    ["Fri only", "friday"],
+    ["Tonight only", "tonight"],
+    ["Today only", "today"],
+    ["Tomorrow only", "tomorrow"],
+    ["This Christmas, treat yourself", "christmas"],
+    ["Valentine's special", "valentine"],
+    ["Ready for Eid", "eid"],
+    ["Lagos's number one bakery", "number one"],
+    ["The #1 pastry in Lekki", "#1"],
+    ["Buy one, get one", "Buy one, get one"],
+    ["Half price this week", "Half price"],
+    ["Ships today", "Ships"],
+    ["Launching in May", "may"],
+    ["Top-rated in Lekki", "Top-rated"],
+    ["Back by popular demand", "by popular demand"],
+    ["Sold out last time", "Sold out"],
+    ["Only a few left", "Only"],
+    ["Saturday only", "saturday"],
+    ["This weekend only", "weekend"],
+    ["Freshly baked daily", "Freshly"],
+    ["Lekki's best croissant", "best"],
+  ];
+  for (const [copy, word] of caught) {
+    it(`catches "${copy}"`, () => {
+      const found = inventedFacts(copy, bakery).map((w) => w.toLowerCase());
+      expect(found).toContain(word.toLowerCase());
+    });
+  }
+
+  /* Round-2 live run: the facts were the brief's, the words in front of
+     them were not. */
+  it("catches a price or time whose qualifier the brief never used", () => {
+    expect(inventedFacts("From ₦4,500 a slice", bakery)).toContain(
+      "from ₦4,500",
+    );
+    expect(inventedFacts("Fresh before 7am", bakery)).toContain("before 7am");
+    expect(inventedFacts("Just ₦4,500", bakery)).toContain("just ₦4,500");
+    expect(inventedFacts("Pickup from 7am", bakery)).toEqual([]);
+  });
+
+  it("catches a now-claim the brief never made", () => {
+    const zobo = factLedger([
+      "New this weekend: chilled zobo hibiscus cooler, ₦1,800 for a 500ml bottle.",
+    ]);
+    expect(inventedFacts("Now in a bottle", zobo)).toContain("Now in");
+    expect(inventedFacts("Now available", zobo)).toEqual([]);
+    expect(inventedFacts("This weekend only", zobo)).toEqual(["only"]);
+  });
+
+  it("accepts a range restated with the brief's ends", () => {
+    const workshop = factLedger([
+      "Kids' croissant workshop this Saturday, 10am to 12pm at our Lekki shop.",
+    ]);
+    expect(inventedFacts("Sat 10am–12pm", workshop)).toEqual([]);
+    expect(inventedFacts("From 10am until 12pm", workshop)).toEqual([]);
+    expect(inventedFacts("Before 12pm", workshop)).toEqual(["before 12pm"]);
+  });
+
+  it("leaves the sun, the verb may and the brief's own claims alone", () => {
+    expect(inventedFacts("Pastry under the Sun", bakery)).toEqual([]);
+    expect(inventedFacts("You may want another", bakery)).toEqual([]);
+    expect(
+      inventedFacts(
+        "Only 8 spots",
+        factLedger(["Ages 7 to 12, only 8 spots."]),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("spatialClaim, round-2 probes", () => {
+  /* u3-r2-code/spatial-probe.log: all five came back null. */
+  for (const reason of [
+    "Soft morning light makes the pastry look fresh",
+    "Moody lighting adds drama",
+    "Deep burgundy tones feel premium",
+    "Lowercase serif type feels refined",
+    "Bold headline stops the scroll",
+    "Warm hues make it inviting",
+    "Italic script feels handmade",
+    "Shadows give it depth",
+  ]) {
+    it(`flags "${reason}"`, () => {
+      expect(spatialClaim(reason, BAKERY_BRIEF)).not.toBeNull();
+    });
+  }
+
+  it("does not read quoted copy as a claim about the type", () => {
+    expect(spatialClaim('The headline reads "Bold mornings"', "")).toBeNull();
+  });
+});
+
+describe("reasonHolds, parts and pictures", () => {
+  const copy: DrawnCopy = {
+    headline: "Little bakers wanted",
+    subheadline: "Croissants from scratch, ₦15,000",
+    cta: "Only 8 spots",
+    footerLines: [],
+  };
+  const workshop = factLedger([
+    "Kids' croissant workshop, ₦15,000 per child, only 8 spots.",
+  ]);
+  const ctx = (over: Partial<ReasonContext> = {}): ReasonContext => ({
+    copy,
+    ledger: workshop,
+    briefText: "",
+    product: "",
+    image: "seen",
+    ...over,
+  });
+
+  /* Round-2 live run: no layout draws a tag; the button was meant. */
+  it("refuses a tag, badge or sticker no layout draws", () => {
+    expect(
+      reasonHolds("The accent tag calls out the 8-spot limit", ctx()).ok,
+    ).toBe(false);
+    expect(reasonHolds("A badge carries the price", ctx()).ok).toBe(false);
+  });
+
+  it("checks a logo or accent rule against the drawn document", () => {
+    const drawn = documentParts([
+      { type: "text", id: "headline" },
+      { type: "shape", id: "accent-rule" },
+    ]);
+    expect(
+      reasonHolds("The brand logo signs off the post", ctx({ elements: drawn }))
+        .ok,
+    ).toBe(false);
+    expect(
+      reasonHolds(
+        "The accent rule ties the copy together",
+        ctx({ elements: drawn }),
+      ).ok,
+    ).toBe(true);
+  });
+
+  /* Round-2 live run, zobo: the plate showed a bottle and no pastry. */
+  it("refuses an image claim the look at the image does not bear out", () => {
+    const zobo = factLedger([
+      "Chilled zobo hibiscus cooler, ₦1,800. Grab one with any pastry before noon.",
+    ]);
+    const look = ctx({
+      ledger: zobo,
+      product: "zobo hibiscus cooler",
+      image: "verified",
+      imageDescription:
+        "a glass bottle of zobo hibiscus cooler, ice, hibiscus flowers",
+    });
+    expect(reasonHolds("Pastry is shown with the cooler", look)).toMatchObject({
+      ok: false,
+    });
+    expect(
+      reasonHolds("The photo shows the zobo hibiscus cooler with ice", look).ok,
+    ).toBe(true);
+  });
+});
+
+describe("product resolution, round-2 probes", () => {
+  it("accepts the brief's product however the model spells it", () => {
+    expect(productFromBrief("strawberry millefeuille", BAKERY_BRIEF)).toBe(
+      "strawberry millefeuille",
+    );
+  });
+
+  it("falls back to the brief's own words for the part it names", () => {
+    expect(briefSpanFor("Strawberry Napoleon", BAKERY_BRIEF)).toBe(
+      "strawberry",
+    );
+    expect(briefSpanFor("strawberry millefeuille", BAKERY_BRIEF)).toBe(
+      "strawberry mille-feuille",
+    );
+  });
+
+  /* Round-2 code critic: "Strawberry Napoleon" or an empty name skipped the
+     plate check while the brief named a product. */
+  it("checks every plate for the brief's product when one direction names it", () => {
+    expect(
+      resolveBriefProducts(
+        ["Strawberry Napoleon", "mille-feuille"],
+        BAKERY_BRIEF,
+      ),
+    ).toEqual([
+      { name: "mille-feuille", from: "sibling" },
+      { name: "mille-feuille", from: "model" },
+    ]);
+    expect(resolveBriefProducts(["", ""], BAKERY_BRIEF)).toEqual([
+      { name: "", from: "none" },
+      { name: "", from: "none" },
+    ]);
   });
 });

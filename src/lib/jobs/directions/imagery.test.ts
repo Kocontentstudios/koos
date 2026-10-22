@@ -13,7 +13,7 @@ vi.mock("@/lib/design/quality/plate-check", () => ({
 }));
 
 const { paintPlate, platePrompt, storeDrawnMark } = await import("./imagery");
-const { BRAND_ID, designPng, draftOf } = await import("./fixtures");
+const { BRAND_ID, designPng, draftOf, verdict } = await import("./fixtures");
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46]);
 const WEBP = new TextEncoder().encode("RIFF\0\0\0\0WEBPVP8 ");
@@ -49,7 +49,7 @@ beforeEach(() => {
   uploadObject.mockReset();
   uploadObject.mockResolvedValue(undefined);
   checkPlateShowsProduct.mockReset();
-  checkPlateShowsProduct.mockResolvedValue({ shows: true, seen: "" });
+  checkPlateShowsProduct.mockResolvedValue(verdict(true, ""));
 });
 
 describe("paintPlate", () => {
@@ -69,7 +69,7 @@ describe("paintPlate", () => {
     const { placed, imageCalls, check } = await paint(plateModel);
     expect(plateModel.generate).toHaveBeenCalledTimes(1);
     expect(imageCalls).toBe(1);
-    expect(check).toBe("not-applicable");
+    expect(check).toBe("passed");
     expect(plateModel.generate).toHaveBeenCalledWith(
       expect.objectContaining({ aspectRatio: "4:5" }),
     );
@@ -128,8 +128,8 @@ describe("paintPlate", () => {
 
   it("paints once more, naming what was wrong, when the check rejects it", async () => {
     checkPlateShowsProduct
-      .mockResolvedValueOnce({ shows: false, seen: "a round strawberry tart" })
-      .mockResolvedValueOnce({ shows: true, seen: "" });
+      .mockResolvedValueOnce(verdict(false, "a round strawberry tart"))
+      .mockResolvedValueOnce(verdict(true, ""));
     const plateModel = adapter(designPng(64, 64));
     const result = await paint(plateModel, PRODUCT);
     expect(plateModel.generate).toHaveBeenCalledTimes(2);
@@ -146,10 +146,7 @@ describe("paintPlate", () => {
   });
 
   it("draws flat rather than over the wrong product twice", async () => {
-    checkPlateShowsProduct.mockResolvedValue({
-      shows: false,
-      seen: "bread rolls",
-    });
+    checkPlateShowsProduct.mockResolvedValue(verdict(false, "bread rolls"));
     const plateModel = adapter(designPng(64, 64));
     const result = await paint(plateModel, PRODUCT);
     expect(plateModel.generate).toHaveBeenCalledTimes(2);
@@ -174,6 +171,85 @@ describe("platePrompt", () => {
   it("is the scene alone when the brief names no product", () => {
     expect(platePrompt(draftOf(), null).startsWith("a bakery counter")).toBe(
       true,
+    );
+  });
+
+  /* Round-2 live run: a Lagos bakery's pastry on a European street, and a
+     made-up brand name on a zobo bottle. */
+  it("sets the scene where the brand is and keeps packaging unlettered", () => {
+    const prompt = platePrompt(draftOf(), PRODUCT, undefined, "Lekki, Lagos");
+    expect(prompt).toContain("Set in Lekki, Lagos");
+    expect(prompt).toContain("plain and unbranded, with no label text");
+  });
+
+  it("names lettering as what was wrong on a retry", () => {
+    expect(platePrompt(draftOf(), PRODUCT, { lettering: true })).toContain(
+      "painted lettering on it",
+    );
+  });
+});
+
+describe("paintPlate, lettering and unnamed products", () => {
+  const paint = (
+    plateModel: ReturnType<typeof adapter>,
+    extra: Record<string, unknown> = {},
+  ) =>
+    paintPlate({
+      adapter: plateModel,
+      spec: draftOf(),
+      product: PRODUCT,
+      brandId: BRAND_ID,
+      ...extra,
+    });
+
+  it("paints again when the product carries made-up writing", async () => {
+    checkPlateShowsProduct
+      .mockResolvedValueOnce(verdict(true, "a bottle", { lettering: true }))
+      .mockResolvedValueOnce(verdict(true, "a bottle"));
+    const plateModel = adapter(designPng(64, 64));
+    const result = await paint(plateModel);
+    expect(result).toMatchObject({ check: "passed-on-retry", imageCalls: 2 });
+    expect(promptSent(plateModel, 1)).toContain("painted lettering");
+  });
+
+  it("draws flat when both plates are lettered", async () => {
+    checkPlateShowsProduct.mockResolvedValue(
+      verdict(true, "a bottle", { lettering: true }),
+    );
+    const result = await paint(adapter(designPng(64, 64)));
+    expect(result).toMatchObject({
+      check: "failed-lettering",
+      imageCalls: 2,
+      placed: null,
+    });
+  });
+
+  it("hands back the look at the delivered plate", async () => {
+    const subject = { x: 0.2, y: 0.3, w: 0.5, h: 0.5 };
+    checkPlateShowsProduct.mockResolvedValue(
+      verdict(true, "a slice", { subject, items: ["a slice", "a fork"] }),
+    );
+    const result = await paint(adapter(designPng(64, 64)));
+    expect(result.look).toMatchObject({
+      subject,
+      items: ["a slice", "a fork"],
+    });
+  });
+
+  /* Round-2 code critic: a product the brief does not name was recorded as
+     "not-applicable" with no check at all. */
+  it("records a product it could not check for as unchecked", async () => {
+    const plateModel = adapter(designPng(64, 64));
+    const result = await paintPlate({
+      adapter: plateModel,
+      spec: draftOf(),
+      product: null,
+      productUnchecked: true,
+      brandId: BRAND_ID,
+    });
+    expect(result.check).toBe("unchecked");
+    expect(checkPlateShowsProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ product: "" }),
     );
   });
 });

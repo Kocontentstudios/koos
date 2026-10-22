@@ -116,7 +116,9 @@ describe("the directions eval", () => {
       other(),
     ]);
     expect(score.modelGrounded).toBe(2);
-    expect(score.modelSpatial).toBe(1);
+    /* "Warm tones" is a colour claim (round 3), "fills two-thirds" a
+       position. */
+    expect(score.modelSpatial).toBe(2);
     /* "two-thirds" is a fraction the brief never gave, as well as a
        position. */
     expect(score.modelInvented).toBe(2);

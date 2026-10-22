@@ -17,7 +17,7 @@ import { contentStems } from "./text-overlap";
  *    which the spec either holds or does not (reasonHolds).
  */
 
-const NUMBER_WORDS: Record<string, number> = {
+export const NUMBER_WORDS: Record<string, number> = {
   two: 2,
   three: 3,
   four: 4,
@@ -92,6 +92,54 @@ const MONTH_NAMES = new Set(MONTHS);
 const DAY_NAMES = new Set(DAYS);
 const CALENDAR = new RegExp(`\\b(${[...DAYS, ...MONTHS].join("|")})\\b`, "gi");
 
+/* "Sat & Sun", "Fri only": the round-2 code critic got both past the ledger.
+   Only the capitalised forms count, and never after "the", so "under the
+   Sun" and "sun-kissed" stay copy. */
+const DAY_ABBREVIATIONS: Record<string, string> = {
+  Mon: "monday",
+  Tue: "tuesday",
+  Tues: "tuesday",
+  Wed: "wednesday",
+  Thu: "thursday",
+  Thur: "thursday",
+  Thurs: "thursday",
+  Fri: "friday",
+  Sat: "saturday",
+  Sun: "sunday",
+};
+const ABBREVIATED_DAY =
+  /(?<![\p{L}'])(Mon|Tues?|Wed|Thu(?:rs?)?|Fri|Sat|Sun)(?![\p{L}'])/gu;
+
+/* A day relative to when the post goes out is as much a promise as a
+   weekday: "Tonight only" on a post seen on Thursday morning is a lie. */
+const RELATIVE_DAYS =
+  /\b(today|tonight|tomorrow|tmrw|yesterday|this week|next week|this month|next month)\b/gi;
+
+/* Holidays are dates. "This Christmas" on a brief with no Christmas in it
+   puts the offer on a day the client never chose. */
+const HOLIDAYS: [RegExp, string][] = [
+  [/\b(christmas|xmas)\b/i, "christmas"],
+  [/\bvalentine'?s?\b/i, "valentine"],
+  [/\beaster\b/i, "easter"],
+  [/\beid\b/i, "eid"],
+  [/\bramadan\b/i, "ramadan"],
+  [/\bsallah\b/i, "sallah"],
+  [/\bdiwali\b/i, "diwali"],
+  [/\bnew year'?s?\b/i, "new year"],
+  [/\bblack friday\b/i, "black friday"],
+  [/\bcyber monday\b/i, "cyber monday"],
+  [/\bmother'?s'? day\b/i, "mothers day"],
+  [/\bfather'?s'? day\b/i, "fathers day"],
+  [/\bindependence day\b/i, "independence day"],
+  [/\bthanksgiving\b/i, "thanksgiving"],
+  [/\bhalloween\b/i, "halloween"],
+  [/\bboxing day\b/i, "boxing day"],
+];
+
+/* "May" the month, not "you may": only beside a preposition or a day. */
+const MAY_MONTH =
+  /\b(?:in|on|from|by|until|till|this|next|since|early|late|mid)[ -]May\b|\bMay \d{1,2}\b|\b\d{1,2}(?:st|nd|rd|th)? May\b/;
+
 /* Claims a customer would act on that are never safe to assume: each is
    allowed only when its stem is in the brief or the brand profile. */
 const CLAIMS: { stem: string; pattern: RegExp; also?: RegExp }[] = [
@@ -120,7 +168,68 @@ const CLAIMS: { stem: string; pattern: RegExp; also?: RegExp }[] = [
   },
   { stem: "nationwide", pattern: /\bnationwide\b/i },
   { stem: "same-day", pattern: /\bsame[- ]day\b/i },
+  {
+    stem: "number one",
+    pattern: /\bnumber[- ]one\b|#\s?1\b|\bno\.\s?1\b/i,
+  },
+  { stem: "half", pattern: /\bhalf[- ](price|off)\b/i },
+  {
+    stem: "rated",
+    pattern: /\b(top|highest|best|highly)[- ]rated\b|\b(five|5)[- ]star\b/i,
+    also: /\b(five|5)[- ]star\b/i,
+  },
+  { stem: "ship", pattern: /\bship(s|ped|ping)?\b/i },
+  /* "Saturday only", "Only a few left": a limit the client never set. */
+  { stem: "only", pattern: /\bonly\b/i },
+  {
+    stem: "get one",
+    pattern: /\bbuy one,? get one\b|\bbogo\b|\b(2|two) for (1|one)\b/i,
+  },
+  {
+    stem: "popular",
+    pattern:
+      /\bby popular demand\b|\bmost popular\b|\b(fan|crowd)[- ]favou?rites?\b/i,
+  },
+  { stem: "sold out", pattern: /\bsold[- ]out\b|\bsell(s|ing)? out\b/i },
+  { stem: "selling fast", pattern: /\bselling fast\b/i },
+  { stem: "few left", pattern: /\bfew left\b/i },
+  { stem: "last chance", pattern: /\blast chance\b/i },
+  { stem: "while stock", pattern: /\bwhile (stocks?|supplies) last\b/i },
+  {
+    stem: "best",
+    pattern: /\bbest\b(?![- ](enjoyed|served|wishes|regards))/i,
+  },
+  { stem: "fresh", pattern: /\bfresh(ly)?\b/i },
+  {
+    stem: "daily",
+    pattern: /\b(daily|every ?day)\b/i,
+    also: /\bevery ?day\b/i,
+  },
 ];
+
+/* A price or a time keeps the word in front of it. "from ₦4,500" makes a
+   one-price slice a range, "before 7am" turns "pickup from 7am" into a
+   promise about freshness: the number is the brief's, the claim is not. */
+const QUALIFIER =
+  /\b(before|after|until|till|by|from|under|over|starting(?: at| from)?|only|just|around|up to|as low as)\s*$/i;
+
+function qualifierBefore(text: string, start: number): string | null {
+  const match = QUALIFIER.exec(text.slice(Math.max(0, start - 24), start));
+  return match ? match[1].toLowerCase() : null;
+}
+
+/* "Now in a bottle" says it was not bottled before. "Now open" and "now
+   available" only restate a launch, which the brief has to be. */
+const NOW_LAUNCH =
+  /\bnow (available|open|here|live|serving|taking|booking|on)\b/i;
+const BRIEF_LAUNCH = /\b(new|launch\w*|available|open\w*|introduc\w*)\b/i;
+
+function nowClaim(text: string, ledgerText: string): string | null {
+  const match = /\bnow\b(\s+\S+)?/i.exec(text);
+  if (!match || /\bnow\b/i.test(ledgerText)) return null;
+  if (NOW_LAUNCH.test(text) && BRIEF_LAUNCH.test(ledgerText)) return null;
+  return match[0].trim();
+}
 
 export interface FactLedger {
   /** Every number the sources state, with the content stems around it, so
@@ -137,11 +246,19 @@ export interface FactLedger {
   words: Set<string>;
   /** The sources lowercased, for phrase checks. */
   text: string;
+  /** "qualifier|value" for every price or time the sources qualify
+   *  ("from|7", "only|4500"). */
+  qualified: Set<string>;
 }
 
 interface NumberMention {
   value: number;
   raw: string;
+  /** The word in front of a price or a time ("from", "before"), if any. */
+  qualifier: string | null;
+  /** First or last value of a range ("10am–12pm"). */
+  rangeStart?: boolean;
+  rangeEnd?: boolean;
   /** Money, a clock time, a percentage or a calendar date: the number is the
    *  fact and the words around it are not a count of anything. */
   bare: boolean;
@@ -186,9 +303,16 @@ function numberMentions(text: string): NumberMention[] {
       Boolean(currency) ||
       CURRENCY_AFTER.test(text.slice(end)) ||
       suffix?.trim() === "%";
+    const priceOrTime =
+      money || /am|pm|:/i.test(suffix ?? "") || Boolean(currency);
     mentions.push({
       value,
       raw: raw.trim(),
+      qualifier: priceOrTime ? qualifierBefore(text, start) : null,
+      rangeStart: /^\s*(?:[-–—]|to)\s*[₦$£€N]?\d/i.test(text.slice(end)),
+      rangeEnd: /(?:[-–—]|\bto)\s*$/i.test(
+        text.slice(Math.max(0, start - 4), start),
+      ),
       money,
       bare: money || Boolean(suffix) || nearCalendar(text, start, end),
       context: followingStems(text, end),
@@ -199,6 +323,7 @@ function numberMentions(text: string): NumberMention[] {
         mentions.push({
           value: minutes,
           raw: raw.trim(),
+          qualifier: null,
           bare: true,
           money: false,
           context: [],
@@ -212,6 +337,7 @@ function numberMentions(text: string): NumberMention[] {
     mentions.push({
       value: NUMBER_WORDS[match[1].toLowerCase()],
       raw: match[0],
+      qualifier: null,
       bare: nearCalendar(text, start, end),
       money: false,
       context: followingStems(text, end),
@@ -220,19 +346,42 @@ function numberMentions(text: string): NumberMention[] {
   return mentions;
 }
 
-function calendarNames(text: string): string[] {
-  return [...text.matchAll(CALENDAR)].map((m) => {
+export function calendarNames(text: string): string[] {
+  const names = [...text.matchAll(CALENDAR)].map((m) => {
     const name = m[1].toLowerCase();
     return DAY_NAMES.has(name) ? name.replace(/s$/, "") : name.slice(0, 3);
   });
+  for (const match of text.matchAll(ABBREVIATED_DAY)) {
+    const before = text.slice(Math.max(0, (match.index ?? 0) - 4), match.index);
+    if (/\bthe\s+$/i.test(before)) continue;
+    names.push(DAY_ABBREVIATIONS[match[1]]);
+  }
+  for (const match of text.matchAll(RELATIVE_DAYS)) {
+    names.push(match[1].toLowerCase().replace("tmrw", "tomorrow"));
+  }
+  for (const [pattern, name] of HOLIDAYS) {
+    if (pattern.test(text)) names.push(name);
+  }
+  if (MAY_MONTH.test(text)) names.push("may");
+  return names;
 }
 
 export function factLedger(sources: (string | null | undefined)[]): FactLedger {
   const text = sources.filter(Boolean).join("\n");
   const numbers = new Map<number, Set<string>>();
   const money = new Set<number>();
+  const qualified = new Set<string>();
   for (const mention of numberMentions(text)) {
     if (mention.money) money.add(mention.value);
+    if (mention.qualifier)
+      qualified.add(`${mention.qualifier}|${mention.value}`);
+    /* "10am–12pm" licenses "from 10am" and "until 12pm". */
+    if (mention.rangeStart) qualified.add(`from|${mention.value}`);
+    if (mention.rangeEnd) {
+      for (const word of ["until", "till", "to"]) {
+        qualified.add(`${word}|${mention.value}`);
+      }
+    }
     const context = numbers.get(mention.value) ?? new Set<string>();
     for (const s of mention.context) context.add(s);
     numbers.set(mention.value, context);
@@ -243,6 +392,7 @@ export function factLedger(sources: (string | null | undefined)[]): FactLedger {
     calendar: new Set(calendarNames(text)),
     words: contentStems(text),
     text: text.toLowerCase(),
+    qualified,
   };
 }
 
@@ -256,6 +406,13 @@ export function inventedFacts(text: string, ledger: FactLedger): string[] {
     const known = ledger.numbers.get(mention.value);
     if (!known) {
       invented.push(mention.raw);
+      continue;
+    }
+    if (
+      mention.qualifier &&
+      !ledger.qualified.has(`${mention.qualifier}|${mention.value}`)
+    ) {
+      invented.push(`${mention.qualifier} ${mention.raw}`);
       continue;
     }
     /* A count must count the same thing the brief counted: the first content
@@ -280,11 +437,14 @@ export function inventedFacts(text: string, ledger: FactLedger): string[] {
       invented.push(match[0]);
     }
   }
+  const now = nowClaim(text, ledger.text);
+  if (now) invented.push(now);
   return invented;
 }
 
 function ledgerHasStem(ledger: FactLedger, claimStem: string): boolean {
-  if (ledger.text.includes(claimStem)) return true;
+  const escaped = claimStem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp(`\\b${escaped}`).test(ledger.text)) return true;
   return [...ledger.words].some((w) => w.startsWith(claimStem));
 }
 
@@ -293,8 +453,21 @@ function ledgerHasStem(ledger: FactLedger, claimStem: string): boolean {
    layout is measured, a palette resolved or an image painted, so none of
    this is something it can know. A colour the brief names ("rust and
    indigo") is exempt through the sources. */
-const SPATIAL =
-  /\b(left|right|top|bottom|cent(?:re|er)(?:d|s)?|middle|corners?|half|halves|thirds?|two-thirds|quarters?|percent|fills?|filling|filled|dominat\w*|large[rs]?|big(?:ger|gest)?|oversized|huge|small(?:er|est)?|tiny|full[- ]bleed|frames?|framed|framing|edges?|margins?|whitespace|beside|above|below|beneath|behind|atop|alongside|under(?:neath)?|upper|lower|anchor(?:s|ed|ing)?|across|columns?|panels?|bands?|stacked|glows?|glowing|against|contrast\w*|backdrop|background|foreground|sits?|sitting|placed|positioned|close-?up|cropped|zoom\w*|overlap\w*|typograph\w*|typographic|type size|font|legible|legibility|readable|thumbnail|red|green|blue|gold|golden|orange|yellow|pink|purple|navy|teal|amber|brown|grey|gray)\b|\d+\s?%|\b(white|negative|empty) space\b|\bnext to\b|\bup ?front\b|\bprominent(ly)?\b|\b(dark|light|pale|cream|white|black) ground\b|\broom to breathe\b/gi;
+const PLACE_AND_SIZE =
+  "left|right|top|bottom|cent(?:re|er)(?:d|s)?|middle|corners?|half|halves|thirds?|two-thirds|quarters?|percent|fills?|filling|filled|dominat\\w*|large[rs]?|big(?:ger|gest)?|oversized|huge|small(?:er|est)?|tiny|full[- ]bleed|frames?|framed|framing|edges?|margins?|whitespace|beside|above|below|beneath|behind|atop|alongside|under(?:neath)?|upper|lower|anchor(?:s|ed|ing)?|across|columns?|panels?|bands?|stacked|against|backdrop|background|foreground|sits?|sitting|placed|positioned|close-?up|cropped|zoom\\w*|overlap\\w*|thumbnail";
+/* The round-2 critic's "Soft morning light", "Moody lighting" and "Deep
+   burgundy tones" all passed: light and open-ended colour are as unknowable
+   before the render as position is. */
+const LIGHT =
+  "light|lights|lighting|lit|sunlit|sunlight|sunshine|daylight|backlit|shadows?|shadowed|moody|bright(?:er|est|ly|ness)?|dim|dimly|glows?|glowing|gleam\\w*|glossy|matte|golden hour|contrast\\w*";
+const COLOUR =
+  "tones?|hues?|colou?rs?|colou?red|palette|tint(?:s|ed)?|shades?|pastels?|neon|monochrom\\w*|red|green|blue|gold|golden|orange|yellow|pink|purple|navy|teal|amber|brown|grey|gray|burgundy|maroon|crimson|scarlet|beige|ivory|black|white|silver|bronze|copper|rust|indigo|violet|lilac|lavender|magenta|cyan|turquoise|emerald|olive|mint|coral|peach|salmon|charcoal|earthy|muted|saturated";
+const TYPE =
+  "typograph\\w*|typefaces?|fonts?|type size|serif|sans(?:-serif)?|lower-?case|upper-?case|all caps|capitals|caps|bold|italics?|weight|lettering|handwritten|script|kerning|letter-?spacing|condensed|legible|legibility|readable";
+const SPATIAL = new RegExp(
+  `\\b(${[PLACE_AND_SIZE, LIGHT, COLOUR, TYPE].join("|")})\\b|\\d+\\s?%|\\b(white|negative|empty) space\\b|\\bnext to\\b|\\bup ?front\\b|\\bprominent(ly)?\\b|\\b(dark|light|pale|cream|white|black) ground\\b|\\broom to breathe\\b`,
+  "gi",
+);
 
 /* "The deadline sits in the footer" says which piece of copy holds a fact,
    which reasonHolds checks against the spec; it is not geometry. These verbs
@@ -309,7 +482,7 @@ const MEMBERSHIP =
  */
 export function spatialClaim(reason: string, sources = ""): string | null {
   const names = referencedElements(reason).length > 0;
-  for (const match of reason.matchAll(SPATIAL)) {
+  for (const match of withoutQuotes(reason).matchAll(SPATIAL)) {
     const word = match[0].toLowerCase().trim();
     if (names && MEMBERSHIP.test(word)) continue;
     const used = new RegExp(`\\b${word.replace(/[^a-z0-9 ]/g, ".")}\\b`, "i");
@@ -368,7 +541,51 @@ export interface ReasonContext {
    *  the product, not the props, setting or light around it, so a reason
    *  describing those describes a picture nobody looked at. */
   paintedScene?: string;
+  /** The parts the design draws beyond its copy ("logo", "quote-mark",
+   *  "accent-rule", "image"), from the delivered document. Undefined before
+   *  render, when only the parts no layout ever draws can be ruled out. */
+  elements?: ReadonlySet<string>;
+  /** What a look at the image found in it (plate check or the upload's
+   *  subject check). A reason may say the image shows only what this holds. */
+  imageDescription?: string;
 }
+
+/* Parts a reason can name besides the copy. "The accent tag calls out the
+   8-spot limit" named a tag no layout draws; the button was meant. */
+const PARTS: { part: string; pattern: RegExp }[] = [
+  {
+    part: "tag",
+    pattern:
+      /\b(tags?|badges?|stickers?|ribbons?|stamps?|labels?|pills?|chips?|seals?|roundels?)\b/i,
+  },
+  { part: "logo", pattern: /\b(logo|logos|wordmark|brand ?mark)\b/i },
+  { part: "quote-mark", pattern: /\bquot(e|ation) marks?\b/i },
+  {
+    part: "accent-rule",
+    pattern: /\b(accent (rule|line|bar)|rule|divider|underline)\b/i,
+  },
+];
+
+/** Parts of a document a reason can be checked against. */
+export function documentParts(elements: { type: string; id: string }[]) {
+  const parts = new Set<string>();
+  for (const element of elements) {
+    if (element.type === "logo") parts.add("logo");
+    if (element.type === "image") parts.add("image");
+    if (element.id === "quote-mark") parts.add("quote-mark");
+    if (element.id === "accent-rule") parts.add("accent-rule");
+  }
+  return parts;
+}
+
+/* The verbs of a claim about what a picture holds. */
+const SHOWS =
+  /\b(shows?|shown|showing|pictured|features?|featuring|captures?|depicts?|served with|paired with|alongside)\b/i;
+
+/* Words a reason uses about any image, never a thing in it. */
+const IMAGE_GENERIC = contentStems(
+  "image images photo photograph picture shot visual imagery plate scene show shows shown showing pictured feature featuring capture depict real itself actual exactly clearly serve served pair paired",
+);
 
 const ELEMENTS: {
   key: keyof DrawnCopy;
@@ -441,6 +658,12 @@ function quotedPhrases(reason: string): string[] {
   );
 }
 
+/* Quoting the copy is not a claim about it: "The headline reads "Bold
+   mornings"" says what is written, not that the type is bold. */
+function withoutQuotes(reason: string): string {
+  return reason.replace(/["“][^"”]{2,}["”]/g, " ");
+}
+
 function normalise(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ");
 }
@@ -471,6 +694,17 @@ export function reasonHolds(
   for (const element of elements) {
     if (!textOf(ctx.copy, element).trim()) {
       return { ok: false, why: `names a ${element} the design does not have` };
+    }
+  }
+  const unquoted = withoutQuotes(reason);
+  for (const { part, pattern } of PARTS) {
+    if (!pattern.test(unquoted)) continue;
+    const absent =
+      part === "tag"
+        ? !ctx.elements?.has("tag")
+        : ctx.elements && !ctx.elements.has(part);
+    if (absent) {
+      return { ok: false, why: `names a ${part} the design does not have` };
     }
   }
   for (const kind of KINDS) {
@@ -518,6 +752,29 @@ export function reasonHolds(
       return { ok: false, why: "describes an image nobody checked" };
     }
   }
+  if (
+    ctx.imageDescription !== undefined &&
+    elements.length === 0 &&
+    (aboutImage || SHOWS.test(unquoted))
+  ) {
+    const seen = contentStems(`${ctx.imageDescription} ${ctx.product}`);
+    const named = contentStems(
+      [ctx.ledger.text, ctx.paintedScene ?? "", allCopy].join(" "),
+    );
+    const missing = [...contentStems(reason)].find(
+      (s) =>
+        named.has(s) &&
+        !seen.has(s) &&
+        !SCENE_SAFE.has(s) &&
+        !IMAGE_GENERIC.has(s),
+    );
+    if (missing) {
+      return {
+        ok: false,
+        why: `says the image shows "${missing}", which it does not`,
+      };
+    }
+  }
   if (namesProduct && elements.length > 0 && !aboutImage) {
     const drawn = contentStems(pointedAt);
     if (!productStems.every((s) => drawn.has(s))) {
@@ -527,11 +784,86 @@ export function reasonHolds(
   return { ok: true };
 }
 
+function compact(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function wordInBrief(word: string, brief: Set<string>, flat: string) {
+  const stems = [...contentStems(word)];
+  if (stems.length === 0) return false;
+  return stems.every((s) => brief.has(s)) || flat.includes(compact(word));
+}
+
 /** Whether every content stem of the product name appears in the brief, so
- *  the product the plate is checked against is the user's, not the model's. */
+ *  the product the plate is checked against is the user's, not the model's.
+ *  Spelling apart ("millefeuille" for "mille-feuille") still counts. */
 export function productFromBrief(name: string, briefText: string): string {
-  const stems = [...contentStems(name)];
-  if (stems.length === 0) return "";
+  const words = name.match(/[\p{L}\p{N}'-]+/gu) ?? [];
+  if (words.every((w) => contentStems(w).size === 0)) return "";
   const brief = contentStems(briefText);
-  return stems.every((s) => brief.has(s)) ? name.trim() : "";
+  const flat = compact(briefText);
+  return words.every(
+    (w) => contentStems(w).size === 0 || wordInBrief(w, brief, flat),
+  )
+    ? name.trim()
+    : "";
+}
+
+/** The brief's own words for the part of `name` it states: "mille-feuille"
+ *  for "mille-feuille slice", "strawberry mille-feuille" for "Strawberry
+ *  Mille-feuille Napoleon". Empty when no word of it is in the brief. */
+export function briefSpanFor(name: string, briefText: string): string {
+  const tokens = [...briefText.matchAll(/[\p{L}\p{N}'-]+/gu)];
+  const wanted = new Set(
+    (name.match(/[\p{L}\p{N}'-]+/gu) ?? [])
+      .filter((w) => contentStems(w).size > 0)
+      .map(compact),
+  );
+  const flatWanted = [...wanted];
+  const hits = tokens.filter((t) => {
+    const word = compact(t[0]);
+    return (
+      contentStems(t[0]).size > 0 &&
+      flatWanted.some((w) => w === word || w.includes(word) || word.includes(w))
+    );
+  });
+  if (hits.length === 0) return "";
+  const first = hits[0];
+  /* The run of hits that starts at the first: a product is named in one
+     place, and a word the name shares with a later sentence is not it. */
+  let last = first;
+  for (const hit of hits.slice(1)) {
+    const gap = briefText.slice(
+      (last.index ?? 0) + last[0].length,
+      hit.index ?? 0,
+    );
+    if (!/^[\s-]*$/.test(gap)) break;
+    last = hit;
+  }
+  return briefText
+    .slice(first.index ?? 0, (last.index ?? 0) + last[0].length)
+    .trim();
+}
+
+/**
+ * The product each direction's plate is checked for: the model's name when
+ * the brief states it, else the sibling's, else the brief's own words for
+ * the part of the name it does state. The brief's product, whatever the
+ * model called it (round-2 critic: "Strawberry Napoleon" skipped the check).
+ */
+export function resolveBriefProducts(
+  names: readonly string[],
+  briefText: string,
+): { name: string; from: "model" | "sibling" | "brief" | "none" }[] {
+  const strict = names.map((n) => productFromBrief(n, briefText));
+  const anyStrict = strict.find(Boolean) ?? "";
+  const spans = names.map((n) => briefSpanFor(n, briefText));
+  const anySpan = spans.reduce((a, b) => (b.length > a.length ? b : a), "");
+  return names.map((_, i) => {
+    if (strict[i]) return { name: strict[i], from: "model" };
+    if (anyStrict) return { name: anyStrict, from: "sibling" };
+    if (spans[i]) return { name: spans[i], from: "brief" };
+    if (anySpan) return { name: anySpan, from: "brief" };
+    return { name: "", from: "none" };
+  });
 }

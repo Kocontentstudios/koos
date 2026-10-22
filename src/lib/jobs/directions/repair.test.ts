@@ -116,3 +116,35 @@ describe("repairFitText", () => {
     expect(await repairFitText({ text: "not json" })).toBeNull();
   });
 });
+
+describe("repairDirectionsText, round-2 probes", () => {
+  /* u3-r2-code/repair-probe.log: each of these failed the whole job. */
+  it("trims an answer with more directions than were asked for", async () => {
+    const text = JSON.stringify({
+      directions: [draftOf(), contrastingDraft()],
+    });
+    const repaired = await repairDirectionsText({ text, count: 1 });
+    expect(
+      directionsResponseSchema(1).safeParse(JSON.parse(repaired ?? "{}"))
+        .success,
+    ).toBe(true);
+  });
+
+  it("reads a rationale sent as one string and footer lines sent as null", async () => {
+    const text = JSON.stringify({
+      directions: [
+        {
+          ...draftOf(),
+          rationale: "Names the croissant. Speaks to commuters.",
+        },
+        { ...contrastingDraft(), footerLines: null },
+      ],
+    });
+    const repaired = await repairDirectionsText({ text, count: 2 });
+    expect(valid(repaired)).toBe(true);
+    expect(JSON.parse(repaired ?? "{}").directions[0].rationale).toEqual([
+      "Names the croissant.",
+      "Speaks to commuters.",
+    ]);
+  });
+});

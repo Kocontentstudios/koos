@@ -92,6 +92,37 @@ export async function settleLogo(
   return { spec, logo, fault, logoFree, logoIsWhatWeAreDesigning };
 }
 
+/** A settled spec moved to another layout, with its logo corner resolved
+ *  again for it: a corner a footer band covers in one layout may be free in
+ *  the next. */
+export function respecForLayout(
+  spec: DesignSpec,
+  layout: DesignSpec["layout"],
+  {
+    modelChoice,
+    hasLogo,
+  }: {
+    modelChoice: DesignSpec["logoPlacement"];
+    hasLogo: boolean;
+  },
+): DesignSpec {
+  return {
+    ...spec,
+    layout,
+    logoPlacement: resolveLogoPlacement({
+      modelChoice,
+      hasLogo,
+      layout,
+      logoFree: spec.logoFree,
+      footer: {
+        footerStyle: spec.footerStyle,
+        footerLines: spec.footerLines,
+        cta: spec.cta,
+      },
+    }),
+  };
+}
+
 /* Layout history is an improvement to the brief, never a prerequisite for it.
    buildMemoryBlock already swallows its own failures; this read has to do the
    same, or an unavailable history would cost the user their design. */
