@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl as presign } from "@aws-sdk/s3-request-presigner";
 import {
+  decodedPathKey,
   keyUnderPrefix,
   STORAGE_PREFIXES,
   type StoragePrefix,
@@ -102,8 +103,8 @@ export function storageKeyFrom(
 
   // Decoded, so an encoded traversal cannot smuggle a different prefix past
   // the check and then be re-expanded by the storage client.
-  const key = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-  return keyUnderPrefix(key, prefix);
+  const key = decodedPathKey(parsed.pathname);
+  return key === null ? null : keyUnderPrefix(key, prefix);
 }
 
 /** Fetch an object's raw bytes (e.g. to bundle into a zip). */

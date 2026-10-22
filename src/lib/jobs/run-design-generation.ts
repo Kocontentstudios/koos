@@ -638,6 +638,7 @@ export async function generateDesignWork(
       footer: {
         footerStyle: drafted.footerStyle,
         footerLines: drafted.footerLines,
+        cta: drafted.cta,
       },
     }),
   };

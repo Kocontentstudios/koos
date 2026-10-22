@@ -1,12 +1,10 @@
 import { canvasFor } from "@/lib/design/canvas";
-import { LOGO_NOT_LEGIBLE, logoBackingFor } from "@/lib/design/logo-contrast";
+import { LOGO_NOT_LEGIBLE } from "@/lib/design/logo-contrast";
 import { logoBoxIn } from "@/lib/design/logo-placement";
 import { type ResolvedPalette, resolvePalette } from "@/lib/design/palette";
 import type { DesignSpec } from "@/lib/design/spec";
-import { decodePngRgba, regionInk } from "@/lib/images/png-pixels";
-import { loadBrandFonts } from "./fonts";
 import { layoutElement } from "./layouts";
-import { fontFallbackDrawer } from "./rasterize";
+import { createBrandRasterizer, logoBackingOnGround } from "./rasterize";
 
 export interface CompositeInput {
   spec: DesignSpec;
@@ -63,7 +61,7 @@ export async function renderCompositeDesign({
 }: CompositeInput): Promise<CompositeResult> {
   const canvas = canvasFor(spec.aspectRatio);
   const palette = resolvePalette(spec.palette, brand);
-  const fonts = await loadBrandFonts({
+  const rasterizer = await createBrandRasterizer(canvas, {
     heading: brand.brandFontUrl,
     body: brand.bodyFontUrl,
   });
@@ -78,9 +76,6 @@ export async function renderCompositeDesign({
       logoBacking,
       logoAspect: logo?.aspect,
     });
-
-  const drawer = fontFallbackDrawer(fonts, brand);
-  const draw = (element: React.ReactElement) => drawer.draw(element, canvas);
 
   /* Two passes when a mark is being placed, because the only honest reading of
      what sits under it is the finished picture.
@@ -100,23 +95,17 @@ export async function renderCompositeDesign({
   let backing: string | null = null;
   let logoFault: string | null = null;
   if (logo && spec.logoPlacement !== "none") {
-    const ground = decodePngRgba(await draw(build(null, false)));
-    const box =
-      ground &&
+    const decision = logoBackingOnGround(
+      await rasterizer.draw(build(null, false)),
       logoBoxIn({
         placement: spec.logoPlacement,
         layout: spec.layout,
-        width: ground.width,
-        height: ground.height,
+        width: canvas.width,
+        height: canvas.height,
         aspect: logo.aspect,
-      });
-    const decision = logoBackingFor({
-      ink: { darkest: logo.darkest, lightest: logo.lightest },
-      ground:
-        ground && box
-          ? regionInk(ground, box)
-          : { darkest: Number.NaN, lightest: Number.NaN },
-    });
+      }),
+      { darkest: logo.darkest, lightest: logo.lightest },
+    );
     backing = decision.backing;
     /* Some marks cannot be made fully readable on any single colour — a
        near-black glyph beside a mid-orange one tops out below the bar whatever
@@ -128,7 +117,7 @@ export async function renderCompositeDesign({
     }
   }
 
-  const bytes = await draw(build(backing, true));
+  const bytes = await rasterizer.draw(build(backing, true));
 
   return {
     bytes,
@@ -136,7 +125,7 @@ export async function renderCompositeDesign({
     width: canvas.width,
     height: canvas.height,
     palette,
-    brandFontFault: drawer.fault(),
+    brandFontFault: rasterizer.brandFontFault(),
     logoFault,
   };
 }

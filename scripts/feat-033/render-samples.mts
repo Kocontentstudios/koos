@@ -2,12 +2,14 @@
  * Renders every layout as a layer document and as today's flex composite,
  * side by side, for review (KOOS-V1-FEAT-033 PR 1).
  *
- *   corepack pnpm tsx scripts/feat-033/render-samples.mts <outDir> [fixturesDir]
+ *   corepack pnpm tsx scripts/feat-033/render-samples.mts <outDir> [fixturesDir] [--only=<substring>]
  *
- * For each layout and aspect ratio, and for each image (a photograph, a
- * cutout, none), writes <name>.doc.png (renderDocument path) and
- * <name>.flex.png (renderCompositeDesign, the same spec and image as its
- * plate). A manifest.json records timings, probe counts and logo faults.
+ * For each layout and aspect ratio, and for each image (a bright photograph,
+ * a dark one, a cutout, none), writes <name>.doc.png (rasterizeDocument)
+ * and <name>.flex.png (renderCompositeDesign, the same spec and image as its
+ * plate). A manifest.json records timings, probe counts, faults and the
+ * measured contrast of every run of copy against the picture behind it
+ * (contrast-probe.ts): the share of its box below 4.5:1 and 3:1.
  *
  * Fixture photos arrive at camera size (7728px). Nothing here can add a
  * native image library, so they are downscaled by resvg itself: drawn once
@@ -19,7 +21,12 @@ import { ImageResponse } from "next/og";
 import { createElement as h } from "react";
 import type { AspectRatio } from "@/lib/ai/image/types";
 import { canvasFor } from "@/lib/design/canvas";
+import {
+  copyContrast,
+  withoutCopy,
+} from "@/lib/design/document/contrast-probe";
 import { documentFromSpec } from "@/lib/design/document/from-spec";
+import { measureImage } from "@/lib/design/document/image-facts";
 import { createRendererMeasurer } from "@/lib/design/document/measure";
 import {
   prepareDocumentFonts,
@@ -40,8 +47,11 @@ import {
   inkBoxOf,
 } from "@/lib/images/png-pixels";
 
-const outDir = process.argv[2];
-const fixturesDir = process.argv[3] ?? "/tmp/feat-033/fixtures";
+const args = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+const only =
+  process.argv.find((arg) => arg.startsWith("--only="))?.slice(7) ?? "";
+const outDir = args[0];
+const fixturesDir = args[1] ?? "/tmp/feat-033/fixtures";
 if (!outDir) {
   console.error("usage: render-samples.mts <outDir> [fixturesDir]");
   process.exit(1);
@@ -70,6 +80,35 @@ async function downscale(
       "div",
       { style: { display: "flex", width, height } },
       h("img", { src, width, height }),
+    ),
+    { width, height },
+  );
+  return {
+    bytes: new Uint8Array(await response.arrayBuffer()),
+    contentType: "image/png",
+  };
+}
+
+/** A dark, busy photograph: the cut-out over a deep brown gradient, flattened
+ *  to an opaque plate. Both fixture photos are near-white, so this is what
+ *  shows the veil choosing light type. */
+async function darkPhoto(cutout: Asset): Promise<Asset> {
+  const width = 1500;
+  const height = 1000;
+  const src = `data:${cutout.contentType};base64,${Buffer.from(cutout.bytes).toString("base64")}`;
+  const response = new ImageResponse(
+    h(
+      "div",
+      {
+        style: {
+          display: "flex",
+          width,
+          height,
+          backgroundImage:
+            "linear-gradient(135deg, #2A1A10 0%, #5A3A22 55%, #1A120C 100%)",
+        },
+      },
+      h("img", { src, width: 1000, height: 1000, style: { marginLeft: 250 } }),
     ),
     { width, height },
   );
@@ -222,6 +261,10 @@ const RATIOS: Record<DesignSpec["layout"], AspectRatio[]> = {
 
 await mkdir(outDir, { recursive: true });
 
+const cutoutAsset: Asset = {
+  bytes: new Uint8Array(await readFile(join(fixturesDir, "cutout.png"))),
+  contentType: "image/png",
+};
 const images: Record<string, { key: string; asset: Asset } | null> = {
   photo: {
     key: "design-images/samples/photo-a.png",
@@ -232,13 +275,22 @@ const images: Record<string, { key: string; asset: Asset } | null> = {
   },
   cutout: {
     key: "design-images/samples/cutout.png",
-    asset: {
-      bytes: new Uint8Array(await readFile(join(fixturesDir, "cutout.png"))),
-      contentType: "image/png",
-    },
+    asset: cutoutAsset,
   },
   none: null,
+  darkphoto: {
+    key: "design-images/samples/dark.png",
+    asset: await darkPhoto(cutoutAsset),
+  },
 };
+const facts = Object.fromEntries(
+  await Promise.all(
+    Object.entries(images).map(async ([name, image]) => [
+      name,
+      image ? await measureImage(image.asset) : null,
+    ]),
+  ),
+);
 
 const logoAsset = await wordmark();
 const logoProbe = await probeLogo(logoAsset);
@@ -252,8 +304,12 @@ for (const layout of DESIGN_LAYOUTS) {
     if (ratio === "4:5") variants.push(["_worst", WORST]);
     for (const [suffix, copy] of variants) {
       for (const [imageName, image] of Object.entries(images)) {
+        /* The dark photo is an addition to round 1's matrix; it is not
+           repeated with worst-case copy, which the other three cover. */
+        if (imageName === "darkphoto" && suffix) continue;
         const spec = specFor(layout, ratio, copy);
         const name = `${layout}_${ratio.replace(":", "x")}_${imageName}${suffix}`;
+        if (!name.includes(only)) continue;
         const palette = resolvePalette(spec.palette, BRAND);
 
         const started = performance.now();
@@ -265,23 +321,24 @@ for (const layout of DESIGN_LAYOUTS) {
         ].join(" ");
         const { fonts } = await prepareDocumentFonts({}, sample);
         const measurer = createRendererMeasurer({ fonts });
-        const doc = designDocumentSchema.parse(
-          await documentFromSpec({
-            spec,
-            palette,
-            canvas: canvasFor(ratio),
-            image: image ? { key: image.key } : null,
-            logo: { asset: { key: LOGO_KEY }, aspect: logoProbe.aspect },
-            measurer,
-          }),
-        );
+        const build = await documentFromSpec({
+          spec,
+          palette,
+          canvas: canvasFor(ratio),
+          image: image ? { key: image.key } : null,
+          imageFacts: facts[imageName],
+          logo: { asset: { key: LOGO_KEY }, aspect: logoProbe.aspect },
+          measurer,
+        });
+        const doc = designDocumentSchema.parse(build.document);
         const built = performance.now();
+        const assets = {
+          [LOGO_KEY]: logoAsset,
+          ...(image ? { [image.key]: image.asset } : {}),
+        };
         const rendered = await rasterizeDocument({
           doc,
-          assets: {
-            [LOGO_KEY]: logoAsset,
-            ...(image ? { [image.key]: image.asset } : {}),
-          },
+          assets,
           brand: {},
           logoInk: {
             [LOGO_KEY]: {
@@ -292,6 +349,23 @@ for (const layout of DESIGN_LAYOUTS) {
           fonts,
         });
         const done = performance.now();
+        const ground = decodePngRgba(
+          (
+            await rasterizeDocument({
+              doc: withoutCopy(rendered.document),
+              assets,
+              brand: {},
+              fonts,
+            })
+          ).bytes,
+        );
+        const contrast = ground
+          ? copyContrast(ground, rendered.document).map((c) => ({
+              id: c.id,
+              under45: Math.round(c.under45 * 1000) / 10,
+              under3: Math.round(c.under3 * 1000) / 10,
+            }))
+          : null;
         await writeFile(join(outDir, `${name}.doc.png`), rendered.bytes);
         await writeFile(
           join(outDir, `${name}.doc.json`),
@@ -316,8 +390,10 @@ for (const layout of DESIGN_LAYOUTS) {
           buildMs: Math.round(built - started),
           rasterMs: Math.round(done - built),
           probes: measurer.probes(),
+          copyFault: build.copyFault,
           logoFault: rendered.logoFault,
           flexLogoFault: flex.logoFault,
+          contrastPct: contrast,
         };
         manifest.push(entry);
         console.log(JSON.stringify(entry));

@@ -1,0 +1,102 @@
+import { BANNER_BAND } from "@/lib/design/render/copy-fit";
+import type { DesignElement } from "../schema";
+import {
+  type Built,
+  type Context,
+  logoElement,
+  px,
+  rect,
+  shapeElement,
+} from "./context";
+import {
+  candidateStack,
+  commitFaults,
+  copyStack,
+  placeStack,
+  stackQuality,
+  zonesAvoidingLogo,
+} from "./copy-stack";
+import { footer } from "./footer";
+import { framedImage } from "./image";
+import { accentField, copyBottom, flatColors, footerColorOn } from "./shared";
+
+/**
+ * The image (or an accent panel) across the top, copy in a band along the
+ * bottom. The band grows to fit its copy between the flex layout's own
+ * limits (BANNER_BAND), and the image takes what is left.
+ */
+
+/* Past BANNER_BAND.max only when the copy would otherwise have to shrink
+   below the type scale: at the schema's longest copy the flex band runs a
+   few pixels short, and a slightly shorter image beats smaller type. */
+const BANNER_OVERFLOW = 0.62;
+export async function bannerBottom(ctx: Context): Promise<Built> {
+  const { width, height, margin, palette } = ctx;
+  const foot = await footer(ctx, {
+    band: { x: margin, width: width - margin * 2 },
+    align: "left",
+    color: footerColorOn(ctx, palette.background),
+  });
+  const bottom = copyBottom(ctx, foot);
+  const stackIn = (share: number) => {
+    const zone = rect(
+      margin,
+      height * (1 - share) + margin,
+      width - margin * 2,
+      bottom - (height * (1 - share) + margin),
+    );
+    return candidateStack(zonesAvoidingLogo(ctx, zone, false), (z) =>
+      copyStack(ctx, {
+        zone: z,
+        align: "left",
+        vAlign: "end",
+        colors: flatColors(ctx),
+        rule: "above",
+      }),
+    );
+  };
+  let maxBand = height * BANNER_BAND.max;
+  let stack = await stackIn(BANNER_BAND.max);
+  if (stack.faults.length > 0) {
+    const roomier = await stackIn(BANNER_OVERFLOW);
+    if (stackQuality(roomier) > stackQuality(stack)) {
+      stack = roomier;
+      maxBand = height * BANNER_OVERFLOW;
+    }
+  }
+  commitFaults(ctx, stack);
+
+  const bandTop = px(
+    Math.min(
+      height * (1 - BANNER_BAND.min),
+      Math.max(height - maxBand, stack.top - margin),
+    ),
+  );
+  /* The stack was anchored to the bottom of the largest band. When the band
+     is held at its minimum share instead, the copy is centred in it so the
+     space above and below the copy match. */
+  const interiorTop = bandTop + margin;
+  const centredTop =
+    interiorTop + (bottom - interiorTop - (stack.bottom - stack.top)) / 2;
+  const shift = px(Math.min(0, centredTop - stack.top));
+
+  const top = rect(0, 0, width, bandTop);
+  /* No inset at the bottom: the copy's own margin already separates the
+     subject from the rule, and a second one left a gap that read as a
+     missing element. */
+  const framed = framedImage(ctx, top, {
+    top: margin,
+    bottom: 0,
+    sides: margin,
+  });
+  const elements: DesignElement[] = [
+    framed
+      ? framed.element
+      : shapeElement("accent-panel", "Colour panel", top, accentField(ctx)),
+    ...(await placeStack(stack, shift)),
+  ];
+  if (foot) elements.push(...foot.elements);
+  const logo = logoElement(ctx);
+  if (logo) elements.push(logo);
+  return { background: palette.background, elements };
+}

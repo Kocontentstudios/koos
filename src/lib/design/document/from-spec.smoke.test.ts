@@ -16,7 +16,7 @@ import {
   specFor,
   WORST_CASE,
 } from "./fixtures";
-import { documentFromSpec } from "./from-spec";
+import { COPY_SHRUNK, documentFromSpec } from "./from-spec";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
 import {
   type DesignDocument,
@@ -39,12 +39,12 @@ beforeAll(async () => {
 
 const COPIES = { realistic: REALISTIC, "worst-case": WORST_CASE } as const;
 
-function build(
+async function build(
   spec: DesignSpec,
   withImage: boolean,
   withLogo: boolean,
 ): Promise<DesignDocument> {
-  return documentFromSpec({
+  const built = await documentFromSpec({
     spec,
     palette: PALETTE,
     canvas: canvasFor(spec.aspectRatio),
@@ -52,6 +52,16 @@ function build(
     logo: withLogo ? { asset: LOGO, aspect: LOGO_ASPECT } : null,
     measurer,
   });
+  /* Copy inside the schema's limits never breaks a word or overruns its
+     layout. Realistic copy fits the type scale everywhere; the schema's
+     longest copy may need a smaller size in the tightest layouts, and then
+     the build says so. */
+  const allowed =
+    spec.headline === WORST_CASE.headline ? [null, COPY_SHRUNK] : [null];
+  expect(allowed, `${spec.layout} ${spec.aspectRatio}`).toContain(
+    built.copyFault,
+  );
+  return built.document;
 }
 
 function byId(doc: DesignDocument, id: string): DesignElement | undefined {
@@ -147,7 +157,7 @@ describe("documentFromSpec design rules", () => {
       logo: { asset: LOGO, aspect: LOGO_ASPECT },
       measurer: createRendererMeasurer({ fonts: await loadBrandFonts(null) }),
     });
-    expect(b).toEqual(a);
+    expect(b.document).toEqual(a);
   });
 
   it("keeps the headline at least 1.3x the subheadline at worst-case copy", async () => {
@@ -171,9 +181,9 @@ describe("documentFromSpec design rules", () => {
     }
   }, 120_000);
 
-  it("guarantees readable white copy over a photograph", async () => {
-    /* Black at the scrim's alpha over pure white, the worst photograph. */
-    const scrimOverWhite = "#707070";
+  it("veils a photograph it knows nothing about for the worst case", async () => {
+    /* Without measured facts the ground may be white anywhere, so white copy
+       gets a black veil heavy enough for 4.5:1 over pure white. */
     for (const layout of [
       "hero-center",
       "quote-card",
@@ -183,13 +193,10 @@ describe("documentFromSpec design rules", () => {
       const headline = byId(doc, "headline");
       if (headline?.type !== "text") throw new Error("no headline");
       expect(headline.color).toBe("#FFFFFF");
-      expect(contrastRatio("#FFFFFF", scrimOverWhite)).toBeGreaterThanOrEqual(
-        4.5,
-      );
-      const ground = doc.elements.find(
+      const veil = doc.elements.find(
         (e) => e.id === "scrim" || e.id === "card",
       );
-      expect(ground, layout).toBeDefined();
+      expect(veil, layout).toBeDefined();
     }
   });
 
@@ -224,6 +231,33 @@ describe("documentFromSpec design rules", () => {
     if (!bar || !line) throw new Error("no bar");
     expect(bar.y + bar.height).toBe(doc.height);
     expect(line.y).toBeGreaterThanOrEqual(bar.y);
+  });
+
+  /* U3 live critique: the footer said the button's words again. The
+     footer carries what the button cannot; the action is said once. */
+  it("never repeats the call to action in the footer", async () => {
+    for (const layout of LAYOUTS) {
+      const doc = await build(
+        {
+          ...specFor(layout, "4:5"),
+          cta: "Order for pickup",
+          footerLines: [
+            "Order for pickup · 12 Admiralty Way, Lekki",
+            "ORDER FOR PICKUP!",
+          ],
+        },
+        false,
+        true,
+      );
+      const footer = doc.elements.filter(
+        (e) => e.type === "text" && e.role === "footer",
+      );
+      expect(
+        footer.map((e) => e.type === "text" && e.text),
+        layout,
+      ).toEqual(["12 Admiralty Way, Lekki"]);
+      expect(byId(doc, "cta"), layout).toBeDefined();
+    }
   });
 
   it("omits optional copy the spec does not have", async () => {

@@ -138,3 +138,65 @@ describe("footerLinesFor", () => {
     ).toHaveLength(3);
   });
 });
+
+/* FEAT-033 U3 live critique: two of four live designs said the call to
+   action twice, once on the button and again in the footer. The button is
+   the action; the footer is for what the button cannot carry. */
+describe("footerLinesFor with the call to action", () => {
+  const linesFor = (cta: string, footerLines: string[]) =>
+    footerLinesFor({ footerStyle: "text", footerLines, cta });
+
+  it("drops a line that is the call to action, whatever its case or punctuation", () => {
+    expect(
+      linesFor("Pre-order now", ["PRE-ORDER NOW!", "Lekki · Open 7am"]),
+    ).toEqual(["Lekki · Open 7am"]);
+  });
+
+  it("drops the repeated item and keeps the rest of the line", () => {
+    expect(linesFor("Order now", ["Order now · 0803 555 0142"])).toEqual([
+      "0803 555 0142",
+    ]);
+    expect(
+      linesFor("Order now", ["0803 555 0142 | Order now | Lekki"]),
+    ).toEqual(["0803 555 0142 | Lekki"]);
+  });
+
+  it("keeps what follows a call to action used as a label", () => {
+    expect(
+      linesFor("Order on WhatsApp", ["Order on WhatsApp: 0803 555 0142"]),
+    ).toEqual(["0803 555 0142"]);
+    expect(linesFor("Order now", ["Order now at crumbandco.ng"])).toEqual([
+      "crumbandco.ng",
+    ]);
+  });
+
+  it("drops an item that is part of the call to action or contains it", () => {
+    expect(linesFor("Reserve your box today", ["Reserve your box"])).toEqual(
+      [],
+    );
+    expect(
+      linesFor("Book a table", ["Call us and book a table tonight"]),
+    ).toEqual([]);
+  });
+
+  it("does not treat a one-word overlap as a repeat", () => {
+    expect(linesFor("Shop", ["Shop 12, Admiralty Mall"])).toEqual([
+      "Shop 12, Admiralty Mall",
+    ]);
+    expect(linesFor("Visit us in Lagos", ["Lagos"])).toEqual(["Lagos"]);
+  });
+
+  it("leaves lines alone when there is no call to action", () => {
+    expect(linesFor("", ["Order now"])).toEqual(["Order now"]);
+  });
+
+  it("is no footer at all when every line repeated the call to action", () => {
+    const spec = {
+      footerStyle: "bar" as const,
+      footerLines: ["Order now"],
+      cta: "Order now",
+    };
+    expect(hasFooter(spec)).toBe(false);
+    expect(footerBandHeight(spec, canvas)).toBe(0);
+  });
+});

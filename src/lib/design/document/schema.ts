@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { keyUnderPrefix, STORAGE_PREFIXES } from "@/lib/storage-keys";
+import { SUPPORTED_ASPECT_RATIOS } from "@/lib/ai/image/types";
+import { canvasFor } from "@/lib/design/canvas";
+import {
+  isCanonicalKey,
+  keyUnderPrefix,
+  STORAGE_PREFIXES,
+} from "@/lib/storage-keys";
 
 /**
  * The layer document: a design as an absolutely positioned list of elements.
@@ -22,19 +28,37 @@ export const DOCUMENT_ASSET_PREFIXES = [
   STORAGE_PREFIXES.designImages,
 ] as const;
 
-/* Generous bounds that still refuse nonsense. A canvas is at most 1344 wide
-   today; 10000 leaves room for print sizes without letting a NaN-adjacent
-   1e308 reach yoga. */
-const MAX_PX = 10_000;
+/* The canvas is one of the sizes the app renders, never a free number. Cost
+   is quadratic in the edge: a 10000px square took 54s and 1.9GB to rasterize,
+   so a size a user can type is a size an attacker can type. */
+const CANVASES = SUPPORTED_ASPECT_RATIOS.map(canvasFor);
 
-const coordinate = z.number().min(-MAX_PX).max(MAX_PX);
-const size = z.number().positive().max(MAX_PX);
-const length = z.number().min(0).max(MAX_PX);
+export function isDocumentCanvas(size: {
+  width: number;
+  height: number;
+}): boolean {
+  return CANVASES.some(
+    (canvas) => canvas.width === size.width && canvas.height === size.height,
+  );
+}
 
-/* No whitespace or control characters: a key with a newline in it is not one
-   our upload path ever writes, and it is exactly the shape a header or log
-   injection takes. */
-const SAFE_KEY = /^[^\s\p{Cc}\\]+$/u;
+/** The longest edge any canvas has. An element may hang off the canvas (a
+ *  zoomed photo, a bleed) but never by more than a canvas in any direction,
+ *  so no field can carry a 1e308 into yoga. */
+export const MAX_CANVAS_EDGE = Math.max(
+  ...CANVASES.flatMap((canvas) => [canvas.width, canvas.height]),
+);
+const REACH = MAX_CANVAS_EDGE * 2;
+
+const coordinate = z.number().min(-REACH).max(REACH);
+const size = z.number().positive().max(REACH);
+const length = z.number().min(0).max(MAX_CANVAS_EDGE);
+/* Type taller than a third of the longest canvas is a layout bug, and every
+   extra pixel of size is glyph outline satori has to build. */
+const fontSize = z
+  .number()
+  .positive()
+  .max(Math.round(MAX_CANVAS_EDGE / 3));
 
 export const assetRefSchema = z
   .object({
@@ -42,7 +66,7 @@ export const assetRefSchema = z
       .string()
       .min(1)
       .max(512)
-      .refine((key) => SAFE_KEY.test(key), "Asset key has unsafe characters")
+      .refine(isCanonicalKey, "Assets are storage keys, not URLs")
       .refine(
         (key) => keyUnderPrefix(key, DOCUMENT_ASSET_PREFIXES) !== null,
         "Asset key is outside the allowed storage prefixes",
@@ -184,7 +208,7 @@ export const textElementSchema = z
     text: z.string().max(2000),
     role: z.enum(TEXT_ROLES),
     font: z.enum(["heading", "body"]),
-    fontSize: size,
+    fontSize,
     fontWeight,
     /** Unitless multiple of fontSize, as in CSS. */
     lineHeight: z.number().min(0.5).max(4),
@@ -204,7 +228,7 @@ export const buttonElementSchema = z
     fill,
     color,
     radius: length,
-    fontSize: size,
+    fontSize,
     fontWeight,
   })
   .strict();
@@ -231,8 +255,8 @@ export const designElementSchema = z.discriminatedUnion("type", [
 export const designDocumentSchema = z
   .object({
     version: z.literal(DOCUMENT_VERSION),
-    width: size,
-    height: size,
+    width: z.number(),
+    height: z.number(),
     background: color,
     /** Array order is z-order: the first element is drawn at the bottom. */
     elements: z
@@ -244,7 +268,11 @@ export const designDocumentSchema = z
         "Element ids must be unique",
       ),
   })
-  .strict();
+  .strict()
+  .refine(isDocumentCanvas, {
+    message: "Canvas must be one of the supported sizes",
+    path: ["width"],
+  });
 
 export type AssetRef = z.infer<typeof assetRefSchema>;
 export type ImageElement = z.infer<typeof imageElementSchema>;
