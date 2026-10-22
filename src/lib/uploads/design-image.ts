@@ -27,11 +27,7 @@ import {
   NORMALISED_LONG_EDGE,
   TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
-import {
-  looksBlank,
-  measureSubject,
-  SUBJECT_THUMBNAIL_SIDE,
-} from "./subject-check";
+import { looksBlank, measureSubject } from "./subject-check";
 
 /**
  * A user's uploaded design image, read back by key at generation.
@@ -100,7 +96,7 @@ export const DESIGN_IMAGE_REENCODE: ReencodeOptions = {
   maxInputPixels: MAX_DESIGN_IMAGE_SIDE * MAX_DESIGN_IMAGE_SIDE,
   maxOutputSide: NORMALISED_LONG_EDGE,
   minOutputSide: 1080,
-  thumbnailSide: SUBJECT_THUMBNAIL_SIDE,
+  subjectThumbnail: true,
 };
 
 /** `fault` is for logs and metrics; `message` is safe to show the user. */
@@ -174,7 +170,7 @@ export async function loadDesignImage(
 
   const clean = await reencodeOrRefuse(bytes, type);
   if (!clean.visible) throw new DesignImageError("blank");
-  if (clean.thumbnail && hasNoSubject(clean.thumbnail)) {
+  if (clean.thumbnail && looksBlank(measureSubject(clean.thumbnail))) {
     throw new DesignImageError("no_subject");
   }
 
@@ -184,16 +180,6 @@ export async function loadDesignImage(
     width: clean.width,
     height: clean.height,
   };
-}
-
-function hasNoSubject(thumbnail: {
-  data: Buffer;
-  width: number;
-  height: number;
-}): boolean {
-  return looksBlank(
-    measureSubject(thumbnail.data, thumbnail.width, thumbnail.height),
-  );
 }
 
 async function reencodeOrRefuse(bytes: Buffer, type: "png" | "jpeg") {

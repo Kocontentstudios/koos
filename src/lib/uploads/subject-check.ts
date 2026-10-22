@@ -56,6 +56,13 @@ export interface SubjectMeasure {
   edgeEnergy: number;
 }
 
+/** Pixels composited on mid grey with alpha as a fourth channel, unrounded. */
+export interface SubjectThumbnail {
+  pixels: Float32Array;
+  width: number;
+  height: number;
+}
+
 /** The thumbnail size for an image, fitted inside SUBJECT_THUMBNAIL_SIDE. */
 export function subjectThumbnailSize(
   width: number,
@@ -68,17 +75,115 @@ export function subjectThumbnailSize(
   };
 }
 
-/** `rgba` is unpremultiplied 8-bit RGBA, as getImageData and sharp return. */
-export function measureSubject(
-  rgba: Uint8Array | Uint8ClampedArray,
+/**
+ * The thumbnail both sides measure, drawn by this code rather than by a
+ * resampler: an exact area average of the full-size pixels, in floating
+ * point. The browser used a canvas and the server libvips; on a fine pattern
+ * (a 1 px checkerboard, a halftone) the two resamplers alias differently, so
+ * the same image could be refused in one and accepted in the other. An area
+ * average is linear, so the JPEG the browser uploads, whose error averages
+ * out over each thumbnail cell, measures within a level of the canvas it was
+ * encoded from.
+ *
+ * `data` is unpremultiplied 8-bit pixels with `channels` per pixel, as sharp
+ * and getImageData return them.
+ */
+export function subjectThumbnail(
+  data: ArrayLike<number>,
   width: number,
   height: number,
+  channels: 3 | 4,
+): SubjectThumbnail {
+  if (width * height === 0 || data.length < width * height * channels) {
+    return { pixels: new Float32Array(0), width: 0, height: 0 };
+  }
+  const size = subjectThumbnailSize(width, height);
+  const columns = cellSpans(width, size.width);
+  const rows = cellSpans(height, size.height);
+
+  const across = new Float32Array(height * size.width * CHANNELS);
+  for (let y = 0; y < height; y += 1) {
+    const rowOut = y * size.width;
+    let at = y * width * channels;
+    for (let x = 0; x < width; x += 1, at += channels) {
+      const alpha = channels === 4 ? data[at + 3] : 255;
+      const opacity = alpha / 255;
+      const grey = MID_GREY * (1 - opacity);
+      const r = data[at] * opacity + grey;
+      const g = data[at + 1] * opacity + grey;
+      const b = data[at + 2] * opacity + grey;
+      const share = columns.share[x];
+      let to = (rowOut + columns.cell[x]) * CHANNELS;
+      across[to] += r * share;
+      across[to + 1] += g * share;
+      across[to + 2] += b * share;
+      across[to + 3] += alpha * share;
+      if (share < 1) {
+        const rest = 1 - share;
+        to += CHANNELS;
+        across[to] += r * rest;
+        across[to + 1] += g * rest;
+        across[to + 2] += b * rest;
+        across[to + 3] += alpha * rest;
+      }
+    }
+  }
+
+  const pixels = new Float32Array(size.width * size.height * CHANNELS);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < size.width; x += 1) {
+      const from = (y * size.width + x) * CHANNELS;
+      const source = across.subarray(from, from + CHANNELS);
+      const to = (rows.cell[y] * size.width + x) * CHANNELS;
+      addWeighted(pixels, to, source, rows.share[y]);
+      if (rows.share[y] < 1) {
+        addWeighted(
+          pixels,
+          to + size.width * CHANNELS,
+          source,
+          1 - rows.share[y],
+        );
+      }
+    }
+  }
+  const area = (width / size.width) * (height / size.height);
+  for (let i = 0; i < pixels.length; i += 1) pixels[i] /= area;
+  return { pixels, width: size.width, height: size.height };
+}
+
+/* For each source pixel, the thumbnail cell its left edge falls in and the
+   share of the pixel inside that cell; the rest is in the next cell. A cell
+   is at least one pixel wide, so no pixel spans three. */
+function cellSpans(source: number, cells: number) {
+  const cellWidth = source / cells;
+  const cell = new Int32Array(source);
+  const share = new Float32Array(source);
+  for (let i = 0; i < source; i += 1) {
+    const index = Math.min(cells - 1, Math.floor(i / cellWidth));
+    cell[i] = index;
+    share[i] = Math.min(1, (index + 1) * cellWidth - i);
+    if (index === cells - 1) share[i] = 1;
+  }
+  return { cell, share };
+}
+
+function addWeighted(
+  into: Float32Array,
+  at: number,
+  pixel: Float32Array,
+  weight: number,
+): void {
+  for (let c = 0; c < CHANNELS; c += 1) into[at + c] += pixel[c] * weight;
+}
+
+export function measureSubject(
+  { pixels, width, height }: SubjectThumbnail,
+  deviationLimit: number = SUBJECT_DEVIATION,
 ): SubjectMeasure {
   const count = width * height;
-  if (count === 0 || rgba.length < count * CHANNELS) {
+  if (count === 0 || pixels.length < count * CHANNELS) {
     return { coverage: 0, edgeEnergy: 0 };
   }
-  const pixels = onGrey(rgba, count);
   const median = channelMedians(pixels, count);
 
   let far = 0;
@@ -98,28 +203,42 @@ export function measureSubject(
           Math.abs(v - pixels[right + c]) + Math.abs(v - pixels[below + c]),
         );
       }
-      if (deviation > SUBJECT_DEVIATION) far += 1;
+      if (deviation > deviationLimit) far += 1;
       edges += edge;
     }
   }
   return { coverage: far / count, edgeEnergy: edges / count };
 }
 
+/** The server's decision, and the one that counts. */
 export function looksBlank({ coverage, edgeEnergy }: SubjectMeasure): boolean {
   return coverage < MIN_SUBJECT_COVERAGE && edgeEnergy < MIN_EDGE_ENERGY;
 }
 
-function onGrey(rgba: Uint8Array | Uint8ClampedArray, count: number) {
-  const out = new Float32Array(count * CHANNELS);
-  for (let i = 0; i < count * CHANNELS; i += CHANNELS) {
-    const alpha = rgba[i + 3] / 255;
-    for (let c = 0; c < 3; c += 1) {
-      out[i + c] = rgba[i + c] * alpha + MID_GREY * (1 - alpha);
-    }
-    out[i + 3] = rgba[i + 3];
-  }
-  return out;
+/**
+ * The browser's decision: blank only past a margin on every measure, so the
+ * browser never refuses an image the server would accept. The server measures
+ * the JPEG the browser encoded from its canvas, not the canvas, and that
+ * difference is what the margin covers (spec, Upload, "Blank and
+ * subject-free images", parity). Anything inside the margin is uploaded and
+ * the server decides.
+ */
+export function browserLooksBlank(thumbnail: SubjectThumbnail): boolean {
+  const { coverage, edgeEnergy } = measureSubject(
+    thumbnail,
+    SUBJECT_DEVIATION - BROWSER_MARGIN.deviation,
+  );
+  return (
+    coverage < MIN_SUBJECT_COVERAGE &&
+    edgeEnergy < MIN_EDGE_ENERGY - BROWSER_MARGIN.edgeEnergy
+  );
 }
+
+/* In Chromium, on the fine-pattern parity set, the browser's thumbnail sat
+   within 0.52 of the server's on every channel and its edge energy within
+   0.18 (eval:subject-parity). The margin is about eight times that, for the
+   encoders not measured there (Safari's ImageIO, Firefox's). */
+export const BROWSER_MARGIN = { deviation: 4, edgeEnergy: 2 };
 
 function channelMedians(pixels: Float32Array, count: number): number[] {
   const medians: number[] = [];

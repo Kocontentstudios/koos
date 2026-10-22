@@ -21,6 +21,7 @@ import { registerHooks } from "node:module";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { DesignSpec } from "@/lib/design/spec";
+import { browserActiveContent } from "@/lib/images/browser-active-svg";
 import { peakRssMB } from "@/lib/images/peak-rss";
 
 registerHooks(await import("./route-stubs/hooks.mjs"));
@@ -35,11 +36,21 @@ const BRAND = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
 const LOGO_URL = "https://cdn.example.test/logos/u1/1-abc.svg";
 
 let stored: Uint8Array = new Uint8Array();
+type PutInput = {
+  Body: Uint8Array;
+  ContentType: string;
+  ContentDisposition?: string;
+};
+let put: PutInput | null = null;
 const { S3Client } = await import("@aws-sdk/client-s3");
 S3Client.prototype.send = (async (command: {
   constructor: { name: string };
-  input: { Range?: string };
+  input: { Range?: string } & Partial<PutInput>;
 }) => {
+  if (command.constructor.name === "PutObjectCommand") {
+    put = command.input as PutInput;
+    return {};
+  }
   if (command.constructor.name !== "GetObjectCommand") return {};
   const end = command.input.Range?.match(/-(\d+)$/)?.[1];
   const body = end ? stored.subarray(0, Number(end) + 1) : stored;
@@ -56,6 +67,8 @@ const [mode, dir] = process.argv.slice(2) as [Mode, string];
 const run: Record<Mode, (bytes: Uint8Array) => Promise<object>> = {
   async upload(bytes) {
     const { POST } = await import("@/app/api/upload/route");
+    const { sanitizeSvg } = await import("@/lib/images/svg-sanitize");
+    put = null;
     const form = new FormData();
     form.set(
       "file",
@@ -65,7 +78,24 @@ const run: Record<Mode, (bytes: Uint8Array) => Promise<object>> = {
       new Request("http://x.test/api/upload", { method: "POST", body: form }),
     );
     const body = await res.json();
-    return { status: res.status, error: body.error ?? null };
+    const written = put as PutInput | null;
+    if (!written) return { status: res.status, error: body.error ?? null };
+    const storedBytes = new Uint8Array(written.Body);
+    /* A fixed point of the sanitiser is a document it wrote: proof the
+       stored bytes are its output, not the upload. */
+    const resanitised = await sanitizeSvg(storedBytes);
+    return {
+      status: res.status,
+      error: body.error ?? null,
+      stored: {
+        contentType: written.ContentType,
+        contentDisposition: written.ContentDisposition ?? null,
+        browserActive: browserActiveContent(storedBytes),
+        isSanitiserOutput: Buffer.from(resanitised.bytes).equals(
+          Buffer.from(storedBytes),
+        ),
+      },
+    };
   },
 
   async "logo-colors"(bytes) {

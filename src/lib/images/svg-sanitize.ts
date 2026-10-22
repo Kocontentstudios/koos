@@ -33,8 +33,9 @@ import {
  *    none beside a "(" (an attribute cannot hold an @import).
  *  - A src attribute is held to the href rule, and xml:base, which would
  *    turn a "#fragment" into a URL, is refused.
- *  - No <script> and no on* event attribute. Neither rasteriser runs them,
- *    but the upload route stores the file as uploaded on the public bucket.
+ *  - No <script>, no on* event attribute and no animation that writes one.
+ *    Neither rasteriser runs them, but the upload route stores this
+ *    function's output on the public bucket, where a browser would.
  *  - Bounds a logo never reaches, each one the renderer fails on, slowly or
  *    silently, with a message about damage: nesting over MAX_DEPTH (libxml2
  *    stops at 256), a name over MAX_NAME_LENGTH (libxml2 stops at 50,000),
@@ -42,6 +43,10 @@ import {
  *    (ten levels of ten took librsvg 8.6 s to give up on), and a root size
  *    with a coordinate over MAX_COORDINATE or proportions past MAX_ASPECT.
  *  (FEAT-033 round-5 attack corpus, svg-attack-fixtures.ts.)
+ *
+ * Left out rather than refused: elements outside the SVG namespace and
+ * foreignObject, with everything inside them (isDropped). And a root with
+ * only width and height gets the viewBox they imply, which satori needs.
  *
  * The output is serialised from the parse events (comments, processing
  * instructions and the XML declaration are dropped), so the renderer parses
@@ -162,6 +167,9 @@ function serialise(text: string): (string | EmbeddedJob)[] {
   let elements = 0;
   let embedded = 0;
   let sawRoot = false;
+  let impliedViewBox: string | null = null;
+  /* Depth inside a dropped subtree; 0 when serialising. */
+  let dropping = 0;
   let styleText: string | null = null;
   const ids = new Map<string, UseNode>();
   const open: UseNode[] = [];
@@ -189,25 +197,40 @@ function serialise(text: string): (string | EmbeddedJob)[] {
       if (tag.local !== "svg" || (tag.uri !== SVG_NS && tag.uri !== "")) {
         throw new UnsafeSvgError("not_svg", `root is <${tag.name}>`);
       }
-      checkRootSize(tag);
+      impliedViewBox = checkRootSize(tag);
       sawRoot = true;
     }
     if (tag.local === "script") {
       throw new UnsafeSvgError("active_content", `<${tag.name}>`);
     }
+    if (tag.uri === XINCLUDE_NS) {
+      throw new UnsafeSvgError("external_reference", `<${tag.name}>`);
+    }
+    const animated = animatedAttribute(tag);
+    if (animated.endsWith("href")) {
+      throw new UnsafeSvgError("external_reference", `<${tag.name}> on href`);
+    }
+    if (animated.startsWith("on")) {
+      throw new UnsafeSvgError(
+        "active_content",
+        `<${tag.name}> on ${animated}`,
+      );
+    }
+    if (dropping > 0 || isDropped(tag)) {
+      dropping += 1;
+      depth += 1;
+      return;
+    }
     const node: UseNode = { children: [], uses: null };
     open.at(-1)?.children.push(node);
     open.push(node);
     root ??= node;
-    if (tag.uri === XINCLUDE_NS) {
-      throw new UnsafeSvgError("external_reference", `<${tag.name}>`);
-    }
-    if (retargetsHref(tag)) {
-      throw new UnsafeSvgError("external_reference", `<${tag.name}> on href`);
-    }
 
     parts.push(`<${elementName(tag)}`);
     if (depth === 0) parts.push(` xmlns="${SVG_NS}"`);
+    if (depth === 0 && impliedViewBox) {
+      parts.push(` viewBox="${impliedViewBox}"`);
+    }
     for (const attr of Object.values(tag.attributes)) {
       checkAttributeName(attr);
       if (attr.name === "xmlns") continue;
@@ -250,12 +273,18 @@ function serialise(text: string): (string | EmbeddedJob)[] {
     if (tag.local === "style") styleText = "";
   });
   const onText = (value: string) => {
+    if (dropping > 0) return;
     if (styleText !== null) styleText += value;
     parts.push(escapeText(value));
   };
   parser.on("text", onText);
   parser.on("cdata", onText);
   parser.on("closetag", (tag) => {
+    if (dropping > 0) {
+      dropping -= 1;
+      depth -= 1;
+      return;
+    }
     if (tag.local === "style" && styleText !== null) {
       if (styleText.includes("\\") || !cssReferencesOnlyFragments(styleText)) {
         throw new UnsafeSvgError("external_reference", "<style>");
@@ -350,8 +379,12 @@ const LENGTH =
   /^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*(?:px|pt|pc|mm|cm|in|q)?\s*$/i;
 
 /* Reads the root's declared size the way svgRasterBox will: viewBox first,
-   else width and height. Percentages say nothing about the drawing. */
-function checkRootSize(tag: SaxesTagNS): void {
+   else width and height. Percentages say nothing about the drawing.
+
+   Returns the viewBox a width/height-only root implies, so every caller gets
+   it from here rather than from a regex over the unparsed text: satori throws
+   without a viewBox, and every drawing tool emits `<svg width height>`. */
+function checkRootSize(tag: SaxesTagNS): string | null {
   const value = (local: string) =>
     Object.values(tag.attributes).find(
       (attr) => attr.local === local && attr.uri === "",
@@ -379,17 +412,32 @@ function checkRootSize(tag: SaxesTagNS): void {
   ) {
     throw new UnsafeSvgError("bad_dimensions", `${width} x ${height}`);
   }
+  if (box !== undefined || !(width > 0 && height > 0)) return null;
+  return `0 0 ${width} ${height}`;
 }
 
-/* SMIL can swap an href after load. Neither rasteriser animates today, so
-   this costs no logo anything and keeps the href rule true if one ever
-   does. */
-function retargetsHref(tag: SaxesTagNS): boolean {
-  if (tag.local !== "set" && !tag.local.startsWith("animate")) return false;
+/* Left out of the output with everything inside them, rather than refused:
+   Inkscape and Illustrator write editor state as elements in their own
+   namespaces (sodipodi:namedview, i:pgf), and no renderer draws any of it.
+   An element outside the SVG namespace is the only way a browser opening the
+   stored file meets HTML (an XHTML iframe's srcdoc, a meta refresh), and
+   foreignObject is where it would sit; neither rasteriser draws it. */
+function isDropped(tag: SaxesTagNS): boolean {
+  return (
+    (tag.uri !== SVG_NS && tag.uri !== "") || tag.local === "foreignObject"
+  );
+}
+
+/* SMIL can swap an href or set an event handler after load. Neither
+   rasteriser animates, but a browser opening the stored file does, so the
+   href and handler rules would otherwise hold only until the first frame.
+   The attribute an animation targets, lower-cased, or "". */
+function animatedAttribute(tag: SaxesTagNS): string {
+  if (tag.local !== "set" && !tag.local.startsWith("animate")) return "";
   const target = Object.values(tag.attributes).find(
     (attr) => attr.local === "attributeName",
   );
-  return target?.value.trim().toLowerCase().endsWith("href") ?? false;
+  return target?.value.trim().toLowerCase() ?? "";
 }
 
 function cssReferencesOnlyFragments(css: string): boolean {

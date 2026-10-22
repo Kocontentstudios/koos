@@ -13,9 +13,9 @@ import {
   TRANSPARENT_IMAGE_REASON,
 } from "./design-image-limits";
 import {
-  looksBlank,
-  measureSubject,
-  subjectThumbnailSize,
+  browserLooksBlank,
+  type SubjectThumbnail,
+  subjectThumbnail,
 } from "./subject-check";
 
 /**
@@ -90,8 +90,18 @@ export const MAX_SOURCE_PIXELS = 100_000_000;
    rather than sending the user to look for damage that is not there. */
 export const LIKELY_TOO_BIG_TO_DECODE = 40_000_000;
 
+export interface NormaliseOptions {
+  /** For the parity evals: the subject check's thumbnail, and the file this
+   *  would upload, encodable even when the check refuses it. */
+  onSubjectThumbnail?: (
+    thumbnail: SubjectThumbnail,
+    encodeUpload: () => Promise<Blob>,
+  ) => void;
+}
+
 export async function normalizeImageForUpload(
   file: File,
+  { onSubjectThumbnail }: NormaliseOptions = {},
 ): Promise<NormalisedImage> {
   const head = new Uint8Array(await file.slice(0, HEAD_BYTES).arrayBuffer());
   const source = sniffSourceType(head);
@@ -122,11 +132,19 @@ export async function normalizeImageForUpload(
 
     const alpha = source === "jpeg" ? OPAQUE : scanAlpha(ctx, width, height);
     if (!alpha.anyVisible) throw new ImageNotUsableError("blank");
-    if (hasNoSubject(canvas)) throw new ImageNotUsableError("no_subject");
     const type: DesignImageStoredType = alpha.anyTransparent
       ? "image/png"
       : "image/jpeg";
+    /* The subject check measures the pixels about to be encoded, after the
+       flatten, with the code the server runs on the decoded upload;
+       browserLooksBlank leaves a margin for what the encode changes. */
     if (type === "image/jpeg") flattenOntoWhite(ctx, width, height);
+    const { data } = ctx.getImageData(0, 0, width, height);
+    const thumbnail = subjectThumbnail(data, width, height, 4);
+    onSubjectThumbnail?.(thumbnail, () => encode(canvas, type));
+    if (browserLooksBlank(thumbnail)) {
+      throw new ImageNotUsableError("no_subject");
+    }
 
     const blob = await encode(canvas, type);
     if (blob.size > MAX_DESIGN_IMAGE_BYTES) {
@@ -253,23 +271,6 @@ function scanAlpha(
     if (anyTransparent && anyVisible) break;
   }
   return { anyTransparent, anyVisible };
-}
-
-/* Measured on a thumbnail the browser draws from the full canvas, as the
-   server measures one libvips draws from the decoded pixels. The two
-   resamplers differ a little; the thresholds leave room for that. */
-function hasNoSubject(canvas: HTMLCanvasElement): boolean {
-  const size = subjectThumbnailSize(canvas.width, canvas.height);
-  const thumb = document.createElement("canvas");
-  thumb.width = size.width;
-  thumb.height = size.height;
-  const ctx = thumb.getContext("2d");
-  if (!ctx) return false;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(canvas, 0, 0, size.width, size.height);
-  const { data } = ctx.getImageData(0, 0, size.width, size.height);
-  return looksBlank(measureSubject(data, size.width, size.height));
 }
 
 /* A JPEG source is never scanned for alpha, and some engines leave the edges

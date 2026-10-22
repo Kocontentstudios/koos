@@ -22,6 +22,13 @@ export interface SvgPathResult {
   composite?: "drawn" | "empty";
   threw?: string;
   ms: number;
+  /** What POST /api/upload wrote to storage, when it wrote anything. */
+  stored?: {
+    contentType: string;
+    contentDisposition: string | null;
+    browserActive: string[];
+    isSanitiserOutput: boolean;
+  };
 }
 
 export interface SvgChildRun {

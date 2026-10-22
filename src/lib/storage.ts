@@ -63,6 +63,7 @@ export async function uploadObject(params: {
   key: string;
   body: Uint8Array | Buffer;
   contentType: string;
+  contentDisposition?: string;
 }): Promise<void> {
   await client().send(
     new PutObjectCommand({
@@ -70,6 +71,7 @@ export async function uploadObject(params: {
       Key: params.key,
       Body: params.body,
       ContentType: params.contentType,
+      ContentDisposition: params.contentDisposition,
     }),
   );
 }
