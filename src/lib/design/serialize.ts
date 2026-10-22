@@ -1,6 +1,6 @@
 import type { designGenerations } from "@/lib/db/schema";
+import { readRationale } from "@/lib/design/direction-rationale";
 import type { DesignSpec } from "@/lib/design/spec";
-import { readRationale } from "@/lib/jobs/directions/schema";
 import { getSignedReadUrl, publicUrl } from "@/lib/storage";
 
 type GenerationRow = typeof designGenerations.$inferSelect;

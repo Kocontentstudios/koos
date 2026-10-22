@@ -377,6 +377,25 @@ describe("regenerating one direction", () => {
     });
   });
 
+  /* Round-1 regression: with 20+ newer rows in the target's slot the capped
+     read lost the sibling, so its layout was no longer avoided. */
+  it("avoids the sibling's layout behind 25 newer rows in the same slot", async () => {
+    const churn = Array.from({ length: 25 }, (_, i) => ({
+      ...target,
+      id: `churn-${i}`,
+      status: i % 4 === 0 ? "failed" : "succeeded",
+      createdAt: new Date(Date.UTC(2026, 9, 21, 10, i)),
+    }));
+    listDirectionSet.mockResolvedValue([
+      ...churn.reverse(),
+      { ...sibling, createdAt: new Date(Date.UTC(2026, 9, 21, 9, 0)) },
+    ]);
+    getDesignGenerationById.mockResolvedValue(churn[0]);
+    await run({ image: { source: "ko" }, regenerateOf: "churn-24" });
+    const row = createDesignGeneration.mock.calls[0][0];
+    expect(["hero-center", "quote-card"]).not.toContain(row.spec.layout);
+  });
+
   it("reads the set within the brand", async () => {
     await run({ image: { source: "ko" }, regenerateOf: "old-1" });
     expect(listDirectionSet).toHaveBeenCalledWith(BRAND_ID, SET);
@@ -387,6 +406,15 @@ describe("regenerating one direction", () => {
       ...target,
       brandId: "22222222-2222-4222-8222-222222222222",
     });
+    await expect(
+      run({ image: { source: "ko" }, regenerateOf: "old-1" }),
+    ).rejects.toBeInstanceOf(RegenerateTargetError);
+    expect(createDesignGeneration).not.toHaveBeenCalled();
+    expect(generateObject).not.toHaveBeenCalled();
+  });
+
+  it("refuses a variant row, writing nothing", async () => {
+    getDesignGenerationById.mockResolvedValue({ ...target, rationale: null });
     await expect(
       run({ image: { source: "ko" }, regenerateOf: "old-1" }),
     ).rejects.toBeInstanceOf(RegenerateTargetError);

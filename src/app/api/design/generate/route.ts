@@ -11,13 +11,17 @@ import {
 } from "@/lib/db/queries";
 import { type AttachmentRef, isAttachmentType } from "@/lib/design/attachments";
 import { DesignContextError, resolveDesignContext } from "@/lib/design/context";
+import { readRationale } from "@/lib/design/direction-rationale";
 import { checkDesignQuota, quotaExceeded } from "@/lib/design/quota";
 import type { DirectionsImage } from "@/lib/jobs/run-design-directions";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
 import { executeGenerationJob } from "@/lib/jobs/run-generation";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isStorageConfigured } from "@/lib/storage";
-import { isDesignImageKeyFor } from "@/lib/uploads/design-image";
+import {
+  DesignImageError,
+  isDesignImageKeyFor,
+} from "@/lib/uploads/design-image";
 import { isUuid } from "@/lib/validation/uuid";
 
 // Headroom for the post-response generation work kicked off via after().
@@ -159,13 +163,15 @@ export async function POST(req: Request) {
 
   /* Checked against the brand row, never the request string: a key under
      another brand's prefix, or one this app never minted, is refused here so
-     the job never reads it. The job re-reads and judges the real bytes. */
+     the job never reads it. The job re-reads and judges the real bytes. The
+     message is the loader's own, so it carries IMAGE_NOT_USABLE_PREFIX and
+     the UI shows its choose-another-image state. */
   if (
     image?.source === "upload" &&
     !isDesignImageKeyFor(image.key, access.brand.id)
   ) {
     return Response.json(
-      { error: "This image was not uploaded for this brand." },
+      { error: new DesignImageError("foreign_key").message },
       { status: 400 },
     );
   }
@@ -176,6 +182,14 @@ export async function POST(req: Request) {
     const previous = await getDesignGenerationById(regenerateOf);
     if (!previous || previous.brandId !== access.brand.id) {
       return Response.json({ error: "Design not found" }, { status: 404 });
+    }
+    /* A variant row has no set and no slot, so there is no pair to swap the
+       new direction into; the job would have to invent one. */
+    if (!readRationale(previous.rationale)?.set) {
+      return Response.json(
+        { error: "Only a design direction can be regenerated." },
+        { status: 400 },
+      );
     }
   }
 

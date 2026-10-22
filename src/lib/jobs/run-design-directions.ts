@@ -13,6 +13,11 @@ import {
   updateDesignGeneration,
 } from "@/lib/db/queries";
 import type { DesignContext } from "@/lib/design/context";
+import {
+  readRationale,
+  storedRationale,
+} from "@/lib/design/direction-rationale";
+import { measureImage } from "@/lib/design/document/image-facts";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
@@ -35,11 +40,7 @@ import {
   type DirectionAssets,
   renderDirectionGuarded,
 } from "./directions/render";
-import {
-  designSpecOf,
-  readRationale,
-  storedRationale,
-} from "./directions/schema";
+import { currentSibling, designSpecOf } from "./directions/schema";
 import type { JobRuntime } from "./run-generation";
 
 export type DirectionsImage =
@@ -53,8 +54,9 @@ export interface DirectionsRequest {
   regenerateOf?: string | null;
 }
 
-/** Thrown when the direction being regenerated is gone or not this brand's.
- *  The route checks first; this covers a delete between request and job. */
+/** Thrown when the direction being regenerated is gone, not this brand's, or
+ *  not a direction. The route checks first; this covers a delete between
+ *  request and job. */
 export class RegenerateTargetError extends Error {
   constructor() {
     super("The design you asked to regenerate no longer exists.");
@@ -69,11 +71,10 @@ interface RegenerationTarget {
   existing: PriorDirection[];
 }
 
-type GenerationRow = NonNullable<
-  Awaited<ReturnType<typeof getDesignGenerationById>>
->;
-
-function priorDirection(row: GenerationRow): PriorDirection | null {
+function priorDirection(row: {
+  spec: unknown;
+  rationale: unknown;
+}): PriorDirection | null {
   const spec = row.spec as Partial<DesignSpec> | null;
   if (!spec?.headline || !spec.layout) return null;
   return {
@@ -93,23 +94,12 @@ async function regenerationTarget(
   const target = await getDesignGenerationById(generationId);
   if (!target || target.brandId !== brandId) throw new RegenerateTargetError();
   const rationale = readRationale(target.rationale);
-  /* A row made before directions existed has no set. It still gets a new
-     direction that avoids its layout; it simply has no sibling to avoid. */
-  if (!rationale?.set) {
-    const prior = priorDirection(target);
-    return {
-      set: randomUUID(),
-      slot: 0,
-      existing: prior ? [prior] : [],
-    };
-  }
-  /* Newest first, so a sibling that was itself regenerated is represented by
-     its replacement, which is what the user is looking at. */
-  const sibling = (await listDirectionSet(brandId, rationale.set)).find(
-    (row) =>
-      row.id !== target.id &&
-      row.status === "succeeded" &&
-      readRationale(row.rationale)?.slot !== rationale.slot,
+  /* The route refuses a variant row (no set, so no slot to swap into); this
+     holds the same line for any caller that skipped it. */
+  if (!rationale?.set) throw new RegenerateTargetError();
+  const sibling = currentSibling(
+    await listDirectionSet(brandId, rationale.set),
+    { id: target.id, set: rationale.set, slot: rationale.slot },
   );
   return {
     set: rationale.set,
@@ -261,8 +251,8 @@ export async function generateDirectionsWork(
 
   const prepared = await prepareDocumentFonts(
     {
-      brandFontUrl: context.brand.brandFontUrl,
-      bodyFontUrl: context.brand.bodyFontUrl,
+      heading: context.brand.brandFontUrl,
+      body: context.brand.bodyFontUrl,
     },
     settled
       .flatMap(({ spec }) => [
@@ -274,6 +264,22 @@ export async function generateDirectionsWork(
       .filter(Boolean)
       .join(" "),
   );
+
+  /* Measured once per distinct image: the upload path draws the same photo
+     in both directions. A measurement that fails only costs the cut-out
+     treatment and the measured veil, never the design. */
+  const facts = new Map<PlacedAsset, ReturnType<typeof measureImage>>();
+  for (const image of images) {
+    if (image && !facts.has(image)) {
+      facts.set(
+        image,
+        measureImage(image.asset).catch((err) => {
+          console.error("design image could not be measured", err);
+          return null;
+        }),
+      );
+    }
+  }
 
   const largestImage = Math.max(
     0,
@@ -332,8 +338,10 @@ export async function generateDirectionsWork(
     let counted = false;
     try {
       const mark = marks[i];
+      const image = images[i];
       const assets: DirectionAssets = {
-        image: images[i],
+        image,
+        imageFacts: image ? await facts.get(image) : null,
         logo: mark?.placed
           ? { placed: mark.placed, loaded: mark.loaded }
           : null,
@@ -375,7 +383,8 @@ export async function generateDirectionsWork(
         brandFontFaults.push(result.brandFontFault);
       }
       if (result.logoFault) logoFaults.push(result.logoFault);
-      if (result.fault) qualityFaults.push(result.fault);
+      const fault = [result.fault, result.copyFault].filter(Boolean).join("; ");
+      if (fault) qualityFaults.push(fault);
       if (result.correction) judgeVerdicts.push(result.correction);
       if (result.correctionKept) correctionsKept.push(row.id);
     } catch (err) {

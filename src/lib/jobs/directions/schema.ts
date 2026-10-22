@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readRationale } from "@/lib/design/direction-rationale";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
 
 /**
@@ -52,38 +53,36 @@ export function directionsResponseSchema(count: number) {
   });
 }
 
-/** What `design_generations.rationale` holds. `set` and `slot` pair a
- *  direction with its sibling so regenerating one can avoid both layouts. */
-export interface StoredRationale {
-  title: string;
-  reasons: string[];
-  set: string;
-  slot: number;
-}
-
-export function storedRationale(
-  direction: Pick<DirectionSpec, "title" | "rationale">,
-  set: string,
-  slot: number,
-): StoredRationale {
-  return { title: direction.title, reasons: direction.rationale, set, slot };
-}
-
-/** A rationale column read back, or null for a row that is not a direction. */
-export function readRationale(value: unknown): StoredRationale | null {
-  if (!value || typeof value !== "object") return null;
-  const { title, reasons, set, slot } = value as Record<string, unknown>;
-  if (typeof title !== "string" || !Array.isArray(reasons)) return null;
-  return {
-    title,
-    reasons: reasons.filter((r): r is string => typeof r === "string"),
-    set: typeof set === "string" ? set : "",
-    slot: typeof slot === "number" ? slot : 0,
-  };
-}
-
 /** The spec without the direction fields, as the spec column stores it. */
 export function designSpecOf(direction: DirectionSpec): DesignSpec {
   const { title: _title, rationale: _rationale, ...spec } = direction;
   return spec;
+}
+
+/** The fields of a set row that decide which direction is on screen. */
+export interface SetRow {
+  id: string;
+  status: string;
+  rationale: unknown;
+  createdAt: Date;
+}
+
+/**
+ * The direction shown beside `of`: the newest succeeded row in the set's
+ * other slot. The UI swaps a regenerated row into its slot, so the newest row
+ * per slot is what the user sees; recency across slots is not, because
+ * regenerating one slot twice leaves its older row newer than the sibling.
+ */
+export function currentSibling<T extends SetRow>(
+  rows: readonly T[],
+  of: { id: string; set: string; slot: number },
+): T | null {
+  let best: T | null = null;
+  for (const row of rows) {
+    if (row.id === of.id || row.status !== "succeeded") continue;
+    const stored = readRationale(row.rationale);
+    if (!stored || stored.set !== of.set || stored.slot === of.slot) continue;
+    if (!best || row.createdAt > best.createdAt) best = row;
+  }
+  return best;
 }

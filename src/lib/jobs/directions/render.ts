@@ -1,5 +1,6 @@
 import { canvasFor } from "@/lib/design/canvas";
 import type { DesignContext } from "@/lib/design/context";
+import type { ImageFacts } from "@/lib/design/document/builders/ground";
 import { documentFromSpec } from "@/lib/design/document/from-spec";
 import { createRendererMeasurer } from "@/lib/design/document/measure";
 import {
@@ -28,12 +29,17 @@ export interface DocumentRender {
   document: DesignDocument;
   brandFontFault: string | null;
   logoFault: string | null;
+  /** The copy could not be set at the layout's type scale (from-spec.ts). */
+  copyFault: string | null;
   logoUnplaced?: true;
 }
 
 export interface DirectionAssets {
   /** The photograph or plate, or null for a flat brand-colour design. */
   image: PlacedAsset | null;
+  /** measureImage(image). Without it a cut-out is cropped like a photo and
+   *  copy over a photo is veiled for the worst case. */
+  imageFacts?: ImageFacts | null;
   /** The mark as drawn, with the loader's contrast reading. */
   logo: { placed: PlacedAsset; loaded: LoadedLogo } | null;
 }
@@ -69,26 +75,26 @@ export function documentRenderer(
 ): (spec: DesignSpec) => Promise<DocumentRender> {
   const measurer = createRendererMeasurer({ fonts: fonts.fonts });
   const brand = {
-    brandFontUrl: context.brand.brandFontUrl,
-    bodyFontUrl: context.brand.bodyFontUrl,
+    heading: context.brand.brandFontUrl,
+    body: context.brand.bodyFontUrl,
   };
 
   async function draw(
     spec: DesignSpec,
     logo: DirectionAssets["logo"],
   ): Promise<DocumentRender> {
-    const doc = designDocumentSchema.parse(
-      await documentFromSpec({
-        spec,
-        palette: resolvePalette(spec.palette, context.brand),
-        canvas: canvasFor(spec.aspectRatio),
-        image: assets.image?.ref ?? null,
-        logo: logo
-          ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
-          : null,
-        measurer,
-      }),
-    );
+    const built = await documentFromSpec({
+      spec,
+      palette: resolvePalette(spec.palette, context.brand),
+      canvas: canvasFor(spec.aspectRatio),
+      image: assets.image?.ref ?? null,
+      imageFacts: assets.imageFacts ?? null,
+      logo: logo
+        ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
+        : null,
+      measurer,
+    });
+    const doc = designDocumentSchema.parse(built.document);
     const files: Record<string, DocumentAsset> = {};
     if (assets.image) files[assets.image.ref.key] = assets.image.asset;
     if (logo) files[logo.placed.ref.key] = logo.placed.asset;
@@ -113,6 +119,7 @@ export function documentRenderer(
       document: rendered.document,
       brandFontFault: fonts.fault ?? rendered.brandFontFault,
       logoFault: rendered.logoFault,
+      copyFault: built.copyFault,
     };
   }
 

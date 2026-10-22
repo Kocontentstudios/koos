@@ -57,6 +57,7 @@ vi.mock("@/lib/analytics/session-id", () => ({
 }));
 vi.mock("next/server", () => ({ after: (fn: () => void) => fn() }));
 
+import { IMAGE_NOT_USABLE_PREFIX } from "@/lib/uploads/design-image-limits";
 import { POST } from "./route";
 
 const BRAND_ID = "aaaaaaaa-1111-4111-8111-11111111111b";
@@ -86,6 +87,12 @@ beforeEach(() => {
   getDesignGenerationById.mockResolvedValue({
     id: GENERATION,
     brandId: BRAND_ID,
+    rationale: {
+      title: "Morning bake",
+      reasons: ["a", "b"],
+      set: "s1",
+      slot: 0,
+    },
   });
   generateDesignWork.mockResolvedValue({ result: {} });
 });
@@ -160,6 +167,21 @@ describe("design generate route, image choice", () => {
     expect(createGenerationJob).not.toHaveBeenCalled();
   });
 
+  /* Round-1 regression: the refusal said "This image was not uploaded for
+     this brand.", which the UI does not recognise as an unusable image, so
+     the user got a generic error instead of the choose-another-image state. */
+  it("refuses a foreign key in the loader's words, which the UI recognises", async () => {
+    const res = await post({
+      image: {
+        source: "upload",
+        key: `design-images/${OTHER_BRAND}/2b1e0c8e-0b6a-4b0e-9a37-3a3c1f0a7d11.png`,
+      },
+    });
+    const { error } = await res.json();
+    expect(error.startsWith(IMAGE_NOT_USABLE_PREFIX)).toBe(true);
+    expect(error).toContain("not uploaded for this brand");
+  });
+
   /* Postgres matches an uppercase UUID to the row, so the request string can
      differ from the stored id. A key minted for the request's spelling is not
      one this app ever wrote. */
@@ -207,6 +229,26 @@ describe("design generate route, regenerateOf", () => {
     expect(
       (await post({ image: { source: "ko" }, regenerateOf: "nope" })).status,
     ).toBe(400);
+  });
+
+  it.each([
+    ["a variant row", null],
+    ["a rationale without a set", { title: "Old", reasons: ["a", "b"] }],
+  ])("refuses to regenerate %s", async (_label, rationale) => {
+    getDesignGenerationById.mockResolvedValueOnce({
+      id: GENERATION,
+      brandId: BRAND_ID,
+      rationale,
+    });
+    const res = await post({
+      image: { source: "ko" },
+      regenerateOf: GENERATION,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      "Only a design direction can be regenerated.",
+    );
+    expect(createGenerationJob).not.toHaveBeenCalled();
   });
 
   it("answers another brand's design exactly as a missing one", async () => {

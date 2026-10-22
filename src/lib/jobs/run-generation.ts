@@ -47,7 +47,7 @@ import {
 } from "@/lib/db/queries";
 import type { brands, strategies } from "@/lib/db/schema";
 import { resolveDesignFormat } from "@/lib/design/formats";
-import type { JobStage } from "@/lib/generation/poll-job";
+import type { JobProgress } from "@/lib/generation/poll-job";
 import {
   brandSummaryFrom,
   brandSummaryWithVoice,
@@ -76,14 +76,9 @@ interface JobOutcome {
   result: unknown;
 }
 
-export interface JobProgress {
-  done: number;
-  total: number;
-  label: string;
-  /** Present once the calendar exists, before briefs are complete. */
-  calendarId?: string;
-  stage?: JobStage;
-}
+/* One shape for the worker that writes progress and the client that polls it,
+   so a field added on one side cannot silently go missing on the other. */
+export type { JobProgress };
 
 export type ReportProgress = (progress: JobProgress) => void;
 

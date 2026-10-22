@@ -1018,14 +1018,25 @@ export async function listDesignGenerationsForBrand(
 }
 
 /**
- * The rows of one set of directions, newest first. A set is the pair one job
+ * Every row of one set of directions, newest first. A set is the pair one job
  * produced plus any regenerated replacements, keyed by the id stored in
  * `rationale.set`; the brand filter keeps a guessed set id from reaching
  * another brand's rows.
+ *
+ * Unbounded on purpose: a cap counted pending and failed rows too, so once one
+ * slot had been regenerated often enough the live sibling fell off the end
+ * and a regenerate could land on its layout. Only the columns a regenerate
+ * reads are selected, so a long set never drags its documents along.
  */
 export async function listDirectionSet(brandId: string, setId: string) {
   return db
-    .select()
+    .select({
+      id: designGenerations.id,
+      status: designGenerations.status,
+      spec: designGenerations.spec,
+      rationale: designGenerations.rationale,
+      createdAt: designGenerations.createdAt,
+    })
     .from(designGenerations)
     .where(
       and(
@@ -1033,8 +1044,7 @@ export async function listDirectionSet(brandId: string, setId: string) {
         sql`${designGenerations.rationale}->>'set' = ${setId}`,
       ),
     )
-    .orderBy(desc(designGenerations.createdAt))
-    .limit(20);
+    .orderBy(desc(designGenerations.createdAt));
 }
 
 /** Successful design generations charged to a workspace since `since`.
