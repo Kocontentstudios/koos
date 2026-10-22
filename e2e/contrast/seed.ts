@@ -1,12 +1,16 @@
+import { createHash, randomBytes } from "node:crypto";
 import { hash } from "@node-rs/argon2";
 import postgres from "postgres";
+import type { SeededIds } from "./routes";
 
 /**
- * Two QA accounts in a known state, rebuilt from scratch on every run so the
- * pages the contrast check walks always carry the same content: a brand with a
- * strategy, a week of calendar items in every status and a ticket in every
- * lifecycle status (`full`), and brand-new accounts that still see the
- * onboarding welcome.
+ * QA accounts in a known state, rebuilt from scratch on every run so the pages
+ * the contrast check walks always carry the same content: a brand with a
+ * strategy, a week of calendar items in every status, a ticket in every
+ * lifecycle status, a teammate and a pending invitation (`full`); a staff
+ * admin; a contributor with no brand assigned (`member`, the /no-brands
+ * screen); an account whose workspace still waits for approval (`pending`,
+ * /access); and brand-new accounts that still see the onboarding welcome.
  */
 
 export const QA_PASSWORD = "Contrast!QA-2026";
@@ -16,6 +20,9 @@ export const QA_PASSWORD = "Contrast!QA-2026";
    second run a different page. */
 export const QA_USERS = {
   full: "e2e-contrast@example.test",
+  admin: "e2e-contrast-admin@example.test",
+  member: "e2e-contrast-member@example.test",
+  pending: "e2e-contrast-pending@example.test",
   "welcome-dark": "e2e-contrast-welcome-dark@example.test",
   "welcome-light": "e2e-contrast-welcome-light@example.test",
   "start-dark": "e2e-contrast-start-dark@example.test",
@@ -23,6 +30,11 @@ export const QA_USERS = {
 } as const;
 
 export type QaAccount = keyof typeof QA_USERS;
+
+/* A second member of the full account's workspace, so /team lists a row with
+   an avatar; it never signs in. */
+const QA_TEAMMATE = "e2e-contrast-teammate@example.test";
+const QA_INVITEE = "e2e-contrast-invitee@example.test";
 
 /* Matches src/lib/auth/password.ts; argon2 stores its parameters in the hash,
    so verification would succeed either way, but the seed should not invent a
@@ -86,7 +98,11 @@ async function createUser(
   return { userId: user.id, workspaceId: workspace.id };
 }
 
-async function seedBrandContent(sql: Sql, userId: string, workspaceId: string) {
+async function seedBrandContent(
+  sql: Sql,
+  userId: string,
+  workspaceId: string,
+): Promise<Omit<SeededIds, "inviteToken">> {
   const [brand] = await sql`
     insert into brands (user_id, workspace_id, name, onboarding_status,
       overview, business_type, stage, target_audience, offer, tone,
@@ -140,30 +156,93 @@ async function seedBrandContent(sql: Sql, userId: string, workspaceId: string) {
     itemIds.push(item.id);
   }
 
+  const ticketIds: string[] = [];
   for (const [i, status] of TICKET_STATUSES.entries()) {
-    await sql`
+    const [ticket] = await sql`
       insert into design_tickets (calendar_item_id, brand_id, user_id,
         design_type, title, brief, status)
       values (${itemIds[i] ?? null}, ${brand.id}, ${userId}, 'social_post',
         ${`Ticket in ${status.replace(/_/g, " ")}`}, 'Carousel, five slides.',
-        ${status})`;
+        ${status})
+      returning id`;
+    ticketIds.push(ticket.id);
   }
+  /* The in-progress ticket: its detail page shows the most controls. */
+  return {
+    brandId: brand.id,
+    ticketId: ticketIds[TICKET_STATUSES.indexOf("in_progress")],
+  };
 }
 
-export async function seedContrastAccounts(databaseUrl: string | undefined) {
+async function seedTeam(
+  sql: Sql,
+  workspaceId: string,
+  ownerId: string,
+): Promise<string> {
+  const mate = await createUser(sql, QA_TEAMMATE, "Bola", true);
+  await sql`delete from workspace_members where user_id = ${mate.userId}`;
+  await sql`delete from workspaces where id = ${mate.workspaceId}`;
+  await sql`
+    insert into workspace_members (workspace_id, user_id, role, brand_scope)
+    values (${workspaceId}, ${mate.userId}, 'admin', 'all')`;
+  /* Hashed as src/lib/workspace/invite-token.ts hashes it, so the raw token
+     opens the invitation page in its "sign in to accept" state. */
+  const inviteToken = randomBytes(32).toString("base64url");
+  await sql`
+    insert into workspace_invitations (workspace_id, email, role, brand_scope,
+      token_hash, invited_by_id, expires_at)
+    values (${workspaceId}, ${QA_INVITEE}, 'contributor', 'all',
+      ${createHash("sha256").update(inviteToken).digest("hex")}, ${ownerId},
+      now() + interval '7 days')`;
+  return inviteToken;
+}
+
+/* A contributor limited to assigned brands, with none assigned, in the full
+   account's workspace and no other: requireBrand() sends them to /no-brands. */
+async function seedUnassignedMember(sql: Sql, workspaceId: string) {
+  const member = await createUser(sql, QA_USERS.member, "Femi", true);
+  await sql`delete from workspace_members where user_id = ${member.userId}`;
+  await sql`delete from workspaces where id = ${member.workspaceId}`;
+  await sql`
+    insert into workspace_members (workspace_id, user_id, role, brand_scope)
+    values (${workspaceId}, ${member.userId}, 'contributor', 'assigned')`;
+}
+
+export async function seedContrastAccounts(
+  databaseUrl: string | undefined,
+): Promise<SeededIds> {
   const sql = postgres(assertLocalDatabase(databaseUrl), { max: 1 });
   try {
-    await sql.begin(async (tx) => {
-      await tx`delete from users where email in ${tx(Object.values(QA_USERS))}`;
+    return await sql.begin(async (tx) => {
+      const emails = [...Object.values(QA_USERS), QA_TEAMMATE];
+      await tx`delete from users where email in ${tx(emails)}`;
+      await tx`delete from workspace_invitations where email = ${QA_INVITEE}`;
       /* Every run signs in five accounts from one IP and the login limit is
          10 per 10 minutes, so a second run inside the window would be locked
          out. Local database only (assertLocalDatabase). */
       await tx`delete from rate_limits where key like 'login:%'`;
       const full = await createUser(tx, QA_USERS.full, "Ada", true);
-      await seedBrandContent(tx, full.userId, full.workspaceId);
+      const content = await seedBrandContent(tx, full.userId, full.workspaceId);
+      const inviteToken = await seedTeam(tx, full.workspaceId, full.userId);
+      await seedUnassignedMember(tx, full.workspaceId);
+      const admin = await createUser(tx, QA_USERS.admin, "Kemi", true);
+      await tx`update users set role = 'admin' where id = ${admin.userId}`;
+      const pending = await createUser(tx, QA_USERS.pending, "Sade", true);
+      await tx`
+        update workspaces set access_status = 'pending', access_decided_at = null
+        where id = ${pending.workspaceId}`;
+      const seededAbove = new Set<QaAccount>([
+        "full",
+        "admin",
+        "member",
+        "pending",
+      ]);
       for (const [account, email] of Object.entries(QA_USERS)) {
-        if (account !== "full") await createUser(tx, email, "Tobi", false);
+        if (!seededAbove.has(account as QaAccount)) {
+          await createUser(tx, email, "Tobi", false);
+        }
       }
+      return { ...content, inviteToken };
     });
   } finally {
     await sql.end();

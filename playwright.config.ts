@@ -36,19 +36,31 @@ export default defineConfig({
       dependencies: ["setup"],
       use: browser,
     },
+    /* The whole server log, after every route: an error logged between
+       tests, or during the seed, is not inside any route's window. */
+    {
+      name: "server-log",
+      testMatch: /server-log\.spec\.ts$/,
+      dependencies: ["contrast"],
+    },
   ],
   webServer:
     process.env.E2E_BASE_URL || process.env.E2E_NO_SERVER
       ? undefined
       : {
-          command: `corepack pnpm exec next dev --port ${PORT}`,
+          command: `node e2e/contrast/serve.mjs ${PORT} test-results/server.log`,
           url: `${baseURL}/login`,
-          reuseExistingServer: true,
+          /* A server that is already up did not write test-results/server.log,
+             so reusing one would read a stale log: start it fresh, or pass
+             E2E_BASE_URL and E2E_SERVER_LOG. */
+          reuseExistingServer: false,
           timeout: 180_000,
           env: {
             DATABASE_URL: process.env.E2E_DATABASE_URL ?? LOCAL_DB,
             DIRECT_URL: process.env.E2E_DATABASE_URL ?? LOCAL_DB,
             NEXT_PUBLIC_APP_URL: baseURL,
+            NODE_OPTIONS:
+              process.env.NODE_OPTIONS ?? "--max-old-space-size=3072",
           },
         },
 });

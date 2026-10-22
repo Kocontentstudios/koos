@@ -18,7 +18,10 @@ export default function AdminError({
   }, [error]);
 
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
+    <div
+      data-error-boundary
+      className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center"
+    >
       <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--status-error-bg)] text-[var(--status-error-fg)]">
         <AlertTriangle className="h-6 w-6" aria-hidden="true" />
       </div>

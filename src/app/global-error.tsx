@@ -16,6 +16,7 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body
+        data-error-boundary
         style={{
           margin: 0,
           minHeight: "100vh",
