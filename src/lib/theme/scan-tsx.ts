@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { boxesFromClasses, type Piece } from "./scan-classes";
+import { boxesFromClasses, type Piece, splitVariants } from "./scan-classes";
 import {
   ALWAYS_LABELLED,
   type Box,
@@ -12,9 +12,15 @@ import {
   FADE_IN_CLASSES,
   FADE_ON_FILL,
   FILL_IN_CLASSES,
+  type FillComponent,
+  fades,
+  IMAGE_OF_TEXT,
+  isLoadingPaint,
+  LOADING_PAINT,
   maxAlpha,
   type Paint,
   paintFrom,
+  SVG_TEXT_IN_DATA_URI,
 } from "./scan-model";
 
 /** Every literal string under a node, tagged with the conditional branch it
@@ -184,24 +190,131 @@ export function descendantTexts(ctx: Context, node: JsxNode): Paint[] {
   return out;
 }
 
-function classText(node: JsxNode): string {
+function attribute(node: JsxNode, ...names: string[]) {
   for (const attr of attributesOf(node).properties) {
-    if (!ts.isJsxAttribute(attr) || !attr.initializer) continue;
-    const name = attr.name.getText();
-    if (name === "className" || name === "class") {
-      return stringPieces(attr.initializer)
-        .map((p) => p.text)
-        .join(" ");
+    if (ts.isJsxAttribute(attr) && names.includes(attr.name.getText())) {
+      return attr;
     }
   }
-  return "";
+  return null;
 }
 
-function paintsFill(node: JsxNode): boolean {
+function classText(node: JsxNode): string {
+  const attr = attribute(node, "className", "class");
+  if (!attr?.initializer) return "";
+  return stringPieces(attr.initializer)
+    .map((p) => p.text)
+    .join(" ");
+}
+
+/** The values an expression can take when every one is a literal (a string,
+ * a number, or a conditional between them); null when any is not. */
+function literalValues(e: ts.Expression): string[] | null {
+  if (ts.isParenthesizedExpression(e)) return literalValues(e.expression);
+  if (ts.isNumericLiteral(e)) return [e.text];
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) {
+    return [e.text];
+  }
+  if (ts.isConditionalExpression(e)) {
+    const a = literalValues(e.whenTrue);
+    const b = literalValues(e.whenFalse);
+    return a && b ? [...a, ...b] : null;
+  }
+  return null;
+}
+
+/** Whether a component or class helper that paints a fill (the shared
+ * Button, buttonVariants) is set to a fill variant. A variant that is not a
+ * literal may be one, so it counts. */
+function picksFillVariant(
+  component: FillComponent,
+  value: ts.Expression | undefined,
+): boolean {
+  const values =
+    value === undefined ? [component.defaultVariant] : literalValues(value);
   return (
-    FILL_IN_CLASSES.test(classText(node)) ||
-    jsxChildren(node).some((c) => isJsx(c) && paintsFill(c))
+    values === null || values.some((v) => component.fillVariants.includes(v))
   );
+}
+
+function jsxValue(attr: ts.JsxAttribute | null): ts.Expression | undefined {
+  if (!attr?.initializer) return undefined;
+  if (ts.isJsxExpression(attr.initializer)) return attr.initializer.expression;
+  return attr.initializer as ts.Expression;
+}
+
+function paintsFillItself(ctx: Context, node: JsxNode): boolean {
+  if (FILL_IN_CLASSES.test(classText(node))) return true;
+  const components = ctx.policy.fillComponents ?? {};
+  const own = components[tagOf(node)];
+  if (
+    own &&
+    picksFillVariant(own, jsxValue(attribute(node, own.variantProp)))
+  ) {
+    return true;
+  }
+  const classes = jsxValue(attribute(node, "className", "class"));
+  let viaHelper = false;
+  const visit = (n: ts.Node) => {
+    if (viaHelper) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      const helper = components[n.expression.text];
+      if (helper) {
+        const options = n.arguments[0];
+        const variant =
+          options && ts.isObjectLiteralExpression(options)
+            ? options.properties.find(
+                (p): p is ts.PropertyAssignment =>
+                  ts.isPropertyAssignment(p) &&
+                  p.name.getText() === helper.variantProp,
+              )?.initializer
+            : undefined;
+        if (picksFillVariant(helper, variant)) viaHelper = true;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  if (classes) visit(classes);
+  return viaHelper;
+}
+
+function paintsFill(ctx: Context, node: JsxNode): boolean {
+  return (
+    paintsFillItself(ctx, node) ||
+    jsxChildren(node).some((c) => isJsx(c) && paintsFill(ctx, c))
+  );
+}
+
+/* An opacity, filter or blend mode in a style object. A value that is not a
+   literal is unknown, and counts: an animated opacity on a labelled fill is
+   still a fade. A conditional between literals is read per branch. */
+function styleFades(node: JsxNode): boolean {
+  const style = jsxValue(attribute(node, "style"));
+  if (!style || !ts.isObjectLiteralExpression(style)) return false;
+  const FADE_PROPS = new Set(["opacity", "filter", "mixBlendMode"]);
+  for (const prop of style.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const name = prop.name.getText().replace(/["']/g, "");
+    if (!FADE_PROPS.has(name)) continue;
+    const values = literalValues(prop.initializer);
+    if (values === null) return true;
+    const css = name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+    if (fades(values.map((v) => [css, v]))) return true;
+  }
+  return false;
+}
+
+function fadesElement(ctx: Context, node: JsxNode): boolean {
+  const classes = classText(node);
+  if (FADE_IN_CLASSES.test(classes)) return true;
+  const fading = ctx.policy.fadingClasses;
+  if (fading?.size) {
+    for (const token of classes.split(/\s+/)) {
+      const name = token.split(":").at(-1)?.replace(/^!/, "") ?? "";
+      if (fading.has(name)) return true;
+    }
+  }
+  return styleFades(node);
 }
 
 export const INLINE_STYLE = /style\s*=\s*\\?(["'])([\s\S]*?)\\?\1/g;
@@ -227,9 +340,9 @@ export function scanTs(
   const visit = (node: ts.Node) => {
     if (isJsx(node)) {
       if (
-        FADE_IN_CLASSES.test(classText(node)) &&
+        fadesElement(ctx, node) &&
         carriesLabel(node) &&
-        paintsFill(node)
+        paintsFill(ctx, node)
       ) {
         report(node, FADE_ON_FILL);
       }
@@ -271,6 +384,14 @@ export function scanTs(
       }
       const hit = ctx.policy.retiredTokens.exec(text);
       if (hit) report(node, `retired token ${hit[0]}`);
+      if (SVG_TEXT_IN_DATA_URI.test(text)) report(node, IMAGE_OF_TEXT);
+      for (const token of text.split(/\s+/)) {
+        if (!token) continue;
+        const { variants, utility } = splitVariants(token);
+        if (isLoadingPaint(variants, utility)) {
+          report(node, `${LOADING_PAINT} (${token})`);
+        }
+      }
 
       const boxes = boxesFromClasses(ctx, [{ text, cond: null }]);
       for (const [key, box] of boxes) {

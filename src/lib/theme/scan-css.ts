@@ -6,11 +6,17 @@ import {
   checkTextColors,
   declsOf,
   FADE_ON_FILL,
+  fades,
   fadesFill,
+  IMAGE_OF_TEXT,
   isFamily,
+  LOADING_PAINT,
   maxAlpha,
+  PAINT_DECL,
   type Paint,
   type PerTheme,
+  SELECTOR_LOADING,
+  SVG_TEXT_IN_DATA_URI,
 } from "./scan-model";
 import { stripCssComments, THEME_NAMES, type ThemeName } from "./tokens";
 
@@ -98,6 +104,31 @@ export function themesOfSelector(selector: string): readonly ThemeName[] {
   return THEME_NAMES;
 }
 
+/** Class names whose rule fades the element (opacity, a filter, a blend
+ * mode). Markup that puts one on a labelled fill, or on anything wrapping one,
+ * fades the fill as surely as `opacity-60` would. */
+export function fadingClassesIn(source: string): Set<string> {
+  const found = new Set<string>();
+  const css = stripCssComments(source);
+  for (const match of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const prelude = match[1].trim();
+    if (
+      !prelude ||
+      prelude.startsWith("@") ||
+      /^\d|^(?:from|to)$/.test(prelude)
+    )
+      continue;
+    if (!fades(declsOf(match[2]))) continue;
+    for (const selector of splitTopLevel(prelude, ",")) {
+      const subject = compounds(selector).at(-1) ?? "";
+      for (const [, name] of subject.matchAll(/\.((?:\\.|[\w-])+)/g)) {
+        found.add(name.replace(/\\(.)/g, "$1"));
+      }
+    }
+  }
+  return found;
+}
+
 export interface CssRule {
   selector: string;
   at: number;
@@ -136,6 +167,15 @@ export function scanCss(
     const at = (match.index ?? 0) + match[0].indexOf("{");
     if (fadesFill(declsOf(match[2]))) {
       problems.push(`${fileName}:${lineOf(at)} ${FADE_ON_FILL}`);
+    }
+    if (
+      SELECTOR_LOADING.test(prelude) &&
+      declsOf(match[2]).some(([prop]) => PAINT_DECL.test(prop))
+    ) {
+      problems.push(`${fileName}:${lineOf(at)} ${LOADING_PAINT}`);
+    }
+    if (SVG_TEXT_IN_DATA_URI.test(match[2])) {
+      problems.push(`${fileName}:${lineOf(at)} ${IMAGE_OF_TEXT}`);
     }
     for (const selector of splitTopLevel(prelude, ",")) {
       const themes = themesOfSelector(selector);

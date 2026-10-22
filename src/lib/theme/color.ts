@@ -59,7 +59,44 @@ export function parseColor(input: string): Rgba | null {
     if ([r, g, b, a].some((x) => Number.isNaN(x))) return null;
     return { r, g, b, a };
   }
+  const hslFn = /^hsla?\(([^)]*)\)$/.exec(value);
+  if (hslFn) {
+    const [hsl, alpha] = hslFn[1].split("/");
+    const parts = hsl.split(/[\s,]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const h = Number.parseFloat(parts[0]);
+    const s = channel(parts[1], 1) / (parts[1].endsWith("%") ? 1 : 100);
+    const l = channel(parts[2], 1) / (parts[2].endsWith("%") ? 1 : 100);
+    const a =
+      alpha !== undefined
+        ? channel(alpha, 1)
+        : parts.length === 4
+          ? channel(parts[3], 1)
+          : 1;
+    if ([h, s, l, a].some((x) => Number.isNaN(x))) return null;
+    return { ...fromHsl(h, s, l), a };
+  }
+  const oklch = /^oklch\(([^)]*)\)$/.exec(value);
+  if (oklch) {
+    const [lch, alpha] = oklch[1].split("/");
+    const parts = lch.split(/\s+/).filter(Boolean);
+    if (parts.length !== 3) return null;
+    const L = channel(parts[0], 1);
+    const C = Number.parseFloat(parts[1]);
+    const H = (Number.parseFloat(parts[2]) * Math.PI) / 180;
+    const a = alpha !== undefined ? channel(alpha, 1) : 1;
+    if ([L, C, H, a].some((x) => Number.isNaN(x))) return null;
+    return fromOklab([L, C * Math.cos(H), C * Math.sin(H)], a);
+  }
   return null;
+}
+
+function fromHsl(h: number, s: number, l: number) {
+  const k = (n: number) => (n + h / 30) % 12;
+  const chroma = s * Math.min(l, 1 - l);
+  const f = (n: number) =>
+    255 * (l - chroma * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)));
+  return { r: f(0), g: f(8), b: f(4) };
 }
 
 export function withAlpha(color: Rgba, alpha: number): Rgba {

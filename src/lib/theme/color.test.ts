@@ -15,6 +15,13 @@ const c = (value: string) => {
 };
 
 describe("parseColor", () => {
+  it("reads oklch() as sRGB", () => {
+    const red = c("oklch(0.62796 0.25768 29.234)");
+    expect(red.r).toBeGreaterThan(254);
+    expect(red.g).toBeLessThan(1);
+    expect(red.b).toBeLessThan(1);
+  });
+
   it.each([
     ["#fff", "#ffffff", 1],
     ["#138BC8", "#138bc8", 1],
@@ -23,6 +30,14 @@ describe("parseColor", () => {
     ["rgba(19, 139, 200, 0.15)", "#138bc8", 0.15],
     ["rgb(19_139_200_/_40%)", "#138bc8", 0.4],
     ["white", "#ffffff", 1],
+    /* Round 2's corpus wrote the brand blue as hsl() and oklch() and the scan
+       could not read either. */
+    ["hsl(0 100% 50%)", "#ff0000", 1],
+    ["hsl(120, 100%, 25%)", "#008000", 1],
+    ["hsla(240 100% 50% / 0.5)", "#0000ff", 0.5],
+    ["hsl(200deg 100% 50%)", "#00aaff", 1],
+    ["oklch(1 0 0)", "#ffffff", 1],
+    ["oklch(0% 0 0 / 40%)", "#000000", 0.4],
   ])("%s", (input, hex, alpha) => {
     const parsed = c(input);
     expect(toHex(parsed)).toBe(hex);

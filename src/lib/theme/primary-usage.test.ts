@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { appScanPolicy } from "./primary-policy";
+import { appScanPolicy, buttonFill } from "./primary-policy";
 import { scanPrimaryUsage, splitVariants } from "./primary-usage";
+import { fadingClassesIn } from "./scan-css";
 
 const policy = appScanPolicy();
 const scan = (snippet: string, file = "fixture.tsx") =>
@@ -423,6 +424,228 @@ describe("a fade over a labelled fill is rejected", () => {
         "fixture.jsx",
       ),
     ).not.toEqual([]);
+  });
+});
+
+/* Round 3's critic wrote these past the fade ban: the shared Button paints its
+   fill from a cva, so a class scan never saw a fill on <Button>; inline style
+   values were numbers, which the string reader skipped; and a fade written as
+   a stylesheet class sat on an element with no fill class. Each passed the
+   gate and was caught only when rendered. */
+describe("the round-3 fade evasions are caught", () => {
+  const withFadingCss = {
+    ...policy,
+    fadingClasses: fadingClassesIn(
+      ".zz-v56 { opacity: 0.6; } .soft:hover { filter: brightness(1.2); }",
+    ),
+  };
+  it.each([
+    [
+      "v14 hover opacity on the shared Button",
+      `<Button className="hover:opacity-60">Save draft</Button>`,
+    ],
+    [
+      "v28 a brightness filter on the shared Button",
+      `<Button className="brightness-150">Brighter save</Button>`,
+    ],
+    [
+      "a fade on a Button set to the default variant",
+      `<Button variant="default" className="opacity-80">Save</Button>`,
+    ],
+    [
+      "a fade on a Button whose variant is not a literal",
+      `<Button variant={kind} className="hover:opacity-60">Save</Button>`,
+    ],
+    [
+      "a fade beside buttonVariants() on a link",
+      `<a href="/x" className={cn(buttonVariants(), "hover:opacity-70")}>Go</a>`,
+    ],
+    [
+      "v54 an inline numeric opacity on a fill",
+      `<span className="bg-primary-fill px-2 text-white" style={{ opacity: 0.6 }}>Inline fade</span>`,
+    ],
+    [
+      "v55 an inline filter on a wrapper",
+      `<div style={{ filter: "brightness(1.4)" }}><span className="bg-primary-fill px-2 text-white">Filtered parent</span></div>`,
+    ],
+    [
+      "an inline opacity that is not a literal",
+      `<div style={{ opacity: progress }}><Button>Save</Button></div>`,
+    ],
+    [
+      "an inline blend mode on a Button",
+      `<Button style={{ mixBlendMode: "screen" }}>Save</Button>`,
+    ],
+  ])("TSX: %s", (_label, tsx) => {
+    expect(scan(tsx).join("\n")).toContain("opacity or a filter");
+  });
+
+  it.each([
+    [
+      "v56 a stylesheet class that fades a wrapper",
+      `<div className="zz-v56"><span className="bg-primary-fill px-2 text-white">Faded parent</span></div>`,
+    ],
+    [
+      "a stylesheet class that fades on hover, as a variant",
+      `<Button className="md:soft">Save</Button>`,
+    ],
+  ])("TSX with src CSS: %s", (_label, tsx) => {
+    expect(
+      scanPrimaryUsage("fixture.tsx", tsx, withFadingCss).join("\n"),
+    ).toContain("opacity or a filter");
+  });
+
+  it.each([
+    [
+      "a ghost Button with a disabled fade",
+      `<Button variant="ghost" className="opacity-60">Skip</Button>`,
+    ],
+    [
+      "a Button variant chosen between non-fill literals",
+      `<Button variant={quiet ? "ghost" : "outline"} className="opacity-60">Skip</Button>`,
+    ],
+    [
+      "an inline opacity of 1 or 0",
+      `<div style={{ opacity: open ? 1 : 0 }}><Button>Save</Button></div>`,
+    ],
+    [
+      "an unlabelled Button",
+      `<Button className="opacity-60" aria-label="Close" />`,
+    ],
+    [
+      "buttonVariants for a ghost link",
+      `<a href="/x" className={cn(buttonVariants({ variant: "ghost" }), "opacity-70")}>Go</a>`,
+    ],
+  ])("stays clean: %s", (_label, tsx) => {
+    expect(scanPrimaryUsage("fixture.tsx", tsx, withFadingCss)).toEqual([]);
+  });
+
+  /* v13: a loading-only paint is reached by the rendered lane only when it
+     triggers that very button's loading; v16: text inside an image is never a
+     text run. Both are rejected where they are written. */
+  it.each([
+    [
+      "v13 a data-loading: fill on a Button",
+      `<Button className="data-loading:bg-sky-300" loading={busy}>Save</Button>`,
+    ],
+    [
+      "an aria-busy fade",
+      `<button type="submit" className="aria-busy:opacity-60">Send</button>`,
+    ],
+    [
+      "a loading text colour as an arbitrary variant",
+      `<Button className="data-[loading]:text-white/70">Save</Button>`,
+    ],
+  ])("TSX: %s", (_label, tsx) => {
+    expect(scan(tsx).join("\n")).toContain("loading-only");
+  });
+
+  it("CSS: a rule that repaints a loading button", () => {
+    expect(
+      scan(".cta[data-loading] { background: #7dd3fc; }", "fixture.css").join(
+        "\n",
+      ),
+    ).toContain("loading-only");
+  });
+
+  it.each([
+    [
+      "the shared cursor change",
+      `<Button className="data-loading:cursor-progress">Save</Button>`,
+    ],
+    [
+      "a loading size change",
+      `<span className="data-loading:text-sm">Saving</span>`,
+    ],
+  ])("stays clean: %s", (_label, tsx) => {
+    expect(scan(tsx)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "v16 an img of text",
+      `<img alt="New" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><rect fill='%230ea5e9'/><text fill='white'>NEW</text></svg>" />`,
+    ],
+    [
+      "an encoded SVG text element",
+      `<img alt="New" src="data:image/svg+xml,%3Csvg%3E%3Ctext%3ENEW%3C/text%3E%3C/svg%3E" />`,
+    ],
+  ])("TSX: %s", (_label, tsx) => {
+    expect(scan(tsx).join("\n")).toContain("never measured");
+  });
+
+  it("CSS: an SVG data URI with text as a background", () => {
+    expect(
+      scan(
+        `.badge { background-image: url("data:image/svg+xml;utf8,<svg><text>NEW</text></svg>"); }`,
+        "fixture.css",
+      ).join("\n"),
+    ).toContain("never measured");
+  });
+
+  it("stays clean: a data-URI SVG with shapes only", () => {
+    expect(
+      scan(
+        `<img alt="" src="data:image/svg+xml;utf8,<svg><circle r='4'/></svg>" />`,
+      ),
+    ).toEqual([]);
+  });
+
+  /* e18, e19, e35 and e40: the brand blue written as hsl() and oklch(). */
+  it.each([
+    [
+      "e18 an hsl() ground in a style object",
+      `<span style={{ background: "hsl(200 83% 43%)", color: "#fff" }}>HSL</span>`,
+      "fixture.tsx",
+    ],
+    [
+      "e19 an oklch() arbitrary ground",
+      `<span className="bg-[oklch(0.62_0.13_237)] px-2 text-white">OKLCH</span>`,
+      "fixture.tsx",
+    ],
+    [
+      "e35 a CSS hsl() ground",
+      ".chip { background: hsl(200 83% 43%); color: #fff; }",
+      "fixture.css",
+    ],
+    [
+      "e40 a CSS oklch() ground",
+      ".chip { background: oklch(0.62 0.13 237); color: #fff; }",
+      "fixture.css",
+    ],
+  ])("%s", (_label, source, file) => {
+    expect(scan(source, file).join("\n")).toContain("label on");
+  });
+
+  it("reads which Button variants paint the fill from button.tsx", () => {
+    expect(buttonFill()).toEqual({
+      variantProp: "variant",
+      fillVariants: ["default"],
+      defaultVariant: "default",
+    });
+    const repainted = buttonFill(`const v = cva("", {
+      variants: { variant: { plain: "text-foreground", brand: "bg-primary-fill text-white" } },
+      defaultVariants: { variant: "plain" },
+    });`);
+    expect(repainted).toEqual({
+      variantProp: "variant",
+      fillVariants: ["brand"],
+      defaultVariant: "plain",
+    });
+  });
+
+  it("collects the subject classes of fading rules only", () => {
+    expect(
+      [
+        ...fadingClassesIn(`
+        .a { opacity: 0.5; }
+        .wrap .b:hover { filter: blur(1px); }
+        .c { opacity: 1; }
+        .d .e { color: red; }
+        @keyframes k { from { opacity: 0.2; } }
+      `),
+      ].sort(),
+    ).toEqual(["a", "b"]);
   });
 });
 

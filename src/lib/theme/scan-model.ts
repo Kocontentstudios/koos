@@ -23,6 +23,19 @@ export interface ScanPolicy {
   grounds: Record<ThemeName, Rgba[]>;
   retiredTokens: RegExp;
   retiredValues: readonly string[];
+  /** Components and class helpers that paint a fill token themselves, so a
+   * fade written on them lands on the fill (`<Button className="hover:opacity-60">`). */
+  fillComponents?: Readonly<Record<string, FillComponent>>;
+  /** Class names a stylesheet in src fades: a fade applied by class name. */
+  fadingClasses?: ReadonlySet<string>;
+}
+
+export interface FillComponent {
+  variantProp: string;
+  /** The variants that paint a fill token. */
+  fillVariants: readonly string[];
+  /** The variant used when the prop is absent. */
+  defaultVariant: string;
 }
 
 export const TEXT_AA = 4.5;
@@ -139,7 +152,7 @@ export function isListed(p: Paint, listed: Record<ThemeName, Rgba[]>): boolean {
 }
 
 export const COLOR_IN_VALUE =
-  /var\(\s*--[\w-]+\s*(?:,[^()]*(?:\([^()]*\))?[^()]*)?\)|#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/gi;
+  /var\(\s*--[\w-]+\s*(?:,[^()]*(?:\([^()]*\))?[^()]*)?\)|#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|oklch)\([^)]*\)|\b(?:white|black)\b/gi;
 
 export function declsOf(body: string): [string, string][] {
   return body
@@ -393,12 +406,38 @@ export const FADE_IN_CLASSES =
 export const FADE_ON_FILL =
   "opacity or a filter over a labelled --primary-fill: change the fill token (--primary-fill-hover) instead";
 
-export function fadesFill(decls: [string, string][]): boolean {
-  const paintsFill = decls.some(
-    ([prop, value]) =>
-      prop.startsWith("background") && /var\(--primary-fill/.test(value),
-  );
-  if (!paintsFill) return false;
+/* The shared Button keeps its resting fill and label colour while loading
+   (loading means working, not disabled), and the rendered lane measures
+   that one paint. A loading-only colour, fade or filter written anywhere
+   else would be a paint the lane only meets if it happens to trigger that
+   button's loading, so it is not writable. */
+export const LOADING_VARIANT =
+  /^(?:data-loading|data-\[loading[^\]]*\]|aria-busy|aria-\[busy[^\]]*\])$/;
+const NOT_PAINT_TEXT =
+  /^text-(?:xs|sm|base|lg|\d*xl|left|center|right|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip|\[\d)/;
+export const PAINT_UTILITY =
+  /^!?(?:bg-|text-|from-|via-|to-|fill-|stroke-|opacity-|brightness-|contrast-|saturate-|invert|grayscale|sepia|hue-rotate-|mix-blend-|shadow-|\[(?:background|color|opacity|filter|mix-blend-mode|box-shadow)[:\]])/;
+export const LOADING_PAINT =
+  "a loading-only colour, fade or filter: loading keeps the resting fill and label (button.tsx), so style the resting state instead";
+export const SELECTOR_LOADING = /\[data-loading|\[aria-busy/;
+export const PAINT_DECL =
+  /^(?:background(?:-color|-image)?|color|-webkit-text-fill-color|opacity|filter|mix-blend-mode|box-shadow)$/;
+export const isLoadingPaint = (variants: string[], utility: string) =>
+  variants.some((v) => LOADING_VARIANT.test(v)) &&
+  PAINT_UTILITY.test(utility) &&
+  !NOT_PAINT_TEXT.test(utility.replace(/^!/, ""));
+
+/* Text drawn inside an image is never a text run: no scan and no probe can
+   measure it, and WCAG 1.4.5 asks for real text. A data-URI SVG is the one
+   form source can show, so it is the one form rejected. */
+export const SVG_TEXT_IN_DATA_URI =
+  /data:image\/svg\+xml[\s\S]*?(?:<|%3C)text[\s>%]/i;
+export const IMAGE_OF_TEXT =
+  "text drawn inside a data-URI SVG is never measured: render it as text";
+
+/** Opacity under 1, a filter or a blend mode: each repaints a fill under its
+ * label. */
+export function fades(decls: [string, string][]): boolean {
   return decls.some(([prop, value]) => {
     if (prop === "opacity") {
       const n = value.endsWith("%")
@@ -410,4 +449,12 @@ export function fadesFill(decls: [string, string][]): boolean {
     if (prop === "mix-blend-mode") return value !== "normal";
     return false;
   });
+}
+
+export function fadesFill(decls: [string, string][]): boolean {
+  const paintsFill = decls.some(
+    ([prop, value]) =>
+      prop.startsWith("background") && /var\(--primary-fill/.test(value),
+  );
+  return paintsFill && fades(decls);
 }
