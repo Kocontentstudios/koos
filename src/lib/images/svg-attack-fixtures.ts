@@ -345,11 +345,44 @@ export async function svgAttackCorpus(): Promise<SvgAttack[]> {
       "drawn",
     ],
 
-    /* foreignObject. */
+    /* foreignObject and other namespaces: left out of the document, so
+       drawn, and nothing of them reaches storage (round-5 review). */
     "foreignobject-html-img.svg": [
       svgLogo(
         '<foreignObject width="100" height="50"><div xmlns="http://www.w3.org/1999/xhtml"><img src="http://169.254.169.254/x"/></div></foreignObject>',
       ),
+      "drawn",
+    ],
+    "xhtml-iframe-srcdoc.svg": [
+      svgLogo(
+        '<h:iframe xmlns:h="http://www.w3.org/1999/xhtml" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"/>',
+      ),
+      "drawn",
+    ],
+    "xhtml-meta-refresh.svg": [
+      svgLogo(
+        '<h:meta xmlns:h="http://www.w3.org/1999/xhtml" http-equiv="refresh" content="0;url=javascript:alert(1)"/>',
+      ),
+      "drawn",
+    ],
+    "foreignobject-html-form.svg": [
+      svgLogo(
+        '<foreignObject width="9" height="9"><form xmlns="http://www.w3.org/1999/xhtml" action="javascript:alert(1)"><button>go</button></form></foreignObject>',
+      ),
+      "drawn",
+    ],
+    "inkscape-editor-state.svg": [
+      svgLogo(
+        '<sodipodi:namedview xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" pagecolor="#ffffff"/>',
+      ),
+      "drawn",
+    ],
+    "set-onclick.svg": [
+      svgLogo('<set attributeName="onclick" to="alert(1)"/>'),
+      "refused",
+    ],
+    "animate-onload.svg": [
+      svgLogo('<animate attributeName="onload" values="alert(1)"/>'),
       "refused",
     ],
     "foreignobject-html-text.svg": [

@@ -146,7 +146,7 @@ const MAX_RASTER_SIDE = 4096;
    a PNG of noise is 4 bytes a pixel: a tall logo's 600 x 4096 box came out
    at 8.4 to 8.7 MB and threw in the render (round-4 critic C4). A million
    pixels is at most about 4 MB, well inside the 6.5 MB budget, and still
-   600 x 1666 for a tall mark drawn a few hundred pixels high. */
+   382 x 2612 for a 600 x 4096 mark drawn a few hundred pixels high. */
 export const MAX_RASTER_PIXELS = 1_000_000;
 
 /**
@@ -183,24 +183,4 @@ export function svgRasterBox(
     width: Math.max(1, Math.round(width)),
     height: Math.max(1, Math.round(height)),
   };
-}
-
-/**
- * Gives an SVG a viewBox when it only declared width and height.
- *
- * satori requires a viewBox and throws without one, so a perfectly ordinary
- * `<svg width="300px" height="100px">` — which every drawing tool emits — was
- * refused outright and the brand was told its logo was broken. The dimensions
- * it did declare are exactly the viewBox it is missing.
- */
-export function withViewBox(bytes: Uint8Array): Uint8Array {
-  const text = svgText(bytes);
-  if (VIEW_BOX.test(rootTag(text))) return bytes;
-  const size = declaredSize(text);
-  if (!size) return bytes;
-  const patched = text.replace(
-    /<svg\b/i,
-    `<svg viewBox="0 0 ${size.width} ${size.height}"`,
-  );
-  return new TextEncoder().encode(patched);
 }

@@ -105,6 +105,30 @@ describe("the SVG attack corpus through every logo path", () => {
     }
   });
 
+  /* Round-5 review: the route checked the upload and then stored the
+     original bytes on the public bucket. Every accepted file must be stored
+     as the sanitiser wrote it, as an SVG download, with nothing in it a
+     browser would run or fetch. */
+  it("stores only the sanitiser's document, inert in a browser", () => {
+    const accepted = corpus.filter(
+      (a) => runs.upload.results[a.name]?.status === 200,
+    );
+    expect(accepted.length).toBeGreaterThan(20);
+    for (const attack of accepted) {
+      expect(runs.upload.results[attack.name]?.stored, attack.name).toEqual({
+        contentType: "image/svg+xml",
+        contentDisposition: 'attachment; filename="logo.svg"',
+        browserActive: [],
+        isSanitiserOutput: true,
+      });
+    }
+    for (const attack of corpus.filter((a) => a.expect !== "drawn")) {
+      expect(runs.upload.results[attack.name]?.stored, attack.name).toBe(
+        undefined,
+      );
+    }
+  });
+
   it("reports a refused logo as the file's fault", () => {
     for (const attack of corpus.filter((a) => a.expect !== "drawn")) {
       const fault = runs.logo.results[attack.name]?.fault;

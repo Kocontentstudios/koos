@@ -152,6 +152,21 @@ describe("an SVG logo is rasterised before it is read", () => {
     );
   });
 
+  /* Round-5 review: this route skipped the viewBox step loadBrandLogo
+     took, so an ordinary width/height-only export drew in a design and
+     failed here. The sanitiser now adds it for both. */
+  it("gives a width/height-only SVG the same viewBox the design loader does", async () => {
+    getObjectBytes.mockResolvedValue(
+      Buffer.from(
+        '<!-- exported --><svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"><rect width="30" height="10"/></svg>',
+      ),
+    );
+    await call();
+    expect(new TextDecoder().decode(rasterizeSvg.mock.calls[0][0].bytes)).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 10" width="30" height="10"><rect width="30" height="10"></rect></svg>',
+    );
+  });
+
   it("does not rasterise a raster format", async () => {
     getObjectBytes.mockResolvedValue(Buffer.from(PNG));
     await call();

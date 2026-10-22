@@ -1,4 +1,8 @@
 import sharp from "sharp";
+import {
+  type SubjectThumbnail,
+  subjectThumbnail,
+} from "@/lib/uploads/subject-check";
 import { jpegHasUndrawableFrame } from "./decode-check";
 
 /**
@@ -45,8 +49,8 @@ export interface CleanImage {
   /** False when every pixel is fully transparent: drawn, it leaves the slot
    *  exactly as empty as no image at all. */
   visible: boolean;
-  /** RGBA fitted inside `thumbnailSide`, when that option is set. */
-  thumbnail?: { data: Buffer; width: number; height: number };
+  /** The subject check's thumbnail of the decoded pixels, when asked for. */
+  thumbnail?: SubjectThumbnail;
 }
 
 export interface ReencodeOptions {
@@ -60,8 +64,8 @@ export interface ReencodeOptions {
   maxOutputBytes?: number;
   /** Retry once with an end marker appended when a JPEG lacks one. */
   tolerateMissingJpegEnd?: boolean;
-  /** Also return an RGBA thumbnail of the decoded pixels this size. */
-  thumbnailSide?: number;
+  /** Also return the subject check's thumbnail of the decoded pixels. */
+  subjectThumbnail?: boolean;
 }
 
 /* Measured with next 16.4.1, sharp 0.35.5 (libvips 8.18.7, libxml2 2.15.4):
@@ -172,8 +176,13 @@ async function reencodeOnce(
     return {
       ...encoded,
       visible: raw.channels === RGB_CHANNELS || anyAlpha(raw.data),
-      ...(options.thumbnailSide && {
-        thumbnail: await thumbnailOf(raw, options.thumbnailSide),
+      ...(options.subjectThumbnail && {
+        thumbnail: subjectThumbnail(
+          raw.data,
+          raw.width,
+          raw.height,
+          raw.channels,
+        ),
       }),
     };
   } catch (err) {
@@ -382,22 +391,6 @@ async function encodeAt(
           optimiseCoding: false,
         })
         .toBuffer();
-}
-
-async function thumbnailOf(raw: RawImage, side: number) {
-  const { data, info } = await sharp(raw.data, {
-    raw: { width: raw.width, height: raw.height, channels: raw.channels },
-  })
-    .resize({
-      width: side,
-      height: side,
-      fit: "inside",
-      withoutEnlargement: true,
-    })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  return { data, width: info.width, height: info.height };
 }
 
 function anyAlpha(rgba: Buffer): boolean {

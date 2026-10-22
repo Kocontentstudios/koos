@@ -126,11 +126,80 @@ describe("sanitizeSvg keeps what a logo is made of", () => {
 
   it("keeps one default namespace, so no element leaves the SVG one", async () => {
     const out = await sanitised(
-      '<svg xmlns="http://www.w3.org/2000/svg"><g xmlns="urn:other"><rect/></g></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><g><rect xmlns="http://www.w3.org/2000/svg"/></g></svg>',
     );
     expect(out).toBe(
       '<svg xmlns="http://www.w3.org/2000/svg"><g><rect></rect></g></svg>',
     );
+  });
+});
+
+/* satori throws without a viewBox, and every drawing tool emits a
+   width/height-only root. The sanitiser adds it, from the parsed root, so the
+   loader, logo-colors and the upload route cannot disagree about it. */
+describe("sanitizeSvg gives a width/height root its viewBox", () => {
+  it.each([
+    ['width="300px" height="100px"', "0 0 300 100"],
+    ['width="300" height="100"', "0 0 300 100"],
+    ['width="2in" height="1in"', "0 0 2 1"],
+    ['width="1.5e2" height="50"', "0 0 150 50"],
+  ])("adds one for %s", async (size, viewBox) => {
+    const out = await sanitised(
+      `<svg xmlns="http://www.w3.org/2000/svg" ${size}><rect/></svg>`,
+    );
+    expect(out).toContain(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" `,
+    );
+    expect(svgIntrinsicRatio(text(out))).toBeCloseTo(
+      Number(viewBox.split(" ")[2]) / Number(viewBox.split(" ")[3]),
+    );
+  });
+
+  it("leaves a root that declares one untouched", async () => {
+    const out = await sanitised(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2" width="400"/>',
+    );
+    expect(out.match(/viewBox/g)).toHaveLength(1);
+    expect(out).toContain('viewBox="0 0 4 2"');
+  });
+
+  it("does not count a descendant viewBox as the root's", async () => {
+    const out = await sanitised(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100"><symbol viewBox="0 0 1 1"/></svg>',
+    );
+    expect(out).toContain(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100"',
+    );
+  });
+
+  /* The regex this replaced patched the first "<svg" in the raw text, which
+     can sit in a comment ahead of the root. */
+  it("patches the root, not an <svg in a comment before it", async () => {
+    const out = await sanitised(
+      '<!-- <svg old --><svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"/>',
+    );
+    expect(out).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 10" width="30" height="10"></svg>',
+    );
+  });
+
+  it.each([
+    ["nothing", ""],
+    ["percentages", 'width="100%" height="100%"'],
+    ["only a width", 'width="300"'],
+    ["a zero side", 'width="0" height="10"'],
+  ])("adds none for %s", async (_label, size) => {
+    const out = await sanitised(
+      `<svg xmlns="http://www.w3.org/2000/svg" ${size}></svg>`,
+    );
+    expect(out).not.toContain("viewBox");
+  });
+
+  it("is stable once added", async () => {
+    const once = await sanitised(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"/>',
+    );
+    expect(await sanitised(once)).toBe(once);
   });
 });
 
@@ -406,12 +475,89 @@ describe("sanitizeSvg refuses what could reach outside or crash the renderer", (
    every logo path in child processes found these accepted at upload and then
    failing, slowly or silently, at render, or stored as uploaded with active
    content. */
-describe("sanitizeSvg refuses what the attack corpus found", () => {
+/* Round-5 review: the upload route stores the sanitiser's output on a
+   public bucket, so a browser opening the URL is a reader too. Anything only
+   a browser would run is left out or refused, never passed through. */
+describe("sanitizeSvg leaves out what only a browser would run", () => {
+  const XHTML = "http://www.w3.org/1999/xhtml";
+
   it.each([
     [
-      "an HTML img src in foreignObject",
-      '<foreignObject width="9" height="9"><div xmlns="http://www.w3.org/1999/xhtml"><img src="http://169.254.169.254/x"/></div></foreignObject>',
+      "foreignObject with HTML in it",
+      `<foreignObject width="9" height="9"><div xmlns="${XHTML}"><img src="http://169.254.169.254/x"/></div></foreignObject>`,
     ],
+    [
+      "an XHTML iframe whose srcdoc carries a script",
+      `<h:iframe xmlns:h="${XHTML}" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"/>`,
+    ],
+    [
+      "an XHTML meta refresh to javascript:",
+      `<h:meta xmlns:h="${XHTML}" http-equiv="refresh" content="0;url=javascript:alert(1)"/>`,
+    ],
+    [
+      "an HTML form posting to javascript:",
+      `<foreignObject><form xmlns="${XHTML}" action="javascript:alert(1)"><button>x</button></form></foreignObject>`,
+    ],
+    [
+      "an element in an unknown namespace",
+      '<x:payload xmlns:x="urn:x"><x:a href="javascript:alert(1)">x</x:a></x:payload>',
+    ],
+  ])("leaves out %s, and everything inside it", async (_label, body) => {
+    const out = await sanitised(svgLogo(body));
+    expect(out).toBe(await sanitised(svgLogo()));
+    expect(out).not.toMatch(
+      /javascript|script|iframe|foreignObject|169\.254|srcdoc|refresh|form/i,
+    );
+  });
+
+  /* Inkscape and Illustrator write editor state in their own namespaces.
+     Refusing it would refuse most exported logos; it is dropped instead. */
+  it("keeps an Inkscape export's drawing and drops its editor state", async () => {
+    const out = await sanitised(
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" viewBox="0 0 10 10"><sodipodi:namedview pagecolor="#fff"><inkscape:page x="0"/></sodipodi:namedview><g inkscape:label="Layer 1"><rect width="10" height="10"/></g></svg>',
+    );
+    expect(out).not.toContain("namedview");
+    expect(out).toContain(
+      '<g inkscape:label="Layer 1"><rect width="10" height="10"></rect></g>',
+    );
+  });
+
+  it("does not let a dropped subtree register an id a <use> can reach", async () => {
+    const out = await sanitised(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><foreignObject><g id="x"/></foreignObject><use href="#x"/></svg>`,
+    );
+    expect(out).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><use href="#x"></use></svg>',
+    );
+  });
+
+  it.each([
+    ["set", '<set attributeName="onclick" to="alert(1)"/>'],
+    ["animate", '<animate attributeName="onload" values="alert(1)"/>'],
+    ["animate, any case", '<animate attributeName=" OnMouseOver " to="x"/>'],
+  ])("refuses %s that writes an event handler", async (_label, body) => {
+    expect((await refusal(svgLogo(`<rect>${body}</rect>`))).reason).toBe(
+      "active_content",
+    );
+  });
+
+  it("still refuses a script inside a dropped subtree", async () => {
+    const err = await refusal(
+      svgLogo(
+        `<foreignObject><h:script xmlns:h="${XHTML}">x</h:script></foreignObject>`,
+      ),
+    );
+    expect(err.reason).toBe("active_content");
+  });
+
+  it("still bounds nesting inside a dropped subtree", async () => {
+    const deep = `${'<x:g xmlns:x="urn:x">'.repeat(150)}${"</x:g>".repeat(150)}`;
+    expect((await refusal(svgLogo(deep))).reason).toBe("too_complex");
+  });
+});
+
+describe("sanitizeSvg refuses what the attack corpus found", () => {
+  it.each([
     [
       "xml:base, which turns a fragment into a URL",
       '<g xml:base="http://169.254.169.254/"><use href="#d"/></g><circle id="d" r="1"/>',

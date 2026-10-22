@@ -8,11 +8,7 @@ import {
   encodePngRgba,
   inkBoxOf,
 } from "@/lib/images/png-pixels";
-import {
-  rasterizeSvg,
-  svgRasterBox,
-  withViewBox,
-} from "@/lib/images/rasterize";
+import { rasterizeSvg, svgRasterBox } from "@/lib/images/rasterize";
 import { type ReencodeOptions, reencodeImage } from "@/lib/images/reencode";
 import { type SafeSvg, sanitizeSvg } from "@/lib/images/svg-sanitize";
 import {
@@ -141,7 +137,7 @@ export async function loadBrandLogo(
   if (type === "svg") {
     let safe: SafeSvg;
     try {
-      safe = await sanitizeSvg(withViewBox(bytes));
+      safe = await sanitizeSvg(bytes);
     } catch (err) {
       console.error("brand logo SVG refused by the sanitiser", err);
       return { logo: null, fault: NOT_DRAWABLE };

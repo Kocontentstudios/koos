@@ -32,7 +32,8 @@
     "eval:scanned-pdf": "tsx src/lib/ai/onboarding/eval/run-scanned.mts",
     "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts",
     "bench:reencode": "tsx scripts/bench-reencode.mts",
-    "eval:subject-check": "tsx scripts/eval-subject-check.mts"
+    "eval:subject-check": "tsx scripts/eval-subject-check.mts",
+    "eval:subject-parity": "tsx scripts/eval-subject-parity.mts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "4.0.198",

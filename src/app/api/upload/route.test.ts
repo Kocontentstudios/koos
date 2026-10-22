@@ -263,11 +263,107 @@ describe("POST /api/upload, SVG logos", () => {
     uploadObject.mockResolvedValue(undefined);
   });
 
-  it("stores the file as uploaded once it passes", async () => {
-    const res = await POST(upload(svgFile(PLAIN_SVG)));
+  const stored = () => {
+    const { body, contentType, contentDisposition, key } =
+      uploadObject.mock.calls[0][0];
+    return {
+      text: new TextDecoder().decode(body),
+      contentType,
+      contentDisposition,
+      key,
+    };
+  };
+
+  /* Round-5 review: the route checked the SVG and then stored the original
+     bytes, under the client's type, on a public bucket. */
+  it("stores the sanitiser's document, never the uploaded text", async () => {
+    const res = await POST(
+      upload(
+        svgFile(
+          `<?xml version="1.0"?><!-- Generator --><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>`,
+        ),
+      ),
+    );
     expect(res.status).toBe(200);
-    const stored = uploadObject.mock.calls[0][0].body as Buffer;
-    expect(stored.toString()).toBe(PLAIN_SVG);
+    expect(stored().text).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10"></rect></svg>',
+    );
+  });
+
+  it("stores it as image/svg+xml, as a download, whatever the client claimed", async () => {
+    await POST(upload(svgFile(PLAIN_SVG, "image/png")));
+    expect(stored()).toMatchObject({
+      contentType: "image/svg+xml",
+      contentDisposition: 'attachment; filename="logo.svg"',
+    });
+    expect(stored().key).toMatch(/\.svg$/);
+  });
+
+  it("leaves raster uploads without a disposition, so they still display", async () => {
+    await POST(upload(png()));
+    expect(stored().contentDisposition).toBeUndefined();
+  });
+
+  /* What a browser opening the public URL would run. Each is either refused
+     or absent from the stored bytes; none reaches storage. */
+  it.each([
+    ["a script element", "<script>alert(1)</script>", "refused"],
+    ["an event handler", '<rect onload="alert(1)"/>', "refused"],
+    ["an uppercase event handler", '<rect ONCLICK="alert(1)"/>', "refused"],
+    [
+      "foreignObject with HTML",
+      '<foreignObject width="9" height="9"><div xmlns="http://www.w3.org/1999/xhtml"><iframe src="javascript:alert(1)"/></div></foreignObject>',
+      "stripped",
+    ],
+    [
+      "an XHTML iframe srcdoc",
+      '<h:iframe xmlns:h="http://www.w3.org/1999/xhtml" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"/>',
+      "stripped",
+    ],
+    ["an external href", '<image href="https://evil.test/x.png"/>', "refused"],
+    ["a javascript: link", '<a href="javascript:alert(1)"/>', "refused"],
+    [
+      "an xlink:href to an external file",
+      '<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://evil.test/s.svg#a"/>',
+      "refused",
+    ],
+    [
+      "an animation that writes a handler",
+      '<set attributeName="onclick" to="alert(1)"/>',
+      "refused",
+    ],
+    [
+      "an animation that retargets href",
+      '<set attributeName="href" to="javascript:alert(1)"/>',
+      "refused",
+    ],
+    [
+      "a CSS @import",
+      "<style>@import url(https://evil.test/a.css);</style>",
+      "refused",
+    ],
+    [
+      "a CSS url() to another host",
+      '<rect style="fill:url(https://evil.test/#g)"/>',
+      "refused",
+    ],
+  ])("never stores %s (%s)", async (_label, body, outcome) => {
+    const res = await POST(
+      upload(
+        svgFile(
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="5" height="5"/>${body}</svg>`,
+        ),
+      ),
+    );
+    if (outcome === "refused") {
+      expect(res.status).toBe(400);
+      expect(uploadObject).not.toHaveBeenCalled();
+      return;
+    }
+    expect(res.status).toBe(200);
+    expect(stored().text).not.toMatch(
+      /script|\bon[a-z]+=|foreignObject|iframe|srcdoc|javascript:|evil\.test|@import/i,
+    );
   });
 
   it.each([
