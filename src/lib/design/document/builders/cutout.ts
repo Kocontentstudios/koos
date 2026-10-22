@@ -11,7 +11,7 @@ import {
  * A cut-out (a product on a transparent background) is the subject itself,
  * plate and shadow included. object-fit: cover crops it to fill the frame,
  * which cut the plate's shadow off with a hard line and pushed the fruit
- * against the top edge (visual verdict, banner-bottom 1:1 and 16:9). Here
+ * against the top edge (banner-bottom 1:1 and 16:9). Here
  * the image is contained, then zoomed until its visible pixels, not its
  * transparent margin, fill `target`, and centred on them.
  *

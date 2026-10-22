@@ -1,4 +1,3 @@
-import { ImageResponse } from "next/og";
 import {
   type BackingDecision,
   logoBackingFor,
@@ -11,6 +10,7 @@ import {
   type LoadedFont,
   loadBrandFonts,
 } from "./fonts";
+import { RenderTimeoutError, renderPng } from "./satori-pool";
 
 /**
  * The satori + resvg path every composite render goes through: the flex
@@ -63,6 +63,9 @@ export async function createBrandRasterizer(
        same reason. The bundled faces then stay in use, so a multi-pass render
        does not pay for the refused face on every pass. */
       if (!usedBrandFace || current !== loaded) throw error;
+      /* A render that ran out of time would run out of time again in the
+         bundled faces: the copy, not the face, is what costs. */
+      if (error instanceof RenderTimeoutError) throw error;
       /* Deliberately not the exception text: satori's messages are internals
        ("Cannot read properties of undefined (reading '257')") that mean
        nothing to the person who uploaded a font. The structural reasons above
@@ -106,32 +109,17 @@ export function logoBackingOnGround(
   });
 }
 
-/** Satori renders lazily inside the stream's start(), so a satori or
- * rasteriser (sharp/librsvg) failure surfaces at arrayBuffer(), not at
- * construction — which is why every
- * caller has to await this to know whether it worked.
+/** Draws in the render worker (satori-pool.ts), so no input can hold the
+ * event loop, and a render past the limit rejects with RenderTimeoutError.
  *
  * An empty fonts array makes satori throw "No fonts are loaded"; omitting the
  * option entirely lets it fall back to its bundled face, so a font outage
- * degrades typography instead of failing the whole render. */
-export async function rasterize(
+ * degrades typography instead of failing the whole render. The worker omits
+ * it when the list is empty. */
+export function rasterize(
   element: React.ReactElement,
   canvas: Canvas,
   fonts: LoadedFont[],
 ): Promise<Uint8Array> {
-  const response = new ImageResponse(element, {
-    width: canvas.width,
-    height: canvas.height,
-    ...(fonts.length > 0
-      ? {
-          fonts: fonts.map((f) => ({
-            name: f.name,
-            data: f.data,
-            weight: f.weight,
-            style: f.style,
-          })),
-        }
-      : {}),
-  });
-  return new Uint8Array(await response.arrayBuffer());
+  return renderPng(element, canvas, fonts);
 }

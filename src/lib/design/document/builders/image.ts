@@ -1,9 +1,17 @@
-import type { ImageElement } from "../schema";
+import type { AssetRef, ImageElement } from "../schema";
+import {
+  coverPlacement,
+  grown,
+  intersection,
+  SUBJECT_GAP,
+  SUBJECT_MIN_SHARE,
+  type SubjectBox,
+  subjectOnCanvas,
+} from "../subject";
 import {
   type Context,
   imageElement,
   NEAR_BLACK,
-  overlaps,
   px,
   type Rect,
   rect,
@@ -40,56 +48,278 @@ export interface SubjectInsets {
   sides: number;
 }
 
-export function framedImage(
-  ctx: Context,
-  frame: Rect,
-  insets?: SubjectInsets,
-): { element: ImageElement; placement: ImagePlacement } | null {
-  if (!ctx.image) return null;
+export interface Framed {
+  element: ImageElement;
+  placement: ImagePlacement;
+  /** The subject on the canvas, when the subject is known. */
+  subject: Rect | null;
+  /** The subject is whole, at SUBJECT_MIN_SHARE or more, and clear of the
+   *  logo and every keep-out. Always true when the subject is unknown. */
+  clean: boolean;
+}
+
+/** Rounded up, so the builders never leave less room than measureSubject
+ *  checks for. */
+export function subjectGap(ctx: Context): number {
+  return Math.ceil(ctx.ref * SUBJECT_GAP);
+}
+
+export function minSubjectEdge(ctx: Context): number {
+  return Math.ceil(ctx.ref * SUBJECT_MIN_SHARE);
+}
+
+/** The subject's width over its height, as drawn. */
+export function subjectAspect(ctx: Context): number {
   const facts = ctx.imageFacts;
-  const placement: ImagePlacement = facts?.cutout
-    ? subjectPlacement(ctx, frame, insets)
-    : { frame, fit: "cover", zoom: 1, focusX: 0.5, focusY: 0.5 };
-  return { element: imageElement(ctx.image, frame, placement), placement };
+  const subject = ctx.subject;
+  if (!facts || !subject) return 1;
+  return (subject.w * facts.width) / (subject.h * facts.height);
+}
+
+/** The least height a frame must give the subject for its longer edge to
+ *  reach SUBJECT_MIN_SHARE. */
+export function minSubjectHeight(ctx: Context): number {
+  return Math.ceil(minSubjectEdge(ctx) / Math.max(1, subjectAspect(ctx)));
 }
 
 /**
- * A cut-out sized to the frame less its insets, kept clear of the logo.
+ * The image element for `frame`, with the subject kept whole, large enough
+ * and clear of the logo and of `keepOut` (copy, footer), each grown by the
+ * subject gap.
  *
- * The subject is centred, so it usually misses a corner mark on its own.
- * Only when it would not is it fitted to the room below the mark instead,
- * as long as that room is not much smaller; otherwise the subject may pass
- * behind the mark, whose backing the rasterizer measures on the result.
+ * A cut-out is contained and sized by its visible pixels (cutout.ts); when
+ * the logo is in the way it tries the room below the mark and beside it,
+ * and takes whichever draws the subject largest. A photograph with a known
+ * subject gets the least cover zoom and the focus that satisfy the rule
+ * (subject.ts coverPlacement). A photograph whose subject is unknown fills
+ * the frame centred, as before.
  */
-function subjectPlacement(
+export function framedImage(
   ctx: Context,
   frame: Rect,
-  insets: SubjectInsets = {
-    top: ctx.margin,
-    bottom: ctx.margin,
-    sides: ctx.margin,
-  },
-): ImagePlacement {
-  const facts = ctx.imageFacts as NonNullable<Context["imageFacts"]>;
-  const target = rect(
-    frame.x + insets.sides,
-    frame.y + insets.top,
-    frame.width - insets.sides * 2,
-    frame.height - insets.top - insets.bottom,
+  options: {
+    insets?: SubjectInsets;
+    keepOut?: Rect[];
+    /** A photograph may be drawn in a frame smaller than `frame`, centred
+     *  in it, when the whole frame cannot show its subject whole. Only for
+     *  a region the photo does not have to fill edge to edge. */
+    inset?: boolean;
+  } = {},
+): Framed | null {
+  if (!ctx.image) return null;
+  const facts = ctx.imageFacts;
+  const gap = subjectGap(ctx);
+  const avoid = [
+    ...(options.keepOut ?? []),
+    ...(ctx.logoBox ? [ctx.logoBox] : []),
+  ].map((zone) => grown(zone, gap));
+  const framed = (
+    placement: ImagePlacement,
+    subject: Rect | null,
+    clean: boolean,
+  ): Framed => ({
+    element: imageElement(ctx.image as AssetRef, placement.frame, placement),
+    placement,
+    subject,
+    clean,
+  });
+
+  if (facts?.cutout) {
+    const insets = options.insets ?? {
+      top: ctx.margin,
+      bottom: ctx.margin,
+      sides: ctx.margin,
+    };
+    const target = rect(
+      frame.x + insets.sides,
+      frame.y + insets.top,
+      frame.width - insets.sides * 2,
+      frame.height - insets.top - insets.bottom,
+    );
+    let best: {
+      placement: ImagePlacement;
+      subject: Rect;
+      free: boolean;
+    } | null = null;
+    /* The whole target keeps the frame it was given. A smaller room is
+       its own frame: contain never draws a picture smaller than its frame
+       allows, so a subject that has to shrink to clear the logo needs a
+       smaller frame to shrink into. */
+    for (const room of roomsBeside(target, avoid)) {
+      const placed =
+        room === target
+          ? containedSubject(facts, frame, room)
+          : containedSubject(facts, room, room);
+      const free = !avoid.some((zone) => intersection(placed.subject, zone));
+      const size = placed.subject.width * placed.subject.height;
+      const bestSize = best ? best.subject.width * best.subject.height : -1;
+      if (
+        !best ||
+        (free && !best.free) ||
+        (free === best.free && size > bestSize)
+      ) {
+        best = { ...placed, free };
+      }
+    }
+    const chosen = best as NonNullable<typeof best>;
+    const large =
+      Math.max(chosen.subject.width, chosen.subject.height) >=
+      minSubjectEdge(ctx) - 1;
+    return framed(chosen.placement, chosen.subject, chosen.free && large);
+  }
+
+  if (facts && ctx.subject) {
+    const minEdge = minSubjectEdge(ctx);
+    const exact =
+      coverPlacement(facts, ctx.subject, frame, avoid, minEdge) ??
+      (options.inset
+        ? insetCoverPlacement(facts, ctx.subject, frame, avoid, minEdge, {
+            canvas: rect(0, 0, ctx.width, ctx.height),
+            gutter: px(ctx.margin / 2),
+          })
+        : null);
+    const placement =
+      exact ??
+      coverPlacement(facts, ctx.subject, frame, avoid, 0) ??
+      centredOn(ctx.subject, frame);
+    const result = framed(
+      placement,
+      subjectOnCanvas(facts, ctx.subject, placement),
+      Boolean(exact),
+    );
+    /* A photo set inside its region reads as a print laid on the ground,
+       and square corners on it read as a crop gone wrong. */
+    return placement.frame === frame
+      ? result
+      : {
+          ...result,
+          element: { ...result.element, radius: px(ctx.ref * INSET_RADIUS) },
+        };
+  }
+
+  return framed(
+    { frame, fit: "cover", zoom: 1, focusX: 0.5, focusY: 0.5 },
+    null,
+    true,
   );
-  const first = containedSubject(facts, frame, target);
-  const box = ctx.logoBox;
-  const gap = px(ctx.ref * 0.03);
-  if (!box || !overlaps(box, first.subject, gap)) return first.placement;
-  const below = box.y + box.height + gap;
-  const cleared = rect(
-    target.x,
-    Math.max(target.y, below),
-    target.width,
-    target.y + target.height - Math.max(target.y, below),
-  );
-  if (cleared.height < target.height * 0.55) return first.placement;
-  return containedSubject(facts, frame, cleared).placement;
+}
+
+/** Corner radius of a photograph inset in its region, as a share of the
+ *  shorter side. */
+const INSET_RADIUS = 0.02;
+
+/** Shares of the region an inset frame steps down through, widest first. */
+const INSET_STEPS = Array.from({ length: 15 }, (_, i) => 1 - i * 0.05);
+
+/**
+ * A cover placement in a frame narrower or shorter than `region`, centred
+ * in it, for a subject that cannot be whole in the region itself.
+ *
+ * Cover never draws a photo smaller than its frame, so a subject wider
+ * (or taller) than the region at zoom 1 can only be shown whole by
+ * shrinking the frame: a landscape product shot in a portrait column, a
+ * portrait in a short band above the copy. The largest frame that works.
+ *
+ * An inset frame keeps `gutter` from any canvas edge its region runs to:
+ * rounded corners against the edge of the post read as a mistake.
+ */
+function insetCoverPlacement(
+  image: { width: number; height: number },
+  subject: SubjectBox,
+  region: Rect,
+  avoid: Rect[],
+  minEdge: number,
+  { canvas, gutter }: { canvas: Rect; gutter: number },
+): ImagePlacement | null {
+  const onEdge = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const left = region.x + (onEdge(region.x, canvas.x) ? gutter : 0);
+  const top = region.y + (onEdge(region.y, canvas.y) ? gutter : 0);
+  const right =
+    region.x +
+    region.width -
+    (onEdge(region.x + region.width, canvas.x + canvas.width) ? gutter : 0);
+  const bottom =
+    region.y +
+    region.height -
+    (onEdge(region.y + region.height, canvas.y + canvas.height) ? gutter : 0);
+  const room = rect(left, top, right - left, bottom - top);
+  if (room.width <= 0 || room.height <= 0) return null;
+  for (const share of INSET_STEPS) {
+    const narrower = rect(
+      room.x + (room.width * (1 - share)) / 2,
+      room.y,
+      room.width * share,
+      room.height,
+    );
+    const shorter = rect(
+      room.x,
+      room.y + (room.height * (1 - share)) / 2,
+      room.width,
+      room.height * share,
+    );
+    for (const frame of [narrower, shorter]) {
+      const placement = coverPlacement(image, subject, frame, avoid, minEdge);
+      if (placement) return placement;
+    }
+  }
+  return null;
+}
+
+/** Cover at zoom 1 with the subject as near the middle as the photo allows,
+ *  for when no placement keeps the rule. */
+function centredOn(subject: SubjectBox, frame: Rect): ImagePlacement {
+  return {
+    frame,
+    fit: "cover",
+    zoom: 1,
+    focusX: Math.min(1, Math.max(0, subject.x + subject.w / 2)),
+    focusY: Math.min(1, Math.max(0, subject.y + subject.h / 2)),
+  };
+}
+
+/**
+ * `target`, then the rooms left in it once every zone is cut out: each room
+ * a zone cuts into is replaced by its parts below, above, left and right of
+ * that zone. A subject contained in any room but the first is clear of every
+ * zone at once.
+ */
+function roomsBeside(target: Rect, zones: Rect[]): Rect[] {
+  let rooms: Rect[] = [target];
+  for (const zone of zones) {
+    const next: Rect[] = [];
+    for (const room of rooms) {
+      if (!intersection(zone, room)) {
+        next.push(room);
+        continue;
+      }
+      const right = room.x + room.width;
+      const bottom = room.y + room.height;
+      /* A pixel clear of the zone: containment rounds to half a pixel, and
+         a subject touching the zone by a sliver counts as on it. */
+      const parts = [
+        { x: room.x, y: zone.y + zone.height + 1, right, bottom },
+        { x: room.x, y: room.y, right, bottom: zone.y - 1 },
+        { x: room.x, y: room.y, right: zone.x - 1, bottom },
+        { x: zone.x + zone.width + 1, y: room.y, right, bottom },
+      ];
+      for (const part of parts) {
+        const width = Math.min(part.right, right) - Math.max(part.x, room.x);
+        const height = Math.min(part.bottom, bottom) - Math.max(part.y, room.y);
+        if (width > 1 && height > 1) {
+          next.push(
+            rect(
+              Math.max(part.x, room.x),
+              Math.max(part.y, room.y),
+              width,
+              height,
+            ),
+          );
+        }
+      }
+    }
+    rooms = next;
+  }
+  return [target, ...rooms.filter((room) => room !== target)];
 }
 
 export const COPY_CANDIDATES = (ctx: Context) => [

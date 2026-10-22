@@ -8,7 +8,7 @@ import {
  * What a photograph puts behind the copy, and the lightest veil that makes
  * the copy read over it.
  *
- * A fixed scrim has to assume the worst image, so the round-1 builder laid
+ * A fixed scrim has to assume the worst image, so an earlier builder laid
  * black at 0.56-0.62 over every photograph: correct for white type over a
  * white plate, and it turned every bright photo flat grey. Here the actual
  * pixels under the copy decide. Each candidate text colour gets the least

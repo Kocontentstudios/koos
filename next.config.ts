@@ -55,9 +55,14 @@ const nextConfig: NextConfig = {
      them through a runtime join of process.cwd() that the tracer cannot
      follow. Without the explicit include they never reach the function that
      renders designs, and every render silently falls back to Google Fonts —
-     which is the whole defect. Keyed on the one route that renders. */
+     which is the whole defect. Keyed on the one route that renders. The
+     render worker (satori-pool.ts) is started from a file path at run time
+     too, so it is listed for the same reason. */
   outputFileTracingIncludes: {
-    "/api/design/generate": ["./src/lib/design/render/fonts/*.ttf"],
+    "/api/design/generate": [
+      "./src/lib/design/render/fonts/*.ttf",
+      "./src/lib/design/render/satori-worker.cjs",
+    ],
   },
   images: {
     remotePatterns: r2Host ? [{ protocol: "https", hostname: r2Host }] : [],

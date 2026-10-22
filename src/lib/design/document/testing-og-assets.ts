@@ -34,6 +34,9 @@ function urlOf(input: Parameters<typeof fetch>[0]): string {
 export function cacheOgAssets(): void {
   if (installed) return;
   installed = true;
+  /* Renders run in a worker (render/satori-pool.ts) with its own fetch; it
+     reads this when it starts and keeps the same cache. */
+  process.env.KOOS_OG_ASSET_CACHE = CACHE;
   const network = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = urlOf(input);

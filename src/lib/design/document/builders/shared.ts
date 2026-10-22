@@ -22,12 +22,8 @@ export const CUTOUT_SHARE = 0.42;
 /** Smaller shares a cut-out may step down to before the copy is laid over
  *  it. A smaller whole subject beside clean copy beats the subject under a
  *  veil with the copy across it, which turned a cream card flat grey on a
- *  square canvas (round-2 renders, quote-card and stat-highlight 1:1). */
+ *  square canvas (quote-card and stat-highlight 1:1). */
 export const CUTOUT_SHARES = [CUTOUT_SHARE, 0.36, 0.3] as const;
-
-/** The least height, as a share of the canvas, a cut-out above the copy is
- *  worth drawing at; below it the subject reads as a thumbnail. */
-export const MIN_SUBJECT_SHARE = 0.16;
 
 /** Where copy has to end: clear of the footer, or the bottom margin. */
 export function copyBottom(ctx: Context, foot: Footer | null): number {
@@ -97,17 +93,36 @@ export function accentField(ctx: Context): string {
  * just above the copy, holding it to the bottom so everything below the
  * copy's top is covered too. Eased rather than linear: a straight ramp reads
  * as a band across the photo. None at all when the copy reads without one.
+ *
+ * `from: "top"` mirrors it for copy set high: solid from the top edge to
+ * just below the copy, clearing downwards. `subjectEdge` is where the
+ * subject ends on the copy's side; the ramp never starts over it, so the
+ * product is not dimmed by the veil meant for the copy.
  */
 export function scrimFor(
   box: Rect,
-  copyTop: number,
+  copyEdge: number,
   veil: Veil,
   radius = 0,
+  options: { from?: "bottom" | "top"; subjectEdge?: number } = {},
 ): DesignElement | null {
   if (veil.alpha < 0.02) return null;
-  const top = (copyTop - box.y) / box.height;
-  const rampStart = Math.max(0, top - 0.24);
-  const solid = Math.max(rampStart, top - 0.03);
+  const fromTop = options.from === "top";
+  /* Distances are measured from the edge the veil is clear at. */
+  const toCopy = fromTop
+    ? (box.y + box.height - copyEdge) / box.height
+    : (copyEdge - box.y) / box.height;
+  const clearUntil =
+    options.subjectEdge === undefined
+      ? 0
+      : fromTop
+        ? (box.y + box.height - options.subjectEdge) / box.height
+        : (options.subjectEdge - box.y) / box.height;
+  const rampStart = Math.min(
+    Math.max(0, toCopy - 0.24, clearUntil),
+    Math.max(0, toCopy - 0.03),
+  );
+  const solid = Math.max(rampStart, toCopy - 0.03);
   const eased = rampStart + (solid - rampStart) * 0.55;
   const at = (alpha: number, share: number) =>
     `${veilColor(veil, alpha)} ${pct(share)}`;
@@ -115,7 +130,7 @@ export function scrimFor(
     "scrim",
     "Scrim",
     box,
-    `linear-gradient(180deg, ${at(0, 0)}, ${at(0, rampStart)}, ${at(veil.alpha * 0.45, eased)}, ${at(veil.alpha, solid)}, ${at(veil.alpha, 1)})`,
+    `linear-gradient(${fromTop ? 0 : 180}deg, ${at(0, 0)}, ${at(0, rampStart)}, ${at(veil.alpha * 0.45, eased)}, ${at(veil.alpha, solid)}, ${at(veil.alpha, 1)})`,
     { radius },
   );
 }

@@ -200,3 +200,114 @@ describe("footerLinesFor with the call to action", () => {
     expect(footerBandHeight(spec, canvas)).toBe(0);
   });
 });
+
+/* Removing the CTA deleted the phone
+   number, the address, the URL and the promo code it shared an item with,
+   and cut a domain that happened to spell the CTA. A footer exists to carry
+   exactly those, so an item with a fact in it is never deleted for repeating
+   the CTA. */
+describe("footerLinesFor never deletes contact details to avoid a repeat", () => {
+  const linesFor = (cta: string, line: string) =>
+    footerLinesFor({ footerStyle: "text", footerLines: [line], cta });
+
+  it.each([
+    ["Book a table", "Call 0803 555 0142 to book a table"],
+    ["Order now", "WhatsApp to order now: 0803 555 0142"],
+    ["Visit us", "Come visit us at 12 Admiralty Way, Lekki"],
+    ["Get 20% off", "Use code CRUMB20 to get 20% off"],
+    ["Order now", "ORDER-NOW.ng · Lekki"],
+    ["Order now", "Pre-orders: order now for Christmas · hello@crumbandco.ng"],
+  ])("keeps %j's footer %j whole", (cta, line) => {
+    expect(linesFor(cta, line)).toEqual([line]);
+  });
+
+  it("splits items on commas and unspaced pipes, dropping only the CTA", () => {
+    expect(
+      linesFor("Order now", "crumbandco.ng, Order now, 0803 555 0142"),
+    ).toEqual(["crumbandco.ng, 0803 555 0142"]);
+    expect(linesFor("Order now", "Order now|0803 555 0142")).toEqual([
+      "0803 555 0142",
+    ]);
+  });
+
+  it("keeps the address after a CTA used as a lead", () => {
+    expect(linesFor("Visit us", "Visit us at 12 Admiralty Way, Lekki")).toEqual(
+      ["12 Admiralty Way, Lekki"],
+    );
+    expect(linesFor("Get 20% off", "Get 20% off with code CRUMB20")).toEqual([
+      "Code CRUMB20",
+    ]);
+  });
+});
+
+/* Five of seven live bakery footers repeated
+   the subheadline's day and time, and stripping the CTA left "pickup from
+   7am" starting in lower case. */
+describe("footerLinesFor against the copy above it", () => {
+  const linesFor = (spec: {
+    cta?: string;
+    subheadline?: string;
+    headline?: string;
+    footerLines: string[];
+  }) => footerLinesFor({ footerStyle: "text", ...spec });
+
+  it("drops an item whose facts the subheadline already states", () => {
+    expect(
+      linesFor({
+        subheadline: "Strawberry mille-feuille, ready Monday from 7am.",
+        footerLines: ["Monday · 7 am · 12 Admiralty Way, Lekki"],
+      }),
+    ).toEqual(["12 Admiralty Way, Lekki"]);
+    expect(
+      linesFor({
+        subheadline: "Pick up Monday at 7:00am",
+        footerLines: ["Pickup Monday 7am"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps an item with a fact the copy above does not state", () => {
+    expect(
+      linesFor({
+        subheadline: "Ready Monday from 7am.",
+        footerLines: ["Open Monday to Saturday, 7am to 6pm"],
+      }),
+    ).toEqual(["Open Monday to Saturday, 7am to 6pm"]);
+  });
+
+  it("keeps an item with no facts at all", () => {
+    expect(
+      linesFor({ subheadline: "Ready from 7am", footerLines: ["Open daily"] }),
+    ).toEqual(["Open daily"]);
+  });
+
+  it("starts a line that lost its first item with a capital", () => {
+    expect(
+      linesFor({
+        cta: "Order ahead",
+        footerLines: ["Order ahead · pickup from 7am"],
+      }),
+    ).toEqual(["Pickup from 7am"]);
+  });
+
+  it("never capitalises an address left at the start of a line", () => {
+    expect(
+      linesFor({
+        cta: "Email us",
+        footerLines: ["Email us · hello@crumbandco.ng"],
+      }),
+    ).toEqual(["hello@crumbandco.ng"]);
+    expect(
+      linesFor({
+        cta: "Order now",
+        footerLines: ["Order now · crumbandco.ng"],
+      }),
+    ).toEqual(["crumbandco.ng"]);
+  });
+
+  it("leaves a line the user wrote in lower case alone when nothing was cut", () => {
+    expect(linesFor({ footerLines: ["open daily, 7am"] })).toEqual([
+      "open daily, 7am",
+    ]);
+  });
+});

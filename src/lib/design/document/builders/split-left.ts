@@ -1,4 +1,5 @@
 import type { DesignElement } from "../schema";
+import { SUBJECT_CROPPED } from "../subject";
 import {
   type Built,
   type Context,
@@ -48,7 +49,14 @@ export async function splitLeft(ctx: Context): Promise<Built> {
   );
 
   const side = rect(column, 0, width - column, sideBottom);
-  const framed = framedImage(ctx, side);
+  /* A half-width column is narrow for a cut-out: half the margin at its
+     sides lets the subject reach its minimum size (subject.ts). */
+  const inset = px(margin / 2);
+  const framed = framedImage(ctx, side, {
+    insets: { top: margin, bottom: margin, sides: inset },
+    inset: true,
+  });
+  if (framed && !framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
   const elements: DesignElement[] = [
     framed
       ? framed.element

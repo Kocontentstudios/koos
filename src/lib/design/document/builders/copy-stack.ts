@@ -2,9 +2,11 @@ import {
   balancedWidth,
   type FittedText,
   fitText,
+  inkOverhang,
   lineBox,
   sizeRange,
   type TextLook,
+  widthWithoutOrphan,
   wrapSlack,
   wrapWidth,
 } from "../fit";
@@ -102,6 +104,8 @@ function textItem(
     /** Height the item occupies in the stack, when not the fitted height. */
     height?: number;
     balance?: boolean;
+    /** A width already chosen for the run (an orphan fix), drawn as is. */
+    drawWidth?: number;
   },
 ): Item {
   return {
@@ -109,7 +113,8 @@ function textItem(
     gapAfter: 0,
     async place(x, y) {
       const width =
-        spec.balance === false
+        spec.drawWidth ??
+        (spec.balance === false
           ? spec.width
           : await balancedWidth(
               ctx.measurer,
@@ -117,8 +122,9 @@ function textItem(
               spec.look,
               spec.width,
               spec.fitted,
-            );
+            ));
       const left = spec.align === "center" ? x + (spec.width - width) / 2 : x;
+      const ink = await inkOverhang(ctx.measurer, spec.text, spec.look);
       return textElement(
         spec.id,
         spec.name,
@@ -132,6 +138,7 @@ function textItem(
           width,
           height: spec.height ?? spec.fitted.height,
         },
+        ink,
       );
     },
   };
@@ -143,7 +150,7 @@ function textItem(
  * One line at the largest size that fits the zone when it can. A label too
  * long for one line wraps inside a full-width button; a single word too long
  * for that shrinks toward the floor and, past it, breaks, with a fault (the
- * round-1 button had no such path and ran 187px out of its zone, B10).
+ * first button had no such path and ran 187px out of its zone).
  */
 async function ctaItem(
   ctx: Context,
@@ -151,9 +158,10 @@ async function ctaItem(
   zoneWidth: number,
   colors: CopyColors,
   align: "left" | "center",
+  scale: number,
 ): Promise<{ item: Item; faults: string[] }> {
   const { measurer, ref } = ctx;
-  const sizes = roleSizes(ref, "cta");
+  const sizes = scaledSizes(roleSizes(ref, "cta"), scale, floorPx(ctx));
   const largest = sizes[0];
 
   let oneLine: number | null = null;
@@ -217,16 +225,50 @@ async function ctaItem(
   };
 }
 
+/** The share of their size the quote mark, button and gaps step down to
+ *  when the headline would otherwise leave its type scale. */
+export const COMPACT_SCALE = 0.6;
+
+function scaledSizes(sizes: number[], scale: number, floor: number): number[] {
+  return Array.from(
+    new Set(sizes.map((size) => Math.max(floor, px(size * scale)))),
+  );
+}
+
+/**
+ * The copy stack at its natural proportions or, when the headline has to
+ * leave its type scale to fit, with the quote mark, button and gaps at
+ * COMPACT_SCALE, whichever sets the larger headline.
+ *
+ * The headline is the element a designer scales to the space, but only so
+ * far: a 20px headline under a 160px quote mark and beside a full-size
+ * button reads from the wrong element first. Shrinking the supporting
+ * pieces before the headline keeps the hierarchy.
+ */
 export async function copyStack(
   ctx: Context,
   options: StackOptions,
+): Promise<Stack> {
+  const natural = await stackAt(ctx, options, 1);
+  if (natural.fits && !natural.faults.includes(COPY_SHRUNK)) return natural;
+  const compact = await stackAt(ctx, options, COMPACT_SCALE);
+  /* Copy that overruns either way overruns less with the smaller pieces. */
+  if (!natural.fits) return compact;
+  const larger = compact.headline.fontSize > natural.headline.fontSize;
+  return compact.fits && larger ? compact : natural;
+}
+
+async function stackAt(
+  ctx: Context,
+  options: StackOptions,
+  scale: number,
 ): Promise<Stack> {
   const { spec, ref, measurer } = ctx;
   const { zone, align, colors } = options;
   const limits = options.headline ?? HEADLINE[spec.layout];
   const textAlign = align === "center" ? "center" : "left";
-  const gapAfterHeadline = px(ref * 0.03);
-  const gapBeforeCta = px(ref * 0.05);
+  const gapAfterHeadline = px(ref * 0.03 * scale);
+  const gapBeforeCta = px(ref * 0.05 * scale);
   const floor = floorPx(ctx);
   const faults: string[] = [];
 
@@ -235,14 +277,14 @@ export async function copyStack(
       ? {
           width: px(ref * 0.09),
           height: Math.max(4, px(ref * 0.008)),
-          gap: px(ref * 0.035),
+          gap: px(ref * 0.035 * scale),
         }
       : null;
 
   let quote: Item | null = null;
   let quoteGap = 0;
   if (options.quoteMark) {
-    const look = looks.quote(px(ref * 0.15), textAlign);
+    const look = looks.quote(px(ref * 0.15 * scale), textAlign);
     const height = await measurer.height("“", look, wrapWidth(zone.width));
     quote = textItem(ctx, {
       id: "quote-mark",
@@ -290,7 +332,7 @@ export async function copyStack(
     });
 
   const cta = spec.cta
-    ? await ctaItem(ctx, spec.cta, zone.width, colors, align)
+    ? await ctaItem(ctx, spec.cta, zone.width, colors, align, scale)
     : null;
   if (cta) faults.push(...cta.faults);
 
@@ -345,6 +387,33 @@ export async function copyStack(
     if (!headline.fits) headline = await fitHeadline(reservedFor(sub), all);
   }
   if (!headline) throw new Error("No headline was fitted");
+  const headlineLook = looks.headline(headline.fontSize, textAlign);
+  let headlineWidth: number | undefined;
+  if (headline.fits && !headline.breaksWords) {
+    const balanced = await balancedWidth(
+      measurer,
+      spec.headline,
+      headlineLook,
+      zone.width,
+      headline,
+    );
+    const unorphaned = await widthWithoutOrphan(
+      measurer,
+      spec.headline,
+      headlineLook,
+      balanced,
+      headline,
+      {
+        maxHeight: zone.height - reservedFor(sub),
+        maxLines: limits.maxLines,
+        box: zone.width,
+      },
+    );
+    if (unorphaned) {
+      headline = { ...headline, ...unorphaned };
+      headlineWidth = unorphaned.width;
+    }
+  }
   if (headline.breaksWords || sub?.breaksWords) faults.push(COPY_WORD_BROKEN);
   if (
     headline.fontSize < ladder[ladder.length - 1] ||
@@ -387,11 +456,12 @@ export async function copyStack(
       name: "Headline",
       role: "headline",
       text: spec.headline,
-      look: looks.headline(headline.fontSize, textAlign),
+      look: headlineLook,
       color: colors.headline,
       width: zone.width,
       fitted: headline,
       align,
+      drawWidth: headlineWidth,
     }),
   );
   if (ruleItem && rule && options.rule === "below") {
@@ -446,6 +516,19 @@ export async function copyStack(
     fits,
     faults: Array.from(new Set(faults)),
   };
+}
+
+/** The box every element covers, as placed: the subject's keep-out. Each
+ *  element includes the room its glyphs reach past the line (a quote mark's
+ *  box is taller than its stack item), so the stack's own top and bottom
+ *  are not enough. */
+export function boundsOf(elements: DesignElement[]): Rect | null {
+  if (elements.length === 0) return null;
+  const left = Math.min(...elements.map((e) => e.x));
+  const top = Math.min(...elements.map((e) => e.y));
+  const right = Math.max(...elements.map((e) => e.x + e.width));
+  const bottom = Math.max(...elements.map((e) => e.y + e.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /** The stack's elements, top to bottom, `shift` pixels lower than measured. */

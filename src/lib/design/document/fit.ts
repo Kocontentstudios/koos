@@ -1,3 +1,4 @@
+import { BREAKABLE_SPACE, breakableText } from "./line-breaks";
 import type { TextElement } from "./schema";
 
 /**
@@ -45,6 +46,15 @@ export interface TextMeasurer {
   /** Width of the widest run that cannot break (unbreakableRuns), which
    *  decides whether any word has to break mid-word at a given box width. */
   widestWord(text: string, look: TextLook): Promise<number>;
+  /** How far the run's ink reaches above its first line box and below its
+   *  last, in px, read off the rendered glyphs. Optional: a measurer that
+   *  cannot see ink leaves glyphOverhang's allowance alone. */
+  inkExtent?(text: string, look: TextLook): Promise<InkExtent>;
+}
+
+export interface InkExtent {
+  above: number;
+  below: number;
 }
 
 /** Pixel height of one line, as the layout engine rounds it. */
@@ -82,14 +92,14 @@ let segmenter: Intl.Segmenter | null = null;
  *
  * Spaces separate them in most scripts. Japanese, Chinese and Thai have no
  * spaces, and treating a whole sentence of them as one "word" sent CJK copy
- * to the legibility floor (B7). Those are split at dictionary word
+ * to the legibility floor. Those are split at dictionary word
  * boundaries, with punctuation kept on the word before it, as a line breaker
  * would. Coarser than the renderer's own break rules on purpose: a piece
  * judged wider than it can be costs a size step, never an overflow.
  */
 export function unbreakableRuns(text: string): string[] {
   const runs: string[] = [];
-  for (const token of text.split(/\s+/)) {
+  for (const token of breakableText(text).split(BREAKABLE_SPACE)) {
     if (!token) continue;
     if (!UNSPACED_SCRIPT.test(token)) {
       runs.push(token);
@@ -123,6 +133,33 @@ export function glyphOverhang(
 ): number {
   const share = Math.max(0.03, (1.3 - look.lineHeight) / 2 + 0.03);
   return Math.ceil(look.fontSize * share);
+}
+
+/**
+ * Room above and below a run's layout box that keeps all of its ink inside
+ * the element: the measured reach of its glyphs when the measurer can read
+ * it, never less than glyphOverhang.
+ *
+ * glyphOverhang is calibrated on Å, É and Ü. Vietnamese stacks a second mark
+ * over a capital (Ẫ, Ỗ, Ặ) and reached 3-9px past it; emoji pictures
+ * and fallback faces have their own extents. Measuring the actual glyphs
+ * covers every script with one rule, and both engines draw the same faces,
+ * so the reach is the same in the editor.
+ */
+export async function inkOverhang(
+  measurer: TextMeasurer,
+  text: string,
+  look: TextLook,
+): Promise<InkExtent> {
+  const floor = glyphOverhang(look);
+  if (!measurer.inkExtent) return { above: floor, below: floor };
+  const ink = await measurer.inkExtent(text, look);
+  /* One pixel past the reading for antialiasing that falls under the
+     threshold the reading used. */
+  return {
+    above: Math.max(floor, Math.ceil(ink.above) + 1),
+    below: Math.max(floor, Math.ceil(ink.below) + 1),
+  };
 }
 
 /**
@@ -213,8 +250,8 @@ export function sizeRange(min: number, max: number): number[] {
  *
  * Tiers 1-3 require the widest word to fit, so in normal copy no word ever
  * breaks. Tier 4 exists because a 70-character word cannot fit any box at a
- * readable size: drawing it whole ran 600px off the canvas (B10) and
- * shrinking it until it fit set 4px type (B9). Breaking it keeps the type
+ * readable size: drawing it whole ran 600px off the canvas and
+ * shrinking it until it fit set 4px type. Breaking it keeps the type
  * readable and the ink inside its box, and the fault tells the user to
  * shorten it.
  */
@@ -279,7 +316,7 @@ export async function fitText(
  * leaves one word on the second reads as a mistake; narrowing the box until
  * the line count would change spreads the words evenly. CSS text-wrap:
  * balance does the same, but satori and Chromium implement it differently
- * and broke lines in different places (B5), so it is done here, once, with
+ * and broke lines in different places, so it is done here, once, with
  * the same greedy wrap both engines agree on.
  *
  * The run keeps exactly the height it was fitted at. Should the extra slack
@@ -317,4 +354,69 @@ export async function balancedWidth(
     async (w) => (await measurer.height(text, look, w)) >= fitted.height,
   );
   return keepsLines ?? narrowest;
+}
+
+/** The words a line may break between, for the orphan check. */
+function breakableWords(text: string): string[] {
+  return breakableText(text).split(BREAKABLE_SPACE).filter(Boolean);
+}
+
+/** True when the run's last word sits alone on its last line at `width`:
+ *  greedy wrapping sets the run one line shorter without it exactly then. */
+export async function hasOrphan(
+  measurer: TextMeasurer,
+  text: string,
+  look: TextLook,
+  width: number,
+): Promise<boolean> {
+  const words = breakableWords(text);
+  if (words.length < 3) return false;
+  const full = await measurer.height(text, look, width);
+  if (lineCount(full, look) < 2) return false;
+  const shorter = await measurer.height(
+    words.slice(0, -1).join(" "),
+    look,
+    width,
+  );
+  return shorter < full;
+}
+
+/**
+ * A width at which a headline that would end on a lone word ends on two or
+ * more instead, by taking one more line at the same size.
+ *
+ * A one-word last line reads as a mistake ("Now In A / Bottle" with "Bottle"
+ * alone). Balancing already leaves the last line as full
+ * as the line count allows, so when it is still a lone word the fix is one
+ * more line, which spreads the words again. Every candidate keeps its line
+ * breaks when narrowed by the wrap slack, so Chromium, which shapes a little
+ * wider, breaks the same way. Null when no such width fits `maxHeight` and
+ * `maxLines`; the orphan then stays, which costs a little polish, never a
+ * fit.
+ */
+export async function widthWithoutOrphan(
+  measurer: TextMeasurer,
+  text: string,
+  look: TextLook,
+  drawn: number,
+  fitted: Pick<FittedText, "height" | "lines">,
+  limits: { maxHeight: number; maxLines: number; box: number },
+): Promise<{ width: number; height: number; lines: number } | null> {
+  if (!(await hasOrphan(measurer, text, look, drawn))) return null;
+  const lines = fitted.lines + 1;
+  if (lines > limits.maxLines) return null;
+  const widest = await measurer.widestWord(text, look);
+  const slack = wrapSlack(limits.box);
+  const step = Math.max(2, Math.round(look.fontSize / 4));
+  for (let width = drawn - step; width - slack >= widest; width -= step) {
+    const height = await measurer.height(text, look, width);
+    if (lineCount(height, look) > lines || height > limits.maxHeight) break;
+    if (lineCount(height, look) < lines) continue;
+    const stable =
+      (await measurer.height(text, look, width - slack)) === height;
+    if (stable && !(await hasOrphan(measurer, text, look, width))) {
+      return { width, height, lines };
+    }
+  }
+  return null;
 }

@@ -4,20 +4,23 @@
  *
  *   corepack pnpm tsx scripts/feat-033/render-samples.mts <outDir> [fixturesDir] [--only=<substring>]
  *
- * For each layout and aspect ratio, and for each image (a bright photograph,
- * a dark one, a cutout, none), writes <name>.doc.png (rasterizeDocument)
- * and <name>.flex.png (renderCompositeDesign, the same spec and image as its
- * plate). A manifest.json records timings, probe counts, faults and the
- * measured contrast of every run of copy against the picture behind it
- * (contrast-probe.ts): the share of its box below 4.5:1 and 3:1.
+ * For each layout and aspect ratio, and for each image, writes
+ * <name>.doc.png (rasterizeDocument) and <name>.flex.png
+ * (renderCompositeDesign, the same spec and image as its plate). A
+ * manifest.json records timings, probe counts, copy and subject faults, the
+ * subject measurement (subject.ts) and the measured contrast of every run of
+ * copy against the picture behind it (contrast-probe.ts).
  *
- * Fixture photos arrive at camera size (7728px). Nothing here can add a
- * native image library, so they are downscaled by resvg itself: drawn once
- * into a 2000px canvas through next/og and kept as PNG.
+ * Every photo goes through what the browser does before upload
+ * (src/lib/uploads/normalize-image.ts): drawn in Chromium at no more than
+ * 2560px on the long edge and re-encoded as JPEG at quality 0.9, or PNG when
+ * it has transparency. The server refuses anything over 4096px, so this is
+ * the only way a camera-sized photo reaches the renderer.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
+import { chromium } from "playwright";
 import { createElement as h } from "react";
 import type { AspectRatio } from "@/lib/ai/image/types";
 import { canvasFor } from "@/lib/design/canvas";
@@ -33,9 +36,13 @@ import {
   rasterizeDocument,
 } from "@/lib/design/document/rasterize";
 import { designDocumentSchema } from "@/lib/design/document/schema";
+import {
+  measureSubject,
+  type SubjectBox,
+  subjectFromAlpha,
+} from "@/lib/design/document/subject";
 import { resolveLogoPlacement } from "@/lib/design/logo-placement";
 import { resolvePalette } from "@/lib/design/palette";
-import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
 import { loadBrandFonts } from "@/lib/design/render/fonts";
 import { probeLogo } from "@/lib/design/render/logo-probe";
@@ -62,30 +69,73 @@ interface Asset {
   contentType: string;
 }
 
-const MAX_EDGE = 2000;
+const LONG_EDGE = 2560;
+const JPEG_QUALITY = 0.9;
 
-async function downscale(
+const browser = await chromium.launch(
+  process.env.PLAYWRIGHT_CHROMIUM
+    ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM }
+    : {},
+);
+const page = await browser.newPage();
+
+/** The browser's upload normaliser, run in Chromium on the fixture bytes. */
+async function normalise(
   bytes: Uint8Array,
   contentType: string,
 ): Promise<Asset> {
-  const size = readImageDimensions(bytes);
-  if (!size) throw new Error("unreadable fixture");
-  const scale = Math.min(1, MAX_EDGE / Math.max(size.width, size.height));
-  if (scale === 1) return { bytes, contentType };
-  const width = Math.round(size.width * scale);
-  const height = Math.round(size.height * scale);
-  const src = `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`;
-  const response = new ImageResponse(
-    h(
-      "div",
-      { style: { display: "flex", width, height } },
-      h("img", { src, width, height }),
-    ),
-    { width, height },
+  const result = await page.evaluate(
+    async ({ base64, type, longEdge, quality }) => {
+      const blob = await (await fetch(`data:${type};base64,${base64}`)).blob();
+      const bitmap = await createImageBitmap(blob);
+      const scale = Math.min(
+        1,
+        longEdge / Math.max(bitmap.width, bitmap.height),
+      );
+      const width = Math.round(bitmap.width * scale);
+      const height = Math.round(bitmap.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const { data } = ctx.getImageData(0, 0, width, height);
+      let transparent = false;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] < 255) {
+          transparent = true;
+          break;
+        }
+      }
+      if (!transparent) {
+        ctx.globalCompositeOperation = "destination-over";
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+      }
+      const out = transparent ? "image/png" : "image/jpeg";
+      const encoded = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, out, quality),
+      );
+      if (!encoded) throw new Error("encode failed");
+      const buffer = new Uint8Array(await encoded.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < buffer.length; i += 0x8000) {
+        binary += String.fromCharCode(...buffer.subarray(i, i + 0x8000));
+      }
+      return { base64: btoa(binary), type: out };
+    },
+    {
+      base64: Buffer.from(bytes).toString("base64"),
+      type: contentType,
+      longEdge: LONG_EDGE,
+      quality: JPEG_QUALITY,
+    },
   );
   return {
-    bytes: new Uint8Array(await response.arrayBuffer()),
-    contentType: "image/png",
+    bytes: new Uint8Array(Buffer.from(result.base64, "base64")),
+    contentType: result.type,
   };
 }
 
@@ -187,6 +237,11 @@ async function wordmark(): Promise<Asset> {
   };
 }
 
+const SUBJECTS: Record<"cafe" | "portrait", SubjectBox> = {
+  cafe: { x: 0.29, y: 0.4, w: 0.53, h: 0.54 },
+  portrait: { x: 0.34, y: 0.27, w: 0.42, h: 0.34 },
+};
+
 const BRAND = {
   primaryColor: "#FFF4E6",
   secondaryColor: "#C2410C",
@@ -261,28 +316,68 @@ const RATIOS: Record<DesignSpec["layout"], AspectRatio[]> = {
 
 await mkdir(outDir, { recursive: true });
 
-const cutoutAsset: Asset = {
-  bytes: new Uint8Array(await readFile(join(fixturesDir, "cutout.png"))),
-  contentType: "image/png",
-};
-const images: Record<string, { key: string; asset: Asset } | null> = {
+const fixture = async (file: string, contentType = "image/jpeg") =>
+  normalise(
+    new Uint8Array(await readFile(join(fixturesDir, file))),
+    contentType,
+  );
+
+const cutoutAsset = await fixture("cutout.png", "image/png");
+
+interface Sample {
+  key: string;
+  asset: Asset;
+  /** Where the subject is, as shares of the image, supplied by hand the way
+   *  the generation job will pass the one it detects. */
+  subject?: SubjectBox;
+}
+
+/* Subject boxes measured by eye on the normalised fixtures: the espresso
+   machine on the cafe counter, the model's face and upper body. */
+const images: Record<string, Sample | null> = {
   photo: {
-    key: "design-images/samples/photo-a.png",
-    asset: await downscale(
-      new Uint8Array(await readFile(join(fixturesDir, "photo-a.jpg"))),
-      "image/jpeg",
-    ),
+    key: "design-images/samples/photo-a.jpg",
+    asset: await fixture("photo-a.jpg"),
   },
-  cutout: {
-    key: "design-images/samples/cutout.png",
-    asset: cutoutAsset,
-  },
+  cutout: { key: "design-images/samples/cutout.png", asset: cutoutAsset },
   none: null,
   darkphoto: {
     key: "design-images/samples/dark.png",
     asset: await darkPhoto(cutoutAsset),
   },
+  wall: {
+    key: "design-images/samples/photo-b.jpg",
+    asset: await fixture("photo-b.jpg"),
+  },
+  cafe: {
+    key: "design-images/samples/cafe.jpg",
+    asset: await fixture("busy-cafe-espresso.jpg"),
+    subject: SUBJECTS.cafe,
+  },
+  sky: {
+    key: "design-images/samples/sky.jpg",
+    asset: await fixture("sky-over-stone.jpg"),
+  },
+  portrait: {
+    key: "design-images/samples/portrait.jpg",
+    asset: await fixture("portrait-fashion.jpg"),
+    subject: SUBJECTS.portrait,
+  },
+  storefront: {
+    key: "design-images/samples/storefront.jpg",
+    asset: await fixture("busy-storefront-24mp.jpg"),
+  },
 };
+await browser.close();
+await mkdir(join(outDir, "_inputs"), { recursive: true });
+for (const [name, image] of Object.entries(images)) {
+  if (!image) continue;
+  const extension = image.asset.contentType === "image/png" ? "png" : "jpg";
+  await writeFile(
+    join(outDir, "_inputs", `${name}.${extension}`),
+    image.asset.bytes,
+  );
+}
 const facts = Object.fromEntries(
   await Promise.all(
     Object.entries(images).map(async ([name, image]) => [
@@ -291,6 +386,19 @@ const facts = Object.fromEntries(
     ]),
   ),
 );
+
+/* The dark photo is the cut-out drawn 1000px square at x 250 of a 1500px
+   wide frame, so its subject is the cut-out's alpha bounds moved there. */
+const cutoutFacts = facts.cutout;
+if (images.darkphoto && cutoutFacts) {
+  const alpha = subjectFromAlpha(cutoutFacts);
+  images.darkphoto.subject = {
+    x: (250 + alpha.x * 1000) / 1500,
+    y: alpha.y,
+    w: (alpha.w * 1000) / 1500,
+    h: alpha.h,
+  };
+}
 
 const logoAsset = await wordmark();
 const logoProbe = await probeLogo(logoAsset);
@@ -304,9 +412,10 @@ for (const layout of DESIGN_LAYOUTS) {
     if (ratio === "4:5") variants.push(["_worst", WORST]);
     for (const [suffix, copy] of variants) {
       for (const [imageName, image] of Object.entries(images)) {
-        /* The dark photo is an addition to round 1's matrix; it is not
-           repeated with worst-case copy, which the other three cover. */
-        if (imageName === "darkphoto" && suffix) continue;
+        /* Worst-case copy runs on the round-1 images only; the photos added
+           since test the picture, not the copy. */
+        if (suffix && !["photo", "cutout", "none"].includes(imageName))
+          continue;
         const spec = specFor(layout, ratio, copy);
         const name = `${layout}_${ratio.replace(":", "x")}_${imageName}${suffix}`;
         if (!name.includes(only)) continue;
@@ -327,9 +436,18 @@ for (const layout of DESIGN_LAYOUTS) {
           canvas: canvasFor(ratio),
           image: image ? { key: image.key } : null,
           imageFacts: facts[imageName],
+          subject: image?.subject ?? null,
           logo: { asset: { key: LOGO_KEY }, aspect: logoProbe.aspect },
           measurer,
         });
+        const imageFacts = facts[imageName];
+        const subjectBox =
+          image?.subject ??
+          (imageFacts?.cutout ? subjectFromAlpha(imageFacts) : null);
+        const subjectReport =
+          imageFacts && subjectBox
+            ? measureSubject(build.document, imageFacts, subjectBox)
+            : null;
         const doc = designDocumentSchema.parse(build.document);
         const built = performance.now();
         const assets = {
@@ -391,6 +509,13 @@ for (const layout of DESIGN_LAYOUTS) {
           rasterMs: Math.round(done - built),
           probes: measurer.probes(),
           copyFault: build.copyFault,
+          subjectFault: build.subjectFault,
+          subject: subjectReport && {
+            ok: subjectReport.ok,
+            edgeShare: Math.round(subjectReport.edgeShare * 100) / 100,
+            visibleShare: Math.round(subjectReport.visibleShare * 1000) / 1000,
+            overlaps: subjectReport.overlaps.map((o) => o.id),
+          },
           logoFault: rendered.logoFault,
           flexLogoFault: flex.logoFault,
           contrastPct: contrast,

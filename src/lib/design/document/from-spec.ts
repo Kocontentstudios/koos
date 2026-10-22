@@ -20,6 +20,19 @@ import { splitLeft } from "./builders/split-left";
 import { statHighlight } from "./builders/stat-highlight";
 import type { TextMeasurer } from "./fit";
 import { type AssetRef, type DesignDocument, DOCUMENT_VERSION } from "./schema";
+import {
+  isSubjectBox,
+  SUBJECT_COVERED,
+  SUBJECT_CROPPED,
+  type SubjectBox,
+  subjectFromAlpha,
+} from "./subject";
+import {
+  DocumentTextFault,
+  normalizeText,
+  type TextFault,
+  textFault,
+} from "./text-safety";
 
 /**
  * Builds a layer document from a DesignSpec, one builder per flex layout
@@ -55,10 +68,15 @@ export interface DocumentFromSpecInput {
   canvas: Canvas;
   image: AssetRef | null;
   /** measureImage(bytes) for `image`. Without it a photo is veiled for the
-   *  worst case and a cut-out is cropped like a photo, as in round 1. */
+   *  worst case and a cut-out is cropped like a photo. */
   imageFacts?: ImageFacts | null;
   logo: DocumentLogoInput | null;
   measurer: TextMeasurer;
+  /** Where the subject is in the image, as shares of it (subject.ts). Every
+   *  layout keeps copy and decoration off it and draws it whole and large.
+   *  A cut-out's comes from its alpha channel when not given; a photograph
+   *  without one is laid out as before, with nothing to keep clear. */
+  subject?: SubjectBox | null;
 }
 
 export interface DocumentBuild {
@@ -68,6 +86,49 @@ export interface DocumentBuild {
    *  legibility floor. The most severe one. The design is still drawn; the
    *  user is told so they can shorten the copy. */
   copyFault: string | null;
+  /** Set when no arrangement of the layout keeps the copy off the subject
+   *  (SUBJECT_COVERED) or shows it whole at its minimum size
+   *  (SUBJECT_CROPPED). The design is still drawn. */
+  subjectFault: string | null;
+}
+
+/** The copy fields a document draws, normalised (NFC). */
+function normalizedCopy(spec: DesignSpec): DesignSpec {
+  return {
+    ...spec,
+    headline: normalizeText(spec.headline),
+    subheadline:
+      spec.subheadline === undefined
+        ? undefined
+        : normalizeText(spec.subheadline),
+    cta: spec.cta === undefined ? undefined : normalizeText(spec.cta),
+    footerLines: (spec.footerLines ?? []).map(normalizeText),
+  };
+}
+
+/**
+ * Why the spec's copy cannot be drawn, and in which field, or null.
+ *
+ * For the job to call before building: the message is written for the user
+ * (or for a correction prompt), and a spec that fails it never reaches the
+ * renderer. documentFromSpec raises the same fault as DocumentTextFault for
+ * a caller that skipped this.
+ */
+export function specTextFault(
+  spec: DesignSpec,
+): (TextFault & { field: string }) | null {
+  const copy = normalizedCopy(spec);
+  const fields: [string, string | undefined][] = [
+    ["headline", copy.headline],
+    ["subheadline", copy.subheadline],
+    ["cta", copy.cta],
+    ...copy.footerLines.map((line): [string, string] => ["footer", line]),
+  ];
+  for (const [field, text] of fields) {
+    const fault = text ? textFault(text) : null;
+    if (fault) return { ...fault, field };
+  }
+  return null;
 }
 
 const BUILDERS: Record<DesignSpec["layout"], (ctx: Context) => Promise<Built>> =
@@ -84,14 +145,61 @@ const BUILDERS: Record<DesignSpec["layout"], (ctx: Context) => Promise<Built>> =
 const FAULT_ORDER = [COPY_TOO_LONG, COPY_WORD_BROKEN, COPY_SHRUNK];
 
 export async function documentFromSpec({
-  spec,
+  spec: rawSpec,
   palette,
   canvas,
   image,
   imageFacts = null,
   logo,
   measurer,
+  subject = null,
 }: DocumentFromSpecInput): Promise<DocumentBuild> {
+  const refused = specTextFault(rawSpec);
+  if (refused) throw new DocumentTextFault(refused, refused.field);
+  const spec = normalizedCopy(rawSpec);
+  const subjectBox = !image
+    ? null
+    : isSubjectBox(subject)
+      ? subject
+      : imageFacts?.cutout
+        ? subjectFromAlpha(imageFacts)
+        : null;
+  const input = { palette, canvas, image, imageFacts, logo, measurer };
+  const first = await buildWith(spec, subjectBox, input);
+  /* The logo's corner is the one arrangement every layout shares. When the
+     subject sits under it, the mirrored corner is tried before the fault
+     stands. */
+  const mirrored = MIRRORED_CORNER[spec.logoPlacement];
+  if (!first.subjectFault || !logo || !mirrored) return first;
+  const other = await buildWith(
+    { ...spec, logoPlacement: mirrored },
+    subjectBox,
+    input,
+  );
+  return other.subjectFault ? first : other;
+}
+
+const MIRRORED_CORNER: Partial<
+  Record<DesignSpec["logoPlacement"], DesignSpec["logoPlacement"]>
+> = {
+  "top-left": "top-right",
+  "top-right": "top-left",
+  "bottom-left": "bottom-right",
+  "bottom-right": "bottom-left",
+};
+
+async function buildWith(
+  spec: DesignSpec,
+  subject: SubjectBox | null,
+  {
+    palette,
+    canvas,
+    image,
+    imageFacts,
+    logo,
+    measurer,
+  }: Omit<DocumentFromSpecInput, "spec" | "subject">,
+): Promise<DocumentBuild> {
   const ref = Math.min(canvas.width, canvas.height);
   const box =
     logo && spec.logoPlacement !== "none"
@@ -114,11 +222,13 @@ export async function documentFromSpec({
        a margin with the type. */
     margin: px(ref * 0.08),
     image,
-    imageFacts: image ? imageFacts : null,
+    imageFacts: image ? (imageFacts ?? null) : null,
+    subject,
     logo,
     logoBox: box ? rect(box.left, box.top, box.width, box.height) : null,
     measurer,
     faults: new Set(),
+    subjectFaults: new Set(),
   };
 
   const built = await (BUILDERS[spec.layout] ?? heroCenter)(ctx);
@@ -131,5 +241,9 @@ export async function documentFromSpec({
       elements: built.elements,
     },
     copyFault: FAULT_ORDER.find((fault) => ctx.faults.has(fault)) ?? null,
+    subjectFault:
+      [SUBJECT_COVERED, SUBJECT_CROPPED].find((fault) =>
+        ctx.subjectFaults.has(fault),
+      ) ?? null,
   };
 }

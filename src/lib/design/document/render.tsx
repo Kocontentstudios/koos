@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactElement } from "react";
+import { breakableText } from "./line-breaks";
 import type {
   ButtonElement,
   DesignDocument,
@@ -57,7 +58,7 @@ type TextLook = Pick<
  *
  * Plain greedy wrapping, the one line-breaking rule satori and Chromium
  * agree on. text-wrap: balance broke lines in different places in the two
- * engines (B5), so balancing is done by the builder instead, by narrowing
+ * engines, so balancing is done by the builder instead, by narrowing
  * the box (fit.ts balancedWidth).
  *
  * break-word, so a word wider than its box breaks rather than running out
@@ -75,6 +76,32 @@ const JUSTIFY = {
   center: "center",
   right: "flex-end",
 } as const;
+
+/**
+ * Satori applies no kerning and no ligatures. Chromium applies both by
+ * default, and kerning alone set 70 capital Ws 3% wider than satori did, so
+ * the editor wrapped a line the PNG did not. These turn
+ * them off in the browser; satori ignores them, which is what makes the two
+ * agree.
+ */
+export const SATORI_SHAPING = {
+  fontKerning: "none",
+  fontVariantLigatures: "none",
+} as const;
+
+/**
+ * The codepoints a browser must draw from its colour-emoji face for emoji
+ * to match satori, which draws every emoji sequence as one 1em picture.
+ *
+ * The joiners matter as much as the pictures: without U+200D, U+20E3 and
+ * the tag characters in the face's range the browser draws a family, a
+ * keycap or a subdivision flag as its separate parts, several pictures wide,
+ * and a headline the PNG sets on two lines wrapped to three (36px past its
+ * box at 4:5). Regional indicators (flags) and skin tones sit inside
+ * U+1F000-1FAFF.
+ */
+export const EMOJI_UNICODE_RANGE =
+  "U+00A9,U+00AE,U+200D,U+203C,U+2049,U+20E3,U+2122,U+2139,U+2190-2BFF,U+FE0F,U+1F000-1FAFF,U+E0020-E007F";
 
 /**
  * The narrowest line a run may break words on.
@@ -112,6 +139,7 @@ export function textRunStyle(
     color: look.color,
     wordBreak: breaksWords ? "break-word" : "normal",
     justifyContent: JUSTIFY[look.align],
+    ...SATORI_SHAPING,
   };
 }
 
@@ -239,7 +267,7 @@ function TextLayer({
       }}
     >
       <div style={textRunStyle(element, fonts, element.width)}>
-        {element.text}
+        {breakableText(element.text)}
       </div>
     </div>
   );
@@ -286,7 +314,7 @@ function ButtonLayer({
           maxWidth: labelWidth,
         }}
       >
-        {element.label}
+        {breakableText(element.label)}
       </div>
     </div>
   );

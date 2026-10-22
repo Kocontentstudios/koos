@@ -63,6 +63,13 @@ const SATORI_PROPERTIES = new Set([
   "color",
 ]);
 
+/* Browser-only, and only ever set to the value that makes the browser do
+   what satori already does (render.tsx SATORI_SHAPING). */
+const BROWSER_MATCHES_SATORI: Record<string, string> = {
+  fontKerning: "none",
+  fontVariantLigatures: "none",
+};
+
 const ASSETS = {
   [IMAGE.key]: "data:image/png;base64,AAAA",
   [LOGO.key]: "data:image/png;base64,BBBB",
@@ -123,6 +130,10 @@ describe("documentElement", () => {
         const style = (element.props as { style?: Record<string, unknown> })
           .style;
         for (const [property, value] of Object.entries(style ?? {})) {
+          if (property in BROWSER_MATCHES_SATORI) {
+            expect(value).toBe(BROWSER_MATCHES_SATORI[property]);
+            continue;
+          }
           expect(SATORI_PROPERTIES, property).toContain(property);
           const text = String(value);
           expect(text).not.toMatch(/calc\(|var\(|url\(|!important/);

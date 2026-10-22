@@ -3,12 +3,15 @@ import {
   balancedWidth,
   fitText,
   glyphOverhang,
+  hasOrphan,
+  inkOverhang,
   largestFitting,
   lineBox,
   lineCount,
   sizeRange,
   type TextLook,
   unbreakableRuns,
+  widthWithoutOrphan,
   wrapSlack,
   wrapWidth,
 } from "./fit";
@@ -365,5 +368,99 @@ describe("balancedWidth", () => {
       { height: 48, breaksWords: true },
     );
     expect(drawn).toBe(200);
+  });
+});
+
+/* A headline that ends on one word reads as a mistake ("Now In A / Bottle";
+   U3 live critique). The monospace measurer sets 10px per character at 20px
+   type, so line breaks can be worked out by hand. */
+describe("orphans", () => {
+  const text = "Fresh bread baked today in Lagos";
+  const twenty = look(20);
+
+  it("sees a last word alone on its line", async () => {
+    const measurer = monospaceMeasurer();
+    expect(await hasOrphan(measurer, text, twenty, 260)).toBe(true);
+    expect(await hasOrphan(measurer, text, twenty, 130)).toBe(false);
+    expect(await hasOrphan(measurer, text, twenty, 1000)).toBe(false);
+    expect(await hasOrphan(measurer, "Two words", twenty, 50)).toBe(false);
+  });
+
+  it("finds a width one line taller that ends on two words", async () => {
+    const measurer = monospaceMeasurer();
+    const fixed = await widthWithoutOrphan(
+      measurer,
+      text,
+      twenty,
+      260,
+      { height: 40, lines: 2 },
+      { maxHeight: 200, maxLines: 4, box: 260 },
+    );
+    expect(fixed?.lines).toBe(3);
+    expect(fixed?.height).toBe(60);
+    const width = fixed?.width ?? 0;
+    expect(await hasOrphan(measurer, text, twenty, width)).toBe(false);
+    /* Narrowed by the wrap slack Chromium needs, it still breaks the same. */
+    expect(await measurer.height(text, twenty, width - wrapSlack(260))).toBe(
+      60,
+    );
+  });
+
+  it("keeps the orphan rather than break the line or height limits", async () => {
+    const measurer = monospaceMeasurer();
+    const limits = { maxHeight: 200, maxLines: 2, box: 260 };
+    expect(
+      await widthWithoutOrphan(
+        measurer,
+        text,
+        twenty,
+        260,
+        { height: 40, lines: 2 },
+        limits,
+      ),
+    ).toBeNull();
+    expect(
+      await widthWithoutOrphan(
+        measurer,
+        text,
+        twenty,
+        260,
+        { height: 40, lines: 2 },
+        { ...limits, maxLines: 3, maxHeight: 50 },
+      ),
+    ).toBeNull();
+  });
+
+  it("leaves a run without an orphan alone", async () => {
+    expect(
+      await widthWithoutOrphan(
+        monospaceMeasurer(),
+        text,
+        twenty,
+        130,
+        { height: 60, lines: 3 },
+        { maxHeight: 200, maxLines: 4, box: 130 },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("inkOverhang", () => {
+  it("is glyphOverhang when the measurer cannot see ink", async () => {
+    const floor = glyphOverhang(look(100));
+    expect(await inkOverhang(monospaceMeasurer(), "Ẫ", look(100))).toEqual({
+      above: floor,
+      below: floor,
+    });
+  });
+
+  it("covers the measured reach of stacked marks, one pixel past it", async () => {
+    const measurer = {
+      ...monospaceMeasurer(),
+      inkExtent: async () => ({ above: 17.2, below: 0 }),
+    };
+    const extent = await inkOverhang(measurer, "Ẫ", look(100));
+    expect(extent.above).toBe(19);
+    expect(extent.below).toBe(glyphOverhang(look(100)));
   });
 });

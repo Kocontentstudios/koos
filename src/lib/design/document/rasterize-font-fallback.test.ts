@@ -10,12 +10,9 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
 const arrayBuffer = vi.fn();
 /* What is under test is what rasterizeDocument does when a render throws,
    which the real renderer will not do on demand. */
-vi.mock("next/og", () => ({
-  ImageResponse: class {
-    arrayBuffer() {
-      return arrayBuffer();
-    }
-  },
+vi.mock("@/lib/design/render/satori-pool", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/design/render/satori-pool")>()),
+  renderPng: async () => new Uint8Array(await arrayBuffer()),
 }));
 
 import {
