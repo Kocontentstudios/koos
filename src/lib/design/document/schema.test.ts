@@ -3,11 +3,15 @@ import { SUPPORTED_ASPECT_RATIOS } from "@/lib/ai/image/types";
 import { canvasFor } from "@/lib/design/canvas";
 import {
   type DesignDocument,
+  type DesignElement,
+  DOCUMENT_LIMITS,
   designDocumentSchema,
   isDocumentColor,
   isDocumentGradient,
   MAX_CANVAS_EDGE,
+  MAX_GRADIENT_STOPS,
 } from "./schema";
+import { worstCaseDocument } from "./testing-cost";
 
 const DOC: DesignDocument = {
   version: 1,
@@ -356,6 +360,8 @@ describe("document colours", () => {
     "url(https://evil.test/x.png)",
     "#12345",
     "rgba(0,0,0,2)",
+    "rgb(256, 0, 0)",
+    "rgba(0, 999, 0, 0.5)",
     "var(--brand)",
     "#fff; background: url(x)",
     "",
@@ -378,6 +384,10 @@ describe("document colours", () => {
     "linear-gradient(#000)",
     "linear-gradient(to right, #000 0%, #fff 100%)",
     "linear-gradient(180deg, #000 0%, #fff calc(100% - 1px))",
+    `linear-gradient(90deg, ${Array.from(
+      { length: MAX_GRADIENT_STOPS + 1 },
+      (_, i) => `#000 ${i}%`,
+    ).join(", ")})`,
   ])("rejects %s", (value) => {
     expect(isDocumentGradient(value)).toBe(false);
   });
@@ -401,5 +411,101 @@ describe("document colours", () => {
       fill: "linear-gradient(180deg, #000 0%, #fff 100%), url(https://evil.test/a.png)",
     });
     expect(designDocumentSchema.safeParse(doc).success).toBe(false);
+  });
+});
+
+/* Each field was bounded and the render still was not: 200 valid shapes,
+   each a canvas-sized rotated gradient, took 59.5s. Cost is the sum over
+   elements, so the count is capped by type, by text role and in all. */
+describe("document cost caps", () => {
+  const shape = (i: number, fill = "#336699"): DesignElement => ({
+    id: `shape-${i}`,
+    name: "Shape",
+    type: "shape",
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+    rotation: 0,
+    opacity: 1,
+    hidden: false,
+    locked: false,
+    fill,
+    borderColor: "transparent",
+    borderWidth: 0,
+    radius: 0,
+  });
+  const text = (i: number, role: string): DesignElement =>
+    ({
+      ...DOC.elements[2],
+      id: `text-${i}`,
+      role,
+    }) as DesignElement;
+  const docOf = (elements: DesignElement[]) => ({ ...DOC, elements });
+
+  it("accepts the costliest document inside every cap", () => {
+    const worst = worstCaseDocument();
+    expect(designDocumentSchema.safeParse(worst).success).toBe(true);
+    expect(worst.elements).toHaveLength(DOCUMENT_LIMITS.elements);
+  });
+
+  it.each(Object.entries(DOCUMENT_LIMITS.byType))(
+    "holds at most %s %i elements of a type",
+    (type, max) => {
+      /* The last of its type in the worst document: a solid shape, not a
+         gradient, so only the count is under test. Text cycles through the
+         roles so no role cap is reached first. */
+      const one = worstCaseDocument()
+        .elements.filter((e) => e.type === type)
+        .at(-1) ?? { ...DOC.elements[4] };
+      const roles = Object.entries(DOCUMENT_LIMITS.byRole).flatMap(
+        ([role, cap]) => Array.from({ length: cap }, () => role),
+      );
+      const many = Array.from({ length: max + 1 }, (_, i) => ({
+        ...one,
+        id: `${type}-extra-${i}`,
+        ...(type === "text" ? { role: roles[i] } : {}),
+      })) as DesignElement[];
+      expect(designDocumentSchema.safeParse(docOf(many)).success).toBe(false);
+      expect(
+        designDocumentSchema.safeParse(docOf(many.slice(0, max))).success,
+      ).toBe(true);
+    },
+  );
+
+  it.each(Object.entries(DOCUMENT_LIMITS.byRole))(
+    "holds at most %s %i text runs of a role",
+    (role, max) => {
+      const runs = Array.from({ length: max + 1 }, (_, i) => text(i, role));
+      expect(designDocumentSchema.safeParse(docOf(runs)).success).toBe(false);
+      expect(
+        designDocumentSchema.safeParse(docOf(runs.slice(0, max))).success,
+      ).toBe(true);
+    },
+  );
+
+  it("holds at most the gradient cap across every fill", () => {
+    const gradient = "linear-gradient(180deg, #000000 0%, #FFFFFF 100%)";
+    const shapes = Array.from(
+      { length: DOCUMENT_LIMITS.gradients + 1 },
+      (_, i) => shape(i, gradient),
+    );
+    expect(designDocumentSchema.safeParse(docOf(shapes)).success).toBe(false);
+    expect(
+      designDocumentSchema.safeParse(
+        docOf(shapes.slice(0, DOCUMENT_LIMITS.gradients)),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("holds at most the element cap in all", () => {
+    expect(DOCUMENT_LIMITS.elements).toBeLessThan(
+      Object.values(DOCUMENT_LIMITS.byType).reduce((a, b) => a + b, 0),
+    );
+    const worst = worstCaseDocument();
+    const extra = { ...DOC.elements[4], id: "one-too-many" } as DesignElement;
+    expect(
+      designDocumentSchema.safeParse(docOf([...worst.elements, extra])).success,
+    ).toBe(false);
   });
 });

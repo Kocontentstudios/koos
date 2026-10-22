@@ -1,6 +1,11 @@
 import { contrastRatio, type ResolvedPalette } from "@/lib/design/palette";
 import type { DesignSpec } from "@/lib/design/spec";
-import { glyphOverhang, type TextLook, type TextMeasurer } from "../fit";
+import {
+  glyphOverhang,
+  type InkExtent,
+  type TextLook,
+  type TextMeasurer,
+} from "../fit";
 import type {
   AssetRef,
   DesignElement,
@@ -9,6 +14,7 @@ import type {
   TextElement,
   TextRole,
 } from "../schema";
+import type { SubjectBox } from "../subject";
 import type { ImageFacts, ImagePlacement, Rect } from "./ground";
 
 /**
@@ -40,11 +46,18 @@ export interface Context {
   /** Measured facts about the image, when the caller has its bytes. Without
    *  them a photo is treated as the worst ground and a cut-out as a photo. */
   imageFacts: ImageFacts | null;
+  /** The image's subject in image space: given by the caller, or a
+   *  cut-out's visible pixels. Null when nothing is known about it, and
+   *  then no layout can keep copy off it. */
+  subject: SubjectBox | null;
   logoBox: Rect | null;
   logo: DocumentLogoInput | null;
   measurer: TextMeasurer;
   /** Quality faults raised while building, for the caller to report. */
   faults: Set<string>;
+  /** Raised when a layout cannot keep its copy off the subject or show the
+   *  subject whole at SUBJECT_MIN_SHARE (subject.ts). */
+  subjectFaults: Set<string>;
 }
 
 export const WHITE = "#FFFFFF";
@@ -148,10 +161,14 @@ export function textElement(
   look: TextLook,
   color: string,
   content: Rect,
+  /** Measured reach of the glyphs past the layout box (fit.ts inkOverhang).
+   *  Without it, glyphOverhang's allowance on both sides. */
+  ink?: InkExtent,
 ): TextElement {
   /* The element is the laid-out box plus room for glyphs that overshoot it,
-     so the ink, not just the layout, stays inside the element. */
-  const overhang = glyphOverhang(look);
+     so the ink, not just the layout, stays inside the element. The same room
+     on both sides, because the renderer centres the run in its element. */
+  const overhang = ink ? Math.max(ink.above, ink.below) : glyphOverhang(look);
   return {
     ...base(id, name, {
       x: content.x,

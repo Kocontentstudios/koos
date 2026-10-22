@@ -3,7 +3,7 @@ import {
   footerLinesFor,
   hasFooter,
 } from "@/lib/design/render/footer";
-import { fitText, lineBox, wrapWidth } from "../fit";
+import { fitText, inkOverhang, lineBox, wrapWidth } from "../fit";
 import type { DesignElement, TextElement } from "../schema";
 import {
   COPY_WORD_BROKEN,
@@ -104,6 +104,9 @@ export async function footer(
       ),
     );
   }
+  const inks = await Promise.all(
+    lines.map((line) => inkOverhang(measurer, line, look)),
+  );
   let y = px(textTop);
   lines.forEach((line, index) => {
     elements.push(
@@ -115,6 +118,7 @@ export async function footer(
         look,
         color,
         { x: band.x, y, width: band.width, height: heights[index] },
+        inks[index],
       ),
     );
     y += heights[index] + lineGap;

@@ -1,8 +1,15 @@
-import { ImageResponse } from "next/og";
 import type { ReactElement } from "react";
 import type { LoadedFont } from "@/lib/design/render/fonts";
+import { renderPng } from "@/lib/design/render/satori-pool";
 import { decodePngRgba } from "@/lib/images/png-pixels";
-import { type TextLook, type TextMeasurer, unbreakableRuns } from "./fit";
+import {
+  type InkExtent,
+  lineBox,
+  type TextLook,
+  type TextMeasurer,
+  unbreakableRuns,
+} from "./fit";
+import { breakableText } from "./line-breaks";
 import { textRunStyle } from "./render";
 
 /**
@@ -26,6 +33,47 @@ const MARKER = 4;
 /** Taller than any canvas the app renders, so a run that cannot fit reads as
  *  "too tall" rather than being cut short and mistaken for fitting. */
 const MAX_PROBE = 8000;
+/** A probe is a few milliseconds of work. One that runs for seconds is a
+ *  run satori cannot lay out, and waiting the full render limit for it would
+ *  only delay the fault. */
+const PROBE_LIMIT_MS = 10_000;
+
+/** A probe canvas wider than this costs more to rasterise than it tells. */
+const MAX_INK_PROBE_WIDTH = 6000;
+
+/** Any pixel visibly off white is ink: an antialiased mark tip is faint, and
+ *  emoji are colour pictures, not black glyphs. */
+function isInk(pixels: Uint8Array, at: number): boolean {
+  return Math.min(pixels[at], pixels[at + 1], pixels[at + 2]) < 235;
+}
+
+let graphemes: Intl.Segmenter | null = null;
+
+/** The distinct graphemes of `text`, in groups short enough to set on one
+ *  line of a probe. Vertical reach depends only on which glyphs occur, so
+ *  each glyph is drawn once. */
+function glyphGroups(text: string, look: TextLook): string[] {
+  graphemes ??= new Intl.Segmenter("en", { granularity: "grapheme" });
+  const unique = Array.from(
+    new Set(
+      Array.from(graphemes.segment(text), ({ segment }) => segment).filter(
+        (segment) => segment.trim(),
+      ),
+    ),
+  );
+  /* Generous per-glyph width so a group never runs off its probe; widest
+     glyphs (W, emoji, CJK) advance about 1.2em plus tracking. */
+  const perGlyph = look.fontSize * (1.4 + Math.max(0, look.letterSpacing));
+  const perGroup = Math.max(
+    1,
+    Math.floor((MAX_INK_PROBE_WIDTH - look.fontSize * 4) / perGlyph),
+  );
+  const groups: string[] = [];
+  for (let i = 0; i < unique.length; i += perGroup) {
+    groups.push(unique.slice(i, i + perGroup).join(""));
+  }
+  return groups;
+}
 
 function isMarker(pixels: Uint8Array, at: number): boolean {
   return pixels[at] > 200 && pixels[at + 1] < 60 && pixels[at + 2] < 60;
@@ -63,36 +111,18 @@ export interface RendererMeasurer extends TextMeasurer {
 export function createRendererMeasurer({
   fonts,
 }: RendererMeasurerOptions): RendererMeasurer {
-  /* One array for every probe: satori caches parsed fonts per options
-     object, and re-parsing the faces on each probe would cost more than the
-     probe itself. */
-  const fontOptions =
-    fonts.length > 0
-      ? fonts.map((f) => ({
-          name: f.name,
-          data: f.data,
-          weight: f.weight,
-          style: f.style,
-        }))
-      : undefined;
-  const cache = new Map<string, Promise<number>>();
+  const cache = new Map<string, Promise<unknown>>();
   let rendered = 0;
 
-  async function probe(
+  async function probe<T>(
     element: ReactElement,
     size: { width: number; height: number },
-    read: (png: {
-      width: number;
-      height: number;
-      pixels: Uint8Array;
-    }) => number,
-  ): Promise<number> {
+    read: (png: { width: number; height: number; pixels: Uint8Array }) => T,
+  ): Promise<T> {
     rendered += 1;
-    const response = new ImageResponse(element, {
-      ...size,
-      ...(fontOptions ? { fonts: fontOptions } : {}),
-    });
-    const png = decodePngRgba(new Uint8Array(await response.arrayBuffer()));
+    const png = decodePngRgba(
+      await renderPng(element, size, fonts, { limitMs: PROBE_LIMIT_MS }),
+    );
     if (!png) throw new Error("Text probe did not produce a readable PNG");
     return read(png);
   }
@@ -120,8 +150,8 @@ export function createRendererMeasurer({
     return Number.POSITIVE_INFINITY;
   };
 
-  function memo(key: string, run: () => Promise<number>): Promise<number> {
-    const hit = cache.get(key);
+  function memo<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const hit = cache.get(key) as Promise<T> | undefined;
     if (hit) return hit;
     const pending = run();
     cache.set(key, pending);
@@ -156,7 +186,7 @@ export function createRendererMeasurer({
                 flexShrink: 0,
               }}
             >
-              <div style={runStyle(look, w)}>{text}</div>
+              <div style={runStyle(look, w)}>{breakableText(text)}</div>
             </div>
             {marker()}
           </div>,
@@ -186,7 +216,7 @@ export function createRendererMeasurer({
                 textWrap: "wrap",
               }}
             >
-              {text}
+              {breakableText(text)}
             </div>
             {marker()}
           </div>,
@@ -194,6 +224,72 @@ export function createRendererMeasurer({
           readAcross,
         ),
       );
+    },
+
+    inkExtent(text, look) {
+      const pad = Math.ceil(look.fontSize * 1.5);
+      const line = lineBox(look);
+      const groups = glyphGroups(text, look);
+      if (groups.length === 0) return Promise.resolve({ above: 0, below: 0 });
+      return memo(JSON.stringify(["ink", groups, look]), async () => {
+        let reach: InkExtent = { above: 0, below: 0 };
+        for (const group of groups) {
+          const width = Math.min(
+            MAX_INK_PROBE_WIDTH,
+            pad * 2 +
+              Math.ceil(
+                Array.from(group).length *
+                  look.fontSize *
+                  (1.4 + Math.max(0, look.letterSpacing)),
+              ),
+          );
+          const height = line + pad * 2;
+          const found = await probe(
+            <div
+              style={{
+                display: "flex",
+                width,
+                height,
+                backgroundColor: "#FFFFFF",
+                paddingTop: pad,
+                paddingLeft: pad,
+              }}
+            >
+              <div
+                style={{
+                  ...runStyle(look),
+                  whiteSpace: "nowrap",
+                  height: line,
+                }}
+              >
+                {group}
+              </div>
+            </div>,
+            { width, height },
+            (png): InkExtent | null => {
+              let top = Number.POSITIVE_INFINITY;
+              let bottom = Number.NEGATIVE_INFINITY;
+              for (let y = 0; y < png.height; y += 1) {
+                for (let x = 0; x < png.width; x += 1) {
+                  if (!isInk(png.pixels, (y * png.width + x) * 4)) continue;
+                  top = Math.min(top, y);
+                  bottom = Math.max(bottom, y + 1);
+                  break;
+                }
+              }
+              return Number.isFinite(top)
+                ? { above: pad - top, below: bottom - (pad + line) }
+                : null;
+            },
+          );
+          if (!found) continue;
+          reach = {
+            above: Math.max(reach.above, found.above),
+            below: Math.max(reach.below, found.below),
+          };
+        }
+        return reach;
+      });
     },
 
     widestWord(text, look) {

@@ -9,6 +9,7 @@ import { canvasFor } from "@/lib/design/canvas";
 import { loadBrandFonts } from "@/lib/design/render/fonts";
 import { decodePngRgba } from "@/lib/images/png-pixels";
 import {
+  CAPITALS,
   IMAGE,
   LAYOUTS,
   LOGO,
@@ -16,6 +17,7 @@ import {
   LONG_WORDS,
   OVERSHOOT,
   PALETTE,
+  PUNCTUATION,
   RATIOS,
   REALISTIC,
   SCRIPTS,
@@ -24,7 +26,7 @@ import {
 } from "./fixtures";
 import { documentFromSpec } from "./from-spec";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
-import { documentElement } from "./render";
+import { documentElement, EMOJI_UNICODE_RANGE } from "./render";
 import type { DesignDocument, DesignElement } from "./schema";
 import {
   type Box,
@@ -51,7 +53,7 @@ import { cacheOgAssets } from "./testing-og-assets";
  *
  * Glyphs the bundled faces lack come from fallback faces, and parity holds
  * only when both engines draw them in the same ones, which is what the
- * editor has to do too (spec, PR 2). satori draws CJK and Hebrew in the Noto
+ * editor has to do too (spec, PR 2). satori draws CJK in the Noto
  * faces next/og fetches from Google Fonts, and emoji as Twemoji images 1em
  * wide. Chromium here gets the same Noto faces and Noto Color Emoji sized
  * to a 1em advance, registered under the bundled family names so the
@@ -106,8 +108,11 @@ const CASES = [
   { name: "accented capitals", copy: OVERSHOOT, images: [null] },
   { name: "unbroken words", copy: LONG_WORDS, images: [null] },
   { name: "emoji", copy: SCRIPTS.emoji, images: [null] },
+  { name: "emoji sequences", copy: SCRIPTS.emojiSequences, images: [null] },
   { name: "cjk", copy: SCRIPTS.cjk, images: [null] },
-  { name: "rtl", copy: SCRIPTS.rtl, images: [null] },
+  { name: "vietnamese", copy: SCRIPTS.vietnamese, images: [null] },
+  { name: "capitals", copy: CAPITALS, images: [null] },
+  { name: "punctuation", copy: PUNCTUATION, images: [null] },
 ];
 
 const CHROME_UA =
@@ -155,17 +160,17 @@ async function fallbackFaces(): Promise<
   const cjk = charactersOf(
     /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303F\uFF00-\uFFEF]/u,
   );
-  const hebrew = charactersOf(/\p{Script=Hebrew}/u);
-  const emoji = charactersOf(/\p{Extended_Pictographic}/u);
+  const emoji = charactersOf(
+    /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20E3/u,
+  );
   return [
     {
       src: await googleFace("Noto+Sans+JP", cjk),
       range: "U+3000-30FF,U+4E00-9FFF,U+FF00-FFEF",
     },
-    { src: await googleFace("Noto+Sans+Hebrew", hebrew), range: "U+0590-05FF" },
     {
       src: await googleFace("Noto+Color+Emoji", emoji),
-      range: "U+2190-2BFF,U+FE0F,U+1F000-1FAFF",
+      range: EMOJI_UNICODE_RANGE,
       sizeAdjust: EMOJI_SIZE_ADJUST,
     },
   ];

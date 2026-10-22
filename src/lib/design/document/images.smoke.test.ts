@@ -257,7 +257,10 @@ describe("an image in a card layout", () => {
           expect(image.y + image.height, label).toBeLessThanOrEqual(
             card.y + card.height,
           );
-          expect(image.radius, label).toBe(card.radius);
+          /* A cut-out may sit in a room beside the logo, not in the card's
+             corners, so only a photograph takes the card's radius; the
+             pixel check below holds for both. */
+          if (name !== "cutout") expect(image.radius, label).toBe(card.radius);
           const parts: DesignDocument = {
             ...doc,
             elements: doc.elements.filter((e) => CARD_PARTS.has(e.id)),

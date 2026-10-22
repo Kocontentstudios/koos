@@ -1,5 +1,6 @@
 import { BANNER_BAND } from "@/lib/design/render/copy-fit";
 import type { DesignElement } from "../schema";
+import { SUBJECT_CROPPED } from "../subject";
 import {
   type Built,
   type Context,
@@ -17,7 +18,7 @@ import {
   zonesAvoidingLogo,
 } from "./copy-stack";
 import { footer } from "./footer";
-import { framedImage } from "./image";
+import { framedImage, isCutout, minSubjectHeight, subjectGap } from "./image";
 import { accentField, copyBottom, flatColors, footerColorOn } from "./shared";
 
 /**
@@ -57,7 +58,15 @@ export async function bannerBottom(ctx: Context): Promise<Built> {
   };
   let maxBand = height * BANNER_BAND.max;
   let stack = await stackIn(BANNER_BAND.max);
-  if (stack.faults.length > 0) {
+  /* A taller band takes its height from the picture; with a subject to
+     keep at its minimum size, the copy shrinks instead (a copy fault)
+     before the subject would. */
+  const subjectKeepsRoom =
+    !ctx.image ||
+    (!isCutout(ctx) && !ctx.subject) ||
+    height * (1 - BANNER_OVERFLOW) - margin >=
+      minSubjectHeight(ctx) + subjectGap(ctx);
+  if (stack.faults.length > 0 && subjectKeepsRoom) {
     const roomier = await stackIn(BANNER_OVERFLOW);
     if (stackQuality(roomier) > stackQuality(stack)) {
       stack = roomier;
@@ -85,10 +94,10 @@ export async function bannerBottom(ctx: Context): Promise<Built> {
      subject from the rule, and a second one left a gap that read as a
      missing element. */
   const framed = framedImage(ctx, top, {
-    top: margin,
-    bottom: 0,
-    sides: margin,
+    insets: { top: margin, bottom: 0, sides: margin },
+    inset: true,
   });
+  if (framed && !framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
   const elements: DesignElement[] = [
     framed
       ? framed.element

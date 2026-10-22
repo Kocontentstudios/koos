@@ -159,7 +159,7 @@ export function monospaceMeasurer(): TextMeasurer & { calls: number } {
 
 /**
  * Generated photographs and a cut-out, as real PNG bytes, for the image
- * handling tests: a near-white photo (the round-1 fixture that a fixed scrim
+ * handling tests: a near-white photo (the fixture that a fixed scrim
  * turned grey), a near-black one, a busy one that is half of each, and a
  * cut-out whose subject and soft shadow sit inside a transparent margin.
  */
@@ -213,7 +213,7 @@ export const CUTOUT_SUBJECT = {
 };
 
 /* Glyphs that reach furthest outside the line box: accented capitals above,
-   descenders below, on every line whatever the wrap (B8). */
+   descenders below, on every line whatever the wrap. */
 export const OVERSHOOT = {
   ...WORST_CASE,
   headline:
@@ -223,9 +223,9 @@ export const OVERSHOOT = {
   cta: "Réservez Égjpqy Ågjpqy Ügjpq Éjq",
 };
 
-/* B10: one unbroken word per role, at the schema limits. Round 1 drew the
-   subheadline 604px past its column; round 1's rival shrank the headline to
-   4px instead (B9). Both are wrong; the word must break at a readable size,
+/* One unbroken word per role, at the schema limits. An earlier builder drew the
+   subheadline 604px past its column; another shrank the headline to
+   4px instead. Both are wrong; the word must break at a readable size,
    with a fault. */
 export const LONG_WORDS = {
   ...WORST_CASE,
@@ -244,10 +244,21 @@ export const CAPITALS = {
   cta: "WWWWWWWWWW WWWWWWWWWW WWWWWWWWWW",
 };
 
+/* Digits, currency and quotation marks: no spaces to break at in the
+   headline, and quotes Chromium and satori once broke beside differently. */
+export const PUNCTUATION = {
+  ...WORST_CASE,
+  headline: "08035550142080355501420803555014208035550142—₦25,000,000.00!!!???",
+  subheadline:
+    "₦1,250,000 · ₦2,500,000 · ₦5,000,000 — 50%/75%/100% OFF «CROISSANTS» „PAIN“ ‘AU’ “CHOCOLAT” …… ——— ¡¿ÅÉÜ?! ẄẄẄẄ",
+  cta: "₦25,000 → ORDER NOW!!!",
+};
+
 for (const [name, copy] of Object.entries({
   OVERSHOOT,
   LONG_WORDS,
   CAPITALS,
+  PUNCTUATION,
 })) {
   if (
     copy.headline.length > 70 ||
@@ -270,8 +281,8 @@ const clamp = (text: string, max: number) => {
 };
 
 /* Copy the bundled faces do not cover, which next/og draws in fallback
-   faces (Twemoji, Noto) no local metrics table knows (B6, B7), and
-   right-to-left copy. */
+   faces (Twemoji, Noto) no local metrics table knows, and Vietnamese, whose
+   stacked capitals reach further above the cap height than Å or É. */
 export const SCRIPTS = {
   emoji: {
     ...WORST_CASE,
@@ -285,6 +296,20 @@ export const SCRIPTS = {
     ),
     cta: clamp("🛒 Order now 🥐🥐🥐 pickup 🎉", 32),
   },
+  /* Sequences: ZWJ families and professions, flags, skin tones, keycaps.
+     Each is one picture in satori and has to be one in the browser too. */
+  emojiSequences: {
+    ...WORST_CASE,
+    headline: clamp(
+      "👨‍👩‍👧‍👦 Family box 🇳🇬🇳🇬 👍🏾👍🏿 1️⃣ deal 🧑🏽‍🍳 baked 🏳️‍🌈 today",
+      70,
+    ),
+    subheadline: clamp(
+      "👩🏾‍🍳👨🏿‍🍳 bake 🥐 at dawn 🇳🇬 for every 👨‍👩‍👧‍👦 in Lekki 🏖️ 👍🏾 order 1️⃣2️⃣ boxes 🧑🏽‍🤝‍🧑🏿 share ❤️‍🔥 now 🫶🏾🫶🏾 💯",
+      140,
+    ),
+    cta: clamp("🛒👨‍👩‍👧‍👦🇳🇬 Order 👍🏾", 32),
+  },
   cjk: {
     ...WORST_CASE,
     headline: clamp(
@@ -297,19 +322,32 @@ export const SCRIPTS = {
     ),
     cta: clamp("今すぐ週末ボックスを予約する。店頭受け取りのみ。", 32),
   },
-  /* Hebrew, not Arabic: next/og cannot draw Arabic at all (its fallback
-     face uses a contextual substitution satori does not implement, and the
-     render throws), with this renderer or the flex one. */
-  rtl: {
+  vietnamese: {
     ...WORST_CASE,
     headline: clamp(
-      "קרואסונים טריים נאפים לפני הזריחה בכל בוקר, הזמינו את קופסת סוף השבוע עכשיו",
+      "ẪỄỖẶẬ ỖNG BÀ ẤM ÁP Ỹ Ỷ ỢỪỮ ẶC BIỆT BÁNH MÌ NƯỚNG GIÒN RỤM ĐẶT NGAY",
       70,
     ),
     subheadline: clamp(
-      "קרואסון חמאה, שקדים אפוי פעמיים, לחמניית שוקולד ועוגת העונה, כולם נאפים טריים עם שחר ונארזים מוכנים לאיסוף מהחנות בלקי בכל יום משבע בבוקר",
+      "Bánh sừng bò Ặc Biệt, ỗ bánh mì Ỗng Bà Ấm Áp nướng giòn mỗi sáng. Ẫm thực Ữ Ừ Ợ Ỷ Ỹ Ễ Ẫ Ỗ Ặ Ậ Ấ Ầ Ẩ Ắ Ằ Ẳ Ẵ Ế Ề Ể Ố Ồ Ổ Ớ Ờ Ở Ỡ Ứ Ừ Ử Ữ Ự gặp",
       140,
     ),
-    cta: clamp("הזמינו את הקופסה שלכם לאיסוף", 32),
+    cta: clamp("ĐẶT HÀNG NGAY ỖNG BÀ ẪỄỖẶẬ", 32),
   },
 };
+
+/* Copy the renderer cannot draw correctly, each refused by text-safety.ts
+   with the fault named. */
+export const REFUSED_COPY = {
+  arabic: [
+    "كرواسون طازج يخبز قبل شروق الشمس كل صباح",
+    "TEXT_SCRIPT_UNSUPPORTED",
+  ],
+  hebrew: ["קרואסונים טריים נאפים לפני הזריחה", "TEXT_SCRIPT_UNSUPPORTED"],
+  devanagari: ["ताज़ा क्रोइसां, अभी ऑर्डर करें", "TEXT_SCRIPT_UNSUPPORTED"],
+  thai: ["ครัวซองต์สดใหม่ น้ำ ปั้น", "TEXT_SCRIPT_UNSUPPORTED"],
+  khmer: ["នំក្រូសង់ស្រស់ៗ", "TEXT_SCRIPT_UNSUPPORTED"],
+  yoruba: ["Ọ̀rọ̀ ẹ̀kọ́ fún gbogbo ènìyàn", "TEXT_ACCENT_UNSUPPORTED"],
+  zalgo: ["Ẕ̷̢̛͓̳̦͍̞̓̍͛ạ̶̛̞̖̫̺̓͒͑͝l̸̢̰̼̺͒̈́̾g̵̡̛̱̘̈́̃̓ọ̴̡͚̺̊͗̕ fresh croissants", "TEXT_CLUSTER_TOO_COMPLEX"],
+  bidiOverride: ["Fresh \u202Esnossiorc\u202C today", "TEXT_CONTROL_CHARACTER"],
+} as const;

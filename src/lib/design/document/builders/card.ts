@@ -1,5 +1,6 @@
 import { contrastRatio, mixToward } from "@/lib/design/palette";
 import type { DesignElement } from "../schema";
+import { SUBJECT_COVERED, SUBJECT_CROPPED } from "../subject";
 import {
   type Built,
   type Context,
@@ -10,6 +11,7 @@ import {
   shapeElement,
 } from "./context";
 import {
+  boundsOf,
   type CopyColors,
   candidateStack,
   commitFaults,
@@ -24,7 +26,9 @@ import {
   accentOn,
   framedImage,
   isCutout,
+  minSubjectHeight,
   samplesUnder,
+  subjectGap,
   veiled,
   veilFor,
 } from "./image";
@@ -33,7 +37,6 @@ import {
   copyBottom,
   flatColors,
   footerColorOn,
-  MIN_SUBJECT_SHARE,
   scrimFor,
 } from "./shared";
 
@@ -44,7 +47,7 @@ import {
  * rounded corners; the canvas around the card is a flat ground. Round 1 laid
  * the card over a full-bleed image, so a cut-out's plate stuck out past the
  * card's border with its ragged alpha edge, and the card covered the very
- * subject it was chosen for (U3 live critique). A cut-out sits whole in the
+ * subject it was chosen for. A cut-out sits whole in the
  * top of the card with the copy below it; a photograph fills the card with
  * the copy anchored low over a veil measured for it. Without an image the
  * card hugs its copy on a ground it can be seen against.
@@ -96,11 +99,18 @@ export async function card(
     foot,
   };
   if (!ctx.image) return flatCard(ctx, frame);
-  if (isCutout(ctx)) {
-    const above = await subjectAboveCopy(ctx, frame);
-    if (above) return above;
-  }
-  return photoCard(ctx, frame);
+  if (isCutout(ctx)) return subjectAboveCopy(ctx, frame);
+  if (!ctx.subject) return photoCard(ctx, frame, "end");
+  /* A photograph with a known subject: the copy low over it, then high,
+     then the subject in the top of the card above the copy; the first that
+     keeps the copy off the subject and the subject whole and large. */
+  const placed =
+    (await photoCard(ctx, frame, "end", true)) ??
+    (await photoCard(ctx, frame, "start", true)) ??
+    (await subjectAboveCopy(ctx, frame, true));
+  if (placed) return placed;
+  ctx.subjectFaults.add(SUBJECT_COVERED);
+  return photoCard(ctx, frame, "end");
 }
 
 function flatCardColors(ctx: Context, variant: "quote" | "stat"): CopyColors {
@@ -145,75 +155,114 @@ async function flatCard(ctx: Context, frame: CardFrame): Promise<Built> {
 }
 
 /**
- * A cut-out whole in the top of the card, the copy in the lower part.
+ * The subject whole in the top of the card, the copy in the lower part.
  *
  * The copy gets the least room it fits in cleanly, trying the larger
- * subject shares first. Null when no share leaves both clean copy and a
- * subject worth drawing; the caller then contains the subject in the whole
- * card with the copy over it.
+ * subject shares first, but never so much that the subject falls below its
+ * minimum size: copy that has to shrink for that is reported as a copy
+ * fault. The copy is never laid over the subject, which is what earlier
+ * cards did when the copy did not fit, turning a cream card grey and the
+ * product into an 18% thumbnail. With `strict`, null
+ * unless the subject is placed clean.
  */
 async function subjectAboveCopy(
   ctx: Context,
   frame: CardFrame,
+  strict: true,
+): Promise<Built | null>;
+async function subjectAboveCopy(ctx: Context, frame: CardFrame): Promise<Built>;
+async function subjectAboveCopy(
+  ctx: Context,
+  frame: CardFrame,
+  strict = false,
 ): Promise<Built | null> {
   const { region, pad } = frame;
+  const gap = subjectGap(ctx);
+  const leastTop = region.y + pad + minSubjectHeight(ctx) + gap * 2;
+  let stack: Stack | null = null;
   for (const share of CUTOUT_SHARES) {
-    const lowerTop = px(ctx.height * share);
+    const lowerTop = Math.max(px(ctx.height * share), leastTop);
     const lower = rect(
       region.x,
       lowerTop,
       region.width,
       region.y + region.height - lowerTop,
     );
-    const stack = await stackOnCard(
+    stack = await stackOnCard(
       ctx,
       frame,
       lower,
       flatCardColors(ctx, frame.variant),
       "end",
     );
-    if (stack.faults.length > 0) continue;
-    const subjectBottom = stack.top - px(ctx.ref * 0.03);
-    if (subjectBottom - region.y - pad < ctx.height * MIN_SUBJECT_SHARE) {
-      return null;
-    }
-    const framed = framedImage(
-      ctx,
-      rect(region.x, region.y, region.width, subjectBottom - region.y),
-      { top: pad, bottom: 0, sides: pad },
-    );
-    const elements: DesignElement[] = [cardShape(ctx, frame, region)];
-    if (framed) elements.push({ ...framed.element, radius: frame.radius });
-    elements.push(...(await placeStack(stack)));
-    return finish(ctx, frame, elements);
+    if (stack.faults.length === 0) break;
   }
-  return null;
+  if (!stack) throw new Error("No subject share was tried");
+  const copy = await placeStack(stack);
+  const subjectBottom =
+    Math.min(stack.top, boundsOf(copy)?.y ?? stack.top) - px(ctx.ref * 0.03);
+  const framed = framedImage(
+    ctx,
+    rect(region.x, region.y, region.width, subjectBottom - region.y),
+    {
+      insets: { top: pad, bottom: 0, sides: pad },
+      keepOut: copyKeepOut(copy),
+      inset: true,
+    },
+  );
+  if (!framed || (strict && !framed.clean)) return null;
+  if (!framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
+  commitFaults(ctx, stack);
+  const elements: DesignElement[] = [
+    cardShape(ctx, frame, region),
+    /* A cut-out's frame may be a room beside the logo, not the card's top,
+       and the card already rounds the corners its transparent margin
+       shows; a photograph is clipped to them. */
+    { ...framed.element, radius: isCutout(ctx) ? 0 : frame.radius },
+    ...copy,
+  ];
+  return finish(ctx, frame, elements);
+}
+
+/** What the subject must stay out of: the copy as placed, quote mark and
+ *  rule included. */
+function copyKeepOut(copy: DesignElement[]): Rect[] {
+  const box = boundsOf(copy);
+  return box ? [box] : [];
 }
 
 /**
  * The image filling the card, clipped to its corners, with the copy
- * anchored low over the least veil its measured pixels need (ground.ts).
- * A cut-out that lands here is contained inside the card's padding, so it
- * is still whole; the copy then sits over it, veiled.
+ * anchored low ("end") or high ("start") over the least veil its measured
+ * pixels need (ground.ts). With a known subject the photo is placed so the
+ * subject stays clear of the copy; with `strict`, null when it cannot.
  */
-async function photoCard(ctx: Context, frame: CardFrame): Promise<Built> {
-  const { region, pad, radius, variant } = frame;
+async function photoCard(
+  ctx: Context,
+  frame: CardFrame,
+  vAlign: "start" | "end",
+  strict: true,
+): Promise<Built | null>;
+async function photoCard(
+  ctx: Context,
+  frame: CardFrame,
+  vAlign: "start" | "end",
+): Promise<Built>;
+async function photoCard(
+  ctx: Context,
+  frame: CardFrame,
+  vAlign: "start" | "end",
+  strict = false,
+): Promise<Built | null> {
+  const { region, radius, variant } = frame;
   const { palette, ref } = ctx;
-  const framed = framedImage(ctx, region, {
-    top: pad,
-    bottom: pad,
-    sides: pad,
-  });
-  const placement = framed?.placement ?? null;
-
   const stack = await stackOnCard(
     ctx,
     frame,
     region,
     flatCardColors(ctx, variant),
-    "end",
+    vAlign,
   );
-  commitFaults(ctx, stack);
   const copyTop = Math.max(region.y, stack.top - px(ref * 0.02));
   const copyRegion = rect(
     region.x,
@@ -221,7 +270,13 @@ async function photoCard(ctx: Context, frame: CardFrame): Promise<Built> {
     region.width,
     Math.min(region.y + region.height, stack.bottom + px(ref * 0.02)) - copyTop,
   );
-  /* The card's own fill is what a cut-out's transparent pixels show. */
+  const copy = await placeStack(stack);
+  const framed = framedImage(ctx, region, {
+    keepOut: [copyRegion, ...copyKeepOut(copy)],
+  });
+  if (!framed || (strict && !framed.clean)) return null;
+  commitFaults(ctx, stack);
+  const placement = framed.placement;
   const veil = veilFor(ctx, placement, copyRegion, palette.background);
   const face = veiled(
     samplesUnder(ctx, placement, copyRegion, palette.background),
@@ -232,12 +287,27 @@ async function photoCard(ctx: Context, frame: CardFrame): Promise<Built> {
 
   const elements: DesignElement[] = [
     shapeElement("card", "Card", region, palette.background, { radius }),
+    { ...framed.element, radius },
   ];
-  if (framed) elements.push({ ...framed.element, radius });
-  const scrim = scrimFor(region, stack.top, veil, radius);
+  const subject = framed.subject;
+  const scrim = scrimFor(
+    region,
+    vAlign === "end" ? stack.top : stack.bottom,
+    veil,
+    radius,
+    {
+      from: vAlign === "end" ? "bottom" : "top",
+      ...(subject
+        ? {
+            subjectEdge:
+              vAlign === "end" ? subject.y + subject.height : subject.y,
+          }
+        : {}),
+    },
+  );
   if (scrim) elements.push(scrim);
   if (variant === "stat") elements.push(cardEdge(ctx, frame, region));
-  elements.push(...colorCopy(await placeStack(stack), colors));
+  elements.push(...colorCopy(copy, colors));
   return finish(ctx, frame, elements);
 }
 
@@ -282,7 +352,7 @@ function stackOnCard(
   frame: CardFrame,
   region: Rect,
   colors: CopyColors,
-  vAlign: "center" | "end",
+  vAlign: "start" | "center" | "end",
 ): Promise<Stack> {
   const { pad, variant } = frame;
   /* Centred copy gives up the same room top and bottom to clear a corner

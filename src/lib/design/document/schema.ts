@@ -6,6 +6,7 @@ import {
   keyUnderPrefix,
   STORAGE_PREFIXES,
 } from "@/lib/storage-keys";
+import { normalizeText, textFault } from "./text-safety";
 
 /**
  * The layer document: a design as an absolutely positioned list of elements.
@@ -80,10 +81,20 @@ export const assetRefSchema = z
    `transparent` cover everything the builders and the palette emit. */
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const RGB =
-  /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$/i;
+  /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$/i;
+
+/* A channel past 255 is refused, not clamped: the browser and satori clamp
+   it the same way today, but a value that means nothing is a bug upstream
+   that should surface where it was written. */
+function isRgb(value: string): boolean {
+  const channels = RGB.exec(value);
+  return Boolean(
+    channels?.slice(1, 4).every((channel) => Number(channel) <= 255),
+  );
+}
 
 export function isDocumentColor(value: string): boolean {
-  return value === "transparent" || HEX.test(value) || RGB.test(value);
+  return value === "transparent" || HEX.test(value) || isRgb(value);
 }
 
 /* A gradient is checked stop by stop rather than with one regex over the
@@ -112,6 +123,9 @@ function splitTopLevel(input: string): string[] {
   return parts;
 }
 
+/** The builders use three; every stop is another band resvg rasterises. */
+export const MAX_GRADIENT_STOPS = 5;
+
 export function isDocumentGradient(value: string): boolean {
   const match = /^linear-gradient\((.*)\)$/i.exec(value.trim());
   if (!match) return false;
@@ -119,6 +133,7 @@ export function isDocumentGradient(value: string): boolean {
   if (parts.length < 3) return false;
   const [angle, ...stops] = parts;
   if (!ANGLE.test(angle)) return false;
+  if (stops.length > MAX_GRADIENT_STOPS) return false;
   return stops.every((stop) => {
     const lastSpace = stop.lastIndexOf(" ");
     const hasPosition =
@@ -139,6 +154,30 @@ const fill = z
     (value) => isDocumentColor(value) || isDocumentGradient(value),
     "Not a supported colour or linear-gradient",
   );
+
+/** Longest text run and button label. Spec copy is at most 140 characters;
+ *  the rest is room for body text typed in the editor. */
+export const MAX_TEXT_LENGTH = 600;
+export const MAX_LABEL_LENGTH = 100;
+
+/* Copy is normalised once, here, and refused when the renderer cannot draw
+   it correctly or could loop on it (text-safety.ts). */
+function documentText(max: number) {
+  return z
+    .string()
+    .max(max)
+    .transform(normalizeText)
+    .superRefine((text, issues) => {
+      const fault = textFault(text);
+      if (fault) {
+        issues.addIssue({
+          code: "custom",
+          message: fault.message,
+          params: { code: fault.code },
+        });
+      }
+    });
+}
 
 const baseElement = {
   id: z.string().min(1).max(64),
@@ -205,7 +244,7 @@ export const textElementSchema = z
   .object({
     ...baseElement,
     type: z.literal("text"),
-    text: z.string().max(2000),
+    text: documentText(MAX_TEXT_LENGTH),
     role: z.enum(TEXT_ROLES),
     font: z.enum(["heading", "body"]),
     fontSize,
@@ -224,7 +263,7 @@ export const buttonElementSchema = z
   .object({
     ...baseElement,
     type: z.literal("button"),
-    label: z.string().max(200),
+    label: documentText(MAX_LABEL_LENGTH),
     fill,
     color,
     radius: length,
@@ -252,6 +291,49 @@ export const designElementSchema = z.discriminatedUnion("type", [
   logoElementSchema,
 ]);
 
+/**
+ * What one document may hold, by type, by text role and in all.
+ *
+ * Bounding each field did not bound the render: 200 schema-valid shapes,
+ * each a canvas-sized rotated gradient, took 59.5s. Cost is the sum
+ * over elements, so the count is capped per type, and gradients, the
+ * costliest fill, are capped on their own. The builders use at most 5
+ * shapes, 6 text runs, 1 button, 1 image, 1 logo and 1 gradient; the room
+ * above that is for the editor. The worst document these caps allow
+ * rasterises in about 1.8s on a 10-core dev machine (testing-cost.ts,
+ * cost.smoke.test.ts).
+ */
+export const DOCUMENT_LIMITS = {
+  elements: 24,
+  byType: { image: 2, shape: 8, text: 12, button: 2, logo: 2 },
+  byRole: { headline: 2, subheadline: 2, cta: 2, footer: 3, body: 6 },
+  gradients: 2,
+} as const;
+
+function limitIssues(
+  elements: { type: string; role?: string; fill?: string }[],
+): string | null {
+  const count = (keep: (e: (typeof elements)[number]) => boolean) =>
+    elements.filter(keep).length;
+  for (const [type, max] of Object.entries(DOCUMENT_LIMITS.byType)) {
+    if (count((e) => e.type === type) > max) {
+      return `A design holds at most ${max} ${type} elements`;
+    }
+  }
+  for (const [role, max] of Object.entries(DOCUMENT_LIMITS.byRole)) {
+    if (count((e) => e.type === "text" && e.role === role) > max) {
+      return `A design holds at most ${max} ${role} text elements`;
+    }
+  }
+  if (
+    count((e) => Boolean(e.fill?.startsWith("linear-gradient"))) >
+    DOCUMENT_LIMITS.gradients
+  ) {
+    return `A design holds at most ${DOCUMENT_LIMITS.gradients} gradient fills`;
+  }
+  return null;
+}
+
 export const designDocumentSchema = z
   .object({
     version: z.literal(DOCUMENT_VERSION),
@@ -261,12 +343,16 @@ export const designDocumentSchema = z
     /** Array order is z-order: the first element is drawn at the bottom. */
     elements: z
       .array(designElementSchema)
-      .max(200)
+      .max(DOCUMENT_LIMITS.elements)
       .refine(
         (elements) =>
           new Set(elements.map((e) => e.id)).size === elements.length,
         "Element ids must be unique",
-      ),
+      )
+      .superRefine((elements, issues) => {
+        const message = limitIssues(elements);
+        if (message) issues.addIssue({ code: "custom", message });
+      }),
   })
   .strict()
   .refine(isDocumentCanvas, {

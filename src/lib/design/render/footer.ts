@@ -21,6 +21,10 @@ export interface FooterSpec {
    *  Optional only for callers that place the logo before the copy exists;
    *  every renderer passes the whole spec. */
   cta?: string;
+  /** The copy above the footer, so a footer item that only restates its
+   *  facts (the day, the time, the place) can be dropped. */
+  headline?: string;
+  subheadline?: string;
 }
 
 /** Three lines is the cap: a fourth turns a footer into a paragraph, which is
@@ -28,77 +32,142 @@ export interface FooterSpec {
 export const MAX_FOOTER_LINES = 3;
 
 export function footerLinesFor(spec: FooterSpec): string[] {
-  const cta = wordsOf(spec.cta ?? "");
+  const cta = tokensOf(spec.cta ?? "");
+  const above = new Set(
+    [spec.headline ?? "", spec.subheadline ?? ""].flatMap(tokensOf),
+  );
   return (spec.footerLines ?? [])
-    .map((line) => withoutCta(line.trim(), cta))
+    .map((line) => footerLine(line.trim(), cta, above))
     .filter(Boolean)
     .slice(0, MAX_FOOTER_LINES);
 }
 
-/* A separator between footer items, kept with the spaces around it so the
-   line can be rebuilt exactly. */
-const SEPARATOR = /(\s+[·|•–—]\s+)/;
-const CONNECTOR = /^(?:at|on|via|by|from|to|for|in)\s+/i;
+/* Separators between footer items, kept so the line can be rebuilt exactly:
+   middle dots, bullets and pipes with or without spaces, dashes and slashes
+   with spaces, and commas. A comma splits "crumbandco.ng, Order now, 0803..."
+   into items; "Shop 12, Admiralty Mall" splits too, harmlessly, because an
+   item is only ever removed whole. */
+const SEPARATOR = /(\s*[·•|]\s*|\s+[–—/-]\s+|,\s+)/;
+const CONNECTOR = /^(?:at|on|via|by|from|to|for|in|with)\s+/i;
+const EDGE_PUNCTUATION = /^[^\p{L}\p{N}@#₦$€£%]+|[^\p{L}\p{N}%]+$/gu;
 
-function wordsOf(text: string): string[] {
-  return text
+/** A token compared as a whole: lower case, edge punctuation off, times
+ *  written one way ("7 am", "7:00am" and "7am" are the same fact). */
+function normalToken(token: string): string {
+  return token
     .normalize("NFKC")
     .toLocaleLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
+    .replace(EDGE_PUNCTUATION, "")
+    .replace(/^(\d{1,2}):00(am|pm)$/, "$1$2");
+}
+
+function tokensOf(text: string): string[] {
+  return text
+    .normalize("NFKC")
+    .replace(/(\d)\s+(am|pm)\b/gi, "$1$2")
+    .split(/\s+/)
+    .map(normalToken)
     .filter(Boolean);
 }
 
-function hasRun(haystack: string[], needle: string[]): boolean {
+function indexOfRun(haystack: string[], needle: string[]): number {
   for (let i = 0; i + needle.length <= haystack.length; i += 1) {
-    if (needle.every((word, j) => haystack[i + j] === word)) return true;
+    if (needle.every((word, j) => haystack[i + j] === word)) return i;
   }
-  return false;
+  return -1;
+}
+
+/* What a reader cannot get anywhere else: a number (phone, price, time,
+   date, street number), an address on the web or in mail, or a proper noun
+   past the first word (a place, an event). An item carrying one of these is
+   information, and information is never deleted to avoid a repeat. */
+const CALENDAR =
+  /^(?:mon|tue|wed|thu|fri|sat|sun)(?:day|s|sday|nesday|rsday|urday)?$|^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?$/i;
+
+function isFact(raw: string, index: number): boolean {
+  const token = raw.replace(EDGE_PUNCTUATION, "");
+  if (/\p{N}/u.test(token)) return true;
+  if (CALENDAR.test(token)) return true;
+  if (/[@/]/.test(token) || /\p{L}\.\p{L}/u.test(token)) return true;
+  return index > 0 && /^\p{Lu}/u.test(token);
+}
+
+function factsOf(item: string): string[] {
+  return item
+    .normalize("NFKC")
+    .replace(/(\d)\s+(am|pm)\b/gi, "$1$2")
+    .split(/\s+/)
+    .filter((raw, index) => raw && isFact(raw, index))
+    .map(normalToken)
+    .filter(Boolean);
+}
+
+/** Starts a line that lost its first item with a capital, unless it starts
+ *  with an address ("hello@...", "crumbandco.ng") that must keep its case. */
+function capitalized(line: string): string {
+  const first = line.split(/\s+/)[0] ?? "";
+  if (/[@./:]/.test(first) || !/^\p{Ll}/u.test(line)) return line;
+  return line.charAt(0).toLocaleUpperCase() + line.slice(1);
 }
 
 /**
- * The footer line with every item that repeats the call to action removed.
+ * The footer line without the items that repeat the call to action or only
+ * restate the copy above it.
  *
  * The brief writer often puts the action in the footer as well ("Order now ·
- * 0803 555 0142" under an "Order now" button), and the design then says it
- * twice (U3 live critique). An item that is the CTA, part of it, or contains
- * it goes. An item that leads with the CTA keeps what follows ("Order on
- * WhatsApp: 0803..." keeps the number). A one-word overlap is not a repeat
- * unless it is the whole of both: a "Shop" button must not delete "Shop 12,
- * Admiralty Mall".
+ * 0803 555 0142" under an "Order now" button), and restates the subheadline's
+ * day and time, so the design says it twice. Per item:
+ *  - the CTA alone goes;
+ *  - an item led by the CTA keeps what follows ("Order on WhatsApp: 0803..."
+ *    keeps the number);
+ *  - an item that carries the CTA elsewhere goes only when it carries no
+ *    fact: "Call 0803 555 0142 to book a table" keeps the number, so it is
+ *    kept whole;
+ *  - an item whose facts all appear in the headline or subheadline goes.
+ * Tokens are compared whole, so "ORDER-NOW.ng" is a domain, not the CTA, and
+ * a one-word CTA never removes part of a longer item ("Shop" keeps "Shop 12").
  */
-function withoutCta(line: string, cta: string[]): string {
-  if (cta.length === 0) return line;
+function footerLine(line: string, cta: string[], above: Set<string>): string {
   const parts = line.split(SEPARATOR);
   const kept: string[] = [];
+  let lost = false;
   for (let i = 0; i < parts.length; i += 2) {
-    const item = itemWithoutCta(parts[i], cta);
+    const item = keptItem(parts[i], cta, above);
+    if (item !== parts[i].trim()) lost = true;
     if (!item) continue;
     if (kept.length > 0) kept.push(parts[i - 1]);
     kept.push(item);
   }
-  return kept.join("").trim();
+  const rebuilt = kept.join("").trim();
+  return lost ? capitalized(rebuilt) : rebuilt;
 }
 
-function itemWithoutCta(item: string, cta: string[]): string {
-  const words = wordsOf(item);
-  if (words.length === cta.length && hasRun(words, cta)) return "";
-  if (cta.length >= 2 && hasRun(words, cta)) {
-    /* wordsOf leaves only letters and digits, so the words need no
-       escaping. */
-    const lead = new RegExp(
-      `^[^\\p{L}\\p{N}]*${cta.join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}])[\\s:,–—-]*`,
-      "iu",
-    );
-    const normalized = item.normalize("NFKC");
-    const match = normalized.match(lead);
-    if (!match) return "";
-    const rest = normalized
-      .slice(match[0].length)
-      .replace(CONNECTOR, "")
-      .trim();
-    return wordsOf(rest).length > 0 ? rest : "";
+function keptItem(raw: string, cta: string[], above: Set<string>): string {
+  const item = raw.trim();
+  const tokens = tokensOf(item);
+  if (tokens.length === 0) return "";
+  const facts = factsOf(item);
+
+  if (cta.length > 0) {
+    if (tokens.length === cta.length && indexOfRun(tokens, cta) === 0) {
+      return "";
+    }
+    const at = cta.length >= 2 ? indexOfRun(tokens, cta) : -1;
+    if (at === 0) {
+      const words = item.split(/\s+/);
+      const rest = words
+        .slice(cta.length)
+        .join(" ")
+        .replace(/^[\s:,–—-]+/, "")
+        .replace(CONNECTOR, "")
+        .trim();
+      return tokensOf(rest).length > 0 ? keptItem(rest, [], above) : "";
+    }
+    if (at > 0 && facts.length === 0) return "";
+    if (tokens.length >= 2 && indexOfRun(cta, tokens) >= 0) return "";
   }
-  if (words.length >= 2 && hasRun(cta, words)) return "";
+
+  if (facts.length > 0 && facts.every((fact) => above.has(fact))) return "";
   return item;
 }
 
