@@ -21,8 +21,8 @@ export interface FooterSpec {
    *  Optional only for callers that place the logo before the copy exists;
    *  every renderer passes the whole spec. */
   cta?: string;
-  /** The copy above the footer, so a footer item that only restates its
-   *  facts (the day, the time, the place) can be dropped. */
+  /** The copy above the footer, so a footer item that repeats part of it
+   *  word for word (the day, the time) can be dropped. */
   headline?: string;
   subheadline?: string;
 }
@@ -33,11 +33,10 @@ export const MAX_FOOTER_LINES = 3;
 
 export function footerLinesFor(spec: FooterSpec): string[] {
   const cta = tokensOf(spec.cta ?? "");
-  const above = new Set(
-    [spec.headline ?? "", spec.subheadline ?? ""].flatMap(tokensOf),
-  );
+  const above = [spec.headline ?? "", spec.subheadline ?? ""].map(tokensOf);
   return (spec.footerLines ?? [])
-    .map((line) => footerLine(line.trim(), cta, above))
+    .filter((line) => !repeatsCopyAbove(line, above))
+    .map((line) => footerLine(line.trim(), cta))
     .filter(Boolean)
     .slice(0, MAX_FOOTER_LINES);
 }
@@ -49,6 +48,7 @@ export function footerLinesFor(spec: FooterSpec): string[] {
    item is only ever removed whole. */
 const SEPARATOR = /(\s*[·•|]\s*|\s+[–—/-]\s+|,\s+)/;
 const CONNECTOR = /^(?:at|on|via|by|from|to|for|in|with)\s+/i;
+const CLAUSE = /^(?:and|or|but|then|to|if|unless|until|while|except)\b/i;
 const EDGE_PUNCTUATION = /^[^\p{L}\p{N}@#₦$€£%]+|[^\p{L}\p{N}%]+$/gu;
 
 /** A token compared as a whole: lower case, edge punctuation off, times
@@ -80,7 +80,8 @@ function indexOfRun(haystack: string[], needle: string[]): number {
 /* What a reader cannot get anywhere else: a number (phone, price, time,
    date, street number), an address on the web or in mail, or a proper noun
    past the first word (a place, an event). An item carrying one of these is
-   information, and information is never deleted to avoid a repeat. */
+   information, and information is never deleted to avoid repeating the
+   CTA. */
 const CALENDAR =
   /^(?:mon|tue|wed|thu|fri|sat|sun)(?:day|s|sday|nesday|rsday|urday)?$|^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?$/i;
 
@@ -103,16 +104,19 @@ function factsOf(item: string): string[] {
 }
 
 /** Starts a line that lost its first item with a capital, unless it starts
- *  with an address ("hello@...", "crumbandco.ng") that must keep its case. */
+ *  with an address ("hello@...", "crumbandco.ng") or a name written in mixed
+ *  case ("iOS", "eBay") that must keep its case. */
 function capitalized(line: string): string {
   const first = line.split(/\s+/)[0] ?? "";
-  if (/[@./:]/.test(first) || !/^\p{Ll}/u.test(line)) return line;
+  if (/[@./:]/.test(first) || /\p{Lu}/u.test(first)) return line;
+  if (!/^\p{Ll}/u.test(line)) return line;
   return line.charAt(0).toLocaleUpperCase() + line.slice(1);
 }
 
 /**
- * The footer line without the items that repeat the call to action or only
- * restate the copy above it.
+ * The footer line without the items that repeat the call to action. A line
+ * the headline or subheadline already says word for word is dropped whole
+ * before this (repeatsCopyAbove).
  *
  * The brief writer often puts the action in the footer as well ("Order now ·
  * 0803 555 0142" under an "Order now" button), and restates the subheadline's
@@ -123,16 +127,29 @@ function capitalized(line: string): string {
  *  - an item that carries the CTA elsewhere goes only when it carries no
  *    fact: "Call 0803 555 0142 to book a table" keeps the number, so it is
  *    kept whole;
- *  - an item whose facts all appear in the headline or subheadline goes.
+ * Against the copy above, nothing short of a whole line is ever dropped:
+ * "Free delivery in Lekki" under "Now baking in Lekki" is an offer,
+ * "Mon–Sat 7am–6pm" under "Open 7am–6pm" a condition, "Not 20% off on
+ * cakes" an exclusion, and "Ikoyi" in "Lekki · Ikoyi · Victoria Island"
+ * under "Ikoyi pop-up" one of a list. A repeat costs a line; a deleted
+ * offer costs the client a sale.
  * Tokens are compared whole, so "ORDER-NOW.ng" is a domain, not the CTA, and
  * a one-word CTA never removes part of a longer item ("Shop" keeps "Shop 12").
  */
-function footerLine(line: string, cta: string[], above: Set<string>): string {
+/** The whole line appears word for word in the headline or subheadline. */
+function repeatsCopyAbove(line: string, above: string[][]): boolean {
+  const tokens = tokensOf(line.replace(new RegExp(SEPARATOR, "g"), " "));
+  return (
+    tokens.length > 0 && above.some((copy) => indexOfRun(copy, tokens) >= 0)
+  );
+}
+
+function footerLine(line: string, cta: string[]): string {
   const parts = line.split(SEPARATOR);
   const kept: string[] = [];
   let lost = false;
   for (let i = 0; i < parts.length; i += 2) {
-    const item = keptItem(parts[i], cta, above);
+    const item = keptItem(parts[i], cta);
     if (item !== parts[i].trim()) lost = true;
     if (!item) continue;
     if (kept.length > 0) kept.push(parts[i - 1]);
@@ -142,7 +159,7 @@ function footerLine(line: string, cta: string[], above: Set<string>): string {
   return lost ? capitalized(rebuilt) : rebuilt;
 }
 
-function keptItem(raw: string, cta: string[], above: Set<string>): string {
+function keptItem(raw: string, cta: string[]): string {
   const item = raw.trim();
   const tokens = tokensOf(item);
   if (tokens.length === 0) return "";
@@ -155,19 +172,19 @@ function keptItem(raw: string, cta: string[], above: Set<string>): string {
     const at = cta.length >= 2 ? indexOfRun(tokens, cta) : -1;
     if (at === 0) {
       const words = item.split(/\s+/);
-      const rest = words
-        .slice(cta.length)
-        .join(" ")
+      const after = words.slice(cta.length).join(" ");
+      /* "Order now and save 20%" is one offer, not the CTA and a remainder. */
+      if (CLAUSE.test(after)) return item;
+      const rest = after
         .replace(/^[\s:,–—-]+/, "")
         .replace(CONNECTOR, "")
         .trim();
-      return tokensOf(rest).length > 0 ? keptItem(rest, [], above) : "";
+      return tokensOf(rest).length > 0 ? keptItem(rest, []) : "";
     }
     if (at > 0 && facts.length === 0) return "";
     if (tokens.length >= 2 && indexOfRun(cta, tokens) >= 0) return "";
   }
 
-  if (facts.length > 0 && facts.every((fact) => above.has(fact))) return "";
   return item;
 }
 

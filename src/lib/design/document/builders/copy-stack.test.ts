@@ -26,6 +26,7 @@ function context(): Context {
     measurer: monospaceMeasurer(),
     faults: new Set(),
     subjectFaults: new Set(),
+    smallFooter: false,
   };
 }
 

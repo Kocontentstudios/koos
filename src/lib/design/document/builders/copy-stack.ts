@@ -33,6 +33,7 @@ import {
   LEGIBLE_FLOOR,
   looks,
   roleSizes,
+  SIZES,
 } from "./looks";
 
 /**
@@ -161,7 +162,13 @@ async function ctaItem(
   scale: number,
 ): Promise<{ item: Item; faults: string[] }> {
   const { measurer, ref } = ctx;
-  const sizes = scaledSizes(roleSizes(ref, "cta"), scale, floorPx(ctx));
+  /* The compact stack shrinks the button, never below the role's minimum:
+     at 0.6 a 35px label became 21px, smaller than the footer. */
+  const sizes = scaledSizes(
+    roleSizes(ref, "cta"),
+    scale,
+    Math.round(ref * SIZES.cta.min),
+  );
   const largest = sizes[0];
 
   let oneLine: number | null = null;

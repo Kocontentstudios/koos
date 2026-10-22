@@ -9,14 +9,17 @@ import type { LoadedFont } from "./fonts";
  * Both are synchronous inside one call: when satori loops (a grapheme wider
  * than the line it must break) the event loop never comes back, so no
  * Promise.race or AbortSignal on the same thread can fire. The render runs
- * in a worker instead. When it overruns, the worker is terminated, the
- * caller gets RenderTimeoutError, and the next render starts a fresh one.
+ * in a worker instead. When it overruns, that worker is terminated, the
+ * caller gets RenderTimeoutError, and a fresh worker takes its place.
  *
- * One worker, reused: a task costs a structured clone of a small element
- * tree and of the PNG back, and each face is copied to a worker once.
+ * Several workers, each reused: one render that runs to its limit holds
+ * one worker, and every other tenant's renders keep moving on the rest. A
+ * task costs a structured clone of a small element tree and of the PNG
+ * back, and each face is copied to a worker once.
  */
 
-/** Code the job surfaces as a quality fault. */
+/** A render stopped at its time limit. The caller reports it and does not
+ *  retry: a second attempt holds a worker for the whole limit again. */
 export const RENDER_TIMEOUT = "RENDER_TIMEOUT" as const;
 
 export class RenderTimeoutError extends Error {
@@ -79,7 +82,7 @@ export function toPlainTree(node: ReactNode): Plain {
 
 interface Task {
   id: number;
-  message: unknown;
+  message: { fonts: { id: number; data?: ArrayBuffer }[] };
   limitMs: number;
   resolve(bytes: Uint8Array): void;
   reject(error: Error): void;
@@ -89,18 +92,24 @@ interface Slot {
   worker: Worker;
   /** Face ids this worker already holds. */
   faces: Set<number>;
+  running: { task: Task; timer: NodeJS.Timeout; started: number } | null;
+}
+
+/* Two keeps one stuck render from stalling everyone else; each worker
+   holds its own satori, yoga and resvg (about 60MB), so more is opt-in. */
+const DEFAULT_WORKERS = 2;
+
+function poolSize(): number {
+  const configured = Number(process.env.KOOS_RENDER_WORKERS);
+  return Number.isInteger(configured) && configured >= 2
+    ? Math.min(configured, 8)
+    : DEFAULT_WORKERS;
 }
 
 const faceIds = new WeakMap<ArrayBuffer, number>();
 let nextFaceId = 1;
 let nextTaskId = 1;
-let slot: Slot | null = null;
-let running: {
-  task: Task;
-  timer: NodeJS.Timeout;
-  started: number;
-  on: Slot;
-} | null = null;
+const slots: Slot[] = [];
 const queue: Task[] = [];
 const stats = { tasks: 0, timeouts: 0, spawns: 0, retired: 0, busyMs: 0 };
 
@@ -114,32 +123,52 @@ function faceId(data: ArrayBuffer): number {
   return id;
 }
 
+function drop(slot: Slot) {
+  const at = slots.indexOf(slot);
+  if (at !== -1) slots.splice(at, 1);
+}
+
+/** Ends the slot's task with `outcome`, frees the slot, starts the next. */
+function settle(slot: Slot, outcome: { bytes?: Uint8Array; error?: Error }) {
+  const running = slot.running;
+  if (!running) return;
+  clearTimeout(running.timer);
+  stats.busyMs += performance.now() - running.started;
+  slot.running = null;
+  if (outcome.bytes) running.task.resolve(outcome.bytes);
+  else running.task.reject(outcome.error ?? new Error("render failed"));
+  pump();
+}
+
 function spawn(): Slot {
   const worker = new Worker(WORKER_FILE);
   stats.spawns += 1;
-  const fresh: Slot = { worker, faces: new Set() };
+  const slot: Slot = { worker, faces: new Set(), running: null };
   worker.on(
     "message",
     (reply: { id: number; bytes?: Uint8Array; error?: string }) => {
-      if (!running || running.task.id !== reply.id) return;
-      const { task, timer, started } = running;
-      clearTimeout(timer);
-      stats.busyMs += performance.now() - started;
-      running = null;
-      if (reply.bytes) task.resolve(reply.bytes);
-      else task.reject(new Error(reply.error ?? "render failed"));
-      pump();
+      if (slot.running?.task.id !== reply.id) return;
+      settle(
+        slot,
+        reply.bytes
+          ? { bytes: reply.bytes }
+          : { error: new Error(reply.error ?? "render failed") },
+      );
     },
   );
   /* A worker that dies (out of memory, a native abort) fails the task it was
      running, never the process; the next task gets a new worker. */
-  worker.on("error", (error: Error) => failRunning(fresh, error));
+  worker.on("error", (error: Error) => {
+    drop(slot);
+    settle(slot, { error });
+  });
   worker.on("exit", (code) => {
-    if (slot === fresh) slot = null;
-    if (code !== 0) failRunning(fresh, new Error(`renderer exited (${code})`));
+    drop(slot);
+    settle(slot, { error: new Error(`renderer exited (${code})`) });
   });
   worker.unref();
-  return fresh;
+  slots.push(slot);
+  return slot;
 }
 
 /* The worker keeps every face it is sent, and brand fonts differ per brand,
@@ -147,49 +176,50 @@ function spawn(): Slot {
    between tasks; the bundled faces are resent, a few hundred KB. */
 export const MAX_FACES_PER_WORKER = 48;
 
-function retire(old: Slot) {
-  if (slot === old) slot = null;
+function retire(slot: Slot) {
+  drop(slot);
   stats.retired += 1;
-  void old.worker.terminate();
+  void slot.worker.terminate();
 }
 
-function failRunning(from: Slot, error: Error) {
-  if (slot === from) slot = null;
-  if (!running || running.on !== from) return;
-  const { task, timer } = running;
-  clearTimeout(timer);
-  running = null;
-  task.reject(error);
-  pump();
+function idleSlot(): Slot | null {
+  for (const slot of [...slots]) {
+    if (slot.running) continue;
+    if (slot.faces.size > MAX_FACES_PER_WORKER) {
+      retire(slot);
+      continue;
+    }
+    return slot;
+  }
+  return slots.length < poolSize() ? spawn() : null;
+}
+
+function start(slot: Slot, task: Task) {
+  const fonts = task.message.fonts.map((font) =>
+    slot.faces.has(font.id) ? { ...font, data: undefined } : font,
+  );
+  for (const font of task.message.fonts) slot.faces.add(font.id);
+  const timer = setTimeout(() => {
+    stats.timeouts += 1;
+    /* terminate() stops a worker mid-instruction, which is the only way out
+       of a loop that never yields. The slot is gone before its exit event
+       arrives, so the task is rejected once, as a timeout. */
+    drop(slot);
+    void slot.worker.terminate();
+    settle(slot, { error: new RenderTimeoutError(task.limitMs) });
+  }, task.limitMs);
+  slot.running = { task, timer, started: performance.now() };
+  stats.tasks += 1;
+  slot.worker.postMessage({ ...task.message, id: task.id, fonts });
 }
 
 function pump() {
-  if (running) return;
-  const task = queue.shift();
-  if (!task) return;
-  if (slot && slot.faces.size > MAX_FACES_PER_WORKER) retire(slot);
-  slot ??= spawn();
-  const current = slot;
-  const message = task.message as {
-    fonts: { id: number; data?: ArrayBuffer }[];
-  };
-  const fonts = message.fonts.map((font) =>
-    current.faces.has(font.id) ? { ...font, data: undefined } : font,
-  );
-  for (const font of message.fonts) current.faces.add(font.id);
-  const timer = setTimeout(() => {
-    stats.timeouts += 1;
-    running = null;
-    slot = null;
-    /* terminate() stops a worker mid-instruction, which is the only way out
-       of a loop that never yields. */
-    void current.worker.terminate();
-    task.reject(new RenderTimeoutError(task.limitMs));
-    pump();
-  }, task.limitMs);
-  running = { task, timer, started: performance.now(), on: current };
-  stats.tasks += 1;
-  current.worker.postMessage({ ...message, id: task.id, fonts });
+  while (queue.length > 0) {
+    const slot = idleSlot();
+    if (!slot) return;
+    const task = queue.shift();
+    if (task) start(slot, task);
+  }
 }
 
 export interface RenderPngOptions {
@@ -230,15 +260,19 @@ export function renderPng(
 }
 
 /** Counters for cost reporting: tasks run, timeouts, workers started, and
- *  time the worker spent busy. */
+ *  time the workers spent busy. */
 export function renderPoolStats() {
-  return { ...stats, queued: queue.length };
+  return {
+    ...stats,
+    queued: queue.length,
+    workers: slots.length,
+    size: poolSize(),
+  };
 }
 
-/** Stops the worker. Tests and scripts that want a clean exit call it; a
- *  server never needs to, because the worker does not hold the process. */
+/** Stops every worker. Tests and scripts that want a clean exit call it; a
+ *  server never needs to, because the workers do not hold the process. */
 export async function closeRenderPool(): Promise<void> {
-  const current = slot;
-  slot = null;
-  if (current) await current.worker.terminate();
+  const all = slots.splice(0);
+  await Promise.all(all.map((slot) => slot.worker.terminate()));
 }

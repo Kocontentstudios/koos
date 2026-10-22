@@ -6,7 +6,7 @@ import {
   keyUnderPrefix,
   STORAGE_PREFIXES,
 } from "@/lib/storage-keys";
-import { normalizeText, textFault } from "./text-safety";
+import { documentEmojiFault, normalizeText, textFault } from "./text-safety";
 
 /**
  * The layer document: a design as an absolutely positioned list of elements.
@@ -157,7 +157,7 @@ const fill = z
 
 /** Longest text run and button label. Spec copy is at most 140 characters;
  *  the rest is room for body text typed in the editor. */
-export const MAX_TEXT_LENGTH = 600;
+export const MAX_TEXT_LENGTH = 400;
 export const MAX_LABEL_LENGTH = 100;
 
 /* Copy is normalised once, here, and refused when the renderer cannot draw
@@ -295,23 +295,45 @@ export const designElementSchema = z.discriminatedUnion("type", [
  * What one document may hold, by type, by text role and in all.
  *
  * Bounding each field did not bound the render: 200 schema-valid shapes,
- * each a canvas-sized rotated gradient, took 59.5s. Cost is the sum
- * over elements, so the count is capped per type, and gradients, the
- * costliest fill, are capped on their own. The builders use at most 5
- * shapes, 6 text runs, 1 button, 1 image, 1 logo and 1 gradient; the room
- * above that is for the editor. The worst document these caps allow
- * rasterises in about 1.8s on a 10-core dev machine (testing-cost.ts,
- * cost.smoke.test.ts).
+ * each a canvas-sized rotated gradient, took 59.5s, and twelve runs of 600
+ * dense Han glyphs at 300px took 12.1s. Cost is the sum over elements, and
+ * for text about 1.2ms per glyph on top of everything else, so the count is
+ * capped per type, gradients (the costliest fill) on their own, and the
+ * copy of the whole document by code points. The builders use at most 5
+ * shapes, 6 text runs, 1 button, 1 image, 1 logo, 1 gradient and about 420
+ * code points; the room above that is for the editor. The worst document
+ * these caps allow (testing-cost.ts) draws in 1.8-2.4s on a 10-core dev
+ * machine, alone or beside another on the render pool (cost.smoke.test.ts
+ * holds it under 3s). A process's first render also pays the handshakes for
+ * the fallback faces and emoji next/og fetches, about 2s more whatever the
+ * emoji count, which the render limit (satori-pool.ts) bounds.
  */
 export const DOCUMENT_LIMITS = {
-  elements: 24,
-  byType: { image: 2, shape: 8, text: 12, button: 2, logo: 2 },
-  byRole: { headline: 2, subheadline: 2, cta: 2, footer: 3, body: 6 },
+  elements: 18,
+  byType: { image: 2, shape: 5, text: 8, button: 2, logo: 2 },
+  byRole: { headline: 2, subheadline: 2, cta: 2, footer: 3, body: 3 },
   gradients: 2,
+  textCodePoints: 600,
 } as const;
 
+function copyOf(elements: { type: string; text?: string; label?: string }[]) {
+  return elements.flatMap((e) =>
+    e.type === "text" && e.text !== undefined
+      ? [e.text]
+      : e.type === "button" && e.label !== undefined
+        ? [e.label]
+        : [],
+  );
+}
+
 function limitIssues(
-  elements: { type: string; role?: string; fill?: string }[],
+  elements: {
+    type: string;
+    role?: string;
+    fill?: string;
+    text?: string;
+    label?: string;
+  }[],
 ): string | null {
   const count = (keep: (e: (typeof elements)[number]) => boolean) =>
     elements.filter(keep).length;
@@ -331,7 +353,15 @@ function limitIssues(
   ) {
     return `A design holds at most ${DOCUMENT_LIMITS.gradients} gradient fills`;
   }
-  return null;
+  const copy = copyOf(elements);
+  const codePoints = copy.reduce(
+    (sum, text) => sum + Array.from(text).length,
+    0,
+  );
+  if (codePoints > DOCUMENT_LIMITS.textCodePoints) {
+    return `A design holds at most ${DOCUMENT_LIMITS.textCodePoints} characters of copy`;
+  }
+  return documentEmojiFault(copy)?.message ?? null;
 }
 
 export const designDocumentSchema = z

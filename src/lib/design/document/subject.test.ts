@@ -4,9 +4,13 @@ import type { DesignDocument, DesignElement } from "./schema";
 import {
   coverPlacement,
   isSubjectBox,
+  MIN_SUBJECT_SIDE,
   measureSubject,
+  resolveSubject,
+  SUBJECT_BOX_INVALID,
   SUBJECT_GAP,
   SUBJECT_MIN_SHARE,
+  SubjectBoxFault,
   subjectFromAlpha,
   subjectOnCanvas,
 } from "./subject";
@@ -25,8 +29,65 @@ describe("isSubjectBox", () => {
     [{ x: 0, y: 0, w: Number.NaN, h: 0.5 }, false],
     [{ x: "0", y: 0, w: 0.5, h: 0.5 }, false],
     [null, false],
+    /* Round 3 clamped or dropped these without a word. */
+    [{ x: 0.3, y: 0.35, w: 0.72, h: 0.5 }, false],
+    [{ x: -0.01, y: 0.35, w: 0.5, h: 0.5 }, false],
+    [{ x: 0.999, y: 0.999, w: 0.001, h: 0.001 }, false],
+    [{ x: 0.5, y: 0.5, w: 1e-9, h: 1e-9 }, false],
+    [{ x: 0.5, y: 0.5, w: MIN_SUBJECT_SIDE, h: MIN_SUBJECT_SIDE }, true],
   ])("%j is %s", (box, valid) => {
     expect(isSubjectBox(box)).toBe(valid);
+  });
+});
+
+describe("resolveSubject", () => {
+  const cutout = (ink: ImageFacts["ink"]): ImageFacts => ({
+    width: 400,
+    height: 400,
+    cutout: true,
+    ink,
+    grid: { cols: 1, rows: 1, rgba: [0, 0, 0, 0] },
+  });
+  const photo = { ...cutout({ left: 0, top: 0, right: 1, bottom: 1 }) };
+  photo.cutout = false;
+
+  it("keeps a valid box as given, never clamped", () => {
+    expect(resolveSubject(CENTRE, photo)).toEqual(CENTRE);
+  });
+
+  it.each([
+    { x: 0.3, y: 0.35, w: 0.72, h: 0.5 },
+    { x: -0.01, y: 0.35, w: 0.5, h: 0.5 },
+    { x: Number.NaN, y: 0.3, w: 0.3, h: 0.3 },
+    { x: 0.5, y: 0.5, w: 0, h: 0.3 },
+    { x: 0.999, y: 0.999, w: 0.001, h: 0.001 },
+  ])("refuses %j with a typed fault", (box) => {
+    const attempt = () => resolveSubject(box, photo);
+    expect(attempt).toThrow(SubjectBoxFault);
+    try {
+      attempt();
+    } catch (error) {
+      expect((error as SubjectBoxFault).code).toBe(SUBJECT_BOX_INVALID);
+      expect((error as SubjectBoxFault).source).toBe("given");
+    }
+  });
+
+  it("reads a cut-out's box from alpha, and refuses one with nothing visible", () => {
+    const ink = { left: 0.25, top: 0.25, right: 0.75, bottom: 0.75 };
+    expect(resolveSubject(null, cutout(ink))).toEqual({
+      x: 0.25,
+      y: 0.25,
+      w: 0.5,
+      h: 0.5,
+    });
+    expect(() =>
+      resolveSubject(null, cutout({ left: 0, top: 0, right: 0, bottom: 0 })),
+    ).toThrow(/too small to place/);
+  });
+
+  it("lays out a photograph without a box as having no subject", () => {
+    expect(resolveSubject(undefined, photo)).toBeNull();
+    expect(resolveSubject(null, null)).toBeNull();
   });
 });
 

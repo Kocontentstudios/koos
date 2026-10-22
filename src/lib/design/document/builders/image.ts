@@ -176,6 +176,7 @@ export function framedImage(
         ? insetCoverPlacement(facts, ctx.subject, frame, avoid, minEdge, {
             canvas: rect(0, 0, ctx.width, ctx.height),
             gutter: px(ctx.margin / 2),
+            logo: ctx.logoBox ? grown(ctx.logoBox, gap) : null,
           })
         : null);
     const placement =
@@ -221,7 +222,10 @@ const INSET_STEPS = Array.from({ length: 15 }, (_, i) => 1 - i * 0.05);
  * portrait in a short band above the copy. The largest frame that works.
  *
  * An inset frame keeps `gutter` from any canvas edge its region runs to:
- * rounded corners against the edge of the post read as a mistake.
+ * rounded corners against the edge of the post read as a mistake. It also
+ * stays clear of the logo: a mark half on the print and half on the ground
+ * read as a sticker slapped across its corner. The room beside the logo is
+ * tried too, and the largest frame wins.
  */
 function insetCoverPlacement(
   image: { width: number; height: number },
@@ -229,7 +233,7 @@ function insetCoverPlacement(
   region: Rect,
   avoid: Rect[],
   minEdge: number,
-  { canvas, gutter }: { canvas: Rect; gutter: number },
+  { canvas, gutter, logo }: { canvas: Rect; gutter: number; logo: Rect | null },
 ): ImagePlacement | null {
   const onEdge = (a: number, b: number) => Math.abs(a - b) < 0.5;
   const left = region.x + (onEdge(region.x, canvas.x) ? gutter : 0);
@@ -242,8 +246,35 @@ function insetCoverPlacement(
     region.y +
     region.height -
     (onEdge(region.y + region.height, canvas.y + canvas.height) ? gutter : 0);
-  const room = rect(left, top, right - left, bottom - top);
-  if (room.width <= 0 || room.height <= 0) return null;
+  const whole = rect(left, top, right - left, bottom - top);
+  if (whole.width <= 0 || whole.height <= 0) return null;
+  const rooms =
+    logo && intersection(logo, whole)
+      ? roomsBeside(whole, [logo]).slice(1)
+      : [whole];
+  let best: ImagePlacement | null = null;
+  for (const room of rooms) {
+    const placement = largestInsetIn(room, (frame) =>
+      coverPlacement(image, subject, frame, avoid, minEdge),
+    );
+    if (
+      placement &&
+      (!best ||
+        placement.frame.width * placement.frame.height >
+          best.frame.width * best.frame.height)
+    ) {
+      best = placement;
+    }
+  }
+  return best;
+}
+
+/** The first placement `place` finds in `room` stepped down narrower or
+ *  shorter, centred, widest first. */
+function largestInsetIn(
+  room: Rect,
+  place: (frame: Rect) => ImagePlacement | null,
+): ImagePlacement | null {
   for (const share of INSET_STEPS) {
     const narrower = rect(
       room.x + (room.width * (1 - share)) / 2,
@@ -258,7 +289,7 @@ function insetCoverPlacement(
       room.height * share,
     );
     for (const frame of [narrower, shorter]) {
-      const placement = coverPlacement(image, subject, frame, avoid, minEdge);
+      const placement = place(frame);
       if (placement) return placement;
     }
   }

@@ -26,7 +26,7 @@ import {
 } from "./fixtures";
 import { documentFromSpec } from "./from-spec";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
-import { documentElement, EMOJI_UNICODE_RANGE } from "./render";
+import { documentElement, EMOJI_FONT_FAMILY } from "./render";
 import type { DesignDocument, DesignElement } from "./schema";
 import {
   type Box,
@@ -55,9 +55,10 @@ import { cacheOgAssets } from "./testing-og-assets";
  * only when both engines draw them in the same ones, which is what the
  * editor has to do too (spec, PR 2). satori draws CJK in the Noto
  * faces next/og fetches from Google Fonts, and emoji as Twemoji images 1em
- * wide. Chromium here gets the same Noto faces and Noto Color Emoji sized
- * to a 1em advance, registered under the bundled family names so the
- * machine's own faces never take part.
+ * wide. Chromium here gets the same Noto faces, registered under the
+ * bundled family names so the machine's own faces never take part, and
+ * Noto Color Emoji sized to a 1em advance under EMOJI_FONT_FAMILY, the
+ * family every run lists after its own.
  *
  * Needs a Chromium. CI installs Playwright's (`playwright install
  * chromium`); locally the test also finds any Chromium Playwright has
@@ -109,6 +110,7 @@ const CASES = [
   { name: "unbroken words", copy: LONG_WORDS, images: [null] },
   { name: "emoji", copy: SCRIPTS.emoji, images: [null] },
   { name: "emoji sequences", copy: SCRIPTS.emojiSequences, images: [null] },
+  { name: "emoji symbols", copy: SCRIPTS.emojiSymbols, images: [null] },
   { name: "cjk", copy: SCRIPTS.cjk, images: [null] },
   { name: "vietnamese", copy: SCRIPTS.vietnamese, images: [null] },
   { name: "capitals", copy: CAPITALS, images: [null] },
@@ -152,28 +154,19 @@ function charactersOf(pattern: RegExp): string {
   ).join("");
 }
 
-/** The fallback faces, each with the codepoints it serves and any size
- *  adjustment, in the order satori would reach for them. */
-async function fallbackFaces(): Promise<
-  { src: string; range: string; sizeAdjust?: string }[]
-> {
+/** Noto Sans JP, which serves CJK inside the brand family, and the emoji
+ *  face, registered as its own family (render.tsx EMOJI_FONT_FAMILY). */
+async function fallbackFaces(): Promise<{ cjk: string; emoji: string }> {
   const cjk = charactersOf(
     /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303F\uFF00-\uFFEF]/u,
   );
   const emoji = charactersOf(
-    /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20E3/u,
+    /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20E3|\uFE0F/u,
   );
-  return [
-    {
-      src: await googleFace("Noto+Sans+JP", cjk),
-      range: "U+3000-30FF,U+4E00-9FFF,U+FF00-FFEF",
-    },
-    {
-      src: await googleFace("Noto+Color+Emoji", emoji),
-      range: EMOJI_UNICODE_RANGE,
-      sizeAdjust: EMOJI_SIZE_ADJUST,
-    },
-  ];
+  return {
+    cjk: await googleFace("Noto+Sans+JP", cjk),
+    emoji: await googleFace("Noto+Color+Emoji", emoji),
+  };
 }
 
 beforeAll(async () => {
@@ -182,8 +175,8 @@ beforeAll(async () => {
   const fallbacks = await fallbackFaces();
   const face = (font: (typeof fonts)[number], src: string, extra = "") =>
     `@font-face{font-family:"${font.name}";font-weight:${font.weight};font-style:${font.style ?? "normal"};src:url(${src});${extra}}`;
-  /* Faces with a unicode-range declared after the full face are tried first
-     for the codepoints in their range; every other glyph keeps the bundled
+  /* A face with a unicode-range declared after the full face is tried first
+     for the codepoints in its range; every other glyph keeps the bundled
      face. */
   fontFaces = [
     ...fonts.map((font) =>
@@ -192,15 +185,14 @@ beforeAll(async () => {
         `data:font/ttf;base64,${Buffer.from(font.data as ArrayBuffer).toString("base64")}`,
       ),
     ),
-    ...fallbacks.flatMap(({ src, range, sizeAdjust }) =>
-      fonts.map((font) =>
-        face(
-          font,
-          src,
-          `unicode-range:${range};${sizeAdjust ? `size-adjust:${sizeAdjust};` : ""}`,
-        ),
+    ...fonts.map((font) =>
+      face(
+        font,
+        fallbacks.cjk,
+        "unicode-range:U+3000-30FF,U+4E00-9FFF,U+FF00-FFEF;",
       ),
     ),
+    `@font-face{font-family:"${EMOJI_FONT_FAMILY}";src:url(${fallbacks.emoji});size-adjust:${EMOJI_SIZE_ADJUST}}`,
   ].join("\n");
   if (executable)
     browser = await chromium.launch({ executablePath: executable });

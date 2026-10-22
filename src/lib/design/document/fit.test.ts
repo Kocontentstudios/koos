@@ -406,6 +406,25 @@ describe("orphans", () => {
     );
   });
 
+  /* Round 3 only narrowed, and 17% of built headlines still ended on one
+     word where the box had room to pull the last word up. */
+  it("takes a wider line within the box before adding a line", async () => {
+    const measurer = monospaceMeasurer();
+    const fixed = await widthWithoutOrphan(
+      measurer,
+      text,
+      twenty,
+      260,
+      { height: 40, lines: 2 },
+      { maxHeight: 200, maxLines: 4, box: 400 },
+    );
+    expect(fixed?.lines).toBe(1);
+    expect(fixed?.width).toBeLessThanOrEqual(400);
+    expect(
+      await measurer.height(text, twenty, (fixed?.width ?? 0) - wrapSlack(400)),
+    ).toBe(fixed?.height);
+  });
+
   it("keeps the orphan rather than break the line or height limits", async () => {
     const measurer = monospaceMeasurer();
     const limits = { maxHeight: 200, maxLines: 2, box: 260 };

@@ -17,8 +17,11 @@ import {
  *
  * Elements reach two canvases past the edge in every direction and are
  * rotated 45 degrees, so each covers the whole canvas and nothing is culled.
- * Text is the widest Latin (W) at the largest size and tracking, which is
- * the most glyph outline per character satori builds.
+ * The copy budget is spent on the densest Han glyphs there are (up to 64
+ * strokes, each a fallback-face outline satori builds), at the largest
+ * size, packed with the tightest tracking and leading so the most of them
+ * land on the canvas. Measured against the same budget in W, in emoji and
+ * in Han at 300px, this is the slowest.
  */
 
 const CANVAS = canvasFor("9:16");
@@ -45,6 +48,20 @@ function base(id: string) {
   };
 }
 
+/* The 64 Han glyphs with the most outline data in Noto Sans JP, the face
+   satori fetches for Han; a rarer character it lacks would draw as a cheap
+   empty box instead. */
+const DENSE_HAN = Array.from(
+  "繼纞魕驋籧鸞斷蘩鐖鱲鏺鱻繸籛癴龞纔獼歠鼷麤鑾驫齺彌襼饑穖鬱蘙籘櫞鷞臠鸂燹鑠囓灣蠮嬭獵灤鱁蟣鱫縿鷀鸍襻鞿鑞灊鰺鰵纘麴變鬖驂櫲鷥黲鬣",
+);
+
+function denseCopy(length: number, offset: number): string {
+  return Array.from(
+    { length },
+    (_, i) => DENSE_HAN[(offset + i) % DENSE_HAN.length],
+  ).join("");
+}
+
 const GRADIENT = `linear-gradient(33deg, ${Array.from(
   { length: MAX_GRADIENT_STOPS },
   (_, i) =>
@@ -52,7 +69,7 @@ const GRADIENT = `linear-gradient(33deg, ${Array.from(
 ).join(", ")})`;
 
 export function worstCaseDocument(): DesignDocument {
-  const { byType, byRole, gradients } = DOCUMENT_LIMITS;
+  const { byType, byRole, gradients, textCodePoints } = DOCUMENT_LIMITS;
   const elements: DesignElement[] = [];
   for (let i = 0; i < byType.image; i += 1) {
     elements.push({
@@ -74,20 +91,28 @@ export function worstCaseDocument(): DesignDocument {
       radius: MAX_CANVAS_EDGE,
     });
   }
-  const roles = Object.entries(byRole).flatMap(([role, max]) =>
-    Array.from({ length: max }, () => role),
+  const roles = Object.entries(byRole)
+    .flatMap(([role, max]) => Array.from({ length: max }, () => role))
+    .slice(0, byType.text);
+  const labelLength = Math.min(
+    MAX_LABEL_LENGTH,
+    Math.floor(textCodePoints / (roles.length + byType.button)),
   );
-  roles.slice(0, byType.text).forEach((role, i) => {
+  const textLength = Math.min(
+    MAX_TEXT_LENGTH,
+    Math.floor((textCodePoints - labelLength * byType.button) / roles.length),
+  );
+  roles.forEach((role, i) => {
     elements.push({
       ...base(`text-${i}`),
       type: "text",
-      text: "W ".repeat(MAX_TEXT_LENGTH / 2),
+      text: denseCopy(textLength, i * textLength),
       role: role as "body",
       font: "heading",
       fontSize: Math.round(MAX_CANVAS_EDGE / 3),
       fontWeight: 700,
       lineHeight: 0.5,
-      letterSpacing: 2,
+      letterSpacing: -0.5,
       align: "left",
       italic: true,
       color: "#000000",
@@ -97,7 +122,7 @@ export function worstCaseDocument(): DesignDocument {
     elements.push({
       ...base(`button-${i}`),
       type: "button",
-      label: "W ".repeat(MAX_LABEL_LENGTH / 2),
+      label: denseCopy(labelLength, i * labelLength + 7),
       fill: "#123456",
       color: "#FFFFFF",
       radius: MAX_CANVAS_EDGE,

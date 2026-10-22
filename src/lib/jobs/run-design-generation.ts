@@ -24,6 +24,7 @@ import {
   type LoadedLogo,
 } from "@/lib/design/render/logo";
 import { overlayLogo } from "@/lib/design/render/logo-overlay";
+import { RenderTimeoutError } from "@/lib/design/render/satori-pool";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
 import { detectImageType } from "@/lib/images/detect";
 import {
@@ -162,8 +163,10 @@ export async function renderVariant(
          the user loses a render rather than a corner. Retrying without it
          proves whether the mark was the cause: if the second pass succeeds the
          logo was, and the user is told; if it fails too the fault is elsewhere
-         and the original error stands. */
-      if (!logo) throw err;
+         and the original error stands. A render stopped at its time limit
+         is not the logo's doing, and a second try would hold the render
+         pool for the whole limit again. */
+      if (!logo || err instanceof RenderTimeoutError) throw err;
       result = await compose(null).catch(() => {
         throw err;
       });

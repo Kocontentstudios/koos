@@ -52,6 +52,14 @@ const HEAD_MIN_BYTES = 54;
 const HHEA_MIN_BYTES = 36;
 const MAXP_MIN_BYTES = 6;
 const MIN_UNITS_PER_EM = 16;
+
+/** The widest glyph advance, in em, a face may have. Satori loops when a
+ *  word-breaking line is narrower than one grapheme cluster, and the layer
+ *  renderer keeps lines wider than this many ems per code point
+ *  (document/render.tsx minBreakableWidth). Every face next/og falls back to
+ *  is within it (Noto Sans Math's widest glyph is exactly 4em); of 322
+ *  faces on a dev machine, none has a letter copy can reach past it. */
+export const MAX_GLYPH_EM = 4;
 const MAX_UNITS_PER_EM = 16384;
 
 const NOT_A_FONT = "it is not a TTF or OTF font file";
@@ -171,6 +179,99 @@ function checkMetrics(
   return { ok: true };
 }
 
+/* Code points copy can hold (document/text-safety.ts): Latin, Greek,
+   Cyrillic, punctuation and symbols, CJK and Hangul. A face's glyphs for
+   anything else are never drawn: an Arabic face's 7.9em ligature (U+FDFD)
+   is refused copy, so it does not refuse the face. */
+const DRAWN_RANGES: [number, number][] = [
+  [0x20, 0x52f],
+  [0x1d00, 0x1eff],
+  [0x2000, 0x2bff],
+  [0x2e00, 0x2e7f],
+  [0x3000, 0x9fff],
+  [0xac00, 0xd7af],
+  [0xf900, 0xfaff],
+  [0xff00, 0xffef],
+  [0x1d400, 0x1d7ff],
+];
+
+const drawn = (codePoint: number) =>
+  DRAWN_RANGES.some(([from, to]) => codePoint >= from && codePoint <= to);
+
+/** Glyph ids the format 4 and 12 subtables map from drawn code points.
+ *  Other formats map nothing copy can reach in practice and are skipped. */
+function drawnGlyphs(view: DataView, cmap: TableRecord): Set<number> {
+  const glyphs = new Set<number>();
+  const encodings = view.getUint16(cmap.offset + 2);
+  const end = cmap.offset + cmap.length;
+  for (let i = 0; i < encodings; i += 1) {
+    const at = cmap.offset + view.getUint32(cmap.offset + 8 + i * 8);
+    if (at + 2 > end) continue;
+    const format = view.getUint16(at);
+    if (format === 4 && at + 14 <= end) {
+      const segments = view.getUint16(at + 6) / 2;
+      const ends = at + 14;
+      const starts = ends + segments * 2 + 2;
+      const deltas = starts + segments * 2;
+      const offsets = deltas + segments * 2;
+      if (offsets + segments * 2 > end) continue;
+      for (let s = 0; s < segments; s += 1) {
+        const first = view.getUint16(starts + s * 2);
+        const last = view.getUint16(ends + s * 2);
+        const delta = view.getUint16(deltas + s * 2);
+        const rangeOffset = view.getUint16(offsets + s * 2);
+        for (let c = first; c <= last && c !== 0xffff; c += 1) {
+          if (!drawn(c)) continue;
+          let glyph = (c + delta) & 0xffff;
+          if (rangeOffset !== 0) {
+            const slot = offsets + s * 2 + rangeOffset + (c - first) * 2;
+            if (slot + 2 > end) continue;
+            const raw = view.getUint16(slot);
+            glyph = raw === 0 ? 0 : (raw + delta) & 0xffff;
+          }
+          if (glyph !== 0) glyphs.add(glyph);
+        }
+      }
+    } else if (format === 12 && at + 16 <= end) {
+      const groups = view.getUint32(at + 12);
+      if (at + 16 + groups * 12 > end) continue;
+      for (let g = 0; g < groups; g += 1) {
+        const group = at + 16 + g * 12;
+        const first = view.getUint32(group);
+        const last = view.getUint32(group + 4);
+        const glyph = view.getUint32(group + 8);
+        for (const [from, to] of DRAWN_RANGES) {
+          for (let c = Math.max(first, from); c <= Math.min(last, to); c += 1) {
+            glyphs.add(glyph + (c - first));
+          }
+        }
+      }
+    }
+  }
+  return glyphs;
+}
+
+/** Satori loops when a word-breaking line is narrower than one glyph, and
+ *  the layer renderer keeps lines MAX_GLYPH_EM wide per code point. */
+function checkGlyphWidths(
+  view: DataView,
+  { cmap, hhea, hmtx }: Record<"cmap" | "hhea" | "hmtx", TableRecord>,
+  unitsPerEm: number,
+): FontCheck {
+  const metrics = view.getUint16(hhea.offset + 34);
+  let widest = 0;
+  for (const glyph of drawnGlyphs(view, cmap)) {
+    const entry = Math.min(glyph, metrics - 1);
+    widest = Math.max(widest, view.getUint16(hmtx.offset + entry * 4));
+  }
+  if (widest > MAX_GLYPH_EM * unitsPerEm) {
+    return fail(
+      `one of its letters is ${(widest / unitsPerEm).toFixed(1)} letters wide, wider than designs can wrap safely (at most ${MAX_GLYPH_EM})`,
+    );
+  }
+  return { ok: true };
+}
+
 /** A truncated download usually keeps the directory and loses the tail, so the
  *  glyph index survives while the glyph data it points into does not. */
 function checkGlyphIndex(
@@ -258,7 +359,13 @@ function checkTables(view: DataView): FontCheck {
     if (!glyphCheck.ok) return glyphCheck;
   }
 
-  return checkCharacterMap(view, cmap);
+  const mapCheck = checkCharacterMap(view, cmap);
+  if (!mapCheck.ok) return mapCheck;
+  return checkGlyphWidths(
+    view,
+    { cmap, hhea, hmtx },
+    view.getUint16(head.offset + 18),
+  );
 }
 
 /**

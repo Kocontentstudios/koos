@@ -54,7 +54,8 @@ export async function footer(
   const color = isBar ? palette.background : options.color;
   const lineGap = px(ref * 0.006);
   const bandHeight = px(footerBandHeight(spec, { width, height }));
-  const sizes = roleSizes(ref, "footer");
+  const natural = roleSizes(ref, "footer");
+  const sizes = ctx.smallFooter ? natural.slice(-1) : natural;
 
   const fitted = [];
   for (const line of lines) {

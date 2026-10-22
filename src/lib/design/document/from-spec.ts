@@ -15,17 +15,22 @@ import {
 } from "./builders/context";
 import type { ImageFacts } from "./builders/ground";
 import { heroCenter } from "./builders/hero-center";
+import { HEADLINE_OVER_FOOTER } from "./builders/looks";
 import { quoteCard } from "./builders/quote-card";
 import { splitLeft } from "./builders/split-left";
 import { statHighlight } from "./builders/stat-highlight";
 import type { TextMeasurer } from "./fit";
-import { type AssetRef, type DesignDocument, DOCUMENT_VERSION } from "./schema";
 import {
-  isSubjectBox,
+  type AssetRef,
+  type DesignDocument,
+  type DesignElement,
+  DOCUMENT_VERSION,
+} from "./schema";
+import {
+  resolveSubject,
   SUBJECT_COVERED,
   SUBJECT_CROPPED,
   type SubjectBox,
-  subjectFromAlpha,
 } from "./subject";
 import {
   DocumentTextFault,
@@ -75,7 +80,8 @@ export interface DocumentFromSpecInput {
   /** Where the subject is in the image, as shares of it (subject.ts). Every
    *  layout keeps copy and decoration off it and draws it whole and large.
    *  A cut-out's comes from its alpha channel when not given; a photograph
-   *  without one is laid out as before, with nothing to keep clear. */
+   *  without one is laid out as before, with nothing to keep clear. A box
+   *  out of range or too small throws SubjectBoxFault. */
   subject?: SubjectBox | null;
 }
 
@@ -157,26 +163,55 @@ export async function documentFromSpec({
   const refused = specTextFault(rawSpec);
   if (refused) throw new DocumentTextFault(refused, refused.field);
   const spec = normalizedCopy(rawSpec);
-  const subjectBox = !image
-    ? null
-    : isSubjectBox(subject)
-      ? subject
-      : imageFacts?.cutout
-        ? subjectFromAlpha(imageFacts)
-        : null;
+  const subjectBox = image ? resolveSubject(subject, imageFacts) : null;
   const input = { palette, canvas, image, imageFacts, logo, measurer };
-  const first = await buildWith(spec, subjectBox, input);
+  const first = await buildLeading(spec, subjectBox, input);
   /* The logo's corner is the one arrangement every layout shares. When the
      subject sits under it, the mirrored corner is tried before the fault
      stands. */
   const mirrored = MIRRORED_CORNER[spec.logoPlacement];
   if (!first.subjectFault || !logo || !mirrored) return first;
-  const other = await buildWith(
+  const other = await buildLeading(
     { ...spec, logoPlacement: mirrored },
     subjectBox,
     input,
   );
   return other.subjectFault ? first : other;
+}
+
+/** Headline size over the largest footer size: how far the headline leads
+ *  the small print. Infinite without a footer. */
+function headlineLead(doc: DesignDocument): number {
+  const sizeOf = (keep: (e: DesignElement) => boolean) =>
+    Math.max(
+      0,
+      ...doc.elements.map((e) =>
+        e.type === "text" && keep(e) ? e.fontSize : 0,
+      ),
+    );
+  const footerSize = sizeOf((e) => e.type === "text" && e.role === "footer");
+  return footerSize > 0
+    ? sizeOf((e) => e.id === "headline") / footerSize
+    : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * The build, and when its headline does not lead the footer by
+ * HEADLINE_OVER_FOOTER, the build with the footer at its smallest size,
+ * which hands the copy its room: the footer gives way before the headline.
+ * Whichever leads by more.
+ */
+async function buildLeading(
+  spec: DesignSpec,
+  subject: SubjectBox | null,
+  input: Omit<DocumentFromSpecInput, "spec" | "subject">,
+): Promise<DocumentBuild> {
+  const natural = await buildWith(spec, subject, input, false);
+  if (headlineLead(natural.document) >= HEADLINE_OVER_FOOTER) return natural;
+  const small = await buildWith(spec, subject, input, true);
+  return headlineLead(small.document) > headlineLead(natural.document)
+    ? small
+    : natural;
 }
 
 const MIRRORED_CORNER: Partial<
@@ -199,6 +234,7 @@ async function buildWith(
     logo,
     measurer,
   }: Omit<DocumentFromSpecInput, "spec" | "subject">,
+  smallFooter: boolean,
 ): Promise<DocumentBuild> {
   const ref = Math.min(canvas.width, canvas.height);
   const box =
@@ -227,6 +263,7 @@ async function buildWith(
     logo,
     logoBox: box ? rect(box.left, box.top, box.width, box.height) : null,
     measurer,
+    smallFooter,
     faults: new Set(),
     subjectFaults: new Set(),
   };

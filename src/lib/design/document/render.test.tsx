@@ -18,6 +18,7 @@ import {
   DEFAULT_FONT_FAMILIES,
   documentElement,
   drawnElements,
+  EMOJI_FONT_FAMILY,
   logoBackingPad,
   minBreakableWidth,
   textRunStyle,
@@ -276,7 +277,7 @@ describe("documentElement", () => {
     const headline = container.querySelector(
       "[data-element-id=headline] > div",
     ) as HTMLElement;
-    expect(headline.style.fontFamily).toBe("BrandHead");
+    expect(headline.style.fontFamily).toBe(`BrandHead, "${EMOJI_FONT_FAMILY}"`);
     expect(DEFAULT_FONT_FAMILIES.heading).toBe("Display");
   });
 });
@@ -294,18 +295,29 @@ describe("textRunStyle", () => {
   };
 
   it("breaks an over-long word only on a line several glyphs wide", () => {
+    const line = (width: number) => ({ width, text: "Fresh" });
     expect(textRunStyle(look).wordBreak).toBe("break-word");
     expect(
-      textRunStyle(look, undefined, minBreakableWidth(look)).wordBreak,
+      textRunStyle(look, undefined, line(minBreakableWidth(look))).wordBreak,
     ).toBe("break-word");
     expect(
-      textRunStyle(look, undefined, minBreakableWidth(look) - 1).wordBreak,
+      textRunStyle(look, undefined, line(minBreakableWidth(look) - 1))
+        .wordBreak,
     ).toBe("normal");
-    expect(textRunStyle(look, undefined, 0).wordBreak).toBe("normal");
+    expect(textRunStyle(look, undefined, line(0)).wordBreak).toBe("normal");
   });
 
   it("counts tracking toward the width a glyph takes", () => {
-    expect(minBreakableWidth({ fontSize: 40, letterSpacing: 2 })).toBe(200);
-    expect(minBreakableWidth({ fontSize: 40, letterSpacing: -0.5 })).toBe(120);
+    expect(minBreakableWidth({ fontSize: 40, letterSpacing: 2 })).toBe(240);
+    expect(minBreakableWidth({ fontSize: 40, letterSpacing: -0.5 })).toBe(160);
+  });
+
+  /* A cluster of n code points is n glyphs to satori when no face draws it
+     as one picture, each followed by the tracking. */
+  it("holds the line wider than the longest cluster in the run", () => {
+    const tracked = { fontSize: 40, letterSpacing: 2 };
+    expect(minBreakableWidth(tracked, "plain words")).toBe(240);
+    expect(minBreakableWidth(tracked, "a 1\u{FE0F}\u{20E3} keycap")).toBe(720);
+    expect(minBreakableWidth(tracked, "👨‍👩‍👧‍👦 family")).toBe(7 * 240);
   });
 });

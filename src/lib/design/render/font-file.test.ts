@@ -5,6 +5,7 @@ import {
   fontExtension,
   fontRejectionMessage,
   isRenderableFont,
+  MAX_GLYPH_EM,
 } from "./font-file";
 import {
   buildFont,
@@ -32,6 +33,20 @@ import {
 describe("checkFontBytes", () => {
   it("accepts a font the renderer can actually draw with", () => {
     expect(checkFontBytes(buildFont())).toEqual({ ok: true });
+  });
+
+  /* Satori loops when a word-breaking line is narrower than one glyph; the
+     layer renderer keeps lines MAX_GLYPH_EM wide per code point, which only
+     holds for a face whose letters are no wider. */
+  it("rejects a face with a letter wider than designs can wrap", () => {
+    expect(checkFontBytes(buildFont({ advance: MAX_GLYPH_EM * 1000 }))).toEqual(
+      { ok: true },
+    );
+    const check = checkFontBytes(
+      buildFont({ advance: MAX_GLYPH_EM * 1000 + 1 }),
+    );
+    expect(check.ok).toBe(false);
+    expect(check.ok === false && check.reason).toMatch(/wider than designs/);
   });
 
   it("rejects the production repro: a signature followed by zeros", () => {

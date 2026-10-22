@@ -310,6 +310,21 @@ export const SCRIPTS = {
     ),
     cta: clamp("🛒👨‍👩‍👧‍👦🇳🇬 Order 👍🏾", 32),
   },
+  /* Symbols that are text by default and pictures with U+FE0F, keycaps on
+     every base, and the subdivision flags: round 3's editor drew this
+     subheadline 18px wider than its box in split-left. */
+  emojiSymbols: {
+    ...WORST_CASE,
+    headline: clamp(
+      "🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F} Scotland 🏴\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F} Wales 👩🏽‍❤️‍💋‍👨🏿 love 🧑🏾‍🦯‍➡️ walk",
+      70,
+    ),
+    subheadline: clamp(
+      "#️⃣ *️⃣ 0️⃣ 9️⃣ ©️ ®️ ™️ ↔️ ⬆️ ⤴️ 〰️ 〽️ ㊗️ ㊙️ ‼️ ⁉️ ℹ️ Ⓜ️ ▶️ ◀️ ☀️ ☎️ ✔️ ✳️",
+      140,
+    ),
+    cta: clamp("🇳🇬 Order 🇬🇭 now 🇰🇪", 32),
+  },
   cjk: {
     ...WORST_CASE,
     headline: clamp(
@@ -321,6 +336,16 @@ export const SCRIPTS = {
       140,
     ),
     cta: clamp("今すぐ週末ボックスを予約する。店頭受け取りのみ。", 32),
+  },
+  /* Precomposed capitals with two marks stacked (Ǻ, Ȫ, Ẩ). Measured in one
+     unspaced probe they drew in another face than the copy's words, 5px
+     shorter, and the headline spilled 4px above its box at 16:9. */
+  stackedLatin: {
+    ...WORST_CASE,
+    headline: "ǺǼǾȪȬȰ ḈṎṌṐṒḜǗǙǛ ẤẦẨẪẬẮẰẲẴẶ ẾỀỂỄỆ",
+    subheadline:
+      "Ǻ Ǽ Ǿ Ȫ Ȭ Ȱ Ḉ Ṏ Ṍ Ṑ Ṓ Ḝ Ǘ Ǚ Ǜ Ấ Ầ Ẩ Ẫ Ậ Ắ Ằ Ẳ Ẵ Ặ Ế Ề Ể Ễ Ệ Ố Ồ Ổ Ỗ Ộ Ớ Ờ Ở Ỡ Ợ Ứ Ừ Ử Ữ Ự",
+    cta: "ẪỄỖẶẬ ǺǼǾȪȬ",
   },
   vietnamese: {
     ...WORST_CASE,
@@ -347,6 +372,9 @@ export const REFUSED_COPY = {
   devanagari: ["ताज़ा क्रोइसां, अभी ऑर्डर करें", "TEXT_SCRIPT_UNSUPPORTED"],
   thai: ["ครัวซองต์สดใหม่ น้ำ ปั้น", "TEXT_SCRIPT_UNSUPPORTED"],
   khmer: ["នំក្រូសង់ស្រស់ៗ", "TEXT_SCRIPT_UNSUPPORTED"],
+  armenian: ["Թարմ կրուասաններ ամեն առավոտ", "TEXT_SCRIPT_UNSUPPORTED"],
+  georgian: ["ახალი კრუასანები ყოველ დილით", "TEXT_SCRIPT_UNSUPPORTED"],
+  greekPolytonic: ["Ἀρχὴ ἥμισυ παντός", "TEXT_SCRIPT_UNSUPPORTED"],
   yoruba: ["Ọ̀rọ̀ ẹ̀kọ́ fún gbogbo ènìyàn", "TEXT_ACCENT_UNSUPPORTED"],
   zalgo: ["Ẕ̷̢̛͓̳̦͍̞̓̍͛ạ̶̛̞̖̫̺̓͒͑͝l̸̢̰̼̺͒̈́̾g̵̡̛̱̘̈́̃̓ọ̴̡͚̺̊͗̕ fresh croissants", "TEXT_CLUSTER_TOO_COMPLEX"],
   bidiOverride: ["Fresh \u202Esnossiorc\u202C today", "TEXT_CONTROL_CHARACTER"],

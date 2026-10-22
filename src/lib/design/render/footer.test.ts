@@ -251,19 +251,65 @@ describe("footerLinesFor against the copy above it", () => {
     footerLines: string[];
   }) => footerLinesFor({ footerStyle: "text", ...spec });
 
-  it("drops an item whose facts the subheadline already states", () => {
+  it("drops a line the copy above already says word for word", () => {
     expect(
       linesFor({
         subheadline: "Strawberry mille-feuille, ready Monday from 7am.",
-        footerLines: ["Monday · 7 am · 12 Admiralty Way, Lekki"],
+        footerLines: ["Ready Monday from 7 am.", "12 Admiralty Way, Lekki"],
       }),
     ).toEqual(["12 Admiralty Way, Lekki"]);
     expect(
       linesFor({
-        subheadline: "Pick up Monday at 7:00am",
-        footerLines: ["Pickup Monday 7am"],
+        headline: "Open 7am to 6pm",
+        footerLines: ["7am to 6pm", "Closed Sundays · 7am to 6pm"],
       }),
-    ).toEqual([]);
+    ).toEqual(["Closed Sundays · 7am to 6pm"]);
+  });
+
+  /* Round 3 dropped an item when its facts all appeared above, ignoring
+     the words around them, and deleted offers, conditions and exclusions. */
+  it.each([
+    ["Now baking in Lekki", "Free delivery in Lekki"],
+    ["Open 7am–6pm, fresh every morning", "Mon–Sat 7am–6pm"],
+    ["Boxes from ₦5,000", "Delivery fee ₦5,000"],
+    ["20% off this weekend", "Not 20% off on cakes"],
+    ["Call 0803 555 0142", "WhatsApp only, no calls: 0803 555 0142"],
+    ["Live jazz every Friday at 8pm", "Except Friday 24 Dec"],
+    ["Pick up Monday at 7:00am", "Pickup Monday 7am"],
+    ["Ikoyi pop-up", "Lekki · Ikoyi · Victoria Island"],
+    ["Ready Monday from 7am", "Monday · 7 am · 12 Admiralty Way, Lekki"],
+  ])("under %j keeps %j whole", (subheadline, line) => {
+    expect(
+      linesFor({ cta: "Order now", subheadline, footerLines: [line] }),
+    ).toEqual([line]);
+    expect(
+      linesFor({
+        cta: "Order now",
+        headline: subheadline,
+        footerLines: [line],
+      }),
+    ).toEqual([line]);
+  });
+
+  it("keeps an offer the CTA leads into", () => {
+    expect(
+      linesFor({ cta: "Order now", footerLines: ["Order now and save 20%"] }),
+    ).toEqual(["Order now and save 20%"]);
+    expect(
+      linesFor({
+        cta: "Order now",
+        footerLines: ["Order now, pay on delivery"],
+      }),
+    ).toEqual(["Pay on delivery"]);
+  });
+
+  it("keeps a mixed-case name's case when it starts the line", () => {
+    expect(
+      linesFor({
+        cta: "Get the app",
+        footerLines: ["Get the app / iOS / Android"],
+      }),
+    ).toEqual(["iOS / Android"]);
   });
 
   it("keeps an item with a fact the copy above does not state", () => {

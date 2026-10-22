@@ -88,11 +88,17 @@ export function accentField(ctx: Context): string {
   return `linear-gradient(160deg, ${accent} 0%, ${mixToward(accent, "#000000", 0.22)} 100%)`;
 }
 
+/** The share of the box a scrim takes to reach its full alpha. Round 3's
+ *  ramp ran 0 to 0.47 over 8% of a 4:5 post and laid a grey slab with a
+ *  hard top edge across a bright sky. */
+const SCRIM_RAMP = 0.3;
+
 /**
  * A veil over `box` that is clear at its top and reaches the measured alpha
  * just above the copy, holding it to the bottom so everything below the
- * copy's top is covered too. Eased rather than linear: a straight ramp reads
- * as a band across the photo. None at all when the copy reads without one.
+ * copy's top is covered too. Eased (smoothstep) rather than linear: a
+ * straight ramp reads as a band across the photo. None at all when the copy
+ * reads without one.
  *
  * `from: "top"` mirrors it for copy set high: solid from the top edge to
  * just below the copy, clearing downwards. `subjectEdge` is where the
@@ -119,18 +125,22 @@ export function scrimFor(
         ? (box.y + box.height - options.subjectEdge) / box.height
         : (options.subjectEdge - box.y) / box.height;
   const rampStart = Math.min(
-    Math.max(0, toCopy - 0.24, clearUntil),
+    Math.max(0, toCopy - SCRIM_RAMP, clearUntil),
     Math.max(0, toCopy - 0.03),
   );
   const solid = Math.max(rampStart, toCopy - 0.03);
-  const eased = rampStart + (solid - rampStart) * 0.55;
   const at = (alpha: number, share: number) =>
     `${veilColor(veil, alpha)} ${pct(share)}`;
+  /* Five stops, the schema's most; before the first a gradient holds the
+     first stop's colour, so the box above the ramp stays clear. */
+  const ramp = [1 / 3, 2 / 3].map((t) =>
+    at(veil.alpha * t * t * (3 - 2 * t), rampStart + (solid - rampStart) * t),
+  );
   return shapeElement(
     "scrim",
     "Scrim",
     box,
-    `linear-gradient(${fromTop ? 0 : 180}deg, ${at(0, 0)}, ${at(0, rampStart)}, ${at(veil.alpha * 0.45, eased)}, ${at(veil.alpha, solid)}, ${at(veil.alpha, 1)})`,
+    `linear-gradient(${fromTop ? 0 : 180}deg, ${[at(0, rampStart), ...ramp, at(veil.alpha, solid), at(veil.alpha, 1)].join(", ")})`,
     { radius },
   );
 }

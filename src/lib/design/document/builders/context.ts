@@ -53,6 +53,9 @@ export interface Context {
   logoBox: Rect | null;
   logo: DocumentLogoInput | null;
   measurer: TextMeasurer;
+  /** Footer type at its role's minimum instead of the largest that fits,
+   *  to give the copy above it room (from-spec.ts buildLeading). */
+  smallFooter: boolean;
   /** Quality faults raised while building, for the caller to report. */
   faults: Set<string>;
   /** Raised when a layout cannot keep its copy off the subject or show the

@@ -41,33 +41,87 @@ export const SUBJECT_COVERED =
 export const SUBJECT_CROPPED =
   "the product does not fit this layout whole at a readable size; choose another layout or a photo with more room around the product";
 
-export function isSubjectBox(value: unknown): value is SubjectBox {
-  if (!value || typeof value !== "object") return false;
+/** The least share of the image a subject spans on each axis. A box
+ *  smaller than this is a detection glitch, not a product: drawn at
+ *  SUBJECT_MIN_SHARE it would be magnified past any sharp rendering, and a
+ *  layout would report it covered when the problem is its size. */
+export const MIN_SUBJECT_SIDE = 0.02;
+
+export const SUBJECT_BOX_INVALID = "SUBJECT_BOX_INVALID" as const;
+
+/** Why `value` is not a subject box a layout can keep, or null when it is.
+ *  Never clamped: a box a vision model rounded past the edge, or one with a
+ *  NaN, says nothing reliable about where the product is, and a clamped
+ *  guess put copy over the product with no fault. */
+export function subjectBoxProblem(value: unknown): string | null {
+  if (!value || typeof value !== "object") return "it is not a box";
   const box = value as Record<string, unknown>;
-  const share = (n: unknown) =>
-    typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
-  return (
-    share(box.x) &&
-    share(box.y) &&
-    share(box.w) &&
-    share(box.h) &&
-    (box.w as number) > 0 &&
-    (box.h as number) > 0 &&
-    (box.x as number) + (box.w as number) <= 1 + 1e-9 &&
-    (box.y as number) + (box.h as number) <= 1 + 1e-9
-  );
+  for (const side of ["x", "y", "w", "h"] as const) {
+    const n = box[side];
+    if (typeof n !== "number" || !Number.isFinite(n)) {
+      return `${side} is not a number`;
+    }
+    if (n < 0 || n > 1) return `${side} is ${n}, outside 0 to 1`;
+  }
+  const { x, y, w, h } = box as unknown as SubjectBox;
+  if (x + w > 1 + 1e-9) return `it reaches ${x + w} of the image's width`;
+  if (y + h > 1 + 1e-9) return `it reaches ${y + h} of the image's height`;
+  if (w < MIN_SUBJECT_SIDE || h < MIN_SUBJECT_SIDE) {
+    return `it is ${w} by ${h} of the image, smaller than ${MIN_SUBJECT_SIDE} on a side`;
+  }
+  return null;
+}
+
+export function isSubjectBox(value: unknown): value is SubjectBox {
+  return subjectBoxProblem(value) === null;
+}
+
+/** A subject box documentFromSpec cannot lay out, raised instead of
+ *  guessing. The job reports it as a fault and does not draw the design. */
+export class SubjectBoxFault extends Error {
+  readonly code = SUBJECT_BOX_INVALID;
+  constructor(
+    readonly problem: string,
+    /** "given" for a caller's box, "alpha" for one read from a cut-out. */
+    readonly source: "given" | "alpha",
+  ) {
+    super(
+      source === "alpha"
+        ? "the cut-out's visible part is too small to place; upload an image where the product fills more of the frame"
+        : `the product's position in the photo could not be used (${problem})`,
+    );
+    this.name = "SubjectBoxFault";
+  }
 }
 
 /** A cut-out's subject is its visible pixels, read from the alpha channel
- *  by measureImage (image-facts.ts), shadow included. */
+ *  by measureImage (image-facts.ts), shadow included, debris left out. */
 export function subjectFromAlpha(facts: ImageFacts): SubjectBox {
   const { ink } = facts;
   return {
     x: ink.left,
     y: ink.top,
-    w: Math.max(1e-3, ink.right - ink.left),
-    h: Math.max(1e-3, ink.bottom - ink.top),
+    w: ink.right - ink.left,
+    h: ink.bottom - ink.top,
   };
+}
+
+/** The subject a build lays out: the caller's box, else a cut-out's alpha,
+ *  else none. Throws SubjectBoxFault for a box it cannot keep. */
+export function resolveSubject(
+  given: SubjectBox | null | undefined,
+  facts: ImageFacts | null,
+): SubjectBox | null {
+  if (given !== null && given !== undefined) {
+    const problem = subjectBoxProblem(given);
+    if (problem) throw new SubjectBoxFault(problem, "given");
+    return given;
+  }
+  if (!facts?.cutout) return null;
+  const alpha = subjectFromAlpha(facts);
+  const problem = subjectBoxProblem(alpha);
+  if (problem) throw new SubjectBoxFault(problem, "alpha");
+  return alpha;
 }
 
 /** Where the subject lands on the canvas for a given placement. */
