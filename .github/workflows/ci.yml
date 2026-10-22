@@ -34,6 +34,12 @@ jobs:
       - name: Vendor render fonts
         run: pnpm fonts
 
+      # document/browser-parity.smoke.test.ts draws every layer document in
+      # Chromium as well as satori, because the PR 2 editor is a browser and
+      # the two engines disagreed on line breaks in round 1 (FEAT-033).
+      - name: Install Chromium for the editor parity test
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Test
         run: pnpm test
 

@@ -84,6 +84,7 @@ export async function settleLogo(
       footer: {
         footerStyle: drafted.footerStyle,
         footerLines: drafted.footerLines,
+        cta: drafted.cta,
       },
     }),
   };

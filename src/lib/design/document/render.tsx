@@ -55,17 +55,20 @@ type TextLook = Pick<
  * if the measurement and the render ever used different properties, a size
  * that measured as fitting could overflow when drawn.
  *
- * Balanced wrapping because a headline that leaves one word on its last line
- * reads as a mistake, and both satori and current browsers implement it.
+ * Plain greedy wrapping, the one line-breaking rule satori and Chromium
+ * agree on. text-wrap: balance broke lines in different places in the two
+ * engines (B5), so balancing is done by the builder instead, by narrowing
+ * the box (fit.ts balancedWidth).
  *
- * No break-word. Satori's balancing narrows the line until the line count
- * would change, and with break-word allowed it keeps narrowing by splitting
- * words: "croissants" came out as "croiss / ants". Keeping words whole is the
- * fitter's job instead (fit.ts shrinks until the widest word fits).
+ * break-word, so a word wider than its box breaks rather than running out
+ * of it. Both engines break a word only when it cannot fit a line on its
+ * own, and the fitter only lets that happen at the legibility floor, with a
+ * fault reported (fit.ts tier 4). Text a user types in the editor gets the
+ * same guarantee for free.
  *
- * justifyContent places the balanced run, which satori lays out narrower
- * than its box, where textAlign says; a browser ignores it on a block and
- * aligns with textAlign alone, so both land in the same place.
+ * justifyContent places the run where textAlign says in satori, which lays a
+ * run out as a flex row; a browser ignores it on a block and aligns with
+ * textAlign alone, so both land in the same place.
  */
 const JUSTIFY = {
   left: "flex-start",
@@ -73,10 +76,30 @@ const JUSTIFY = {
   right: "flex-end",
 } as const;
 
+/**
+ * The narrowest line a run may break words on.
+ *
+ * Satori never returns when break-word meets a line narrower than one glyph:
+ * it keeps splitting a grapheme that cannot be split. A schema-valid edit (a
+ * box dragged narrower than a letter, a button narrower than its padding)
+ * would hang the renderer, so below this width words do not break and the
+ * run overflows instead. Three ems plus the tracking is wider than any glyph
+ * the bundled or fallback faces draw; every builder box is many times it.
+ */
+export function minBreakableWidth(
+  look: Pick<TextLook, "fontSize" | "letterSpacing">,
+): number {
+  return look.fontSize * (3 + Math.max(0, look.letterSpacing));
+}
+
 export function textRunStyle(
   look: TextLook,
   fonts: FontFamilies = DEFAULT_FONT_FAMILIES,
+  /** The width the run is laid out in, when known. */
+  lineWidth?: number,
 ): CSSProperties {
+  const breaksWords =
+    lineWidth === undefined || lineWidth >= minBreakableWidth(look);
   return {
     display: "block",
     fontFamily: look.font === "heading" ? fonts.heading : fonts.body,
@@ -87,7 +110,7 @@ export function textRunStyle(
     letterSpacing: look.letterSpacing * look.fontSize,
     textAlign: look.align,
     color: look.color,
-    textWrap: "balance",
+    wordBreak: breaksWords ? "break-word" : "normal",
     justifyContent: JUSTIFY[look.align],
   };
 }
@@ -215,7 +238,9 @@ function TextLayer({
         justifyContent: "center",
       }}
     >
-      <div style={textRunStyle(element, fonts)}>{element.text}</div>
+      <div style={textRunStyle(element, fonts, element.width)}>
+        {element.text}
+      </div>
     </div>
   );
 }
@@ -227,6 +252,10 @@ function ButtonLayer({
   element: ButtonElement;
   fonts: FontFamilies;
 }) {
+  const labelWidth = Math.max(
+    0,
+    element.width - buttonPaddingX(element.fontSize) * 2,
+  );
   return (
     <div
       data-element-id={element.id}
@@ -252,8 +281,9 @@ function ButtonLayer({
               color: element.color,
             },
             fonts,
+            labelWidth,
           ),
-          maxWidth: element.width - buttonPaddingX(element.fontSize) * 2,
+          maxWidth: labelWidth,
         }}
       >
         {element.label}

@@ -79,7 +79,7 @@ async function both(
   };
   const palette: ResolvedPalette = resolvePalette(spec.palette, {});
   const bytes = logoBytes(mark.rgb);
-  const doc = await documentFromSpec({
+  const { document: doc } = await documentFromSpec({
     spec,
     palette,
     canvas: canvasFor("4:5"),
@@ -227,7 +227,7 @@ describe("rasterizeDocument", () => {
     const result = await rasterizeDocument({
       doc,
       assets: {},
-      brand: { brandFontUrl: "https://elsewhere.example/fonts/brand.ttf" },
+      brand: { heading: "https://elsewhere.example/fonts/brand.ttf" },
     });
     expect(Array.from(result.bytes.slice(0, 4))).toEqual(PNG_MAGIC);
     expect(result.brandFontFault).not.toBeNull();

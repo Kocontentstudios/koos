@@ -56,6 +56,9 @@ AssetRef = { key: string }    // an R2 storage key, never a URL
 
 - **Keys, not URLs.** An asset is referenced by storage key. The server resolves keys to bytes for satori, and the client resolves them to signed URLs.
 - **Pinned prefixes.** Keys are accepted only under `logos/`, `generated/` and the new `design-images/` prefix. This is the same pinning `storageKeyFrom` already enforces, so a document can never point the renderer at an arbitrary host.
+- **Decoded once.** `storageKeyFrom` refuses a decoded key that a second read would change: a leftover `%` (double encoding), `?`, `#`, `\`, an empty segment, control or invisible characters, or a malformed escape. Legacy keys outside the canonical alphabet still resolve.
+- **Canonical keys.** A key must also be in the shape the app mints (`isCanonicalKey` in `src/lib/storage-keys.ts`): letters, digits, `.`, `_` and `-` in non-empty `/`-separated segments, no dot segments. A stored key never passes through a URL decoder, so `%2e%2e`, `//host`, `?`, `#` and invisible characters are refused outright rather than decoded.
+- **Pinned canvas.** `width` and `height` must be one of the `canvasFor` sizes. Element geometry is bounded to two canvases in any direction and type to a third of the longest edge, so no document can ask satori for a 10000 px raster.
 
 ### `src/lib/design/document/render.tsx`
 
@@ -63,17 +66,23 @@ AssetRef = { key: string }    // an R2 storage key, never a URL
 
 - Only CSS satori supports: `position:absolute`, `display:flex`, `transform: rotate()`, `opacity`, `borderRadius`, `objectFit`, `backgroundImage: linear-gradient`.
 - No browser-only properties.
-- The same function runs in the editor.
+- Greedy line wrapping only, with `word-break: break-word`. `text-wrap: balance` breaks lines differently in satori and Chromium, so balancing is done by the builder (it narrows the box), the one rule both engines agree on.
+- `break-word` only on a line at least `minBreakableWidth` wide (three ems plus tracking). Satori never returns when it has to break a line narrower than one glyph, so a box an edit drags narrower than a letter overflows instead of hanging the renderer.
+- The same function runs in the editor. `browser-parity.smoke.test.ts` draws every builder output in Chromium and in satori and holds both inside every box.
 
-`rasterizeDocument(doc, assets, brandFonts) → PNG bytes` reuses the composite rasterize path. That covers its brand-font fallback and its logo-backing measurement.
+`rasterizeDocument({ doc, assets, brand, logoInk?, fonts? }) → { bytes, document, logoFault, brandFontFault }` goes through `createBrandRasterizer` and `logoBackingOnGround` in `render/rasterize.ts`, the same two functions the flex composite uses. One brand-font fallback and one logo-backing measurement, shared.
 
 ### `src/lib/design/document/from-spec.ts`
 
-`documentFromSpec({ spec, palette, canvas, image: AssetRef|null, logo }) → DesignDocument`.
+`documentFromSpec({ spec, palette, canvas, image: AssetRef|null, imageFacts?, logo, measurer }) → { document, copyFault }`.
 
-- **One builder per existing layout:** `hero-center`, `split-left`, `banner-bottom`, `quote-card` and `stat-highlight`.
-- **Explicit geometry:** each builder computes boxes for the same zones the flex layout produces today, from canvas width and height.
-- **Text that fits:** headline size is fitted to its box from the text length and the measured advance widths of the font in use. The fit check is a deterministic function with tests. It is not a guess.
+- **One builder per existing layout**, one file each under `document/builders/`: `hero-center`, `split-left`, `banner-bottom`, `quote-card` and `stat-highlight`, over shared geometry, copy stack and footer.
+- **Explicit geometry:** each builder computes boxes for the same zones the flex layout produces today, from canvas width and height, with the flex layouts' own `HEADLINE_STEPS`, `BANNER_BAND` and `footerBandHeight`.
+- **Text that fits:** sizes are fitted by laying the copy out through satori itself (`measure.tsx`), so it is exact for the PNG. Every run is measured 2% narrower than it is drawn, which is the room Chromium needs. It needs `next/og`, so it runs on the server; the editor's in-browser estimate and the re-fit on save are PR 2 (table above).
+- **Copy faults, never silent:** below the type scale, copy shrinks toward a legibility floor (1.9% of the short side); below the floor a word breaks instead. Either is reported in `copyFault` (`COPY_SHRUNK`, `COPY_WORD_BROKEN`, or `COPY_TOO_LONG` when even that overflows), for the job to surface as a quality fault.
+- **Card layouts hold the image inside the card**, clipped to its rounded corners, on a flat ground. A cut-out sits whole in the top of the card with the copy below it, stepping its share of the canvas down (42%, 36%, 30%) before it would ever be laid under the copy; a photograph fills the card with the copy anchored low over its measured veil.
+- **The footer never repeats the CTA.** `footerLinesFor` (render/footer.ts, shared with the flex renderer and the judge) drops any footer item that is the CTA, part of it, or contains it, and keeps what follows a CTA used as a label ("Order on WhatsApp: 0803..." keeps the number).
+- **Images, measured:** `imageFacts` comes from `measureImage(bytes)` (`document/image-facts.ts`). A cut-out (transparent PNG) is contained and sized by its visible pixels, never cropped. Copy over a photograph gets the least veil at which every pixel behind it clears 4.5:1: dark type and no veil on a bright photo, white type and no veil on a dark one. Without facts, the photo is treated as the worst case.
 
 ### Generation (`src/lib/jobs/run-design-generation.ts`)
 

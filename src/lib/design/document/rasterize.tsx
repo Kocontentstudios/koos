@@ -1,21 +1,16 @@
+import { LOGO_NOT_LEGIBLE, type MarkInk } from "@/lib/design/logo-contrast";
+import type { BrandFontUrls, LoadedFont } from "@/lib/design/render/fonts";
 import {
-  LOGO_NOT_LEGIBLE,
-  logoBackingFor,
-  type MarkInk,
-} from "@/lib/design/logo-contrast";
-import { type LoadedFont, loadBrandFonts } from "@/lib/design/render/fonts";
-import {
-  type BrandFontUrls,
-  fontFallbackDrawer,
+  createBrandRasterizer,
+  logoBackingOnGround,
 } from "@/lib/design/render/rasterize";
-import { decodePngRgba, regionInk } from "@/lib/images/png-pixels";
 import { type AssetSources, documentElement } from "./render";
 import type { DesignDocument, LogoElement } from "./schema";
 
 /**
- * Layer document to PNG, through the same next/og path as the flex composite
- * (render/rasterize.ts), so it keeps the brand-font fallback and the two-pass
- * logo backing measurement.
+ * Layer document to PNG, through the same rasterizer as the flex composite
+ * (render/rasterize.ts): one brand-font fallback and one logo-backing
+ * measurement, shared, so the two renderers cannot drift.
  */
 
 export interface DocumentAsset {
@@ -81,18 +76,14 @@ export async function rasterizeDocument({
   logoInk = {},
   fonts,
 }: RasterizeDocumentInput): Promise<RasterizeDocumentResult> {
-  const canvas = { width: doc.width, height: doc.height };
   const sources = toDataUris(assets);
-  const drawer = fontFallbackDrawer(
-    fonts ??
-      (await loadBrandFonts({
-        heading: brand.brandFontUrl,
-        body: brand.bodyFontUrl,
-      })),
+  const rasterizer = await createBrandRasterizer(
+    { width: doc.width, height: doc.height },
     brand,
+    fonts,
   );
   const draw = (document: DesignDocument) =>
-    drawer.draw(documentElement(document, sources), canvas);
+    rasterizer.draw(documentElement(document, sources));
 
   /* Two passes, as in the composite and for the same reason: the only honest
      reading of what sits under a mark is the finished picture with the mark
@@ -101,26 +92,19 @@ export async function rasterizeDocument({
   let logoFault: string | null = null;
   const logos = measurableLogos(doc, sources, logoInk);
   if (logos.length > 0) {
-    const withoutLogos: DesignDocument = {
+    const ground = await draw({
       ...doc,
       elements: doc.elements.map((element) =>
         element.type === "logo" ? { ...element, hidden: true } : element,
       ),
-    };
-    const ground = decodePngRgba(await draw(withoutLogos));
+    });
     const backings = new Map<string, string | null>();
     for (const logo of logos) {
-      const decision = logoBackingFor({
-        ink: logoInk[logo.asset.key],
-        ground: ground
-          ? regionInk(ground, {
-              left: logo.x,
-              top: logo.y,
-              width: logo.width,
-              height: logo.height,
-            })
-          : { darkest: Number.NaN, lightest: Number.NaN },
-      });
+      const decision = logoBackingOnGround(
+        ground,
+        { left: logo.x, top: logo.y, width: logo.width, height: logo.height },
+        logoInk[logo.asset.key],
+      );
       backings.set(logo.id, decision.backing);
       /* Same rule as the composite: the best plate is applied even when it
          falls short, and the shortfall is reported, never swallowed. */
@@ -144,7 +128,7 @@ export async function rasterizeDocument({
     height: doc.height,
     document: drawn,
     logoFault,
-    brandFontFault: drawer.fault(),
+    brandFontFault: rasterizer.brandFontFault(),
   };
 }
 
@@ -162,26 +146,22 @@ export async function prepareDocumentFonts(
   brand: BrandFontUrls,
   sampleText: string,
 ): Promise<{ fonts: LoadedFont[]; fault: string | null }> {
-  const fonts = await loadBrandFonts({
-    heading: brand.brandFontUrl,
-    body: brand.bodyFontUrl,
-  });
-  const drawer = fontFallbackDrawer(fonts, brand);
+  const sampleCanvas = { width: 64, height: 16 };
+  const rasterizer = await createBrandRasterizer(sampleCanvas, brand);
   const sample = sampleText.trim() || "Aa";
-  await drawer.draw(
+  await rasterizer.draw(
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        width: 64,
-        height: 16,
+        width: sampleCanvas.width,
+        height: sampleCanvas.height,
       }}
     >
       <div style={{ fontFamily: "Display", fontWeight: 700 }}>{sample}</div>
       <div style={{ fontFamily: "Body", fontWeight: 400 }}>{sample}</div>
       <div style={{ fontFamily: "Body", fontWeight: 600 }}>{sample}</div>
     </div>,
-    { width: 64, height: 16 },
   );
-  return { fonts: drawer.fonts(), fault: drawer.fault() };
+  return { fonts: rasterizer.fonts(), fault: rasterizer.brandFontFault() };
 }

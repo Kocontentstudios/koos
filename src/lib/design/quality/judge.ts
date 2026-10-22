@@ -540,6 +540,7 @@ function keepLogoClearOfCopy(spec: DesignSpec): DesignSpec {
       footer: {
         footerStyle: spec.footerStyle,
         footerLines: spec.footerLines,
+        cta: spec.cta,
       },
     }),
   };

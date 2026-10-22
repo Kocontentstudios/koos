@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import type { ReactElement } from "react";
 import type { LoadedFont } from "@/lib/design/render/fonts";
 import { decodePngRgba } from "@/lib/images/png-pixels";
-import type { TextLook, TextMeasurer } from "./fit";
+import { type TextLook, type TextMeasurer, unbreakableRuns } from "./fit";
 import { textRunStyle } from "./render";
 
 /**
@@ -44,8 +44,11 @@ function marker(): ReactElement {
   );
 }
 
-function runStyle(look: TextLook) {
-  return { ...textRunStyle({ ...look, color: "#000000" }), flexShrink: 0 };
+function runStyle(look: TextLook, lineWidth?: number) {
+  return {
+    ...textRunStyle({ ...look, color: "#000000" }, undefined, lineWidth),
+    flexShrink: 0,
+  };
 }
 
 export interface RendererMeasurerOptions {
@@ -153,7 +156,7 @@ export function createRendererMeasurer({
                 flexShrink: 0,
               }}
             >
-              <div style={runStyle(look)}>{text}</div>
+              <div style={runStyle(look, w)}>{text}</div>
             </div>
             {marker()}
           </div>,
@@ -194,7 +197,7 @@ export function createRendererMeasurer({
     },
 
     widestWord(text, look) {
-      const words = Array.from(new Set(text.split(/\s+/).filter(Boolean)));
+      const words = Array.from(new Set(unbreakableRuns(text)));
       if (words.length === 0) return Promise.resolve(0);
       return memo(JSON.stringify(["ww", words, look]), () =>
         probe(

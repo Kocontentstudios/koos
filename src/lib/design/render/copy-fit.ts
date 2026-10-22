@@ -175,7 +175,11 @@ export function fitHeadlineSize({
      headline into the band. */
   const footer =
     spec.footerStyle && spec.footerLines
-      ? { footerStyle: spec.footerStyle, footerLines: spec.footerLines }
+      ? {
+          footerStyle: spec.footerStyle,
+          footerLines: spec.footerLines,
+          cta: spec.cta,
+        }
       : undefined;
   const space = copySpaceFor(layout, canvas, bannerBand, footer);
   const reference = Math.min(canvas.width, canvas.height);

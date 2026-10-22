@@ -17,6 +17,10 @@ import type { LogoCorner } from "@/lib/design/logo-placement";
 export interface FooterSpec {
   footerStyle: "bar" | "text" | "none";
   footerLines: string[];
+  /** The call to action, so a footer that repeats it can drop the repeat.
+   *  Optional only for callers that place the logo before the copy exists;
+   *  every renderer passes the whole spec. */
+  cta?: string;
 }
 
 /** Three lines is the cap: a fourth turns a footer into a paragraph, which is
@@ -24,10 +28,78 @@ export interface FooterSpec {
 export const MAX_FOOTER_LINES = 3;
 
 export function footerLinesFor(spec: FooterSpec): string[] {
+  const cta = wordsOf(spec.cta ?? "");
   return (spec.footerLines ?? [])
-    .map((line) => line.trim())
+    .map((line) => withoutCta(line.trim(), cta))
     .filter(Boolean)
     .slice(0, MAX_FOOTER_LINES);
+}
+
+/* A separator between footer items, kept with the spaces around it so the
+   line can be rebuilt exactly. */
+const SEPARATOR = /(\s+[·|•–—]\s+)/;
+const CONNECTOR = /^(?:at|on|via|by|from|to|for|in)\s+/i;
+
+function wordsOf(text: string): string[] {
+  return text
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+}
+
+function hasRun(haystack: string[], needle: string[]): boolean {
+  for (let i = 0; i + needle.length <= haystack.length; i += 1) {
+    if (needle.every((word, j) => haystack[i + j] === word)) return true;
+  }
+  return false;
+}
+
+/**
+ * The footer line with every item that repeats the call to action removed.
+ *
+ * The brief writer often puts the action in the footer as well ("Order now ·
+ * 0803 555 0142" under an "Order now" button), and the design then says it
+ * twice (U3 live critique). An item that is the CTA, part of it, or contains
+ * it goes. An item that leads with the CTA keeps what follows ("Order on
+ * WhatsApp: 0803..." keeps the number). A one-word overlap is not a repeat
+ * unless it is the whole of both: a "Shop" button must not delete "Shop 12,
+ * Admiralty Mall".
+ */
+function withoutCta(line: string, cta: string[]): string {
+  if (cta.length === 0) return line;
+  const parts = line.split(SEPARATOR);
+  const kept: string[] = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const item = itemWithoutCta(parts[i], cta);
+    if (!item) continue;
+    if (kept.length > 0) kept.push(parts[i - 1]);
+    kept.push(item);
+  }
+  return kept.join("").trim();
+}
+
+function itemWithoutCta(item: string, cta: string[]): string {
+  const words = wordsOf(item);
+  if (words.length === cta.length && hasRun(words, cta)) return "";
+  if (cta.length >= 2 && hasRun(words, cta)) {
+    /* wordsOf leaves only letters and digits, so the words need no
+       escaping. */
+    const lead = new RegExp(
+      `^[^\\p{L}\\p{N}]*${cta.join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}])[\\s:,–—-]*`,
+      "iu",
+    );
+    const normalized = item.normalize("NFKC");
+    const match = normalized.match(lead);
+    if (!match) return "";
+    const rest = normalized
+      .slice(match[0].length)
+      .replace(CONNECTOR, "")
+      .trim();
+    return wordsOf(rest).length > 0 ? rest : "";
+  }
+  if (words.length >= 2 && hasRun(cta, words)) return "";
+  return item;
 }
 
 export function hasFooter(spec: FooterSpec): boolean {

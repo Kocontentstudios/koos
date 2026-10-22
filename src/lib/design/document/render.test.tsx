@@ -19,6 +19,8 @@ import {
   documentElement,
   drawnElements,
   logoBackingPad,
+  minBreakableWidth,
+  textRunStyle,
 } from "./render";
 import type { DesignDocument, ImageElement, LogoElement } from "./schema";
 
@@ -57,7 +59,7 @@ const SATORI_PROPERTIES = new Set([
   "lineHeight",
   "letterSpacing",
   "textAlign",
-  "textWrap",
+  "wordBreak",
   "color",
 ]);
 
@@ -97,16 +99,15 @@ async function everyBuilderOutput(): Promise<DesignDocument[]> {
     for (const ratio of RATIOS) {
       for (const image of [IMAGE, null]) {
         for (const logo of [{ asset: LOGO, aspect: LOGO_ASPECT }, null]) {
-          docs.push(
-            await documentFromSpec({
-              spec: specFor(layout, ratio),
-              palette: PALETTE,
-              canvas: canvasFor(ratio),
-              image,
-              logo,
-              measurer,
-            }),
-          );
+          const { document } = await documentFromSpec({
+            spec: specFor(layout, ratio),
+            palette: PALETTE,
+            canvas: canvasFor(ratio),
+            image,
+            logo,
+            measurer,
+          });
+          docs.push(document);
         }
       }
     }
@@ -131,6 +132,12 @@ describe("documentElement", () => {
           if (property === "transform") {
             expect(text).toMatch(/^rotate\(-?[\d.]+deg\)$/);
           }
+          /* B5: balance wrapping broke lines differently in satori and
+             Chromium. Only break-word, which both engines apply the same
+             way (to a word wider than its line), may change wrapping, and
+             every builder box is wide enough to allow it. */
+          if (property === "wordBreak") expect(text).toBe("break-word");
+          expect(property).not.toBe("textWrap");
         }
       }
     }
@@ -260,5 +267,34 @@ describe("documentElement", () => {
     ) as HTMLElement;
     expect(headline.style.fontFamily).toBe("BrandHead");
     expect(DEFAULT_FONT_FAMILIES.heading).toBe("Display");
+  });
+});
+
+describe("textRunStyle", () => {
+  const look = {
+    font: "body" as const,
+    fontSize: 40,
+    fontWeight: 400 as const,
+    lineHeight: 1.2,
+    letterSpacing: 0,
+    align: "left" as const,
+    italic: false,
+    color: "#000000",
+  };
+
+  it("breaks an over-long word only on a line several glyphs wide", () => {
+    expect(textRunStyle(look).wordBreak).toBe("break-word");
+    expect(
+      textRunStyle(look, undefined, minBreakableWidth(look)).wordBreak,
+    ).toBe("break-word");
+    expect(
+      textRunStyle(look, undefined, minBreakableWidth(look) - 1).wordBreak,
+    ).toBe("normal");
+    expect(textRunStyle(look, undefined, 0).wordBreak).toBe("normal");
+  });
+
+  it("counts tracking toward the width a glyph takes", () => {
+    expect(minBreakableWidth({ fontSize: 40, letterSpacing: 2 })).toBe(200);
+    expect(minBreakableWidth({ fontSize: 40, letterSpacing: -0.5 })).toBe(120);
   });
 });
