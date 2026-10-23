@@ -154,3 +154,61 @@ describe.each(LAYOUTS)("%s", (layout) => {
 it("states the minimum share it holds", () => {
   expect(SUBJECT_MIN_SHARE).toBeGreaterThanOrEqual(0.35);
 });
+
+/* Round 4 centred an inset picture in whatever room the logo left: 8% off
+   the axis of centred copy, and floating between flush-left copy and the
+   canvas centre. */
+describe("an inset picture lines up with its copy", () => {
+  const inset = async (
+    layout: "hero-center" | "banner-bottom",
+    ratio: (typeof RATIOS)[number],
+    subject: SubjectBox | null,
+  ) => {
+    const { document } = await documentFromSpec({
+      spec: specFor(layout, ratio, REALISTIC),
+      palette: PALETTE,
+      canvas: canvasFor(ratio),
+      image: subject ? PHOTO : CUTOUT,
+      imageFacts: subject ? photoFacts : cutoutFacts,
+      subject,
+      logo: { asset: LOGO, aspect: LOGO_ASPECT },
+      measurer,
+    });
+    const image = document.elements.find((e) => e.type === "image");
+    const headline = document.elements.find((e) => e.id === "headline");
+    if (!image || !headline) throw new Error("no image or headline");
+    const isInset = image.width < document.width - 1;
+    return { document, image, headline, isInset };
+  };
+  const subjects = [null, ...Object.values(PHOTO_SUBJECTS)];
+
+  it.each(RATIOS)("hero-center %s: on the canvas axis", async (ratio) => {
+    for (const subject of subjects) {
+      const { document, image, isInset } = await inset(
+        "hero-center",
+        ratio,
+        subject,
+      );
+      if (!isInset || image.fit === "contain") continue;
+      expect(
+        Math.abs(image.x + image.width / 2 - document.width / 2),
+        `${ratio} ${JSON.stringify(subject)}`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it.each(RATIOS)(
+    "banner-bottom %s: from the copy's left edge",
+    async (ratio) => {
+      for (const subject of subjects) {
+        const { image, headline, isInset } = await inset(
+          "banner-bottom",
+          ratio,
+          subject,
+        );
+        if (!isInset || image.fit === "contain") continue;
+        expect(image.x, `${ratio} ${JSON.stringify(subject)}`).toBe(headline.x);
+      }
+    },
+  );
+});

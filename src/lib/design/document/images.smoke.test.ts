@@ -43,6 +43,7 @@ const KEYS: Record<keyof typeof IMAGES, AssetRef> = {
   black: { key: "design-images/b1/black.png" },
   busy: { key: "design-images/b1/busy.png" },
   cutout: { key: "design-images/b1/cutout.png" },
+  sky: { key: "design-images/b1/sky.png" },
 };
 
 let fonts: Awaited<ReturnType<typeof loadBrandFonts>>;
@@ -348,13 +349,95 @@ describe("copy over a photograph", () => {
     const scrim = doc.elements.find((e) => e.id === "scrim");
     expect(scrim?.type).toBe("shape");
     if (scrim?.type !== "shape") return;
-    const alphas = Array.from(
-      scrim.fill.matchAll(/rgba\(0,0,0,([\d.]+)\)/g),
-      (m) => Number(m[1]),
-    );
+    const alphas = scrimStops(scrim.fill).map(([, alpha]) => alpha);
     expect(Math.max(...alphas)).toBeGreaterThan(0.3);
     expect(Math.max(...alphas)).toBeLessThan(1);
     /* Clear over the top of the frame, where there is no copy. */
     expect(alphas[0]).toBe(0);
+  });
+});
+
+/** A scrim's stops as [position share, alpha]. */
+function scrimStops(fill: string): [number, number][] {
+  return Array.from(
+    fill.matchAll(/rgba\(\d+,\d+,\d+,([\d.]+)\) ([\d.]+)%/g),
+    (m) => [Number(m[2]) / 100, Number(m[1])],
+  );
+}
+
+/* Round 4: a 0 to 0.55 ramp over 17% of a square post laid a band across
+   a sky, and four stops at 50.3% cut a hard edge through a portrait. */
+describe("the veil over a photograph", () => {
+  it("never rises in a band: every scrim ramps over at least 20% of its box", async () => {
+    let scrims = 0;
+    for (const layout of [
+      "hero-center",
+      "quote-card",
+      "stat-highlight",
+    ] as const) {
+      for (const ratio of RATIOS) {
+        for (const name of ["busy", "sky"] as const) {
+          const doc = await build(layout, ratio, name);
+          const scrim = doc.elements.find((e) => e.id === "scrim");
+          if (scrim?.type !== "shape") continue;
+          scrims += 1;
+          const label = `${layout} ${ratio} ${name}`;
+          const stops = scrimStops(scrim.fill);
+          expect(stops.length, label).toBeGreaterThanOrEqual(2);
+          for (let i = 1; i < stops.length; i += 1) {
+            expect(stops[i][0], label).toBeGreaterThan(stops[i - 1][0]);
+          }
+          const peak = Math.max(...stops.map(([, alpha]) => alpha));
+          const reached = stops.find(([, alpha]) => alpha >= peak)?.[0] ?? 0;
+          const [[at0, alpha0], [at1, alpha1]] = stops;
+          /* Where the veil leaves zero, extended past the box edge when it
+             starts already veiled. */
+          const clear =
+            alpha0 === 0
+              ? Math.max(...stops.filter(([, a]) => a === 0).map(([at]) => at))
+              : at0 - (alpha0 * (at1 - at0)) / (alpha1 - alpha0);
+          expect(reached - clear, label).toBeGreaterThanOrEqual(0.2);
+        }
+      }
+    }
+    expect(scrims).toBeGreaterThan(6);
+  });
+
+  it("keeps a sky bright: copy across sky and stone does not grey the photo", async () => {
+    for (const ratio of ["1:1", "4:5"] as const) {
+      const doc = await build("hero-center", ratio, "sky");
+      const ground = await render(withoutCopy(doc), "sky");
+      const plain = await render(
+        { ...doc, elements: doc.elements.filter((e) => e.type === "image") },
+        "sky",
+      );
+      const meanLuminance = (png: typeof ground) => {
+        let sum = 0;
+        let count = 0;
+        for (let i = 0; i < png.pixels.length; i += 4 * 7) {
+          const [r, g, b] = [
+            png.pixels[i],
+            png.pixels[i + 1],
+            png.pixels[i + 2],
+          ];
+          sum += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+          count += 1;
+        }
+        return sum / count;
+      };
+      /* Round 4 left the square post 61% of its light (a black veil over
+         the sky for white copy); dark copy over a light veil keeps all of
+         it, and the 4:5 post, mostly stone under the copy, keeps 78% under
+         the black veil its stone needs. */
+      expect(meanLuminance(ground), ratio).toBeGreaterThan(
+        meanLuminance(plain) * 0.75,
+      );
+      for (const run of copyContrast(ground, doc)) {
+        expect(run.under3, `${ratio} ${run.id}`).toBeLessThanOrEqual(0.005);
+        if (run.id !== "headline") {
+          expect(run.under45, `${ratio} ${run.id}`).toBeLessThanOrEqual(0.01);
+        }
+      }
+    }
   });
 });

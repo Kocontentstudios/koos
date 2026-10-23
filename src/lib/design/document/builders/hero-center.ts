@@ -24,16 +24,15 @@ import {
   isCutout,
   minSubjectHeight,
   subjectGap,
-  veilFor,
 } from "./image";
 import { HERO_OVER_PHOTO } from "./looks";
+import { copyBlocks, gradedVeil, scrimElement } from "./scrim";
 import {
   CUTOUT_SHARES,
   copyBottom,
   flatColors,
   footerColorOn,
   recolorCopy,
-  scrimFor,
 } from "./shared";
 
 /**
@@ -49,7 +48,7 @@ import {
  * A cut-out only ever takes 3: it is a product on nothing, and the flat
  * ground is its background. When none holds, 1 is drawn and the fault is
  * reported. Without a subject the photo fills the canvas and the copy is
- * veiled only as much as the pixels under it need (ground.ts).
+ * veiled only as much as the pixels under each run need (scrim.ts).
  */
 
 export async function heroCenter(ctx: Context): Promise<Built> {
@@ -62,16 +61,26 @@ export async function heroCenter(ctx: Context): Promise<Built> {
 
   if (!ctx.image) return flat(ctx, foot);
   if (isCutout(ctx)) return band(ctx, foot);
-  if (!ctx.subject) return fullBleed(ctx, foot, "end");
+  if (!ctx.subject) {
+    /* Low or high, whichever veil changes the photo least (scrim.ts);
+       low wins near-ties and anything that fits worse. */
+    const low = await fullBleed(ctx, foot, "end");
+    const high = await fullBleed(ctx, foot, "start");
+    const highFitsAsWell = high.stack.faults.length <= low.stack.faults.length;
+    return settle(
+      ctx,
+      highFitsAsWell && high.veilCost < low.veilCost - 0.01 ? high : low,
+    );
+  }
 
   for (const vAlign of ["end", "start"] as const) {
     const attempt = await fullBleed(ctx, foot, vAlign, true);
-    if (attempt) return attempt;
+    if (attempt) return settle(ctx, attempt);
   }
   const banded = await band(ctx, foot, true);
   if (banded) return banded;
   ctx.subjectFaults.add(SUBJECT_COVERED);
-  return fullBleed(ctx, foot, "end");
+  return settle(ctx, await fullBleed(ctx, foot, "end"));
 }
 
 async function flat(ctx: Context, foot: Footer | null): Promise<Built> {
@@ -120,14 +129,13 @@ function keepOutOf(copy: DesignElement[], foot: Footer | null): Rect[] {
   );
 }
 
-/** The canvas the copy, its rule and the footer cover, which the veil is
- *  measured for. */
-function copyRegion(ctx: Context, stack: Stack, foot: Footer | null): Rect {
-  const zone = stack.zone;
-  const top = stack.top - px(ctx.ref * 0.02);
-  const footBottom = foot ? foot.textBox.y + foot.textBox.height : 0;
-  const bottom = Math.max(stack.bottom + px(ctx.ref * 0.02), footBottom);
-  return rect(zone.x, top, zone.width, bottom - top);
+/** A full-bleed build not yet chosen: how heavily its veil touches the
+ *  photo, and the stack whose faults are reported if it is. */
+type Bled = Built & { veilCost: number; stack: Stack };
+
+function settle(ctx: Context, bled: Bled): Built {
+  commitFaults(ctx, bled.stack);
+  return { background: bled.background, elements: bled.elements };
 }
 
 /**
@@ -139,52 +147,55 @@ async function fullBleed(
   foot: Footer | null,
   vAlign: "start" | "end",
   strict: true,
-): Promise<Built | null>;
+): Promise<Bled | null>;
 async function fullBleed(
   ctx: Context,
   foot: Footer | null,
   vAlign: "start" | "end",
-): Promise<Built>;
+): Promise<Bled>;
 async function fullBleed(
   ctx: Context,
   foot: Footer | null,
   vAlign: "start" | "end",
   strict = false,
-): Promise<Built | null> {
+): Promise<Bled | null> {
   const { width, height, palette } = ctx;
   const stack = await stackIn(ctx, copyZone(ctx, foot), vAlign);
   const copy = await placeStack(stack);
-  const region = copyRegion(ctx, stack, foot);
   const framed = framedImage(ctx, rect(0, 0, width, height), {
     keepOut: keepOutOf(copy, foot),
   });
   if (!framed || (strict && !framed.clean)) return null;
-  commitFaults(ctx, stack);
 
-  const elements: DesignElement[] = [framed.element];
-  const veil = veilFor(ctx, framed.placement, region, palette.background);
-  const subject = framed.subject;
-  const scrim = scrimFor(
-    rect(0, 0, width, height),
-    vAlign === "end" ? stack.top : stack.bottom,
-    veil,
-    0,
-    {
-      from: vAlign === "end" ? "bottom" : "top",
-      ...(subject
-        ? {
-            subjectEdge:
-              vAlign === "end" ? subject.y + subject.height : subject.y,
-          }
-        : {}),
-    },
+  const from = vAlign === "end" ? "bottom" : "top";
+  const canvas = rect(0, 0, width, height);
+  const graded = gradedVeil(
+    ctx,
+    framed.placement,
+    canvas,
+    copyBlocks(ctx, [...copy, ...veiledFooter(foot)]),
+    { from, background: palette.background },
   );
+  const veil = graded.veil;
+  const elements: DesignElement[] = [framed.element];
+  const scrim = scrimElement(canvas, graded, { from });
   if (scrim) elements.push(scrim);
   elements.push(...recolorCopy(copy, veil.text));
   if (foot) elements.push(...recolorFooter(foot, veil.text).elements);
   const logo = logoElement(ctx);
   if (logo) elements.push(logo);
-  return { background: palette.background, elements };
+  return {
+    background: palette.background,
+    elements,
+    veilCost: graded.cost,
+    stack,
+  };
+}
+
+/** Footer lines that sit on the photo, not on a bar of their own. */
+function veiledFooter(foot: Footer | null): DesignElement[] {
+  if (!foot || foot.elements.some((e) => e.type === "shape")) return [];
+  return foot.elements;
 }
 
 /**
@@ -223,6 +234,7 @@ async function band(
     insets: { top: margin, bottom: 0, sides: margin },
     keepOut: keepOutOf(copy, foot),
     inset: true,
+    align: "axis",
   });
   if (!framed || (strict && !framed.clean)) return null;
   if (!framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);

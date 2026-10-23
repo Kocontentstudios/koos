@@ -11,6 +11,7 @@ import {
   buildFont,
   CORRUPT_FONTS,
   collectionWithBadOffset,
+  OUTLINE_GLYPH,
   signatureOnlyFont,
   truncatedFont,
 } from "./font-fixtures";
@@ -47,6 +48,127 @@ describe("checkFontBytes", () => {
     );
     expect(check.ok).toBe(false);
     expect(check.ok === false && check.reason).toMatch(/wider than designs/);
+  });
+
+  /* R4-1. Satori reaches glyphs no cmap range names: .notdef for a code
+     point no face covers, a ligature, a glyph mapped from any plane. Each
+     of these looped satori on schema-valid copy while the round-4 check,
+     which walked cmap ranges below U+1D800, passed the face
+     (scripts/feat-033 attack evidence, font-width.jsonl). */
+  const WIDE = MAX_GLYPH_EM * 1000 + 1;
+  it.each([
+    [".notdef", buildFont({ advances: { 0: WIDE } })],
+    [
+      "a glyph no cmap maps (a ligature, or a code point past the BMP)",
+      buildFont({ numGlyphs: 100, advances: { 99: WIDE } }),
+    ],
+    [
+      "the last glyph, whose advance every later glyph reuses",
+      buildFont({
+        numGlyphs: 100,
+        numberOfHMetrics: 100,
+        advances: { 99: WIDE },
+      }),
+    ],
+  ])("rejects a wide %s", (_label, bytes) => {
+    const check = checkFontBytes(bytes);
+    expect(check.ok === false && check.reason).toMatch(/wider than designs/);
+  });
+
+  describe("CFF outlines", () => {
+    it("accepts a CFF face whose drawn widths match its metrics", () => {
+      expect(checkFontBytes(buildFont({ cff: {} }))).toEqual({ ok: true });
+      expect(
+        checkFontBytes(buildFont({ cff: { nominalWidthX: 300 } })),
+      ).toEqual({ ok: true });
+    });
+
+    /* opentype.js replaces a glyph's hmtx advance with its charstring width
+       the first time it is drawn, so hmtx alone says nothing about a CFF
+       face. The satori smoke test shows the second draw looping. */
+    it("rejects a glyph that draws wider than its hmtx advance", () => {
+      const check = checkFontBytes(
+        buildFont({ cff: { widths: { [OUTLINE_GLYPH]: WIDE } } }),
+      );
+      expect(check.ok === false && check.reason).toMatch(/wider than designs/);
+    });
+
+    it("rejects a wide .notdef charstring", () => {
+      expect(
+        checkFontBytes(buildFont({ cff: { widths: { 0: WIDE } } })).ok,
+      ).toBe(false);
+    });
+
+    it("rejects a defaultWidthX used by a glyph with no width operand", () => {
+      expect(
+        checkFontBytes(
+          buildFont({ cff: { defaultWidthX: WIDE, widths: { 5: null } } }),
+        ).ok,
+      ).toBe(false);
+      /* Unused: every glyph states its own width. */
+      expect(
+        checkFontBytes(buildFont({ cff: { defaultWidthX: WIDE } })),
+      ).toEqual({ ok: true });
+    });
+
+    it("measures widths relative to nominalWidthX", () => {
+      expect(
+        checkFontBytes(
+          buildFont({ cff: { nominalWidthX: 3000, widths: { 7: 4000 } } }),
+        ),
+      ).toEqual({ ok: true });
+      expect(
+        checkFontBytes(
+          buildFont({ cff: { nominalWidthX: 3000, widths: { 7: WIDE } } }),
+        ).ok,
+      ).toBe(false);
+    });
+  });
+
+  /* A cluster of several glyphs is measured with the kerning between them,
+     so the bound holds only if a glyph plus its widest kern is within it. */
+  describe("kerning", () => {
+    it.each(["GPOS", "kern"] as const)(
+      "rejects a %s pair that carries a glyph past the bound",
+      (table) => {
+        const kerned = (value: number) =>
+          checkFontBytes(
+            buildFont({
+              advance: 2000,
+              kerning: {
+                table,
+                left: OUTLINE_GLYPH,
+                right: OUTLINE_GLYPH,
+                value,
+              },
+            }),
+          );
+        expect(kerned(2000)).toEqual({ ok: true });
+        expect(kerned(-3000)).toEqual({ ok: true });
+        const check = kerned(2001);
+        expect(check.ok === false && check.reason).toMatch(/spacing after/);
+      },
+    );
+  });
+
+  it("never throws on a CFF table whose programs are noise", () => {
+    const font = buildFont({ cff: {} });
+    const view = new DataView(font.buffer);
+    const tables = view.getUint16(4);
+    for (let i = 0; i < tables; i += 1) {
+      const at = 12 + i * 16;
+      if (String.fromCharCode(...font.subarray(at, at + 4)) !== "CFF ")
+        continue;
+      const offset = view.getUint32(at + 8);
+      const length = view.getUint32(at + 12);
+      for (let seed = 1; seed < 40; seed += 1) {
+        const noisy = font.slice();
+        for (let b = 40; b < length; b += 7) {
+          noisy[offset + b] = (b * seed * 31) & 0xff;
+        }
+        expect(() => checkFontBytes(noisy)).not.toThrow();
+      }
+    }
   });
 
   it("rejects the production repro: a signature followed by zeros", () => {

@@ -375,8 +375,8 @@ async function stackAt(
 
   /* Past the type scale, toward the legibility floor: copy that does not
      fit the layout at its smallest step is set smaller rather than run over
-     the logo or the footer, and the user is told (COPY_SHRUNK). Round 1
-     stopped at the scale and let the stack spill out of its zone. */
+     the logo or the footer, and the user is told (COPY_SHRUNK). Stopping
+     at the scale let the stack spill out of its zone. */
   if (!headline.fits) {
     const relaxed = sizeRange(floor, subMin);
     const below = sizeRange(floor, ladder[ladder.length - 1] - 1);

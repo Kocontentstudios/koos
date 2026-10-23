@@ -96,6 +96,7 @@ export async function bannerBottom(ctx: Context): Promise<Built> {
   const framed = framedImage(ctx, top, {
     insets: { top: margin, bottom: 0, sides: margin },
     inset: true,
+    align: "start",
   });
   if (framed && !framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
   const elements: DesignElement[] = [

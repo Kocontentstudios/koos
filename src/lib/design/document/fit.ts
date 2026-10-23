@@ -389,7 +389,7 @@ export async function hasOrphan(
  * A one-word last line reads as a mistake ("Now In A / Bottle" with "Bottle"
  * alone). Balancing narrows the run as far as its line count allows, which
  * can leave the last word alone where a wider line would have pulled a
- * second word down with it; narrowing only, round 3 still left 17% of
+ * second word down with it; narrowing alone still left 17% of
  * headlines ending on one word. Failing that, one more line spreads the
  * words again. Every candidate keeps its line
  * breaks when narrowed by the wrap slack, so Chromium, which shapes a little

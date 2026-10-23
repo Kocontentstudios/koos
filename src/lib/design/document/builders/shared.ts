@@ -1,17 +1,8 @@
 import { mixToward } from "@/lib/design/palette";
 import type { DesignElement } from "../schema";
-import {
-  type Context,
-  mostReadableOn,
-  NEAR_BLACK,
-  px,
-  type Rect,
-  shapeElement,
-  WHITE,
-} from "./context";
+import { type Context, mostReadableOn, NEAR_BLACK, px, WHITE } from "./context";
 import type { CopyColors } from "./copy-stack";
 import type { Footer } from "./footer";
-import { type Veil, veilColor } from "./ground";
 
 /** The share of the canvas, from the top, a cut-out keeps for itself in the
  *  centred layouts; the copy is fitted below it. Fitting the copy first and
@@ -86,65 +77,4 @@ export function recolorCopy(
 export function accentField(ctx: Context): string {
   const { accent } = ctx.palette;
   return `linear-gradient(160deg, ${accent} 0%, ${mixToward(accent, "#000000", 0.22)} 100%)`;
-}
-
-/** The share of the box a scrim takes to reach its full alpha. Round 3's
- *  ramp ran 0 to 0.47 over 8% of a 4:5 post and laid a grey slab with a
- *  hard top edge across a bright sky. */
-const SCRIM_RAMP = 0.3;
-
-/**
- * A veil over `box` that is clear at its top and reaches the measured alpha
- * just above the copy, holding it to the bottom so everything below the
- * copy's top is covered too. Eased (smoothstep) rather than linear: a
- * straight ramp reads as a band across the photo. None at all when the copy
- * reads without one.
- *
- * `from: "top"` mirrors it for copy set high: solid from the top edge to
- * just below the copy, clearing downwards. `subjectEdge` is where the
- * subject ends on the copy's side; the ramp never starts over it, so the
- * product is not dimmed by the veil meant for the copy.
- */
-export function scrimFor(
-  box: Rect,
-  copyEdge: number,
-  veil: Veil,
-  radius = 0,
-  options: { from?: "bottom" | "top"; subjectEdge?: number } = {},
-): DesignElement | null {
-  if (veil.alpha < 0.02) return null;
-  const fromTop = options.from === "top";
-  /* Distances are measured from the edge the veil is clear at. */
-  const toCopy = fromTop
-    ? (box.y + box.height - copyEdge) / box.height
-    : (copyEdge - box.y) / box.height;
-  const clearUntil =
-    options.subjectEdge === undefined
-      ? 0
-      : fromTop
-        ? (box.y + box.height - options.subjectEdge) / box.height
-        : (options.subjectEdge - box.y) / box.height;
-  const rampStart = Math.min(
-    Math.max(0, toCopy - SCRIM_RAMP, clearUntil),
-    Math.max(0, toCopy - 0.03),
-  );
-  const solid = Math.max(rampStart, toCopy - 0.03);
-  const at = (alpha: number, share: number) =>
-    `${veilColor(veil, alpha)} ${pct(share)}`;
-  /* Five stops, the schema's most; before the first a gradient holds the
-     first stop's colour, so the box above the ramp stays clear. */
-  const ramp = [1 / 3, 2 / 3].map((t) =>
-    at(veil.alpha * t * t * (3 - 2 * t), rampStart + (solid - rampStart) * t),
-  );
-  return shapeElement(
-    "scrim",
-    "Scrim",
-    box,
-    `linear-gradient(${fromTop ? 0 : 180}deg, ${[at(0, rampStart), ...ramp, at(veil.alpha, solid), at(veil.alpha, 1)].join(", ")})`,
-    { radius },
-  );
-}
-
-function pct(share: number): string {
-  return `${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 10}%`;
 }
