@@ -145,8 +145,13 @@ async function openRoute(
   const clickErrors: string[] = [];
   const externalErrors: string[] = [];
   const clicking = { active: false };
+  /* A hydration mismatch that names the probe's own data-cp-* marks is the
+     probe's doing, whenever it lands. */
   const logError = (text: string) =>
-    (clicking.active ? clickErrors : consoleErrors).push(text);
+    (clicking.active || text.includes("data-cp-")
+      ? clickErrors
+      : consoleErrors
+    ).push(text);
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const text = message.text();

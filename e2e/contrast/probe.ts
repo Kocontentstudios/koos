@@ -1654,7 +1654,10 @@ export async function probeInteractive(
     options.onClicking?.(true);
     try {
       await load(page, startUrl);
-      await page.waitForTimeout(500);
+      /* Marking targets before React has hydrated puts attributes in the DOM
+         the server did not render: React reports a mismatch, and a re-render
+         can drop the marks. The page is left to go quiet first. */
+      await quiet();
       count = await markTargets(page, kinds);
     } finally {
       options.onClicking?.(false);
