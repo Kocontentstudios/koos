@@ -800,6 +800,10 @@ export async function probeViewport(
       const shot = async () =>
         (
           await page.screenshot({
+            /* A screenshot waits for web fonts and a fresh frame; on a page
+               busy compiling or animating that outlasts the 15s action
+               limit, without anything being wrong. */
+            timeout: 60_000,
             scale: "device",
             animations: "allow",
             caret: "initial",
