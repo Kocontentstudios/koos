@@ -50,10 +50,12 @@ function loadInChild(file: string, ext: "png" | "jpg"): LoadCost {
 describe("one design-image load stays inside the spec's budget", () => {
   let dir: string;
   const cases: { name: string; ext: "png" | "jpg"; outcome: RegExp }[] = [
+    /* Full-range noise is a busy texture to the local-contrast measure
+       (round 7), so it is accepted and its re-encode is the stored one. */
     {
       name: "noise-2560-q100-prog.jpg",
       ext: "jpg",
-      outcome: /^refused no_subject$/,
+      outcome: /^accepted /,
     },
     {
       name: "noise-2560-q100-prog-with-subject.jpg",

@@ -6,6 +6,7 @@ import {
   browserLooksBlank,
   looksBlank,
   MIN_EDGE_ENERGY,
+  MIN_LOCAL_CONTRAST,
   MIN_SUBJECT_COVERAGE,
   measureSubject,
   SUBJECT_DEVIATION,
@@ -36,6 +37,7 @@ describe("measureSubject", () => {
       expect(measure(filled(64 * 48, colour), 64, 48)).toEqual({
         coverage: 0,
         edgeEnergy: 0,
+        localContrast: 0,
       });
     }
   });
@@ -74,15 +76,14 @@ describe("measureSubject", () => {
     expect(looksBlank(result)).toBe(false);
   });
 
-  it("is blank only when both measures are under their floors", () => {
-    expect(looksBlank({ coverage: 0, edgeEnergy: 0 })).toBe(true);
-    expect(
-      looksBlank({
-        coverage: MIN_SUBJECT_COVERAGE,
-        edgeEnergy: 0,
-      }),
-    ).toBe(false);
-    expect(looksBlank({ coverage: 0, edgeEnergy: MIN_EDGE_ENERGY })).toBe(
+  it("is blank only when every measure is under its floor", () => {
+    const blank = { coverage: 0, edgeEnergy: 0, localContrast: 0 };
+    expect(looksBlank(blank)).toBe(true);
+    expect(looksBlank({ ...blank, coverage: MIN_SUBJECT_COVERAGE })).toBe(
+      false,
+    );
+    expect(looksBlank({ ...blank, edgeEnergy: MIN_EDGE_ENERGY })).toBe(false);
+    expect(looksBlank({ ...blank, localContrast: MIN_LOCAL_CONTRAST })).toBe(
       false,
     );
   });
@@ -91,6 +92,7 @@ describe("measureSubject", () => {
     expect(measure(new Uint8Array(0), 0, 0)).toEqual({
       coverage: 0,
       edgeEnergy: 0,
+      localContrast: 0,
     });
     expect(looksBlank(measure(new Uint8Array(8), 4, 4))).toBe(true);
   });
@@ -146,6 +148,59 @@ describe("subjectThumbnail", () => {
     for (const v of thumb.pixels.filter((_, i) => i % 4 !== 3)) {
       expect(v).toBeCloseTo(127.5, 3);
     }
+  });
+
+  /* Round-6 review, B1: what the average throws away, the spread keeps. */
+  it("keeps a 1 px checkerboard's full contrast in every cell's spread", () => {
+    const side = 1280;
+    const rgba = new Uint8Array(side * side * 4);
+    for (let i = 0; i < side * side; i += 1) {
+      const v = (i % side) % 2 === Math.floor(i / side) % 2 ? 255 : 0;
+      rgba.set([v, v, v, 255], i * 4);
+    }
+    const thumb = subjectThumbnail(rgba, side, side, 4);
+    expect(thumb.spread.length).toBe(64 * 64);
+    for (const v of thumb.spread) expect(v).toBeCloseTo(127.5, 2);
+    const result = measureSubject(thumb);
+    expect(result).toMatchObject({ coverage: 0 });
+    expect(result.edgeEnergy).toBeLessThan(MIN_EDGE_ENERGY);
+    expect(result.localContrast).toBeCloseTo(127.5, 2);
+    expect(looksBlank(result)).toBe(false);
+  });
+
+  /* In float32 a flat 40 px cell read as a spread of a few levels. */
+  it("reads a flat image of any size and colour as no spread at all", () => {
+    for (const [width, height] of [
+      [2560, 1707],
+      [4096, 4096],
+      [333, 217],
+    ]) {
+      const thumb = subjectThumbnail(
+        filled(width * height, [254, 251, 3, 255]),
+        width,
+        height,
+        4,
+      );
+      expect(Math.max(...thumb.spread)).toBeLessThan(1e-3);
+    }
+  });
+
+  it("measures the spread of a cell as the standard deviation of its pixels", () => {
+    /* 128 x 128 into 64 x 64: each cell is 2 x 2, half 0 and half 200. */
+    const rgba = filled(128 * 128, [200, 200, 200, 255]);
+    for (let y = 0; y < 128; y += 1) {
+      for (let x = 0; x < 128; x += 2)
+        rgba.set([0, 0, 0, 255], (y * 128 + x) * 4);
+    }
+    const thumb = subjectThumbnail(rgba, 128, 128, 4);
+    for (const v of thumb.spread) expect(v).toBeCloseTo(100, 3);
+  });
+
+  it("counts a fine alpha pattern's spread, whatever the colour", () => {
+    const rgba = filled(640 * 640, [255, 255, 255, 255]);
+    for (let i = 0; i < 640 * 640; i += 2) rgba[i * 4 + 3] = 0;
+    const result = measureSubject(subjectThumbnail(rgba, 640, 640, 4));
+    expect(result.localContrast).toBeCloseTo(127.5, 2);
   });
 
   /* 100 px into 64 cells: each cell is 1.5625 px, so most source pixels
@@ -236,6 +291,43 @@ describe("browserLooksBlank", () => {
       rgba.set([near, near, near, 255], row * 64 * 4);
     }
     const thumb = subjectThumbnail(rgba, 64, 64, 4);
+    expect(looksBlank(measureSubject(thumb))).toBe(true);
+    expect(browserLooksBlank(thumb)).toBe(false);
+  });
+
+  /* A 1 px checker of two tones `contrast` apart has a spread of exactly
+     half that in every cell, and nothing for the other two measures. */
+  const fineChecker = (contrast: number) => {
+    const side = 640;
+    const rgba = filled(side * side, [100, 100, 100, 255]);
+    for (let i = 0; i < side * side; i += 1) {
+      if ((i % side) % 2 === Math.floor(i / side) % 2) {
+        const v = 100 + contrast;
+        rgba.set([v, v, v, 255], i * 4);
+      }
+    }
+    return subjectThumbnail(rgba, side, side, 4);
+  };
+
+  it("refuses a fine pattern only where the server does", () => {
+    for (let contrast = 0; contrast <= 48; contrast += 1) {
+      const thumb = fineChecker(contrast);
+      if (browserLooksBlank(thumb)) {
+        expect(looksBlank(measureSubject(thumb)), `contrast ${contrast}`).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it("accepts a fine pattern inside the local-contrast margin", () => {
+    const thumb = fineChecker(
+      2 * (MIN_LOCAL_CONTRAST - BROWSER_MARGIN.localContrast / 2),
+    );
+    expect(measureSubject(thumb).localContrast).toBeCloseTo(
+      MIN_LOCAL_CONTRAST - BROWSER_MARGIN.localContrast / 2,
+      3,
+    );
     expect(looksBlank(measureSubject(thumb))).toBe(true);
     expect(browserLooksBlank(thumb)).toBe(false);
   });

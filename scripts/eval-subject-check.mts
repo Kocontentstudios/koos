@@ -90,6 +90,7 @@ try {
         ...got,
         coverage: Number((Number(got.coverage) * 100).toFixed(2)),
         edgeEnergy: Number(Number(got.edgeEnergy).toFixed(2)),
+        localContrast: Number(Number(got.localContrast).toFixed(2)),
         pass,
       }),
     );

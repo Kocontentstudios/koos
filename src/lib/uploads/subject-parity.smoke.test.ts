@@ -29,9 +29,11 @@ vi.mock("./subject-check", async (importOriginal) => {
 
 import sharp from "sharp";
 import { DesignImageError, loadDesignImage } from "./design-image";
+import { NORMALISED_LONG_EDGE } from "./design-image-limits";
 import {
   BROWSER_MARGIN,
   browserLooksBlank,
+  MIN_LOCAL_CONTRAST,
   measureSubject,
   subjectThumbnail,
 } from "./subject-check";
@@ -64,6 +66,27 @@ interface Row {
   browserMeasure: SubjectMeasure;
   serverMeasure: SubjectMeasure | null;
   maxPixelGap: number;
+}
+
+/* What the canvas holds once the normaliser has fitted the picked file in
+   2560 px; libvips stands in for the canvas's own resize, which
+   eval:subject-parity exercises on the original. */
+async function normalised(pattern: ParityPattern): Promise<ParityPattern> {
+  if (Math.max(pattern.width, pattern.height) <= NORMALISED_LONG_EDGE) {
+    return pattern;
+  }
+  const { data, info } = await sharp(Buffer.from(pattern.rgba), {
+    raw: { width: pattern.width, height: pattern.height, channels: 4 },
+  })
+    .resize(NORMALISED_LONG_EDGE, NORMALISED_LONG_EDGE, { fit: "inside" })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    ...pattern,
+    width: info.width,
+    height: info.height,
+    rgba: new Uint8Array(data),
+  };
 }
 
 async function upload(pattern: ParityPattern) {
@@ -104,7 +127,8 @@ describe("the subject check, browser against server, on fine patterns", () => {
   const rows: Row[] = [];
 
   beforeAll(async () => {
-    for await (const pattern of parityPatterns()) {
+    for await (const picked of parityPatterns()) {
+      const pattern = await normalised(picked);
       const thumbnail = subjectThumbnail(
         pattern.rgba,
         pattern.width,
@@ -138,6 +162,26 @@ describe("the subject check, browser against server, on fine patterns", () => {
     expect(rows.some((r) => r.server === "accepted")).toBe(true);
   });
 
+  /* Round-6 review, B1: refused as blank by both until round 7. */
+  it("accepts the four fine patterns round 6 refused, on both sides", () => {
+    const b1 = rows.filter((r) => r.name.startsWith("b1 "));
+    expect(b1.map((r) => r.name)).toEqual([
+      "b1 checker-6px-hi",
+      "b1 stripes-2px-hi",
+      "b1 pattern-heavy-8px-1200",
+      "b1 pinstripe-navy-4000",
+    ]);
+    for (const row of b1) {
+      expect(row, row.name).toMatchObject({
+        browserRefuses: false,
+        server: "accepted",
+      });
+      expect(row.serverMeasure?.localContrast).toBeGreaterThan(
+        2 * MIN_LOCAL_CONTRAST,
+      );
+    }
+  });
+
   it("only ever accepts or refuses as no_subject", () => {
     expect(
       rows.filter((r) => r.server !== "accepted" && r.server !== "no_subject"),
@@ -164,7 +208,20 @@ describe("the subject check, browser against server, on fine patterns", () => {
         ),
       ),
     );
+    /* JPEG takes local contrast away far more than it adds it; only the
+       server reading higher than the browser can turn a browser refusal
+       into a wrong one. */
+    const worstContrastRise = Math.max(
+      ...measured.map(
+        (r) =>
+          (r.serverMeasure?.localContrast ?? 0) -
+          r.browserMeasure.localContrast,
+      ),
+    );
     expect(worstPixel).toBeLessThanOrEqual(BROWSER_MARGIN.deviation / 2);
     expect(worstEdge).toBeLessThanOrEqual(BROWSER_MARGIN.edgeEnergy / 2);
+    expect(worstContrastRise).toBeLessThanOrEqual(
+      BROWSER_MARGIN.localContrast / 2,
+    );
   });
 });
