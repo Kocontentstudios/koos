@@ -163,7 +163,7 @@ async function openRoute(
       externalErrors.push(`${text.slice(0, 200)} (${from})`);
       return;
     }
-    logError(`${text.slice(0, 400)}${from ? ` (${from})` : ""}`);
+    logError(`${text.slice(0, 2000)}${from ? ` (${from})` : ""}`);
   });
   page.on("pageerror", (error) => {
     const text = String(error);

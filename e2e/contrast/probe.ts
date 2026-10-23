@@ -1843,6 +1843,7 @@ export async function probeInteractive(
           (document.activeElement as HTMLElement | null)?.blur(),
         );
       }
+      await ensure();
       const box = await target.boundingBox();
       const hoverable = box !== null && box.width > 4 && box.height > 4;
       if (hoverable && (is.has("control") || is.has("hover"))) {
