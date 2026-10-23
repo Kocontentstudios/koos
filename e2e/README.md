@@ -34,7 +34,8 @@ FEAT-033 preview harness, which is deleted before merge.
 
 For each route and theme:
 
-1. **It proves the page rendered.** The route's sentinel heading is visible,
+1. **It proves the page rendered.** The route's sentinel (a heading, or a
+   button where a phone hides the page's only heading) is visible,
    no `[data-error-boundary]` and no "Something went wrong" is on the page,
    the browser logged no error (one dev-only CSP notice and the probe's own
    request guard aside) and the server logged none (see *Server log*). Round 3
@@ -106,7 +107,11 @@ computed style when nothing between it and the screen changes it. Otherwise
 text, a text-shadow on transparent text) it comes from the glyph pixels. A part
 of a word that an opaque layer covers (an open menu over a heading) is left
 out of the word's box, so the menu's own pixels are never mistaken for the
-word's. Two layers are treated the same way: frosted glass (a header with
+word's. A word of punctuation alone (a full stop split off by markup) is
+left to the rest of its run: no pixel of a dot that small is fully covered.
+A line that a cover or a scroll edge cuts through (only the tails of its glyphs
+showing) is read at the scroll positions where it is whole.
+Two layers are treated the same way: frosted glass (a header with
 `backdrop-filter`, which blurs what it covers on purpose) and the shadow a
 fixed or sticky bar casts. Text the page scrolls under them is measured at
 the scroll positions where it is clear of them.

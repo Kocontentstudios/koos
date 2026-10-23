@@ -184,8 +184,10 @@ async function assertRendered(page: Page, route: LaneRoute) {
   const expected = routePath(route, seededIds()).split("?")[0];
   expect(new URL(page.url()).pathname, "landed on the route").toBe(expected);
   await expect(
-    page.getByRole("heading", { name: route.sentinel }).first(),
-    `the ${route.label} sentinel heading "${route.sentinel}"`,
+    page
+      .getByRole(route.sentinelRole ?? "heading", { name: route.sentinel })
+      .first(),
+    `the ${route.label} sentinel ${route.sentinelRole ?? "heading"} "${route.sentinel}"`,
   ).toBeVisible({ timeout: 30_000 });
   await expect(
     page.locator("[data-error-boundary]"),

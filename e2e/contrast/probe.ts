@@ -122,10 +122,13 @@ function collectRuns(args: {
     );
   };
   const pinnedBar = (el: Element) => {
-    const position = getComputedStyle(el).position;
-    if (position !== "fixed" && position !== "sticky") return false;
-    const r = el.getBoundingClientRect();
-    return r.width * r.height < 0.5 * innerWidth * innerHeight;
+    for (let e: Element | null = el; e; e = e.parentElement) {
+      const position = getComputedStyle(e).position;
+      if (position !== "fixed" && position !== "sticky") continue;
+      const r = e.getBoundingClientRect();
+      return r.width * r.height < 0.5 * innerWidth * innerHeight;
+    }
+    return false;
   };
   const coveredAt = (
     el: Element,
@@ -240,7 +243,10 @@ function collectRuns(args: {
       if (owner.contains(el)) continue;
       parts = parts.flatMap((p) => subtract(p, shadow));
     }
-    return parts;
+    /* A line a cover or a scroll edge cuts through leaves the tops or tails
+       of its glyphs: strokes too thin to hold a full pixel of colour. The
+       line is read where it is whole, at another scroll position. */
+    return parts.filter((p) => p.h >= 0.6 * rect.h);
   };
 
   const describe = (el: Element) => {
@@ -414,6 +420,14 @@ function collectRuns(args: {
     let start = -1;
     const flush = (end: number) => {
       if (start < 0) return;
+      /* A word of punctuation alone (the full stop a JSX expression split off
+         from its sentence) is a dot a pixel or two wide: no pixel of it is
+         ever fully covered, so its strongest pixel understates the colour.
+         Its colour is the run's, measured on the run's other words. */
+      if (!/[\p{L}\p{N}]/u.test(value.slice(start, end))) {
+        start = -1;
+        return;
+      }
       range.setStart(node, start);
       range.setEnd(node, end);
       let found = [...range.getClientRects()].map(boxOf);
@@ -1710,6 +1724,7 @@ export async function probeInteractive(
     }
   };
 
+  const retried = new Set<number>();
   for (let i = 0; i < count; i++) {
     const selector = `[data-cp-target="${i}"]`;
     let target = page.locator(selector);
@@ -1880,6 +1895,18 @@ export async function probeInteractive(
         await page.waitForTimeout(100);
       }
     } catch (error) {
+      /* The page left while this target was being measured: an earlier
+         click's navigation landing late. That is not this target's doing,
+         so it is measured again on the page reloaded, once. */
+      const left = /Execution context was destroyed|navigat/i.test(
+        String(error),
+      );
+      if (left && !retried.has(i)) {
+        retried.add(i);
+        await reload();
+        i--;
+        continue;
+      }
       skipped.push(`${name}: ${String(error).split("\n")[0].slice(0, 160)}`);
     }
     if (!sameDocument(page.url())) {

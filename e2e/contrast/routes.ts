@@ -31,6 +31,9 @@ export interface LaneRoute {
   /** A heading only the rendered page shows. The error boundary, a redirect
    * or a blank shell never has it, so a page that crashed cannot pass. */
   sentinel: string;
+  /** The sentinel's role when it is not a heading: a page whose only heading
+   * is the top bar's, which a phone hides. */
+  sentinelRole?: "heading" | "button";
 }
 
 export const ROUTES: LaneRoute[] = [
@@ -158,7 +161,8 @@ export const ROUTES: LaneRoute[] = [
     file: "(dashboard)/brand/onboarding/page.tsx",
     path: "/brand/onboarding",
     who: "start",
-    sentinel: "AI Onboarding",
+    sentinel: "Start with KO",
+    sentinelRole: "button",
   },
   {
     label: "design-tickets",

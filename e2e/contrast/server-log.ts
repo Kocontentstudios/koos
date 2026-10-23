@@ -49,6 +49,11 @@ export function serverErrors(text: string): string[] {
   const found: string[] = [];
   for (const [i, line] of lines.entries()) {
     if (!ERROR.test(line) || CLIENT_WENT_AWAY.test(line)) continue;
+    /* next dev forwards the browser's console to its own log, marked
+       [browser]. The lane reads the browser's console directly, and keeps
+       the errors its own refused writes cause apart; read here they would
+       count twice and without that distinction. */
+    if (line.trimStart().startsWith("[browser]")) continue;
     found.push([line, lines[i + 1] ?? ""].join(" | ").trim().slice(0, 400));
   }
   return found;

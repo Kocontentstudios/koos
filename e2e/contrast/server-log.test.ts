@@ -27,6 +27,14 @@ describe("serverErrors", () => {
     ).toHaveLength(1);
   });
 
+  it("leaves the browser's forwarded console to the browser check", () => {
+    expect(
+      serverErrors(
+        "[browser] ⨯ unhandledRejection: Error: refused by the contrast probe",
+      ),
+    ).toEqual([]);
+  });
+
   it("ignores only the client going away mid-response", () => {
     expect(
       serverErrors(
