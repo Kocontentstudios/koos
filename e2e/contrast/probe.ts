@@ -82,10 +82,28 @@ function collectRuns(args: {
     w: r.width,
     h: r.height,
   });
+  /* Chrome serialises a colour in the space it was written in, so a
+     Tailwind v4 palette colour computes to oklch() or oklab(), not rgb().
+     Anything that is not rgb() is painted on a 1px canvas and read back. */
+  const swatch = new OffscreenCanvas(1, 1).getContext("2d", {
+    willReadFrequently: true,
+  }) as OffscreenCanvasRenderingContext2D;
+  const viaCanvas = (c: string): [number, number, number, number] | null => {
+    if (!c || c === "none") return null;
+    swatch.clearRect(0, 0, 1, 1);
+    swatch.fillStyle = "#000";
+    swatch.fillStyle = c;
+    swatch.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = swatch.getImageData(0, 0, 1, 1).data;
+    return [r, g, b, a / 255];
+  };
   const parse = (c: string): [number, number, number, number] | null => {
     const m =
       /rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+%?))?\)/.exec(c);
-    if (!m) return null;
+    if (!m)
+      return /^(?:oklch|oklab|lab|lch|color|hsl|hwb)\(/.test(c)
+        ? viaCanvas(c)
+        : null;
     const a =
       m[4] === undefined
         ? 1
@@ -1246,7 +1264,9 @@ export async function probePage(page: Page, analysisPage: Page) {
     const positions = await page.evaluate((sel) => {
       const el = document.querySelector<HTMLElement>(sel);
       if (!el) return [];
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      /* Centred, not "nearest": nearest can park a short strip under the
+         sticky top bar, where it is covered and never measured. */
+      el.scrollIntoView({ block: "center", inline: "nearest" });
       const steps = (size: number, view: number) => {
         const step = Math.max(40, Math.floor(view * 0.8));
         const out: number[] = [];

@@ -73,6 +73,8 @@ const CASES = `
 <div class="case"><table><tr><td bgcolor="#138bc8"><font color="#ffffff">LegacyBgcolor</font></td></tr></table></div>
 <div class="case"><span class="gen">Host</span></div>
 <div class="case"><ol style="padding-left: 48px; margin: 0"><li class="mk">MarkedItem</li></ol></div>
+<div class="case" style="position: relative"><span>BehindOklabScrim</span><div style="position: absolute; inset: 0; background: oklab(0.685 -0.0912 -0.1423 / 0.6)"></div></div>
+<div class="case"><span style="color: oklch(0.828 0.111 230.318)">OklchText</span></div>
 <div class="case" style="position: relative"><span>BehindScrim</span><div style="position: absolute; inset: 0; background: rgba(14, 165, 233, 0.6)"></div></div>
 <div class="case"><p style="color: transparent; text-shadow: 0 0 0 #7dd3fc">ShadowPainted</p></div>
 <div class="case grp"><span class="ghc">CardHover</span></div>
@@ -218,6 +220,10 @@ test("the probe reads the ground that is painted, not the one declared", async (
   near(pick(rest, "GenBadge"), ratio("#ffffff", "#0ea5e9"));
   near(pick(rest, "1."), ratio("#c8d3e0", "#edf1f7"));
   expect(pick(rest, "BehindScrim")).toBeLessThan(4.5);
+  /* Tailwind v4 colours compute to oklab()/oklch(): the zoo's bg-sky-500/60
+     scrim was read as no paint at all and the text under it passed. */
+  expect(pick(rest, "BehindOklabScrim")).toBeLessThan(4.5);
+  near(pick(rest, "OklchText"), ratio("#7dd3fc", "#edf1f7"));
   expect(pick(rest, "ShadowPainted")).toBeLessThan(2);
   near(pick(rest, "DetailBody"), ratio("#ffffff", "#0ea5e9"));
   expect(state("CardHover", "hover")).toBeLessThan(4.5);
