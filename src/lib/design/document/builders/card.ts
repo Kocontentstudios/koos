@@ -28,26 +28,18 @@ import {
   framedImage,
   isCutout,
   minSubjectHeight,
-  samplesUnder,
   subjectGap,
-  veiled,
-  veilFor,
 } from "./image";
 import { HEADLINE_OVER_FOOTER, HIERARCHY, SIZES } from "./looks";
-import {
-  CUTOUT_SHARES,
-  copyBottom,
-  flatColors,
-  footerColorOn,
-  scrimFor,
-} from "./shared";
+import { copyBlocks, gradedVeil, scrimElement, veiledFaces } from "./scrim";
+import { CUTOUT_SHARES, copyBottom, flatColors, footerColorOn } from "./shared";
 
 /**
  * A card holding the copy: quote-card and stat-highlight.
  *
  * The image, when there is one, lives inside the card and is clipped to its
- * rounded corners; the canvas around the card is a flat ground. Round 1 laid
- * the card over a full-bleed image, so a cut-out's plate stuck out past the
+ * rounded corners; the canvas around the card is a flat ground. A card laid
+ * over a full-bleed image let a cut-out's plate stick out past the
  * card's border with its ragged alpha edge, and the card covered the very
  * subject it was chosen for. A cut-out sits whole in the
  * top of the card with the copy below it; a photograph fills the card with
@@ -338,34 +330,18 @@ async function photoCard(
   if (!framed || (strict && !framed.clean)) return null;
   commitFaults(ctx, stack);
   const placement = framed.placement;
-  const veil = veilFor(ctx, placement, copyRegion, palette.background);
-  const face = veiled(
-    samplesUnder(ctx, placement, copyRegion, palette.background),
-    veil,
-    veil.alpha,
-  );
-  const colors = cardColors(ctx, variant, face, veil.text);
+  const from = vAlign === "end" ? "bottom" : "top";
+  const veiling = { from, background: palette.background } as const;
+  const blocks = copyBlocks(ctx, copy);
+  const graded = gradedVeil(ctx, placement, region, blocks, veiling);
+  const face = veiledFaces(ctx, placement, region, blocks, graded, veiling);
+  const colors = cardColors(ctx, variant, face, graded.veil.text);
 
   const elements: DesignElement[] = [
     shapeElement("card", "Card", region, palette.background, { radius }),
     { ...framed.element, radius },
   ];
-  const subject = framed.subject;
-  const scrim = scrimFor(
-    region,
-    vAlign === "end" ? stack.top : stack.bottom,
-    veil,
-    radius,
-    {
-      from: vAlign === "end" ? "bottom" : "top",
-      ...(subject
-        ? {
-            subjectEdge:
-              vAlign === "end" ? subject.y + subject.height : subject.y,
-          }
-        : {}),
-    },
-  );
+  const scrim = scrimElement(region, graded, { from, radius });
   if (scrim) elements.push(scrim);
   if (variant === "stat") elements.push(cardEdge(ctx, frame, region));
   elements.push(...colorCopy(copy, colors));

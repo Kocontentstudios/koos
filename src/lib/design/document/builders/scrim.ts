@@ -1,0 +1,317 @@
+import { rgbLuminance } from "@/lib/design/palette";
+import type { DesignElement, TextElement } from "../schema";
+import { type Context, px, type Rect, rect, shapeElement } from "./context";
+import {
+  COPY_CONTRAST,
+  type ImagePlacement,
+  type Rgb,
+  type Veil,
+  veilAlpha,
+  veilColor,
+} from "./ground";
+import { COPY_CANDIDATES, samplesUnder, veiled } from "./image";
+
+/**
+ * A veil graded to what each run of copy needs over the pixels under it.
+ *
+ * One alpha for the whole copy block, measured over its worst pixel, laid a
+ * 0.55 slab across a bright sky because the subheadline crossed dark stone.
+ * Here each run gets the least veil that clears its own target over its own
+ * box, a headline only the 3:1 large type needs, and the veil rises through
+ * them no faster than SLOPE_MAX, so it never lands as a band or a hard
+ * edge, however close the copy sits to the subject or the canvas edge. The
+ * text colour is the one whose veil changes the photo least to the eye: a
+ * pale sky keeps its light under dark type and a light veil.
+ */
+
+/** WCAG large type: 3:1, with the margin COPY_CONTRAST keeps over 4.5:1. */
+export const LARGE_COPY_CONTRAST = 3.1;
+
+/** Large type as WCAG counts it on a social post viewed at full width:
+ *  48px regular or 37px bold on a ~1080px canvas. */
+export function isLargeType(
+  element: Pick<TextElement, "fontSize" | "fontWeight">,
+) {
+  return (
+    element.fontSize >= 48 ||
+    (element.fontSize >= 37 && element.fontWeight >= 700)
+  );
+}
+
+/** Steepest the veil may rise, in alpha per height of its box. Flex's
+ *  fixed gradient rose 3.1; a ramp that read as a band rose 5. */
+export const SLOPE_MAX = 2.4;
+
+/** Shortest distance over which the veil reaches its full alpha. */
+export const MIN_RAMP = 0.25;
+
+/** Most stops a gradient may have (schema). */
+const MAX_STOPS = 5;
+
+export interface CopyBlock {
+  box: Rect;
+  large: boolean;
+}
+
+/** The copy runs a veil is graded for, from placed text elements. */
+export function copyBlocks(
+  ctx: Context,
+  elements: DesignElement[],
+): CopyBlock[] {
+  const pad = px(ctx.ref * 0.01);
+  return elements
+    .filter((element): element is TextElement => element.type === "text")
+    .map((element) => ({
+      box: rect(
+        element.x - pad,
+        element.y - pad,
+        element.width + pad * 2,
+        element.height + pad * 2,
+      ),
+      large: isLargeType(element),
+    }));
+}
+
+/** A point the veil must reach: `alpha` from `at` (share of the box from
+ *  its clear edge) onwards. */
+interface Need {
+  at: number;
+  alpha: number;
+}
+
+export interface Stop {
+  at: number;
+  alpha: number;
+}
+
+/**
+ * The lightest veil profile meeting every need: zero until it must rise,
+ * rising at SLOPE_MAX into each need, over at least MIN_RAMP into the
+ * largest, holding after. As stops: the profile is convex between
+ * consecutive needs, so straight lines between its values at the needs
+ * never dip under it.
+ */
+export function profileStops(needs: Need[]): Stop[] {
+  const sorted = [...needs].sort((a, b) => a.at - b.at);
+  const rising: Need[] = [];
+  for (const need of sorted) {
+    const held = rising.at(-1)?.alpha ?? 0;
+    if (need.alpha > held) rising.push(need);
+  }
+  const top = rising.at(-1);
+  if (!top || top.alpha < 0.02) return [];
+  /* Past MAX_STOPS - 2 needs, the earliest ones are folded into the next:
+     reaching that need's alpha sooner over-veils a little, never under. */
+  while (rising.length > MAX_STOPS - 2) {
+    const [first, second] = rising;
+    rising.splice(0, 2, { at: first.at, alpha: second.alpha });
+  }
+  const peak = rising.at(-1) ?? top;
+  const lineStart = peak.at - MIN_RAMP;
+  const valueAt = (u: number) => {
+    let alpha = 0;
+    for (const need of rising) {
+      alpha = Math.max(
+        alpha,
+        u >= need.at ? need.alpha : need.alpha - SLOPE_MAX * (need.at - u),
+      );
+    }
+    const line = peak.alpha * ((u - lineStart) / MIN_RAMP);
+    return Math.max(0, Math.min(peak.alpha, Math.max(alpha, line)));
+  };
+  const start = Math.min(
+    lineStart,
+    ...rising.map((need) => need.at - need.alpha / SLOPE_MAX),
+  );
+  const at = [Math.max(0, start), ...rising.map((need) => need.at), 1];
+  const stops: Stop[] = [];
+  for (const u of at) {
+    const clamped = Math.min(1, Math.max(0, u));
+    if (stops.length && clamped <= (stops.at(-1)?.at ?? 0)) continue;
+    stops.push({ at: clamped, alpha: valueAt(clamped) });
+  }
+  return stops;
+}
+
+/** The alpha drawn at `u`: linear between stops, the end stops held. */
+export function alphaAt(stops: Stop[], u: number): number {
+  if (stops.length === 0) return 0;
+  if (u <= stops[0].at) return stops[0].alpha;
+  for (let i = 1; i < stops.length; i += 1) {
+    const [a, b] = [stops[i - 1], stops[i]];
+    if (u <= b.at) {
+      return a.alpha + ((b.alpha - a.alpha) * (u - a.at)) / (b.at - a.at);
+    }
+  }
+  return stops[stops.length - 1].alpha;
+}
+
+/** CIE L* (0..1) of a pixel: lightness as the eye scales it. */
+function lightness(rgb: Rgb): number {
+  const y = rgbLuminance(...rgb);
+  const f = y > 216 / 24389 ? Math.cbrt(y) : ((24389 / 27) * y + 16) / 116;
+  return (116 * f - 16) / 100;
+}
+
+/* Rows the change is measured over; finer than any image grid cell. */
+const COST_ROWS = 24;
+
+/**
+ * How much the veil changes the photograph, as the eye sees it: the mean
+ * change in lightness over the box. A black veil over a pale sky and a
+ * white one over dark stone both cost a lot; the same veils the other way
+ * round cost little, which a cost in alpha alone cannot tell apart.
+ */
+function lightnessChange(
+  ctx: Context,
+  placement: ImagePlacement | null,
+  box: Rect,
+  stops: Stop[],
+  veil: { color: string },
+  options: { from: "bottom" | "top"; background: string },
+): number {
+  if (stops.length === 0) return 0;
+  let total = 0;
+  for (let row = 0; row < COST_ROWS; row += 1) {
+    const u = (row + 0.5) / COST_ROWS;
+    const alpha = alphaAt(stops, u);
+    if (alpha === 0) continue;
+    const y =
+      options.from === "top"
+        ? box.y + box.height * (1 - (row + 1) / COST_ROWS)
+        : box.y + (box.height * row) / COST_ROWS;
+    const samples = samplesUnder(
+      ctx,
+      placement,
+      rect(box.x, y, box.width, box.height / COST_ROWS),
+      options.background,
+    );
+    const seen = veiled(samples, veil, alpha);
+    let change = 0;
+    samples.forEach((sample, i) => {
+      change += Math.abs(lightness(seen[i]) - lightness(sample));
+    });
+    total += change / samples.length;
+  }
+  return total / COST_ROWS;
+}
+
+export interface GradedVeil {
+  veil: Veil;
+  stops: Stop[];
+  /** Mean change in lightness the veil makes to the photo (0..1). */
+  cost: number;
+}
+
+/**
+ * The text colour whose graded veil changes the photo least, and that veil.
+ * Earlier candidates win near-ties, as in ground.ts bestVeil.
+ */
+export function gradedVeil(
+  ctx: Context,
+  placement: ImagePlacement | null,
+  box: Rect,
+  blocks: CopyBlock[],
+  options: { from: "bottom" | "top"; background: string },
+): GradedVeil {
+  const lead = (block: CopyBlock) => edgesOf(box, block, options.from)[0];
+  let best: GradedVeil | null = null;
+  for (const text of COPY_CANDIDATES(ctx)) {
+    let color = "#000000";
+    const needs: Need[] = [];
+    let reachable = true;
+    for (const block of blocks) {
+      const needed = veilAlpha(
+        samplesUnder(ctx, placement, block.box, options.background),
+        text,
+        block.large ? LARGE_COPY_CONTRAST : COPY_CONTRAST,
+      );
+      if (!needed) {
+        reachable = false;
+        break;
+      }
+      color = needed.color;
+      needs.push({ at: lead(block), alpha: needed.alpha });
+    }
+    if (!reachable) continue;
+    const stops = profileStops(needs);
+    const peak = Math.max(0, ...stops.map((stop) => stop.alpha));
+    const cost = lightnessChange(
+      ctx,
+      placement,
+      box,
+      stops,
+      { color },
+      options,
+    );
+    if (!best || cost < best.cost - 0.01) {
+      best = { veil: { text, color, alpha: peak }, stops, cost };
+    }
+  }
+  return (
+    best ?? {
+      veil: { text: "#FFFFFF", color: "#000000", alpha: 1 },
+      stops: [
+        { at: 0, alpha: 1 },
+        { at: 1, alpha: 1 },
+      ],
+      cost: 1,
+    }
+  );
+}
+
+/** Where a block starts and ends, as shares of `box` from its clear edge. */
+function edgesOf(
+  box: Rect,
+  block: CopyBlock,
+  from: "bottom" | "top",
+): [number, number] {
+  const top = (block.box.y - box.y) / box.height;
+  const bottom = (block.box.y + block.box.height - box.y) / box.height;
+  return from === "top" ? [1 - bottom, 1 - top] : [top, bottom];
+}
+
+/**
+ * What the reader sees under each block through the graded veil, at the
+ * lightest and heaviest alpha the block spans: contrast moves one way as a
+ * veil thickens, so a colour that clears both clears everything between.
+ */
+export function veiledFaces(
+  ctx: Context,
+  placement: ImagePlacement | null,
+  box: Rect,
+  blocks: CopyBlock[],
+  graded: GradedVeil,
+  options: { from: "bottom" | "top"; background: string },
+): Rgb[] {
+  return blocks.flatMap((block) => {
+    const samples = samplesUnder(ctx, placement, block.box, options.background);
+    return edgesOf(box, block, options.from).flatMap((edge) =>
+      veiled(samples, graded.veil, alphaAt(graded.stops, edge)),
+    );
+  });
+}
+
+/** The graded veil as a shape over `box`, or null when nothing needs one. */
+export function scrimElement(
+  box: Rect,
+  graded: GradedVeil,
+  options: { from: "bottom" | "top"; radius?: number },
+): DesignElement | null {
+  if (graded.stops.length < 2 || graded.veil.alpha < 0.02) return null;
+  const angle = options.from === "top" ? 0 : 180;
+  const stops = graded.stops.map(
+    (stop) => `${veilColor(graded.veil, stop.alpha)} ${pct(stop.at)}`,
+  );
+  return shapeElement(
+    "scrim",
+    "Scrim",
+    box,
+    `linear-gradient(${angle}deg, ${stops.join(", ")})`,
+    { radius: options.radius ?? 0 },
+  );
+}
+
+function pct(share: number): string {
+  return `${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 10}%`;
+}

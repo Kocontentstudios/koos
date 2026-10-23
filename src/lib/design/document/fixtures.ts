@@ -188,6 +188,12 @@ export function syntheticImages() {
         ? [245, 240, 235, 255]
         : [30, 20, 15, 255],
     ),
+    /* A pale sky over dark stone rising from the lower left: copy across
+       it crosses both, the ground one veil for all the copy turned into a
+       grey slab. */
+    sky: paint(300, 300, (x, y) =>
+      y > 300 - x * 0.9 ? [62, 50, 40, 255] : [196, 214, 226, 255],
+    ),
     /* Subject: an orange block from 30% to 70% across and 25% to 60% down,
        with a soft shadow below it to 75%. Everything else is transparent. */
     cutout: paint(400, 400, (x, y) => {

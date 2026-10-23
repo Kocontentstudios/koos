@@ -104,6 +104,11 @@ export function framedImage(
      *  in it, when the whole frame cannot show its subject whole. Only for
      *  a region the photo does not have to fill edge to edge. */
     inset?: boolean;
+    /** How a picture set smaller than its region lines up with the copy:
+     *  on the region's vertical axis, for centred copy, or from its left
+     *  edge, for copy set flush left. Without it, centred in whatever room
+     *  the logo leaves, which floated the photo off both. */
+    align?: InsetAlign;
   } = {},
 ): Framed | null {
   if (!ctx.image) return null;
@@ -145,7 +150,11 @@ export function framedImage(
        its own frame: contain never draws a picture smaller than its frame
        allows, so a subject that has to shrink to clear the logo needs a
        smaller frame to shrink into. */
-    for (const room of roomsBeside(target, avoid)) {
+    for (const room of alignedRooms(
+      roomsBeside(target, avoid),
+      frame,
+      options.align,
+    )) {
       const placed =
         room === target
           ? containedSubject(facts, frame, room)
@@ -175,8 +184,11 @@ export function framedImage(
       (options.inset
         ? insetCoverPlacement(facts, ctx.subject, frame, avoid, minEdge, {
             canvas: rect(0, 0, ctx.width, ctx.height),
-            gutter: px(ctx.margin / 2),
+            /* Flush-left copy starts at the margin; a picture lined up
+               with it starts there too. */
+            gutter: px(options.align === "start" ? ctx.margin : ctx.margin / 2),
             logo: ctx.logoBox ? grown(ctx.logoBox, gap) : null,
+            align: options.align,
           })
         : null);
     const placement =
@@ -233,7 +245,17 @@ function insetCoverPlacement(
   region: Rect,
   avoid: Rect[],
   minEdge: number,
-  { canvas, gutter, logo }: { canvas: Rect; gutter: number; logo: Rect | null },
+  {
+    canvas,
+    gutter,
+    logo,
+    align,
+  }: {
+    canvas: Rect;
+    gutter: number;
+    logo: Rect | null;
+    align?: InsetAlign;
+  },
 ): ImagePlacement | null {
   const onEdge = (a: number, b: number) => Math.abs(a - b) < 0.5;
   const left = region.x + (onEdge(region.x, canvas.x) ? gutter : 0);
@@ -248,14 +270,19 @@ function insetCoverPlacement(
     (onEdge(region.y + region.height, canvas.y + canvas.height) ? gutter : 0);
   const whole = rect(left, top, right - left, bottom - top);
   if (whole.width <= 0 || whole.height <= 0) return null;
-  const rooms =
+  const rooms = alignedRooms(
     logo && intersection(logo, whole)
       ? roomsBeside(whole, [logo]).slice(1)
-      : [whole];
+      : [whole],
+    region,
+    align,
+  );
   let best: ImagePlacement | null = null;
   for (const room of rooms) {
-    const placement = largestInsetIn(room, (frame) =>
-      coverPlacement(image, subject, frame, avoid, minEdge),
+    const placement = largestInsetIn(
+      room,
+      (frame) => coverPlacement(image, subject, frame, avoid, minEdge),
+      align === "start" ? "start" : "centre",
     );
     if (
       placement &&
@@ -269,15 +296,41 @@ function insetCoverPlacement(
   return best;
 }
 
+export type InsetAlign = "axis" | "start";
+
+/**
+ * Rooms cut down to what an aligned picture can use. On the axis: each
+ * room narrowed to be symmetric about the region's centre line, so a
+ * picture centred in it is centred on the copy below. From the start: only
+ * rooms that begin at the region's left edge, where flush-left copy does.
+ */
+function alignedRooms(
+  rooms: Rect[],
+  region: Rect,
+  align: InsetAlign | undefined,
+): Rect[] {
+  if (align === "start") {
+    const left = Math.min(...rooms.map((room) => room.x));
+    return rooms.filter((room) => room.x <= left + 0.5);
+  }
+  if (align !== "axis") return rooms;
+  const axis = region.x + region.width / 2;
+  return rooms.flatMap((room) => {
+    const half = Math.min(axis - room.x, room.x + room.width - axis);
+    return half > 1 ? [rect(axis - half, room.y, half * 2, room.height)] : [];
+  });
+}
+
 /** The first placement `place` finds in `room` stepped down narrower or
- *  shorter, centred, widest first. */
+ *  shorter, widest first: centred in the room, or from its left edge. */
 function largestInsetIn(
   room: Rect,
   place: (frame: Rect) => ImagePlacement | null,
+  anchor: "centre" | "start",
 ): ImagePlacement | null {
   for (const share of INSET_STEPS) {
     const narrower = rect(
-      room.x + (room.width * (1 - share)) / 2,
+      room.x + (anchor === "start" ? 0 : (room.width * (1 - share)) / 2),
       room.y,
       room.width * share,
       room.height,

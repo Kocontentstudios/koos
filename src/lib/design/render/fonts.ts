@@ -111,7 +111,9 @@ async function loadOne(source: FontSource): Promise<LoadedFont | null> {
     };
   } catch {
     const data = await fetchGoogleFont(source.family);
-    if (!data) return null;
+    /* Held to the same check as a vendored or uploaded face: every face
+       handed to satori has had every glyph's advance measured. */
+    if (!data || !checkFontBytes(new Uint8Array(data)).ok) return null;
     return { name: source.name, data, weight: source.weight, style: "normal" };
   }
 }
