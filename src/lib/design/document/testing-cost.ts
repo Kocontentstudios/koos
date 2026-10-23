@@ -4,11 +4,16 @@ import {
   type DesignDocument,
   type DesignElement,
   DOCUMENT_LIMITS,
+  LETTER_SPACING_RANGE,
+  LINE_HEIGHT_RANGE,
   MAX_CANVAS_EDGE,
+  MAX_ELEMENT_REACH,
+  MAX_FONT_SIZE,
   MAX_GRADIENT_STOPS,
   MAX_LABEL_LENGTH,
   MAX_TEXT_LENGTH,
 } from "./schema";
+import { MAX_EMOJI_PER_DOCUMENT, MAX_EMOJI_PER_TEXT } from "./text-safety";
 
 /**
  * The costliest document the schema accepts, for the cost test and the
@@ -25,7 +30,7 @@ import {
  */
 
 const CANVAS = canvasFor("9:16");
-const REACH = MAX_CANVAS_EDGE * 2;
+const REACH = MAX_ELEMENT_REACH;
 const OFF = -(REACH - CANVAS.width) / 2;
 /* The largest image the server accepts on either side. */
 export const WORST_IMAGE_EDGE = 4096;
@@ -109,10 +114,10 @@ export function worstCaseDocument(): DesignDocument {
       text: denseCopy(textLength, i * textLength),
       role: role as "body",
       font: "heading",
-      fontSize: Math.round(MAX_CANVAS_EDGE / 3),
+      fontSize: MAX_FONT_SIZE,
       fontWeight: 700,
-      lineHeight: 0.5,
-      letterSpacing: -0.5,
+      lineHeight: LINE_HEIGHT_RANGE.min,
+      letterSpacing: LETTER_SPACING_RANGE.min,
       align: "left",
       italic: true,
       color: "#000000",
@@ -126,7 +131,7 @@ export function worstCaseDocument(): DesignDocument {
       fill: "#123456",
       color: "#FFFFFF",
       radius: MAX_CANVAS_EDGE,
-      fontSize: Math.round(MAX_CANVAS_EDGE / 3),
+      fontSize: MAX_FONT_SIZE,
       fontWeight: 700,
     });
   }
@@ -162,9 +167,15 @@ export const BENCHED_CAPS = {
     textCodePoints: 600,
   },
   maxCanvasEdge: 1920,
+  maxElementReach: 3840,
+  maxFontSize: 640,
+  lineHeightRange: { min: 0.5, max: 4 },
+  letterSpacingRange: { min: -0.5, max: 2 },
   maxGradientStops: 5,
   maxTextLength: 400,
   maxLabelLength: 100,
+  maxEmojiPerText: 24,
+  maxEmojiPerDocument: 24,
   worstImageEdge: 4096,
   measured: {
     date: "2026-10-23",
@@ -178,9 +189,15 @@ export function currentCaps() {
   return {
     limits: DOCUMENT_LIMITS,
     maxCanvasEdge: MAX_CANVAS_EDGE,
+    maxElementReach: MAX_ELEMENT_REACH,
+    maxFontSize: MAX_FONT_SIZE,
+    lineHeightRange: LINE_HEIGHT_RANGE,
+    letterSpacingRange: LETTER_SPACING_RANGE,
     maxGradientStops: MAX_GRADIENT_STOPS,
     maxTextLength: MAX_TEXT_LENGTH,
     maxLabelLength: MAX_LABEL_LENGTH,
+    maxEmojiPerText: MAX_EMOJI_PER_TEXT,
+    maxEmojiPerDocument: MAX_EMOJI_PER_DOCUMENT,
     worstImageEdge: WORST_IMAGE_EDGE,
   };
 }

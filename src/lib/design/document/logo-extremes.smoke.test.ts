@@ -6,6 +6,7 @@ import { LAYOUTS, LOGO, PALETTE, specFor, WORST_CASE } from "./fixtures";
 import { documentFromSpec } from "./from-spec";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
 import { designDocumentSchema } from "./schema";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * Marks at the extremes of shape (a tall 0.15 crest, an 8:1 wordmark) in
@@ -16,7 +17,10 @@ import { designDocumentSchema } from "./schema";
 
 let measurer: RendererMeasurer;
 beforeAll(async () => {
-  measurer = createRendererMeasurer({ fonts: await loadBrandFonts(null) });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts: await loadBrandFonts(null),
+  });
 });
 
 const PLACEMENTS = [

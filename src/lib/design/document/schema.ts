@@ -49,17 +49,19 @@ export function isDocumentCanvas(size: {
 export const MAX_CANVAS_EDGE = Math.max(
   ...CANVASES.flatMap((canvas) => [canvas.width, canvas.height]),
 );
-const REACH = MAX_CANVAS_EDGE * 2;
-
-const coordinate = z.number().min(-REACH).max(REACH);
-const size = z.number().positive().max(REACH);
-const length = z.number().min(0).max(MAX_CANVAS_EDGE);
+export const MAX_ELEMENT_REACH = MAX_CANVAS_EDGE * 2;
 /* Type taller than a third of the longest canvas is a layout bug, and every
    extra pixel of size is glyph outline satori has to build. */
-const fontSize = z
-  .number()
-  .positive()
-  .max(Math.round(MAX_CANVAS_EDGE / 3));
+export const MAX_FONT_SIZE = Math.round(MAX_CANVAS_EDGE / 3);
+/** Unitless multiples of fontSize, as in CSS. Tighter leading and tracking
+ *  pack more glyphs onto the canvas, so the low ends are cost bounds too. */
+export const LINE_HEIGHT_RANGE = { min: 0.5, max: 4 } as const;
+export const LETTER_SPACING_RANGE = { min: -0.5, max: 2 } as const;
+
+const coordinate = z.number().min(-MAX_ELEMENT_REACH).max(MAX_ELEMENT_REACH);
+const size = z.number().positive().max(MAX_ELEMENT_REACH);
+const length = z.number().min(0).max(MAX_CANVAS_EDGE);
+const fontSize = z.number().positive().max(MAX_FONT_SIZE);
 
 export const assetRefSchema = z
   .object({
@@ -250,9 +252,15 @@ export const textElementSchema = z
     fontSize,
     fontWeight,
     /** Unitless multiple of fontSize, as in CSS. */
-    lineHeight: z.number().min(0.5).max(4),
+    lineHeight: z
+      .number()
+      .min(LINE_HEIGHT_RANGE.min)
+      .max(LINE_HEIGHT_RANGE.max),
     /** In em, so it scales with the type like a designer's tracking value. */
-    letterSpacing: z.number().min(-0.5).max(2),
+    letterSpacing: z
+      .number()
+      .min(LETTER_SPACING_RANGE.min)
+      .max(LETTER_SPACING_RANGE.max),
     align: z.enum(["left", "center", "right"]),
     italic: z.boolean(),
     color,
@@ -302,9 +310,10 @@ export const designElementSchema = z.discriminatedUnion("type", [
  * copy of the whole document by code points. The builders use at most 5
  * shapes, 6 text runs, 1 button, 1 image, 1 logo, 1 gradient and about 420
  * code points; the room above that is for the editor. The worst document
- * these caps allow (testing-cost.ts) draws in 1.8-2.4s on a 10-core dev
- * machine, alone or beside another on the render pool (cost.smoke.test.ts
- * holds it under 3s). A process's first render also pays the handshakes for
+ * these caps allow (testing-cost.ts) draws in about 2.5s alone and 2.6s
+ * beside another on the render pool; `bench:document-cost` holds it under
+ * 3s, and cost.smoke.test.ts fails if a cap moves without a new bench run.
+ * A process's first render also pays the handshakes for
  * the fallback faces and emoji next/og fetches, about 2s more whatever the
  * emoji count, which the render limit (satori-pool.ts) bounds.
  */

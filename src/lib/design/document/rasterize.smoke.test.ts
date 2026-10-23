@@ -19,6 +19,7 @@ import { createRendererMeasurer, type RendererMeasurer } from "./measure";
 import { prepareDocumentFonts, rasterizeDocument } from "./rasterize";
 import { documentElement } from "./render";
 import type { DesignDocument } from "./schema";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * Acceptance 5: the two-pass logo backing measurement still runs on the
@@ -30,7 +31,10 @@ const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
 
 let measurer: RendererMeasurer;
 beforeAll(async () => {
-  measurer = createRendererMeasurer({ fonts: await loadBrandFonts(null) });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts: await loadBrandFonts(null),
+  });
 });
 
 const NAVY = {

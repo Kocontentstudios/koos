@@ -22,6 +22,7 @@ import {
   designDocumentSchema,
   MAX_CANVAS_EDGE,
 } from "./schema";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * Acceptance 2: every builder output renders through satori without
@@ -36,7 +37,10 @@ let fonts: Awaited<ReturnType<typeof loadBrandFonts>>;
 let measurer: RendererMeasurer;
 beforeAll(async () => {
   fonts = await loadBrandFonts(null);
-  measurer = createRendererMeasurer({ fonts });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts,
+  });
 });
 
 const SOURCES = Object.fromEntries(

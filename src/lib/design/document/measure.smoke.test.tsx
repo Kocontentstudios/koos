@@ -6,6 +6,7 @@ import { decodePngRgba } from "@/lib/images/png-pixels";
 import type { TextLook } from "./fit";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
 import { textRunStyle } from "./render";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * The measurer reads a 8px sliver of a probe. These tests lay the same run
@@ -17,7 +18,10 @@ let fonts: LoadedFont[];
 let measurer: RendererMeasurer;
 beforeAll(async () => {
   fonts = await loadBrandFonts(null);
-  measurer = createRendererMeasurer({ fonts });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts,
+  });
 });
 
 const RED = "#FF0000";
@@ -169,7 +173,10 @@ describe("createRendererMeasurer", () => {
   });
 
   it("caches repeated questions instead of rendering them again", async () => {
-    const fresh = createRendererMeasurer({ fonts });
+    const fresh = createRendererMeasurer({
+      probeLimitMs: TEST_PROBE_LIMIT_MS,
+      fonts,
+    });
     await fresh.height(TEXTS[0], HEADLINE, 500);
     await fresh.height(TEXTS[0], HEADLINE, 500);
     expect(fresh.probes()).toBe(1);
