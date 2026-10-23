@@ -62,3 +62,17 @@ export function serverErrors(text: string): string[] {
 export function serverErrorsSince(offset: number): string[] {
   return serverErrors(readLog().subarray(offset).toString("utf8"));
 }
+
+/** Whether next dev restarted after `offset`: itself, when its heap neared
+ * the cap ("restarting"), or by serve.mjs after V8 ended it. A page loading
+ * across a restart is half-served; that is the server's moment, not the
+ * page's fault. */
+export function serverRestartedSince(offset: number): boolean {
+  return restartedIn(readLog().subarray(offset).toString("utf8"));
+}
+
+export function restartedIn(text: string): boolean {
+  return /used memory threshold, restarting|\[serve\] next dev exited/.test(
+    text,
+  );
+}

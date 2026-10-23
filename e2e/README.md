@@ -133,7 +133,14 @@ pins both against round 3's log.
 `next dev` holds every compiled route in memory. Under the heap cap in
 `NODE_OPTIONS` it can run out, and V8 ends it; `serve.mjs` starts it again (up
 to five times, each restart written to the log) and the lane retries a page
-load that found no server.
+load that found no server. next dev also restarts itself when its heap nears
+the cap; a page that was loading across a restart in the log is loaded once
+more. A page that fails to hydrate with no restart in the log fails.
+
+Two browser errors are not the page's: React's development build throwing
+"cannot have a negative time stamp" from its Performance timeline (production
+React records nothing there), and 429s from the app's own rate limits when the
+probe reloads a page dozens of times.
 
 ## Running it
 

@@ -29,7 +29,11 @@ import {
   selectedRoutes,
   type Who,
 } from "./routes";
-import { serverErrorsSince, serverLogOffset } from "./server-log";
+import {
+  serverErrorsSince,
+  serverLogOffset,
+  serverRestartedSince,
+} from "./server-log";
 import { type ExtraViewport, laneViewports } from "./widths";
 
 const EXTRA_VIEWPORTS = laneViewports();
@@ -63,6 +67,11 @@ const BENIGN_CONSOLE = [
      times a minute; the app's own rate limits (the admin email health check)
      answer that with 429, as they should. */
   /status of 429 \(Too Many Requests\)/,
+  /* React's development build records each component render on the
+     Performance timeline and throws when a render it timed began before the
+     page's time origin (seen intermittently on /admin/analytics). Production
+     React records nothing there. */
+  /Failed to execute 'measure' on 'Performance': .* cannot have a negative time stamp/,
 ];
 
 const ERROR_BOUNDARY_TEXT = /Something went wrong/i;
@@ -118,6 +127,7 @@ async function openRoute(
       document.head.append(style);
     });
   });
+  const logStart = serverLogOffset();
   await context.addInitScript(recordTimeouts);
   const page = await context.newPage();
   const consoleErrors: string[] = [];
@@ -144,9 +154,11 @@ async function openRoute(
     }
     logError(`${text.slice(0, 400)}${from ? ` (${from})` : ""}`);
   });
-  page.on("pageerror", (error) =>
-    logError(`uncaught: ${String(error).slice(0, 400)}`),
-  );
+  page.on("pageerror", (error) => {
+    const text = String(error);
+    if (BENIGN_CONSOLE.some((pattern) => pattern.test(text))) return;
+    logError(`uncaught: ${text.slice(0, 400)}`);
+  });
   await load(page, routePath(route, seededIds()));
   /* A route next dev was still compiling when its chunks were requested
      fails to hydrate with a ChunkLoadError; a second load is served from the
@@ -155,7 +167,17 @@ async function openRoute(
     consoleErrors.length = 0;
     await load(page, routePath(route, seededIds()));
   }
-  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  /* A load that next dev restarted under (the server log says so) never
+     finishes hydrating; it is loaded once more. Without a restart in the
+     log, a page that does not hydrate fails here. */
+  try {
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  } catch (error) {
+    if (!serverRestartedSince(logStart)) throw error;
+    await page.waitForTimeout(10_000);
+    await load(page, routePath(route, seededIds()));
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  }
   await assertRendered(page, route);
   await releaseTimers(page);
   await settle(page);

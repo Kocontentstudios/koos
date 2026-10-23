@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serverErrors } from "./server-log";
+import { restartedIn, serverErrors } from "./server-log";
 
 /* Round 3's /brand crash as the dev server logged it. The browser showed only
    "Something went wrong"; this is the one place the cause appeared. */
@@ -46,5 +46,19 @@ describe("serverErrors", () => {
         ].join("\n"),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("restartedIn", () => {
+  it("sees next dev restarting itself and serve.mjs restarting it", () => {
+    expect(
+      restartedIn(
+        "⚠ Server is approaching the used memory threshold, restarting...",
+      ),
+    ).toBe(true);
+    expect(restartedIn("[serve] next dev exited (134); restart 1 of 5")).toBe(
+      true,
+    );
+    expect(restartedIn(" GET /brand/onboarding 200 in 84ms")).toBe(false);
   });
 });
