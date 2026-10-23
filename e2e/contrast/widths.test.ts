@@ -61,3 +61,15 @@ describe("laneViewports", () => {
     expect(viewports.find((v) => v.reducedMotion)?.width).toBe(1280);
   });
 });
+
+describe("selectedRoutes", () => {
+  it("is every route by default and the named ones otherwise", async () => {
+    const { ROUTES, selectedRoutes } = await import("./routes");
+    expect(selectedRoutes("")).toBe(ROUTES);
+    expect(selectedRoutes("team, brand").map((r) => r.label)).toEqual([
+      "brand",
+      "team",
+    ]);
+    expect(() => selectedRoutes("team,nope")).toThrow("nope");
+  });
+});

@@ -16,6 +16,7 @@ import {
   probeInteractive,
   probePage,
   probeViewport,
+  recordTimeouts,
   releaseTimers,
   type StateMeasurement,
   unreadableContent,
@@ -25,6 +26,7 @@ import {
   ROUTES,
   routePath,
   type SeededIds,
+  selectedRoutes,
   type Who,
 } from "./routes";
 import { serverErrorsSince, serverLogOffset } from "./server-log";
@@ -57,6 +59,10 @@ const EVIDENCE = path.join("test-results", "contrast");
 const BENIGN_CONSOLE = [
   /'upgrade-insecure-requests' is ignored when delivered in a report-only policy/,
   /net::ERR_BLOCKED_BY_CLIENT/,
+  /* The probe loads a page again after each state that changed it, dozens of
+     times a minute; the app's own rate limits (the admin email health check)
+     answer that with 429, as they should. */
+  /status of 429 \(Too Many Requests\)/,
 ];
 
 const ERROR_BOUNDARY_TEXT = /Something went wrong/i;
@@ -75,6 +81,12 @@ interface Opened {
   context: BrowserContext;
   page: Page;
   consoleErrors: string[];
+  /** Errors raised while the probe clicked plain buttons with writes
+   * refused: evidence, not failures (see probeInteractive). */
+  clickErrors: string[];
+  /** Third-party assets that failed to load: evidence, not failures. */
+  externalErrors: string[];
+  clicking: { active: boolean };
 }
 
 async function openRoute(
@@ -106,19 +118,35 @@ async function openRoute(
       document.head.append(style);
     });
   });
+  await context.addInitScript(recordTimeouts);
   const page = await context.newPage();
   const consoleErrors: string[] = [];
+  const clickErrors: string[] = [];
+  const externalErrors: string[] = [];
+  const clicking = { active: false };
+  const logError = (text: string) =>
+    (clicking.active ? clickErrors : consoleErrors).push(text);
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const text = message.text();
     if (BENIGN_CONSOLE.some((pattern) => pattern.test(text))) return;
     const from = message.location().url;
-    consoleErrors.push(`${text.slice(0, 400)}${from ? ` (${from})` : ""}`);
+    /* A third-party asset (Google Fonts) failing on the runner's network is
+       the network, not the page; it is kept as evidence. The app's own
+       requests failing is the page. */
+    if (
+      text.startsWith("Failed to load resource") &&
+      from &&
+      new URL(from).origin !== new URL(page.url()).origin
+    ) {
+      externalErrors.push(`${text.slice(0, 200)} (${from})`);
+      return;
+    }
+    logError(`${text.slice(0, 400)}${from ? ` (${from})` : ""}`);
   });
   page.on("pageerror", (error) =>
-    consoleErrors.push(`uncaught: ${String(error).slice(0, 400)}`),
+    logError(`uncaught: ${String(error).slice(0, 400)}`),
   );
-  await page.clock.install();
   await load(page, routePath(route, seededIds()));
   /* A route next dev was still compiling when its chunks were requested
      fails to hydrate with a ChunkLoadError; a second load is served from the
@@ -131,7 +159,23 @@ async function openRoute(
   await assertRendered(page, route);
   await releaseTimers(page);
   await settle(page);
-  return { context, page, consoleErrors };
+  /* A timeout brought forward can be the page leaving on its own ("taking
+     you to your dashboard"). That page is another route's to measure; this
+     one is measured as it loads, without its timeouts run. */
+  const expected = routePath(route, seededIds()).split("?")[0];
+  if (new URL(page.url()).pathname !== expected) {
+    await load(page, routePath(route, seededIds()));
+    await assertRendered(page, route);
+    await page.waitForTimeout(1500);
+  }
+  return {
+    context,
+    page,
+    consoleErrors,
+    clickErrors,
+    externalErrors,
+    clicking,
+  };
 }
 
 /** The page is the route's own, not its error boundary, a redirect or a
@@ -153,9 +197,8 @@ async function assertRendered(page: Page, route: LaneRoute) {
 }
 
 /** Scroll once through the page so reveal-on-scroll content is shown, then
- * let entrance animations finish. The pauses are real time, taken here rather
- * than in the page: the page's timers are the fake clock's, and an
- * IntersectionObserver only reports on a rendered frame. */
+ * let entrance animations finish. An IntersectionObserver reports only on a
+ * rendered frame, so each step waits in real time. */
 async function settle(page: Page) {
   const height = await page.evaluate(() => document.body.scrollHeight);
   for (let y = 0; y < height; y += 400) {
@@ -183,8 +226,12 @@ interface Pass {
   skipped: string[];
   visited: Record<string, number> | null;
   blocked: string[];
+  reloads: number;
+  seconds: number;
   unreadable: string[];
   consoleErrors: string[];
+  clickErrors: string[];
+  externalErrors: string[];
   axeViolations: string[];
 }
 
@@ -195,13 +242,16 @@ async function measurePass(
   theme: Theme,
   viewport: ExtraViewport | null,
 ): Promise<Pass> {
+  const started = Date.now();
   const size = viewport ?? { width: 1440, height: 900, reducedMotion: false };
-  const { context, page, consoleErrors } = await openRoute(
-    browser,
-    route,
-    theme,
-    size,
-  );
+  const {
+    context,
+    page,
+    consoleErrors,
+    clickErrors,
+    externalErrors,
+    clicking,
+  } = await openRoute(browser, route, theme, size);
   try {
     const axe = viewport
       ? { violations: [] }
@@ -211,10 +261,23 @@ async function measurePass(
     await page.evaluate(() => window.scrollTo(0, 0));
     const interactive =
       viewport === null
-        ? await probeInteractive(page, analysis)
+        ? await probeInteractive(page, analysis, {
+            onClicking: (active) => {
+              clicking.active = active;
+            },
+          })
         : viewport.disclosures
           ? await probeInteractive(page, analysis, { kinds: ["disclosure"] })
           : null;
+    /* The probe's guard answers a refused write with a 503, and the browser
+       logs that as a failed resource. Any state can send one (Escape on a
+       dialog records the dismissal), so the guard's own refusals, matched by
+       URL, are its noise, not the page's. */
+    const refusedUrls = new Set(
+      (interactive?.blocked ?? []).map((b) => b.slice(b.indexOf(" ") + 1)),
+    );
+    const refused = (error: string) =>
+      [...refusedUrls].some((url) => error.endsWith(`(${url})`));
     return {
       name: viewport ? viewport.name : "desktop",
       rest,
@@ -222,8 +285,12 @@ async function measurePass(
       skipped: interactive?.skipped ?? [],
       visited: interactive?.visited ?? null,
       blocked: interactive?.blocked ?? [],
+      reloads: interactive?.reloads ?? 0,
+      seconds: Math.round((Date.now() - started) / 1000),
       unreadable,
-      consoleErrors: [...consoleErrors],
+      consoleErrors: consoleErrors.filter((e) => !refused(e)),
+      clickErrors: [...clickErrors, ...consoleErrors.filter(refused)],
+      externalErrors: [...externalErrors],
       axeViolations: axe.violations.flatMap((v) =>
         v.nodes.map((n) => `${n.target.join(" ")}: ${n.failureSummary}`),
       ),
@@ -233,7 +300,7 @@ async function measurePass(
   }
 }
 
-for (const route of ROUTES) {
+for (const route of selectedRoutes()) {
   for (const theme of THEMES) {
     test(`${route.label} (${theme}) renders and has no text below AA contrast`, async ({
       browser,

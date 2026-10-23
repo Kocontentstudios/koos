@@ -303,3 +303,19 @@ export const NOT_RENDERED: Record<string, string> = {
 
 export const routePath = (route: LaneRoute, ids: SeededIds) =>
   typeof route.path === "string" ? route.path : route.path(ids);
+
+/** The routes this run measures: all of them, or the labels listed in
+ * E2E_ROUTES (comma-separated), to rerun a few or split a run on a small
+ * machine. An unknown label fails rather than measuring nothing. */
+export function selectedRoutes(only = process.env.E2E_ROUTES): LaneRoute[] {
+  if (!only) return ROUTES;
+  const labels = only
+    .split(",")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const unknown = labels.filter((l) => !ROUTES.some((r) => r.label === l));
+  if (unknown.length > 0) {
+    throw new Error(`E2E_ROUTES names no route: ${unknown.join(", ")}`);
+  }
+  return ROUTES.filter((r) => labels.includes(r.label));
+}

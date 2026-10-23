@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { test as setup } from "@playwright/test";
 import { AUTH_DIR, authState, SEEDED_IDS } from "./auth-state";
-import { ROUTES, routePath } from "./routes";
+import { routePath, selectedRoutes } from "./routes";
 import {
   QA_PASSWORD,
   QA_USERS,
@@ -45,7 +45,7 @@ setup("seed and sign in the QA accounts", async ({ browser }) => {
   /* next dev compiles a route on its first request. Compiling every route
      here, once, keeps that out of the measured runs, where a slow first
      compile surfaced as a ChunkLoadError timeout in the browser. */
-  for (const route of ROUTES) {
+  for (const route of selectedRoutes()) {
     /* A first-visit account would see its welcome once and lose it here;
        the full account compiles the same page. */
     const who =

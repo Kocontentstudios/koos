@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import type { Page, Route } from "@playwright/test";
 
 /**
@@ -120,6 +121,12 @@ function collectRuns(args: {
       cs.mixBlendMode === "normal"
     );
   };
+  const pinnedBar = (el: Element) => {
+    const position = getComputedStyle(el).position;
+    if (position !== "fixed" && position !== "sticky") return false;
+    const r = el.getBoundingClientRect();
+    return r.width * r.height < 0.5 * innerWidth * innerHeight;
+  };
   const coveredAt = (
     el: Element,
     x: number,
@@ -130,10 +137,55 @@ function collectRuns(args: {
       if (hit === el || el.contains(hit) || hit.contains(el)) break;
       if (!painted(hit)) continue;
       if (opaque(hit)) return { kind: "opaque", by: hit };
+      /* Frosted glass (a header with backdrop-filter) blurs what is under it
+         on purpose: the page scrolls text under it, and that text is read at
+         another scroll position. It is left out like an opaque cover. A plain
+         translucent layer (a scrim, a decorative glow) is measured through. */
+      if (getComputedStyle(hit).backdropFilter !== "none") {
+        return { kind: "opaque", by: hit };
+      }
+      /* The same for a translucent bar fixed to the viewport (a phone's
+         header or tab bar): text passes under it as the page scrolls. A
+         fixed layer over most of the viewport (a glow, a scrim) is not a
+         bar, and is measured through. */
+      if (pinnedBar(hit)) return { kind: "opaque", by: hit };
       veil = true;
     }
     return veil ? { kind: "veil" } : null;
   };
+  /* A bar fixed to the viewport (the landing nav) casts its shadow on
+     whatever the page scrolls under it. Text in that shadow at one scroll
+     position is read at another, so the shadow's reach around the bar is
+     left out, like the bar itself. A fixed element without a shadow leaves
+     nothing out. */
+  const pinnedShadows: { owner: Element; shadow: Box }[] = [];
+  for (const candidate of document.querySelectorAll("body *")) {
+    const cs = getComputedStyle(candidate);
+    if (cs.position !== "fixed" && cs.position !== "sticky") continue;
+    if (cs.boxShadow === "none" || cs.visibility !== "visible") continue;
+    let reach = 0;
+    for (const layer of cs.boxShadow.split(/,(?![^(]*\))/)) {
+      if (layer.includes("inset")) continue;
+      const lengths = (
+        layer.replace(/rgba?\([^)]*\)/g, "").match(/-?[\d.]+px/g) ?? []
+      ).map((v) => Math.abs(Number.parseFloat(v)));
+      const [x = 0, y = 0, blur = 0, spread = 0] = lengths;
+      reach = Math.max(reach, Math.max(x, y) + blur + spread);
+    }
+    if (reach === 0) continue;
+    const r = candidate.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    pinnedShadows.push({
+      owner: candidate,
+      shadow: {
+        x: r.left - reach,
+        y: r.top - reach,
+        w: r.width + 2 * reach,
+        h: r.height + 2 * reach,
+      },
+    });
+  }
+
   /** A box with another taken out of it: what is left, in up to four parts. */
   const subtract = (a: Box, b: Box): Box[] => {
     const cut = intersect(a, b);
@@ -183,6 +235,10 @@ function collectRuns(args: {
       if (cover?.kind !== "opaque") continue;
       const over = boxOf(cover.by.getBoundingClientRect());
       parts = parts.flatMap((p) => subtract(p, over));
+    }
+    for (const { owner, shadow } of pinnedShadows) {
+      if (owner.contains(el)) continue;
+      parts = parts.flatMap((p) => subtract(p, shadow));
     }
     return parts;
   };
@@ -467,12 +523,11 @@ async function setStyle(page: Page, id: string, css: string | null) {
     },
     [id, css] as const,
   );
-  await page.evaluate(
-    () =>
-      new Promise((done) =>
-        requestAnimationFrame(() => requestAnimationFrame(done)),
-      ),
-  );
+  /* Wait for the style to reach the screen in real time: two of the page's
+     animation frames can pass before the compositor paints the change, and a
+     screenshot taken then would still show the glyphs it was meant to hide. */
+  await page.evaluate(() => document.body.getBoundingClientRect());
+  await page.waitForTimeout(60);
 }
 
 /* Runs in the analysis page: decodes both shots and measures every run. */
@@ -1026,13 +1081,88 @@ export async function load(page: Page, url: string) {
   }
 }
 
-/** How far ahead pending timers are run: content a page shows after a delay
- * (a poll result, a toast, a "still working" hint) is measured as shown. Needs
- * `page.clock.install()` before the page loads. */
-export const TIMER_HORIZON = "05:00";
+/** How far ahead pending timeouts are run: content a page shows after a
+ * delay (a poll result, a toast, a "still working" hint) is measured as
+ * shown. */
+export const TIMER_HORIZON_MS = 5 * 60_000;
+
+/* Runs in the page before any of its scripts. Every setTimeout is recorded
+   so releaseTimers can run the ones due within the horizon now. Not
+   Playwright's fake clock: that also fakes requestAnimationFrame and
+   setInterval, which stalled CSS reveals, fired webpack's chunk timeout and
+   set a 30s poll firing in a loop. Here time stays real, intervals keep
+   their pace, and only pending timeouts are brought forward. */
+export function recordTimeouts() {
+  const pending = new Map<
+    number,
+    { fn: (...args: unknown[]) => void; args: unknown[]; due: number }
+  >();
+  const set = window.setTimeout.bind(window);
+  const clear = window.clearTimeout.bind(window);
+  const wrapped = ((
+    handler: TimerHandler,
+    ms?: number,
+    ...args: unknown[]
+  ): number => {
+    if (typeof handler !== "function") return set(handler, ms, ...args);
+    /* The bundler's own timers are not the page's content: webpack gives
+       each chunk load a 120s timeout, and running it early fails the load
+       (ChunkLoadError). They are left on real time. */
+    if (
+      /\/_next\/static\/chunks\/(?:webpack|turbopack)/.test(
+        new Error().stack ?? "",
+      )
+    ) {
+      return set(handler, ms, ...args);
+    }
+    const id: number = set(() => {
+      pending.delete(id);
+      handler(...args);
+    }, ms);
+    pending.set(id, {
+      fn: handler as (...a: unknown[]) => void,
+      args,
+      due: performance.now() + (ms ?? 0),
+    });
+    return id;
+  }) as typeof window.setTimeout;
+  window.setTimeout = wrapped;
+  window.clearTimeout = ((id?: number) => {
+    if (id !== undefined) pending.delete(id);
+    clear(id);
+  }) as typeof window.clearTimeout;
+  (
+    window as unknown as { __cpRelease?: (horizon: number) => number }
+  ).__cpRelease = (horizon) => {
+    let fired = 0;
+    /* A timeout that schedules another is followed a few rounds. */
+    for (let round = 0; round < 5; round++) {
+      const now = performance.now();
+      const due = [...pending].filter(([, t]) => t.due - now <= horizon);
+      if (due.length === 0) break;
+      for (const [id, t] of due) {
+        pending.delete(id);
+        clear(id);
+        fired++;
+        try {
+          t.fn(...t.args);
+        } catch {
+          // The page's own error, reported by the page.
+        }
+      }
+    }
+    return fired;
+  };
+}
 
 export async function releaseTimers(page: Page) {
-  await page.clock.fastForward(TIMER_HORIZON);
+  await page.evaluate(
+    (horizon) =>
+      (
+        window as unknown as { __cpRelease?: (h: number) => number }
+      ).__cpRelease?.(horizon),
+    TIMER_HORIZON_MS,
+  );
   await page.waitForTimeout(300);
 }
 
@@ -1229,6 +1359,8 @@ export interface InteractiveProbe {
   /** Requests that would have changed something on the server, refused while
    * plain buttons were clicked. */
   blocked: string[];
+  /** Times the page was loaded again to undo what a target did. */
+  reloads: number;
 }
 
 export type TargetKind =
@@ -1369,9 +1501,28 @@ function markTargets(page: Page, only: readonly TargetKind[]) {
       for (const el of targetTargets) {
         if (labelled(el)) mark(el, "target");
       }
+      /* One click per kind of button: thirty date cells styled alike open
+         the same component, and each click that changes the page costs a
+         reload. Buttons are alike when tag, role, type, every class and
+         their label match, digits aside ("12" and "13" are one kind; "Save"
+         and "Delete" are two). */
+      const clicked = new Set<string>();
       for (const el of document.querySelectorAll(plainSel as string)) {
         if (el instanceof HTMLButtonElement && el.type !== "button") continue;
-        if (labelled(el) || el.getAttribute("aria-label")) mark(el, "click");
+        if (!labelled(el) && !el.getAttribute("aria-label")) continue;
+        if (el.closest(DISABLED) || !shown(el)) continue;
+        const signature = [
+          el.tagName,
+          el.getAttribute("role") ?? "",
+          el.getAttribute("type") ?? "",
+          [...el.classList].sort().join(" "),
+          (el.getAttribute("aria-label") ?? el.textContent ?? "")
+            .trim()
+            .replace(/\d/g, "#"),
+        ].join("|");
+        if (clicked.has(signature)) continue;
+        clicked.add(signature);
+        mark(el, "click");
       }
       const ordered = [...kinds.keys()].sort((a, b) =>
         a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -1399,7 +1550,13 @@ function markTargets(page: Page, only: readonly TargetKind[]) {
 export async function probeInteractive(
   page: Page,
   analysisPage: Page,
-  options: { kinds?: readonly TargetKind[] } = {},
+  options: {
+    kinds?: readonly TargetKind[];
+    /** Told when a plain-button click starts and when its page is restored.
+     * A refused write surfaces in the page as a failed fetch; the caller
+     * keeps errors from that window apart from the page's own. */
+    onClicking?: (active: boolean) => void;
+  } = {},
 ): Promise<InteractiveProbe> {
   const kinds = options.kinds ?? ALL_KINDS;
   const startUrl = page.url();
@@ -1431,10 +1588,25 @@ export async function probeInteractive(
       return;
     }
     blocked.push(`${method} ${route.request().url()}`);
-    await route.abort("blockedbyclient");
+    await route.fulfill({
+      status: 503,
+      contentType: "text/plain",
+      body: "refused by the contrast probe",
+    });
   };
   if (kinds.includes("click")) await page.route("**/*", guard);
+  let reloads = 0;
+  const trace = (line: string) => {
+    if (process.env.E2E_TRACE) {
+      appendFileSync(
+        process.env.E2E_TRACE,
+        `${new Date().toISOString()} ${startUrl} ${line}\n`,
+      );
+    }
+  };
   const reload = async () => {
+    reloads++;
+    trace("  reload");
     await load(page, startUrl);
     await page.waitForTimeout(500);
     count = await markTargets(page, kinds);
@@ -1554,6 +1726,24 @@ export async function probeInteractive(
     ) as Set<TargetKind>;
     const name = `target ${i} (${[...is].join("+")}) "${((await target.textContent()) ?? "").trim().slice(0, 40)}"`;
     current = name;
+    trace(`${i}/${count} ${name} reloads=${reloads}`);
+    /* An earlier state of this same target can take it off the page: Escape
+       after a press closes the dialog the target sits in. The page is loaded
+       again (writes were refused, so the dialog comes back) before the next
+       state is put on it. */
+    const ensure = async () => {
+      if (
+        await page.evaluate((sel) => !!document.querySelector(sel), selector)
+      ) {
+        return;
+      }
+      await reload();
+      if (
+        !(await page.evaluate((sel) => !!document.querySelector(sel), selector))
+      ) {
+        throw new Error("left the page and did not come back on a reload");
+      }
+    };
     try {
       /* Not Playwright's scrollIntoViewIfNeeded: it waits for the element to
          stop moving, and a floating hero card never does. */
@@ -1562,6 +1752,7 @@ export async function probeInteractive(
       );
       await page.waitForTimeout(100);
       if (is.has("control")) {
+        trace("  control");
         visited.control++;
         await watchChanges();
         await page.evaluate((sel) => {
@@ -1594,6 +1785,8 @@ export async function probeInteractive(
         await page.mouse.move(1, 1);
       }
       if (is.has("disclosure")) {
+        trace("  disclosure");
+        await ensure();
         visited.disclosure++;
         await watchChanges();
         await target.click({ timeout: 2000, force: !hoverable });
@@ -1609,6 +1802,8 @@ export async function probeInteractive(
         }
       }
       if (is.has("toggle")) {
+        trace("  toggle");
+        await ensure();
         visited.toggle++;
         await watchChanges();
         await page.evaluate(
@@ -1624,6 +1819,8 @@ export async function probeInteractive(
         await page.waitForTimeout(150);
       }
       if (is.has("loading")) {
+        trace("  loading");
+        await ensure();
         visited.loading++;
         /* The shared Button's loading state is its data-loading attribute and
            aria-busy, which every data-loading: style keys on; set here, it
@@ -1645,7 +1842,10 @@ export async function probeInteractive(
         }
       }
       if (is.has("click")) {
+        trace("  click");
+        await ensure();
         visited.click++;
+        options.onClicking?.(true);
         await watchChanges();
         await target.evaluate((el) => (el as HTMLElement).click());
         await page.waitForTimeout(400);
@@ -1662,8 +1862,11 @@ export async function probeInteractive(
             await reload();
           }
         }
+        options.onClicking?.(false);
       }
       if (is.has("target")) {
+        trace("  target");
+        await ensure();
         visited.target++;
         const id = await target.getAttribute("id");
         await page.evaluate((hash) => {
@@ -1685,7 +1888,7 @@ export async function probeInteractive(
     }
   }
   if (kinds.includes("click")) await page.unroute("**/*", guard);
-  return { measurements, skipped, navigated, visited, blocked };
+  return { measurements, skipped, navigated, visited, blocked, reloads };
 }
 
 export function failures<T extends Measurement>(measurements: T[]): T[] {

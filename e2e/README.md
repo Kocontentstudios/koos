@@ -54,7 +54,10 @@ For each route and theme:
      child): hover;
    - every disclosure (`aria-expanded`, `aria-haspopup`): open;
    - every plain button that declares nothing: clicked, and if the page
-     changed, measured and reloaded;
+     changed, measured and reloaded. One button per kind: buttons whose tag,
+     role, type, classes and label match, digits aside, are one kind (thirty
+     date cells open the same component), so "Save" and "Delete" are both
+     clicked but "12" and "13" only once;
    - every checkbox and switch: checked (`peer-checked`, `:has(:checked)`);
    - every shared `Button`: in its loading state (`data-loading`,
      `aria-busy`), which is what every `data-loading:` style keys on;
@@ -65,17 +68,25 @@ For each route and theme:
    disclosure revealed. While targets are probed, every request other than a
    read is refused before it leaves the browser, so clicking "Approve" or
    "Remove" shows its state without changing the seeded data the other routes
-   are reading. While a modal dialog is open, the page under it is inactive
+   are reading. A refused write is answered with a 503; the console errors
+   that causes are kept apart as evidence, not counted against the page. While a modal dialog is open, the page under it is inactive
    and is not measured; the dialog and anything layered above it are.
-4. **At 1280 px with reduced motion** and **at 390 px**, it measures every run
-   at rest, so an element shown only below a breakpoint (`md:hidden`,
-   `max-[1400px]:`) or only under `prefers-reduced-motion` is measured. The
-   phone pass also opens every disclosure, which is how a phone reaches the
-   navigation.
-5. **Timers.** The page runs on Playwright's clock, and every timer due in the
-   next five minutes is fired before measuring, so content that appears after
-   a delay (a poll result, a "still working" hint) is measured as shown.
-   Finite CSS animations are run to their end state.
+4. **One width in every band** the breakpoints written in `src/` make
+   (`widths.ts`: Tailwind's, arbitrary `min-[]` / `max-[]` ones and CSS media
+   queries; today 390, 601, 640, 768, 901, 1024, 1025 and 1280 px), at rest,
+   so an element shown only at some widths (`md:hidden`, `max-[1400px]:`) is
+   on screen in some pass. The 1280 pass runs with reduced motion, so styles
+   under `prefers-reduced-motion` are measured; the 390 pass also opens every
+   disclosure, which is how a phone reaches the navigation. A new breakpoint
+   in `src/` adds a pass.
+5. **Timers.** Every `setTimeout` the page sets is recorded, and those due in
+   the next five minutes are run as soon as the page has loaded, so content
+   that appears after a delay (a poll result, a "still working" hint) is
+   measured as shown. Intervals keep their pace and time stays real.
+   Playwright's fake clock is not used: it also fakes animation frames and
+   intervals, which stalled CSS reveals, fired webpack's chunk timeout early
+   and set a 30-second poll firing in a loop. Finite CSS animations are run to
+   their end state before each measurement.
 6. axe-core's `color-contrast` rule runs on the 1440 pass as a cross-check.
 
 Two more tests per theme hold the login button while its request is held
@@ -95,7 +106,10 @@ computed style when nothing between it and the screen changes it. Otherwise
 text, a text-shadow on transparent text) it comes from the glyph pixels. A part
 of a word that an opaque layer covers (an open menu over a heading) is left
 out of the word's box, so the menu's own pixels are never mistaken for the
-word's.
+word's. Two layers are treated the same way: frosted glass (a header with
+`backdrop-filter`, which blurs what it covers on purpose) and the shadow a
+fixed or sticky bar casts. Text the page scrolls under them is measured at
+the scroll positions where it is clear of them.
 
 `probe.spec.ts` is the probe's own test: static markup with known ratios, no
 server, including every pattern round 3's critic found unmeasured. If the probe
@@ -130,7 +144,8 @@ corepack pnpm e2e:contrast
 That starts `next dev` on port 3417 against
 `postgres://koos:koos@localhost:5434/koos` and runs the probe self-test, the
 seed, every route and the server-log check. A full run takes about an hour
-with two workers. The rest of the app's environment comes from your `.env`.
+and a half with two workers; no step waits more than 15 seconds for an
+element, so a run cannot hang on a page that changed under it. The rest of the app's environment comes from your `.env`.
 
 - In a git worktree with a symlinked `node_modules`: `E2E_WEBPACK=1`
   (Turbopack refuses a symlinked `node_modules`).
@@ -141,7 +156,10 @@ with two workers. The rest of the app's environment comes from your `.env`.
   `E2E_SERVER_LOG` at that server's output
   (`next dev --port 3417 2>&1 | tee server.log`). Without `E2E_SERVER_LOG`
   the lane fails rather than skipping the server check.
-- One route: add `-g " brand \(dark\)"`.
+- Some routes: `E2E_ROUTES=brand,team` (labels from `routes.ts`); one theme:
+  add `-g "brand \(dark\)"`. On a small machine, a full run in four
+  `E2E_ROUTES` chunks, each against a fresh server, stays under a 3 GB heap.
+- Trace every target as it is probed: `E2E_TRACE=/tmp/trace.log`.
 
 The seed (`seed.ts`) deletes and recreates the `@example.test` accounts on
 every run (a full account with a brand, a teammate and a pending invitation;
@@ -175,5 +193,6 @@ Each of these is out of reach of both the source gate and this lane, and is
 listed in the spec (9.2) with the reason: raster images of text, content
 inside a frame (the lane fails on any visible `iframe`, `embed` or `object`
 rather than pass it), states only reachable through a flow that writes data,
-content behind a timer longer than five minutes, and the browser's own
-selection highlight.
+a second level of disclosure, hover and focus below 1440 px, the second and
+later buttons of one kind, content behind a timer longer than five minutes
+or an interval, and the browser's own selection highlight.

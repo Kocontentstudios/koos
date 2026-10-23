@@ -3,6 +3,7 @@ import {
   type Measurement,
   probeInteractive,
   probePage,
+  recordTimeouts,
   releaseTimers,
   type StateMeasurement,
 } from "./probe";
@@ -138,7 +139,7 @@ async function measure(page: Page) {
       body: `<!doctype html><html><head><meta charset="utf-8"></head><body>${CASES}</body></html>`,
     }),
   );
-  await page.clock.install();
+  await page.addInitScript(recordTimeouts);
   await page.goto(FIXTURE_URL);
   await releaseTimers(page);
   const analysis = await page.context().newPage();

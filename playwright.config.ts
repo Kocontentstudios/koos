@@ -25,7 +25,9 @@ export default defineConfig({
     ["list"],
     ["json", { outputFile: "test-results/e2e/report.json" }],
   ],
-  use: { baseURL },
+  /* No step may wait forever: a locator whose element left the page fails
+     its target after 15s (and the route with it) instead of hanging. */
+  use: { baseURL, actionTimeout: 15_000, navigationTimeout: 120_000 },
   projects: [
     /* The probe measuring known pairs on static markup: no server, no DB. */
     { name: "probe", testMatch: /probe\.spec\.ts$/, use: browser },
