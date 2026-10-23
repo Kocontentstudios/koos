@@ -1904,9 +1904,17 @@ export async function probeInteractive(
         await ensure();
         visited.target++;
         const id = await target.getAttribute("id");
-        await page.evaluate((hash) => {
-          location.hash = hash;
-        }, id ?? "");
+        await page.evaluate(
+          ([hash, sel]) => {
+            location.hash = hash as string;
+            /* The browser scrolls a target to the top edge, under a sticky
+               top bar; it is brought to the middle to be read. */
+            document
+              .querySelector(sel as string)
+              ?.scrollIntoView({ block: "center" });
+          },
+          [id ?? "", selector] as const,
+        );
         await page.waitForTimeout(200);
         await measure("target", selector, true);
         await page.evaluate(() => {
