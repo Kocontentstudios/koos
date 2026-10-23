@@ -93,7 +93,10 @@ describe("renderPng", () => {
     expect(Buffer.from(pooled?.pixels ?? [])).toEqual(
       Buffer.from(direct?.pixels ?? []),
     );
-  }, 60_000);
+    /* This compares pixels, not speed: a cold worker on a loaded machine
+       took over 60 s to start here, so the time limit only has to catch a
+       hang. */
+  }, 180_000);
 
   it("stops a render that never returns, without blocking the event loop, and recovers", async () => {
     const before = renderPoolStats();

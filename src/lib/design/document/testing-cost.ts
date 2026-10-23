@@ -147,6 +147,44 @@ export function worstCaseDocument(): DesignDocument {
   };
 }
 
+/**
+ * The caps `bench:document-cost` last timed the worst case under, and the
+ * result. Wall-clock time depends on the machine and its load, so the gate
+ * cannot assert it without going flaky; it asserts these caps instead, and
+ * any change to them must re-run the bench and record the new figures here.
+ */
+export const BENCHED_CAPS = {
+  limits: {
+    elements: 18,
+    byType: { image: 2, shape: 5, text: 8, button: 2, logo: 2 },
+    byRole: { headline: 2, subheadline: 2, cta: 2, footer: 3, body: 3 },
+    gradients: 2,
+    textCodePoints: 600,
+  },
+  maxCanvasEdge: 1920,
+  maxGradientStops: 5,
+  maxTextLength: 400,
+  maxLabelLength: 100,
+  worstImageEdge: 4096,
+  measured: {
+    date: "2026-10-23",
+    machine: "10-core WSL2 dev box, other builds running",
+    aloneMs: 2449,
+    pairMs: 2602,
+  },
+} as const;
+
+export function currentCaps() {
+  return {
+    limits: DOCUMENT_LIMITS,
+    maxCanvasEdge: MAX_CANVAS_EDGE,
+    maxGradientStops: MAX_GRADIENT_STOPS,
+    maxTextLength: MAX_TEXT_LENGTH,
+    maxLabelLength: MAX_LABEL_LENGTH,
+    worstImageEdge: WORST_IMAGE_EDGE,
+  };
+}
+
 /** A smooth (compressible) PNG of `edge` square: the pixel count, not the
  *  entropy, is what resvg pays to decode and resample. */
 export function largePng(edge = WORST_IMAGE_EDGE): Uint8Array {
