@@ -241,7 +241,7 @@ export function SettingsClient({
               type="button"
               disabled={confirmText !== workspace.name || pending}
               onClick={deleteWorkspace}
-              className="flex items-center gap-2 rounded-lg bg-[var(--status-error-fg)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-destructive-fill px-4 py-2 text-sm font-medium text-white hover:bg-destructive-fill-hover disabled:bg-primary-disabled disabled:text-primary-disabled-foreground"
             >
               {pending ? <Spinner /> : null}
               Delete Workspace Permanently

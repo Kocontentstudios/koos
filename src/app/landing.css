@@ -1418,6 +1418,18 @@
 
         @media (max-width: 900px) {
 
+            /* Three cards need about 800px; below 900 the side cards slid under
+               the centre one, its shadow over their text (3.65:1 at 640px). The
+               centre card carries the idea alone. */
+            .hero-visual-card-2,
+            .hero-visual-card-3 {
+                display: none;
+            }
+
+            .hero-visual {
+                height: 240px;
+            }
+
             .features-grid,
             .founders-grid,
             .about-grid,
@@ -1572,7 +1584,10 @@
     --surface-2: #FFFFFF;
     --text-primary: #0F172A;
     --text-secondary: #475569;
-    --text-muted: #58687B;
+    /* Darker than the app's #58687B: the landing page's fixed glow orbs tint
+       the ground under muted text, and at 1280px the about stats measured
+       4.39:1 over the cyan orb. 4.79:1 there, 5.51:1 on the bare page. */
+    --text-muted: #526275;
     --text-faint: #AEB9C7;
     --border: #E2E8F0;
     --accent-glow: rgba(19, 139, 200, 0.12);

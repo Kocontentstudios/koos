@@ -129,6 +129,12 @@
   --secondary: #a7b6c7;
   --secondary-foreground: var(--background);
 
+  /* A destructive confirm button: white on it is 6.12:1, hover 7.42:1, in
+     both themes. --status-error-fg is text, not a fill: dark #d57a7a under
+     white was 3.05:1 (Remove Member). */
+  --destructive-fill: #b23528;
+  --destructive-fill-hover: #9c2e23;
+
   /* Accent aliases */
   --accent: var(--surface-1);
   --accent-foreground: var(--foreground);
@@ -179,6 +185,10 @@
    The sidebar (--nav) intentionally stays dark in both themes.
    ─────────────────────────────────────────────────────────────────────────── */
 :root[data-theme="light"] {
+  /* Secondary carries --background as its label, which in light mode is the
+     page colour: #edf1f7 on #a7b6c7 was 1.82:1 (the /team role badges). */
+  --secondary-foreground: var(--foreground);
+
   /* Backgrounds & surfaces */
   --background: #edf1f7;
   --surface-1: #ffffff;
@@ -312,6 +322,8 @@
   /* Backward-compatible secondary aliases */
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-destructive-fill-hover: var(--destructive-fill-hover);
 
   /* Backward-compatible accent aliases */
   --color-accent: var(--accent);

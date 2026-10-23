@@ -126,6 +126,17 @@ describe.each([
     expect(ratio(tokens, fg, bg)).toBeGreaterThanOrEqual(TEXT_AA);
   });
 
+  /* The rendered lane found both on /team: light --secondary-foreground was
+     the page colour on the secondary badge (1.82:1), and the Remove Member
+     button put white on --status-error-fg (3.05:1 dark). */
+  it.each([
+    ["--secondary-foreground", "--secondary"],
+    ["--primary-foreground", "--destructive-fill"],
+    ["--primary-foreground", "--destructive-fill-hover"],
+  ])(`%s on %s clears ${TEXT_AA}:1`, (fg, bg) => {
+    expect(ratio(tokens, fg, bg)).toBeGreaterThanOrEqual(TEXT_AA);
+  });
+
   /* WCAG 1.4.11: the focus indicator against whatever it is drawn over. The
      outline sits 2px outside the control, so that is the ground, never the
      control's own fill. */

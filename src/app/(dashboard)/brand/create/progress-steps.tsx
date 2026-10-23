@@ -65,9 +65,13 @@ export function ProgressSteps({
                 onClick={() => onSelect(index)}
                 aria-label={`Go to step ${index + 1}: ${label}`}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg p-0.5 transition-opacity",
+                  "flex items-center gap-2 rounded-lg p-0.5",
                   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-                  !isActive && "cursor-pointer hover:opacity-80",
+                  /* Hover underlines the label rather than fading the step:
+                     opacity-80 put the muted label at 4.11:1 dark and 3.42:1
+                     light. */
+                  !isActive &&
+                    "cursor-pointer [&:hover>span]:underline [&:hover>span]:underline-offset-4",
                 )}
               >
                 {content}

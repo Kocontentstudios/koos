@@ -749,7 +749,7 @@ export function TeamClient({
                   },
                 );
               }}
-              className="bg-[var(--status-error-fg)] text-white hover:bg-[var(--status-error-fg)]/90"
+              className="bg-destructive-fill text-white hover:bg-destructive-fill-hover"
             >
               Remove Member
             </Button>
