@@ -48,6 +48,24 @@ export function isAllowedDocument(fileName: string, mimeType: string): boolean {
   return DOCUMENT_MIME_TYPES[ext].includes(mimeType.toLowerCase().trim());
 }
 
+/**
+ * The type an allowed document is signed and stored as. A presigned PUT
+ * cannot bind an empty type, so the untyped .txt the allow-list tolerates is
+ * stored as text/plain, never as whatever the uploader declares later.
+ */
+export function canonicalDocumentMime(
+  fileName: string,
+  mimeType: string,
+): string {
+  const mime = mimeType.toLowerCase().trim();
+  if (mime) return mime;
+  const ext = documentExtensionOf(fileName);
+  return (
+    (ext && DOCUMENT_MIME_TYPES[ext].find(Boolean)) ||
+    "application/octet-stream"
+  );
+}
+
 /** The `accept` attribute for the file input, so the picker filters too. */
 export const DOCUMENT_ACCEPT = DOCUMENT_EXTENSIONS.map((e) => `.${e}`).join(
   ",",

@@ -3,15 +3,16 @@ import { deflateSync, inflateSync } from "node:zlib";
 /**
  * PNG bytes to RGBA pixels.
  *
- * There is no image-processing library available to application code — sharp
- * is a transitive dependency of Next and is not resolvable — but next/og
- * bundles resvg, so everything we rasterise comes back as a PNG we then have
- * no way to look at. That gap is why a logo resvg silently declined to draw
- * was indistinguishable from one it drew (KOOS-BUG-022): the render succeeded,
- * the bytes were a valid PNG, and nothing could tell that the corner was
- * empty.
+ * Written when there was no image-processing library available to
+ * application code (sharp is a direct dependency since FEAT-033, for
+ * reencodeImage): everything next/og rasterises comes back as a PNG we had no
+ * way to look at. That gap is why a logo the rasteriser (sharp/librsvg via
+ * @vercel/og when sharp is importable, resvg-wasm fallback otherwise)
+ * silently declined to draw was indistinguishable from one it drew
+ * (KOOS-BUG-022): the render succeeded, the bytes were a valid PNG, and
+ * nothing could tell that the corner was empty.
  *
- * Deliberately narrow. This reads what resvg emits — 8-bit, non-interlaced —
+ * Deliberately narrow. This reads what next/og emits, 8-bit and non-interlaced,
  * and returns null for anything else rather than pretending to be a decoder.
  */
 

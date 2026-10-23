@@ -137,6 +137,8 @@ export const presignRequestSchema = z.object({
   sizeBytes: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   /* Which allow-list, size cap and key prefix apply. Defaulted, so every
      existing caller keeps its behaviour without passing the field. */
-  kind: z.enum(["attachment", "document"]).default("attachment"),
+  kind: z
+    .enum(["attachment", "document", "design-image"])
+    .default("attachment"),
 });
 export type PresignRequestInput = z.infer<typeof presignRequestSchema>;

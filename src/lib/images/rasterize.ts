@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import type { SafeSvg } from "./svg-sanitize";
 
 /**
  * SVG to PNG, so a vector logo can reach a vision model or the design
@@ -11,8 +12,11 @@ import { ImageResponse } from "next/og";
  * logo" silently returned nothing for exactly the brands most likely to use it
  * (KOOS-BUG-014).
  *
- * Uses next/og, which the design renderer already depends on — it bundles
- * satori and resvg, so this adds no dependency.
+ * Uses next/og, which the design renderer already depends on, so this adds no
+ * dependency. next/og draws with sharp/librsvg when sharp is importable (it
+ * always is here) and resvg-wasm otherwise; either decodes rasters embedded in
+ * the SVG with a decoder that can abort the process, which is why this takes
+ * only an SVG that sanitizeSvg has rebuilt.
  */
 const RASTER_SIZE = 512;
 
@@ -28,14 +32,14 @@ export interface RasterizeSvgOptions {
 }
 
 export async function rasterizeSvg(
-  bytes: Uint8Array,
+  svg: SafeSvg,
   {
     background = "#ffffff",
     width = RASTER_SIZE,
     height = RASTER_SIZE,
   }: RasterizeSvgOptions = {},
 ): Promise<Uint8Array> {
-  const dataUri = `data:image/svg+xml;base64,${Buffer.from(bytes).toString("base64")}`;
+  const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg.bytes).toString("base64")}`;
   const response = new ImageResponse(
     {
       type: "div",
@@ -54,8 +58,8 @@ export async function rasterizeSvg(
     } as never,
     { width, height },
   );
-  // ImageResponse renders lazily inside the stream, so a satori or resvg
-  // failure surfaces here rather than at construction.
+  // ImageResponse renders lazily inside the stream, so a satori or
+  // rasteriser failure surfaces here rather than at construction.
   return new Uint8Array(await response.arrayBuffer());
 }
 
@@ -63,9 +67,9 @@ export async function rasterizeSvg(
  * The width-to-height ratio an SVG declares, for sizing its raster box so the
  * vector is not squashed into a square.
  *
- * Read from the markup rather than rendered and measured: resvg gives back
- * only the box it was told to draw, so a wrong box is invisible until the logo
- * appears stretched in a finished design. viewBox is preferred over
+ * Read from the markup rather than rendered and measured: the rasteriser
+ * gives back only the box it was told to draw, so a wrong box is invisible
+ * until the logo appears stretched in a finished design. viewBox is preferred over
  * width/height because it survives the responsive `width="100%"` that export
  * tools emit.
  */
@@ -130,17 +134,29 @@ export function svgIntrinsicRatio(bytes: Uint8Array): number {
   return size ? size.width / size.height : 1;
 }
 
-/* resvg refuses anything over 32767 on a side, and a viewBox of "0 0 1 100000"
-   would otherwise ask for a 600 x 60,000,000 raster. The bound belongs here,
+/* resvg-wasm refuses anything over 32767 on a side, librsvg has limits of its
+   own, and a viewBox of "0 0 1 100000" would otherwise ask for a
+   600 x 60,000,000 raster. The bound belongs here,
    where the number is derived, not in whatever draws it. */
 const MAX_RASTER_SIDE = 4096;
+
+/* The raster is a PNG the renderer inlines as one base64 attribute, which
+   libxml2 caps at 7,499,820 bytes of image. An SVG can fill every pixel with
+   incompressible noise (feTurbulence, or a noise PNG tiled with <use>), and
+   a PNG of noise is 4 bytes a pixel: a tall logo's 600 x 4096 box came out
+   at 8.4 to 8.7 MB and threw in the render (round-4 critic C4). A million
+   pixels is at most about 4 MB, well inside the 6.5 MB budget, and still
+   382 x 2612 for a 600 x 4096 mark drawn a few hundred pixels high. */
+export const MAX_RASTER_PIXELS = 1_000_000;
 
 /**
  * The box to rasterise an SVG into, at its own proportions.
  *
  * Both sides are bounded together. Clamping only the height turned a very tall
  * mark into a 600 x 4096 box — a 14x horizontal stretch, silently — because
- * the width stayed at its requested value while the height was cut.
+ * the width stayed at its requested value while the height was cut. The area
+ * is bounded too (MAX_RASTER_PIXELS), so the encoded raster fits the
+ * renderer whatever the SVG draws.
  */
 export function svgRasterBox(
   bytes: Uint8Array,
@@ -158,28 +174,13 @@ export function svgRasterBox(
     width = MAX_RASTER_SIDE;
     height = width / ratio;
   }
+  if (width * height > MAX_RASTER_PIXELS) {
+    const scale = Math.sqrt(MAX_RASTER_PIXELS / (width * height));
+    width = Math.floor(width * scale);
+    height = Math.floor(height * scale);
+  }
   return {
     width: Math.max(1, Math.round(width)),
     height: Math.max(1, Math.round(height)),
   };
-}
-
-/**
- * Gives an SVG a viewBox when it only declared width and height.
- *
- * satori requires a viewBox and throws without one, so a perfectly ordinary
- * `<svg width="300px" height="100px">` — which every drawing tool emits — was
- * refused outright and the brand was told its logo was broken. The dimensions
- * it did declare are exactly the viewBox it is missing.
- */
-export function withViewBox(bytes: Uint8Array): Uint8Array {
-  const text = svgText(bytes);
-  if (VIEW_BOX.test(rootTag(text))) return bytes;
-  const size = declaredSize(text);
-  if (!size) return bytes;
-  const patched = text.replace(
-    /<svg\b/i,
-    `<svg viewBox="0 0 ${size.width} ${size.height}"`,
-  );
-  return new TextEncoder().encode(patched);
 }

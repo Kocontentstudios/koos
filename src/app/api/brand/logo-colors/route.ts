@@ -7,6 +7,7 @@ import {
   isVisionReadable,
 } from "@/lib/images/detect";
 import { rasterizeSvg } from "@/lib/images/rasterize";
+import { sanitizeSvg } from "@/lib/images/svg-sanitize";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import {
   getObjectBytes,
@@ -85,11 +86,14 @@ export async function POST(req: Request) {
 
   /* Vision cannot take SVG in any form, and /api/upload accepts SVG logos —
      which is why this returned nothing for the brands most likely to have a
-     vector logo. Rasterised first. */
+     vector logo. Rasterised first, and only once the sanitiser has rebuilt
+     it: rasterising runs inside this request, and an embedded PNG the
+     renderer's decoder panics on would abort the instance serving it. */
   let image: { bytes: Uint8Array; contentType: string };
   if (type === "svg") {
     try {
-      image = { bytes: await rasterizeSvg(raw), contentType: IMAGE_MIME.png };
+      const safe = await sanitizeSvg(raw);
+      image = { bytes: await rasterizeSvg(safe), contentType: IMAGE_MIME.png };
     } catch (err) {
       console.error("logo rasterisation failed", err);
       return Response.json(

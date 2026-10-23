@@ -22,6 +22,8 @@ import {
   buildFont,
   signatureOnlyFont,
 } from "@/lib/design/render/font-fixtures";
+import { SVG_DRAWS_NOTHING_MESSAGE } from "@/lib/images/svg-drawable";
+import { IMAGE_NOT_USABLE_PREFIX } from "@/lib/uploads/design-image-limits";
 import { POST } from "./route";
 
 function upload(file: File | null) {
@@ -32,6 +34,11 @@ function upload(file: File | null) {
 
 const png = (bytes = 10, type = "image/png") =>
   new File([new Uint8Array(bytes)], "logo.png", { type });
+
+const PLAIN_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+const svgFile = (svg: string, type = "image/svg+xml") =>
+  new File([svg], "logo.svg", { type });
 
 /* The 5MB cap and the png/jpeg/svg allowlist are the only thing standing
    between an authenticated user and arbitrary objects in a public-read bucket,
@@ -57,11 +64,11 @@ describe("POST /api/upload", () => {
   });
 
   it.each([
-    ["image/png", "png"],
-    ["image/jpeg", "jpg"],
-    ["image/svg+xml", "svg"],
-  ])("accepts %s with the right extension", async (type, ext) => {
-    await POST(upload(png(10, type)));
+    ["image/png", "png", png(10, "image/png")],
+    ["image/jpeg", "jpg", png(10, "image/jpeg")],
+    ["image/svg+xml", "svg", svgFile(PLAIN_SVG)],
+  ])("accepts %s with the right extension", async (_type, ext, file) => {
+    await POST(upload(file));
     expect(uploadObject.mock.calls[0][0].key).toMatch(new RegExp(`\\.${ext}$`));
   });
 
@@ -244,5 +251,201 @@ describe("POST /api/upload — fonts", () => {
       new Request("http://x/api/upload", { method: "POST", body }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+/* Round-3 critic B8: an SVG logo embedding a PNG the renderer's decoder
+   panics on aborted every design job for its brand. The loader sanitises on
+   every render; refusing at upload is where the message can name the file. */
+describe("POST /api/upload, SVG logos", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    guardWorkspaceRoute.mockResolvedValue({ ctx: { dbUser: { id: "u1" } } });
+    isStorageConfigured.mockReturnValue(true);
+    uploadObject.mockResolvedValue(undefined);
+  });
+
+  const stored = () => {
+    const { body, contentType, contentDisposition, key } =
+      uploadObject.mock.calls[0][0];
+    return {
+      text: new TextDecoder().decode(body),
+      contentType,
+      contentDisposition,
+      key,
+    };
+  };
+
+  /* Round-5 review: the route checked the SVG and then stored the original
+     bytes, under the client's type, on a public bucket. */
+  it("stores the sanitiser's document, never the uploaded text", async () => {
+    const res = await POST(
+      upload(
+        svgFile(
+          `<?xml version="1.0"?><!-- Generator --><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>`,
+        ),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(stored().text).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10"></rect></svg>',
+    );
+  });
+
+  /* Round-6 review, L1: a file made only of what the sanitiser leaves out
+     was stored as an empty <svg> and then failed every design. */
+  it.each([
+    [
+      "HTML in a foreignObject",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject width="10" height="10"><img xmlns="http://www.w3.org/1999/xhtml" src="http://x.test/a.png"/></foreignObject></svg>',
+    ],
+    [
+      "an image under a foreign default namespace",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g xmlns="urn:x"><image href="http://x.test/a.png" width="4" height="4"/></g></svg>',
+    ],
+    [
+      "only editor state and definitions",
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" viewBox="0 0 10 10"><sodipodi:namedview pagecolor="#fff"/><defs><rect id="r" width="5" height="5"/></defs></svg>',
+    ],
+  ])("refuses an SVG with nothing left to draw: %s", async (_label, svg) => {
+    const res = await POST(upload(svgFile(svg)));
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toBe(SVG_DRAWS_NOTHING_MESSAGE);
+    expect(error).toMatch(new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: \\S`));
+    expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  it("keeps an SVG whose drawing sits beside what is left out", async () => {
+    const res = await POST(
+      upload(
+        svgFile(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject width="10" height="10"><p xmlns="http://www.w3.org/1999/xhtml">Acme</p></foreignObject><text y="8">Acme</text></svg>',
+        ),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(stored().text).not.toContain("foreignObject");
+  });
+
+  it("stores it as image/svg+xml, as a download, whatever the client claimed", async () => {
+    await POST(upload(svgFile(PLAIN_SVG, "image/png")));
+    expect(stored()).toMatchObject({
+      contentType: "image/svg+xml",
+      contentDisposition: 'attachment; filename="logo.svg"',
+    });
+    expect(stored().key).toMatch(/\.svg$/);
+  });
+
+  it("leaves raster uploads without a disposition, so they still display", async () => {
+    await POST(upload(png()));
+    expect(stored().contentDisposition).toBeUndefined();
+  });
+
+  /* What a browser opening the public URL would run. Each is either refused
+     or absent from the stored bytes; none reaches storage. */
+  it.each([
+    ["a script element", "<script>alert(1)</script>", "refused"],
+    ["an event handler", '<rect onload="alert(1)"/>', "refused"],
+    ["an uppercase event handler", '<rect ONCLICK="alert(1)"/>', "refused"],
+    [
+      "foreignObject with HTML",
+      '<foreignObject width="9" height="9"><div xmlns="http://www.w3.org/1999/xhtml"><iframe src="javascript:alert(1)"/></div></foreignObject>',
+      "stripped",
+    ],
+    [
+      "an XHTML iframe srcdoc",
+      '<h:iframe xmlns:h="http://www.w3.org/1999/xhtml" srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"/>',
+      "stripped",
+    ],
+    ["an external href", '<image href="https://evil.test/x.png"/>', "refused"],
+    ["a javascript: link", '<a href="javascript:alert(1)"/>', "refused"],
+    [
+      "an xlink:href to an external file",
+      '<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://evil.test/s.svg#a"/>',
+      "refused",
+    ],
+    [
+      "an animation that writes a handler",
+      '<set attributeName="onclick" to="alert(1)"/>',
+      "refused",
+    ],
+    [
+      "an animation that retargets href",
+      '<set attributeName="href" to="javascript:alert(1)"/>',
+      "refused",
+    ],
+    [
+      "a CSS @import",
+      "<style>@import url(https://evil.test/a.css);</style>",
+      "refused",
+    ],
+    [
+      "a CSS url() to another host",
+      '<rect style="fill:url(https://evil.test/#g)"/>',
+      "refused",
+    ],
+  ])("never stores %s (%s)", async (_label, body, outcome) => {
+    const res = await POST(
+      upload(
+        svgFile(
+          `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="5" height="5"/>${body}</svg>`,
+        ),
+      ),
+    );
+    if (outcome === "refused") {
+      expect(res.status).toBe(400);
+      expect(uploadObject).not.toHaveBeenCalled();
+      return;
+    }
+    expect(res.status).toBe(200);
+    expect(stored().text).not.toMatch(
+      /script|\bon[a-z]+=|foreignObject|iframe|srcdoc|javascript:|evil\.test|@import/i,
+    );
+  });
+
+  it.each([
+    [
+      "an external reference",
+      '<svg xmlns="http://www.w3.org/2000/svg"><image href="http://169.254.169.254/"/></svg>',
+      /links to a file or address outside itself/,
+    ],
+    [
+      "a DOCTYPE",
+      '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>',
+      /declares a DOCTYPE/,
+    ],
+    [
+      "a broken embedded PNG",
+      '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="/></svg>',
+      /an image embedded in it could not be read/,
+    ],
+    ["malformed XML", "<svg><g></svg>", /not a well-formed SVG/],
+  ])(
+    "refuses %s with a message that says what to do",
+    async (_label, svg, reason) => {
+      const res = await POST(upload(svgFile(svg)));
+      expect(res.status).toBe(400);
+      const { error } = await res.json();
+      expect(error).toMatch(/^This SVG can't be used as a logo: /);
+      expect(error).toMatch(reason);
+      expect(error).toMatch(
+        /Export it again as a plain SVG, or upload a PNG\.$/,
+      );
+      expect(uploadObject).not.toHaveBeenCalled();
+    },
+  );
+
+  it("judges an SVG by its bytes, whatever type it claims", async () => {
+    const res = await POST(
+      upload(
+        svgFile(
+          '<svg xmlns="http://www.w3.org/2000/svg"><use href="other.svg#a"/></svg>',
+          "image/png",
+        ),
+      ),
+    );
+    expect(res.status).toBe(400);
+    expect(uploadObject).not.toHaveBeenCalled();
   });
 });

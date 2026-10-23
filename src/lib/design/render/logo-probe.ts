@@ -38,7 +38,8 @@ const MIN_INK_PIXELS = 4;
 /**
  * Draws the logo once, on its own, and looks at the result.
  *
- * This exists because resvg does not fail loudly. Handed an image node it
+ * This exists because the renderer's rasteriser (sharp/librsvg via next/og)
+ * does not fail loudly. Handed an image node it
  * cannot decode — a damaged IDAT, a truncated upload, a CMYK JPEG out of
  * Illustrator — it skips the node and returns a perfectly valid PNG of
  * everything else. So the design rendered, the logo was absent, nothing threw,
