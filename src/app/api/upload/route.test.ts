@@ -22,6 +22,8 @@ import {
   buildFont,
   signatureOnlyFont,
 } from "@/lib/design/render/font-fixtures";
+import { SVG_DRAWS_NOTHING_MESSAGE } from "@/lib/images/svg-drawable";
+import { IMAGE_NOT_USABLE_PREFIX } from "@/lib/uploads/design-image-limits";
 import { POST } from "./route";
 
 function upload(file: File | null) {
@@ -288,6 +290,42 @@ describe("POST /api/upload, SVG logos", () => {
     expect(stored().text).toBe(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10"></rect></svg>',
     );
+  });
+
+  /* Round-6 review, L1: a file made only of what the sanitiser leaves out
+     was stored as an empty <svg> and then failed every design. */
+  it.each([
+    [
+      "HTML in a foreignObject",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject width="10" height="10"><img xmlns="http://www.w3.org/1999/xhtml" src="http://x.test/a.png"/></foreignObject></svg>',
+    ],
+    [
+      "an image under a foreign default namespace",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g xmlns="urn:x"><image href="http://x.test/a.png" width="4" height="4"/></g></svg>',
+    ],
+    [
+      "only editor state and definitions",
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" viewBox="0 0 10 10"><sodipodi:namedview pagecolor="#fff"/><defs><rect id="r" width="5" height="5"/></defs></svg>',
+    ],
+  ])("refuses an SVG with nothing left to draw: %s", async (_label, svg) => {
+    const res = await POST(upload(svgFile(svg)));
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toBe(SVG_DRAWS_NOTHING_MESSAGE);
+    expect(error).toMatch(new RegExp(`^${IMAGE_NOT_USABLE_PREFIX}: \\S`));
+    expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  it("keeps an SVG whose drawing sits beside what is left out", async () => {
+    const res = await POST(
+      upload(
+        svgFile(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject width="10" height="10"><p xmlns="http://www.w3.org/1999/xhtml">Acme</p></foreignObject><text y="8">Acme</text></svg>',
+        ),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(stored().text).not.toContain("foreignObject");
   });
 
   it("stores it as image/svg+xml, as a download, whatever the client claimed", async () => {

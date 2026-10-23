@@ -118,6 +118,56 @@ function alphaChecker(contrast: number): Uint8Array {
   return rgba;
 }
 
+type Paint = (x: number, y: number) => [number, number, number];
+
+function painted(width: number, height: number, paint: Paint): ParityPattern {
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      rgba.set([...paint(x, y), 255], (y * width + x) * 4);
+    }
+  }
+  return { name: "", width, height, rgba };
+}
+
+/**
+ * The four images round 6 refused as blank on both paths (round-6 review,
+ * B1), rebuilt as the review's generator drew them, at their original sizes:
+ * fine high-contrast patterns that average to flat grey on the thumbnail.
+ * Painted one at a time, since the pinstripe alone is 48 MB of RGBA.
+ */
+export function* roundSixRefusedPatterns(): Generator<ParityPattern> {
+  yield {
+    ...painted(2400, 1800, (x, y) =>
+      (Math.floor(x / 6) + Math.floor(y / 6)) % 2 ? [0, 0, 0] : [255, 255, 255],
+    ),
+    name: "b1 checker-6px-hi",
+  };
+  yield {
+    ...painted(2400, 1800, (x) =>
+      (x >> 1) & 1 ? [20, 20, 20] : [235, 235, 235],
+    ),
+    name: "b1 stripes-2px-hi",
+  };
+  yield {
+    ...painted(1200, 1200, (x, y) =>
+      ((x >> 3) + (y >> 3)) & 1 ? [230, 230, 230] : [40, 40, 40],
+    ),
+    name: "b1 pattern-heavy-8px-1200",
+  };
+  const next = seeded(3);
+  const weave = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  yield {
+    ...painted(4000, 3000, (x) => {
+      const n = (next() - 0.5) * 20;
+      return x % 8 === 0
+        ? [weave(200 + n), weave(200 + n), weave(210 + n)]
+        : [weave(20 + n), weave(30 + n), weave(70 + n)];
+    }),
+    name: "b1 pinstripe-navy-4000",
+  };
+}
+
 export async function* parityPatterns(): AsyncGenerator<ParityPattern> {
   const pattern = (name: string, rgba: Uint8Array): ParityPattern => ({
     name,
@@ -137,6 +187,7 @@ export async function* parityPatterns(): AsyncGenerator<ParityPattern> {
     }
     yield pattern(`alpha-checker-3px c${contrast}`, alphaChecker(contrast));
   }
+  yield* roundSixRefusedPatterns();
 }
 
 export function hasTransparency({ rgba }: ParityPattern): boolean {

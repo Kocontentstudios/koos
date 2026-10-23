@@ -7,7 +7,15 @@ import {
   fontRejectionMessage,
 } from "@/lib/design/render/font-file";
 import { detectImageType, IMAGE_MIME } from "@/lib/images/detect";
-import { sanitizeSvg, UnsafeSvgError } from "@/lib/images/svg-sanitize";
+import {
+  SVG_DRAWS_NOTHING_MESSAGE,
+  svgDrawsSomething,
+} from "@/lib/images/svg-drawable";
+import {
+  type SafeSvg,
+  sanitizeSvg,
+  UnsafeSvgError,
+} from "@/lib/images/svg-sanitize";
 import {
   isStorageConfigured,
   publicUrl,
@@ -106,14 +114,21 @@ export async function POST(request: Request) {
   };
   let contentDisposition: string | undefined;
   if (isSvg) {
+    let safe: SafeSvg;
     try {
-      const safe = await sanitizeSvg(new Uint8Array(buffer));
-      stored = { body: safe.bytes, contentType: IMAGE_MIME.svg, ext: "svg" };
-      contentDisposition = 'attachment; filename="logo.svg"';
+      safe = await sanitizeSvg(new Uint8Array(buffer));
     } catch (err) {
       if (!(err instanceof UnsafeSvgError)) throw err;
       return NextResponse.json({ error: err.userMessage }, { status: 400 });
     }
+    if (!svgDrawsSomething(safe)) {
+      return NextResponse.json(
+        { error: SVG_DRAWS_NOTHING_MESSAGE },
+        { status: 400 },
+      );
+    }
+    stored = { body: safe.bytes, contentType: IMAGE_MIME.svg, ext: "svg" };
+    contentDisposition = 'attachment; filename="logo.svg"';
   }
 
   const prefix = wantsFont ? STORAGE_PREFIXES.fonts : STORAGE_PREFIXES.logos;

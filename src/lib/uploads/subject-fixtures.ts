@@ -1,12 +1,18 @@
 import sharp from "sharp";
+import { NORMALISED_LONG_EDGE } from "./design-image-limits";
+import {
+  type ParityPattern,
+  roundSixRefusedPatterns,
+} from "./subject-parity-fixtures";
 
 /**
  * Images for the subject check (subject-check.ts), built in memory (no
  * binaries in the repo). The first two stand in for the FEAT-033 U3 live
  * critic's photo-a (a near-white photo, mean 254.7, sd 0.5) and photo-b (a
  * white wall texture); the rest are the legitimate minimal images the check
- * must never refuse. Each is a stored upload as the normaliser writes it:
- * JPEG at quality 90, or PNG when it has transparency.
+ * must never refuse, among them the four fine patterns round 6 refused
+ * (round-6 review, B1). Each is a stored upload as the normaliser writes it:
+ * within 2560 px, JPEG at quality 90, or PNG when it has transparency.
  */
 
 export interface SubjectFixture {
@@ -136,7 +142,32 @@ export function flatCutout(): Promise<Buffer> {
     .toBuffer();
 }
 
+/** A pattern as the browser uploads it: fitted in 2560 px, JPEG q0.9. */
+export function storedUpload({
+  rgba,
+  width,
+  height,
+}: ParityPattern): Promise<Buffer> {
+  return sharp(Buffer.from(rgba), { raw: { width, height, channels: 4 } })
+    .resize(NORMALISED_LONG_EDGE, NORMALISED_LONG_EDGE, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .removeAlpha()
+    .jpeg({ quality: 90, chromaSubsampling: "4:2:0" })
+    .toBuffer();
+}
+
 export async function subjectFixtures(): Promise<SubjectFixture[]> {
+  const patterns: SubjectFixture[] = [];
+  for (const pattern of roundSixRefusedPatterns()) {
+    patterns.push({
+      name: pattern.name,
+      type: "jpeg",
+      bytes: await storedUpload(pattern),
+      blank: false,
+    });
+  }
   const flat = (background: string) =>
     jpeg(
       svgOf(
@@ -224,5 +255,6 @@ export async function subjectFixtures(): Promise<SubjectFixture[]> {
       ),
       blank: false,
     },
+    ...patterns,
   ];
 }
