@@ -174,6 +174,11 @@ async function openRoute(
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   } catch (error) {
     if (!serverRestartedSince(logStart)) throw error;
+    /* The half-served load's failed requests are the restart's; they are
+       kept as evidence, and the second load's errors count. */
+    externalErrors.push(
+      ...consoleErrors.splice(0).map((e) => `[server restarted] ${e}`),
+    );
     await page.waitForTimeout(10_000);
     await load(page, routePath(route, seededIds()));
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -184,6 +189,18 @@ async function openRoute(
   /* A timeout brought forward can be the page leaving on its own ("taking
      you to your dashboard"). That page is another route's to measure; this
      one is measured as it loads, without its timeouts run. */
+  /* The route loaded, but next dev restarted while it did (its own heap
+     check, or serve.mjs after V8 ended it): resources the page asked for in
+     that window failed. It is loaded once more on the settled server, and
+     those failures are kept as evidence. */
+  if (serverRestartedSince(logStart)) {
+    externalErrors.push(
+      ...consoleErrors.splice(0).map((e) => `[server restarted] ${e}`),
+    );
+    await load(page, routePath(route, seededIds()));
+    await assertRendered(page, route);
+    await settle(page);
+  }
   const expected = routePath(route, seededIds()).split("?")[0];
   if (new URL(page.url()).pathname !== expected) {
     await load(page, routePath(route, seededIds()));
