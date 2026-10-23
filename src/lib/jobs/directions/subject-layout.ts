@@ -12,6 +12,54 @@ import { layoutCandidates } from "./layouts";
 export const SUBJECT_FACE_ONLY =
   "the copy is kept off the person's face, but not off what they are holding or wearing";
 
+/** The design has an image but where its subject is could not be found:
+ *  the look at the photo was unavailable, or found only a face. The copy
+ *  is laid out without knowing what it might cover, and that is recorded
+ *  (round-4 code critic: a face taken for the whole subject let the
+ *  headline cross a tray of croissants with nothing recorded). */
+export const SUBJECT_UNKNOWN =
+  "where the product is in the image could not be found, so the copy may sit on it";
+
+/* A layout that keeps a half or a band for the picture draws an empty
+   accent panel there without one (round-4 live critic: event-ko shipped
+   half its canvas an empty orange gradient). With no image only these are
+   tried. */
+export const TEXT_LED_LAYOUTS: readonly DesignSpec["layout"][] = [
+  "hero-center",
+  "stat-highlight",
+  "quote-card",
+];
+
+/** Both directions put the same photo in the same place: two cards that
+ *  read as one design (round-4 live critic, cafe and fashion). */
+export const SAME_SHAPE_AS_SIBLING =
+  "drawn in the same shape as its sibling: the same photo in the same place";
+
+/** Where a design draws its picture, and how it stands to the headline. */
+export interface PhotoPlace {
+  box: SubjectBox;
+  arrangement: "behind" | "above" | "below" | "beside";
+}
+
+/* Overlap of two picture frames, as a share of their union, past which two
+   designs read as one shape even in different arrangements. */
+const SAME_SHAPE_IOU = 0.6;
+
+function sameShape(a: PhotoPlace, b: PhotoPlace): boolean {
+  return (
+    a.arrangement === b.arrangement ||
+    overlapShare(a.box, b.box) >= SAME_SHAPE_IOU
+  );
+}
+
+function overlapShare(a: SubjectBox, b: SubjectBox): number {
+  const w = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const h = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const shared = w * h;
+  const union = a.w * a.h + b.w * b.h - shared;
+  return union > 0 ? shared / union : 0;
+}
+
 /** No free layout draws the copy without a hard craft fault (craft.ts). */
 export const LAYOUT_CRAFT_FAILED = "no layout draws this copy cleanly";
 
@@ -30,6 +78,8 @@ export class LayoutsHeldError extends Error {
 export interface LayoutVerdict {
   subjectFault: string | null;
   craft: CraftFaults;
+  /** Where the built document draws its picture. */
+  place?: PhotoPlace | null;
 }
 
 export interface LayoutChoice {
@@ -47,13 +97,20 @@ export interface LayoutChoice {
   faults: string[];
   /** Documents built to decide. */
   tried: number;
+  /** Where the chosen layout draws its picture, for its sibling to keep
+   *  apart from. */
+  place: PhotoPlace | null;
 }
 
 /* Lower is better. A hard craft fault is never a candidate. */
-function rank(verdict: LayoutVerdict, partialBox: boolean): number | null {
+function rank(
+  verdict: LayoutVerdict,
+  partialBox: boolean,
+  sameShape: boolean,
+): number | null {
   if (verdict.craft.hard) return null;
   if (verdict.subjectFault === SUBJECT_COVERED) return null;
-  const soft = verdict.craft.soft ? 1 : 0;
+  const soft = verdict.craft.soft || sameShape ? 1 : 0;
   if (partialBox) return 6 + soft;
   if (verdict.subjectFault === SUBJECT_CROPPED || verdict.subjectFault) {
     return 4 + soft;
@@ -82,25 +139,39 @@ export async function chooseLayout({
   subjects,
   judge,
   relayout,
+  imageless = false,
+  apartFrom = null,
 }: {
   spec: DesignSpec;
   held: readonly string[];
-  /** The whole subject first, then a person's head and shoulders. */
+  /** The whole subject first (null when it could not be found), then a
+   *  person's head and shoulders. Empty with no image. */
   subjects: readonly (SubjectBox | null)[];
+  /** The design is drawn with no image: only text-led layouts. */
+  imageless?: boolean;
+  /** Where the sibling draws the same photo: a layout that puts it in the
+   *  same place is taken only when nothing else is clean. */
+  apartFrom?: PhotoPlace | null;
   judge: (
     spec: DesignSpec,
     subject: SubjectBox | null,
   ) => Promise<LayoutVerdict>;
   relayout: (spec: DesignSpec, layout: DesignSpec["layout"]) => DesignSpec;
 }): Promise<LayoutChoice> {
-  const layouts = layoutCandidates(spec.layout, held);
+  const layouts = layoutCandidates(spec.layout, held).filter(
+    (layout) => !imageless || TEXT_LED_LAYOUTS.includes(layout),
+  );
   if (layouts.length === 0) throw new LayoutsHeldError();
   const specs = layouts.map((layout) =>
     layout === spec.layout ? spec : relayout(spec, layout),
   );
+  const whole = subjects[0] ?? null;
+  const unknown = subjects.length > 0 && whole === null;
   const known = subjects.filter((s): s is SubjectBox => s !== null);
-  const whole = known[0] ?? null;
+  /* A face alone is never the whole subject: it is still kept clear, as
+     the one part known, but the choice says the rest is unknown. */
   const boxes: (SubjectBox | null)[] = known.length > 0 ? known : [null];
+  const unknownFault = unknown ? [SUBJECT_UNKNOWN] : [];
   let tried = 0;
   let best: { score: number; choice: LayoutChoice } | null = null;
   let craftBlocked = false;
@@ -111,23 +182,30 @@ export async function chooseLayout({
       if (verdict.subjectFault !== SUBJECT_COVERED && verdict.craft.hard) {
         craftBlocked = true;
       }
-      const score = rank(verdict, boxIndex > 0);
+      const partial = boxIndex > 0 && !unknown;
+      const looksAlike = Boolean(
+        apartFrom && verdict.place && sameShape(apartFrom, verdict.place),
+      );
+      const score = rank(verdict, partial, looksAlike);
       if (score === null) continue;
       if (score === 0) {
         return {
           spec: candidate,
           subject: box,
           wholeSubject: whole,
-          fault: null,
-          faults: [],
+          fault: unknownFault[0] ?? null,
+          faults: unknownFault,
           tried,
+          place: verdict.place ?? null,
         };
       }
       if (!best || score < best.score) {
         const faults = [
-          ...(boxIndex > 0 ? [SUBJECT_FACE_ONLY] : []),
+          ...unknownFault,
+          ...(partial ? [SUBJECT_FACE_ONLY] : []),
           ...(verdict.subjectFault ? [verdict.subjectFault] : []),
           ...(verdict.craft.soft ? [verdict.craft.soft] : []),
+          ...(looksAlike ? [SAME_SHAPE_AS_SIBLING] : []),
         ];
         best = {
           score,
@@ -138,6 +216,7 @@ export async function chooseLayout({
             fault: faults[0] ?? null,
             faults,
             tried: 0,
+            place: verdict.place ?? null,
           },
         };
       }
@@ -158,5 +237,6 @@ export async function chooseLayout({
     fault,
     faults: [fault],
     tried,
+    place: null,
   };
 }

@@ -13,7 +13,10 @@ import {
   LAYOUT_CRAFT_FAILED,
   LayoutsHeldError,
   type LayoutVerdict,
+  SAME_SHAPE_AS_SIBLING,
   SUBJECT_FACE_ONLY,
+  SUBJECT_UNKNOWN,
+  TEXT_LED_LAYOUTS,
 } from "./subject-layout";
 
 const spec = designSpecOf({
@@ -147,7 +150,7 @@ describe("chooseLayout", () => {
     const choice = await chooseLayout({
       spec,
       held: [],
-      subjects: [null],
+      subjects: [],
       judge,
       relayout,
     });
@@ -175,7 +178,7 @@ describe("chooseLayout", () => {
     const clean = await chooseLayout({
       spec,
       held: [],
-      subjects: [null],
+      subjects: [],
       judge,
       relayout,
     });
@@ -183,7 +186,7 @@ describe("chooseLayout", () => {
     const soft = await chooseLayout({
       spec,
       held: ["stat-highlight"],
-      subjects: [null],
+      subjects: [],
       judge,
       relayout,
     });
@@ -224,5 +227,118 @@ describe("chooseLayout", () => {
         relayout,
       }),
     ).rejects.toBeInstanceOf(LayoutsHeldError);
+  });
+
+  /* Round-4 code critic J7: with the subject box refused and a face found,
+     the face was taken for the whole subject and copy covered the tray of
+     croissants with nothing recorded. */
+  it("treats a face alone as an unknown subject, and says so", async () => {
+    const judge = vi.fn(async () => verdict(null));
+    const choice = await chooseLayout({
+      spec,
+      held: [],
+      subjects: [null, face],
+      judge,
+      relayout,
+    });
+    expect(choice.wholeSubject).toBeNull();
+    expect(choice.subject).toEqual(face);
+    expect(choice.fault).toBe(SUBJECT_UNKNOWN);
+    expect(choice.faults).toEqual([SUBJECT_UNKNOWN]);
+    expect(choice.faults).not.toContain(SUBJECT_FACE_ONLY);
+  });
+
+  /* J8: the upload's look was unavailable and nothing recorded it. */
+  it("records an unknown subject when the look at the photo failed", async () => {
+    const choice = await chooseLayout({
+      spec,
+      held: [],
+      subjects: [null, null],
+      judge: async () => verdict(null),
+      relayout,
+    });
+    expect(choice.subject).toBeNull();
+    expect(choice.fault).toBe(SUBJECT_UNKNOWN);
+  });
+
+  /* Round-4 live critic: a KO direction whose plate failed twice shipped
+     split-left with half the canvas an empty gradient. */
+  it("lays an imageless direction out as text, never with an empty image half", async () => {
+    const judge = vi.fn(async (_s: DesignSpec, _box: SubjectBox | null) =>
+      verdict(null),
+    );
+    const choice = await chooseLayout({
+      spec: { ...spec, layout: "split-left" },
+      held: [],
+      subjects: [],
+      imageless: true,
+      judge,
+      relayout,
+    });
+    expect(TEXT_LED_LAYOUTS).toContain(choice.spec.layout);
+    for (const [tried] of judge.mock.calls) {
+      expect(TEXT_LED_LAYOUTS).toContain(tried.layout);
+    }
+    expect(choice.fault).toBeNull();
+  });
+
+  it("refuses an imageless direction when every text-led layout is held", async () => {
+    await expect(
+      chooseLayout({
+        spec,
+        held: [...TEXT_LED_LAYOUTS],
+        subjects: [],
+        imageless: true,
+        judge: async () => verdict(null),
+        relayout,
+      }),
+    ).rejects.toBeInstanceOf(LayoutsHeldError);
+  });
+
+  /* Round-4 live critic: on one photo both directions put it on top with
+     the copy below, so the pair read as one design. */
+  const above = {
+    box: { x: 0.08, y: 0.06, w: 0.34, h: 0.42 },
+    arrangement: "above" as const,
+  };
+  it("keeps the photo apart from where the sibling put it", async () => {
+    const beside = {
+      box: { x: 0.52, y: 0, w: 0.48, h: 1 },
+      arrangement: "beside" as const,
+    };
+    const judge = vi.fn(async (s: DesignSpec) => ({
+      ...verdict(null),
+      /* A different frame, but still above the copy: the same shape. */
+      place:
+        s.layout === "split-left"
+          ? beside
+          : {
+              box: { x: 0.34, y: 0.03, w: 0.32, h: 0.42 },
+              arrangement: "above" as const,
+            },
+    }));
+    const choice = await chooseLayout({
+      spec,
+      held: [],
+      subjects: [whole],
+      judge,
+      relayout,
+      apartFrom: above,
+    });
+    expect(choice.spec.layout).toBe("split-left");
+    expect(choice.fault).toBeNull();
+    expect(choice.place).toEqual(beside);
+  });
+
+  it("takes the same shape only when nothing else is clean, and says so", async () => {
+    const choice = await chooseLayout({
+      spec,
+      held: [],
+      subjects: [whole],
+      judge: async () => ({ ...verdict(null), place: above }),
+      relayout,
+      apartFrom: above,
+    });
+    expect(choice.fault).toBe(SAME_SHAPE_AS_SIBLING);
   });
 });

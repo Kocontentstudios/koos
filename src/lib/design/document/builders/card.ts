@@ -253,6 +253,10 @@ async function subjectAboveCopy(
        and the card already rounds the corners its transparent margin
        shows; a photograph is clipped to them. */
     { ...framed.element, radius: isCutout(ctx) ? 0 : frame.radius },
+    /* The subject frame starts at the card's top edge when the subject
+       needs the room, and drew over the stat card's border there (round-4
+       live critic, the regenerated stat card). */
+    ...(frame.variant === "stat" ? [cardEdge(ctx, frame, region)] : []),
     ...copy,
   ];
   return finish(ctx, frame, elements);

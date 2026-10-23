@@ -81,7 +81,26 @@ const plateSchema = z.object({
     .describe(
       "True if a product, its packaging, a label, a sign, a garment or a wall carries letters, words, numbers, a brand name, a logo, or marks that imitate writing. Tiny interface detail on a phone or computer screen that cannot be read as words does not count.",
     ),
+  identifiablePerson: z
+    .boolean()
+    .describe(
+      "True if a person's face is visible enough that a viewer could take them for a particular individual. Hands, or a figure seen from behind or far off with no face, do not count.",
+    ),
 });
+
+/* An event or a service is not an object: a sourdough class is a scene of
+   people baking, and asking whether "sourdough baking class" is the main
+   subject rejected two correct plates twice (round-4 live critic). */
+const sceneSchema = plateSchema.omit({ showsProduct: true }).extend({
+  fitsBrief: z
+    .boolean()
+    .describe(
+      "True if the scene plausibly belongs to what the brief promotes: its activity, setting or props fit. It need not show any one object.",
+    ),
+});
+
+/** What the brief offers, as the plate is checked for it. */
+export type OfferingKind = "product" | "event" | "service";
 
 export interface PlateVerdict {
   shows: boolean;
@@ -93,11 +112,15 @@ export interface PlateVerdict {
   items: string[];
   /** Writing, real or imitation, painted into the image. */
   lettering: boolean;
+  /** A face a viewer could take for a particular person. */
+  person: boolean;
 }
 
 /* "A person wearing or holding": the round-3 eval saw a man in striped robes
    pass as aso-oke throws. */
 const SYSTEM = `You check images for a design studio before a client sees them. The first question is identity: is the thing in the picture the named product? A different item of the same kind (a tart for a mille-feuille, a cake for a pastry, a cushion for a throw, bread for a croissant) is NOT the product, and neither is a person wearing or holding something like it when the product is the object itself. Presentation is NOT the question: the angle, crop, plating, number of pieces, background and lighting do not matter, and a description of how it might look is only a hint to recognise it. Then say where the subject is, list what else is in the picture, and say whether any writing appears: generated images often paint made-up brand names or squiggles that look like text on labels and packaging, and those count. Judge only what is visible.`;
+
+const SCENE_SYSTEM = `You check images for a design studio before a client sees them. The brief promotes an event or a service, not an object, so the question is whether the scene fits it: a customer seeing it beside the brief would recognise the activity, setting or props as belonging to it. Any reasonable scene of that activity fits; a scene of something unrelated does not. Then say where the main subject is, list what else is in the picture, say whether any writing appears (generated images often paint made-up brand names or squiggles that look like text on signs, aprons, packaging and walls, and those count), and whether a face could be taken for a particular person. Judge only what is visible.`;
 
 async function smaller(
   bytes: Uint8Array,
@@ -124,6 +147,7 @@ export async function checkPlateShowsProduct({
   bytes,
   product,
   look,
+  kind = "product",
   timeoutMs = PLATE_CHECK_TIMEOUT_MS,
 }: {
   bytes: Uint8Array;
@@ -131,37 +155,62 @@ export async function checkPlateShowsProduct({
    *  subject and any lettering. */
   product: string;
   look: string;
+  /** A product is checked for by identity; an event or a service by
+   *  whether the scene fits it. */
+  kind?: OfferingKind;
   timeoutMs?: number;
 }): Promise<PlateVerdict | null> {
   const image = await smaller(bytes);
   if (!image) return null;
+  const scene = Boolean(product) && kind !== "product";
   try {
-    const answer = await askVision({
-      schema: plateSchema,
-      system: SYSTEM,
-      text: [
-        product ? `The product: ${product}.` : "No product is named.",
-        product && look ? `A hint for recognising it: ${look}.` : null,
-        product
-          ? "Is the main subject of this image that product, recognisably? Answer true if it is, however it is shot or plated. Say what the main subject actually is, and box the product."
-          : "Say what the main subject is, and box it.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      image,
-      maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
-      timeoutMs,
-      label: "plate check",
-    });
-    if (typeof answer?.showsProduct !== "boolean") return null;
+    const answer = scene
+      ? await askVision({
+          schema: sceneSchema,
+          system: SCENE_SYSTEM,
+          text: [
+            `The brief promotes this ${kind}: ${product}.`,
+            look ? `What the designer asked for: ${look}.` : null,
+            "Does this scene plausibly belong to it? Say what the main subject actually is, and box it.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          image,
+          maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
+          timeoutMs,
+          label: "plate scene check",
+        })
+      : await askVision({
+          schema: plateSchema,
+          system: SYSTEM,
+          text: [
+            product ? `The product: ${product}.` : "No product is named.",
+            product && look ? `A hint for recognising it: ${look}.` : null,
+            product
+              ? "Is the main subject of this image that product, recognisably? Answer true if it is, however it is shot or plated. Say what the main subject actually is, and box the product."
+              : "Say what the main subject is, and box it.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          image,
+          maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
+          timeoutMs,
+          label: "plate check",
+        });
+    const shows =
+      "fitsBrief" in (answer ?? {})
+        ? (answer as { fitsBrief?: unknown }).fitsBrief
+        : (answer as { showsProduct?: unknown } | null)?.showsProduct;
+    if (typeof shows !== "boolean") return null;
     return {
-      shows: product ? answer.showsProduct : true,
+      shows: product ? shows : true,
       seen: typeof answer.mainSubject === "string" ? answer.mainSubject : "",
       subject: subjectBoxFrom(answer.subjectBox ?? null),
       items: Array.isArray(answer.visibleItems)
         ? answer.visibleItems.filter((i): i is string => typeof i === "string")
         : [],
       lettering: answer.lettering === true,
+      person: answer.identifiablePerson === true,
     };
   } catch (err) {
     console.error("plate check unavailable", err);

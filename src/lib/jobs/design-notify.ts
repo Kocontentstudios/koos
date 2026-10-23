@@ -39,6 +39,31 @@ export async function notifyLogoLeftOff({
   );
 }
 
+/* Not a brand-asset fault, but the same bell: the design succeeded, and
+   nothing on it says the imagery the user asked for is missing. */
+export async function notifyImageLeftOff({
+  userId,
+  directions,
+  of,
+  subject,
+}: {
+  userId: string;
+  directions: number;
+  of: number;
+  subject: string;
+}) {
+  const which =
+    of === 1
+      ? "This direction was"
+      : directions === of
+        ? "Both directions were"
+        : "One direction was";
+  await notifyAssetFault(
+    userId,
+    `${which} laid out with words only: the images KO made${subject ? ` of the ${subject}` : ""} showed the wrong thing or painted made-up writing or a face, so none was used. Regenerate it to try new imagery, or upload your own photo.`,
+  );
+}
+
 export async function notifyBrandAssetFaults(
   userId: string,
   faults: { font: string[]; logo: string[] },

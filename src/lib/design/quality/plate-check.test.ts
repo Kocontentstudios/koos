@@ -51,6 +51,7 @@ describe("checkPlateShowsProduct", () => {
       subject: null,
       items: [],
       lettering: false,
+      person: false,
     });
     const [text, image] = sent().messages[0].content;
     expect(text.text).toContain("The product: strawberry mille-feuille.");
@@ -106,6 +107,46 @@ describe("checkPlateShowsProduct", () => {
         timeoutMs: 20,
       }),
     ).toBeNull();
+  });
+});
+
+/* Round-4 live critic: a sourdough class was checked as an object, and
+   two right plates were rejected twice. */
+describe("an event or a service", () => {
+  it("is checked for a scene that fits it, not for an object", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "teens kneading dough at a floured bench",
+        fitsBrief: true,
+        identifiablePerson: true,
+      },
+    });
+    const verdict = await checkPlateShowsProduct({
+      bytes: plate,
+      product: "teen sourdough baking class",
+      look: "",
+      kind: "event",
+    });
+    expect(verdict).toMatchObject({ shows: true, person: true });
+    const [text] = sent().messages[0].content;
+    expect(text.text).toContain(
+      "The brief promotes this event: teen sourdough baking class.",
+    );
+    expect(sent().system).toContain("whether the scene fits it");
+  });
+
+  it("reports a scene of something else", async () => {
+    generateObject.mockResolvedValue({
+      object: { mainSubject: "a bowl of fruit", fitsBrief: false },
+    });
+    expect(
+      await checkPlateShowsProduct({
+        bytes: plate,
+        product: "teen sourdough baking class",
+        look: "",
+        kind: "event",
+      }),
+    ).toMatchObject({ shows: false, seen: "a bowl of fruit" });
   });
 });
 

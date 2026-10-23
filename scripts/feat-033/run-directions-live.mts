@@ -1,9 +1,11 @@
 /**
  * Runs the FEAT-033 directions job end to end against the LOCAL database and
- * the configured R2 bucket, for the round-3 live check: the round-1 bakery
- * brief on the cut-out and on KO imagery plus one regenerate, a cafe brief
- * on a busy espresso-bar photo, a fashion brief on a portrait, and the kids'
- * workshop brief on a near-blank photo, which must be refused. Real model,
+ * the configured R2 bucket, for the live check: the round-1 bakery brief on
+ * the cut-out and on KO imagery plus one regenerate, a cafe brief with a
+ * price for a set on a busy espresso-bar photo, a fashion brief with an
+ * address followed by days on a portrait, an event naming a real person on
+ * KO imagery, and the kids' workshop brief on a near-blank photo, which must
+ * be refused. Real model,
  * real plate model and checks, real storage. The local-verify counterpart of
  * the integration test.
  *
@@ -15,7 +17,7 @@
  * user, workspace and brands when they are missing. Writes only under
  * design-images/{qa brand}/ and generated/{qa brand}/ in the bucket. Uploads
  * each photo as the browser normaliser would send it. Saves each
- * direction's PNG and layer document to outDir (default /tmp/feat-033/u3-r4)
+ * direction's PNG and layer document to outDir (default /tmp/feat-033/u3-r5)
  * with live-summary.json, counting image calls by wrapping the plate adapter
  * rather than trusting the job's own counter.
  */
@@ -35,7 +37,7 @@ process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 const outDir =
   process.argv[2] && !process.argv[2].startsWith("--")
     ? process.argv[2]
-    : "/tmp/feat-033/u3-r4";
+    : "/tmp/feat-033/u3-r5";
 const only = process.argv.includes("--only")
   ? process.argv[process.argv.indexOf("--only") + 1]
   : null;
@@ -153,13 +155,14 @@ await mkdir(outDir, { recursive: true });
 const BRIEFS = {
   bakery:
     "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
-  cafe: "Try our new flat white made with Ethiopian Yirgacheffe beans: ₦3,800 a cup, Monday to Saturday 7am to 6pm at our Yaba bar. Free filter refills for anyone working from a laptop.",
+  /* Round 5, in words no eval case uses: a price with its quantity, an
+     address followed by days, and an event naming a real person with a
+     phone, a day, a time, a price, ages and a place. */
+  cafe: "Our ceramic pour-over drippers are in: ₦12,000 each, or NGN 30,000 for a set of four. On sale every day, 9am to 7pm, at the bar, 22 Herbert Macaulay Way, Yaba. Gift wrapping on request.",
   fashion:
-    "Our forest-green silk organza wrap robe is back, worn with the woven palm hat. Sizes 8 to 18, ₦52,000. Book a fitting at our Ikoyi studio, Tuesday to Saturday, 11am to 7pm.",
-  /* Round-3 live critic's event: a weekday with its date, an age limit, a
-     street address, inclusions, a count and a phone number. */
+    "The indigo adire kaftan is back in three sizes, ₦64,000, only 20 made. See it at our studio, 14 Bourdillon Road, Ikoyi, Wednesday to Saturday, 10am to 5pm.",
   event:
-    "Latte art masterclass on Sunday 9 November, 2pm to 5pm, at our Yaba bar, 12 Herbert Macaulay Way. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call or WhatsApp 0812 444 7781 to book.",
+    "Pastry masterclass with pastry chef Funmi Adebayo on Sunday 23 November, 11am to 3pm, at our Lekki shop, 7 Admiralty Way. ₦30,000 per person, ages 16 and up, 10 places only. Call 0907 222 3190 to book.",
   workshop:
     "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.",
 };
@@ -168,7 +171,7 @@ interface Job {
   name: string;
   brand: keyof typeof brands;
   brief: keyof typeof BRIEFS;
-  aspect: "1:1" | "4:5";
+  aspect: "1:1" | "4:5" | "9:16";
   photo?: string;
   regenerateOf?: string;
   mustRefuse?: boolean;
@@ -305,6 +308,10 @@ async function run(job: Job) {
     reasonsDropped: m.reasonsDropped,
     qualityFaults: m.qualityFaults,
     modelCalls: m.modelCalls,
+    briefRead: m.briefRead,
+    footerRepeatsDropped: m.footerRepeatsDropped,
+    textLed: m.textLed,
+    subjectUnknown: m.subjectUnknown,
     failed: failedRows.map((r) => ({ id: r.id, error: r.error })),
     progress: [...new Set(progress)],
     directions: report,
@@ -361,7 +368,12 @@ results.push(
   }),
 );
 results.push(
-  await run({ name: "event-ko", brand: "cafe", brief: "event", aspect: "1:1" }),
+  await run({
+    name: "event-ko",
+    brand: "bakery",
+    brief: "event",
+    aspect: "1:1",
+  }),
 );
 results.push(
   await run({

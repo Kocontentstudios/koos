@@ -131,6 +131,50 @@ but the product's asks for a rewrite of each field before delivery and the
 eval's asks, after rendering, for every unsupported statement in the drawn
 copy, with a different prompt and on the copy as drawn.
 
+### Round 5 additions, frozen before the round-5 run
+
+The brief's facts are now read by a model (`brief-read.ts`) and held to the
+brief in code, so the eval measures the reader itself, and measures coverage
+against facts a person labelled rather than against what the reader found:
+
+```
+pnpm eval:design-directions --read-only   # the reader alone, every labelled brief
+```
+
+Before the cases, every brief in `read-cases.ts` (the shapes rounds 3 and 4
+broke on: an address before its days, a price for a set, a phone before a
+bare hour range or a comma, two numbers, a handle, a shop prefix, a US
+number, a named speaker, a renamed product, a greeting with nothing) is read
+alone, one small call each; each case's own read is scored the same way.
+Facts are compared by where they sit in the brief (`read-score.ts`): a fact
+is precise when every labelled fact it reaches is whole inside it or holds
+it whole, so "9 Bourdillon Road, Thursday" across the address and "Thursday
+to Sunday" is wrong, while "every weekday from 8am" over two labels, or
+"Yaba" of "Yaba and Surulere bars", is right. Optional labels mark what two
+careful readers would disagree about.
+
+| Metric | Meaning | Threshold |
+|---|---|---|
+| read precision | Settled facts made only of whole labelled facts | ≥ 0.95 |
+| read recall | Required labels the facts that reach them say in full | ≥ 0.9 |
+| read offering | Offering kind and phrase right, where labelled | ≥ 0.85 |
+| read people | The real people named, exactly | 1.0 |
+| read unavailable | Briefs the reader did not answer | 0 |
+| `emptyImageRegions` | An accent panel where the picture would be, with no picture (round 4: event-ko's empty half) | 0 |
+| `footerRepeats` | Directions with a footer item the copy above or another item already says | 0 |
+| `productInFooter` | A footer item that is only the product's name | 0 |
+| `imageOverFrame` | A picture drawn over its card's border | 0 |
+| `copyProbes` | Probe directions run through copy-changing corrections: the footer emptied, a fact invented, the headline set to the brief's title, each through `directionGateRules` | ≥ 1 |
+| `copyProbeFailures` | Probes where the rules decided wrong: a lossy or invented correction kept, or the title rewrite refused though it lost nothing (or kept though it did) | 0 |
+| `copyProbeOverSubject` | A kept rewrite whose render lays copy on the whole subject | 0 |
+
+`textLed` (KO directions laid out as text because no plate passed) is
+reported on every case, not gated: the job's answer to a failed plate is a
+text-led layout, and how often it happens is the plate model's number to
+watch. Brief facts per direction and on any direction are now measured
+against the labels, so a fact the reader missed counts as missing from the
+design.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a
@@ -196,6 +240,9 @@ scene must now show the same product. A pair is a near-duplicate at headline
 | `fashion-portrait-upload` | product | portrait-fashion.jpg | A person: copy may never cover the face |
 | `masterclass-ko` | event | KO | Round-3 live critic's event: a weekday with its date, an age limit, a street address, inclusions, a count and a phone number |
 | `workshop-blank-upload` | event | photo-a.jpg | A near-white photo the loader must refuse before any model call |
+| `cups-photo-upload` | product | busy-cafe-espresso.jpg | Round 5: a price for a set of four on a busy photo |
+| `coat-portrait-upload` | product | portrait-fashion.jpg, 9:16 | Round 5: an address followed by days, a count ("only 15 made") |
+| `sourdough-class-ko` | event | KO | Round 5: an event (the plate is a scene) naming a real person (no face may be painted), with a phone, a date, a time, a price, ages and a place |
 
 The photo fixtures are royalty-free stock in `/tmp/feat-033/fixtures` (kept
 out of the repo, they are binaries).
@@ -288,3 +335,53 @@ and a claim-check rewrite may not copy the sibling's headline. Still open:
 "Your first month is free" for "zero transfer fees for your first month"
 (the "free" licence for "zero fees" lets it through), and the eval's look
 finding writing on two plates the product's check passed.
+
+## Results, round 5 (2026-10-23)
+
+One full run, 17 cases (16 scored, one refused as it must be) plus 14
+labelled briefs read alone, `us.anthropic.claude-sonnet-4-6` and Bedrock
+stable-image-core. FAIL on six counts; listed, not tuned away. Report:
+`qa-reports/eval/design-directions.json` (kept at
+`/tmp/feat-033/u3-r5/eval-report.json`, log `/tmp/feat-033/u3-r5/eval.log`).
+
+| Metric | Round 4 | Round 5 |
+|---|---|---|
+| reader: briefs / precision / recall / offering / people | (no reader) | 30 / 1.00 / 1.00 / 0.92 / 1.00 |
+| model: within limits / grounded / spatial (max 0.10) | 1.00 / 0.85 / 0.13 | 0.97 / 0.85 / **0.11** |
+| model: invented (max 0.05) | 0.12 | **0.11** |
+| delivered: invented, cut, spatial | 0 | 0 |
+| delivered: false reasons (max 0) | 0 | **2** |
+| distinctness mean / worst; near-duplicates delivered (max 0) | 0.82 / 0.67; 0 | 0.79 / 0.40; **1** |
+| plates show the product (product cases) | 1.00 | 1.00 (5 of 5, 3 retried) |
+| copy over the whole subject; look: text over subject | 0; – | 0; 0.00 |
+| cropped | 0.10 | 0.04 |
+| brief facts, any direction / per direction (labels) | 1.00 / 0.99 (reader's own) | **0.99** / 0.98 |
+| judge: invented / missing (max 0.15) | 0.16 / 0.08 | 0.13 / 0.13 |
+| craft faults delivered | 0 | 0 |
+| rendered copy names the product (min 1) | 0.91 | **0.80** |
+| lettered plates delivered (max 0.1) | 0.17 | 0.00 |
+| KO directions laid out as text (no plate passed) | 7 of 22 (drawn with an empty half) | 5 of 19, none with an empty region |
+| empty image regions / footer repeats / product in footer / picture over frame | not measured | 0 / 0 / 0 / 0 |
+| correction path: probed / kept / lost facts / copy on the whole subject | 4 / 0 / 0 / 0 | 8 / 1 / 0 / 0 |
+| copy-changing corrections: probed / rules wrong / copy on the whole subject | not run | 8 / 0 / 0 |
+| blank photo refused | 1/1 | 1/1 |
+
+What the failures were, and what changed after the run (measured on the
+live run, not on a second eval):
+
+- **False reasons (2):** both true when settled and made false when coverage
+  later dropped a footer repeat ("the footer carries adirehouse.ng" after
+  the footer lost it). Reasons are now settled again after coverage.
+- **Product named 0.80 and one fact on no direction:** a direction that never
+  said "stoneware cups" or "aso-oke", and a footer of three model lines
+  with no room for the address or "apron and starter". The fit pass now
+  asks a direction that does not name the reader's offering to name it in
+  the subheadline (a rewrite that still does not is refused), and a full
+  footer gives up a line of the model's that states no brief fact before a
+  fact is left off.
+- **Text-led directions (5 of 19):** every one was a plate rejected twice for
+  lettering on a phone, laptop or gym wall. The plate prompt now asks for no
+  screens facing the viewer, signs, posters or printed clothing. No event
+  plate was rejected for its scene.
+- **Model spatial 0.11, invented 0.11, one near-duplicate pair (recruitment, "Two Senior React Engineers Wanted" against "Senior React engineers"; the second is the brief's title word for word):** the
+  model's first answer, nothing of which was delivered; the near-duplicate is delivered and still open.

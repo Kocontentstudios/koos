@@ -28,10 +28,16 @@ const plateGenerate = vi.fn();
 const judgeAndCorrect = vi.fn();
 const bucket = new Map<string, Uint8Array>();
 
-vi.mock("ai", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  generateObject: (o: unknown) => generateObject(o),
-}));
+/* The brief reader's call is answered apart, so the directions answers
+   queued with mockResolvedValueOnce reach the directions call. */
+vi.mock("ai", async (importOriginal) => {
+  const { isBriefReadCall, readAnswer } = await import("./directions/fixtures");
+  return {
+    ...(await importOriginal<object>()),
+    generateObject: async (o: unknown) =>
+      isBriefReadCall(o) ? readAnswer() : generateObject(o),
+  };
+});
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 vi.mock("@/lib/ai/image", () => ({
   resolveDesignProviders: () => [],

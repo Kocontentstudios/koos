@@ -122,7 +122,35 @@ export function verdict(
     subject: { x: number; y: number; w: number; h: number } | null;
     items: string[];
     lettering: boolean;
+    person: boolean;
   }> = {},
 ) {
-  return { shows, seen, subject: null, items: [], lettering: false, ...extra };
+  return {
+    shows,
+    seen,
+    subject: null,
+    items: [],
+    lettering: false,
+    person: false,
+    ...extra,
+  };
+}
+
+/** Whether a mocked generateObject call is the brief reader's
+ *  (brief-read.ts), so a test can answer it apart from the directions. */
+export function isBriefReadCall(options: unknown): boolean {
+  const prompt = (options as { prompt?: unknown } | null)?.prompt;
+  return (
+    typeof prompt === "string" &&
+    prompt.startsWith("You read a small business's design brief")
+  );
+}
+
+/** The brief reader's answer: the facts given, in the brief's words. */
+export function readAnswer(
+  facts: { kind: string; text: string }[] = [],
+  offering: { kind: string; phrase: string } = { kind: "none", phrase: "" },
+  people: string[] = [],
+) {
+  return { object: { facts, offering, people } };
 }

@@ -5,6 +5,7 @@ import type { DocumentAsset } from "@/lib/design/document/rasterize";
 import type { AssetRef } from "@/lib/design/document/schema";
 import {
   checkPlateShowsProduct,
+  type OfferingKind,
   type PlateVerdict,
 } from "@/lib/design/quality/plate-check";
 import type { LoadedLogo } from "@/lib/design/render/logo";
@@ -27,6 +28,9 @@ const DRAWABLE = {
 export interface PlateProduct {
   name: string;
   look: string;
+  /** A product is painted and checked as the subject; an event or a
+   *  service as a scene that fits it. */
+  kind?: OfferingKind;
 }
 
 /** What the plate check concluded, recorded per plate. */
@@ -41,6 +45,9 @@ export type PlateCheck =
   /** Both showed the product with made-up writing painted on it, so the
    *  direction is drawn flat rather than with fake brand names on it. */
   | "failed-lettering"
+  /** The brief names a real person and both plates painted a face that
+   *  could be taken for them, so the direction is drawn flat. */
+  | "failed-people"
   /** The checker could not answer, or there was no product to check it
    *  against (none named, or one the brief never mentions); the plate is
    *  used, unverified. A plate checked only for lettering is not "passed"
@@ -72,7 +79,7 @@ export interface CheckedPlate {
 export function platePrompt(
   spec: DesignSpec,
   product: PlateProduct | null,
-  rejected?: { seen?: string; lettering?: boolean },
+  rejected?: Rejection,
   setting?: string | null,
   namesPeople = false,
 ): string {
@@ -82,8 +89,11 @@ export function platePrompt(
   const place = setting
     ? `Set in ${setting}: its own streets, interiors, people and light`
     : null;
+  /* Round-5 eval: phones, laptops and gym walls came back lettered twice
+     and five directions were drawn as text; screens and signs are where
+     the image model paints writing. */
   const plain =
-    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos";
+    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos. No phone or laptop screens facing the viewer, no signs, posters or printed clothing";
   /* A painted face beside a named speaker reads as that person (round-3
      live critic: the eval painted a woman for "Ada Obi"). */
   const people = namesPeople
@@ -99,13 +109,20 @@ export function platePrompt(
   /* Said up front as well: at the end of a long prompt the setting lost to
      the model's default street (round-3 live run, again European). */
   const where = setting ? `, in ${setting}` : "";
+  const asScene = product.kind === "event" || product.kind === "service";
   if (!rejected) {
-    return `A ${product.name}, clearly recognisable, as the subject${where}. ${tail}`;
+    return asScene
+      ? `A scene from the ${product.name}${where}, recognisable as that ${product.kind}. ${tail}`
+      : `A ${product.name}, clearly recognisable, as the subject${where}. ${tail}`;
   }
-  const wrong = rejected.lettering
-    ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
-    : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
-  return `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
+  const wrong = rejected.people
+    ? "the last attempt painted a person's face, which is wrong: no faces anywhere"
+    : rejected.lettering
+      ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
+      : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
+  return asScene
+    ? `${product.look || product.name}. A scene that plainly belongs to the ${product.name}${where}; ${wrong}. ${tail}`
+    : `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
 }
 
 /* "Speaker: Ada Obi", "hosted by Tunde Bakare", "with Chef Funke". */
@@ -143,10 +160,30 @@ function drawable(
   return { bytes: plate.bytes, contentType: DRAWABLE[type].contentType };
 }
 
-function rejection(verdict: PlateVerdict, product: PlateProduct | null) {
+interface Rejection {
+  seen?: string;
+  lettering?: boolean;
+  people?: boolean;
+}
+
+/* A painted face beside a named speaker reads as that person, so with a
+   person named a face is a rejection like the wrong product (round-4 live
+   critic: an AI woman beside "with Ada Obi", twice). */
+function rejection(
+  verdict: PlateVerdict,
+  product: PlateProduct | null,
+  namesPeople: boolean,
+): Rejection | null {
   if (product && !verdict.shows) return { seen: verdict.seen };
   if (verdict.lettering) return { lettering: true };
+  if (namesPeople && verdict.person) return { people: true };
   return null;
+}
+
+function failedAs(rejected: Rejection): PlateCheck {
+  if (rejected.people) return "failed-people";
+  if (rejected.lettering) return "failed-lettering";
+  return "failed";
 }
 
 /**
@@ -200,6 +237,7 @@ export async function paintCheckedPlate({
       bytes,
       product: product?.name ?? "",
       look: product?.look ?? "",
+      kind: product?.kind ?? "product",
     });
   const unverifiable = productUnchecked || !product;
   const passed = unverifiable ? "unchecked" : "passed";
@@ -226,25 +264,35 @@ export async function paintCheckedPlate({
       look: null,
     };
   }
-  const firstRejection = rejection(verdict, product);
+  const firstRejection = rejection(verdict, product, namesPeople);
   if (!firstRejection) {
     return { image: first, check: passed, imageCalls, seen: [], look: verdict };
   }
 
-  const seen = [
-    verdict.lettering ? `${verdict.seen} (lettered)` : verdict.seen,
-  ];
+  const noted = (v: PlateVerdict, r: Rejection) =>
+    r.people
+      ? `${v.seen} (a face)`
+      : r.lettering
+        ? `${v.seen} (lettered)`
+        : v.seen;
+  const seen = [noted(verdict, firstRejection)];
   const second = await paint(
     platePrompt(spec, product, firstRejection, setting, namesPeople),
   );
-  const failedAs = firstRejection.lettering ? "failed-lettering" : "failed";
-  if (!second)
-    return { image: null, check: failedAs, imageCalls, seen, look: null };
+  if (!second) {
+    return {
+      image: null,
+      check: failedAs(firstRejection),
+      imageCalls,
+      seen,
+      look: null,
+    };
+  }
   const again = await look(second.bytes);
   if (!again) {
     return { image: second, check: "unchecked", imageCalls, seen, look: null };
   }
-  const secondRejection = rejection(again, product);
+  const secondRejection = rejection(again, product, namesPeople);
   if (!secondRejection) {
     return {
       image: second,
@@ -254,14 +302,14 @@ export async function paintCheckedPlate({
       look: again,
     };
   }
-  seen.push(again.lettering ? `${again.seen} (lettered)` : again.seen);
+  seen.push(noted(again, secondRejection));
   console.error("plate rejected twice; rendering flat", {
     product: product?.name ?? null,
     seen,
   });
   return {
     image: null,
-    check: secondRejection.lettering ? "failed-lettering" : "failed",
+    check: failedAs(secondRejection),
     imageCalls,
     seen,
     look: null,

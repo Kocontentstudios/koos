@@ -88,7 +88,7 @@ stable for the lifetime of one login) where available.
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
-| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering, counted from the rejections themselves, so a rejected plate whose retry got no answer still counts), `plates_failed` (plates turned down twice, so the direction was drawn flat) |
+| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering, counted from the rejections themselves, so a rejected plate whose retry got no answer still counts), `plates_failed` (plates turned down twice, for the wrong product or scene, painted lettering, or a face beside a person the brief names), `text_led` (KO directions delivered with no image because no plate passed, laid out as text and announced to the user in the bell) |
 | `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
 
 The two `design_request_start_*` events answer whether design requests actually
@@ -146,6 +146,20 @@ faults (a headline that does not lead the footer, a cut-out's pale rim on a
 dark ground). `claimCheck` records the claim check's reading: `available`,
 `flagged`, `rewritten`, `dropped` and the `statements` it flagged.
 `platesRejected` lists per plate how many times the check turned it down.
+
+Round 5 reads the brief with a model (`src/lib/jobs/directions/brief-read.ts`)
+and holds the reading to the brief in code. `briefRead` records `available`
+(false when the reader could not be reached, so no facts were covered),
+`offering` (`product`, `event`, `service` or null), `people` (how many real
+people the brief names) and `dropped` (what the reader returned that was not
+the brief's own words, not a valid phone number, or the product itself, with
+the reason). `briefFacts` counts the settled facts. `plateChecks` gains
+`failed-people`. `footerRepeatsDropped` counts footer items dropped because
+the copy above or another item already said them. `textLed` counts KO
+directions laid out as text because no plate passed, and `subjectUnknown`
+counts directions with an image whose subject could not be found (the look
+was unavailable, or found only a face), each also a quality fault.
+`productSources` gains `read` (the reader's phrase).
 
 ## Funnels
 

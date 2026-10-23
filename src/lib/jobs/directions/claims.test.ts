@@ -193,6 +193,64 @@ describe("reasonHolds", () => {
     ...over,
   });
 
+  /* Round-4 code critic, break 5: four reasons accepted though false. */
+  it("refuses the round-4 critic's false reasons", () => {
+    const sold: DrawnCopy = {
+      headline: "Strawberry mille-feuille is here",
+      cta: "Order on WhatsApp",
+      footerLines: ["₦4,500 a slice · Saturday 7am"],
+    };
+    const on = (over: Partial<ReasonContext> = {}) =>
+      ctx({ copy: sold, ...over });
+    expect(reasonHolds("The button carries the WhatsApp number", on()).ok).toBe(
+      false,
+    );
+    expect(
+      reasonHolds("Every fact a buyer needs is on the design", on()).ok,
+    ).toBe(false);
+    expect(
+      reasonHolds(
+        "Every fact a buyer needs is on the design",
+        on({ factsMissing: 1 }),
+      ).ok,
+    ).toBe(false);
+    expect(
+      reasonHolds(
+        "Every fact a buyer needs is on the design",
+        on({ factsMissing: 0 }),
+      ).ok,
+    ).toBe(true);
+    expect(
+      reasonHolds(
+        "The footer gives the price so no fact from the brief is missing",
+        on({ factsMissing: 2 }),
+      ).ok,
+    ).toBe(false);
+    expect(
+      reasonHolds("Shows the cream between the layers", on({ image: "none" }))
+        .ok,
+    ).toBe(false);
+    expect(reasonHolds("Eye goes from headline to button", on()).ok).toBe(
+      false,
+    );
+  });
+
+  it("accepts a number reason when the button carries the number", () => {
+    expect(
+      reasonHolds(
+        "The button gives the WhatsApp number",
+        ctx({
+          copy: {
+            headline: "Strawberry mille-feuille",
+            cta: "WhatsApp 0803 555 0142",
+            footerLines: [],
+          },
+          ledger: factLedger([`${BAKERY_BRIEF} WhatsApp 0803 555 0142.`]),
+        }),
+      ).ok,
+    ).toBe(true);
+  });
+
   it("accepts a reason the design bears out", () => {
     expect(
       reasonHolds("Headline names the strawberry mille-feuille", ctx()),
@@ -491,6 +549,24 @@ describe("product resolution, round-2 probes", () => {
       { name: "", from: "none" },
       { name: "", from: "none" },
     ]);
+  });
+
+  /* Round-4 code critic J9 and J10, for when the brief reader is not
+     reachable: one word the model's name shared grew into "ice" and
+     "strawberry cream". */
+  it("prefers the product the brief introduces over a phrase grown from one shared word", () => {
+    expect(
+      resolveBriefProducts(
+        ["Iced coffee", "Iced coffee"],
+        "Launch our new cold brew. Served over ice",
+      )[0],
+    ).toEqual({ name: "cold brew", from: "brief" });
+    expect(
+      resolveBriefProducts(
+        ["Strawberry Napoleon", ""],
+        "Launch our new mille-feuille with fresh strawberry cream",
+      )[0],
+    ).toEqual({ name: "mille-feuille", from: "brief" });
   });
 });
 

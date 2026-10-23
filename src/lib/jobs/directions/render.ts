@@ -9,6 +9,7 @@ import {
 } from "@/lib/design/document/rasterize";
 import {
   type DesignDocument,
+  type DesignElement,
   designDocumentSchema,
 } from "@/lib/design/document/schema";
 import {
@@ -28,7 +29,7 @@ import type { DesignSpec } from "@/lib/design/spec";
 import { type Guarded, guardRender } from "../design-gate";
 import { layoutCraftFaults } from "./craft";
 import type { PlacedAsset } from "./imagery";
-import type { LayoutVerdict } from "./subject-layout";
+import type { LayoutVerdict, PhotoPlace } from "./subject-layout";
 
 export interface DocumentRender {
   bytes: Uint8Array;
@@ -200,13 +201,59 @@ export function layoutJudge(
        still lays a line over the subject (round-3 eval, conference); the
        measurement of the document is what decides. */
     const craft = layoutCraftFaults(built.document, assets.imageFacts);
+    const place = photoPlace(built.document);
     const facts = assets.imageFacts;
     const measured =
       facts && subject ? measureSubject(built.document, facts, subject) : null;
     if (measured && measured.overlaps.length > 0) {
-      return { subjectFault: SUBJECT_COVERED, craft };
+      return { subjectFault: SUBJECT_COVERED, craft, place };
     }
-    return { subjectFault: subject ? built.subjectFault : null, craft };
+    return {
+      subjectFault: subject ? built.subjectFault : null,
+      craft,
+      place,
+    };
+  };
+}
+
+/**
+ * Where a document draws its picture, in canvas shares, and how it stands
+ * to the headline: behind it, above it, below it or beside it. Two designs
+ * with the photo above the copy read as one shape wherever the frame sits
+ * (round-4 live critic, fashion: two photo-over-copy cards).
+ */
+export function photoPlace(doc: {
+  width: number;
+  height: number;
+  elements: readonly DesignElement[];
+}): PhotoPlace | null {
+  const image = doc.elements.find((e) => e.type === "image");
+  if (!image) return null;
+  const headline = doc.elements.find(
+    (e) => e.type === "text" && e.role === "headline",
+  );
+  let arrangement: PhotoPlace["arrangement"] = "behind";
+  if (headline) {
+    const apartX =
+      image.x + image.width <= headline.x ||
+      image.x >= headline.x + headline.width;
+    const apartY =
+      image.y + image.height <= headline.y ||
+      image.y >= headline.y + headline.height;
+    if (apartY && !apartX) {
+      arrangement = image.y < headline.y ? "above" : "below";
+    } else if (apartX) {
+      arrangement = "beside";
+    }
+  }
+  return {
+    box: {
+      x: image.x / doc.width,
+      y: image.y / doc.height,
+      w: image.width / doc.width,
+      h: image.height / doc.height,
+    },
+    arrangement,
   };
 }
 

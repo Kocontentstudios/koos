@@ -674,7 +674,7 @@ const TYPE =
    uncluttered layout", "Generous spacing", "Symmetry", "Gradient wash"
    (round-3 code critic). */
 const COMPOSITION =
-  "layouts?|spacing|spaced|composition|composed|uncluttered|clutter(?:ed|ing|s)?|minimal(?:ist)?|symmetr\\w*|balanced|gradients?|textures?|textured|airy|breathes?|breathing|pops?";
+  "layouts?|spacing|spaced|composition|composed|uncluttered|clutter(?:ed|ing|s)?|minimal(?:ist)?|symmetr\\w*|balanced|gradients?|textures?|textured|airy|breathes?|breathing|pops?|eyes?|gaze|glance|scan(?:s|ned|ning)?|reading order|hierarch\\w*";
 const SPATIAL = new RegExp(
   `\\b(${[PLACE_AND_SIZE, LIGHT, COLOUR, TYPE, COMPOSITION].join("|")})\\b|\\d+\\s?%|\\b(white|negative|empty) space\\b|\\bnext to\\b|\\bup ?front\\b|\\bprominent(ly)?\\b|\\b(dark|light|pale|cream|white|black) ground\\b|\\broom to breathe\\b`,
   "gi",
@@ -803,6 +803,9 @@ export interface ReasonContext {
   /** What a look at the image found in it (plate check or the upload's
    *  subject check). A reason may say the image shows only what this holds. */
   imageDescription?: string;
+  /** How many of the brief's hard facts the drawn copy leaves out, once
+   *  drawn. Undefined before render. */
+  factsMissing?: number;
 }
 
 /* Parts a reason can name besides the copy. "The accent tag calls out the
@@ -837,6 +840,15 @@ export function documentParts(elements: { type: string; id: string }[]) {
 const SHOWS =
   /\b(shows?|shown|showing|pictured|features?|featuring|captures?|depicts?|served with|paired with|alongside)\b/i;
 
+/* A reason that opens on what is shown is about the picture. */
+const SHOWS_LEAD =
+  /^\s*(?:it\s+|this\s+)?(shows?|showing|pictures?|captures?|depicts?|features?)\b/i;
+
+/* "Every fact a buyer needs is on the design": true only of a design that
+   states every one. */
+const EVERY_FACT =
+  /\b(every|all (?:the|of the)?)\s*(?:key\s+|hard\s+|important\s+)?(facts?|details?|information|info)\b|\beverything (?:a |the |they |you |buyers? |customers? |parents? |guests? )?(?:\w+ )?needs?\b|\bno (?:fact|detail)s?\b[^.]*\b(missing|left out|dropped)\b|\bnothing\b[^.]*\b(missing|left out)\b/i;
+
 /* Words a reason uses about any image, never a thing in it. */
 const IMAGE_GENERIC = contentStems(
   "image images photo photograph picture shot visual imagery plate scene show shows shown showing pictured feature featuring capture depict real itself actual exactly clearly serve served pair paired",
@@ -867,6 +879,20 @@ const KINDS: { name: string; mention: RegExp; present: RegExp }[] = [
     mention:
       /\b(the time|pickup time|opening time|start time|times|hours|\d{1,2}(:\d{2})?\s?(am|pm))\b/i,
     present: /\d{1,2}(:\d{2})?\s?(am|pm)\b|\b\d{1,2}:\d{2}\b/i,
+  },
+  /* "The button carries the WhatsApp number" on a button reading "Order on
+     WhatsApp" (round-4 code critic). */
+  {
+    name: "phone number",
+    mention:
+      /\b(phone|(?:whatsapp|phone|contact|mobile|telephone) (?:number|line)|the number(?! of)|numbers? to call)\b/i,
+    present: /(?:\d[\s().-]{0,2}){7,}/,
+  },
+  {
+    name: "address",
+    mention: /\b(address|location)\b/i,
+    present:
+      /\b\d{1,5}[A-Za-z]?,?\s+\p{Lu}[\p{L}'’.-]*|\b(road|rd|street|st|way|avenue|ave|close|crescent|drive|lane|plaza|mall|estate)\b/iu,
   },
   {
     name: "date",
@@ -945,6 +971,16 @@ export function reasonHolds(
   }
   const spatial = spatialClaim(reason, ctx.ledger.text);
   if (spatial) return { ok: false, why: `claims "${spatial}"` };
+
+  if (EVERY_FACT.test(reason) && ctx.factsMissing !== 0) {
+    return {
+      ok: false,
+      why:
+        ctx.factsMissing === undefined
+          ? "says every fact is on a design not yet drawn"
+          : `says every fact is on the design, which leaves ${ctx.factsMissing} off`,
+    };
+  }
 
   const elements = referencedElements(reason);
   const pointedAt = elements.map((key) => textOf(ctx.copy, key)).join(" ");
@@ -1027,7 +1063,11 @@ export function reasonHolds(
   const namesProduct =
     productStems.length > 0 &&
     productStems.every((s) => contentStems(reason).has(s));
-  const aboutImage = IMAGE_WORDS.test(reason);
+  /* "Shows the cream between the layers" names no image word but can only
+     be about the picture (round-4 code critic). */
+  const aboutImage =
+    IMAGE_WORDS.test(reason) ||
+    (elements.length === 0 && SHOWS_LEAD.test(unquoted));
   if (aboutImage) {
     if (ctx.image === "none") return { ok: false, why: "describes an image" };
     if (ctx.image === "unverified") {
@@ -1304,10 +1344,10 @@ export function briefProductPhrase(briefText: string): string {
 }
 
 /**
- * The product each direction's plate is checked for: the model's name when
- * the brief states it, else the sibling's, else the brief's own whole phrase
- * for the part of the name it does state, else the product the brief
- * introduces. The brief's product, whatever the model called it, and never
+ * The product each direction's plate is checked for when the brief reader
+ * (brief-read.ts) could not be reached: the model's name when the brief
+ * states it, else the sibling's, else the product the brief introduces,
+ * else the brief's own whole phrase for the part of the name it does state. The brief's product, whatever the model called it, and never
  * one modifier word of it.
  */
 export function resolveBriefProducts(
@@ -1321,12 +1361,15 @@ export function resolveBriefProducts(
   const spans = names.map((n) => briefSpanFor(n, briefText));
   const anySpan = spans.reduce((a, b) => (b.length > a.length ? b : a), "");
   const introduced = briefProductPhrase(briefText);
+  /* The product the brief introduces beats a phrase grown from one word
+     the model's name shares with it: "Iced coffee" on "Launch our new cold
+     brew. Served over ice" grew to "ice" (round-4 code critic). */
   return names.map((_, i) => {
     if (strict[i]) return { name: strict[i], from: "model" };
     if (anyStrict) return { name: anyStrict, from: "sibling" };
+    if (introduced) return { name: introduced, from: "brief" };
     if (spans[i]) return { name: spans[i], from: "brief" };
     if (anySpan) return { name: anySpan, from: "brief" };
-    if (introduced) return { name: introduced, from: "brief" };
     return { name: "", from: "none" };
   });
 }

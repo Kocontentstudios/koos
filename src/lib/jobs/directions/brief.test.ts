@@ -5,9 +5,14 @@ const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
-const { draftDirections, ART_DIRECTOR_IMAGE_MAX_BYTES } = await import(
-  "./brief"
-);
+const {
+  applyFits,
+  draftDirections,
+  fitRequests,
+  namesOffering,
+  ART_DIRECTOR_IMAGE_MAX_BYTES,
+} = await import("./brief");
+const { factLedger } = await import("./claims");
 const { planConcepts, regenerationConcept } = await import("./concepts");
 const { directionSpecSchema } = await import("./schema");
 const { contrastingDraft, directionsContext, draftOf } = await import(
@@ -24,6 +29,13 @@ function answer(...drafts: ReturnType<typeof draftOf>[]) {
 /* The claim check is its own model call (claim-check.ts); these tests count
    the art director's, so it finds nothing unless a test says otherwise. */
 const claimChecker = vi.fn(async () => [] as never[]);
+/* The brief reader too (brief-read.ts): its own call, counted in
+   modelCalls, tested in brief-read.test.ts. */
+const briefReader = vi.fn(async () => ({
+  facts: [],
+  offering: null,
+  people: [],
+}));
 
 function input(over: Record<string, unknown> = {}) {
   return {
@@ -33,6 +45,7 @@ function input(over: Record<string, unknown> = {}) {
     lenses,
     recentLayouts: [],
     claimChecker,
+    briefReader,
     ...over,
   };
 }
@@ -53,8 +66,8 @@ describe("draftDirections", () => {
     generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
     const result = await draftDirections(input());
     expect(generateObject).toHaveBeenCalledTimes(1);
-    /* The art director's call and the claim check's. */
-    expect(result.modelCalls).toBe(2);
+    /* The art director's call, the brief reader's and the claim check's. */
+    expect(result.modelCalls).toBe(3);
     expect(claimChecker).toHaveBeenCalledTimes(1);
     expect(result.directions).toHaveLength(2);
     for (const direction of result.directions) {
@@ -190,7 +203,7 @@ describe("draftDirections", () => {
       .mockResolvedValueOnce(answer(twin));
     const result = await draftDirections(input());
     expect(result.redrafted).toBe(false);
-    expect(result.modelCalls).toBe(3);
+    expect(result.modelCalls).toBe(4);
     expect(result.directions[1].title).toBe("Morning bake");
   });
 
@@ -242,7 +255,7 @@ describe("draftDirections", () => {
       expect(result.directions[0].cta).toBe("Order for pickup");
       /* The eval scores the model's own answer, not the rewrite. */
       expect(result.drafts[0].cta).toBe(overlong.cta);
-      expect(result.modelCalls).toBe(3);
+      expect(result.modelCalls).toBe(4);
     });
 
     it("ignores a rewrite that still breaks a rule, and never cuts a clause", async () => {
@@ -498,4 +511,62 @@ it("never rewrites a headline into its sibling's", async () => {
     }),
   );
   expect(result.directions[1].headline).not.toBe(result.directions[0].headline);
+});
+
+/* Round-4 live critic: the product's name was dumped into the footer of a
+   direction that never said it; round 5 asks the fit pass instead. */
+describe("naming what the brief promotes", () => {
+  const checks = {
+    ledger: factLedger(["Handmade stoneware cups, ₦9,500 each."]),
+    briefText: "Handmade stoneware cups, ₦9,500 each.",
+    title: "Cups",
+  };
+  const draft = draftOf({
+    headline: "Take one home",
+    subheadline: "Glazed by hand in Yaba",
+    cta: "Ask at the bar",
+  });
+
+  it("asks the subheadline to name it when no copy does", () => {
+    expect(namesOffering(draft, "stoneware cups")).toBe(false);
+    const requests = fitRequests([draft], checks, "stoneware cups");
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        id: "0.subheadline",
+        problems: [
+          'does not name what the brief promotes; name it as "stoneware cups"',
+        ],
+      }),
+    );
+  });
+
+  it("keeps only a rewrite that names it", () => {
+    const requests = fitRequests([draft], checks, "stoneware cups");
+    const refused = applyFits(
+      [draft],
+      requests,
+      [{ id: "0.subheadline", text: "Glazed by hand, made to keep" }],
+      checks,
+      "stoneware cups",
+    );
+    expect(refused.fixed).toBe(0);
+    const kept = applyFits(
+      [draft],
+      requests,
+      [{ id: "0.subheadline", text: "Stoneware cups glazed by hand" }],
+      checks,
+      "stoneware cups",
+    );
+    expect(kept.drafts[0].subheadline).toBe("Stoneware cups glazed by hand");
+  });
+
+  it("asks nothing of a direction that names it", () => {
+    expect(
+      fitRequests(
+        [draftOf({ headline: "Stoneware cups are in" })],
+        checks,
+        "stoneware cups",
+      ).filter((r) => r.problems.some((p) => p.startsWith("does not name"))),
+    ).toEqual([]);
+  });
 });

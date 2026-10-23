@@ -14,6 +14,12 @@ import { getModel } from "@/lib/ai/provider";
 import type { DesignContext } from "@/lib/design/context";
 import { brandRegion, coverBriefFacts, type FactCoverage } from "./brief-facts";
 import {
+  type BriefRead,
+  type BriefReader,
+  readBriefWithModel,
+  settleBriefRead,
+} from "./brief-read";
+import {
   type ClaimChecker,
   type ClaimCheckField,
   checkClaims,
@@ -75,6 +81,8 @@ export interface DraftDirectionsInput {
   existing?: PriorDirection[];
   /** Reads the copy and reasons against the brief (claim-check.ts). */
   claimChecker?: ClaimChecker;
+  /** Reads the brief's facts, offering and people (brief-read.ts). */
+  briefReader?: BriefReader;
 }
 
 /** What the claim check found and what became of it. */
@@ -112,9 +120,11 @@ export interface DraftDirectionsResult {
    *  existing. Null when there is nothing to compare. */
   overlap: DirectionOverlap | null;
   modelCalls: number;
-  /** Where each direction's product name came from: the model's own words,
-   *  its sibling's, the brief's, or none. */
-  productSources: ("model" | "sibling" | "brief" | "none")[];
+  /** Where each direction's product name came from: the brief reader's
+   *  phrase, the model's own words, its sibling's, the brief's, or none. */
+  productSources: ("read" | "model" | "sibling" | "brief" | "none")[];
+  /** The brief as read: its facts, what it offers, the people it names. */
+  read: BriefRead;
   /** The brief's hard facts and which direction states each. */
   factCoverage: FactCoverage;
   claimCheck: ClaimCheckOutcome;
@@ -154,6 +164,7 @@ export function reasonProblems(
 export function fitRequests(
   drafts: DirectionDraft[],
   checks: DirectionChecks,
+  offering = "",
 ): FitRequest[] {
   const requests: FitRequest[] = [];
   const copy = (
@@ -193,6 +204,27 @@ export function fitRequests(
         COPY_LIMITS.footerLine,
       );
     }
+    /* A direction that never says what it sells cannot be acted on, and
+       the product in the footer read as a dump (round-4 live critic); the
+       subheadline is asked to name it instead. */
+    if (offering && !namesOffering(draft, offering)) {
+      const field = draft.subheadline?.trim() ? "subheadline" : "headline";
+      const id = `${i}.${field}`;
+      const text =
+        (field === "subheadline" ? draft.subheadline : draft.headline) ?? "";
+      const problem = `does not name what the brief promotes; name it as "${offering}"`;
+      const asked = requests.find((r) => r.id === id);
+      if (asked) asked.problems.push(problem);
+      else {
+        requests.push({
+          id,
+          field,
+          text,
+          limit: COPY_LIMITS[field],
+          problems: [problem],
+        });
+      }
+    }
     draft.rationale.forEach((reason, j) => {
       const problems = reasonProblems(reason, checks);
       if (problems.length > 0) {
@@ -209,13 +241,28 @@ export function fitRequests(
   return requests;
 }
 
+/** Whether a draft's headline, subheadline or button carries every word of
+ *  the brief's name for what it promotes. */
+export function namesOffering(
+  draft: Pick<DirectionDraft, "headline" | "subheadline" | "cta">,
+  offering: string,
+): boolean {
+  const wanted = contentStems(offering);
+  const said = contentStems(
+    [draft.headline, draft.subheadline, draft.cta].filter(Boolean).join(" "),
+  );
+  return [...wanted].every((stem) => said.has(stem));
+}
+
 /** The drafts with every rewrite that fixed its field applied. A rewrite
- *  that is itself over the limit or invents a fact is ignored. */
+ *  that is itself over the limit, invents a fact, or still does not name
+ *  what it was asked to is ignored. */
 export function applyFits(
   drafts: DirectionDraft[],
   requests: FitRequest[],
   fixes: { id: string; text: string }[],
   checks: DirectionChecks,
+  offering = "",
 ): { drafts: DirectionDraft[]; fixed: number } {
   const asked = new Map(requests.map((r) => [r.id, r]));
   const out = drafts.map((d) => ({
@@ -231,10 +278,17 @@ export function applyFits(
     const draft = out[Number(index)];
     const text = fix.text.replace(/\s+/g, " ").trim();
     if (!draft || !text) continue;
+    const mustName =
+      offering && request.problems.some((p) => p.startsWith("does not name"));
     const ok =
       field === "rationale"
         ? reasonProblems(text, checks).length === 0
-        : !copyFault(text, request.limit, checks.ledger) && !looksCutOff(text);
+        : !copyFault(text, request.limit, checks.ledger) &&
+          !looksCutOff(text) &&
+          (!mustName ||
+            [...contentStems(offering)].every((stem) =>
+              contentStems(text).has(stem),
+            ));
     if (!ok) continue;
     if (field === "rationale") draft.rationale[Number(sub)] = text;
     else if (field === "footerLines") draft.footerLines[Number(sub)] = text;
@@ -486,6 +540,7 @@ export async function draftDirections({
   memorySummary,
   existing = [],
   claimChecker = checkClaims,
+  briefReader = readBriefWithModel,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
   const showImage =
@@ -514,7 +569,21 @@ export async function draftDirections({
     ignore,
     briefWords,
   };
-  let modelCalls = 0;
+  let modelCalls = 1;
+  const region = brandRegion([
+    ...brandFacts(context.brandSummary),
+    context.brandSummary.websiteUrl,
+  ]);
+  /* Beside the directions call, so the reading adds no wait. */
+  const reading = briefReader({
+    briefText: checks.briefText,
+    title: checks.title,
+  })
+    .catch((err) => {
+      console.error("brief read failed", err);
+      return null;
+    })
+    .then((raw) => settleBriefRead(raw, checks.briefText, region));
 
   /* Whether the copy was written looking at the photograph. A reason about
      what the photo shows is only trusted when it was. */
@@ -591,7 +660,8 @@ export async function draftDirections({
 
   const fit = { asked: 0, fixed: 0 };
   async function fitted(drafts: DirectionDraft[]): Promise<DirectionDraft[]> {
-    const requests = fitRequests(drafts, checks);
+    const offering = (await reading).offering?.phrase ?? "";
+    const requests = fitRequests(drafts, checks, offering);
     if (requests.length === 0) return drafts;
     fit.asked += requests.length;
     modelCalls += 1;
@@ -604,7 +674,13 @@ export async function draftDirections({
         experimental_repairText: repairFitText,
         prompt: buildFitPrompt(context, requests),
       });
-      const applied = applyFits(drafts, requests, object.fixes, checks);
+      const applied = applyFits(
+        drafts,
+        requests,
+        object.fixes,
+        checks,
+        offering,
+      );
       fit.fixed += applied.fixed;
       return applied.drafts;
     } catch (err) {
@@ -716,9 +792,20 @@ export async function draftDirections({
     statements: (flagged ?? []).map((f) => f.statement),
   };
 
-  const products = resolveBriefProducts(
+  const read = await reading;
+  if (read.dropped.length > 0) {
+    console.error("brief read: answers not held to the brief", read.dropped);
+  }
+  const resolved = resolveBriefProducts(
     reports.map((r) => r.modelProduct.name),
     `${checks.briefText} ${checks.title}`,
+  );
+  /* The reader's phrase is the brief's whole name for what it offers, read
+     as a person reads it: "cold brew", not the "ice" one shared word grew
+     into (round-4 code critic). The model's names are the fallback when
+     the reader could not be reached. */
+  const products = resolved.map((p) =>
+    read.offering ? { name: read.offering.phrase, from: "read" as const } : p,
   );
   const looks = reports.map((r) => r.modelProduct.look);
   const named = directions.map((d, i) => {
@@ -728,26 +815,40 @@ export async function draftDirections({
     /* The model's own name still helps recognise the product when the
        brief's words for it are fewer ("strawberry" of "Strawberry
        Napoleon"). */
+    const modelName = reports[i].modelProduct.name;
     const hint =
-      from === "model" || !reports[i].modelProduct.name
+      from === "model" ||
+      !modelName ||
+      modelName.toLowerCase() === name.toLowerCase()
         ? look
-        : `${reports[i].modelProduct.name}. ${look}`.trim();
+        : `${modelName}. ${look}`.trim();
     return {
       ...d,
       productName: name,
       productLook: hint.slice(0, DRAFT_LIMITS.productLook),
     };
   });
-  const { directions: covered, coverage: factCoverage } = coverBriefFacts(
+  const { directions: drawnIn, coverage: factCoverage } = coverBriefFacts(
     named,
-    checks.briefText,
-    {
-      region: brandRegion([
-        ...brandFacts(context.brandSummary),
-        context.brandSummary.websiteUrl,
-      ]),
-      product: named.find((d) => d.productName)?.productName ?? "",
-    },
+    read.facts,
+    named.find((d) => d.productName)?.productName ?? "",
+  );
+  /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
+     settled against the old footer ("the footer carries the date") is held
+     again to the new one (round-5 eval: two such reasons). */
+  const covered = drawnIn.map((d, i) =>
+    d.footerLines.join("|") === named[i].footerLines.join("|")
+      ? d
+      : {
+          ...d,
+          rationale: settleReasons(d.rationale, {
+            copy: d,
+            checks,
+            product: d.productName,
+            image: "pending",
+            paintedScene: imageSource === "ko" ? d.backgroundPrompt : undefined,
+          }).reasons,
+        },
   );
 
   const forced = forceDistinctLayouts(
@@ -774,6 +875,7 @@ export async function draftDirections({
     overlap: worst?.overlap ?? null,
     modelCalls,
     productSources: products.map((p) => p.from),
+    read,
     factCoverage,
     claimCheck,
   };

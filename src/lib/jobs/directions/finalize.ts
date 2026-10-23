@@ -207,6 +207,9 @@ export interface ReasonSettings {
   /** The delivered design, once drawn: reasons are then checked against its
    *  parts, and it can supply true reasons of its own (documentReasons). */
   drawn?: DrawnDesign;
+  /** The brief's hard facts the drawn copy leaves out, once drawn: a reason
+   *  that says every fact is there is true only at zero. */
+  factsMissing?: number;
 }
 
 /** What documentReasons reads off a delivered design. */
@@ -229,6 +232,7 @@ function holdsFor(settings: ReasonSettings, reason: string) {
     image: settings.image,
     paintedScene: settings.paintedScene,
     imageDescription: settings.imageDescription,
+    factsMissing: settings.factsMissing,
     elements: settings.drawn
       ? documentParts(settings.drawn.document.elements)
       : undefined,
@@ -274,7 +278,7 @@ export function factualReasons(settings: ReasonSettings): string[] {
   const money = MONEY_IN.exec(drawn)?.[0];
   if (money)
     candidates.push(
-      `It gives the ${money.trim()} price, so nobody has to ask.`,
+      `It gives the ${money.trim().replace(/[,.]+$/, "")} price, so nobody has to ask.`,
     );
   const time = TIME_IN.exec(drawn)?.[0];
   if (time)
@@ -454,6 +458,10 @@ export function settleReasons(
       dropped.push({ reason: raw, why: holds.why });
       return;
     }
+    if (kept.some((k) => saysTheSame(k.text, text))) {
+      dropped.push({ reason: raw, why: "says what another reason says" });
+      return;
+    }
     const grounded = isGrounded(text, anchors);
     /* Best first: grounded and whole, grounded but shortened, plain, then
        praise that names nothing, kept only to reach two. */
@@ -492,15 +500,25 @@ export function settleReasons(
     });
   for (const extra of topUps) {
     if (out.length >= DIRECTION_REASONS_MIN) break;
-    if (out.some((kept) => kept.toLowerCase() === extra.toLowerCase())) {
-      continue;
-    }
+    if (out.some((kept) => saysTheSame(kept, extra))) continue;
     const said = new Set(out.flatMap(factsIn));
     const repeats = factsIn(extra);
     if (repeats.length > 0 && repeats.every((f) => said.has(f))) continue;
     out.push(extra);
   }
   return { reasons: out.slice(0, DIRECTION_REASONS_MAX), dropped };
+}
+
+/* "Names the kaftan directly and plainly" and "names the kaftan straight
+   away" are one reason shown twice (round-5 live run, fashion). */
+function saysTheSame(a: string, b: string): boolean {
+  const x = contentStems(a);
+  const y = contentStems(b);
+  const smaller = Math.min(x.size, y.size);
+  if (smaller === 0) return a.toLowerCase() === b.toLowerCase();
+  let shared = 0;
+  for (const stem of x) if (y.has(stem)) shared += 1;
+  return shared / smaller >= 0.7;
 }
 
 type CopyField = "headline" | "subheadline" | "cta";

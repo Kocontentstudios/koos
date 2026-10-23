@@ -38,16 +38,14 @@ import {
   respecForLayout,
   settleLogo,
 } from "./design-logo-settle";
-import { notifyBrandAssetFaults, notifyLogoLeftOff } from "./design-notify";
 import {
-  brandFacts,
-  draftDirections,
-  type PriorDirection,
-} from "./directions/brief";
+  notifyBrandAssetFaults,
+  notifyImageLeftOff,
+  notifyLogoLeftOff,
+} from "./design-notify";
+import { draftDirections, type PriorDirection } from "./directions/brief";
 import {
-  brandRegion,
   brandSetting,
-  briefFacts,
   drawnText,
   factsMissing,
 } from "./directions/brief-facts";
@@ -80,7 +78,9 @@ import {
   LAYOUT_CRAFT_FAILED,
   type LayoutChoice,
   LayoutsHeldError,
+  type PhotoPlace,
   SUBJECT_FACE_ONLY,
+  SUBJECT_UNKNOWN,
 } from "./directions/subject-layout";
 import type { JobRuntime } from "./run-generation";
 
@@ -325,7 +325,7 @@ export async function generateDirectionsWork(
   } else {
     let painted = 0;
     stage("imagery", 0, "Creating imagery…");
-    const setting = brandSetting(context.briefText, [
+    const setting = brandSetting(brief.read.facts, [
       context.brandSummary.overview,
       context.brandSummary.businessType,
       context.brandSummary.offer,
@@ -338,14 +338,19 @@ export async function generateDirectionsWork(
           adapter: plateAdapter as NonNullable<typeof plateAdapter>,
           spec,
           product: productName
-            ? { name: productName, look: productLook }
+            ? {
+                name: productName,
+                look: productLook,
+                kind: brief.read.offering?.kind ?? "product",
+              }
             : null,
           productUnchecked:
             !productName &&
             Boolean(brief.reports[i]?.modelProduct.name) &&
             brief.productSources[i] === "none",
           setting,
-          namesPeople: briefNamesPeople(context.briefText),
+          namesPeople:
+            brief.read.people.length > 0 || briefNamesPeople(context.briefText),
           brandId,
         });
         imageCalls += plate.imageCalls;
@@ -360,9 +365,14 @@ export async function generateDirectionsWork(
       platesRejected.push(plate.seen.length);
     }
     plates.forEach((plate, i) => {
-      if (!plate.placed || !plate.look) return;
-      descriptions[i] = [plate.look.seen, ...plate.look.items].join(", ");
-      subjectBoxes[i] = [plate.look.subject];
+      if (!plate.placed) return;
+      /* A plate whose subject was not boxed is laid out as unknown, and
+         that is recorded (chooseLayout), never as a plate with nothing in
+         it to keep clear. */
+      subjectBoxes[i] = [plate.look?.subject ?? null];
+      if (plate.look) {
+        descriptions[i] = [plate.look.seen, ...plate.look.items].join(", ");
+      }
     });
     imageStates = plates.map((plate): ImageState => {
       if (!plate.placed) return "none";
@@ -448,18 +458,18 @@ export async function generateDirectionsWork(
         "the generated image kept painting made-up writing on the product, so the design was drawn without one",
       );
     }
+    if (check === "failed-people") {
+      addFault(
+        rows[i].id,
+        "the generated image kept painting a face beside a person the brief names, so the design was drawn without one",
+      );
+    }
   });
   let reasonsReplaced = 0;
   const layoutChoices: (LayoutChoice | null)[] = rows.map(() => null);
   /* The same facts the directions were covered with (draftDirections), so
      what was drawn is measured against what was promised. */
-  const hardFacts = briefFacts(context.briefText ?? "", {
-    region: brandRegion([
-      ...brandFacts(context.brandSummary),
-      context.brandSummary.websiteUrl,
-    ]),
-    product: brief.directions.find((d) => d.productName)?.productName ?? "",
-  });
+  const hardFacts = brief.read.facts;
   const correctionKeeps = correctionHolds(brief.checks.ledger, hardFacts);
   const factsByDirection: (number | null)[] = rows.map(() => null);
   const factsLost: { direction: number; fact: string; reason: string }[] = [];
@@ -500,6 +510,16 @@ export async function generateDirectionsWork(
     }
   };
 
+  /* On an upload both directions draw the same photo, and two layouts can
+     still put it in the same place (round-4 live critic: cafe and fashion
+     were one shape twice). The second waits for where the first put it
+     and keeps apart from it; a few hundred milliseconds of choosing. */
+  const sharesPhoto = Boolean(upload) && rows.length > 1;
+  let placeFirst: (place: PhotoPlace | null) => void = () => {};
+  const firstPlaced = new Promise<PhotoPlace | null>((resolve) => {
+    placeFirst = resolve;
+  });
+
   await mapWithConcurrency(rows, concurrency, async (row, i) => {
     let counted = false;
     const slot = target?.slot ?? i;
@@ -518,6 +538,7 @@ export async function generateDirectionsWork(
       const unmarked = (spec: DesignSpec) =>
         assets.logo ? spec : { ...spec, logoPlacement: "none" as const };
       const judge = layoutJudge(context, assets, prepared);
+      const apartFrom = sharesPhoto && i > 0 ? await firstPlaced : null;
       const choice = await settleDirectionLayout({
         self: { id: row.id, set, slot, replacing: request.regenerateOf },
         readSet: () => listDirectionSet(brandId, set),
@@ -528,6 +549,8 @@ export async function generateDirectionsWork(
             ),
             held,
             subjects: assets.image ? subjectBoxes[i] : [],
+            imageless: !assets.image,
+            apartFrom,
             judge,
             relayout: (spec, layout) =>
               unmarked(
@@ -547,6 +570,7 @@ export async function generateDirectionsWork(
           }),
       });
       layoutChoices[i] = choice;
+      if (i === 0) placeFirst(choice.place);
       /* No layout kept the copy off the product, or drew it cleanly: a
          design with the headline across the pastry, or under the small
          print, is not delivered. It fails with the reason, and without
@@ -624,15 +648,18 @@ export async function generateDirectionsWork(
         );
       }
       const settledReasons = settleReasons(direction.rationale, {
+        factsMissing: missing.length,
         copy: drawnCopy,
         checks: brief.checks,
         product: direction.productName,
         image: assets.image ? imageStates[i] : "none",
         paintedScene: upload ? undefined : direction.backgroundPrompt,
         imageDescription: assets.image ? descriptions[i] : undefined,
+        /* Measured against the whole subject or not at all: a reason
+           that the product is drawn whole must not rest on a face box. */
         drawn: {
           document: result.document,
-          subject: onSubject ?? result.subject,
+          subject: choice.wholeSubject ? (onSubject ?? result.subject) : null,
         },
       });
       if (settledReasons.dropped.length > 0) {
@@ -668,6 +695,7 @@ export async function generateDirectionsWork(
       if (result.correction) judgeVerdicts.push(result.correction);
       if (result.correctionKept) correctionsKept.push(row.id);
     } catch (err) {
+      if (i === 0) placeFirst(null);
       console.error(`design direction ${row.id} failed`, err);
       if (err instanceof LayoutsHeldError) layoutsWereHeld = true;
       await updateDesignGeneration(row.id, {
@@ -686,6 +714,20 @@ export async function generateDirectionsWork(
     font: brandFontFaults,
     logo: logoFaults,
   });
+  /* A KO direction drawn with no image is a text-led design, not a broken
+     one, but the user asked KO for imagery and is told plainly why it is
+     not there and what to do. */
+  const textLed = rows.filter(
+    (row, i) => source === "ko" && !images[i] && succeeded.includes(row.id),
+  ).length;
+  if (textLed > 0) {
+    await notifyImageLeftOff({
+      userId,
+      directions: textLed,
+      of: count,
+      subject: brief.directions.find((d) => d.productName)?.productName ?? "",
+    });
+  }
   const leftOff = settled.find((s) => s.logoFree);
   if (leftOff && (context.brand.logoUrl || context.logoAssetUrls.length > 0)) {
     await notifyLogoLeftOff({
@@ -785,6 +827,21 @@ export async function generateDirectionsWork(
          each plate was turned down. */
       claimCheck: brief.claimCheck,
       platesRejected,
+      /* Round-5 outcomes: the brief as read (and what the reader said
+         that was not the brief's words), KO directions laid out as text
+         because no plate passed, and directions whose subject was not
+         found. */
+      briefRead: {
+        available: brief.read.available,
+        offering: brief.read.offering?.kind ?? null,
+        people: brief.read.people.length,
+        dropped: brief.read.dropped,
+      },
+      footerRepeatsDropped: brief.factCoverage.repeatsDropped,
+      textLed,
+      subjectUnknown: layoutChoices.filter((choice) =>
+        choice?.faults.includes(SUBJECT_UNKNOWN),
+      ).length,
     },
   });
 
@@ -805,9 +862,8 @@ export async function generateDirectionsWork(
       redrafted: brief.redrafted,
       layouts_forced: brief.layoutsForced,
       plates_rejected: platesRejected.filter((n) => n > 0).length,
-      plates_failed: plateChecks.filter(
-        (c) => c === "failed" || c === "failed-lettering",
-      ).length,
+      plates_failed: plateChecks.filter((c) => c.startsWith("failed")).length,
+      text_led: textLed,
     },
   });
   /* Kept for continuity: the quality-gate series on design_generated would

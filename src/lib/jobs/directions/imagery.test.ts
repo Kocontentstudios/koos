@@ -291,6 +291,68 @@ describe("paintPlate, lettering and unnamed products", () => {
   });
 });
 
+describe("events, services and named people", () => {
+  const CLASS = {
+    name: "teen sourdough baking class",
+    look: "",
+    kind: "event" as const,
+  };
+
+  it("paints an event as a scene and checks it as one", async () => {
+    const plateModel = adapter(designPng(64, 64));
+    await paintPlate({
+      adapter: plateModel,
+      spec: draftOf(),
+      product: CLASS,
+      brandId: BRAND_ID,
+    });
+    expect(promptSent(plateModel, 0)).toMatch(
+      /^A scene from the teen sourdough baking class, recognisable as that event/,
+    );
+    expect(checkPlateShowsProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "event" }),
+    );
+  });
+
+  /* Round-4 live critic: an AI woman beside "with Ada Obi". */
+  it("refuses a face when the brief names a person, and draws flat after two", async () => {
+    checkPlateShowsProduct.mockResolvedValue(
+      verdict(true, "a woman at a lectern", { person: true }),
+    );
+    const plateModel = adapter(designPng(64, 64));
+    const result = await paintPlate({
+      adapter: plateModel,
+      spec: draftOf(),
+      product: { ...CLASS, name: "panel" },
+      namesPeople: true,
+      brandId: BRAND_ID,
+    });
+    expect(result).toMatchObject({
+      check: "failed-people",
+      imageCalls: 2,
+      placed: null,
+    });
+    expect(result.seen).toEqual([
+      "a woman at a lectern (a face)",
+      "a woman at a lectern (a face)",
+    ]);
+    expect(promptSent(plateModel, 1)).toContain("painted a person's face");
+  });
+
+  it("keeps a face when nobody is named", async () => {
+    checkPlateShowsProduct.mockResolvedValue(
+      verdict(true, "a baker", { person: true }),
+    );
+    const result = await paintPlate({
+      adapter: adapter(designPng(64, 64)),
+      spec: draftOf(),
+      product: CLASS,
+      brandId: BRAND_ID,
+    });
+    expect(result.check).toBe("passed");
+  });
+});
+
 describe("storeDrawnMark", () => {
   const logo = {
     bytes: designPng(200, 50),

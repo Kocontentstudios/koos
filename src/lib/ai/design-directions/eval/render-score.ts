@@ -12,6 +12,12 @@
  * not inventedFacts, which filtered it).
  */
 
+import type { DesignElement } from "@/lib/design/document/schema";
+import {
+  isProductName,
+  redundantFooterItems,
+} from "@/lib/jobs/directions/brief-facts";
+
 export interface RenderedDirection {
   caseId: string;
   index: number;
@@ -57,9 +63,85 @@ export interface RenderedDirection {
     kept: boolean;
     /** Brief facts the delivered design lost against the first render. */
     lostFacts: number;
-    /** Copy on the subject the layout kept clear, after the gate. */
+    /** Copy on the whole subject after the gate, whatever box the layout
+     *  kept clear (round-4 code critic: measured on the face box it read
+     *  0 by construction). */
     overSubject: boolean;
   } | null;
+  /** Round 5: corrections that change the copy, through the job's own
+   *  gate rules (directionGateRules): one that drops the footer's facts and
+   *  one that invents a fact must be refused; one that sets the headline
+   *  to the brief's title must be kept exactly when it loses no fact
+   *  (rewriteKept: the rules decided it right), and a kept render must
+   *  keep copy off the whole subject. Null when not probed. */
+  copyProbe?: {
+    lossRefused: boolean;
+    inventionRefused: boolean;
+    rewriteKept: boolean;
+    rewriteOverSubject: boolean;
+  } | null;
+  /** Round 5 craft, measured on the delivered document (craftOfDelivered). */
+  craft5?: DeliveredCraft;
+  /** A KO direction drawn with no image because no plate passed. Null off
+   *  KO. */
+  textLed?: boolean | null;
+}
+
+export interface DeliveredCraft {
+  /** An accent panel where the picture would be, with no picture. */
+  emptyImageRegion: boolean;
+  /** Footer items that repeat the copy above or each other. */
+  footerRepeats: string[];
+  /** A footer item that is only the product's name. */
+  productInFooter: boolean;
+  /** A picture drawn over its card's border. */
+  imageOverFrame: boolean;
+}
+
+/**
+ * The round-4 live critic's craft defects, read off a delivered document:
+ * an empty image half, a footer repeating the subheadline or the address,
+ * the product's name dumped into the footer, and a photo over the stat
+ * card's border. Each was invisible to every metric the eval had.
+ */
+export function craftOfDelivered(
+  elements: readonly DesignElement[],
+  copy: {
+    headline: string;
+    subheadline?: string;
+    cta?: string;
+    footerLines: string[];
+  },
+  product: string,
+): DeliveredCraft {
+  const image = elements.findIndex((e) => e.type === "image");
+  const footerItems = copy.footerLines.flatMap((line) =>
+    line.split(" · ").map((item) => item.trim()),
+  );
+  const card = elements.find(
+    (e) => e.type === "shape" && e.id === "card" && (e.borderWidth ?? 0) > 0,
+  );
+  const edgeAfterImage = elements.some(
+    (e, i) => i > image && e.id === "card-edge",
+  );
+  const picture = image >= 0 ? elements[image] : null;
+  const border = card && card.type === "shape" ? (card.borderWidth ?? 0) : 0;
+  const imageOverFrame = Boolean(
+    card &&
+      picture &&
+      !edgeAfterImage &&
+      (picture.x < card.x + border ||
+        picture.y < card.y + border ||
+        picture.x + picture.width > card.x + card.width - border ||
+        picture.y + picture.height > card.y + card.height - border),
+  );
+  return {
+    emptyImageRegion:
+      image < 0 && elements.some((e) => e.id === "accent-panel"),
+    footerRepeats: redundantFooterItems(copy),
+    productInFooter: footerItems.some((item) => isProductName(item, product)),
+    imageOverFrame,
+  };
 }
 
 export interface RenderedCase {
@@ -100,6 +182,16 @@ export interface RenderTotals {
   correctionsKept: number;
   correctionLostFacts: number;
   correctionOverSubject: number;
+  copyProbes: number;
+  copyProbeFailures: number;
+  copyProbeOverSubject: number;
+  emptyImageRegions: number;
+  footerRepeats: number;
+  productInFooter: number;
+  imageOverFrame: number;
+  /** KO directions drawn with no image, and how many KO directions. */
+  textLed: number;
+  koDirections: number;
 }
 
 /** Frozen before the round-3 run. */
@@ -138,6 +230,18 @@ export const RENDER_THRESHOLDS = {
   minCorrectionsProbed: 1,
   maxCorrectionLostFacts: 0,
   maxCorrectionOverSubject: 0,
+  /** Round 5, frozen before its run. The job builds none of these, so any
+   *  is a bug: an empty image half, a footer repeating other copy, the
+   *  product's name as a footer item, a picture over its frame. */
+  maxEmptyImageRegions: 0,
+  maxFooterRepeats: 0,
+  maxProductInFooter: 0,
+  maxImageOverFrame: 0,
+  /** Copy-changing corrections probed, and none of the gate's rules
+   *  failing on them. */
+  minCopyProbes: 1,
+  maxCopyProbeFailures: 0,
+  maxCopyProbeOverSubject: 0,
   /** Bad photos refused, of those that must be. */
   minRefusals: 1,
   maxUnexpectedRefusals: 0,
@@ -227,6 +331,30 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
     ),
     correctionOverSubject: delivered.filter((d) => d.correction?.overSubject)
       .length,
+    copyProbes: delivered.filter((d) => d.copyProbe).length,
+    copyProbeFailures: delivered.filter(
+      (d) =>
+        d.copyProbe &&
+        !(
+          d.copyProbe.lossRefused &&
+          d.copyProbe.inventionRefused &&
+          d.copyProbe.rewriteKept
+        ),
+    ).length,
+    copyProbeOverSubject: delivered.filter(
+      (d) => d.copyProbe?.rewriteOverSubject,
+    ).length,
+    emptyImageRegions: delivered.filter((d) => d.craft5?.emptyImageRegion)
+      .length,
+    footerRepeats: delivered.filter(
+      (d) => (d.craft5?.footerRepeats.length ?? 0) > 0,
+    ).length,
+    productInFooter: delivered.filter((d) => d.craft5?.productInFooter).length,
+    imageOverFrame: delivered.filter((d) => d.craft5?.imageOverFrame).length,
+    textLed: delivered.filter((d) => d.textLed).length,
+    koDirections: delivered.filter(
+      (d) => d.textLed !== null && d.textLed !== undefined,
+    ).length,
     refusalsExpected: cases.filter((c) => c.expectRefused).length,
     refusalsMade: cases.filter((c) => c.expectRefused && c.refused).length,
     unexpectedRefusals: cases.filter((c) => !c.expectRefused && c.refused)
@@ -286,6 +414,21 @@ export function renderFailures(
     "correction put copy on the subject",
     t.correctionOverSubject,
     limits.maxCorrectionOverSubject,
+  );
+  over("empty image regions", t.emptyImageRegions, limits.maxEmptyImageRegions);
+  over("footer repeats", t.footerRepeats, limits.maxFooterRepeats);
+  over("product name in footer", t.productInFooter, limits.maxProductInFooter);
+  over("picture over its frame", t.imageOverFrame, limits.maxImageOverFrame);
+  under("copy corrections probed", t.copyProbes, limits.minCopyProbes);
+  over(
+    "copy corrections the rules got wrong",
+    t.copyProbeFailures,
+    limits.maxCopyProbeFailures,
+  );
+  over(
+    "copy correction put copy on the subject",
+    t.copyProbeOverSubject,
+    limits.maxCopyProbeOverSubject,
   );
   if (t.refusalsExpected > 0) {
     under(

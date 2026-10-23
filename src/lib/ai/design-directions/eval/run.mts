@@ -21,8 +21,13 @@
  * judge gate and storage are left out: nothing is uploaded. Renders, layer
  * documents and plates are saved to --out for a person to look at.
  *
+ * Round 5 adds the brief reader: before the cases, every labelled brief
+ * (read-cases.ts) is read on its own and scored for precision and recall,
+ * and each case's own read is scored against its labels; coverage is
+ * measured against the labels, never against the reader it checks.
+ *
  * Usage: pnpm eval:design-directions [--case <id>] [--image <png|jpg>]
- *          [--out <dir>] [--no-plates]
+ *          [--out <dir>] [--no-plates] [--read-only]
  *   --image is the upload for cases without their own fixture; it defaults
  *   to /tmp/feat-033/fixtures/cutout.png when present.
  */
@@ -55,8 +60,21 @@ const { briefNamesPeople, paintCheckedPlate } = await import(
 const { designSpecOf } = await import("../../../jobs/directions/schema");
 const { askVision } = await import("../../../design/quality/vision");
 const { lookAtPhoto } = await import("../../../design/quality/plate-check");
-const { brandRegion, brandSetting, briefFacts, drawnText, factsMissing } =
+const { brandRegion, brandSetting, drawnText, factsMissing, settleBriefFacts } =
   await import("../../../jobs/directions/brief-facts");
+const { readBriefWithModel, settleBriefRead } = await import(
+  "../../../jobs/directions/brief-read"
+);
+const { contentStems } = await import("../../../jobs/directions/text-overlap");
+const { READ_EVAL_CASES } = await import("./read-cases");
+const {
+  aggregateReads,
+  labelKind,
+  readFailures,
+  READ_THRESHOLDS,
+  scoreBriefRead,
+} = await import("./read-score");
+type ReadScore = import("./read-score").ReadScore;
 const { chooseLayout, LAYOUT_CRAFT_FAILED } = await import(
   "../../../jobs/directions/subject-layout"
 );
@@ -86,8 +104,13 @@ const { DIRECTIONS_EVAL_CASES, DIRECTIONS_EVAL_THRESHOLDS } = await import(
 );
 const { aggregateDirections, directionsFailures, scoreDirectionsCase } =
   await import("./score");
-const { aggregateRender, isCropped, renderFailures, RENDER_THRESHOLDS } =
-  await import("./render-score");
+const {
+  aggregateRender,
+  craftOfDelivered,
+  isCropped,
+  renderFailures,
+  RENDER_THRESHOLDS,
+} = await import("./render-score");
 type RenderedCase = import("./render-score").RenderedCase;
 type RenderedDirection = import("./render-score").RenderedDirection;
 
@@ -97,6 +120,7 @@ const flag = (name: string) =>
 const only = flag("--case");
 const outDir = flag("--out") ?? "qa-reports/eval/design-directions-renders";
 const withPlates = !args.includes("--no-plates");
+const readOnly = args.includes("--read-only");
 const imagePath =
   flag("--image") ??
   (existsSync("/tmp/feat-033/fixtures/cutout.png")
@@ -109,10 +133,12 @@ const image = imagePath
     }
   : null;
 
-const cases = only
-  ? DIRECTIONS_EVAL_CASES.filter((c) => c.id === only)
-  : DIRECTIONS_EVAL_CASES;
-if (cases.length === 0) {
+const cases = readOnly
+  ? []
+  : only
+    ? DIRECTIONS_EVAL_CASES.filter((c) => c.id === only)
+    : DIRECTIONS_EVAL_CASES;
+if (cases.length === 0 && !readOnly) {
   console.error(only ? `No case named "${only}"` : "No cases defined");
   process.exit(1);
 }
@@ -234,6 +260,41 @@ async function judgeCopy(
 
 const EVAL_BRAND = "00000000-0000-4000-8000-0000000e7a11";
 
+/* The reader alone, on every labelled brief: cheap, one small call each,
+   so precision and recall are measured on more briefs than the cases can
+   afford to draw. Skipped with --case. */
+const readScores: (ReadScore | null)[] = [];
+if (!only) {
+  console.log("--- brief reader, labelled briefs ---");
+  for (const readCase of READ_EVAL_CASES) {
+    const raw = await readBriefWithModel({
+      briefText: readCase.briefText,
+      title: readCase.title,
+    });
+    if (!raw) {
+      readScores.push(null);
+      console.log(`${readCase.id}: UNAVAILABLE`);
+      continue;
+    }
+    const settled = settleBriefRead(raw, readCase.briefText, readCase.region);
+    const score = scoreBriefRead({
+      read: settled.facts,
+      labels: readCase.facts,
+      brief: readCase.briefText,
+      offering: settled.offering,
+      people: settled.people,
+      expected: { offering: readCase.offering, people: readCase.people },
+    });
+    readScores.push(score);
+    console.log(
+      `${readCase.id}: precise ${score.precise}/${score.extracted} recalled ${score.recalled}/${score.labelled} offering ${score.offeringRight} people ${score.peopleRight}${score.extras.length ? ` EXTRA ${JSON.stringify(score.extras)}` : ""}${score.misses.length ? ` MISSED ${JSON.stringify(score.misses)}` : ""}${settled.dropped.length ? ` dropped ${JSON.stringify(settled.dropped)}` : ""}`,
+    );
+    console.log(
+      `   facts ${JSON.stringify(settled.facts.map((f) => `${f.kind}: ${f.text}`))} offering ${JSON.stringify(settled.offering)} people ${JSON.stringify(settled.people)}`,
+    );
+  }
+}
+
 const scores = [];
 const outputs = [];
 const rendered: RenderedCase[] = [];
@@ -274,12 +335,16 @@ for (const evalCase of cases) {
     ...brandFacts(evalCase.brand),
     evalCase.brand.websiteUrl,
   ]);
-  /* The case's own product, not the one the job resolved: coverage is
-     measured against what the brief is about, whatever the job made of it. */
-  const facts = briefFacts(r.briefText, {
-    region,
-    product: evalCase.product ?? "",
-  });
+  /* The case's labelled facts, not the reader's: coverage is measured
+     against what a person says the brief gives, so a fact the reader
+     missed counts as missing from the design. */
+  const facts = settleBriefFacts(
+    evalCase.facts
+      .filter((f) => !f.optional)
+      .map((f) => ({ kind: labelKind(f.text), text: f.text })),
+    r.briefText,
+    { region },
+  ).facts;
   const caseRecord: RenderedCase = {
     caseId: evalCase.id,
     expectRefused: Boolean(evalCase.expectRefused),
@@ -332,6 +397,25 @@ for (const evalCase of cases) {
       recentLayouts: [],
       existing,
     });
+    if (!evalCase.expectRefused) {
+      const score = result.read.available
+        ? scoreBriefRead({
+            read: result.read.facts,
+            labels: evalCase.facts,
+            brief: r.briefText,
+            offering: result.read.offering,
+            people: result.read.people,
+            expected: {
+              offering: evalCase.offering,
+              people: evalCase.people,
+            },
+          })
+        : null;
+      readScores.push(score);
+      console.log(
+        `\n   read: ${score ? `precise ${score.precise}/${score.extracted} recalled ${score.recalled}/${score.labelled}${score.extras.length ? ` EXTRA ${JSON.stringify(score.extras)}` : ""}${score.misses.length ? ` MISSED ${JSON.stringify(score.misses)}` : ""}` : "UNAVAILABLE"} offering ${JSON.stringify(result.read.offering)}`,
+      );
+    }
 
     /* Imagery: the photograph once for every direction, or a checked plate
        per direction, each with what is known about its subject. */
@@ -359,7 +443,7 @@ for (const evalCase of cases) {
         };
       }
     } else if (plateAdapter) {
-      const setting = brandSetting(r.briefText, [
+      const setting = brandSetting(result.read.facts, [
         evalCase.brand.overview,
         evalCase.brand.businessType,
       ]);
@@ -369,14 +453,19 @@ for (const evalCase of cases) {
             adapter: plateAdapter,
             spec: designSpecOf(direction),
             product: direction.productName
-              ? { name: direction.productName, look: direction.productLook }
+              ? {
+                  name: direction.productName,
+                  look: direction.productLook,
+                  kind: result.read.offering?.kind ?? "product",
+                }
               : null,
             productUnchecked:
               !direction.productName &&
               Boolean(result.reports[i]?.modelProduct.name) &&
               result.productSources[i] === "none",
             setting,
-            namesPeople: briefNamesPeople(r.briefText),
+            namesPeople:
+              result.read.people.length > 0 || briefNamesPeople(r.briefText),
           });
           let look: {
             subject: string;
@@ -411,6 +500,11 @@ for (const evalCase of cases) {
               lettering: look.writing,
             };
           }
+          if (plate.seen.length > 0) {
+            console.log(
+              `\n   [${i}] plate ${plate.check}, rejected: ${JSON.stringify(plate.seen)}`,
+            );
+          }
           return {
             check: plate.check,
             imageCalls: plate.imageCalls,
@@ -433,6 +527,9 @@ for (const evalCase of cases) {
         .join(" "),
     );
     const taken: string[] = existing.map((d) => d.layout);
+    let firstPlace:
+      | import("../../../jobs/directions/subject-layout").PhotoPlace
+      | null = null;
     const delivered: {
       headline: string;
       subheadline?: string;
@@ -466,6 +563,9 @@ for (const evalCase of cases) {
           ...result.directions.slice(i + 1).map((d) => d.layout),
         ],
         subjects: image ? image.subjects : [],
+        imageless: !image,
+        apartFrom:
+          evalCase.imageSource === "upload" && i > 0 ? firstPlace : null,
         judge: layoutJudge(context, assets, fonts),
         relayout: (s, layout) => ({
           ...respecForLayout(s, layout, {
@@ -476,6 +576,7 @@ for (const evalCase of cases) {
         }),
       });
       taken.push(choice.spec.layout);
+      if (i === 0) firstPlace = choice.place;
       const base = {
         caseId: evalCase.id,
         index: i,
@@ -484,6 +585,7 @@ for (const evalCase of cases) {
         factsTotal: facts.length,
         plateLettering:
           evalCase.imageSource === "ko" ? (image?.lettering ?? null) : null,
+        textLed: evalCase.imageSource === "ko" ? !image : null,
       };
       if (
         choice.fault === SUBJECT_COVERED ||
@@ -509,6 +611,7 @@ for (const evalCase of cases) {
       const laidOut = { ...assets, subject: choice.subject };
       const draw = documentRenderer(context, laidOut, fonts);
       let out = await draw(choice.spec);
+      let deliveredSpec = choice.spec;
       /* The gate's correction path, for real: the first render is reported
          as failing the logo check (the one correctable fault a flat eval
          render can carry), so the judge prescribes on the real pixels and
@@ -543,6 +646,7 @@ for (const evalCase of cases) {
           },
         );
         out = { ...guarded, logoFault: null };
+        deliveredSpec = guarded.spec;
         const lost = factsMissing(
           facts,
           drawnText(drawnCopyOf(out.document.elements)),
@@ -554,13 +658,76 @@ for (const evalCase of cases) {
           kept: Boolean(guarded.correctionKept),
           lostFacts: lost,
           overSubject:
-            choice.subject && imageFacts
-              ? (measureSubject(out.document, imageFacts, choice.subject)
+            choice.wholeSubject && imageFacts
+              ? (measureSubject(out.document, imageFacts, choice.wholeSubject)
                   ?.overlaps.length ?? 0) > 0
               : false,
         };
         console.log(
           `\n   [${i}] correction probe: ${guarded.correction ?? "no prescription"} kept=${correction.kept} lost=${lost}`,
+        );
+      }
+      /* Corrections that change the copy, held to the job's own gate rules
+         (round-4 code critic: the probe only faked a logo fault, so the
+         judge never rewrote copy and the copy rules were measured on
+         nothing). */
+      let copyProbe: RenderedDirection["copyProbe"] = null;
+      if (evalCase.probeCorrection) {
+        const first = drawnCopyOf(out.document.elements);
+        const rules = directionGateRules({
+          spec: deliveredSpec,
+          assets: laidOut,
+          copyHolds: (corrected) =>
+            correctionHolds(result.checks.ledger, facts)(first, {
+              headline: corrected.headline,
+              subheadline: corrected.subheadline,
+              cta: corrected.cta,
+              footerLines: corrected.footerLines,
+            }),
+          keepsSubjectClear: choice.subject,
+        });
+        const missingFrom = (copy: typeof first) =>
+          new Set(factsMissing(facts, drawnText(copy)).map((f) => f.text));
+        const loses = (copy: typeof first) => {
+          const before = missingFrom(first);
+          return [...missingFrom(copy)].some((f) => !before.has(f));
+        };
+        const lossy = {
+          ...deliveredSpec,
+          footerLines: [],
+          footerStyle: "none" as const,
+        };
+        const invented = {
+          ...deliveredSpec,
+          headline: "Still warm from the oven at 6am",
+        };
+        const rewrite = { ...deliveredSpec, headline: r.title };
+        const rewriteShouldHold =
+          r.title.length <= 70 && !loses({ ...first, headline: r.title });
+        const rewriteKept = rules.acceptCorrection(rewrite);
+        let rewriteOverSubject = false;
+        if (rewriteKept) {
+          const second = await draw(rewrite);
+          rewriteOverSubject =
+            !rules.refuseSecond(second) &&
+            Boolean(choice.wholeSubject && imageFacts) &&
+            !choice.faults.some((f) => f.includes("person's face")) &&
+            (measureSubject(
+              second.document,
+              imageFacts as NonNullable<typeof imageFacts>,
+              choice.wholeSubject as NonNullable<typeof choice.wholeSubject>,
+            )?.overlaps.length ?? 0) > 0;
+        }
+        copyProbe = {
+          lossRefused:
+            !loses({ ...first, footerLines: [] }) ||
+            !rules.acceptCorrection(lossy),
+          inventionRefused: !rules.acceptCorrection(invented),
+          rewriteKept: rewriteKept === rewriteShouldHold,
+          rewriteOverSubject,
+        };
+        console.log(
+          `\n   [${i}] copy probe: loss refused ${copyProbe.lossRefused}, invention refused ${copyProbe.inventionRefused}, rewrite ${rewriteKept ? "kept" : "refused"} (should ${rewriteShouldHold ? "hold" : "be refused"}), rewrite on subject ${rewriteOverSubject}`,
         );
       }
       writeFileSync(join(outDir, `${evalCase.id}-${i}.png`), out.bytes);
@@ -579,6 +746,7 @@ for (const evalCase of cases) {
           : null;
       const craft = layoutCraftFaults(out.document);
       const reasons = settleReasons(direction.rationale, {
+        factsMissing: factsMissing(facts, drawn).length,
         copy,
         checks: result.checks,
         product: direction.productName,
@@ -620,8 +788,9 @@ for (const evalCase of cases) {
         craftHard: craft.hard,
         craftSoft: craft.soft,
         productNamed: evalCase.product
-          ? factsMissing(briefFacts("", { product: evalCase.product }), drawn)
-              .length === 0
+          ? [...contentStems(evalCase.product)].every((stem) =>
+              contentStems(drawn).has(stem),
+            )
           : null,
         placeholders: [
           copy.headline,
@@ -632,6 +801,12 @@ for (const evalCase of cases) {
           .map((text) => (text ? placeholderIn(text) : null))
           .filter((p): p is string => p !== null),
         correction,
+        copyProbe,
+        craft5: craftOfDelivered(
+          out.document.elements,
+          copy,
+          evalCase.product ?? result.read.offering?.phrase ?? "",
+        ),
       };
       caseRecord.directions.push(record);
       console.log(
@@ -705,12 +880,18 @@ const totals = aggregateDirections(scores);
 const t = DIRECTIONS_EVAL_THRESHOLDS;
 const scoredCases = cases.filter((c) => !c.expectRefused).length;
 const renderTotals = aggregateRender(rendered);
+const readTotals = aggregateReads(readScores);
 const failures = [
   ...(scores.length > 0 ? directionsFailures(totals, t, scoredCases) : []),
-  ...renderFailures(renderTotals),
+  ...(rendered.length > 0 ? renderFailures(renderTotals) : []),
+  ...(readScores.length > 0 ? readFailures(readTotals) : []),
 ];
 const f2 = (n: number) => n.toFixed(2);
 
+console.log("\n--- brief reader ---");
+console.log(
+  `briefs ${readTotals.briefs} (unavailable ${readTotals.unavailable}); precision ${f2(readTotals.precision)} (min ${READ_THRESHOLDS.minPrecision}); recall ${f2(readTotals.recall)} (min ${READ_THRESHOLDS.minRecall}); offering ${f2(readTotals.offeringAccuracy)} (min ${READ_THRESHOLDS.minOfferingAccuracy}); people ${f2(readTotals.peopleAccuracy)} (min ${READ_THRESHOLDS.minPeopleAccuracy})`,
+);
 console.log("\n--- model's own answer ---");
 console.log(
   `writes to length ${f2(totals.modelWithinLimits)} (min ${t.minModelWithinLimits})`,
@@ -780,7 +961,13 @@ console.log(
   `correction path: probed ${renderTotals.correctionsProbed} (min ${rt.minCorrectionsProbed}), prescribed ${renderTotals.correctionsPrescribed}, kept ${renderTotals.correctionsKept}, lost facts ${renderTotals.correctionLostFacts} (max ${rt.maxCorrectionLostFacts}), copy on subject ${renderTotals.correctionOverSubject} (max ${rt.maxCorrectionOverSubject})`,
 );
 console.log(
-  `plates ${renderTotals.plates}: lettered ${f2(renderTotals.letteredPlateShare)} (max ${rt.maxLetteredPlateShare})`,
+  `plates ${renderTotals.plates}: lettered ${f2(renderTotals.letteredPlateShare)} (max ${rt.maxLetteredPlateShare}); KO directions laid out as text (no plate passed) ${renderTotals.textLed}/${renderTotals.koDirections}`,
+);
+console.log(
+  `round-5 craft: empty image regions ${renderTotals.emptyImageRegions} (max ${rt.maxEmptyImageRegions}); footer repeats ${renderTotals.footerRepeats} (max ${rt.maxFooterRepeats}); product name in footer ${renderTotals.productInFooter} (max ${rt.maxProductInFooter}); picture over its frame ${renderTotals.imageOverFrame} (max ${rt.maxImageOverFrame})`,
+);
+console.log(
+  `copy corrections: probed ${renderTotals.copyProbes} (min ${rt.minCopyProbes}), rules wrong ${renderTotals.copyProbeFailures} (max ${rt.maxCopyProbeFailures}), copy on the whole subject ${renderTotals.copyProbeOverSubject} (max ${rt.maxCopyProbeOverSubject})`,
 );
 console.log(
   `bad photos refused ${renderTotals.refusalsMade}/${renderTotals.refusalsExpected}; unexpected refusals ${renderTotals.unexpectedRefusals}`,
@@ -799,6 +986,8 @@ writeFileSync(
     {
       totals,
       renderTotals,
+      readTotals,
+      readScores,
       thresholds: t,
       renderThresholds: RENDER_THRESHOLDS,
       failures,

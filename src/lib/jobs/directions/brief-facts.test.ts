@@ -1,21 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  type BriefFact,
   brandRegion,
   brandSetting,
-  briefFacts,
   coverBriefFacts,
   type FactCopy,
   factStated,
+  factsMissing,
+  type ReadFact,
+  redundantFooterItems,
+  settleBriefFacts,
 } from "./brief-facts";
 
-const BAKERY =
-  "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.";
-const WORKSHOP =
-  "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.";
-const ZOBO =
-  "New this weekend: chilled zobo hibiscus cooler with ginger and pineapple, ₦1,800 for a 500ml bottle. Grab one with any pastry before noon.";
-const TEXTILE =
-  "Announce the autumn aso-oke collection, launching 3 November. Twelve new throws and cushions in rust and indigo, each woven by one artisan in Iseyin.";
+const settle = (brief: string, read: ReadFact[], product = "") =>
+  settleBriefFacts(read, brief, { region: "NG", product });
+const texts = (facts: BriefFact[]) => facts.map((f) => [f.kind, f.text]);
 
 const copy = (over: Partial<FactCopy> = {}): FactCopy => ({
   headline: "Little bakers wanted",
@@ -24,391 +23,360 @@ const copy = (over: Partial<FactCopy> = {}): FactCopy => ({
   ...over,
 });
 
-describe("briefFacts", () => {
-  it("finds the bakery brief's price, day and time", () => {
-    expect(briefFacts(BAKERY).map((f) => [f.kind, f.text])).toEqual([
-      ["price", "₦4,500"],
-      ["day", "Monday"],
-      ["time", "7am"],
+describe("settleBriefFacts: the reader's spans, held to the brief", () => {
+  /* Round-4 live critic: "9 Bourdillon Road, Thursday" was printed beside
+     the real address on both fashion directions. */
+  it("ends an address before the weekday after it", () => {
+    const brief =
+      "Only 15 made. Ikoyi studio at 9 Bourdillon Road, Thursday to Sunday 12pm to 6pm.";
+    const { facts } = settle(brief, [
+      { kind: "place", text: "9 Bourdillon Road, Thursday" },
+      { kind: "day", text: "Thursday to Sunday" },
+      { kind: "time", text: "12pm to 6pm" },
+      { kind: "quantity", text: "Only 15 made" },
+    ]);
+    expect(texts(facts)).toEqual([
+      ["quantity", "Only 15 made"],
+      ["place", "9 Bourdillon Road"],
+      ["day", "Thursday to Sunday"],
+      ["time", "12pm to 6pm"],
+    ]);
+    expect(factStated(facts[1], "Visit 9 Bourdillon Rd, Ikoyi")).toBe(true);
+    expect(factStated(facts[2], "Thu – Sun, 12pm – 6pm")).toBe(true);
+  });
+
+  /* Round-3 code critic: "08035550142 7" was drawn as the number. */
+  it("ends a phone at its last digit", () => {
+    const brief = "Call 08035550142 7am to 7pm.";
+    const { facts } = settle(brief, [
+      { kind: "contact", text: "Call 08035550142 7" },
+      { kind: "time", text: "7am to 7pm" },
+    ]);
+    expect(texts(facts)).toEqual([
+      ["contact", "Call 08035550142"],
+      ["time", "7am to 7pm"],
     ]);
   });
 
-  /* Round-2 live run: both designs dropped the day, the time, the ages and
-     the place. */
-  it("finds every fact a parent needs in the workshop brief", () => {
-    expect(briefFacts(WORKSHOP).map((f) => [f.kind, f.text])).toEqual([
-      ["day", "This Saturday"],
-      ["time", "10am to 12pm"],
-      ["place", "Lekki"],
-      ["price", "₦15,000"],
-      ["age", "ages 7 to 12"],
-      ["quantity", "8 spots"],
+  /* J3: libphonenumber reads ", 9" after a number as an extension. */
+  it("ends a phone before a comma and an hour", () => {
+    const brief = "Call 08035550142, 9-5 weekdays.";
+    const { facts } = settle(brief, [
+      { kind: "contact", text: "Call 08035550142, 9" },
+    ]);
+    expect(texts(facts)).toEqual([["contact", "Call 08035550142"]]);
+    expect(factStated(facts[0], "Call 0803 555 0142")).toBe(true);
+  });
+
+  /* Round-4 code critic J2: the number before a bare hour range vanished. */
+  it("keeps a phone followed by a bare hour range, and reads the range", () => {
+    const brief = "Almond croissants. WhatsApp 0803 555 0142 9-5 daily.";
+    const { facts } = settle(brief, [
+      { kind: "contact", text: "WhatsApp 0803 555 0142 9-5" },
+      { kind: "time", text: "9-5" },
+      { kind: "day", text: "daily" },
+    ]);
+    expect(texts(facts)).toEqual([
       ["contact", "WhatsApp 0803 555 0142"],
+      ["time", "9-5"],
+      ["day", "Daily"],
+    ]);
+    expect(factStated(facts[1], "Open 9am–5pm")).toBe(true);
+    expect(factStated(facts[1], "Open 10am–5pm")).toBe(false);
+  });
+
+  /* J5: the second number of a comma list was lost. */
+  it("keeps every number of a comma-separated list", () => {
+    const brief = "Call 0803 555 0142, 0805 555 0199 to order.";
+    const { facts } = settle(brief, [
+      { kind: "contact", text: "Call 0803 555 0142" },
+      { kind: "contact", text: "0805 555 0199" },
+    ]);
+    expect(facts).toHaveLength(2);
+    expect(factsMissing(facts, "Call 0803 555 0142")).toEqual([facts[1]]);
+    expect(factsMissing(facts, "0803 555 0142 or 0805 555 0199")).toEqual([]);
+  });
+
+  /* J4: "DM @cake.ng" was drawn as the website "Cake.ng". */
+  it("keeps a handle a handle", () => {
+    const brief = "DM @cake.ng on Instagram to order.";
+    const { facts } = settle(brief, [{ kind: "contact", text: "@cake.ng" }]);
+    expect(factStated(facts[0], "Order at Cake.ng")).toBe(false);
+    expect(factStated(facts[0], "DM @cake.ng")).toBe(true);
+  });
+
+  /* Round-4 live critic: ₦34,000 was drawn without "for a set of four". */
+  it("keeps a price with its quantity", () => {
+    const brief =
+      "Stoneware cups, ₦9,500 each, or NGN 34,000 for a set of four.";
+    const { facts } = settle(brief, [
+      { kind: "price", text: "₦9,500" },
+      { kind: "price", text: "NGN 34,000" },
+    ]);
+    expect(texts(facts)).toEqual([
+      ["price", "₦9,500 each"],
+      ["price", "NGN 34,000 for a set of four"],
+    ]);
+    expect(factStated(facts[1], "Open daily · ₦34,000")).toBe(false);
+    expect(factStated(facts[1], "₦34,000 for a set of 4")).toBe(true);
+  });
+
+  it("reads a count in words or digits", () => {
+    const brief = "Jade organza overcoat, only 15 made.";
+    const { facts } = settle(brief, [
+      { kind: "quantity", text: "only 15 made" },
+    ]);
+    expect(factStated(facts[0], "Fifteen made, no more")).toBe(true);
+    expect(factStated(facts[0], "Only 150 made")).toBe(false);
+  });
+
+  it("drops what is not the brief's own words, and says why", () => {
+    const brief = "Pickup from 7am on Monday.";
+    const { facts, dropped } = settle(brief, [
+      { kind: "time", text: "7am" },
+      { kind: "day", text: "Tuesday" },
+      { kind: "colour", text: "red" },
+    ]);
+    expect(texts(facts)).toEqual([["time", "7am"]]);
+    expect(dropped.map((d) => d.why)).toEqual([
+      "not the brief's own words",
+      'unknown kind "colour"',
     ]);
   });
 
-  it("finds a relative day, a size and a cut-off time", () => {
-    expect(briefFacts(ZOBO).map((f) => f.text)).toEqual([
-      "This weekend",
-      "₦1,800",
-      "500ml",
-      "before noon",
+  it("reads every day as a day, in any of its spellings", () => {
+    const { facts } = settle("On sale every day at the bar.", [
+      { kind: "day", text: "every day" },
     ]);
+    expect(texts(facts)).toEqual([["day", "Every day"]]);
+    expect(factStated(facts[0], "Open daily, 9am – 7pm")).toBe(true);
+    expect(factStated(facts[0], "Open weekdays")).toBe(false);
   });
 
-  it('keeps a count whole across "and"', () => {
-    expect(briefFacts(TEXTILE).map((f) => f.text)).toContain(
-      "Twelve new throws and cushions",
+  it("drops a phone number that is not a valid number", () => {
+    const brief = "Call 0803 555 for details.";
+    const { facts, dropped } = settle(brief, [
+      { kind: "contact", text: "Call 0803 555" },
+    ]);
+    expect(facts).toEqual([]);
+    expect(dropped[0].why).toBe("not a valid phone number");
+  });
+
+  it("never takes the product for a fact", () => {
+    const brief = "Launch our new sourdough baking class for teens.";
+    const { facts } = settle(
+      brief,
+      [{ kind: "offer", text: "sourdough baking class" }],
+      "sourdough baking class",
     );
+    expect(facts).toEqual([]);
   });
 
-  it("keeps a date's day of the month with it", () => {
-    const [date] = briefFacts(TEXTILE);
-    expect(date.text).toBe("3 November");
-    expect(factStated(date, "Out in November")).toBe(false);
-    expect(factStated(date, "Out 3 Nov")).toBe(true);
+  it("keeps the longer of two facts that overlap", () => {
+    const brief = "Latte art on Sunday 9 November, 2pm to 5pm.";
+    const { facts } = settle(brief, [
+      { kind: "date", text: "Sunday 9 November" },
+      { kind: "day", text: "Sunday" },
+    ]);
+    expect(texts(facts)).toEqual([["date", "Sunday 9 November"]]);
+    expect(factStated(facts[0], "Sun 9 Nov")).toBe(true);
+    expect(factStated(facts[0], "Sun 19 Nov")).toBe(false);
   });
 
-  it("finds nothing in a brief with no hard facts", () => {
-    expect(briefFacts("Wish our customers a happy new month")).toEqual([]);
+  it("reads 3/11 by the brand's day order", () => {
+    const read = [{ kind: "date", text: "3/11" }];
+    const ng = settleBriefFacts(read, "Opens 3/11.", { region: "NG" });
+    const us = settleBriefFacts(read, "Opens 3/11.", { region: "US" });
+    expect(factStated(ng.facts[0], "Opens 3 November")).toBe(true);
+    expect(factStated(us.facts[0], "Opens March 11")).toBe(true);
   });
 });
 
-describe("factStated", () => {
-  const [price, day, time] = briefFacts(BAKERY);
+describe("factStated for phone numbers", () => {
+  const [phone] = settle("WhatsApp 0803 555 0142 to book.", [
+    { kind: "contact", text: "WhatsApp 0803 555 0142" },
+  ]).facts;
 
-  it("accepts the fact in any spelling", () => {
-    expect(factStated(price, "Just N4,500")).toBe(true);
-    expect(factStated(price, "₦4.5k a slice")).toBe(true);
-    expect(factStated(day, "From Mon")).toBe(true);
-    expect(factStated(time, "Pickup 7:00 AM")).toBe(true);
+  it("accepts the number in any grouping, or with the country code", () => {
+    expect(factStated(phone, "WhatsApp 08035550142")).toBe(true);
+    expect(factStated(phone, "Call 0803-555-0142")).toBe(true);
+    expect(factStated(phone, "+234 803 555 0142")).toBe(true);
   });
 
-  it("refuses a different value", () => {
-    expect(factStated(price, "₦45,000")).toBe(false);
-    expect(factStated(day, "From Tuesday")).toBe(false);
-    expect(factStated(time, "Pickup 7pm")).toBe(false);
+  /* Round-4 code critic: digits glued across lines counted as the number. */
+  it("needs the whole number on one line", () => {
+    expect(factStated(phone, "WhatsApp 0803 555 014 \n Ages 2-5")).toBe(false);
+    expect(factStated(phone, "803 555 0142")).toBe(false);
+    expect(factStated(phone, "WhatsApp 0803 555 01423")).toBe(false);
+  });
+});
+
+describe("redundantFooterItems", () => {
+  /* Round-4 live critic: five of eleven directions repeated the
+     subheadline in the footer. */
+  it("drops an item the copy above already says", () => {
+    expect(
+      redundantFooterItems({
+        headline: "Strawberry mille-feuille",
+        subheadline: "Available from Monday, 7am pickup",
+        footerLines: ["Available from Monday · Pickup from 7am"],
+      }),
+    ).toEqual(["Available from Monday", "Pickup from 7am"]);
   });
 
-  it("needs both ends of a range and the whole number", () => {
-    const facts = briefFacts(WORKSHOP);
-    const range = facts.find((f) => f.kind === "time");
-    const contact = facts.find((f) => f.kind === "contact");
-    expect(range && factStated(range, "From 10am")).toBe(false);
-    expect(range && factStated(range, "10am–12pm")).toBe(true);
-    expect(contact && factStated(contact, "WhatsApp us")).toBe(false);
-    expect(contact && factStated(contact, "WhatsApp 08035550142")).toBe(true);
+  it("drops the shorter of two items saying the same", () => {
+    expect(
+      redundantFooterItems({
+        headline: "The coat, named",
+        footerLines: ["9 Bourdillon Road, Ikoyi · 9 Bourdillon Road"],
+      }),
+    ).toEqual(["9 Bourdillon Road"]);
+  });
+
+  it("drops the product's name when the copy above names it", () => {
+    expect(
+      redundantFooterItems(
+        {
+          headline: "Handmade stoneware cups",
+          footerLines: ["4 Sabo Road, Yaba · Handmade stoneware cups"],
+        },
+        "stoneware cups",
+      ),
+    ).toEqual(["Handmade stoneware cups"]);
+  });
+
+  it("keeps an offer that only shares a place with the copy", () => {
+    expect(
+      redundantFooterItems({
+        headline: "Now baking in Lekki",
+        footerLines: ["Free delivery in Lekki"],
+      }),
+    ).toEqual([]);
   });
 });
 
 describe("coverBriefFacts", () => {
+  const brief =
+    "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.";
+  const { facts } = settle(brief, [
+    { kind: "day", text: "this Saturday" },
+    { kind: "time", text: "10am to 12pm" },
+    { kind: "place", text: "our Lekki shop" },
+    { kind: "price", text: "₦15,000 per child" },
+    { kind: "age", text: "ages 7 to 12" },
+    { kind: "quantity", text: "only 8 spots" },
+    { kind: "contact", text: "WhatsApp 0803 555 0142" },
+  ]);
+
   it("draws what a direction left out into its footer", () => {
     const { directions, coverage } = coverBriefFacts(
-      [
-        copy({
-          subheadline: "Croissants from scratch, ₦15,000",
-          cta: "Book now",
-        }),
-      ],
-      WORKSHOP,
+      [copy({ subheadline: "This Saturday, 10am to 12pm, ages 7 to 12" })],
+      facts,
     );
-    expect(directions[0].footerLines).toEqual([
-      "This Saturday · 10am to 12pm · Lekki · Ages 7 to 12",
-      "8 spots · WhatsApp 0803 555 0142",
-    ]);
+    expect(
+      factsMissing(facts, directions[0].footerLines.join("\n")),
+    ).not.toEqual(facts);
+    expect(coverage.leftOff).toEqual([]);
+    expect(
+      factsMissing(
+        facts,
+        [directions[0].subheadline, ...directions[0].footerLines].join("\n"),
+      ),
+    ).toEqual([]);
     expect(directions[0].footerStyle).toBe("text");
-    expect(coverage.leftOff).toEqual([]);
-    expect(coverage.stated[0]).toHaveLength(coverage.facts.length);
   });
 
-  it("leaves a direction that states everything alone", () => {
-    const whole = copy({
-      headline: "Strawberry mille-feuille, ₦4,500",
-      subheadline: "From Monday, pickup from 7am",
-    });
-    const { directions, coverage } = coverBriefFacts([whole], BAKERY);
-    expect(directions[0]).toBe(whole);
-    expect(coverage.added).toEqual([]);
-  });
-
-  it("records what will not fit, and why, instead of overfilling", () => {
-    const full = copy({
-      footerLines: [
-        "Crumb & Co., 12 Admiralty Way, Lekki Phase 1, Lagos State",
-        "Open every day, all year round, for pastry and good coffee",
-        "Follow us for new bakes, seasonal specials and pop-up dates",
+  it("gives up the model's own factless lines before leaving a fact off", () => {
+    const { directions, coverage } = coverBriefFacts(
+      [
+        copy({
+          footerLines: [
+            "Croissants, pain au chocolat and tea for every child there",
+            "Aprons and hats are handed out at the door by our bakers",
+            "Parents are welcome to stay and watch from the counter",
+          ],
+        }),
       ],
-      footerStyle: "bar",
-    });
-    const { directions, coverage } = coverBriefFacts([full], BAKERY);
+      facts,
+    );
     expect(directions[0].footerLines).toHaveLength(3);
+    expect(coverage.leftOff).toEqual([]);
+    expect(factsMissing(facts, directions[0].footerLines.join("\n"))).toEqual(
+      [],
+    );
+  });
+
+  it("records what will not fit, and why, when every line carries a fact", () => {
+    const { coverage } = coverBriefFacts(
+      [
+        copy({
+          footerLines: [
+            "This Saturday, 10am to 12pm, at our Lekki shop, ages 7-12",
+            "₦15,000 per child · only 8 spots, so book early with us",
+            "Book now on WhatsApp 0803 555 0142 · aprons provided",
+          ],
+        }),
+      ],
+      [
+        ...facts,
+        ...settle(
+          "Croissant-making workshop. Each child takes home a box of six croissants they shaped.",
+          [
+            {
+              kind: "offer",
+              text: "Each child takes home a box of six croissants they shaped",
+            },
+          ],
+        ).facts,
+      ],
+    );
     expect(coverage.leftOff).toEqual([
-      {
-        direction: 0,
-        fact: "₦4,500",
-        reason: "the footer has no room left for it",
-      },
-      {
-        direction: 0,
-        fact: "Monday",
-        reason: "the footer has no room left for it",
-      },
-      {
-        direction: 0,
-        fact: "7am",
-        reason: "the footer has no room left for it",
-      },
+      expect.objectContaining({ reason: "the footer has no room left for it" }),
     ]);
   });
 
-  it("fills what room there is before leaving facts off", () => {
+  it("never draws the product as a fact", () => {
+    const { directions } = coverBriefFacts(
+      [copy({ headline: "Cups for the shelf" })],
+      [],
+      "stoneware cups",
+    );
+    expect(directions[0].footerLines).toEqual([]);
+  });
+
+  it("drops footer repeats before counting what is missing", () => {
     const { directions, coverage } = coverBriefFacts(
       [
         copy({
-          footerLines: [
-            "Crumb & Co., 12 Admiralty Way, Lekki Phase 1, Lagos",
-            "Follow us for new bakes and seasonal specials",
-          ],
-          footerStyle: "bar",
+          subheadline: "Available from Monday, 7am pickup",
+          footerLines: ["Available from Monday · Pickup from 7am"],
+          footerStyle: "text",
         }),
       ],
-      WORKSHOP,
+      [],
     );
-    expect(directions[0].footerLines).toHaveLength(3);
-    expect(coverage.leftOff.length).toBeGreaterThan(0);
-    expect(coverage.leftOff.length).toBeLessThan(briefFacts(WORKSHOP).length);
+    expect(directions[0].footerLines).toEqual([]);
+    expect(directions[0].footerStyle).toBe("none");
+    expect(coverage.repeatsDropped).toBe(2);
   });
 });
 
-describe("brandSetting", () => {
-  /* Round-2 live run: a Lagos bakery's pastry on a European street. */
-  it("sets a scene where the brand is", () => {
-    expect(
-      brandSetting(BAKERY, [
-        "Neighbourhood bakery in Lekki, Lagos, baking French pastry.",
-      ]),
-    ).toBe("Lekki, Lagos");
+describe("brandRegion and brandSetting", () => {
+  it("reads the brand's country from its profile", () => {
+    expect(brandRegion(["Coffee bar in Accra"])).toBe("GH");
+    expect(brandRegion([null, "A shop"])).toBe("NG");
   });
 
-  it("adds a place the brief names to the brand's", () => {
-    expect(
-      brandSetting("A pop-up at Landmark Centre", ["A bakery in Lagos"]),
-    ).toBe("Landmark Centre, Lagos");
-  });
-
-  it("names no place when neither does", () => {
-    expect(
-      brandSetting("Launch our tote", ["Handwoven bags for modern homes."]),
-    ).toBe(null);
-  });
-});
-
-/* Round-3 code critic, break 1: a hand pattern glued a time or a count
-   onto the phone number and lost the fact it took. */
-describe("phone numbers", () => {
-  const read = (brief: string) =>
-    briefFacts(brief).map((f) => `${f.kind}:${f.text}`);
-
-  it.each([
-    [
-      "Call 08035550142 7am to 7pm.",
-      ["contact:08035550142", "time:7am to 7pm"],
-    ],
-    [
-      "WhatsApp 0803 555 0142 9am-5pm daily.",
-      ["contact:WhatsApp 0803 555 0142", "time:9am-5pm"],
-    ],
-    [
-      "Book on 0803 555 0142 2 seats left.",
-      ["contact:0803 555 0142", "quantity:2 seats"],
-    ],
-    [
-      "Tickets ₦5000 - 08035550142 for bookings.",
-      ["price:₦5000", "contact:08035550142"],
-    ],
-    [
-      "Orders: 0803 555 0142 10 slices max.",
-      ["contact:0803 555 0142", "quantity:10 slices"],
-    ],
-    ["Call 0803 555 0142 2pm onwards.", ["contact:0803 555 0142", "time:2pm"]],
-  ])("reads %s", (brief, facts) => {
-    expect(read(brief)).toEqual(facts);
-  });
-
-  it("states the number in any national or international spelling", () => {
-    const [phone] = briefFacts("Call 0803 555 0142.");
-    expect(factStated(phone, "Call +234 803 555 0142")).toBe(true);
-    expect(factStated(phone, "Call 08035550142")).toBe(true);
-    expect(factStated(phone, "Call 0803 555 0143")).toBe(false);
-  });
-
-  it("reads a number in the brand's own country", () => {
-    const [uk] = briefFacts("Ring 020 7946 0958 to book.", { region: "GB" });
-    expect(uk.text).toBe("020 7946 0958");
-    expect(brandRegion(["A bakery in Shoreditch, London"])).toBe("GB");
-    expect(brandRegion([null, "A bakery in Lekki"])).toBe("NG");
-  });
-});
-
-/* Round-3 code critic, break 3: facts missed or misread. */
-describe("facts the round-3 detector missed", () => {
-  const read = (brief: string) =>
-    briefFacts(brief).map((f) => `${f.kind}:${f.text}`);
-
-  it("reads plural days, addresses, discounts, dotted and 24-hour times", () => {
-    expect(read("Open Saturdays 9am to 2pm at our Ikoyi shop.")).toEqual([
-      "day:Saturdays",
-      "time:9am to 2pm",
-      "place:Ikoyi",
-    ]);
-    expect(read("Visit 14 Bourdillon Road, Ikoyi this Friday.")).toEqual([
-      "place:14 Bourdillon Road, Ikoyi",
-      "day:This Friday",
-    ]);
-    expect(read("30% off all throws this weekend only.")).toEqual([
-      "price:30% off",
-      "day:This weekend",
-    ]);
-    expect(read("Price 4500 per slice, pickup 07:00.")).toEqual([
-      "price:Price 4500",
-      "time:07:00",
-    ]);
-    expect(read("Workshop on 3/11 at 10am.")).toEqual([
-      "day:3/11",
-      "time:10am",
-    ]);
-  });
-
-  it("reads half past as half past", () => {
-    const [time] = briefFacts("Doors open at 6.30pm, Landmark Centre.");
-    expect(time.text).toBe("6.30pm");
-    expect(factStated(time, "Doors 6:30pm")).toBe(true);
-    expect(factStated(time, "Doors 30pm")).toBe(false);
-  });
-
-  it("never reads a language or a colour as a place", () => {
-    expect(
-      read("Classes taught in Yoruba and English, ages 6-12, every Saturday."),
-    ).toEqual(["age:ages 6-12", "day:Every Saturday"]);
-    expect(read("Our tote now comes in Black, Tan and Olive.")).toEqual([]);
-  });
-
-  it("counts 07:00 as 7am, so the time is not drawn twice", () => {
-    const [time] = briefFacts("Pickup 7am.");
-    expect(factStated(time, "Pickup 07:00")).toBe(true);
-  });
-
-  it("reads a date by the brand's day order", () => {
-    const [nov] = briefFacts("Workshop on 3/11.");
-    expect(factStated(nov, "3 November")).toBe(true);
-    const [mar] = briefFacts("Workshop on 3/11.", { region: "US" });
-    expect(factStated(mar, "March 11")).toBe(true);
-  });
-});
-
-/* Round-3 live critic: "ages 16 and up" and the street address were on
-   neither event direction while coverage read 1.00. */
-describe("the event brief", () => {
-  const EVENT =
-    "Latte art masterclass on Sunday 9 November, 2pm to 5pm, at our Yaba bar, 12 Herbert Macaulay Way. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call or WhatsApp 0812 444 7781 to book.";
-
-  it("reads every fact, a weekday and its date as one", () => {
-    expect(briefFacts(EVENT).map((f) => `${f.kind}:${f.text}`)).toEqual([
-      "day:Sunday 9 November",
-      "time:2pm to 5pm",
-      "place:Yaba",
-      "place:12 Herbert Macaulay Way",
-      "price:₦25,000",
-      "age:ages 16 and up",
-      "inclusion:all milk and beans included",
-      "quantity:10 seats",
-      "contact:WhatsApp 0812 444 7781",
-    ]);
-  });
-
-  it("needs the age limit and the street, not just the district", () => {
-    const facts = briefFacts(EVENT);
-    const age = facts.find((f) => f.kind === "age");
-    const street = facts.find((f) => f.text.startsWith("12"));
-    expect(age && factStated(age, "Ages 16+")).toBe(true);
-    expect(age && factStated(age, "For everyone")).toBe(false);
-    expect(street && factStated(street, "Yaba bar")).toBe(false);
-    expect(street && factStated(street, "12 Herbert Macaulay Way, Yaba")).toBe(
-      true,
+  it("sets a scene where the brief and the brand are", () => {
+    const facts = settle("At our Yaba bar.", [
+      { kind: "place", text: "our Yaba bar" },
+    ]).facts;
+    expect(brandSetting(facts, ["Specialty coffee in Lagos"])).toBe(
+      "our Yaba bar, Lagos",
     );
-  });
-});
-
-describe("the product as a fact", () => {
-  it("is stated when the copy names it, and drawn when it does not", () => {
-    const facts = briefFacts(BAKERY, { product: "strawberry mille-feuille" });
-    const product = facts.find((f) => f.kind === "product");
-    expect(product?.text).toBe("Strawberry mille-feuille");
-    expect(product && factStated(product, "Strawberry Mille-Feuille")).toBe(
-      true,
+    expect(brandSetting([], ["Neighbourhood bakery in Lekki, Lagos"])).toBe(
+      "Lekki, Lagos",
     );
-    expect(product && factStated(product, "Yours in sizes 8 to 18")).toBe(
-      false,
-    );
-    const { directions } = coverBriefFacts(
-      [copy({ headline: "Your 7am treat is ready" })],
-      BAKERY,
-      { product: "strawberry mille-feuille" },
-    );
-    expect(directions[0].footerLines.join(" ")).toContain(
-      "Strawberry mille-feuille",
-    );
-  });
-});
-
-describe("a count is never stranded", () => {
-  it("joins the last footer line when it fits there", () => {
-    const { directions } = coverBriefFacts(
-      [
-        copy({
-          headline: "Pour your best",
-          footerLines: ["Call or WhatsApp 0812 444 7781"],
-          footerStyle: "bar",
-        }),
-      ],
-      "Masterclass, 10 seats. Call 0812 444 7781.",
-    );
-    expect(directions[0].footerLines).toEqual([
-      "Call or WhatsApp 0812 444 7781 · 10 seats",
-    ]);
-  });
-});
-
-describe("a range with one suffix", () => {
-  it("reads 2–5pm as 2pm to 5pm", () => {
-    const [time] = briefFacts("Class from 2pm to 5pm.");
-    expect(factStated(time, "Sun 9 Nov · 2–5pm")).toBe(true);
-    expect(factStated(time, "Sun 9 Nov · 2–5am")).toBe(false);
-  });
-});
-
-/* Round-4 live run: the address was left off a footer whose first line had
-   room for it. */
-describe("a fact joins any footer line it fits", () => {
-  it("fits the street onto the first line of three", () => {
-    const { directions, coverage } = coverBriefFacts(
-      [
-        copy({
-          headline: "Latte Art Masterclass",
-          footerLines: [
-            "₦25,000 per person · 10 seats",
-            "Ages 16+ · milk & beans included",
-            "Call/WhatsApp 0812 444 7781 to book",
-          ],
-          footerStyle: "bar",
-        }),
-      ],
-      "Masterclass at 12 Herbert Macaulay Way. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call 0812 444 7781.",
-    );
-    expect(coverage.leftOff).toEqual([]);
-    expect(directions[0].footerLines).toHaveLength(3);
-    expect(directions[0].footerLines.join(" ")).toContain(
-      "· 12 Herbert Macaulay Way",
-    );
+    expect(brandSetting([], [null])).toBeNull();
   });
 });

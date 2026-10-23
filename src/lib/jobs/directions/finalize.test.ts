@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefFacts } from "./brief-facts";
+import { settleBriefFacts } from "./brief-facts";
 import { factLedger, looksCutOff } from "./claims";
 import {
   clampAtClause,
@@ -550,8 +550,14 @@ describe("correctionHolds", () => {
   const ledger = factLedger([
     "Promote our almond croissants, ₦4,500 a box. Pickup Saturday from 7am.",
   ]);
-  const facts = briefFacts(
+  const { facts } = settleBriefFacts(
+    [
+      { kind: "price", text: "₦4,500" },
+      { kind: "day", text: "Saturday" },
+      { kind: "time", text: "from 7am" },
+    ],
     "Promote our almond croissants, ₦4,500 a box. Pickup Saturday from 7am.",
+    {},
   );
   const holds = correctionHolds(ledger, facts);
   const before = {
@@ -570,5 +576,42 @@ describe("correctionHolds", () => {
     expect(
       holds(before, { ...before, headline: "Almond croissants by the box" }),
     ).toBe(true);
+  });
+});
+
+/* Round-5 live run, fashion: one reason shown twice in other words, and a
+   price template reading "the ₦64,000, price". */
+describe("settleReasons, round 5", () => {
+  const checks = {
+    ledger: factLedger(["The indigo adire kaftan, ₦64,000, only 20 made."]),
+    briefText: "The indigo adire kaftan, ₦64,000, only 20 made.",
+    title: "Kaftan",
+  };
+  const copy = {
+    headline: "The Indigo Adire Kaftan",
+    subheadline: "Hand-dyed. ₦64,000, only 20 made.",
+    footerLines: [],
+  };
+
+  it("never shows one reason twice in other words", () => {
+    const { reasons } = settleReasons(
+      [
+        "The headline names the indigo adire kaftan directly and plainly.",
+        "The headline names the indigo adire kaftan straight away.",
+      ],
+      { copy, checks, product: "indigo adire kaftan", image: "none" },
+    );
+    expect(reasons).toHaveLength(2);
+    expect(reasons[1]).not.toMatch(/names the indigo adire kaftan/);
+  });
+
+  it("writes a price without the comma after it", () => {
+    const { reasons } = settleReasons([], {
+      copy,
+      checks,
+      product: "",
+      image: "none",
+    });
+    expect(reasons.join(" ")).not.toMatch(/,\s+price/);
   });
 });

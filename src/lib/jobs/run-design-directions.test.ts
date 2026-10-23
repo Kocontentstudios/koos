@@ -13,7 +13,14 @@ const uploadObject = vi.fn();
 const loadDesignImage = vi.fn();
 const rasterizeDocument = vi.fn();
 
-vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
+const readBrief = vi.fn();
+vi.mock("ai", async () => {
+  const { isBriefReadCall } = await import("./directions/fixtures");
+  return {
+    generateObject: (o: unknown) =>
+      isBriefReadCall(o) ? readBrief(o) : generateObject(o),
+  };
+});
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 vi.mock("@/lib/ai/image", () => ({
   getPlateAdapter: () => getPlateAdapter(),
@@ -101,6 +108,7 @@ const {
   designPng,
   directionsContext,
   draftOf,
+  readAnswer,
   verdict,
 } = await import("./directions/fixtures");
 
@@ -108,6 +116,8 @@ const UPLOAD_KEY = `design-images/${BRAND_ID}/2b1e0c8e-0b6a-4b0e-9a37-3a3c1f0a7d
 const SET = "9c0e8f5a-3b2d-4c1e-8f7a-6d5c4b3a2f10";
 const UPLOADED_PHOTO = await photo(600, 600);
 const PLATE_PHOTO = await photo(256, 320);
+
+const PLATE_SUBJECT = { x: 0.38, y: 0.3, w: 0.24, h: 0.24 };
 
 const plateModel = {
   id: "bedrock-stability",
@@ -153,6 +163,9 @@ const documentOf = (id: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  readBrief.mockResolvedValue({
+    object: { facts: [], offering: { kind: "none", phrase: "" }, people: [] },
+  });
   forceCovered = false;
   progress.length = 0;
   rowCount = 0;
@@ -174,12 +187,15 @@ beforeEach(() => {
   uploadObject.mockResolvedValue(undefined);
   loadBestLogo.mockResolvedValue({ logo: null, fault: null });
   createNotification.mockResolvedValue(undefined);
+  /* A plate whose subject the look boxed: one it could not box is laid
+     out as unknown and recorded (chooseLayout). */
   checkPlateShowsProduct.mockResolvedValue({
     shows: true,
     seen: "",
-    subject: null,
+    subject: PLATE_SUBJECT,
     items: [],
     lettering: false,
+    person: false,
   });
   lookAtPhoto.mockResolvedValue(null);
   /* The set as the database would hold it: every row created so far, with
@@ -313,6 +329,12 @@ describe("the upload path", () => {
   });
 
   it("emits design_directions_generated with source, count and faults", async () => {
+    lookAtPhoto.mockResolvedValue({
+      description: "a croissant",
+      subject: PLATE_SUBJECT,
+      face: null,
+      items: [],
+    });
     await run({ image: { source: "upload", key: UPLOAD_KEY } });
     expect(captureServerEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -780,7 +802,7 @@ describe("quality_faults", () => {
   it("counts delivered directions with a fault, not fault strings", async () => {
     checkPlateShowsProduct
       .mockResolvedValueOnce(verdict(false, "a cake"))
-      .mockResolvedValueOnce(verdict(true, ""))
+      .mockResolvedValueOnce(verdict(true, "", { subject: PLATE_SUBJECT }))
       .mockResolvedValue(verdict(false, "a cake"));
     rasterizeDocument.mockImplementation(
       async (input: { doc: { elements: { type: string }[] } }) => {
@@ -826,6 +848,9 @@ describe("an unusable upload", () => {
 
 describe("the brief's facts", () => {
   it("draws a fact a direction left out and records coverage", async () => {
+    readBrief.mockResolvedValue(
+      readAnswer([{ kind: "day", text: "weekends" }]),
+    );
     await run({ image: { source: "ko" } });
     const [first] = createDesignGeneration.mock.calls.map(([r]) => r);
     expect(first.spec.footerLines).toContain("Weekends");

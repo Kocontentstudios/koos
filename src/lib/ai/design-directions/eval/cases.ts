@@ -1,6 +1,8 @@
 import type { DesignCategory } from "@/lib/ai/design-training/playbooks";
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import type { PriorDirection } from "@/lib/jobs/directions/brief";
+import { READ_EVAL_CASES } from "./read-cases";
+import type { LabelledFact, LabelledOffering } from "./read-score";
 
 /**
  * Brand and brief fixtures for the directions eval. Varied on purpose: six
@@ -35,9 +37,24 @@ export interface DirectionsEvalCase {
   expectRefused?: boolean;
   /** Run each direction through the gate's correction path for real
    *  (round 4): the judge prescribes on the rendered pixels and the job's
-   *  own rules keep or refuse it. */
+   *  own rules keep or refuse it. Round 5 adds corrections that change the
+   *  copy, held to the same rules. */
   probeCorrection?: boolean;
+  /** The brief's hard facts, labelled by hand in its own words (round 5):
+   *  what coverage is measured against, independent of the reader, and
+   *  what the reader is scored against (read-score.ts). */
+  facts: LabelledFact[];
+  /** What the brief offers, when two careful readers would agree. */
+  offering?: LabelledOffering;
+  /** The real people the brief names. */
+  people?: string[];
 }
+
+const readCase = (id: string) => {
+  const found = READ_EVAL_CASES.find((c) => c.id === id);
+  if (!found) throw new Error(`no read case ${id}`);
+  return found;
+};
 
 /** Where the fixture photographs live: royalty-free stock, kept out of the
  *  repo because they are binaries. */
@@ -63,6 +80,14 @@ const BAKERY_REQUEST = {
     "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
 };
 
+const BAKERY_FACTS: LabelledFact[] = [
+  { text: "₦4,500 a slice" },
+  { text: "from Monday" },
+  { text: "from 7am" },
+  { text: "pickup from 7am", optional: true },
+  { text: "order ahead", optional: true },
+];
+
 const LOOM: BrandSummary = {
   name: "Lagos Loom",
   overview: "Handwoven aso-oke textiles for modern homes.",
@@ -73,6 +98,14 @@ const LOOM: BrandSummary = {
 
 /* From variant a's eval, where "12 Artisans" was written for a brief about
    twelve throws: the case that tests a count borrowed from another noun. */
+const LOOM_FACTS: LabelledFact[] = [
+  { text: "3 November" },
+  { text: "launching 3 November", optional: true },
+  { text: "Twelve new throws and cushions", optional: true },
+  { text: "Iseyin", optional: true },
+  { text: "each woven by one artisan in Iseyin", optional: true },
+];
+
 const LOOM_REQUEST = {
   title: "Autumn collection launch",
   designType: "Instagram Post",
@@ -92,6 +125,8 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     category: "food",
     request: BAKERY_REQUEST,
     product: "strawberry mille-feuille",
+    facts: BAKERY_FACTS,
+    offering: { kind: "product", phrases: ["strawberry mille-feuille"] },
   },
   /* The live run's brief on KO imagery: round 1 painted a tart, a cake and
      bread rolls for it. */
@@ -104,6 +139,8 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     category: "food",
     request: BAKERY_REQUEST,
     product: "strawberry mille-feuille",
+    facts: BAKERY_FACTS,
+    offering: { kind: "product", phrases: ["strawberry mille-feuille"] },
   },
   {
     id: "textile-launch-ko",
@@ -113,6 +150,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     category: "product",
     request: LOOM_REQUEST,
     product: "aso-oke throws",
+    facts: LOOM_FACTS,
   },
   {
     id: "textile-launch-regenerate",
@@ -122,6 +160,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     category: "product",
     request: LOOM_REQUEST,
     product: "aso-oke throws",
+    facts: LOOM_FACTS,
     regenerate: {
       existing: [
         {
@@ -165,6 +204,17 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "Valentine's dessert box for two: six pastries and a handwritten card, ₦25,000. Pre-orders close 12 February.",
     },
+    facts: [
+      { text: "₦25,000" },
+      { text: "12 February" },
+      { text: "Pre-orders close 12 February", optional: true },
+      { text: "for two", optional: true },
+      { text: "six pastries and a handwritten card", optional: true },
+    ],
+    offering: {
+      kind: "product",
+      phrases: ["Valentine's dessert box", "dessert box"],
+    },
   },
   {
     id: "fintech-ko",
@@ -189,6 +239,13 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "Send money to 20 African countries with zero transfer fees for your first month. Download the app to start.",
     },
+    facts: [
+      { text: "20 African countries" },
+      { text: "zero transfer fees" },
+      { text: "first month" },
+      { text: "zero transfer fees for your first month", optional: true },
+      { text: "Download the app", optional: true },
+    ],
   },
   {
     id: "conference-ko",
@@ -211,6 +268,9 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "Announce our panel 'Building for Heat' with architect Ada Obi, Friday 14 March at 4pm, Landmark Centre. Free registration, limited seats.",
     },
+    facts: readCase("panel-named-speaker").facts,
+    offering: readCase("panel-named-speaker").offering,
+    people: ["Ada Obi"],
   },
   {
     id: "recruitment-ko",
@@ -233,6 +293,15 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "We're hiring two senior React engineers, fully remote anywhere in Africa. Apply by 30 November.",
     },
+    facts: [
+      { text: "two" },
+      { text: "two senior React engineers", optional: true },
+      { text: "fully remote" },
+      { text: "anywhere in Africa" },
+      { text: "fully remote anywhere in Africa", optional: true },
+      { text: "30 November" },
+      { text: "Apply by 30 November", optional: true },
+    ],
   },
   {
     id: "eid-greeting-ko",
@@ -255,6 +324,8 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "Eid Mubarak greeting to our customers and their families. No promotion, just warm wishes.",
     },
+    facts: [],
+    offering: { kind: "none", phrases: [] },
   },
   {
     id: "fitness-ko",
@@ -278,6 +349,14 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "New 6am HIIT class every weekday at our Yaba studio. Your first class is free; book on WhatsApp.",
     },
+    facts: [
+      { text: "6am" },
+      { text: "every weekday" },
+      { text: "Yaba studio" },
+      { text: "first class is free" },
+      { text: "Your first class is free", optional: true },
+      { text: "WhatsApp" },
+    ],
   },
   /* Round 3: real photographs. A busy scene where copy must find the one
      calm area, and a portrait where copy may never cover the face. */
@@ -306,6 +385,20 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
         "Our new single-origin espresso flight is here: three shots for ₦6,000, every weekday from 8am at our Yaba bar. Walk in, no booking needed.",
     },
     product: "single-origin espresso flight",
+    facts: [
+      { text: "₦6,000" },
+      { text: "three shots" },
+      { text: "three shots for ₦6,000", optional: true },
+      { text: "every weekday" },
+      { text: "from 8am" },
+      { text: "Yaba bar" },
+      { text: "no booking needed" },
+      { text: "Walk in, no booking needed", optional: true },
+    ],
+    offering: {
+      kind: "product",
+      phrases: ["single-origin espresso flight", "espresso flight"],
+    },
   },
   {
     id: "fashion-portrait-upload",
@@ -331,6 +424,17 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
         "Pre-orders open for the Harmattan linen dress, ₦38,000, from Friday 1 November on adirehouse.ng.",
     },
     product: "Harmattan linen dress",
+    facts: [
+      { text: "₦38,000" },
+      { text: "Friday 1 November" },
+      { text: "from Friday 1 November", optional: true },
+      { text: "adirehouse.ng" },
+      { text: "Pre-orders open", optional: true },
+    ],
+    offering: {
+      kind: "product",
+      phrases: ["Harmattan linen dress", "linen dress"],
+    },
   },
   /* Round-3 live critic: the age limit and the street address were dropped
      from both directions while coverage read 1.00, the quote card shrank
@@ -359,6 +463,21 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "Latte art masterclass on Sunday 9 November, 2pm to 5pm, at our Yaba bar, 12 Herbert Macaulay Way. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call or WhatsApp 0812 444 7781 to book.",
     },
+    facts: [
+      { text: "Sunday 9 November" },
+      { text: "2pm to 5pm" },
+      { text: "Yaba bar" },
+      { text: "12 Herbert Macaulay Way" },
+      { text: "₦25,000 per person" },
+      { text: "ages 16 and up" },
+      { text: "all milk and beans included" },
+      { text: "10 seats" },
+      { text: "Call or WhatsApp 0812 444 7781" },
+    ],
+    offering: {
+      kind: "event",
+      phrases: ["latte art masterclass"],
+    },
   },
   /* Round-2 live run: a near-blank white photo was accepted and became two
      designs' hero. The loader must refuse it. */
@@ -379,6 +498,90 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
       briefText:
         "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.",
     },
+    facts: [],
+  },
+  /* Round 5: briefs of the shapes the round-4 live critic found broken,
+     in new words: a price with its quantity on a busy photo, an address
+     followed by days on a portrait at 9:16, and an event naming a real
+     person on KO imagery (the plate must show no identifiable face). */
+  {
+    id: "cups-photo-upload",
+    probeCorrection: true,
+    brand: {
+      name: "Brew Lab",
+      overview: "Specialty coffee bar in Yaba, Lagos.",
+      targetAudience: "Remote workers and students",
+      tone: "Easygoing, curious, precise about coffee",
+      primaryColor: "#1C1917",
+      secondaryColor: "#D97706",
+    },
+    hasLogo: false,
+    imageSource: "upload",
+    category: "product",
+    imageFile: `${EVAL_FIXTURES}/busy-cafe-espresso.jpg`,
+    request: {
+      title: "Stoneware cups",
+      designType: "Instagram Post",
+      dimensions: "1080x1080",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText: readCase("cafe-set-of-four").briefText,
+    },
+    product: "stoneware cups",
+    facts: readCase("cafe-set-of-four").facts,
+    offering: readCase("cafe-set-of-four").offering,
+  },
+  {
+    id: "coat-portrait-upload",
+    brand: {
+      name: "Adire House",
+      overview: "Contemporary adire womenswear studio in Ikoyi, Lagos.",
+      targetAudience: "Women who dress for work and weekends in one wardrobe",
+      tone: "Assured, warm, unhurried",
+      primaryColor: "#F5F0E6",
+      secondaryColor: "#1E3A8A",
+    },
+    hasLogo: false,
+    imageSource: "upload",
+    category: "product",
+    imageFile: `${EVAL_FIXTURES}/portrait-fashion.jpg`,
+    request: {
+      title: "Jade overcoat drop",
+      designType: "Instagram Story",
+      dimensions: "1080x1920",
+      platform: "Instagram",
+      aspectRatio: "9:16",
+      briefText: readCase("fashion-address-then-days").briefText,
+    },
+    product: "jade organza overcoat",
+    facts: readCase("fashion-address-then-days").facts,
+    offering: readCase("fashion-address-then-days").offering,
+  },
+  {
+    id: "sourdough-class-ko",
+    probeCorrection: true,
+    brand: {
+      name: "Crumb & Co.",
+      overview: "Neighbourhood bakery in Lekki, Lagos, baking French pastry.",
+      tone: "Warm, unfussy, a little playful",
+      primaryColor: "#FFF4E6",
+      secondaryColor: "#C2410C",
+      additionalColors: ["#3B2416"],
+    },
+    hasLogo: true,
+    imageSource: "ko",
+    category: "event",
+    request: {
+      title: "Teen sourdough class",
+      designType: "Instagram Post",
+      dimensions: "1080x1080",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText: readCase("teen-sourdough-class").briefText,
+    },
+    facts: readCase("teen-sourdough-class").facts,
+    offering: readCase("teen-sourdough-class").offering,
+    people: readCase("teen-sourdough-class").people,
   },
 ];
 
