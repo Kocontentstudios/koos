@@ -1,5 +1,6 @@
 import type { AspectRatio } from "@/lib/ai/image/types";
 import type { DesignElement } from "@/lib/design/document/schema";
+import { type BriefFact, drawnText, factsMissing } from "./brief-facts";
 import {
   type DrawnCopy,
   documentParts,
@@ -7,6 +8,7 @@ import {
   type ImageState,
   inventedFacts,
   looksCutOff,
+  placeholderIn,
   productFromBrief,
   reasonHolds,
 } from "./claims";
@@ -267,23 +269,26 @@ export function factualReasons(settings: ReasonSettings): string[] {
   const productStems = [...contentStems(product)];
   const headline = contentStems(copy.headline);
   if (productStems.length > 0 && productStems.every((s) => headline.has(s))) {
-    candidates.push(`The headline names the ${product} straight away`);
+    candidates.push(`The headline names the ${product} straight away.`);
   }
   const money = MONEY_IN.exec(drawn)?.[0];
   if (money)
-    candidates.push(`It gives the ${money.trim()} price, so nobody has to ask`);
+    candidates.push(
+      `It gives the ${money.trim()} price, so nobody has to ask.`,
+    );
   const time = TIME_IN.exec(drawn)?.[0];
   if (time)
-    candidates.push(`It says ${time.trim()}, so people know when to come`);
+    candidates.push(`It says ${time.trim()}, so people know when to come.`);
   const date = DATE_IN.exec(drawn)?.[0] ?? DAY_IN.exec(drawn)?.[0];
   if (date)
     candidates.push(
-      `${capitalise(date.trim())} is written on the design itself`,
+      `${capitalise(date.trim())} is written on the design itself.`,
     );
   if (productStems.length > 0 && (image === "verified" || image === "seen")) {
-    candidates.push(`The image shows the ${product} itself`);
+    candidates.push(`The image shows the ${product} itself.`);
   }
-  if (copy.cta) candidates.push(`The button asks for one thing: "${copy.cta}"`);
+  if (copy.cta)
+    candidates.push(`The button asks for one thing: "${copy.cta}".`);
   return candidates.filter(
     (reason) =>
       reason.length <= COPY_LIMITS.reason && holdsFor(settings, reason).ok,
@@ -327,14 +332,14 @@ export function documentReasons(drawn: DrawnDesign): string[] {
     headline &&
     texts.every((t) => t === headline || t.fontSize < headline.fontSize)
   ) {
-    reasons.push("The headline is set larger than every other line");
+    reasons.push("The headline is set larger than every other line.");
   }
   if (drawn.subject?.ok) {
-    reasons.push("The product is drawn whole, with no copy laid over it");
+    reasons.push("The product is drawn whole, with no copy laid over it.");
   }
   const logo = doc.elements.find((e) => e.type === "logo" && !e.hidden);
   const corner = logo ? cornerOf(logo, doc) : null;
-  if (corner) reasons.push(`The brand's logo is in the ${corner} corner`);
+  if (corner) reasons.push(`The brand's logo is in the ${corner} corner.`);
   return reasons;
 }
 
@@ -347,11 +352,11 @@ export function copyReasons(copy: DrawnCopy): string[] {
   const quote = (lead: string, text: string | undefined) => {
     const clean = (text ?? "").trim();
     if (!clean) return null;
-    const whole = `${lead} "${clean}"`;
+    const whole = `${lead} "${clean}".`;
     if (whole.length <= COPY_LIMITS.reason) return whole;
     const words = clean.split(/\s+/);
     for (let n = words.length - 1; n >= 2; n -= 1) {
-      const opening = `${lead.replace(/ reads$| says$| adds$/, " opens with")} "${words.slice(0, n).join(" ")}"`;
+      const opening = `${lead.replace(/ reads$| says$| adds$/, " opens with")} "${words.slice(0, n).join(" ")}".`;
       if (opening.length <= COPY_LIMITS.reason) return opening;
     }
     return null;
@@ -362,10 +367,48 @@ export function copyReasons(copy: DrawnCopy): string[] {
     quote("The button says", copy.cta),
     quote("The footer adds", copy.footerLines[0]),
   ].filter((r): r is string => r !== null);
-  if (reasons.length < DIRECTION_REASONS_MIN) {
-    reasons.push("Nothing competes with the headline, so it reads at once");
+  /* Two floors that claim nothing about size or order, so neither can be
+     false of any copy (round-3 code critic: the old "Nothing competes with
+     the headline" was itself an unmeasured hierarchy claim, and alone it
+     left a one-word headline with a single reason). */
+  for (const floor of COPY_FLOORS) {
+    if (reasons.length >= DIRECTION_REASONS_MIN) break;
+    reasons.push(floor);
   }
   return reasons;
+}
+
+const COPY_FLOORS = [
+  "Every word on it comes from the brief or the brand profile.",
+  "It carries one message, so there is one thing to take in.",
+];
+
+/** The copy a delivered document actually draws, by role. The footer is
+ *  read from the document, not the spec: the builders drop a footer line
+ *  that repeats the copy above it, and a reason about that line would
+ *  describe nothing (round-3 live critic). */
+export function drawnCopyOf(elements: readonly DesignElement[]): DrawnCopy {
+  const texts = (role: string) =>
+    elements
+      .filter(
+        (e): e is Extract<DesignElement, { type: "text" }> =>
+          e.type === "text" &&
+          !e.hidden &&
+          e.role === role &&
+          e.id !== "quote-mark",
+      )
+      .map((e) => e.text);
+  const button = elements.find(
+    (e): e is Extract<DesignElement, { type: "button" }> =>
+      e.type === "button" && !e.hidden,
+  );
+  const subheadline = texts("subheadline")[0];
+  return {
+    headline: texts("headline").join(" "),
+    ...(subheadline ? { subheadline } : {}),
+    ...(button ? { cta: button.label } : {}),
+    footerLines: texts("footer"),
+  };
 }
 
 export interface SettledReason {
@@ -439,11 +482,22 @@ export function settleReasons(
     ...(settings.drawn ? documentReasons(settings.drawn) : []),
     ...copyReasons(settings.copy),
   ];
+  /* A top-up that only repeats the price or time a kept reason already
+     gives says nothing new (round-4 live run: two reasons, both the
+     ₦4,500). */
+  const factsIn = (text: string) =>
+    [MONEY_IN, TIME_IN].flatMap((pattern) => {
+      const found = pattern.exec(text)?.[0];
+      return found ? [found.replace(/\s+/g, "").toLowerCase()] : [];
+    });
   for (const extra of topUps) {
     if (out.length >= DIRECTION_REASONS_MIN) break;
     if (out.some((kept) => kept.toLowerCase() === extra.toLowerCase())) {
       continue;
     }
+    const said = new Set(out.flatMap(factsIn));
+    const repeats = factsIn(extra);
+    if (repeats.length > 0 && repeats.every((f) => said.has(f))) continue;
     out.push(extra);
   }
   return { reasons: out.slice(0, DIRECTION_REASONS_MAX), dropped };
@@ -462,11 +516,44 @@ export function copyFault(
   /* The model's own cut-off copy ("Treat yourself to the", "Something
      sweet is coming…") goes back to it like any other fault. */
   if (looksCutOff(whole)) return "reads as an unfinished sentence";
+  const placeholder = placeholderIn(whole);
+  if (placeholder) return `holds the placeholder "${placeholder}"`;
   const invented = inventedFacts(whole, ledger);
   if (invented.length > 0) {
     return `states ${invented.join(", ")}, which the brief does not`;
   }
   return null;
+}
+
+/**
+ * Whether a correction's copy may replace `before`'s: every field within its
+ * limit, finished, stating only the brief's facts, and losing none of the
+ * brief's hard facts `before` stated. The gate checks the pixels, not the
+ * brief, so its judge may rewrite copy in a way that drops them (round-3
+ * code critic: a kept correction emptied the footer of all four facts).
+ */
+export function correctionHolds(
+  ledger: FactLedger,
+  facts: readonly BriefFact[],
+): (before: DrawnCopy, after: DrawnCopy) => boolean {
+  const missing = (copy: DrawnCopy) =>
+    new Set(factsMissing(facts, drawnText(copy)).map((f) => f.text));
+  return (before, after) => {
+    const fields: [string | undefined, number][] = [
+      [after.headline, COPY_LIMITS.headline],
+      [after.subheadline, COPY_LIMITS.subheadline],
+      [after.cta, COPY_LIMITS.cta],
+      ...after.footerLines.map((line): [string, number] => [
+        line,
+        COPY_LIMITS.footerLine,
+      ]),
+    ];
+    if (fields.some(([text, max]) => text && copyFault(text, max, ledger))) {
+      return false;
+    }
+    const was = missing(before);
+    return [...missing(after)].every((fact) => was.has(fact));
+  };
 }
 
 /** A field's text if it can be drawn, its whole clauses if those can, or

@@ -31,8 +31,7 @@ export interface PlateProduct {
 
 /** What the plate check concluded, recorded per plate. */
 export type PlateCheck =
-  /** The first plate shows the product (or, with none named, its subject)
-   *  and carries no lettering. */
+  /** The first plate shows the product and carries no lettering. */
   | "passed"
   /** The first did not; the one retry did. */
   | "passed-on-retry"
@@ -42,9 +41,10 @@ export type PlateCheck =
   /** Both showed the product with made-up writing painted on it, so the
    *  direction is drawn flat rather than with fake brand names on it. */
   | "failed-lettering"
-  /** The checker could not answer, or the model named a product the brief
-   *  never mentions so there was nothing to check it against; the plate is
-   *  used, unverified. */
+  /** The checker could not answer, or there was no product to check it
+   *  against (none named, or one the brief never mentions); the plate is
+   *  used, unverified. A plate checked only for lettering is not "passed"
+   *  (round-3 code critic). */
   | "unchecked";
 
 export interface CheckedPlate {
@@ -74,6 +74,7 @@ export function platePrompt(
   product: PlateProduct | null,
   rejected?: { seen?: string; lettering?: boolean },
   setting?: string | null,
+  namesPeople = false,
 ): string {
   const scene = buildBackgroundPlatePrompt(spec);
   /* Round 2 painted a Lagos bakery's pastry on a European street and wrote
@@ -83,7 +84,12 @@ export function platePrompt(
     : null;
   const plain =
     "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos";
-  const tail = [scene, place, plain].filter(Boolean).join(". ");
+  /* A painted face beside a named speaker reads as that person (round-3
+     live critic: the eval painted a woman for "Ada Obi"). */
+  const people = namesPeople
+    ? "No people, faces or hands: the brief names real people, and a painted stranger would stand in for them"
+    : "Any person is an anonymous passer-by, never posed as a named host, speaker or customer";
+  const tail = [scene, place, plain, people].filter(Boolean).join(". ");
   if (!product) {
     if (setting && !rejected?.lettering) return `In ${setting}: ${tail}`;
     return rejected?.lettering
@@ -100,6 +106,27 @@ export function platePrompt(
     ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
     : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
   return `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
+}
+
+/* "Speaker: Ada Obi", "hosted by Tunde Bakare", "with Chef Funke". */
+const ROLE =
+  "speakers?|hosts?|host(?:ed)? by|with|featuring|feat\\.?|by|chef|dr\\.?|mr\\.?|mrs\\.?|ms\\.?|keynote|panell?ists?|guests?|founder|ceo|coach|artist|architect|designer|author|dj|mc|pastor|prof\\.?|professor";
+/* Either case for the role ("Speaker:", "with"), never for the name. */
+const ANY_CASE_ROLE = ROLE.replace(
+  /(^|\|)([a-z])/g,
+  (_, bar: string, first: string) => `${bar}[${first}${first.toUpperCase()}]`,
+);
+const NAMED_PERSON = new RegExp(
+  `\\b(?:${ANY_CASE_ROLE})\\s*:?\\s+(?:(?:${ANY_CASE_ROLE})\\s+)?[A-Z][\\p{L}'’-]+\\s+[A-Z][\\p{L}'’-]+`,
+  "u",
+);
+
+/** Whether the brief names a real person a painted face could stand in
+ *  for. */
+export function briefNamesPeople(
+  briefText: string | null | undefined,
+): boolean {
+  return NAMED_PERSON.test(briefText ?? "");
 }
 
 function drawable(
@@ -141,6 +168,7 @@ export async function paintCheckedPlate({
   product,
   productUnchecked = false,
   setting = null,
+  namesPeople = false,
 }: {
   adapter: ImageAdapter;
   spec: DesignSpec;
@@ -150,6 +178,8 @@ export async function paintCheckedPlate({
   productUnchecked?: boolean;
   /** Where the brand is, for the scene (brandSetting). */
   setting?: string | null;
+  /** The brief names a real person (briefNamesPeople). */
+  namesPeople?: boolean;
 }): Promise<CheckedPlate> {
   let imageCalls = 0;
   const paint = async (prompt: string) => {
@@ -171,9 +201,12 @@ export async function paintCheckedPlate({
       product: product?.name ?? "",
       look: product?.look ?? "",
     });
-  const passed = productUnchecked ? "unchecked" : "passed";
+  const unverifiable = productUnchecked || !product;
+  const passed = unverifiable ? "unchecked" : "passed";
 
-  const first = await paint(platePrompt(spec, product, undefined, setting));
+  const first = await paint(
+    platePrompt(spec, product, undefined, setting, namesPeople),
+  );
   if (!first) {
     return {
       image: null,
@@ -202,7 +235,7 @@ export async function paintCheckedPlate({
     verdict.lettering ? `${verdict.seen} (lettered)` : verdict.seen,
   ];
   const second = await paint(
-    platePrompt(spec, product, firstRejection, setting),
+    platePrompt(spec, product, firstRejection, setting, namesPeople),
   );
   const failedAs = firstRejection.lettering ? "failed-lettering" : "failed";
   if (!second)
@@ -215,7 +248,7 @@ export async function paintCheckedPlate({
   if (!secondRejection) {
     return {
       image: second,
-      check: productUnchecked ? "unchecked" : "passed-on-retry",
+      check: unverifiable ? "unchecked" : "passed-on-retry",
       imageCalls,
       seen,
       look: again,

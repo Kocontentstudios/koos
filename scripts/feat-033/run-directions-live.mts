@@ -15,7 +15,7 @@
  * user, workspace and brands when they are missing. Writes only under
  * design-images/{qa brand}/ and generated/{qa brand}/ in the bucket. Uploads
  * each photo as the browser normaliser would send it. Saves each
- * direction's PNG and layer document to outDir (default /tmp/feat-033/u3-r3)
+ * direction's PNG and layer document to outDir (default /tmp/feat-033/u3-r4)
  * with live-summary.json, counting image calls by wrapping the plate adapter
  * rather than trusting the job's own counter.
  */
@@ -35,7 +35,7 @@ process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 const outDir =
   process.argv[2] && !process.argv[2].startsWith("--")
     ? process.argv[2]
-    : "/tmp/feat-033/u3-r3";
+    : "/tmp/feat-033/u3-r4";
 const only = process.argv.includes("--only")
   ? process.argv[process.argv.indexOf("--only") + 1]
   : null;
@@ -153,9 +153,13 @@ await mkdir(outDir, { recursive: true });
 const BRIEFS = {
   bakery:
     "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
-  cafe: "Our new single-origin espresso flight is here: three shots for ₦6,000, every weekday from 8am at our Yaba bar. Walk in, no booking needed.",
+  cafe: "Try our new flat white made with Ethiopian Yirgacheffe beans: ₦3,800 a cup, Monday to Saturday 7am to 6pm at our Yaba bar. Free filter refills for anyone working from a laptop.",
   fashion:
-    "Pre-orders open for the Harmattan linen dress, ₦38,000, from Friday 1 November on adirehouse.ng.",
+    "Our forest-green silk organza wrap robe is back, worn with the woven palm hat. Sizes 8 to 18, ₦52,000. Book a fitting at our Ikoyi studio, Tuesday to Saturday, 11am to 7pm.",
+  /* Round-3 live critic's event: a weekday with its date, an age limit, a
+     street address, inclusions, a count and a phone number. */
+  event:
+    "Latte art masterclass on Sunday 9 November, 2pm to 5pm, at our Yaba bar, 12 Herbert Macaulay Way. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call or WhatsApp 0812 444 7781 to book.",
   workshop:
     "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.",
 };
@@ -290,6 +294,9 @@ async function run(job: Job) {
     layoutsRelaid: m.layoutsRelaid,
     briefFacts: m.briefFacts,
     briefFactsDelivered: m.briefFactsDelivered,
+    briefFactsByDirection: m.briefFactsByDirection,
+    claimCheck: m.claimCheck,
+    platesRejected: m.platesRejected,
     factsAdded: m.factsAdded,
     factsLeftOff: m.factsLeftOff,
     fitAsked: m.fitAsked,
@@ -352,6 +359,9 @@ results.push(
     aspect: "4:5",
     photo: `${FIXTURES}/portrait-fashion.jpg`,
   }),
+);
+results.push(
+  await run({ name: "event-ko", brand: "cafe", brief: "event", aspect: "1:1" }),
 );
 results.push(
   await run({

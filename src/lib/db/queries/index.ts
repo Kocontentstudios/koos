@@ -1060,32 +1060,36 @@ export type DirectionSetRow = Awaited<
 >[number];
 
 /**
- * Settles one direction's layout while no other job can settle one in the
- * same set. Two regenerates on the two slots of a pair otherwise read the
- * same sibling, avoid the same layouts and land on the same one (round-2
- * code critic). The lock is a transaction-scoped advisory lock on the set,
- * so it is released on commit or on any failure, and `choose` sees every row
- * committed before it, including the other job's pending row and its
- * claimed layout.
+ * Claims a layout already chosen for one direction, if it is still free.
+ *
+ * Choosing builds candidate documents, which takes hundreds of milliseconds;
+ * holding a transaction (and, with one connection per process, every other
+ * query of the process) across that was the round-3 design. Now the job
+ * chooses first with no lock, and this short transaction re-reads the set
+ * under a transaction-scoped advisory lock and writes the layout only when
+ * `isFree` still holds for what is committed. False means another job took
+ * it in the meantime and the job chooses again (layout-claim.ts). Two
+ * regenerates on the two slots of a pair can therefore never land on the
+ * same layout (round-2 code critic).
  */
-export async function claimDirectionLayout<T>({
+export async function claimDirectionLayout({
   brandId,
   setId,
   rowId,
-  choose,
+  spec,
+  isFree,
   database = db,
 }: {
   brandId: string;
   setId: string;
   rowId: string;
-  choose: (
-    rows: DirectionSetRow[],
-  ) => Promise<{ spec: typeof designGenerations.$inferInsert.spec; result: T }>;
+  spec: typeof designGenerations.$inferInsert.spec;
+  isFree: (rows: DirectionSetRow[]) => boolean;
   /** One process holds one connection (client.ts), so it can never race
    *  itself; the test passes a second connection to show the lock holds
    *  across instances, which is where production races. */
   database?: typeof db;
-}): Promise<T> {
+}): Promise<boolean> {
   return database.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`direction-set:${setId}`}, 0))`,
@@ -1106,7 +1110,7 @@ export async function claimDirectionLayout<T>({
         ),
       )
       .orderBy(desc(designGenerations.createdAt));
-    const { spec, result } = await choose(rows);
+    if (!isFree(rows)) return false;
     await tx
       .update(designGenerations)
       .set({ spec })
@@ -1116,7 +1120,7 @@ export async function claimDirectionLayout<T>({
           eq(designGenerations.brandId, brandId),
         ),
       );
-    return result;
+    return true;
   });
 }
 

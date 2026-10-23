@@ -20,7 +20,9 @@ export interface RenderedDirection {
   failed: string | null;
   /** The subject box was known (vision box or a cut-out's alpha). */
   subjectKnown: boolean;
-  /** Guarded elements over the subject, from measureSubject. */
+  /** Guarded elements over the whole subject, from measureSubject: never
+   *  the head-and-shoulders box a fallback layout kept clear (round-3 code
+   *  critic: measuring the face box read 0 by construction). */
   overlaps: number;
   /** Share of the subject inside its frame, and its longer edge over the
    *  canvas's shorter side. Null without a subject. */
@@ -38,6 +40,26 @@ export interface RenderedDirection {
   judgeMissing: string[];
   /** The eval's own look at the plate for writing. Null off KO. */
   plateLettering: boolean | null;
+  /** Craft faults measured on the delivered document (craft.ts): a
+   *  headline under other copy, copy over copy, copy across a card edge. */
+  craftHard?: string | null;
+  craftSoft?: string | null;
+  /** The rendered copy names the case's product. Null without one. */
+  productNamed?: boolean | null;
+  /** Placeholders ("[LINK]", "TBC") in the rendered copy. */
+  placeholders?: string[];
+  /** The gate's correction path, run for real on probe cases: the judge
+   *  prescribes, the job's own rules accept or refuse, and what is
+   *  delivered is measured. Null when not probed. */
+  correction?: {
+    /** The judge answered with a change. */
+    prescribed: boolean;
+    kept: boolean;
+    /** Brief facts the delivered design lost against the first render. */
+    lostFacts: number;
+    /** Copy on the subject the layout kept clear, after the gate. */
+    overSubject: boolean;
+  } | null;
 }
 
 export interface RenderedCase {
@@ -69,6 +91,15 @@ export interface RenderTotals {
   refusalsExpected: number;
   refusalsMade: number;
   unexpectedRefusals: number;
+  craftHard: number;
+  craftSoftShare: number;
+  productNamedShare: number;
+  placeholders: number;
+  correctionsProbed: number;
+  correctionsPrescribed: number;
+  correctionsKept: number;
+  correctionLostFacts: number;
+  correctionOverSubject: number;
 }
 
 /** Frozen before the round-3 run. */
@@ -92,6 +123,21 @@ export const RENDER_THRESHOLDS = {
   maxJudgeInventedShare: 0.15,
   /** Delivered plates the eval's own look finds writing on. */
   maxLetteredPlateShare: 0.1,
+  /** Round 4, frozen before its run. Directions where the judge says a
+   *  hard fact of the brief is missing; it also lists soft details, so a
+   *  margin for that, as for invented. */
+  maxJudgeMissingShare: 0.15,
+  /** A delivered headline under other copy, copy over copy, or copy across
+   *  a card edge. The job refuses these layouts, so any is a bug. */
+  maxCraftHard: 0,
+  /** Product cases whose rendered copy names the product, per direction. */
+  minProductNamedShare: 1,
+  maxPlaceholders: 0,
+  /** At least one correction path actually exercised per run, and none of
+   *  them losing a fact or laying copy on the subject. */
+  minCorrectionsProbed: 1,
+  maxCorrectionLostFacts: 0,
+  maxCorrectionOverSubject: 0,
   /** Bad photos refused, of those that must be. */
   minRefusals: 1,
   maxUnexpectedRefusals: 0,
@@ -115,6 +161,7 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
   const plates = delivered.filter((d) => d.plateLettering !== null);
   const factCases = cases.filter((c) => c.factsTotal > 0 && !c.refused);
   const factDirections = delivered.filter((d) => d.factsTotal > 0);
+  const productDirections = delivered.filter((d) => d.productNamed != null);
   return {
     cases: cases.length,
     directions: all.length,
@@ -154,6 +201,32 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
       plates.filter((d) => d.plateLettering).length,
       plates.length,
     ),
+    craftHard: delivered.filter((d) => d.craftHard).length,
+    craftSoftShare: share(
+      delivered.filter((d) => d.craftSoft).length,
+      delivered.length,
+    ),
+    productNamedShare:
+      productDirections.length === 0
+        ? 1
+        : share(
+            productDirections.filter((d) => d.productNamed).length,
+            productDirections.length,
+          ),
+    placeholders: delivered.reduce(
+      (n, d) => n + (d.placeholders?.length ?? 0),
+      0,
+    ),
+    correctionsProbed: delivered.filter((d) => d.correction).length,
+    correctionsPrescribed: delivered.filter((d) => d.correction?.prescribed)
+      .length,
+    correctionsKept: delivered.filter((d) => d.correction?.kept).length,
+    correctionLostFacts: delivered.reduce(
+      (n, d) => n + (d.correction?.lostFacts ?? 0),
+      0,
+    ),
+    correctionOverSubject: delivered.filter((d) => d.correction?.overSubject)
+      .length,
     refusalsExpected: cases.filter((c) => c.expectRefused).length,
     refusalsMade: cases.filter((c) => c.expectRefused && c.refused).length,
     unexpectedRefusals: cases.filter((c) => !c.expectRefused && c.refused)
@@ -191,6 +264,29 @@ export function renderFailures(
   );
   over("judge: invented", t.judgeInventedShare, limits.maxJudgeInventedShare);
   over("lettered plates", t.letteredPlateShare, limits.maxLetteredPlateShare);
+  over("judge: missing", t.judgeMissingShare, limits.maxJudgeMissingShare);
+  over("craft faults delivered", t.craftHard, limits.maxCraftHard);
+  under(
+    "rendered copy names the product",
+    t.productNamedShare,
+    limits.minProductNamedShare,
+  );
+  over("placeholders", t.placeholders, limits.maxPlaceholders);
+  under(
+    "correction paths probed",
+    t.correctionsProbed,
+    limits.minCorrectionsProbed,
+  );
+  over(
+    "correction lost facts",
+    t.correctionLostFacts,
+    limits.maxCorrectionLostFacts,
+  );
+  over(
+    "correction put copy on the subject",
+    t.correctionOverSubject,
+    limits.maxCorrectionOverSubject,
+  );
   if (t.refusalsExpected > 0) {
     under(
       "bad photos refused",

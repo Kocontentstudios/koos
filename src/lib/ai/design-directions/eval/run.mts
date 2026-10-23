@@ -43,30 +43,38 @@ process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 
 const { inferCategory } = await import("../../design-training/infer-category");
 const { getPlateAdapter } = await import("../../image");
-const { draftDirections } = await import("../../../jobs/directions/brief");
+const { brandFacts, draftDirections } = await import(
+  "../../../jobs/directions/brief"
+);
 const { planConcepts, regenerationConcept } = await import(
   "../../../jobs/directions/concepts"
 );
-const { paintCheckedPlate } = await import("../../../jobs/directions/imagery");
+const { briefNamesPeople, paintCheckedPlate } = await import(
+  "../../../jobs/directions/imagery"
+);
 const { designSpecOf } = await import("../../../jobs/directions/schema");
 const { askVision } = await import("../../../design/quality/vision");
 const { lookAtPhoto } = await import("../../../design/quality/plate-check");
-const { brandSetting, briefFacts, factStated } = await import(
-  "../../../jobs/directions/brief-facts"
-);
-const { chooseLayout } = await import(
+const { brandRegion, brandSetting, briefFacts, drawnText, factsMissing } =
+  await import("../../../jobs/directions/brief-facts");
+const { chooseLayout, LAYOUT_CRAFT_FAILED } = await import(
   "../../../jobs/directions/subject-layout"
 );
-const { documentRenderer, subjectFaultChecker } = await import(
+const { directionGateRules, documentRenderer, layoutJudge } = await import(
   "../../../jobs/directions/render"
 );
-const { settleReasons } = await import("../../../jobs/directions/finalize");
+const { correctionHolds, drawnCopyOf, settleReasons } = await import(
+  "../../../jobs/directions/finalize"
+);
+const { layoutCraftFaults } = await import("../../../jobs/directions/craft");
+const { placeholderIn } = await import("../../../jobs/directions/claims");
+const { guardRender } = await import("../../../jobs/design-gate");
 const { respecForLayout } = await import("../../../jobs/design-logo-settle");
 const { measureImage } = await import("../../../design/document/image-facts");
 const { prepareDocumentFonts } = await import(
   "../../../design/document/rasterize"
 );
-const { SUBJECT_COVERED, subjectFromAlpha } = await import(
+const { measureSubject, SUBJECT_COVERED, subjectFromAlpha } = await import(
   "../../../design/document/subject"
 );
 const { designImageFromBytes, DesignImageError } = await import(
@@ -214,7 +222,7 @@ async function judgeCopy(
       `The brand profile: ${profile}`,
       "The design's copy:",
       ...lines,
-      'List in "unsupported" every statement in the copy that the brief and profile do not support: a number, price, day, date, time, count, duration, place or claim they never gave, or one whose meaning changed (for example "from ₦4,500" when the brief gives one price, "before 7am" for "from 7am", "only", "now", "fresh", "best"). Tone and invitations ("treat yourself") are not statements. List in "missing" every hard fact of the brief (day, date, time, price, ages, place, contact, quantity) the copy does not state. Empty lists when there is nothing.',
+      'List in "unsupported" every statement in the copy that the brief and profile do not support: a number, price, day, date, time, count, duration, place or claim they never gave, or one whose meaning changed (for example "from ₦4,500" when the brief gives one price, "before 7am" for "from 7am", "only", "now", "fresh", "best"). Tone and invitations ("treat yourself") are not statements. List in "missing" every hard fact of the brief (day, date, time, price, ages, place, contact, quantity) the copy does not state, one fact per entry and nothing else: not the brand name, not the kind of event, not a comment. A fact stated in other words or abbreviated ("Sun 9 Nov", "Ages 16+") is stated. Empty lists when there is nothing.',
     ].join("\n"),
     image: null,
     maxOutputTokens: 600,
@@ -262,7 +270,16 @@ for (const evalCase of cases) {
   } as never;
   const category = inferCategory(r.briefText, r.designType);
   const existing = evalCase.regenerate?.existing ?? [];
-  const facts = briefFacts(r.briefText);
+  const region = brandRegion([
+    ...brandFacts(evalCase.brand),
+    evalCase.brand.websiteUrl,
+  ]);
+  /* The case's own product, not the one the job resolved: coverage is
+     measured against what the brief is about, whatever the job made of it. */
+  const facts = briefFacts(r.briefText, {
+    region,
+    product: evalCase.product ?? "",
+  });
   const caseRecord: RenderedCase = {
     caseId: evalCase.id,
     expectRefused: Boolean(evalCase.expectRefused),
@@ -359,6 +376,7 @@ for (const evalCase of cases) {
               Boolean(result.reports[i]?.modelProduct.name) &&
               result.productSources[i] === "none",
             setting,
+            namesPeople: briefNamesPeople(r.briefText),
           });
           let look: {
             subject: string;
@@ -448,7 +466,7 @@ for (const evalCase of cases) {
           ...result.directions.slice(i + 1).map((d) => d.layout),
         ],
         subjects: image ? image.subjects : [],
-        faultOf: subjectFaultChecker(context, assets, fonts),
+        judge: layoutJudge(context, assets, fonts),
         relayout: (s, layout) => ({
           ...respecForLayout(s, layout, {
             modelChoice: "none",
@@ -467,10 +485,16 @@ for (const evalCase of cases) {
         plateLettering:
           evalCase.imageSource === "ko" ? (image?.lettering ?? null) : null,
       };
-      if (choice.fault === SUBJECT_COVERED) {
+      if (
+        choice.fault === SUBJECT_COVERED ||
+        choice.fault === LAYOUT_CRAFT_FAILED
+      ) {
         caseRecord.directions.push({
           ...base,
-          failed: "copy could not be kept off the subject in any layout",
+          failed:
+            choice.fault === SUBJECT_COVERED
+              ? "copy could not be kept off the subject in any layout"
+              : "no layout drew the copy cleanly",
           overlaps: 0,
           visibleShare: null,
           edgeShare: null,
@@ -482,32 +506,78 @@ for (const evalCase of cases) {
         });
         continue;
       }
-      const draw = documentRenderer(
-        context,
-        { ...assets, subject: choice.subject },
-        fonts,
-      );
-      const out = await draw(choice.spec);
+      const laidOut = { ...assets, subject: choice.subject };
+      const draw = documentRenderer(context, laidOut, fonts);
+      let out = await draw(choice.spec);
+      /* The gate's correction path, for real: the first render is reported
+         as failing the logo check (the one correctable fault a flat eval
+         render can carry), so the judge prescribes on the real pixels and
+         the job's own rules decide what is kept. */
+      let correction: RenderedDirection["correction"] = null;
+      if (evalCase.probeCorrection) {
+        const firstCopy = drawnCopyOf(out.document.elements);
+        let calls = 0;
+        const guarded = await guardRender(
+          async (spec) => {
+            calls += 1;
+            const drawn = calls === 1 ? out : await draw(spec);
+            return calls === 1 ? { ...drawn, logoFault: "eval probe" } : drawn;
+          },
+          choice.spec,
+          {
+            renderer: "composite",
+            id: `${evalCase.id}-${i}`,
+            context,
+            hasLogo: false,
+            rerollHelps: false,
+            ...directionGateRules({
+              spec: choice.spec,
+              assets: laidOut,
+              copyHolds: (corrected) =>
+                correctionHolds(result.checks.ledger, facts)(
+                  choice.spec,
+                  corrected,
+                ),
+              keepsSubjectClear: choice.subject,
+            }),
+          },
+        );
+        out = { ...guarded, logoFault: null };
+        const lost = factsMissing(
+          facts,
+          drawnText(drawnCopyOf(out.document.elements)),
+        ).filter(
+          (f) => !factsMissing(facts, drawnText(firstCopy)).includes(f),
+        ).length;
+        correction = {
+          prescribed: Boolean(guarded.correction),
+          kept: Boolean(guarded.correctionKept),
+          lostFacts: lost,
+          overSubject:
+            choice.subject && imageFacts
+              ? (measureSubject(out.document, imageFacts, choice.subject)
+                  ?.overlaps.length ?? 0) > 0
+              : false,
+        };
+        console.log(
+          `\n   [${i}] correction probe: ${guarded.correction ?? "no prescription"} kept=${correction.kept} lost=${lost}`,
+        );
+      }
       writeFileSync(join(outDir, `${evalCase.id}-${i}.png`), out.bytes);
       writeFileSync(
         join(outDir, `${evalCase.id}-${i}.document.json`),
         `${JSON.stringify(out.document, null, 2)}\n`,
       );
-      const copy = {
-        headline: choice.spec.headline,
-        subheadline: choice.spec.subheadline,
-        cta: choice.spec.cta,
-        footerLines: choice.spec.footerLines,
-      };
+      /* What is drawn, read off the document: the builders drop a footer
+         line that repeats the copy above it. */
+      const copy = drawnCopyOf(out.document.elements);
       delivered.push(copy);
-      const drawnText = [
-        copy.headline,
-        copy.subheadline,
-        copy.cta,
-        ...copy.footerLines,
-      ]
-        .filter(Boolean)
-        .join(" \n ");
+      const drawn = drawnText(copy);
+      const wholeSubject =
+        choice.wholeSubject && imageFacts
+          ? measureSubject(out.document, imageFacts, choice.wholeSubject)
+          : null;
+      const craft = layoutCraftFaults(out.document);
       const reasons = settleReasons(direction.rationale, {
         copy,
         checks: result.checks,
@@ -522,7 +592,7 @@ for (const evalCase of cases) {
             ? direction.backgroundPrompt
             : undefined,
         imageDescription: image?.description,
-        drawn: { document: out.document, subject: out.subject },
+        drawn: { document: out.document, subject: wholeSubject },
       }).reasons;
       const look = image
         ? await lookAtRender(out.bytes).catch((err) => {
@@ -539,14 +609,29 @@ for (const evalCase of cases) {
       const record: RenderedDirection = {
         ...base,
         failed: null,
-        overlaps: out.subject?.overlaps.length ?? 0,
-        visibleShare: out.subject?.visibleShare ?? null,
-        edgeShare: out.subject?.edgeShare ?? null,
+        overlaps: wholeSubject?.overlaps.length ?? 0,
+        visibleShare: wholeSubject?.visibleShare ?? null,
+        edgeShare: wholeSubject?.edgeShare ?? null,
         lookTextOverSubject: look?.over ?? null,
         lookSubjectCut: look?.cut ?? null,
-        factsStated: facts.filter((f) => factStated(f, drawnText)).length,
+        factsStated: facts.length - factsMissing(facts, drawn).length,
         judgeUnsupported: judged.unsupported,
         judgeMissing: judged.missing,
+        craftHard: craft.hard,
+        craftSoft: craft.soft,
+        productNamed: evalCase.product
+          ? factsMissing(briefFacts("", { product: evalCase.product }), drawn)
+              .length === 0
+          : null,
+        placeholders: [
+          copy.headline,
+          copy.subheadline,
+          copy.cta,
+          ...copy.footerLines,
+        ]
+          .map((text) => (text ? placeholderIn(text) : null))
+          .filter((p): p is string => p !== null),
+        correction,
       };
       caseRecord.directions.push(record);
       console.log(
@@ -555,14 +640,7 @@ for (const evalCase of cases) {
       console.log(`       reasons: ${reasons.join(" | ")}`);
     }
     caseRecord.factsCoveredAnywhere = facts.filter((f) =>
-      delivered.some((copy) =>
-        factStated(
-          f,
-          [copy.headline, copy.subheadline, copy.cta, ...copy.footerLines]
-            .filter(Boolean)
-            .join(" \n "),
-        ),
-      ),
+      delivered.some((copy) => factsMissing([f], drawnText(copy)).length === 0),
     ).length;
 
     const score = scoreDirectionsCase(evalCase, result, plates);
@@ -693,7 +771,13 @@ console.log(
   `brief facts on any direction ${f2(renderTotals.caseFactCoverage)} (min ${rt.minCaseFactCoverage}); per direction ${f2(renderTotals.directionFactCoverage)} (min ${rt.minDirectionFactCoverage}); judge missing ${f2(renderTotals.judgeMissingShare)}`,
 );
 console.log(
-  `judge: invented ${f2(renderTotals.judgeInventedShare)} (max ${rt.maxJudgeInventedShare})`,
+  `judge: invented ${f2(renderTotals.judgeInventedShare)} (max ${rt.maxJudgeInventedShare}); missing ${f2(renderTotals.judgeMissingShare)} (max ${rt.maxJudgeMissingShare})`,
+);
+console.log(
+  `craft faults delivered ${renderTotals.craftHard} (max ${rt.maxCraftHard}); soft ${f2(renderTotals.craftSoftShare)}; rendered copy names the product ${f2(renderTotals.productNamedShare)} (min ${rt.minProductNamedShare}); placeholders ${renderTotals.placeholders} (max ${rt.maxPlaceholders})`,
+);
+console.log(
+  `correction path: probed ${renderTotals.correctionsProbed} (min ${rt.minCorrectionsProbed}), prescribed ${renderTotals.correctionsPrescribed}, kept ${renderTotals.correctionsKept}, lost facts ${renderTotals.correctionLostFacts} (max ${rt.maxCorrectionLostFacts}), copy on subject ${renderTotals.correctionOverSubject} (max ${rt.maxCorrectionOverSubject})`,
 );
 console.log(
   `plates ${renderTotals.plates}: lettered ${f2(renderTotals.letteredPlateShare)} (max ${rt.maxLetteredPlateShare})`,

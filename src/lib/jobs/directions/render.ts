@@ -26,7 +26,9 @@ import {
 } from "@/lib/design/render/logo";
 import type { DesignSpec } from "@/lib/design/spec";
 import { type Guarded, guardRender } from "../design-gate";
+import { layoutCraftFaults } from "./craft";
 import type { PlacedAsset } from "./imagery";
+import type { LayoutVerdict } from "./subject-layout";
 
 export interface DocumentRender {
   bytes: Uint8Array;
@@ -171,13 +173,14 @@ export function documentRenderer(
   };
 }
 
-/** Whether `spec` keeps its copy off `subject`: the builders' own verdict
- *  (documentFromSpec's subjectFault), without drawing a pixel. */
-export function subjectFaultChecker(
+/** Whether `spec` keeps its copy off `subject` and draws it cleanly: the
+ *  builders' subject verdict, checked by measuring the built document, and
+ *  its craft faults (craft.ts), without drawing a pixel. */
+export function layoutJudge(
   context: DesignContext,
   assets: DirectionAssets,
   fonts: { fonts: LoadedFont[] },
-): (spec: DesignSpec, subject: SubjectBox) => Promise<string | null> {
+): (spec: DesignSpec, subject: SubjectBox | null) => Promise<LayoutVerdict> {
   const measurer = createRendererMeasurer({ fonts: fonts.fonts });
   return async (spec, subject) => {
     const logo = spec.logoPlacement === "none" ? null : assets.logo;
@@ -196,12 +199,14 @@ export function subjectFaultChecker(
     /* A builder can settle for "cropped" while its fallback arrangement
        still lays a line over the subject (round-3 eval, conference); the
        measurement of the document is what decides. */
+    const craft = layoutCraftFaults(built.document, assets.imageFacts);
     const facts = assets.imageFacts;
-    const measured = facts
-      ? measureSubject(built.document, facts, subject)
-      : null;
-    if (measured && measured.overlaps.length > 0) return SUBJECT_COVERED;
-    return built.subjectFault;
+    const measured =
+      facts && subject ? measureSubject(built.document, facts, subject) : null;
+    if (measured && measured.overlaps.length > 0) {
+      return { subjectFault: SUBJECT_COVERED, craft };
+    }
+    return { subjectFault: subject ? built.subjectFault : null, craft };
   };
 }
 
@@ -216,6 +221,51 @@ export function measuredSubject(
   return measureSubject(doc, facts, subject);
 }
 
+/**
+ * What the gate may do to a direction, beyond its pixel checks: a correction
+ * must keep the layout the forcing rule settled, draw something different,
+ * and keep copy that holds (copyHolds); a second render that draws copy over
+ * copy, or lays copy on the box the layout kept clear, is refused by
+ * measurement whatever the builder reported (round-3 code critic: a
+ * correction reported only "cropped" while its headline sat on the
+ * subject).
+ */
+export function directionGateRules({
+  spec,
+  assets,
+  copyHolds,
+  keepsSubjectClear,
+}: {
+  spec: DesignSpec;
+  assets: DirectionAssets;
+  copyHolds: (corrected: DesignSpec) => boolean;
+  keepsSubjectClear: SubjectBox | null;
+}): {
+  acceptCorrection: (corrected: DesignSpec) => boolean;
+  refuseSecond: (second: DocumentRender) => boolean;
+} {
+  return {
+    /* The judge sees one direction and cannot see its sibling, so it may
+       not move the layout the forcing rule settled; and a change the
+       document does not draw (a plate prompt, the native prompt) would buy
+       an identical second render. */
+    acceptCorrection: (corrected) =>
+      corrected.layout === spec.layout &&
+      drawsDifferently(spec, corrected) &&
+      copyHolds(corrected),
+    refuseSecond: (second) => {
+      if (layoutCraftFaults(second.document).hard) return true;
+      if (!keepsSubjectClear || !assets.imageFacts) return false;
+      const measured = measureSubject(
+        second.document,
+        assets.imageFacts,
+        keepsSubjectClear,
+      );
+      return (measured?.overlaps.length ?? 0) > 0;
+    },
+  };
+}
+
 /** One direction through the shared pre-delivery gate (design-gate.ts). */
 export function renderDirectionGuarded({
   id,
@@ -226,6 +276,7 @@ export function renderDirectionGuarded({
   outOfTime,
   onFirstRender,
   copyHolds = () => true,
+  keepsSubjectClear = null,
 }: {
   id: string;
   spec: DesignSpec;
@@ -234,9 +285,15 @@ export function renderDirectionGuarded({
   fonts: { fonts: LoadedFont[]; fault: string | null };
   outOfTime: () => boolean;
   onFirstRender?: () => void;
-  /** Whether a corrected spec's copy may be drawn: within its limits and
-   *  stating only the brief's facts. The judge rewrites copy too. */
+  /** Whether a corrected spec's copy may be drawn: within its limits,
+   *  stating only the brief's facts and losing none it stated. The judge
+   *  rewrites copy too. */
   copyHolds?: (spec: DesignSpec) => boolean;
+  /** The box the chosen layout keeps clear. A corrected render that lays
+   *  copy on it is refused by measurement, whatever the builder reported
+   *  (round-3 code critic: a correction reported only "cropped" while its
+   *  headline sat on the subject). */
+  keepsSubjectClear?: SubjectBox | null;
 }): Promise<Guarded<DocumentRender>> {
   return guardRender(documentRenderer(context, assets, fonts), spec, {
     renderer: "composite",
@@ -247,14 +304,12 @@ export function renderDirectionGuarded({
     /* The plate is already painted and the document render is
        deterministic, so the same spec would only repeat the fault. */
     rerollHelps: false,
-    /* The judge sees one direction and cannot see its sibling, so it may not
-       move the layout the forcing rule settled; and a change the document
-       does not draw (a plate prompt, the native prompt) would buy an
-       identical second render. */
-    acceptCorrection: (corrected) =>
-      corrected.layout === spec.layout &&
-      drawsDifferently(spec, corrected) &&
-      copyHolds(corrected),
+    ...directionGateRules({
+      spec,
+      assets,
+      copyHolds,
+      keepsSubjectClear,
+    }),
     onFirstRender,
   });
 }

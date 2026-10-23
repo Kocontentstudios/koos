@@ -9,7 +9,7 @@ import type { DirectionDraft } from "./schema";
 export function draftOf(over: Partial<DirectionDraft> = {}): DirectionDraft {
   return {
     layout: "hero-center",
-    headline: "Warm almond croissants every morning",
+    headline: "Almond croissants for the commute",
     subheadline: "Baked before sunrise in Lekki",
     cta: "Order for pickup",
     footerStyle: "none",

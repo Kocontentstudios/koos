@@ -12,7 +12,8 @@ vi.mock("@/lib/design/quality/plate-check", () => ({
   checkPlateShowsProduct: (input: unknown) => checkPlateShowsProduct(input),
 }));
 
-const { paintPlate, platePrompt, storeDrawnMark } = await import("./imagery");
+const { briefNamesPeople, paintPlate, platePrompt, storeDrawnMark } =
+  await import("./imagery");
 const { BRAND_ID, designPng, draftOf, verdict } = await import("./fixtures");
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46]);
@@ -66,7 +67,7 @@ describe("paintPlate", () => {
 
   it("makes one call and stores the plate under generated/{brand}/plates/", async () => {
     const plateModel = adapter(designPng(1024, 1280));
-    const { placed, imageCalls, check } = await paint(plateModel);
+    const { placed, imageCalls, check } = await paint(plateModel, PRODUCT);
     expect(plateModel.generate).toHaveBeenCalledTimes(1);
     expect(imageCalls).toBe(1);
     expect(check).toBe("passed");
@@ -82,6 +83,13 @@ describe("paintPlate", () => {
         contentType: "image/png",
       }),
     );
+  });
+
+  /* Round-3 code critic P4a: a plate with no product to check it for was
+     recorded "passed" after a look for lettering only. */
+  it("records a plate with no product to check as unchecked, not passed", async () => {
+    const { check } = await paint(adapter(designPng(1024, 1280)));
+    expect(check).toBe("unchecked");
   });
 
   it("names a JPEG plate for what it is", async () => {
@@ -164,6 +172,30 @@ describe("paintPlate", () => {
     expect(result.check).toBe("unchecked");
     expect(result.placed).not.toBeNull();
     expect(result.imageCalls).toBe(1);
+  });
+});
+
+/* Round-3 live critic: the eval painted a woman as "Ada Obi". */
+describe("people on a plate", () => {
+  it("sees a named person in the brief", () => {
+    expect(
+      briefNamesPeople(
+        "Announce our panel with architect Ada Obi, Friday 14 March.",
+      ),
+    ).toBe(true);
+    expect(briefNamesPeople("Speaker: Tunde Bakare on fintech")).toBe(true);
+    expect(
+      briefNamesPeople("Launch our new strawberry mille-feuille, ₦4,500"),
+    ).toBe(false);
+  });
+
+  it("paints no one when the brief names someone, and no stand-in otherwise", () => {
+    expect(platePrompt(draftOf(), null, undefined, null, true)).toMatch(
+      /No people, faces or hands/,
+    );
+    expect(platePrompt(draftOf(), null)).toMatch(
+      /never posed as a named host, speaker or customer/,
+    );
   });
 });
 

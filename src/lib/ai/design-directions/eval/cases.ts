@@ -33,6 +33,10 @@ export interface DirectionsEvalCase {
   imageFile?: string;
   /** The loader must refuse this upload; the case passes only if it does. */
   expectRefused?: boolean;
+  /** Run each direction through the gate's correction path for real
+   *  (round 4): the judge prescribes on the rendered pixels and the job's
+   *  own rules keep or refuse it. */
+  probeCorrection?: boolean;
 }
 
 /** Where the fixture photographs live: royalty-free stock, kept out of the
@@ -93,6 +97,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
      bread rolls for it. */
   {
     id: "bakery-ko",
+    probeCorrection: true,
     brand: CRUMB,
     hasLogo: true,
     imageSource: "ko",
@@ -290,6 +295,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     imageSource: "upload",
     category: "food",
     imageFile: `${EVAL_FIXTURES}/busy-cafe-espresso.jpg`,
+    probeCorrection: true,
     request: {
       title: "Espresso flight launch",
       designType: "Instagram Post",
@@ -325,6 +331,34 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
         "Pre-orders open for the Harmattan linen dress, ₦38,000, from Friday 1 November on adirehouse.ng.",
     },
     product: "Harmattan linen dress",
+  },
+  /* Round-3 live critic: the age limit and the street address were dropped
+     from both directions while coverage read 1.00, the quote card shrank
+     its headline under the footer, and the phone number sat beside a time. */
+  {
+    id: "masterclass-ko",
+    brand: {
+      name: "Pour House Coffee",
+      overview: "Specialty coffee bar in Yaba, Lagos.",
+      targetAudience: "Remote workers and students",
+      tone: "Easygoing, curious, precise about coffee",
+      offer: "Single-origin espresso and pour-over",
+      primaryColor: "#1C1917",
+      secondaryColor: "#D97706",
+      additionalColors: ["#F5F5F4"],
+    },
+    hasLogo: true,
+    imageSource: "ko",
+    category: "event",
+    request: {
+      title: "Latte art masterclass",
+      designType: "Instagram Post",
+      dimensions: "1080x1080",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText:
+        "Latte art masterclass on Sunday 9 November, 2pm to 5pm, at our Yaba bar, 12 Herbert Macaulay Way. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call or WhatsApp 0812 444 7781 to book.",
+    },
   },
   /* Round-2 live run: a near-blank white photo was accepted and became two
      designs' hero. The loader must refuse it. */

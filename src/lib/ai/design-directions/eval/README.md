@@ -100,8 +100,36 @@ frozen before the first round-3 run.
 | refusals | `workshop-blank-upload` (photo-a.jpg, near-white) refused; no good photo refused | all / 0 |
 
 Reported, not gated: `subjectKnownShare`, `lookCutShare` (the look calls a
-framed photo "cut" far more often than the geometry does), `judgeMissingShare`
-(the judge also lists soft details such as "autumn" as missing).
+framed photo "cut" far more often than the geometry does), `craftSoftShare`.
+
+### Round 4 additions, frozen before the round-4 run
+
+The round-3 critic showed three rendered metrics passed by construction:
+copy over the subject was measured against the box the layout kept clear
+(the face, on a fallback), fact coverage used the detector that drew the
+facts in, and the correction path never ran. Now:
+
+- `copyOverSubject` and `croppedShare` are measured against the whole
+  subject, whatever box the layout kept clear.
+- The copy is read off the drawn document (`drawnCopyOf`), so a footer line
+  the builders dropped is not counted, and facts include the case's product.
+- `judgeMissingShare` is gated, independent of `briefFacts`.
+
+| Metric | Meaning | Threshold |
+|---|---|---|
+| `judgeMissingShare` | Directions where the judge says a hard fact of the brief is missing | ≤ 0.15 |
+| `craftHard` | Delivered directions with a headline under other copy, copy over copy, or copy across a card edge (`craft.ts`) | 0 |
+| `productNamedShare` | Product cases whose rendered copy names the product | 1.0 |
+| `placeholders` | "[LINK]", "TBC" and the like in rendered copy | 0 |
+| `correctionsProbed` | Directions run through the gate's correction path for real (`probeCorrection` cases): the first render is reported as failing the logo check, the real judge prescribes on its pixels, the job's own rules (`directionGateRules`, `correctionHolds`) keep or refuse it | ≥ 1 |
+| `correctionLostFacts` | Brief facts the delivered design lost to a kept correction | 0 |
+| `correctionOverSubject` | Corrections delivered with copy on the box the layout kept clear | 0 |
+
+`judgeInventedShare` stays the independent check of the claim check
+(`claim-check.ts`): both are model readings of the copy against the brief,
+but the product's asks for a rewrite of each field before delivery and the
+eval's asks, after rendering, for every unsupported statement in the drawn
+copy, with a different prompt and on the copy as drawn.
 
 ### Grounding
 
@@ -166,6 +194,7 @@ scene must now show the same product. A pair is a near-duplicate at headline
 | `fitness-ko` | service | KO | A schedule and a free first class |
 | `cafe-photo-upload` | food | busy-cafe-espresso.jpg | A busy scene with bright windows: copy must find room off the machine |
 | `fashion-portrait-upload` | product | portrait-fashion.jpg | A person: copy may never cover the face |
+| `masterclass-ko` | event | KO | Round-3 live critic's event: a weekday with its date, an age limit, a street address, inclusions, a count and a phone number |
 | `workshop-blank-upload` | event | photo-a.jpg | A near-white photo the loader must refuse before any model call |
 
 The photo fixtures are royalty-free stock in `/tmp/feat-033/fixtures` (kept
@@ -220,3 +249,42 @@ see ("designing for Lagos's climate", "One weave", "Your first month is
 free" for "zero transfer fees for your first month", "just show up" on a
 book-on-WhatsApp brief). Closing it needs a semantic check of the copy in the
 product, a paid call per job, which is a decision, not a fix.
+
+## Results, round 4 (2026-10-23)
+
+One full run, 14 cases, `us.anthropic.claude-sonnet-4-6` and Bedrock
+stable-image-core. FAIL on five counts; the failures are listed, not tuned
+away.
+
+| Metric | Round 3, run 3 | Round 4 |
+|---|---|---|
+| model: within limits / grounded / spatial | 1.00 / 0.82 / 0.07 | 1.00 / 0.85 / **0.13** |
+| model: invented (max 0.05) | **0.12** | **0.12** |
+| delivered: invented, false, cut, spatial | 0 | 0 |
+| distinctness mean / worst | 0.82 / 0.67 | 0.82 / 0.67 |
+| plates show the product | 0.40 | 1.00 (5 of 5, 2 retried) |
+| copy over the whole subject (max 0) | 0 | 0 |
+| cropped | 0.18 | 0.10 |
+| brief facts, any direction / per direction | 1.00 / 1.00 | 1.00 / 0.99 |
+| judge: invented (max 0.15) | **0.39** | **0.16** (4 of 25) |
+| judge: missing (max 0.15, new gate) | (0.30, ungated) | 0.08 |
+| craft faults delivered (max 0) | not measured | 0 |
+| rendered copy names the product (min 1) | not measured | **0.91** |
+| placeholders (max 0) | not measured | 0 |
+| correction path probed / prescribed / kept / lost facts / copy on subject | not run | 4 / 4 / 0 / 0 / 0 |
+| lettered plates (max 0.1) | 0.00 | **0.17** (2 of 12) |
+| blank photo refused | 1/1 | 1/1 |
+
+The model lane is the model's first answer before any check, and the
+detectors behind it are stricter this round (plural days, superlatives,
+"one" counts, "warm", type and composition words), so the same prompt reads
+higher; nothing it flags is delivered. After the run, from its findings:
+the "product" a brief introduces now needs a launch verb and "new" (the run
+read "month" out of "Zero-fee launch month" and "panel 'Building" out of
+"Announce our panel"); a model's product name grows to the brief's whole
+phrase ("single-origin espresso flight", the 0.91); "the zero-fee promise"
+and "delivers the greeting" are no longer claims; "all-inclusive" is one;
+and a claim-check rewrite may not copy the sibling's headline. Still open:
+"Your first month is free" for "zero transfer fees for your first month"
+(the "free" licence for "zero fees" lets it through), and the eval's look
+finding writing on two plates the product's check passed.

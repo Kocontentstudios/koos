@@ -21,6 +21,10 @@ function answer(...drafts: ReturnType<typeof draftOf>[]) {
   return { object: { directions: drafts } };
 }
 
+/* The claim check is its own model call (claim-check.ts); these tests count
+   the art director's, so it finds nothing unless a test says otherwise. */
+const claimChecker = vi.fn(async () => [] as never[]);
+
 function input(over: Record<string, unknown> = {}) {
   return {
     context: directionsContext(),
@@ -28,6 +32,7 @@ function input(over: Record<string, unknown> = {}) {
     image: null,
     lenses,
     recentLayouts: [],
+    claimChecker,
     ...over,
   };
 }
@@ -48,7 +53,9 @@ describe("draftDirections", () => {
     generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
     const result = await draftDirections(input());
     expect(generateObject).toHaveBeenCalledTimes(1);
-    expect(result.modelCalls).toBe(1);
+    /* The art director's call and the claim check's. */
+    expect(result.modelCalls).toBe(2);
+    expect(claimChecker).toHaveBeenCalledTimes(1);
     expect(result.directions).toHaveLength(2);
     for (const direction of result.directions) {
       expect(directionSpecSchema.safeParse(direction).success).toBe(true);
@@ -160,7 +167,7 @@ describe("draftDirections", () => {
     const twin = draftOf({
       layout: "split-left",
       title: "Morning bake",
-      headline: "Warm almond croissants, every single morning",
+      headline: "Almond croissants, for every commute",
     });
     const fresh = contrastingDraft();
     generateObject
@@ -183,7 +190,7 @@ describe("draftDirections", () => {
       .mockResolvedValueOnce(answer(twin));
     const result = await draftDirections(input());
     expect(result.redrafted).toBe(false);
-    expect(result.modelCalls).toBe(2);
+    expect(result.modelCalls).toBe(3);
     expect(result.directions[1].title).toBe("Morning bake");
   });
 
@@ -235,7 +242,7 @@ describe("draftDirections", () => {
       expect(result.directions[0].cta).toBe("Order for pickup");
       /* The eval scores the model's own answer, not the rewrite. */
       expect(result.drafts[0].cta).toBe(overlong.cta);
-      expect(result.modelCalls).toBe(2);
+      expect(result.modelCalls).toBe(3);
     });
 
     it("ignores a rewrite that still breaks a rule, and never cuts a clause", async () => {
@@ -284,7 +291,7 @@ describe("draftDirections", () => {
             fixes: [
               {
                 id: "0.rationale.0",
-                text: "The headline names the croissants commuters want",
+                text: "The headline names the almond croissants",
               },
             ],
           },
@@ -292,7 +299,7 @@ describe("draftDirections", () => {
       const result = await draftDirections(input());
       expect(fitPrompt(1)).toContain('id "0.rationale.0"');
       expect(result.directions[0].rationale).toContain(
-        "The headline names the croissants commuters want",
+        "The headline names the almond croissants",
       );
     });
   });
@@ -369,4 +376,126 @@ describe("draftDirections", () => {
       expect(result.directions[0].title).toBe("Almond gift box");
     });
   });
+});
+
+/* Round-3 live critic: "Still Warm at 7am", "gone by morning" and a
+   "[REGISTRATION LINK]" placeholder were delivered; the pattern checks
+   read zero. */
+describe("the claim check", () => {
+  it("replaces a flagged field with a rewrite that passes every check", async () => {
+    generateObject.mockResolvedValue(
+      answer(
+        draftOf({ headline: "Just show up for almond croissants" }),
+        contrastingDraft(),
+      ),
+    );
+    const checker = vi.fn(async () => [
+      {
+        id: "0.headline",
+        statement: "Just show up",
+        rewrite: "Almond croissants before work",
+      },
+    ]);
+    const result = await draftDirections(input({ claimChecker: checker }));
+    expect(result.directions[0].headline).toBe("Almond croissants before work");
+    expect(result.claimCheck).toMatchObject({
+      available: true,
+      flagged: 1,
+      rewritten: 1,
+      dropped: 0,
+    });
+    const fields = (
+      checker.mock.calls[0] as unknown as [{ fields: { id: string }[] }]
+    )[0].fields;
+    expect(fields.map((f) => f.id)).toEqual(
+      expect.arrayContaining(["0.headline", "1.headline", "0.rationale.0"]),
+    );
+  });
+
+  it("leaves off a field whose rewrite still fails, and keeps two reasons", async () => {
+    generateObject.mockResolvedValue(
+      answer(
+        draftOf({ subheadline: "Come early and beat the queue" }),
+        contrastingDraft(),
+      ),
+    );
+    const result = await draftDirections(
+      input({
+        claimChecker: async () => [
+          {
+            id: "0.subheadline",
+            statement: "beat the queue",
+            rewrite: "Free delivery before they are gone",
+          },
+          { id: "0.rationale.0", statement: "croissant", rewrite: "" },
+          { id: "0.rationale.1", statement: "croissant", rewrite: "" },
+        ],
+      }),
+    );
+    expect(result.directions[0].subheadline).toBeUndefined();
+    expect(result.directions[0].rationale.length).toBeGreaterThanOrEqual(2);
+    expect(result.claimCheck).toMatchObject({ flagged: 3, dropped: 3 });
+  });
+
+  it("delivers on the pattern checks when the claim check is unavailable", async () => {
+    generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
+    const result = await draftDirections(
+      input({ claimChecker: async () => null }),
+    );
+    expect(result.directions).toHaveLength(2);
+    expect(result.claimCheck.available).toBe(false);
+  });
+});
+
+describe("an answer off the schema", () => {
+  it("is asked for once more before the job fails", async () => {
+    const offSchema = Object.assign(new Error("No object generated"), {
+      name: "AI_NoObjectGeneratedError",
+      text: "{}",
+    });
+    generateObject
+      .mockRejectedValueOnce(offSchema)
+      .mockResolvedValue(answer(draftOf(), contrastingDraft()));
+    const result = await draftDirections(input());
+    expect(result.directions).toHaveLength(2);
+    expect(generateObject).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry any other failure", async () => {
+    generateObject.mockRejectedValueOnce(new Error("throttled"));
+    await expect(draftDirections(input())).rejects.toThrow("throttled");
+    expect(generateObject).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* Round-4 live run: with no brief title, a refused headline fell back to
+   the concept's name ("Origin voice") and was drawn as the headline. */
+it("falls back from a refused headline to the product, never the concept title", async () => {
+  generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
+  const result = await draftDirections(
+    input({
+      context: directionsContext({ title: "" }),
+      claimChecker: async () => [
+        { id: "0.headline", statement: "x", rewrite: "Seven minutes away" },
+      ],
+    }),
+  );
+  expect(result.directions[0].headline).toBe("Almond croissants");
+  expect(result.directions[0].headline).not.toBe(result.directions[0].title);
+});
+
+it("never rewrites a headline into its sibling's", async () => {
+  generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
+  const result = await draftDirections(
+    input({
+      claimChecker: async () => [
+        {
+          id: "1.headline",
+          statement: "x",
+          rewrite: "Almond croissants for the commute",
+        },
+      ],
+    }),
+  );
+  expect(result.directions[1].headline).not.toBe(result.directions[0].headline);
 });

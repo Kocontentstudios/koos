@@ -46,7 +46,7 @@ export type Guarded<R extends GateRender> = R & {
   correctionKept?: true;
 };
 
-export interface GateOptions {
+export interface GateOptions<R extends GateRender = GateRender> {
   renderer: DesignRenderer;
   /** For the log only. */
   id: string;
@@ -67,6 +67,10 @@ export interface GateOptions {
   rerollHelps?: boolean;
   /** Called once the first render exists, before it is checked. */
   onFirstRender?: () => void;
+  /** Whether the second render breaks a rule the pixel checks cannot see
+   *  (copy on the subject, copy drawn over copy). A refused second render
+   *  is discarded and the first is delivered with its fault. */
+  refuseSecond?: (second: R) => boolean;
 }
 
 /**
@@ -129,7 +133,8 @@ export async function guardRender<R extends GateRender>(
     acceptCorrection = () => true,
     rerollHelps = true,
     onFirstRender,
-  }: GateOptions,
+    refuseSecond,
+  }: GateOptions<R>,
 ): Promise<Guarded<R>> {
   /* The canvas the spec asked for, which is what "the right shape" means here
      — not whatever the adapter decided to return. */
@@ -193,6 +198,18 @@ export async function guardRender<R extends GateRender>(
 
   const secondSpec = corrected && judged ? judged.spec : spec;
   const second = await render(secondSpec);
+  if (refuseSecond?.(second)) {
+    console.error("design gate refused the second render", {
+      variantId: id,
+      renderer,
+    });
+    return {
+      ...first,
+      spec,
+      fault: faultSummary(firstCheck.failures),
+      correction,
+    };
+  }
   const secondCheck = checkRenderedDesign({
     bytes: second.bytes,
     expected: canvas,

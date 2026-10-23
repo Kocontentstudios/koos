@@ -37,6 +37,7 @@ describe("inventedFacts", () => {
     expect(inventedFacts("12 Artisans", textile)).toEqual(["12 artisan"]);
     expect(inventedFacts("Twelve artisans, one loom", textile)).toEqual([
       "Twelve artisan",
+      "one loom",
     ]);
   });
 
@@ -458,8 +459,10 @@ describe("product resolution, round-2 probes", () => {
   });
 
   it("falls back to the brief's own words for the part it names", () => {
+    /* Round-3 code critic: "strawberry" alone checked the plate for a
+       strawberry. The brief's whole phrase is the product. */
     expect(briefSpanFor("Strawberry Napoleon", BAKERY_BRIEF)).toBe(
-      "strawberry",
+      "strawberry mille-feuille",
     );
     expect(briefSpanFor("strawberry millefeuille", BAKERY_BRIEF)).toBe(
       "strawberry mille-feuille",
@@ -475,12 +478,340 @@ describe("product resolution, round-2 probes", () => {
         BAKERY_BRIEF,
       ),
     ).toEqual([
-      { name: "mille-feuille", from: "sibling" },
-      { name: "mille-feuille", from: "model" },
+      { name: "strawberry mille-feuille", from: "sibling" },
+      { name: "strawberry mille-feuille", from: "model" },
     ]);
+    /* Round-3 code critic P4a: with no name from the model the plate was
+       checked for nothing and recorded "passed". */
     expect(resolveBriefProducts(["", ""], BAKERY_BRIEF)).toEqual([
+      { name: "strawberry mille-feuille", from: "brief" },
+      { name: "strawberry mille-feuille", from: "brief" },
+    ]);
+    expect(resolveBriefProducts(["", ""], "Happy new month!")).toEqual([
       { name: "", from: "none" },
       { name: "", from: "none" },
     ]);
+  });
+});
+
+/* Round-3 code critic, break 10: every row of its probe, each drawable as
+   it was. The detectors read English; copy in another language is the
+   claim check's (claim-check.ts). */
+describe("inventedFacts, round 4", () => {
+  const LEKKI_BRIEF =
+    "Launch our new strawberry mille-feuille, ₦4,500 a slice. Pickup from 7am at our Lekki shop. Order on WhatsApp 0803 555 0142.";
+  const ledger = factLedger([
+    LEKKI_BRIEF,
+    "Strawberry mille-feuille launch",
+    "Petit Four Bakery",
+    "A small bakery in Lekki, Lagos",
+  ]);
+
+  it.each([
+    ["Open Saturdays and Sundays"],
+    ["SAT & SUN"],
+    ["sat & sun pickup"],
+    ["Grab yours tonite"],
+    ["Ready this evening"],
+    ["Orders close at midnight"],
+    ["Ready by noon"],
+    ["On the counter all week"],
+    ["Until the end of the month"],
+    ["This festive season"],
+    ["$4,500 a slice"],
+    ["₦4,500+ a slice"],
+    ["₦4,500 and up"],
+    ["Slices ₦4,500 upwards"],
+    ["Min. ₦4,500 order"],
+    ["Mega sale on mille-feuille"],
+    ["Discounted slices this launch"],
+    ["Launch promo price"],
+    ["Deal of the day"],
+    ["Complimentary cream on every slice"],
+    ["Cream is on the house"],
+    ["Straight to your doorstep"],
+    ["Same-hour dispatch"],
+    ["Lagos's finest mille-feuille"],
+    ["The tastiest slice in Lekki"],
+    ["Lekki's favourite slice"],
+    ["Unbeatable layers"],
+    ["Cheapest in town"],
+    ["World-class pastry"],
+    ["First in Lagos to bake it"],
+    ["The original mille-feuille"],
+    ["Loved by thousands"],
+    ["Dozens sold every morning"],
+    ["Hundreds of happy customers"],
+    ["Double the cream"],
+    ["Twice the layers"],
+    ["Triple-layered"],
+    ["Satisfaction promised or your money back"],
+    ["Full refund if not happy"],
+    ["Prize-winning pastry"],
+    ["Handcrafted every morning"],
+    ["Still warm at 7am"],
+    ["Gone by morning"],
+  ])("catches %s", (copy) => {
+    expect(inventedFacts(copy, ledger)).not.toEqual([]);
+  });
+
+  it("keeps the brief's own price, time and place", () => {
+    expect(inventedFacts("₦4,500 a slice, pickup from 7am", ledger)).toEqual(
+      [],
+    );
+    expect(inventedFacts("Your Lekki slice is ready", ledger)).toEqual([]);
+  });
+
+  it("reads the brand's voice as voice, not fact", () => {
+    const voiced = factLedger([LEKKI_BRIEF]);
+    expect(inventedFacts("Still warm at 7am", voiced)).toEqual(["warm"]);
+  });
+});
+
+describe("reasonHolds, round 4", () => {
+  const ledger = factLedger([
+    "Launch our new strawberry mille-feuille, ₦4,500 a slice. Pickup from 7am at our Lekki shop. Order on WhatsApp 0803 555 0142.",
+    "A small bakery in Lekki, Lagos",
+  ]);
+  const ctx = (copy: Partial<DrawnCopy> = {}): ReasonContext => ({
+    copy: {
+      headline: "Layers worth the wait",
+      subheadline: "Strawberry mille-feuille, fresh cream between crisp pastry",
+      cta: "Order now",
+      footerLines: ["₦4,500 a slice"],
+      ...copy,
+    },
+    ledger,
+    briefText: "",
+    product: "strawberry mille-feuille",
+    image: "none",
+  });
+
+  /* Break 4: each named a piece of copy and a thing it did not carry. */
+  it.each([
+    "The headline names the croissant straight away",
+    "Leads with the croissant, the product commuters queue for",
+    "The footer gives the WhatsApp number",
+    "The button gives the pickup address",
+    "The subheadline names the Lekki shop",
+    "The headline speaks to commuters with the 7am pickup time",
+  ])("refuses %s", (reason) => {
+    expect(reasonHolds(reason, ctx()).ok).toBe(false);
+  });
+
+  it("accepts the same claims when the copy carries them", () => {
+    expect(
+      reasonHolds(
+        "The footer gives the WhatsApp number",
+        ctx({ footerLines: ["WhatsApp 0803 555 0142"] }),
+      ).ok,
+    ).toBe(true);
+    expect(
+      reasonHolds("The subheadline names the strawberry mille-feuille", ctx())
+        .ok,
+    ).toBe(true);
+    expect(
+      reasonHolds("The footer states ₦4,500 so the price is clear", ctx()).ok,
+    ).toBe(true);
+  });
+
+  /* Break 5: type and composition, and a word the brief uses in another
+     sense. */
+  it.each([
+    "Chunky type reads at a glance",
+    "Playful type matches the brand",
+    "Tight leading keeps it compact",
+    "Wide tracking feels premium",
+    "Rounded letterforms feel friendly",
+    "Clean, uncluttered layout lets the product breathe",
+    "Generous spacing feels calm and premium",
+    "Symmetry makes it feel balanced",
+    "Gradient wash adds depth",
+  ])("calls %s a claim it cannot know", (reason) => {
+    expect(spatialClaim(reason, ledger.text)).not.toBeNull();
+  });
+
+  it("exempts a source word only in the source's own sense", () => {
+    expect(
+      spatialClaim(
+        "Warm evening light makes it feel welcoming",
+        "Doors open at 6pm, light refreshments served",
+      ),
+    ).toBe("light");
+    expect(
+      spatialClaim(
+        "Bright, high-contrast type reads in a scroll",
+        "A talk for Bright minds",
+      ),
+    ).not.toBeNull();
+    expect(
+      spatialClaim(
+        "Rust and indigo echo the collection",
+        "Throws in rust and indigo",
+      ),
+    ).toBeNull();
+  });
+});
+
+/* Break 6: the plate checked for one modifier word, or for a channel. */
+describe("plate product, round 4", () => {
+  const brief =
+    "Launch our new strawberry mille-feuille. Fresh cream, crisp pastry layers. Order on WhatsApp at our Lekki shop from 7am.";
+
+  it("never shortens the product to one modifier word", () => {
+    expect(resolveBriefProducts(["Strawberry Napoleon", ""], brief)).toEqual([
+      { name: "strawberry mille-feuille", from: "brief" },
+      { name: "strawberry mille-feuille", from: "brief" },
+    ]);
+  });
+
+  it("never takes a channel, a place, a time or a shop for the product", () => {
+    for (const names of [
+      ["WhatsApp", "Lekki"],
+      ["7am", "shop"],
+    ]) {
+      expect(resolveBriefProducts(names, brief).map((p) => p.name)).toEqual([
+        "strawberry mille-feuille",
+        "strawberry mille-feuille",
+      ]);
+    }
+    expect(productFromBrief("WhatsApp", brief)).toBe("");
+    expect(productFromBrief("Lekki", brief)).toBe("");
+  });
+});
+
+describe("reasonHolds, round-4 live run", () => {
+  it("refuses a footer reason naming a place the footer does not carry", () => {
+    const ledger = factLedger([
+      "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday.",
+      "Neighbourhood French bakery in Lekki, Lagos.",
+    ]);
+    const ctx: ReasonContext = {
+      copy: {
+        headline: "Ready Before You Rush",
+        footerLines: ["Available from Monday · Pickup from 7am"],
+      },
+      ledger,
+      briefText: "",
+      product: "strawberry mille-feuille",
+      image: "none",
+    };
+    expect(
+      reasonHolds(
+        "The footer pins Monday availability and the Lekki neighbourhood for locals.",
+        ctx,
+      ).ok,
+    ).toBe(false);
+  });
+});
+
+/* Round-4 eval, masterclass: an age floor read as a count of milk, and a
+   phone number's last group as a count of what followed it. */
+describe("inventedFacts on an event footer", () => {
+  const ledger = factLedger([
+    "Latte art masterclass on Sunday 9 November, 2pm to 5pm. ₦25,000 per person, ages 16 and up, all milk and beans included, 10 seats. Call or WhatsApp 0812 444 7781 to book.",
+  ]);
+  it.each([
+    "10 seats · Ages 16+ · Milk & beans included",
+    "Call/WhatsApp 0812 444 7781 · 2pm to 5pm",
+    "Call/WhatsApp 0812 444 7781 · Latte art",
+    "Sun 9 Nov · 2–5pm · ₦25,000 per person",
+  ])("accepts %s", (copy) => {
+    expect(inventedFacts(copy, ledger)).toEqual([]);
+  });
+});
+
+describe("reasonHolds, any verb", () => {
+  const ledger = factLedger([
+    "Our forest-green silk organza wrap robe is back. Sizes 8 to 18, ₦52,000. Book a fitting at our Ikoyi studio, Tuesday to Saturday, 11am to 7pm.",
+  ]);
+  const ctx: ReasonContext = {
+    copy: {
+      headline: "The Silk Wrap Robe Is Back",
+      cta: "Book Your Fitting",
+      footerLines: ["₦52,000 · Sizes 8 to 18"],
+    },
+    ledger,
+    briefText: "",
+    product: "silk organza wrap robe",
+    image: "none",
+  };
+
+  /* Round-4 live run, fashion: neither button carried the studio. */
+  it.each([
+    "The CTA points directly to the Ikoyi studio fitting the brief requests.",
+    "The CTA drives the Ikoyi fitting appointment the brief asks for.",
+  ])("refuses %s", (reason) => {
+    expect(reasonHolds(reason, ctx).ok).toBe(false);
+  });
+
+  it("leaves a reason about who the copy moves alone", () => {
+    expect(
+      reasonHolds("The button invites people to book a fitting.", ctx).ok,
+    ).toBe(true);
+  });
+});
+
+describe("reasonHolds, by naming", () => {
+  it("holds what a reason says the copy names, after its audience", () => {
+    const ctx: ReasonContext = {
+      copy: { headline: "Your 7am reward.", footerLines: [] },
+      ledger: factLedger(["Commuters can order ahead for pickup from 7am."]),
+      briefText: "",
+      product: "",
+      image: "none",
+    };
+    expect(
+      reasonHolds(
+        "The headline speaks to commuters by naming their 7am pickup time.",
+        ctx,
+      ).ok,
+    ).toBe(false);
+  });
+});
+
+/* Round-4 eval: "month" from "Zero-fee launch month" and "panel 'Building"
+   from "Announce our panel 'Building for Heat'" were checked as products. */
+describe("a product the brief introduces", () => {
+  it.each([
+    "Send money with zero transfer fees for your first month. Zero-fee launch month",
+    "Announce our panel 'Building for Heat' with architect Ada Obi.",
+  ])("is nothing in %s", (brief) => {
+    expect(resolveBriefProducts(["", ""], brief)[0].name).toBe("");
+  });
+});
+
+describe("round-4 eval false positives and misses", () => {
+  const ledger = factLedger([
+    "Send money to 20 African countries with zero transfer fees for your first month.",
+  ]);
+  it("reads a promise or delivery as a noun or metaphor, not a claim", () => {
+    expect(
+      inventedFacts("The headline names the zero-fee promise", ledger),
+    ).toEqual([]);
+    expect(inventedFacts("The headline delivers the greeting", ledger)).toEqual(
+      [],
+    );
+    expect(
+      inventedFacts("We promise free transfers forever", ledger),
+    ).toContain("We promise");
+  });
+
+  it("catches an all-inclusive price the brief never set", () => {
+    const event = factLedger([
+      "₦25,000 per person, all milk and beans included.",
+    ]);
+    expect(inventedFacts("₦25,000 all-inclusive", event)).toContain(
+      "all-inclusive",
+    );
+  });
+
+  it("grows the model's product name to the brief's whole phrase", () => {
+    expect(
+      resolveBriefProducts(
+        ["espresso flight", "espresso flight"],
+        "Our new single-origin espresso flight is here: three shots for ₦6,000.",
+      )[0].name,
+    ).toBe("single-origin espresso flight");
   });
 });

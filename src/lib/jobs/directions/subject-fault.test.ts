@@ -45,12 +45,12 @@ vi.mock("@/lib/design/document/measure", () => ({
   createRendererMeasurer: () => ({}),
 }));
 
-const { subjectFaultChecker } = await import("./render");
+const { layoutJudge } = await import("./render");
 const { draftOf, directionsContext } = await import("./fixtures");
 
-describe("subjectFaultChecker", () => {
+describe("layoutJudge", () => {
   it("calls copy on the subject covered, whatever the builder reported", async () => {
-    const check = subjectFaultChecker(
+    const judge = layoutJudge(
       directionsContext() as never,
       {
         image: {
@@ -68,11 +68,12 @@ describe("subjectFaultChecker", () => {
       },
       { fonts: [] },
     );
-    expect(
-      await check(draftOf() as never, { x: 0.35, y: 0.35, w: 0.3, h: 0.3 }),
-    ).toBe(SUBJECT_COVERED);
-    expect(
-      await check(draftOf() as never, { x: 0, y: 0, w: 0.2, h: 0.2 }),
-    ).toBe(SUBJECT_CROPPED);
+    const check = async (box: { x: number; y: number; w: number; h: number }) =>
+      (await judge(draftOf() as never, box)).subjectFault;
+    expect(await check({ x: 0.35, y: 0.35, w: 0.3, h: 0.3 })).toBe(
+      SUBJECT_COVERED,
+    );
+    expect(await check({ x: 0, y: 0, w: 0.2, h: 0.2 })).toBe(SUBJECT_CROPPED);
+    expect((await judge(draftOf() as never, null)).subjectFault).toBeNull();
   });
 });

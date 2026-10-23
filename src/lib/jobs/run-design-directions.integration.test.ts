@@ -369,14 +369,16 @@ describe.runIf(ready)("directions job against the local database", () => {
     expect(made[0].spec.layout).not.toBe(made[1].spec.layout);
   }, 240_000);
 
-  /* The race itself, made wide: each claim takes 300 ms to decide, about
-     what building candidate documents costs. Without the set's lock both
-     read the same rows and pick the same layout. */
-  it("serialises layout claims on one set", async () => {
-    const { claimDirectionLayout } = await import("@/lib/db/queries");
-    const { layoutsHeld, layoutCandidates } = await import(
-      "./directions/layouts"
+  /* The race itself, made wide: each job takes 300 ms to choose, about
+     what building candidate documents costs, with no lock held. Both
+     choose the same layout; the claim lets one have it and sends the other
+     back to choose again from the set as it now is. */
+  it("gives two racing jobs on one set different layouts, holding no lock while choosing", async () => {
+    const { claimDirectionLayout, listDirectionSet } = await import(
+      "@/lib/db/queries"
     );
+    const { layoutCandidates } = await import("./directions/layouts");
+    const { settleDirectionLayout } = await import("./directions/layout-claim");
     const set = randomUUID();
     const [first, second] = await Promise.all(
       [0, 1].map(async (slot) => {
@@ -394,27 +396,44 @@ describe.runIf(ready)("directions job against the local database", () => {
     const schema = await import("@/lib/db/schema");
     const clients = [0, 1].map(() => postgres(LOCAL_DB, { max: 1 }));
     const databases = clients.map((client) => drizzle(client, { schema }));
-    const claim = ({ id, slot }: { id: string; slot: number }) =>
-      claimDirectionLayout({
-        database: databases[slot] as never,
-        brandId,
-        setId: set,
-        rowId: id,
-        choose: async (rows) => {
-          const held = layoutsHeld(
-            rows.filter((r) => r.id !== id),
-            { id, set, slot },
-            new Date(),
-          ).filter((l) => l !== "hero-center");
+    let chooses = 0;
+    let openWhileChoosing = 0;
+    const settle = ({ id, slot }: { id: string; slot: number }) =>
+      settleDirectionLayout({
+        self: { id, set, slot },
+        readSet: () => listDirectionSet(brandId, set),
+        choose: async (held) => {
+          chooses += 1;
+          const [{ open }] = await sql`select count(*)::int as open
+              from pg_locks where locktype = 'advisory' and granted`;
+          openWhileChoosing = Math.max(openWhileChoosing, open);
           await new Promise((resolve) => setTimeout(resolve, 300));
-          const layout = layoutCandidates("split-left", held)[0];
-          return { spec: { layout }, result: layout };
+          const layout = layoutCandidates(
+            "split-left",
+            held.filter((l) => l !== "hero-center"),
+          )[0];
+          return {
+            spec: {
+              layout,
+            } as unknown as import("@/lib/design/spec").DesignSpec,
+          };
         },
+        claim: (spec, isFree) =>
+          claimDirectionLayout({
+            database: databases[slot] as never,
+            brandId,
+            setId: set,
+            rowId: id,
+            spec,
+            isFree: (rows) => isFree(rows.filter((r) => r.id !== id)),
+          }),
       });
-    const picked = await Promise.all([claim(first), claim(second)]).finally(
+    const picked = await Promise.all([settle(first), settle(second)]).finally(
       () => Promise.all(clients.map((c) => c.end({ timeout: 2 }))),
     );
-    expect(picked[0]).not.toBe(picked[1]);
+    expect(picked[0].spec.layout).not.toBe(picked[1].spec.layout);
+    expect(chooses).toBe(3);
+    expect(openWhileChoosing).toBe(0);
     const stored = await sql`select spec from design_generations
         where id in ${sql([first.id, second.id])}`;
     expect(new Set(stored.map((r) => r.spec.layout)).size).toBe(2);

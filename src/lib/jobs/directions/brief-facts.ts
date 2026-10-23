@@ -1,6 +1,11 @@
+import {
+  type CountryCode,
+  findPhoneNumbersInText,
+} from "libphonenumber-js/max";
 import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
 import { calendarNames, NUMBER_WORDS } from "./claims";
 import { COPY_LIMITS } from "./schema";
+import { contentStems } from "./text-overlap";
 
 /**
  * The hard facts a brief states, and whether a design states them.
@@ -9,7 +14,10 @@ import { COPY_LIMITS } from "./schema";
  * direction. The round-2 workshop brief gave a day, a time, ages, a place and
  * a WhatsApp number, and both delivered designs dropped four of them: an
  * event post a parent cannot act on. Every fact found here must be drawn on
- * a direction, or the job records why it was left off.
+ * every direction, or the job records why it was left off.
+ *
+ * The readers are English, like the rest of the claim checks (spec,
+ * "Written to length, only the brief's facts").
  */
 
 export type BriefFactKind =
@@ -19,7 +27,9 @@ export type BriefFactKind =
   | "age"
   | "place"
   | "contact"
-  | "quantity";
+  | "quantity"
+  | "inclusion"
+  | "product";
 
 export interface BriefFact {
   kind: BriefFactKind;
@@ -51,49 +61,127 @@ function numbersIn(text: string): Set<string> {
   return values;
 }
 
-const TIME =
-  /\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b|\b(noon|midday|midnight)\b/gi;
+/* "6.30pm" is half past six, not 30pm (round-3 code critic), and "07:00"
+   with no am or pm is a 24-hour clock. */
+const CLOCK =
+  /\b(\d{1,2})(?:[:.](\d{2}))?\s?(am|pm)\b|\b([01]?\d|2[0-3]):([0-5]\d)\b|\b(noon|midday|midnight)\b/gi;
+
+/* "2–5pm" puts both ends in the afternoon. */
+const SHARED_SUFFIX =
+  /\b(\d{1,2})(?:[:.](\d{2}))?\s?(?:[-–—]|to)\s?(\d{1,2})(?:[:.](\d{2}))?\s?(am|pm)\b/gi;
 
 /** Minutes past midnight for every clock time in `text`. */
 function timesIn(text: string): Set<string> {
   const times = new Set<string>();
-  for (const m of text.matchAll(TIME)) {
-    if (m[4]) {
-      times.add(m[4].toLowerCase() === "midnight" ? "0" : "720");
-      continue;
+  for (const m of text.matchAll(SHARED_SUFFIX)) {
+    const pm = m[5].toLowerCase() === "pm";
+    const start = Number(m[1]);
+    const end = Number(m[3]);
+    /* "11–2pm" runs from morning into afternoon. */
+    const startPm = pm && start <= end && start !== 12;
+    times.add(
+      String(((start % 12) + (startPm ? 12 : 0)) * 60 + Number(m[2] ?? 0)),
+    );
+  }
+  for (const m of text.matchAll(CLOCK)) {
+    if (m[6]) {
+      times.add(m[6].toLowerCase() === "midnight" ? "0" : "720");
+    } else if (m[4]) {
+      times.add(String(Number(m[4]) * 60 + Number(m[5])));
+    } else {
+      const hour = (Number(m[1]) % 12) + (m[3].toLowerCase() === "pm" ? 12 : 0);
+      times.add(String(hour * 60 + Number(m[2] ?? 0)));
     }
-    const hour = (Number(m[1]) % 12) + (m[3].toLowerCase() === "pm" ? 12 : 0);
-    times.add(String(hour * 60 + Number(m[2] ?? 0)));
   }
   return times;
 }
 
+const WEEKDAY = "(?:mon|tues|wednes|thurs|fri|satur|sun)days?";
+const WEEKDAY_SHORT = "(?:Mon|Tues?|Wed|Thu(?:rs?)?|Fri|Sat|Sun)";
+const MONTH =
+  "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)";
+const ORDINAL = "(?:st|nd|rd|th)?";
+const MONTH_ORDER = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
+
+/* "Sunday 9 November" is one date, not a Sunday and a November. */
+const DATE = new RegExp(
+  `\\b(?:(${WEEKDAY}|${WEEKDAY_SHORT}),?\\s+)?(?:the\\s+)?(\\d{1,2})${ORDINAL}(?:\\s+of)?\\s+(${MONTH})\\b|\\b(?:(${WEEKDAY}|${WEEKDAY_SHORT}),?\\s+)?(${MONTH})\\.?\\s+(\\d{1,2})${ORDINAL}\\b`,
+  "giu",
+);
+const NUMERIC_DATE = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?\b/g;
+const DAY_RANGE = new RegExp(
+  `\\b(${WEEKDAY}|${WEEKDAY_SHORT})\\s*(?:to|through|until|till|[-–—])\\s*(${WEEKDAY}|${WEEKDAY_SHORT})\\b`,
+  "giu",
+);
+const DAY_WORD = new RegExp(
+  `\\b(?:(?:this|next|every)\\s+)?(?:${WEEKDAY}|weekends?|weekdays?)\\b`,
+  "giu",
+);
+
 const PRICE =
   /(?:₦|\bNGN\s?|\bN(?=\d)|\$|£|€)\s?\d[\d,]*(?:\.\d+)?k?\b|\b\d[\d,]*(?:\.\d+)?k?\s?(?:naira|ngn)\b/gi;
+const PERCENT_OFF = /\b\d{1,3}(?:\.\d+)?\s?(?:%|percent)(?:\s+off)?/gi;
+const UNIT =
+  "ml|cl|l|litres?|liters?|kg|g|grams?|pieces?|pcs|spots?|seats?|slots?|places?|tickets?|bottles?|boxes?|packs?|slices?|cups?|plates?|sessions?|classes?|weeks?|hours?|days?|nights?|people|persons?|guests?|kids?|child(?:ren)?|throws?|cushions?|items?|flavours?|flavors?|heads?";
+/* "Price 4500 per slice" names a price with no currency sign. */
+const WORDED_PRICE = new RegExp(
+  `\\b(?:price[sd]?|costs?|fees?)\\s*(?:is|of|:)?\\s*\\d[\\d,]*(?:\\.\\d+)?k?\\b(?![:.]?\\d|\\s?(?:am|pm|%))|\\b\\d[\\d,]{2,}(?:\\.\\d+)?k?\\s+(?:per|a|each)\\s+(?:${UNIT})\\b`,
+  "gi",
+);
 const TIME_SPAN =
-  /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)(?:\s?(?:[-–—]|to|until)\s?\d{1,2}(?::\d{2})?\s?(?:am|pm))?\b|\b(?:before|after|by|until)?\s?(?:noon|midday)\b/gi;
+  /\b\d{1,2}(?:[:.]\d{2})?\s?(?:am|pm)(?:\s?(?:[-–—]|to|until)\s?\d{1,2}(?:[:.]\d{2})?\s?(?:am|pm))?\b|\b(?:[01]?\d|2[0-3]):[0-5]\d(?:\s?(?:[-–—]|to|until)\s?(?:[01]?\d|2[0-3]):[0-5]\d)?\b|\b(?:before|after|by|until)?\s?(?:noon|midday|midnight)\b/gi;
 const AGE =
-  /\bages?\s*\d{1,2}\s*(?:[-–—]|to)\s*\d{1,2}\b|\bages?\s*\d{1,2}\s*\+|\b\d{1,2}\s*(?:[-–—]|to)\s*\d{1,2}\s*(?:years?|yrs?)(?:[- ]olds?)?\b|\b(?:under|over)[- ]\d{1,2}s?\b/gi;
-const PHONE = /(?:\+?\d[\d\s-]{8,}\d)/g;
+  /\bage[sd]?\s*\d{1,2}\s*(?:[-–—]|to)\s*\d{1,2}\b|\bage[sd]?\s*\d{1,2}\s*(?:\+|(?:and|or)\s+(?:up|over|above|older)\b)|\b\d{1,2}\s*(?:[-–—]|to)\s*\d{1,2}\s*(?:years?|yrs?)(?:[- ]olds?)?\b|\b\d{1,2}\s*(?:years?|yrs?)(?:[- ]olds?)?\s*(?:and|or)\s+(?:up|over|above|older)\b|\b(?:under|over)[- ]\d{1,2}s?\b|\(\d{1,2}\+\)/gi;
 const EMAIL = /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g;
 const URL =
   /\b(?:https?:\/\/)?(?:[\w-]+\.)+(?:com|ng|co|org|io|net|shop|store|africa)(?:\/[\w/-]*)?\b/gi;
 const HANDLE = /(?<![\w.])@[\w.]{2,}\b/g;
 const CHANNEL = /\b(whatsapp|instagram dm|dm us|text us|call us)\b/gi;
+const STREET =
+  "Road|Rd|Street|St|Way|Avenue|Ave|Close|Crescent|Cres|Drive|Lane|Boulevard|Blvd|Estate|Plaza|Mall|Square|Expressway|Highway|Court|Terrace|Parade";
+/* "14 Bourdillon Road, Ikoyi": an address needs no "in" or "at" in front of
+   it (round-3 code critic). */
+const ADDRESS = new RegExp(
+  `\\b\\d{1,5}[A-Za-z]?,?\\s+(?:[A-Z][\\p{L}'’.-]*\\s+){0,4}?(?:${STREET})\\b(?:,\\s*[A-Z][\\p{L}'’-]+(?:\\s+[A-Z][\\p{L}'’-]+)?)?`,
+  "gu",
+);
 const PLACE =
-  /\b(?:in|at|from|around|across|near)\s+(?:(?:our|the)\s+)?((?:[A-Z][\p{L}'’-]+)(?:,?\s+(?:[A-Z][\p{L}'’-]+))*)/gu;
-const UNIT =
-  "ml|cl|l|litres?|liters?|kg|g|grams?|pieces?|pcs|spots?|seats?|slots?|places?|tickets?|bottles?|boxes?|packs?|slices?|cups?|plates?|sessions?|classes?|weeks?|hours?|days?|nights?|people|guests?|kids?|children|throws?|cushions?|items?|flavours?|flavors?";
-/* "Twelve new throws and cushions" is one count: drawing "Twelve new
-   throws" alone changes what was counted (round-3 eval, textile). */
+  /\b(?:in|at|from|around|across|near|within)\s+(?:(?:our|the)\s+)?((?:[A-Z][\p{L}'’-]+)(?:,?\s+(?:[A-Z][\p{L}'’-]+))*)/gu;
 const QUANTITY = new RegExp(
   `\\b(\\d+|${Object.keys(NUMBER_WORDS).join("|")})\\s?(?:new\\s+)?(${UNIT})\\b(?:\\s+(?:and|&)\\s+(?:${UNIT})\\b)?`,
   "gi",
 );
+const INCLUSION =
+  /\b(?:all\s+)?((?:[\p{L}-]+)(?:(?:\s+and\s+|\s+&\s+|\s+)[\p{L}-]+){0,4})\s+(?:are\s+|is\s+)?included\b|\bincludes?\s+([\p{L}\s,&-]{3,60}?)(?=[.;!]|$)/giu;
 
-/* Proper words that open a place phrase but are not places. */
-const NOT_PLACES =
-  /^(whatsapp|instagram|facebook|tiktok|x|twitter|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|christmas|easter|eid)$/i;
+/* Capitalised words that follow "in" or "at" but are not places: a
+   language ("taught in Yoruba"), a colour ("comes in Black, Tan and Olive"),
+   a channel, a day or a month. */
+const NOT_PLACES = new RegExp(
+  `^(?:${[
+    "whatsapp|instagram|facebook|tiktok|x|twitter|youtube|snapchat|linkedin",
+    "monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|weekends",
+    "january|february|march|april|may|june|july|august|september|october|november|december",
+    "christmas|easter|eid|ramadan|sallah|valentine",
+    "english|french|spanish|portuguese|arabic|yoruba|igbo|hausa|pidgin|swahili|twi|ga|ewe|zulu|xhosa|amharic|chinese|mandarin|german|italian",
+    "black|white|tan|olive|navy|red|blue|green|gold|silver|pink|cream|grey|gray|brown|beige|ivory|indigo|rust|burgundy|teal|yellow|orange|purple|khaki|camel|maroon|coral|mint|lilac|lavender|charcoal|nude",
+    "size|sizes|stock|store|stores|style|styles|person|stores|season|time|stock",
+  ].join("|")})$`,
+  "i",
+);
 
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -103,103 +191,227 @@ function digits(text: string): string {
   return text.replace(/\D/g, "");
 }
 
+function monthKey(name: string): string {
+  return name.toLowerCase().slice(0, 3);
+}
+
+function weekdayKey(name: string): string {
+  const lower = name.toLowerCase();
+  const full = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ];
+  return full.find((day) => day.startsWith(lower.slice(0, 3))) ?? lower;
+}
+
+/* Day-first everywhere but the United States, where 3/11 is March 11. */
+const MONTH_FIRST: ReadonlySet<string> = new Set(["US", "PH", "FM", "MH"]);
+
+/* Where a brand's phone numbers are dialled from, read off its profile. A
+   number written with its +country code is found whatever this says. */
+const REGION_HINTS: [RegExp, CountryCode][] = [
+  [/\b(nigeria|lagos|abuja|ibadan|port harcourt|kano|enugu)\b|\.ng\b/i, "NG"],
+  [/\b(ghana|accra|kumasi)\b|\.gh\b/i, "GH"],
+  [/\b(kenya|nairobi|mombasa)\b|\.ke\b/i, "KE"],
+  [/\b(south africa|johannesburg|cape town|durban)\b|\.za\b/i, "ZA"],
+  [/\b(united kingdom|england|london|manchester|uk)\b|\.co\.uk\b/i, "GB"],
+  [/\b(united states|usa|new york|los angeles|chicago|houston)\b/i, "US"],
+  [/\b(canada|toronto|vancouver)\b/i, "CA"],
+];
+
+/** The country a brand's numbers are read in: the first its profile names,
+ *  else Nigeria, where KO's brands are. */
+export function brandRegion(
+  profile: (string | null | undefined)[],
+): CountryCode {
+  const text = profile.filter(Boolean).join(" \n ");
+  return REGION_HINTS.find(([pattern]) => pattern.test(text))?.[1] ?? "NG";
+}
+
+export interface BriefFactOptions {
+  /** Where the brand's phone numbers are dialled from (brandRegion). */
+  region?: CountryCode;
+  /** The brief's product, as the plate is checked for it. A direction that
+   *  never names what it sells cannot be acted on either. */
+  product?: string;
+}
+
+type Located = BriefFact & { at: number; end: number };
+
 /** The brief's hard facts, each once, in the order the brief gives them. */
-export function briefFacts(briefText: string): BriefFact[] {
+export function briefFacts(
+  briefText: string,
+  { region = "NG", product = "" }: BriefFactOptions = {},
+): BriefFact[] {
   const text = briefText ?? "";
-  const facts: (BriefFact & { at: number })[] = [];
+  const facts: Located[] = [];
   const taken: [number, number][] = [];
-  const claim = (start: number, end: number) => {
-    if (taken.some(([s, e]) => start < e && end > s)) return false;
-    taken.push([start, end]);
-    return true;
-  };
+  const free = (start: number, end: number) =>
+    !taken.some(([s, e]) => start < e && end > s);
   const add = (
     kind: BriefFactKind,
-    match: RegExpMatchArray,
+    start: number,
+    surface: string,
     needs: string[],
-    surface = match[0],
   ) => {
-    const start = match.index ?? 0;
-    if (needs.length === 0 || !claim(start, start + match[0].length)) return;
-    facts.push({ kind, text: surface.trim(), needs, at: start });
+    const end = start + surface.length;
+    if (needs.length === 0 || !free(start, end)) return false;
+    taken.push([start, end]);
+    const text = surface.trim();
+    facts.push({
+      kind,
+      text: kind === "day" ? capitalise(text) : text,
+      needs,
+      at: start,
+      end,
+    });
+    return true;
   };
+  const each = (
+    pattern: RegExp,
+    kind: BriefFactKind,
+    needsOf: (m: RegExpMatchArray) => string[],
+  ) => {
+    for (const m of text.matchAll(pattern)) {
+      add(kind, m.index ?? 0, m[0].replace(/[\s,]+$/, ""), needsOf(m));
+    }
+  };
+  const values = (m: RegExpMatchArray) =>
+    [...numbersIn(m[0])].map((n) => `=${n}`);
 
-  for (const m of text.matchAll(PHONE)) {
-    if (digits(m[0]).length >= 9) add("contact", m, [`#${digits(m[0])}`]);
+  each(EMAIL, "contact", (m) => [m[0].toLowerCase()]);
+  each(URL, "contact", (m) => [m[0].toLowerCase().replace(/^https?:\/\//, "")]);
+  each(HANDLE, "contact", (m) => [m[0].toLowerCase()]);
+  each(DATE, "day", (m) => {
+    const weekday = m[1] ?? m[4];
+    const day = m[2] ?? m[6];
+    const month = m[3] ?? m[5];
+    return [
+      ...(weekday ? [`~${weekdayKey(weekday)}`] : []),
+      `=${Number(day)}`,
+      `~${monthKey(month)}`,
+    ];
+  });
+  for (const m of text.matchAll(NUMERIC_DATE)) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    const [day, month] = MONTH_FIRST.has(region) ? [b, a] : [a, b];
+    if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+    add("day", m.index ?? 0, m[0], [`=${day}`, `~${MONTH_ORDER[month - 1]}`]);
   }
-  for (const m of text.matchAll(EMAIL)) add("contact", m, [m[0].toLowerCase()]);
-  for (const m of text.matchAll(URL)) {
-    add("contact", m, [m[0].toLowerCase().replace(/^https?:\/\//, "")]);
-  }
-  for (const m of text.matchAll(HANDLE))
-    add("contact", m, [m[0].toLowerCase()]);
-  for (const m of text.matchAll(CHANNEL))
-    add("contact", m, [m[1].toLowerCase()]);
-  for (const m of text.matchAll(PRICE)) {
-    add(
-      "price",
-      m,
-      [...numbersIn(m[0])].map((n) => `=${n}`),
-    );
-  }
-  for (const m of text.matchAll(AGE)) {
-    add(
-      "age",
-      m,
-      [...numbersIn(m[0])].map((n) => `=${n}`),
-    );
-  }
-  for (const m of text.matchAll(TIME_SPAN)) {
-    add(
-      "time",
-      m,
-      [...timesIn(m[0])].map((t) => `@${t}`),
-    );
-  }
-  for (const m of text.matchAll(QUANTITY)) {
-    add(
-      "quantity",
-      m,
-      [...numbersIn(m[1])].map((n) => `=${n}`),
-    );
-  }
+  each(PRICE, "price", values);
+  each(PERCENT_OFF, "price", values);
+  each(WORDED_PRICE, "price", (m) => {
+    const amount = /\d[\d,]*(?:\.\d+)?k?/.exec(m[0]);
+    return amount ? [...numbersIn(amount[0])].map((n) => `=${n}`) : [];
+  });
+  each(AGE, "age", values);
+  each(TIME_SPAN, "time", (m) => [...timesIn(m[0])].map((t) => `@${t}`));
+  each(QUANTITY, "quantity", (m) => [...numbersIn(m[1])].map((n) => `=${n}`));
+  each(ADDRESS, "place", (m) => [
+    ...values(m).slice(0, 1),
+    ...[...contentStems(m[0].replace(/\d+/g, " "))].map((s) => `^${s}`),
+  ]);
+  phoneFacts(text, region, taken).forEach(({ start, surface, national }) => {
+    add("contact", start, surface, [`#${national}`]);
+  });
+  each(CHANNEL, "contact", (m) => [m[1].toLowerCase()]);
+  each(DAY_RANGE, "day", (m) => [
+    `~${weekdayKey(m[1])}`,
+    `~${weekdayKey(m[2])}`,
+  ]);
+  each(DAY_WORD, "day", (m) => [
+    `~${calendarNames(m[0])[0] ?? m[0].toLowerCase()}`,
+  ]);
+  each(INCLUSION, "inclusion", (m) =>
+    [...contentStems(m[1] ?? m[2])].map((s) => `^${s}`),
+  );
   for (const name of new Set(calendarNames(text))) {
-    const at = text.toLowerCase().indexOf(name.slice(0, 3));
-    const surface = dayText(text, name) ?? capitalise(name);
+    if (facts.some((f) => f.needs.includes(`~${name}`))) continue;
+    const word = new RegExp(
+      `\\b${/\s/.test(name) ? name : `${name.slice(0, 3)}\\p{L}*`}`,
+      "iu",
+    ).exec(text);
+    const at = word?.index ?? text.length;
     facts.push({
       kind: "day",
-      text: surface,
-      /* "3 November" is two facts' worth: the month and the day of it. */
-      needs: [`~${name}`, ...[...numbersIn(surface)].map((n) => `=${n}`)],
-      at: at < 0 ? text.length : at,
+      text: capitalise(word?.[0] ?? name),
+      needs: [`~${name}`],
+      at,
+      end: at + (word?.[0].length ?? 0),
     });
   }
   for (const m of text.matchAll(PLACE)) {
-    const words = m[1].split(/,?\s+/).filter((w) => !NOT_PLACES.test(w));
+    const start = (m.index ?? 0) + m[0].indexOf(m[1]);
+    const words = m[1]
+      .split(/,?\s+/)
+      .filter((w) => !NOT_PLACES.test(w))
+      .filter((w) => {
+        const at = text.indexOf(w, start);
+        return free(at, at + w.length);
+      });
     if (words.length === 0) continue;
-    const start = (m.index ?? 0) + m[0].indexOf(words[0]);
-    if (!claim(start, start + words[0].length)) continue;
-    facts.push({
-      kind: "place",
-      text: words.join(" "),
-      needs: words.map((w) => w.toLowerCase()),
-      at: start,
-    });
+    const at = text.indexOf(words[0], start);
+    add(
+      "place",
+      at,
+      words.join(" "),
+      words.map((w) => w.toLowerCase()),
+    );
   }
+  const productFact = productFactOf(text, product);
+  if (productFact) facts.push(productFact);
   facts.sort((a, b) => a.at - b.at);
-  return mergeChannelAndNumber(text, facts).map(({ at: _at, ...fact }) => fact);
+  return mergeChannelAndNumber(text, facts).map(
+    ({ at: _at, end: _end, ...fact }) => fact,
+  );
+}
+
+/* A phone number is read by libphonenumber, after every time, price and
+   count has claimed its digits: a hand pattern glued "08035550142 7" out of
+   "Call 08035550142 7am to 7pm" (round-3 code critic). */
+function phoneFacts(
+  text: string,
+  region: CountryCode,
+  taken: readonly [number, number][],
+): { start: number; surface: string; national: string }[] {
+  let masked = text;
+  for (const [start, end] of taken) {
+    masked =
+      masked.slice(0, start) + " ".repeat(end - start) + masked.slice(end);
+  }
+  return findPhoneNumbersInText(masked, region).map((found) => ({
+    start: found.startsAt,
+    surface: text.slice(found.startsAt, found.endsAt),
+    national: String(found.number.nationalNumber),
+  }));
+}
+
+function productFactOf(text: string, product: string): Located | null {
+  const name = product.trim();
+  const stems = [...contentStems(name)];
+  if (!name || stems.length === 0) return null;
+  const at = text.toLowerCase().indexOf(name.toLowerCase());
+  return {
+    kind: "product",
+    text: capitalise(name),
+    needs: stems.map((s) => `^${s}`),
+    at: at < 0 ? -1 : at,
+    end: at < 0 ? -1 : at + name.length,
+  };
 }
 
 /* "WhatsApp 0803 555 0142" is one way to reach the client, not two facts
    to be drawn apart. */
-function mergeChannelAndNumber<F extends BriefFact & { at: number }>(
-  text: string,
-  facts: F[],
-): F[] {
-  const out: F[] = [];
+function mergeChannelAndNumber(text: string, facts: Located[]): Located[] {
+  const out: Located[] = [];
   for (const fact of facts) {
     const last = out[out.length - 1];
-    const between = last ? text.slice(last.at + last.text.length, fact.at) : "";
+    const between = last ? text.slice(last.end, fact.at) : "";
     if (
       last?.kind === "contact" &&
       fact.kind === "contact" &&
@@ -207,8 +419,9 @@ function mergeChannelAndNumber<F extends BriefFact & { at: number }>(
     ) {
       out[out.length - 1] = {
         ...last,
-        text: text.slice(last.at, fact.at + fact.text.length),
+        text: text.slice(last.at, fact.end).trim(),
         needs: [...last.needs, ...fact.needs],
+        end: fact.end,
       };
       continue;
     }
@@ -217,33 +430,34 @@ function mergeChannelAndNumber<F extends BriefFact & { at: number }>(
   return out;
 }
 
-/* The day as the brief wrote it, keeping a date's number ("3 November")
-   and a "this" or "every" in front of it. */
-function dayText(text: string, name: string): string | null {
-  const stem = /\s/.test(name) ? name : `${name.slice(0, 3)}\\p{L}*`;
-  const date = new RegExp(
-    `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${stem}|\\b${stem}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`,
-    "iu",
-  ).exec(text);
-  if (date) return capitalise(date[0]);
-  const word = new RegExp(`\\b(?:(?:this|next|every) )?${stem}`, "iu").exec(
-    text,
-  );
-  return word ? capitalise(word[0]) : null;
+/* The brief's own words, whole: "4,500" inside "45,000" is not them. */
+function saysVerbatim(phrase: string, copy: string): boolean {
+  const flat = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
+  const wanted = flat(phrase);
+  if (!wanted) return false;
+  const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`,
+    "u",
+  ).test(flat(copy));
 }
 
-/** Whether `copy` states `fact`. */
+/** Whether `copy` states `fact`: the brief's own words for it, or every
+ *  part of it in any spelling ("₦4,500" or "N4500", "7am" or "07:00"). */
 export function factStated(fact: BriefFact, copy: string): boolean {
+  if (saysVerbatim(fact.text, copy)) return true;
   const lower = copy.toLowerCase();
   const numbers = numbersIn(copy);
   const times = timesIn(copy);
   const days = new Set(calendarNames(copy));
   const phoneDigits = digits(copy);
+  const stems = contentStems(copy);
   return fact.needs.every((need) => {
     if (need.startsWith("=")) return numbers.has(need.slice(1));
     if (need.startsWith("@")) return times.has(need.slice(1));
     if (need.startsWith("~")) return days.has(need.slice(1));
     if (need.startsWith("#")) return phoneDigits.includes(need.slice(1));
+    if (need.startsWith("^")) return stems.has(need.slice(1));
     return new RegExp(
       `(^|[^\\p{L}])${need.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
       "u",
@@ -260,10 +474,18 @@ export interface FactCopy {
   footerStyle: "bar" | "text" | "none";
 }
 
-function drawnText(copy: FactCopy): string {
+export function drawnText(copy: Omit<FactCopy, "footerStyle">): string {
   return [copy.headline, copy.subheadline, copy.cta, ...copy.footerLines]
     .filter(Boolean)
     .join(" \n ");
+}
+
+/** The facts of `facts` that `copy` does not state. */
+export function factsMissing(
+  facts: readonly BriefFact[],
+  copy: string,
+): BriefFact[] {
+  return facts.filter((fact) => !factStated(fact, copy));
 }
 
 export interface FactCoverage {
@@ -277,77 +499,76 @@ export interface FactCoverage {
   leftOff: { direction: number; fact: string; reason: string }[];
 }
 
-/** Footer lines holding `facts`, joined with middle dots, each within the
- *  footer line's limit. Null when one fact alone is too long for a line. */
-function footerLinesOf(facts: BriefFact[]): string[] | null {
-  const lines: string[] = [];
-  let current = "";
-  for (const fact of facts) {
-    const item = capitalise(fact.text);
-    if (item.length > COPY_LIMITS.footerLine) return null;
-    const joined = current ? `${current} · ${item}` : item;
-    if (joined.length <= COPY_LIMITS.footerLine) {
-      current = joined;
-    } else {
-      lines.push(current);
-      current = item;
-    }
-  }
-  if (current) lines.push(current);
-  return lines;
-}
-
 /**
  * Draws every brief fact a direction left out into its footer, so whichever
- * design the client picks can be acted on. A fact that does not fit (the
- * footer already holds three lines, or the fact is longer than a line) is
- * left off and recorded with that reason.
+ * design the client picks can be acted on. A fact joins an existing footer
+ * line with a middle dot when it fits there (the last first), so a count is
+ * never stranded on a line of its own and three full-looking lines still
+ * take a short address; otherwise it starts a new line while there is room.
+ * A fact that does not fit anywhere, or is longer than a line, is left off
+ * and recorded with that reason.
  */
 export function coverBriefFacts<T extends FactCopy>(
   directions: T[],
   briefText: string,
+  options: BriefFactOptions = {},
 ): { directions: T[]; coverage: FactCoverage } {
-  const facts = briefFacts(briefText);
+  const facts = briefFacts(briefText, options);
   const coverage: FactCoverage = {
     facts: facts.map((f) => f.text),
     stated: [],
     added: [],
     leftOff: [],
   };
+  const limit = COPY_LIMITS.footerLine;
   const covered = directions.map((direction, index) => {
-    const missing = facts.filter((f) => !factStated(f, drawnText(direction)));
+    const missing = factsMissing(facts, drawnText(direction));
     if (missing.length === 0) {
       coverage.stated.push(facts.map((f) => f.text));
       return direction;
     }
-    const room = MAX_FOOTER_LINES - direction.footerLines.length;
+    const lines = [...direction.footerLines];
+    const touched = new Set<number>();
     const fitted: BriefFact[] = [];
     for (const fact of missing) {
-      const lines = footerLinesOf([...fitted, fact]);
-      if (lines && lines.length <= room) {
-        fitted.push(fact);
+      const item = capitalise(fact.text);
+      let at = -1;
+      for (let j = lines.length - 1; j >= 0 && item.length <= limit; j -= 1) {
+        if (`${lines[j]} · ${item}`.length <= limit) {
+          at = j;
+          break;
+        }
+      }
+      if (at >= 0) {
+        lines[at] = `${lines[at]} · ${item}`;
+      } else if (item.length <= limit && lines.length < MAX_FOOTER_LINES) {
+        at = lines.push(item) - 1;
+      } else {
+        coverage.leftOff.push({
+          direction: index,
+          fact: fact.text,
+          reason:
+            item.length > limit
+              ? "longer than a footer line"
+              : "the footer has no room left for it",
+        });
         continue;
       }
-      coverage.leftOff.push({
-        direction: index,
-        fact: fact.text,
-        reason:
-          footerLinesOf([fact]) === null
-            ? "longer than a footer line"
-            : "the footer has no room left for it",
-      });
+      touched.add(at);
+      fitted.push(fact);
     }
     coverage.stated.push(
       facts
         .filter((f) => !missing.includes(f) || fitted.includes(f))
         .map((f) => f.text),
     );
-    const lines = footerLinesOf(fitted) ?? [];
-    if (lines.length === 0) return direction;
-    for (const line of lines) coverage.added.push({ direction: index, line });
+    if (fitted.length === 0) return direction;
+    for (const j of [...touched].sort((x, y) => x - y)) {
+      coverage.added.push({ direction: index, line: lines[j] });
+    }
     return {
       ...direction,
-      footerLines: [...direction.footerLines, ...lines],
+      footerLines: lines,
       footerStyle:
         direction.footerStyle === "none" ? "text" : direction.footerStyle,
     };

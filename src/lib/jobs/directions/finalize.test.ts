@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { briefFacts } from "./brief-facts";
 import { factLedger, looksCutOff } from "./claims";
 import {
   clampAtClause,
   copyFault,
   copyReasons,
+  correctionHolds,
   type DirectionChecks,
   documentReasons,
+  drawnCopyOf,
   factualReasons,
   finalizeDirection,
   groundingAnchors,
@@ -302,9 +305,9 @@ describe("factualReasons", () => {
     });
     expect(reasons).toEqual(
       expect.arrayContaining([
-        "The headline names the strawberry mille-feuille straight away",
-        "It gives the ₦4,500 price, so nobody has to ask",
-        "The image shows the strawberry mille-feuille itself",
+        "The headline names the strawberry mille-feuille straight away.",
+        "It gives the ₦4,500 price, so nobody has to ask.",
+        "The image shows the strawberry mille-feuille itself.",
       ]),
     );
   });
@@ -398,8 +401,8 @@ describe("the two-reason floor", () => {
 
   it("quotes only copy that is drawn", () => {
     expect(copyReasons({ headline: "Hi there", footerLines: [] })).toEqual([
-      'The headline reads "Hi there"',
-      "Nothing competes with the headline, so it reads at once",
+      'The headline reads "Hi there".',
+      "Every word on it comes from the brief or the brand profile.",
     ]);
     expect(
       copyReasons({
@@ -408,9 +411,21 @@ describe("the two-reason floor", () => {
         footerLines: [],
       }),
     ).toEqual([
-      'The headline reads "Strawberry mille-feuille is here"',
-      'The button says "Order now"',
+      'The headline reads "Strawberry mille-feuille is here".',
+      'The button says "Order now".',
     ]);
+  });
+
+  /* Round-3 code critic, break 9: a headline too long to quote left one
+     reason, and that one was an unmeasured hierarchy claim. */
+  it("keeps two reasons for any copy, claiming nothing about size", () => {
+    const reasons = copyReasons({
+      headline: "A".repeat(70),
+      footerLines: [],
+    });
+    expect(reasons).toHaveLength(2);
+    expect(reasons.join(" ")).not.toMatch(/competes|larger|first/);
+    for (const reason of reasons) expect(reason).toMatch(/\.$/);
   });
 });
 
@@ -439,9 +454,9 @@ describe("documentReasons", () => {
     expect(
       documentReasons({ document: doc as never, subject: { ok: true } }),
     ).toEqual([
-      "The headline is set larger than every other line",
-      "The product is drawn whole, with no copy laid over it",
-      "The brand's logo is in the top right corner",
+      "The headline is set larger than every other line.",
+      "The product is drawn whole, with no copy laid over it.",
+      "The brand's logo is in the top right corner.",
     ]);
   });
 
@@ -485,5 +500,75 @@ describe("copyFault on the model's own copy", () => {
     );
     expect(direction.headline).toBe("Strawberry mille-feuille launch");
     expect(report.copyFallbacks[0]).toMatchObject({ field: "headline" });
+  });
+});
+
+describe("drawnCopyOf", () => {
+  /* Round-3 live critic: a reason praised a footer bar the builder had
+     dropped as a repeat. The copy is read off what was drawn. */
+  it("reads the copy the document draws, not the spec's", () => {
+    const copy = drawnCopyOf([
+      {
+        id: "quote-mark",
+        type: "text",
+        role: "body",
+        text: "“",
+        hidden: false,
+      },
+      {
+        id: "headline",
+        type: "text",
+        role: "headline",
+        text: "Pour your best",
+        hidden: false,
+      },
+      { id: "cta", type: "button", label: "Book a seat", hidden: false },
+      {
+        id: "footer-1",
+        type: "text",
+        role: "footer",
+        text: "10 seats",
+        hidden: false,
+      },
+      {
+        id: "footer-2",
+        type: "text",
+        role: "footer",
+        text: "Hidden",
+        hidden: true,
+      },
+    ] as never);
+    expect(copy).toEqual({
+      headline: "Pour your best",
+      cta: "Book a seat",
+      footerLines: ["10 seats"],
+    });
+  });
+});
+
+describe("correctionHolds", () => {
+  const ledger = factLedger([
+    "Promote our almond croissants, ₦4,500 a box. Pickup Saturday from 7am.",
+  ]);
+  const facts = briefFacts(
+    "Promote our almond croissants, ₦4,500 a box. Pickup Saturday from 7am.",
+  );
+  const holds = correctionHolds(ledger, facts);
+  const before = {
+    headline: "Almond croissants",
+    footerLines: ["₦4,500 · Saturday · From 7am"],
+  };
+
+  it("refuses a correction that drops a fact the direction stated", () => {
+    expect(holds(before, { ...before, footerLines: [] })).toBe(false);
+  });
+
+  it("refuses copy that invents, and accepts a rewrite that keeps the facts", () => {
+    expect(
+      holds(before, { ...before, headline: "Still warm almond croissants" }),
+    ).toBe(false);
+    expect(
+      holds(before, { ...before, headline: "Almond croissants by the box" }),
+    ).toBe(true);
   });
 });

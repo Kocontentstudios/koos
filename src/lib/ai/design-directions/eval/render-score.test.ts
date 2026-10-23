@@ -45,7 +45,17 @@ const okCase = (
 describe("aggregateRender", () => {
   it("passes a clean run", () => {
     const totals = aggregateRender([
-      okCase([direction(), direction({ index: 1 })]),
+      okCase([
+        direction({
+          correction: {
+            prescribed: true,
+            kept: false,
+            lostFacts: 0,
+            overSubject: false,
+          },
+        }),
+        direction({ index: 1 }),
+      ]),
       okCase([], { caseId: "blank", expectRefused: true, refused: "blank" }),
     ]);
     expect(renderFailures(totals)).toEqual([]);
@@ -81,6 +91,42 @@ describe("aggregateRender", () => {
     ]) {
       expect(failures).toContain(name);
     }
+  });
+
+  /* Round-3 critics: a quote card under its footer, a placeholder, a
+     product never named, a missing fact only the judge saw, and a
+     correction path the eval never ran. */
+  it("fails each round-4 defect on its own metric", () => {
+    const totals = aggregateRender([
+      okCase([
+        direction({
+          craftHard: "the headline is set smaller than other copy",
+          placeholders: ["[REGISTRATION LINK]"],
+          productNamed: false,
+          judgeMissing: ["ages 16 and up"],
+          correction: {
+            prescribed: true,
+            kept: true,
+            lostFacts: 2,
+            overSubject: true,
+          },
+        }),
+      ]),
+    ]);
+    const failures = renderFailures(totals).join("; ");
+    for (const name of [
+      "craft faults delivered",
+      "placeholders",
+      "rendered copy names the product",
+      "judge: missing",
+      "correction lost facts",
+      "correction put copy on the subject",
+    ]) {
+      expect(failures).toContain(name);
+    }
+    expect(
+      renderFailures(aggregateRender([okCase([direction()])])).join(),
+    ).toContain("correction paths probed");
   });
 
   it("counts a refusal of a good photo against the run", () => {

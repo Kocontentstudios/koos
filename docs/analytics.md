@@ -88,7 +88,7 @@ stable for the lifetime of one login) where available.
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
-| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering), `plates_failed` (plates turned down twice, so the direction was drawn flat) |
+| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering, counted from the rejections themselves, so a rejected plate whose retry got no answer still counts), `plates_failed` (plates turned down twice, so the direction was drawn flat) |
 | `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
 
 The two `design_request_start_*` events answer whether design requests actually
@@ -133,6 +133,19 @@ facts and how many at least one delivered direction states), `factsAdded`
 a direction still does not state, with the reason) and `productSources`
 (where each plate's product name came from: `model`, `sibling`, `brief` or
 `none`).
+
+Round 4 measures facts per direction, because the spec promises every fact on
+every direction: `briefFactsDelivered` is now the count the worst delivered
+direction states, read off its drawn document, `briefFactsByDirection` lists
+each direction's (null for one that failed), and `factsLeftOff` lists every
+fact missing from a delivered design with its reason (the footer had no room,
+the fact was longer than a line, or "not on the design as delivered"). A
+direction missing a fact carries a quality fault. `subjectFaults` also records
+`SUBJECT_FACE_ONLY` (only a person's face was kept clear) and the soft craft
+faults (a headline that does not lead the footer, a cut-out's pale rim on a
+dark ground). `claimCheck` records the claim check's reading: `available`,
+`flagged`, `rewritten`, `dropped` and the `statements` it flagged.
+`platesRejected` lists per plate how many times the check turned it down.
 
 ## Funnels
 

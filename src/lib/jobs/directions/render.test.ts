@@ -240,4 +240,59 @@ describe("renderDirectionGuarded", () => {
     expect(rasterizeDocument).toHaveBeenCalledTimes(1);
     expect(out.fault).toMatch(/flat/);
   });
+
+  /* Round-3 code critic: the gate kept a correction on the pixel checks
+     alone. The second render is held to the rules the first layout was
+     chosen by. */
+  it("discards a corrected render that draws its headline under other copy", async () => {
+    rasterizeDocument
+      .mockImplementationOnce(rasterized({ logoFault: LOGO_NOT_LEGIBLE }))
+      .mockImplementation((input: { doc: { elements: { id: string }[] } }) =>
+        rasterized()({
+          doc: {
+            ...input.doc,
+            elements: input.doc.elements.map((e) =>
+              e.id === "headline" ? { ...e, fontSize: 6 } : e,
+            ),
+          },
+        }),
+      );
+    judgeAndCorrect.mockResolvedValue({
+      corrected: true,
+      spec: { ...spec, logoPlacement: "bottom-left" },
+      verdict: {
+        ...verdict,
+        change: { field: "logoPlacement", value: "bottom-left" },
+      },
+      applied: { field: "logoPlacement", from: "top-right", to: "bottom-left" },
+    });
+    const out = await guarded();
+    expect(rasterizeDocument).toHaveBeenCalledTimes(2);
+    expect(out.correctionKept).toBeUndefined();
+    expect(out.spec.logoPlacement).toBe(spec.logoPlacement);
+    expect(out.fault).toBeDefined();
+  });
+
+  it("refuses a correction whose copy does not hold, before drawing it", async () => {
+    rasterizeDocument.mockImplementation(
+      rasterized({ logoFault: LOGO_NOT_LEGIBLE }),
+    );
+    judgeAndCorrect.mockResolvedValue({
+      corrected: true,
+      spec: { ...spec, footerLines: [], logoPlacement: "bottom-left" },
+      verdict,
+      applied: null,
+    });
+    const out = await renderDirectionGuarded({
+      id: "row-1",
+      spec,
+      context,
+      assets: { image: photo, logo: mark },
+      fonts,
+      outOfTime: () => false,
+      copyHolds: () => false,
+    });
+    expect(rasterizeDocument).toHaveBeenCalledTimes(1);
+    expect(out.spec).toBe(spec);
+  });
 });

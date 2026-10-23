@@ -430,11 +430,19 @@ function stackOnCard(
       align: "center",
       vAlign,
       colors,
-      ...(variant === "quote"
+      ...(variant === "quote" && readsAsQuote(ctx.spec.headline)
         ? { quoteMark: true }
         : { rule: "below" as const }),
     }),
   );
+}
+
+/* A quote mark over copy nobody said is a typographic lie (round-3 live
+   critic, three of eleven directions). The card draws one only when the
+   headline is a quotation: wrapped in quote marks, or attributed. */
+function readsAsQuote(headline: string): boolean {
+  const text = headline.trim();
+  return /^["“‘'].+["”’']$/.test(text) || /["”’']\s*[—–-]\s*\p{L}/u.test(text);
 }
 
 /** The card hugs its copy but never shrinks below 60% of the room, or a

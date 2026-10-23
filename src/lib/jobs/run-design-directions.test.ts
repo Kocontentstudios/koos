@@ -106,6 +106,8 @@ const {
 
 const UPLOAD_KEY = `design-images/${BRAND_ID}/2b1e0c8e-0b6a-4b0e-9a37-3a3c1f0a7d11.png`;
 const SET = "9c0e8f5a-3b2d-4c1e-8f7a-6d5c4b3a2f10";
+const UPLOADED_PHOTO = await photo(600, 600);
+const PLATE_PHOTO = await photo(256, 320);
 
 const plateModel = {
   id: "bedrock-stability",
@@ -159,7 +161,7 @@ beforeEach(() => {
   });
   getPlateAdapter.mockReturnValue(plateModel);
   plateModel.generate.mockImplementation(async () => ({
-    bytes: designPng(1024, 1280),
+    bytes: PLATE_PHOTO,
     contentType: "image/png",
   }));
   claimed.clear();
@@ -181,36 +183,47 @@ beforeEach(() => {
   });
   lookAtPhoto.mockResolvedValue(null);
   /* The set as the database would hold it: every row created so far, with
-     the layout each claim settled. */
+     the layout each claim settled, plus whatever a test stored. */
+  const createdRows = () =>
+    createDesignGeneration.mock.results.map((_r, n) => ({
+      status: "pending",
+      createdAt: new Date(Date.now() - 1000 + n),
+      ...claimed.get(`row-${n + 1}`),
+    }));
+  listDirectionSet.mockImplementation(async () => createdRows());
   claimDirectionLayout.mockImplementation(
     async ({
       rowId,
-      choose,
+      spec,
+      isFree,
     }: {
       rowId: string;
-      choose: (rows: unknown[]) => Promise<{ spec: unknown; result: unknown }>;
+      spec: unknown;
+      isFree: (rows: unknown[]) => boolean;
     }) => {
       const stored = ((await listDirectionSet(BRAND_ID, SET)) ?? []).map(
         (r: { createdAt?: Date }) => ({ createdAt: new Date(0), ...r }),
       );
+      const created = createdRows();
       const rows = [
-        ...stored,
-        ...createDesignGeneration.mock.results.map((_r, n) => ({
-          status: "pending",
-          createdAt: new Date(Date.now() - 1000 + n),
-          ...claimed.get(`row-${n + 1}`),
-        })),
+        ...stored.filter(
+          (r: { id?: string }) =>
+            !created.some((c) => (c as { id?: string }).id === r.id),
+        ),
+        ...created,
       ];
-      const { spec, result } = await choose(rows);
+      if (!isFree(rows)) return false;
       claimed.set(rowId, { ...claimed.get(rowId), spec });
-      return result;
+      return true;
     },
   );
+  /* A real opaque photograph: a header-only PNG decodes as an empty
+     cut-out, whose subject box is refused (subject.ts). */
   loadDesignImage.mockResolvedValue({
-    bytes: Buffer.from(designPng(1200, 1200)),
+    bytes: Buffer.from(UPLOADED_PHOTO),
     contentType: "image/png",
-    width: 1200,
-    height: 1200,
+    width: 600,
+    height: 600,
   });
   rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => ({
     bytes: designPng(1080, 1350),
@@ -356,7 +369,7 @@ describe("the KO imagery path", () => {
     plateModel.generate
       .mockRejectedValueOnce(new Error("throttled"))
       .mockResolvedValue({
-        bytes: designPng(1024, 1280),
+        bytes: PLATE_PHOTO,
         contentType: "image/png",
       });
     const outcome = await run({ image: { source: "ko" } });

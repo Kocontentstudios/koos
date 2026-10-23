@@ -12,7 +12,12 @@ import {
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import type { DesignContext } from "@/lib/design/context";
-import { coverBriefFacts, type FactCoverage } from "./brief-facts";
+import { brandRegion, coverBriefFacts, type FactCoverage } from "./brief-facts";
+import {
+  type ClaimChecker,
+  type ClaimCheckField,
+  checkClaims,
+} from "./claim-check";
 import {
   factLedger,
   inventedFacts,
@@ -26,6 +31,7 @@ import {
   type DirectionChecks,
   type FinalizeReport,
   finalizeDirection,
+  settleReasons,
 } from "./finalize";
 import { forceDistinctLayouts } from "./layouts";
 import { repairDirectionsFor, repairFitText } from "./repair";
@@ -67,6 +73,20 @@ export interface DraftDirectionsInput {
   memorySummary?: string;
   /** Directions that already exist (regenerating one of a pair). */
   existing?: PriorDirection[];
+  /** Reads the copy and reasons against the brief (claim-check.ts). */
+  claimChecker?: ClaimChecker;
+}
+
+/** What the claim check found and what became of it. */
+export interface ClaimCheckOutcome {
+  /** False when the check could not be reached. */
+  available: boolean;
+  flagged: number;
+  /** Flagged fields replaced by a rewrite that passed every check. */
+  rewritten: number;
+  /** Flagged fields left off (or a headline set to the brief's title). */
+  dropped: number;
+  statements: string[];
 }
 
 export interface DraftDirectionsResult {
@@ -97,6 +117,7 @@ export interface DraftDirectionsResult {
   productSources: ("model" | "sibling" | "brief" | "none")[];
   /** The brief's hard facts and which direction states each. */
   factCoverage: FactCoverage;
+  claimCheck: ClaimCheckOutcome;
 }
 
 /** The fit pass's answer: the rewritten text for each field it was asked
@@ -226,20 +247,177 @@ export function applyFits(
   return { drafts: out, fixed };
 }
 
-function brandFacts(brand: BrandSummary): (string | null | undefined)[] {
+/* The profile's statements of fact. Its voice (tone, favourite words,
+   style) is left out: "Warm, unfussy" describes how the brand talks, and
+   read as a fact it licensed "Still warm at 7am" on a cold cream pastry
+   (round-3 live critic). */
+export function brandFacts(brand: BrandSummary): (string | null | undefined)[] {
   return [
     brand.name,
     brand.overview,
     brand.businessType,
     brand.targetAudience,
     brand.offer,
-    brand.tone,
     brand.primaryGoal,
     brand.values,
-    brand.wordsLove,
-    brand.brandStyle,
     brand.differentiators,
   ];
+}
+
+const FIELD_NAMES: Record<string, string> = {
+  headline: "headline",
+  subheadline: "subheadline",
+  cta: "button",
+  footerLines: "footer line",
+  rationale: "reason (why this works)",
+};
+
+function claimFields(directions: DirectionSpec[]): ClaimCheckField[] {
+  return directions.flatMap((d, i) => {
+    const out: ClaimCheckField[] = [
+      {
+        id: `${i}.headline`,
+        field: FIELD_NAMES.headline,
+        text: d.headline,
+        limit: COPY_LIMITS.headline,
+      },
+    ];
+    if (d.subheadline) {
+      out.push({
+        id: `${i}.subheadline`,
+        field: FIELD_NAMES.subheadline,
+        text: d.subheadline,
+        limit: COPY_LIMITS.subheadline,
+      });
+    }
+    if (d.cta) {
+      out.push({
+        id: `${i}.cta`,
+        field: FIELD_NAMES.cta,
+        text: d.cta,
+        limit: COPY_LIMITS.cta,
+      });
+    }
+    d.footerLines.forEach((line, j) => {
+      out.push({
+        id: `${i}.footerLines.${j}`,
+        field: FIELD_NAMES.footerLines,
+        text: line,
+        limit: COPY_LIMITS.footerLine,
+      });
+    });
+    const copy = [d.headline, d.subheadline, d.cta, ...d.footerLines]
+      .filter(Boolean)
+      .join(" / ");
+    d.rationale.forEach((reason, j) => {
+      out.push({
+        id: `${i}.rationale.${j}`,
+        field: `${FIELD_NAMES.rationale}; that direction's copy is: ${copy}`,
+        text: reason,
+        limit: COPY_LIMITS.reason,
+      });
+    });
+    return out;
+  });
+}
+
+/* A headline the claim check refused falls back to the user's own words:
+   the brief's title, else the product the brief names. Never the concept's
+   title, which describes the idea to the client and reads as a label on
+   the design (round-4 live run: "Origin voice"). */
+function fallbackHeadline(d: DirectionSpec, checks: DirectionChecks): string {
+  const product = d.productName
+    ? d.productName.charAt(0).toUpperCase() + d.productName.slice(1)
+    : "";
+  return (
+    [checks.title, product].find(
+      (candidate) =>
+        candidate && !copyFault(candidate, COPY_LIMITS.headline, checks.ledger),
+    ) ?? d.headline
+  );
+}
+
+/**
+ * The directions with every field the claim check flagged rewritten by its
+ * own suggestion, when the suggestion passes the deterministic checks, or
+ * left off. A headline is never left off: it falls back to the brief's
+ * title, the user's own words. Reasons are settled again after, so each
+ * direction still shows at least two true ones.
+ */
+export function applyClaimCheck(
+  directions: DirectionSpec[],
+  flagged: readonly { id: string; statement: string; rewrite: string }[],
+  checks: DirectionChecks,
+  paintedScenes: (string | undefined)[],
+): { directions: DirectionSpec[]; rewritten: number; dropped: number } {
+  const out = directions.map((d) => ({
+    ...d,
+    footerLines: [...d.footerLines],
+    rationale: [...d.rationale],
+  }));
+  const removed = new Set<string>();
+  let rewritten = 0;
+  let dropped = 0;
+  for (const claim of flagged) {
+    const [index, field, sub] = claim.id.split(".");
+    const d = out[Number(index)];
+    if (!d) continue;
+    const text = claim.rewrite.replace(/\s+/g, " ").trim();
+    const limit =
+      field === "rationale"
+        ? COPY_LIMITS.reason
+        : field === "footerLines"
+          ? COPY_LIMITS.footerLine
+          : ((COPY_LIMITS as Record<string, number>)[field] ?? 0);
+    /* A rewritten headline may not be its sibling's: the pair would read
+       as one design drawn twice (round-4 live run, fashion). */
+    const sibling =
+      field === "headline" &&
+      out.some(
+        (other, j) =>
+          j !== Number(index) &&
+          other.headline.toLowerCase() === text.toLowerCase(),
+      );
+    const holds =
+      Boolean(text) &&
+      !sibling &&
+      (field === "rationale"
+        ? reasonProblems(text, checks).length === 0
+        : !copyFault(text, limit, checks.ledger));
+    if (holds) rewritten += 1;
+    else dropped += 1;
+    if (field === "headline") {
+      d.headline = holds ? text : fallbackHeadline(d, checks);
+    } else if (field === "subheadline" || field === "cta") {
+      if (holds) d[field] = text;
+      else delete d[field];
+    } else if (field === "footerLines" || field === "rationale") {
+      if (holds) d[field][Number(sub)] = text;
+      else removed.add(`${index}.${field}.${sub}`);
+    }
+  }
+  const settled = out.map((d, i) => {
+    const footerLines = d.footerLines.filter(
+      (_, j) => !removed.has(`${i}.footerLines.${j}`),
+    );
+    const rationale = d.rationale.filter(
+      (_, j) => !removed.has(`${i}.rationale.${j}`),
+    );
+    const { reasons } = settleReasons(rationale, {
+      copy: { ...d, footerLines },
+      checks,
+      product: d.productName,
+      image: "pending",
+      paintedScene: paintedScenes[i],
+    });
+    return {
+      ...d,
+      footerLines,
+      footerStyle: footerLines.length > 0 ? d.footerStyle : ("none" as const),
+      rationale: reasons,
+    };
+  });
+  return { directions: settled, rewritten, dropped };
 }
 
 function closestPair(
@@ -307,6 +485,7 @@ export async function draftDirections({
   recentLayouts,
   memorySummary,
   existing = [],
+  claimChecker = checkClaims,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
   const showImage =
@@ -341,7 +520,29 @@ export async function draftDirections({
      what the photo shows is only trusted when it was. */
   let imageSeen = false;
 
+  /* A fact-heavy brief now and then comes back off the schema (round-4
+     live run, the masterclass): one more ask, with what failed in the
+     log, rather than losing the job to a single sample. */
   async function ask(prompt: string, count: number, withImage: boolean) {
+    try {
+      return await askOnce(prompt, count, withImage);
+    } catch (err) {
+      if ((err as Error)?.name !== "AI_NoObjectGeneratedError") throw err;
+      console.error(
+        "directions answer did not match the schema; asking again",
+        {
+          text: String((err as { text?: unknown }).text ?? "").slice(0, 2000),
+          cause: String((err as { cause?: unknown }).cause ?? "").slice(
+            0,
+            2000,
+          ),
+        },
+      );
+      return askOnce(prompt, count, withImage);
+    }
+  }
+
+  async function askOnce(prompt: string, count: number, withImage: boolean) {
     modelCalls += 1;
     const { object } = await generateObject({
       model: getModel("strategy"),
@@ -487,6 +688,34 @@ export async function draftDirections({
     }
   }
 
+  const fields = claimFields(directions);
+  const flagged =
+    fields.length > 0
+      ? await claimChecker({
+          fields,
+          briefText: checks.briefText,
+          title: checks.title,
+          brand: context.brandSummary,
+        })
+      : [];
+  if (fields.length > 0) modelCalls += 1;
+  const claimed = applyClaimCheck(
+    directions,
+    flagged ?? [],
+    checks,
+    directions.map((d) =>
+      imageSource === "ko" ? d.backgroundPrompt : undefined,
+    ),
+  );
+  directions.splice(0, directions.length, ...claimed.directions);
+  const claimCheck: ClaimCheckOutcome = {
+    available: flagged !== null,
+    flagged: flagged?.length ?? 0,
+    rewritten: claimed.rewritten,
+    dropped: claimed.dropped,
+    statements: (flagged ?? []).map((f) => f.statement),
+  };
+
   const products = resolveBriefProducts(
     reports.map((r) => r.modelProduct.name),
     `${checks.briefText} ${checks.title}`,
@@ -512,6 +741,13 @@ export async function draftDirections({
   const { directions: covered, coverage: factCoverage } = coverBriefFacts(
     named,
     checks.briefText,
+    {
+      region: brandRegion([
+        ...brandFacts(context.brandSummary),
+        context.brandSummary.websiteUrl,
+      ]),
+      product: named.find((d) => d.productName)?.productName ?? "",
+    },
   );
 
   const forced = forceDistinctLayouts(
@@ -539,5 +775,6 @@ export async function draftDirections({
     modelCalls,
     productSources: products.map((p) => p.from),
     factCoverage,
+    claimCheck,
   };
 }
