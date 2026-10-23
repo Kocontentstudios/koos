@@ -1100,8 +1100,10 @@ async function scrollTargets(page: Page): Promise<number[]> {
  * again when its capped heap runs out, and a load in that window finds no
  * server. Any other failure is the page's and is thrown. */
 export async function load(page: Page, url: string) {
+  /* Also a navigation the page started itself (a click's router.push landing
+     late) cutting this one short: the load is simply made again. */
   const NO_SERVER =
-    /ERR_EMPTY_RESPONSE|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_NETWORK_CHANGED/;
+    /ERR_EMPTY_RESPONSE|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_NETWORK_CHANGED|interrupted by another navigation/;
   for (let attempt = 1; ; attempt++) {
     try {
       await page.goto(url, { waitUntil: "networkidle" });
@@ -1638,13 +1640,49 @@ export async function probeInteractive(
       );
     }
   };
+  /* A reload undoes what the probe did, but what the probe did can still
+     show: a view a click saved to localStorage renders differently on the
+     client than on the server, and React reports the hydration mismatch.
+     Errors in that window are the probe's, reported with the click errors. */
   const reload = async () => {
     reloads++;
     trace("  reload");
-    await load(page, startUrl);
-    await page.waitForTimeout(500);
-    count = await markTargets(page, kinds);
+    options.onClicking?.(true);
+    try {
+      await load(page, startUrl);
+      await page.waitForTimeout(500);
+      count = await markTargets(page, kinds);
+    } finally {
+      options.onClicking?.(false);
+    }
   };
+  /** Waits until the page stops changing after an action, so a state is
+   * measured where it lands, not mid-way through a script-driven slide:
+   * 300ms without a class, style or node change, at most 3s. */
+  const quiet = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          let timer = setTimeout(finish, 300);
+          const stop = setTimeout(finish, 3000);
+          const observer = new MutationObserver(() => {
+            clearTimeout(timer);
+            timer = setTimeout(finish, 300);
+          });
+          function finish() {
+            observer.disconnect();
+            clearTimeout(timer);
+            clearTimeout(stop);
+            done();
+          }
+          observer.observe(document.body, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: ["class", "style"],
+          });
+        }),
+    );
   /* What a state changes is measured with it. A tooltip or popover is often
      rendered in a portal, far from the control in the DOM and outside its
      box; a disclosure shows content that was already there by flipping an
@@ -1825,7 +1863,8 @@ export async function probeInteractive(
         visited.disclosure++;
         await watchChanges();
         await target.click({ timeout: 2000, force: !hoverable });
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(100);
+        if (sameDocument(page.url())) await quiet();
         if (sameDocument(page.url())) {
           await measure("open", selector);
           await page.keyboard.press("Escape");
@@ -1883,7 +1922,8 @@ export async function probeInteractive(
         options.onClicking?.(true);
         await watchChanges();
         await target.evaluate((el) => (el as HTMLElement).click());
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(100);
+        if (sameDocument(page.url())) await quiet();
         if (sameDocument(page.url())) {
           const changed = await page.evaluate(
             () =>

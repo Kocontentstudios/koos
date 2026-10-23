@@ -67,11 +67,6 @@ const BENIGN_CONSOLE = [
      times a minute; the app's own rate limits (the admin email health check)
      answer that with 429, as they should. */
   /status of 429 \(Too Many Requests\)/,
-  /* React's development build records each component render on the
-     Performance timeline and throws when a render it timed began before the
-     page's time origin (seen intermittently on /admin/analytics). Production
-     React records nothing there. */
-  /Failed to execute 'measure' on 'Performance': .* cannot have a negative time stamp/,
 ];
 
 const ERROR_BOUNDARY_TEXT = /Something went wrong/i;
@@ -129,6 +124,22 @@ async function openRoute(
   });
   const logStart = serverLogOffset();
   await context.addInitScript(recordTimeouts);
+  /* React's development build records each render on the Performance
+     timeline, and performance.measure throws when a render it timed began
+     before the time origin ("cannot have a negative time stamp"). The throw
+     aborts hydration, so /admin/analytics intermittently never hydrated.
+     Production React records nothing there; the lane drops the measure
+     instead of the page. */
+  await context.addInitScript(() => {
+    const measure = performance.measure.bind(performance);
+    performance.measure = ((...args: Parameters<typeof measure>) => {
+      try {
+        return measure(...args);
+      } catch {
+        return undefined as unknown as PerformanceMeasure;
+      }
+    }) as typeof performance.measure;
+  });
   const page = await context.newPage();
   const consoleErrors: string[] = [];
   const clickErrors: string[] = [];

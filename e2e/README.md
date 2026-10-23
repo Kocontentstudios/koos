@@ -64,6 +64,11 @@ For each route and theme:
      `aria-busy`), which is what every `data-loading:` style keys on;
    - every element a `:target` rule restyles: targeted through the URL hash.
 
+   After a click or an open, the probe waits for the page to stop changing
+   (300ms without a class, style or node change, at most 3s), so a sliding
+   indicator is measured where it lands. A reload that undoes a probe action
+   can still show it (a view saved to localStorage hydrates differently);
+   errors in that window are reported with the click errors.
    In each state the probe measures the target and everything the state
    added or changed elsewhere: a tooltip or menu in a portal, content a
    disclosure revealed. While targets are probed, every request other than a
@@ -137,10 +142,12 @@ load that found no server. next dev also restarts itself when its heap nears
 the cap; a page that was loading across a restart in the log is loaded once
 more. A page that fails to hydrate with no restart in the log fails.
 
-Two browser errors are not the page's: React's development build throwing
-"cannot have a negative time stamp" from its Performance timeline (production
-React records nothing there), and 429s from the app's own rate limits when the
-probe reloads a page dozens of times.
+React's development build calls `performance.measure` for every render, and it
+throws "cannot have a negative time stamp" when a render began before the page's
+time origin, which aborts hydration. Production React makes no such call; the
+lane wraps `performance.measure` so the throw cannot. 429s from the app's own
+rate limits, when the probe reloads a page dozens of times, are not the page's
+errors either.
 
 ## Running it
 
