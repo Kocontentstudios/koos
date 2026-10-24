@@ -9,6 +9,7 @@ import {
   test,
 } from "@playwright/test";
 import { authState, SEEDED_IDS } from "./auth-state";
+import { isNetworkBlip } from "./network";
 import {
   failures,
   load,
@@ -145,6 +146,7 @@ async function openRoute(
   const clickErrors: string[] = [];
   const externalErrors: string[] = [];
   const clicking = { active: false };
+  const network = { reloaded: false, blipped: false };
   /* A hydration mismatch that names the probe's own data-cp-* marks is the
      probe's doing, whenever it lands. */
   const logError = (text: string) =>
@@ -157,6 +159,11 @@ async function openRoute(
     const text = message.text();
     if (BENIGN_CONSOLE.some((pattern) => pattern.test(text))) return;
     const from = message.location().url;
+    if (isNetworkBlip(text) && !network.reloaded) {
+      network.blipped = true;
+      externalErrors.push(`${text.slice(0, 200)}${from ? ` (${from})` : ""}`);
+      return;
+    }
     /* A third-party asset (Google Fonts) failing on the runner's network is
        the network, not the page; it is kept as evidence. The app's own
        requests failing is the page. */
@@ -176,6 +183,14 @@ async function openRoute(
     logError(`uncaught: ${text.slice(0, 400)}`);
   });
   await load(page, routePath(route, seededIds()));
+  /* The network cut one of the app's own requests (network.ts): what the
+     page logged after that is the missing file's doing, so the route is
+     loaded once more and judged on that load. */
+  if (network.blipped) {
+    network.reloaded = true;
+    consoleErrors.length = 0;
+    await load(page, routePath(route, seededIds()));
+  }
   /* A route next dev was still compiling when its chunks were requested
      fails to hydrate with a ChunkLoadError; a second load is served from the
      compiled output. Only that error, only once. */

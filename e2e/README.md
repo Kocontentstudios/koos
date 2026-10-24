@@ -10,9 +10,11 @@ gradients, inset shadows, inherited foregrounds and HTML strings.
 
 ## When it runs
 
-The lane is **advisory, not a merge gate**. The blocking half of the colour
+The lane is **advisory, not a merge gate**. The other half of the colour
 contract is the source gate, part of `pnpm test`, which CI runs on every pull
-request (`.github/workflows/ci.yml`).
+request (`.github/workflows/ci.yml`). Neither branch protection on `dev` nor
+on `main` makes that check required today, so a red result stops a merge
+only if the reviewer reads it.
 
 - **Before shipping any colour or component-state change** (a token, a fill,
   a hover, focus, pressed, loading, disabled or open style, a new component):
@@ -160,6 +162,14 @@ to five times, each restart written to the log) and the lane retries a page
 load that found no server. next dev also restarts itself when its heap nears
 the cap; a page that was loading across a restart in the log is loaded once
 more. A page that fails to hydrate with no restart in the log fails.
+
+The host's network can cut one of the app's own requests mid-run: Chromium
+logs `net::ERR_NETWORK_CHANGED` (or `ERR_NETWORK_IO_SUSPENDED`,
+`ERR_INTERNET_DISCONNECTED`) for a chunk such as `layout.js`, and the page
+never hydrates. A clean round-5 run failed `brand (dark)` this way while the
+same route passed in every other run. The lane keeps the line as evidence and
+loads the route once more (`network.ts`); the same error on the second load
+fails the pass.
 
 React's development build calls `performance.measure` for every render, and it
 throws "cannot have a negative time stamp" when a render began before the page's
