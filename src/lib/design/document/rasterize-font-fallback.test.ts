@@ -20,6 +20,7 @@ import {
   signatureOnlyFont,
 } from "@/lib/design/render/font-fixtures";
 import { __resetFontCaches } from "@/lib/design/render/fonts";
+import { encodePngRgba } from "@/lib/images/png-pixels";
 import { rasterizeDocument } from "./rasterize";
 import type { DesignDocument } from "./schema";
 
@@ -148,7 +149,11 @@ describe("rasterizeDocument with a brand font that cannot be used", () => {
       },
       assets: {
         "logos/u1/mark.png": {
-          bytes: new Uint8Array([1]),
+          bytes: encodePngRgba({
+            width: 1,
+            height: 1,
+            pixels: new Uint8Array(4),
+          }),
           contentType: "image/png",
         },
       },

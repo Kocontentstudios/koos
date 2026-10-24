@@ -310,9 +310,10 @@ export const designElementSchema = z.discriminatedUnion("type", [
  * copy of the whole document by code points. The builders use at most 5
  * shapes, 6 text runs, 1 button, 1 image, 1 logo, 1 gradient and about 420
  * code points; the room above that is for the editor. The worst document
- * these caps allow (testing-cost.ts) draws in about 2.5s alone and 2.6s
+ * these caps allow (testing-cost.ts) draws in 2.1-2.5s alone and 2.2-2.8s
  * beside another on the render pool; `bench:document-cost` holds it under
- * 3s, and cost.smoke.test.ts fails if a cap moves without a new bench run.
+ * 3s, and cost.smoke.test.ts fails if any schema bound or cap moves without
+ * a new recorded bench run.
  * A process's first render also pays the handshakes for
  * the fallback faces and emoji next/og fetches, about 2s more whatever the
  * emoji count, which the render limit (satori-pool.ts) bounds.

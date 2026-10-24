@@ -6,8 +6,12 @@
  * otherwise idle machine: `corepack pnpm bench:document-cost`. Wall-clock
  * time is a property of the machine and its load, which is why this is not a
  * gate test; the gate (`cost.smoke.test.ts`) pins the caps measured here.
- * Exits 1 when either figure is over the bound.
+ * Exits 1 when either figure is over the bound. With `--record`, a run under
+ * the bound writes the caps and figures to cost-bench.json, which is how a
+ * deliberate change to any cost bound gets past the gate.
  */
+
+import { writeFile } from "node:fs/promises";
 
 import { documentElement } from "@/lib/design/document/render";
 import { designDocumentSchema } from "@/lib/design/document/schema";
@@ -79,4 +83,22 @@ console.log(JSON.stringify(report, null, 2));
 if (best(alone) >= BOUND_MS || best(pair) >= BOUND_MS) {
   console.error(`over the ${BOUND_MS} ms bound`);
   process.exit(1);
+}
+
+if (process.argv.includes("--record")) {
+  const recorded = {
+    caps: report.caps,
+    measured: {
+      date: new Date().toISOString().slice(0, 10),
+      boundMs: BOUND_MS,
+      aloneMs: report.aloneMs.best,
+      pairMs: report.pairMs.best,
+      workers,
+    },
+  };
+  await writeFile(
+    new URL("../src/lib/design/document/cost-bench.json", import.meta.url),
+    `${JSON.stringify(recorded, null, 2)}\n`,
+  );
+  console.log("recorded cost-bench.json");
 }
