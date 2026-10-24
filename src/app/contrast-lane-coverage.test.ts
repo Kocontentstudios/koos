@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -45,29 +46,45 @@ describe("the contrast lane renders every page", () => {
   });
 });
 
-/* The spec says the lane runs on every pull request that can change a pixel
-   and nightly. That is only true while the workflow says so. */
-describe("the contrast workflow runs the lane", () => {
+/* The lane is advisory (spec 9.2): about 2.4 hours a run, so it is run by hand
+   before a colour or component-state change ships and weekly, never as a
+   pull_request check that would hold every merge on it. */
+describe("the contrast workflow runs the lane, advisory", () => {
   const workflow = readFileSync(
     path.join(process.cwd(), ".github", "workflows", "contrast.yml"),
     "utf8",
   );
 
-  it.each([
-    "src/app/**",
-    "src/components/**",
-    "docs/KO_OS UI.Specification.md",
-    "e2e/**",
-  ])("on pull requests that touch %s", (glob) => {
-    expect(workflow).toContain("pull_request:");
-    expect(workflow).toContain(`"${glob}"`);
+  it("is never a pull request or push check", () => {
+    expect(workflow).not.toMatch(
+      /^\s*(?:pull_request|pull_request_target|push|merge_group):/m,
+    );
   });
 
-  it("nightly, against a postgres service, through pnpm e2e:contrast", () => {
+  it("runs by hand, one route or all, and weekly", () => {
+    expect(workflow).toMatch(
+      /workflow_dispatch:\s*\n\s*inputs:\s*\n\s*routes:/,
+    );
+    expect(workflow).toMatch(/E2E_ROUTES: \$\{\{ inputs\.routes \}\}/);
     expect(workflow).toMatch(/schedule:\s*\n\s*- cron:/);
+  });
+
+  it("against a postgres service, through pnpm e2e:contrast", () => {
     expect(workflow).toMatch(/services:\s*\n\s*postgres:/);
     expect(workflow).toContain("node scripts/migrate.mjs");
     expect(workflow).toContain("run: pnpm e2e:contrast");
+  });
+
+  /* Next colours its log under the FORCE_COLOR Playwright sets, and round 4's
+     lane failed four clean routes on coloured lines server-log.ts could not
+     read. server-log.ts strips the escapes; this keeps the log plain too. */
+  it("starts next dev with colour off", () => {
+    const serve = readFileSync(
+      path.join(process.cwd(), "e2e", "contrast", "serve.mjs"),
+      "utf8",
+    );
+    expect(serve).toContain('NO_COLOR: "1"');
+    expect(serve).toContain("env: plainLogEnv(process.env)");
   });
 
   it("runs every lane project", () => {

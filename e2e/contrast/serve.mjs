@@ -34,6 +34,15 @@ const next = createRequire(import.meta.url).resolve("next/dist/bin/next");
 const args = [next, "dev", "--port", port];
 if (process.env.E2E_WEBPACK) args.push("--webpack");
 
+/* Next colours its log when FORCE_COLOR is set (Playwright sets it for the
+   web server) even into a pipe, and its colour check reads any FORCE_COLOR
+   value, "0" included, as on. NO_COLOR is checked first and always wins.
+   server-log.ts strips escapes too; this keeps the saved log readable. */
+function plainLogEnv(env) {
+  const { FORCE_COLOR: _forced, ...rest } = env;
+  return { ...rest, NO_COLOR: "1" };
+}
+
 const MAX_RESTARTS = 5;
 let restarts = 0;
 let stopping = false;
@@ -42,7 +51,7 @@ let child;
 function start() {
   child = spawn(process.execPath, args, {
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    env: plainLogEnv(process.env),
   });
   child.stdout.on("data", write);
   child.stderr.on("data", write);

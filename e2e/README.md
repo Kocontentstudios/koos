@@ -10,16 +10,26 @@ gradients, inset shadows, inherited foregrounds and HTML strings.
 
 ## When it runs
 
-- **On every pull request** that touches `src/app/**`, `src/components/**`,
-  `src/lib/theme/**`, the spec, `e2e/**`, `playwright.config.ts`, the
-  lockfile or the workflow itself (`.github/workflows/contrast.yml`), against
-  a throwaway Postgres service.
-- **Nightly** on the default branch, so a change outside those paths is caught
-  within a day.
-- **By hand** with `corepack pnpm e2e:contrast` (below).
+The lane is **advisory, not a merge gate**. The blocking half of the colour
+contract is the source gate, part of `pnpm test`, which CI runs on every pull
+request (`.github/workflows/ci.yml`).
 
-`src/app/contrast-lane-coverage.test.ts`, part of the gate, fails if the
-workflow stops running the lane on those triggers.
+- **Before shipping any colour or component-state change** (a token, a fill,
+  a hover, focus, pressed, loading, disabled or open style, a new component):
+  run it by hand (below) or from GitHub Actions: Actions, *Rendered contrast*,
+  *Run workflow*. The `routes` input takes labels from `routes.ts`, comma
+  separated; empty runs every route.
+- **Weekly** on the default branch (Monday 04:00 UTC), so drift is seen even
+  when nobody ran it.
+
+It is no pull request check: a full run takes about 2.4 hours, and a run can
+go red for reasons that are not the change (a hydration warning after a probe
+reload, a dev-server restart), so as a required check it would hold every
+merge. Read a red run's evidence before acting on it.
+
+`src/app/contrast-lane-coverage.test.ts`, part of the gate, pins this: the
+workflow has a hand trigger with a `routes` input and a schedule, and no
+`pull_request` or `push` trigger.
 
 ## What it checks
 
@@ -132,8 +142,17 @@ stops seeing a kind of ground or a kind of state, it fails there first.
 while it rendered (Next marks them `⨯`; "Event handlers cannot be passed to
 Client Component props" is how round 3's crash showed), and the `server-log`
 project reads the whole log once every route has run. The client closing a
-response early is the one `⨯` line that is not an error. `server-log.test.ts`
-pins both against round 3's log.
+response early is the one `⨯` line that is not an error, and lines next dev
+forwards from the browser (`[browser]`) are left to the browser check.
+
+Next colours its log whenever `FORCE_COLOR` is set, and Playwright sets it for
+every web server, so a real line reads `\x1b[31m\x1b[1m⨯\x1b[22m\x1b[39m
+Error: ...`. Round 4's lane failed four clean routes because the filter only
+knew the plain form. Both fixes are in: `serve.mjs` starts next dev with
+`NO_COLOR=1` and without `FORCE_COLOR`, and `server-log.ts` strips escape codes
+before it matches (for a server you started yourself, which may still colour
+its log). `server-log.test.ts` pins round 3's crash and round 4's real coloured
+lines, copied byte for byte.
 
 `next dev` holds every compiled route in memory. Under the heap cap in
 `NODE_OPTIONS` it can run out, and V8 ends it; `serve.mjs` starts it again (up
@@ -162,9 +181,11 @@ corepack pnpm e2e:contrast
 
 That starts `next dev` on port 3417 against
 `postgres://koos:koos@localhost:5434/koos` and runs the probe self-test, the
-seed, every route and the server-log check. A full run takes about an hour
-and a half with two workers; no step waits more than 15 seconds for an
-element, so a run cannot hang on a page that changed under it. The rest of the app's environment comes from your `.env`.
+seed, every route and the server-log check. A full run takes about 2.4 hours
+with one worker (round 4's critic, 74 routes and themes, 44,829
+measurements); two workers are faster where the machine has the memory. No
+step waits more than 15 seconds for an element, so a run cannot hang on a page
+that changed under it. The rest of the app's environment comes from your `.env`.
 
 - In a git worktree with a symlinked `node_modules`: `E2E_WEBPACK=1`
   (Turbopack refuses a symlinked `node_modules`).
@@ -175,8 +196,10 @@ element, so a run cannot hang on a page that changed under it. The rest of the a
   `E2E_SERVER_LOG` at that server's output
   (`next dev --port 3417 2>&1 | tee server.log`). Without `E2E_SERVER_LOG`
   the lane fails rather than skipping the server check.
-- Some routes: `E2E_ROUTES=brand,team` (labels from `routes.ts`); one theme:
-  add `-g "brand \(dark\)"`. On a small machine, a full run in four
+- **One route**, a few minutes:
+  `E2E_ROUTES=brand corepack pnpm e2e:contrast`. Several:
+  `E2E_ROUTES=brand,team` (labels from `routes.ts`). One theme: add
+  `-g "brand \(dark\)"`. On a small machine, a full run in four
   `E2E_ROUTES` chunks, each against a fresh server, stays under a 3 GB heap.
 - Trace every target as it is probed: `E2E_TRACE=/tmp/trace.log`.
 
@@ -209,9 +232,22 @@ as the `contrast-evidence` artifact.
 ## What it cannot see
 
 Each of these is out of reach of both the source gate and this lane, and is
-listed in the spec (9.2) with the reason: raster images of text, content
-inside a frame (the lane fails on any visible `iframe`, `embed` or `object`
-rather than pass it), states only reachable through a flow that writes data,
-a second level of disclosure, hover and focus below 1440 px, the second and
-later buttons of one kind, content behind a timer longer than five minutes
-or an interval, and the browser's own selection highlight.
+listed in the spec (9.2) with the reason and what a reviewer checks by hand:
+raster images of text, content inside a frame (the lane fails on any visible
+`iframe`, `embed` or `object` rather than pass it), states only reachable
+through a flow that writes data, a second level of disclosure, hover and focus
+below 1440 px, the second and later buttons of one kind, content behind a
+timer longer than five minutes or an interval, and the browser's own selection
+highlight. Round 4's critic added twelve more, each confirmed rendering below
+AA with both checks green: a `mask-image` fade on text, a file input's `file:`
+button text, a container-query band (and `widths.ts` reads `@min-[N]:` as a
+viewport breakpoint), `active:` on a non-control, `prefers-color-scheme` with
+the OS dark and the app light, `::first-letter`, a date input's own text,
+`:user-invalid`, validation that appears after typing, a script-driven
+`onMouseEnter` tooltip on a non-control, a drag-over state and a tooltip on a
+hover delay longer than the probe's 300 ms quiet wait.
+
+The RSC check (`src/lib/rsc/function-props.ts`) flags only functions defined
+in the module that passes them; a function imported from elsewhere is caught
+here, by the missing sentinel and the server's "Event handlers cannot be
+passed" line.

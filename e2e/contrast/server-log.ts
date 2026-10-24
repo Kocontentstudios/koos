@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 /**
  * The dev server's output, which serve.mjs writes to a file. A Server
@@ -45,7 +46,11 @@ export function serverLogOffset(): number {
 /** Error lines the server logged after `offset`, each with the line after it
  * (Next prints the message on the ⨯ line and the cause below). */
 export function serverErrors(text: string): string[] {
-  const lines = text.split("\n");
+  /* Next colours its log under FORCE_COLOR, which Playwright sets for every
+     web server: a real line reads "\x1b[31m\x1b[1m⨯\x1b[22m\x1b[39m Error:".
+     serve.mjs turns colour off, but a server started by hand (E2E_BASE_URL)
+     may still colour its log, and the anchors below only hold on plain text. */
+  const lines = stripVTControlCharacters(text).split("\n");
   const found: string[] = [];
   for (const [i, line] of lines.entries()) {
     if (!ERROR.test(line) || CLIENT_WENT_AWAY.test(line)) continue;

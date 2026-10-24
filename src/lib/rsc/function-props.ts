@@ -16,6 +16,12 @@ import ts from "typescript";
  * "use client" module) and, in each, every JSX prop or child whose value is a
  * function created in that module. Server actions ("use server") are allowed;
  * a prop the component received and passes on is the caller's to answer for.
+ *
+ * Only functions defined in the same module are flagged. A function imported
+ * from another module (`<Button onClick={trackClick}>` with `trackClick` from
+ * src/lib) is not resolved, so it passes here; the rendered contrast lane
+ * (e2e/contrast/, advisory) is the guard for it, failing the route on the
+ * missing sentinel and the server's "Event handlers cannot be passed" line.
  */
 
 const ROUTE_FILES = new Set([
