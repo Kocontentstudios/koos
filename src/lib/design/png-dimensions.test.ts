@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readPngDimensions } from "@/lib/design/png-dimensions";
+import {
+  readJpegDimensions,
+  readPngDimensions,
+} from "@/lib/design/png-dimensions";
 
 /** A minimal but real PNG header: signature, length, "IHDR", width, height. */
 function pngHeader(width: number, height: number): Uint8Array {
@@ -84,5 +87,70 @@ describe("readPngDimensions", () => {
     backing.set(pngHeader(1536, 1024), 32);
     const view = backing.subarray(32);
     expect(readPngDimensions(view)).toEqual({ width: 1536, height: 1024 });
+  });
+});
+
+/* A frame header (SOF0) of `width` x `height`, three components. */
+function sof(width: number, height: number): number[] {
+  return [
+    0xff,
+    0xc0,
+    0,
+    17,
+    8,
+    height >> 8,
+    height & 0xff,
+    width >> 8,
+    width & 0xff,
+    3,
+    1,
+    0x11,
+    0,
+    2,
+    0x11,
+    1,
+    3,
+    0x11,
+    1,
+  ];
+}
+
+/* A comment segment carrying `payload`. */
+function comment(payload: number[]): number[] {
+  const length = payload.length + 2;
+  return [0xff, 0xfe, length >> 8, length & 0xff, ...payload];
+}
+
+const SCAN = [0xff, 0xda, 0, 8, 1, 1, 0, 0, 0x3f, 0];
+
+describe("readJpegDimensions", () => {
+  it("skips 0xFF fill bytes before a marker instead of reading them as one", () => {
+    /* The smuggling shape: a fill byte, then the real frame header, then a
+       comment holding a fake small frame header the old reader landed on. */
+    const bytes = new Uint8Array([
+      0xff,
+      0xd8,
+      0xff,
+      ...sof(8192, 8192),
+      ...comment(sof(10, 10)),
+      ...SCAN,
+    ]);
+    expect(readJpegDimensions(bytes)).toEqual({ width: 8192, height: 8192 });
+  });
+
+  it("refuses two frame headers before the first scan", () => {
+    const bytes = new Uint8Array([
+      0xff,
+      0xd8,
+      ...sof(10, 10),
+      ...sof(8192, 8192),
+      ...SCAN,
+    ]);
+    expect(readJpegDimensions(bytes)).toBeNull();
+  });
+
+  it("still reads a file cut off after its frame header", () => {
+    const bytes = new Uint8Array([0xff, 0xd8, ...sof(2560, 1440)]);
+    expect(readJpegDimensions(bytes)).toEqual({ width: 2560, height: 1440 });
   });
 });

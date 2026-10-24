@@ -49,7 +49,7 @@ export function schemaBounds(): Record<string, Bound> {
   const visit = (node: unknown, path: string) => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) {
-      node.forEach((child) => visit(child, path));
+      for (const child of node) visit(child, path);
       return;
     }
     const record = node as Record<string, unknown>;

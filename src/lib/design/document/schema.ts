@@ -312,8 +312,9 @@ export const designElementSchema = z.discriminatedUnion("type", [
  * code points; the room above that is for the editor. The worst document
  * these caps allow (testing-cost.ts) draws in 2.1-2.5s alone and 2.2-2.8s
  * beside another on the render pool; `bench:document-cost` holds it under
- * 3s, and cost.smoke.test.ts fails if any schema bound or cap moves without
- * a new recorded bench run.
+ * 3s; cost-bounds.test.ts refuses one step past every bound and cap
+ * wherever it is enforced, and cost.smoke.test.ts fails if a declared one
+ * moves without a new recorded bench run.
  * A process's first render also pays the handshakes for
  * the fallback faces and emoji next/og fetches, about 2s more whatever the
  * emoji count, which the render limit (satori-pool.ts) bounds.

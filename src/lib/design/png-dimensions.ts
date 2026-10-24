@@ -64,6 +64,7 @@ export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 2;
+  let found: PngDimensions | null = null;
 
   while (offset + 4 <= bytes.length) {
     if (bytes[offset] !== 0xff) {
@@ -71,6 +72,14 @@ export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
       continue;
     }
     const marker = bytes[offset + 1];
+    /* Any number of 0xFF fill bytes may precede a marker. Reading one as a
+       marker took the next two bytes as a length, skipped the real frame
+       header and read a fake 10x10 one from inside a comment, so an
+       8192 px image passed the renderer's size check. */
+    if (marker === 0xff) {
+      offset += 1;
+      continue;
+    }
     // Standalone markers carry no length payload.
     if (
       marker === 0xd8 ||
@@ -80,20 +89,23 @@ export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
       offset += 2;
       continue;
     }
-    if (marker === 0xd9 || marker === 0xda) return null; // EOI / scan data
+    if (marker === 0xd9 || marker === 0xda) return found; // EOI / scan data
     const length = view.getUint16(offset + 2);
     if (length < 2) return null;
     if (SOF_MARKERS.has(marker)) {
-      if (offset + 9 > bytes.length) return null;
+      /* A baseline or progressive image has one frame header before its
+         first scan. Two leave no single honest size to check. */
+      if (found || offset + 9 > bytes.length) return null;
       const height = view.getUint16(offset + 5);
       const width = view.getUint16(offset + 7);
-      return isPlausibleDimension(width) && isPlausibleDimension(height)
-        ? { width, height }
-        : null;
+      if (!isPlausibleDimension(width) || !isPlausibleDimension(height)) {
+        return null;
+      }
+      found = { width, height };
     }
     offset += 2 + length;
   }
-  return null;
+  return found;
 }
 
 /** Size of whichever of the two raster formats the renderer can composite. */

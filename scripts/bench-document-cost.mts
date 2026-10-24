@@ -11,6 +11,7 @@
  * deliberate change to any cost bound gets past the gate.
  */
 
+import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 
 import { documentElement } from "@/lib/design/document/render";
@@ -89,6 +90,11 @@ if (process.argv.includes("--record")) {
   const recorded = {
     caps: report.caps,
     measured: {
+      /* Ties the figures to the caps they were timed under, so editing the
+         caps by hand to match a loosened schema shows as a stale digest. */
+      capsDigest: createHash("sha256")
+        .update(JSON.stringify(report.caps))
+        .digest("hex"),
       date: new Date().toISOString().slice(0, 10),
       boundMs: BOUND_MS,
       aloneMs: report.aloneMs.best,

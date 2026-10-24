@@ -264,10 +264,11 @@
     "maxAssetEdge": 4096
   },
   "measured": {
+    "capsDigest": "bdf82c3b26eddd1c45389207d832742a8f8bee33b8b0e8f0a7daf2929cbd119b",
     "date": "2026-10-24",
     "boundMs": 3000,
-    "aloneMs": 2083,
-    "pairMs": 2194,
+    "aloneMs": 2367,
+    "pairMs": 2662,
     "workers": 2
   }
 }

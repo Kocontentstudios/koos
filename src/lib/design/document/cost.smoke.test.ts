@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { loadBrandFonts } from "@/lib/design/render/fonts";
 import { rasterize } from "@/lib/design/render/rasterize";
@@ -42,6 +43,9 @@ const dataUri = (bytes: Uint8Array) =>
 
 it("keeps the cost bounds the bench last timed", () => {
   expect(JSON.parse(JSON.stringify(currentCaps()))).toEqual(benched.caps);
+  expect(
+    createHash("sha256").update(JSON.stringify(benched.caps)).digest("hex"),
+  ).toBe(benched.measured.capsDigest);
 });
 
 it("draws the worst valid document, alone and two at once", async () => {
