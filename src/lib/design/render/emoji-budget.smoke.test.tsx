@@ -27,7 +27,7 @@ let fonts: LoadedFont[];
 let diskCache: string;
 
 /** Fresh workers, with no picture in memory, on the given fake network. */
-async function freshWorkers(network: "ok" | "503-once") {
+async function freshWorkers(network: string) {
   await closeRenderPool();
   process.env.KOOS_OG_FAKE_NETWORK = network;
   process.env.KOOS_OG_ASSET_CACHE = diskCache;
@@ -90,6 +90,42 @@ describe("the emoji budget in the render worker", () => {
         fonts,
       ),
     ).rejects.toBeInstanceOf(EmojiBudgetError);
+  }, 60_000);
+
+  it("really fails a fetch in the 503 mode the retry test relies on", async () => {
+    /* Without this, the fake's 503 branch could stop firing and the retry
+       test below would pass without ever retrying. */
+    await freshWorkers("503-always");
+    const outcome = renderPng(page(faces(1, 70)), CANVAS, fonts);
+    await expect(outcome).rejects.toThrow(/503/);
+    await expect(outcome).rejects.not.toBeInstanceOf(EmojiBudgetError);
+    await freshWorkers("ok");
+  }, 60_000);
+
+  it.each([["0"], ["false"], ["off"]])(
+    "refuses to start on %s, which would otherwise switch the fake network on",
+    async (value) => {
+      await freshWorkers(value);
+      await expect(
+        renderPng(page(faces(1, 72)), CANVAS, fonts),
+      ).rejects.toThrow();
+      await freshWorkers("ok");
+    },
+    60_000,
+  );
+
+  it("refuses to start with the fake network under NODE_ENV=production", async () => {
+    const env = process.env.NODE_ENV;
+    await freshWorkers("ok");
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    try {
+      await expect(
+        renderPng(page(faces(1, 74)), CANVAS, fonts),
+      ).rejects.toThrow();
+    } finally {
+      (process.env as Record<string, string | undefined>).NODE_ENV = env;
+      await freshWorkers("ok");
+    }
   }, 60_000);
 
   it("counts a picture once when its first fetch fails and is retried", async () => {

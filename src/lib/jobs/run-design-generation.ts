@@ -560,6 +560,22 @@ async function recentLayoutsFor(brandId: string): Promise<string[]> {
   }
 }
 
+/**
+ * What the user is told when no variant rendered. The composite path never
+ * runs the schema's emoji count, so copy with too many emoji reaches the
+ * render worker's budget and every variant is refused; trying again would
+ * fail the same way, so the message says what to change. Only when every
+ * failure was the emoji: a variant down for another reason (an outage) must
+ * not be hidden behind it.
+ */
+export function designFailureMessage(failures: unknown[]): string {
+  const emoji = failures.find((f) => f instanceof EmojiBudgetError);
+  if (emoji && failures.every((f) => f instanceof EmojiBudgetError)) {
+    return `This design can't be drawn: ${(emoji as EmojiBudgetError).message}, then try again.`;
+  }
+  return "Design generation failed. Please try again.";
+}
+
 export async function generateDesignWork(
   args: {
     context: DesignContext;
@@ -705,7 +721,7 @@ export async function generateDesignWork(
     ),
   );
   const succeeded: string[] = [];
-  const refused: { emoji: EmojiBudgetError | null } = { emoji: null };
+  const failures: unknown[] = [];
   const failed: string[] = [];
   const brandFontFaults: string[] = [];
   /* The pre-delivery gate's findings were computed and dropped. Without these
@@ -769,7 +785,7 @@ export async function generateDesignWork(
         if (rendered.correction) judgeVerdicts.push(rendered.correction);
         if (rendered.correctionKept) correctionsKept.push(variant.id);
       } catch (err) {
-        if (err instanceof EmojiBudgetError) refused.emoji = err;
+        failures.push(err);
         console.error(`design variant ${variant.id} failed`, err);
         await updateDesignGeneration(variant.id, {
           status: "failed",
@@ -807,16 +823,7 @@ export async function generateDesignWork(
   }
 
   if (succeeded.length === 0) {
-    /* The composite path never runs the schema's emoji count, so copy with
-       too many emoji reaches the render worker's budget and every variant
-       is refused. Trying again would fail the same way; the user has to
-       change the copy, so the message says that. */
-    if (refused.emoji) {
-      throw new Error(
-        `This design can't be drawn: ${refused.emoji.message}, then try again.`,
-      );
-    }
-    throw new Error("Design generation failed. Please try again.");
+    throw new Error(designFailureMessage(failures));
   }
 
   // Closes the metering gap the old generate-image route left open: image

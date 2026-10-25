@@ -89,8 +89,20 @@ class EmojiBudgetExceeded extends Error {}
 
 /* Tests replace the network under every path below (budget, disk cache,
    retries) instead of skipping it: "ok" answers every emoji with a
-   picture, "503-once" fails each URL once first. Anything else is a 404. */
-const FAKE_NETWORK = process.env.KOOS_OG_FAKE_NETWORK;
+   picture, "503-once" fails each URL once first, "503-always" never
+   answers; fonts and other hosts get a 404. Only those exact values switch
+   it on, and never in production, where it would draw every emoji as a
+   black square with no error. */
+const FAKE_NETWORK = process.env.KOOS_OG_FAKE_NETWORK || null;
+const FAKE_MODES = new Set(["ok", "503-once", "503-always"]);
+if (FAKE_NETWORK !== null) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("KOOS_OG_FAKE_NETWORK is set in production; unset it");
+  }
+  if (!FAKE_MODES.has(FAKE_NETWORK)) {
+    throw new Error(`KOOS_OG_FAKE_NETWORK=${FAKE_NETWORK} is not a test mode`);
+  }
+}
 const FAKE_PICTURE =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36"/></svg>';
 const failedOnce = new Set();
@@ -99,6 +111,9 @@ async function fakeNetwork(input) {
   const url = typeof input === "string" ? input : (input.url ?? String(input));
   if (new URL(url).host !== EMOJI_HOST) {
     return new Response("", { status: 404 });
+  }
+  if (FAKE_NETWORK === "503-always") {
+    return new Response("", { status: 503 });
   }
   if (FAKE_NETWORK === "503-once" && !failedOnce.has(url)) {
     failedOnce.add(url);

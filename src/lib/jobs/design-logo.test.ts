@@ -65,7 +65,9 @@ vi.mock("@/lib/storage", () => ({
   },
 }));
 
-const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
+const { designFailureMessage, generateDesignWork } = await import(
+  "@/lib/jobs/run-design-generation"
+);
 const { EmojiBudgetError } = await import("@/lib/design/render/satori-pool");
 
 /* Sized to clear the pre-delivery blank-frame floor (KOOS-AI-001 §1.6): a
@@ -663,11 +665,12 @@ describe("a logo the renderer cannot decode", () => {
      same way, so "try again" would be wrong; the user has to change it. */
   it("says the emoji are the problem when every variant is refused for them", async () => {
     renderCompositeDesign.mockRejectedValue(new EmojiBudgetError(24));
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
       generateDesignWork({ context: context(), userId: "u1" }, runtime),
     ).rejects.toThrow(/more than 24 different emoji/);
+    quiet.mockRestore();
   });
 
   /* A failure that has nothing to do with the logo must not be relabelled as
@@ -703,5 +706,25 @@ describe("when the brand's history cannot be read", () => {
     await generateDesignWork({ context: context(), userId: "u1" }, runtime);
 
     expect(nativeGenerate).toHaveBeenCalled();
+  });
+});
+
+describe("designFailureMessage", () => {
+  it("names the emoji only when every variant was refused for them", () => {
+    expect(
+      designFailureMessage([
+        new EmojiBudgetError(24),
+        new EmojiBudgetError(24),
+      ]),
+    ).toMatch(/more than 24 different emoji/);
+  });
+
+  it("does not hide another failure behind the emoji message", () => {
+    expect(
+      designFailureMessage([
+        new EmojiBudgetError(24),
+        new Error("render backend down"),
+      ]),
+    ).toBe("Design generation failed. Please try again.");
   });
 });
