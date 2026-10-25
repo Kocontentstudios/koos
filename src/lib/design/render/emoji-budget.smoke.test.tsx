@@ -1,4 +1,7 @@
 // @vitest-environment node
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { designOfRuns } from "@/lib/design/document/emoji-shapes";
 import { documentElement } from "@/lib/design/document/render";
@@ -14,21 +17,31 @@ import {
 /**
  * The render worker refuses the emoji picture past its budget, whatever the
  * copy. Rendered here with raw text the schema never saw, as a bypass of
- * its count would reach the worker. Emoji are stubbed in the worker so the
- * test needs no network.
+ * its count would reach the worker. The worker's network is faked under its
+ * real fetch path (budget, disk cache, retries), so production's path is
+ * what is tested and no request leaves the machine.
  */
 
 const CANVAS = { width: 1080, height: 1350 };
 let fonts: LoadedFont[];
+let diskCache: string;
+
+/** Fresh workers, with no picture in memory, on the given fake network. */
+async function freshWorkers(network: "ok" | "503-once") {
+  await closeRenderPool();
+  process.env.KOOS_OG_FAKE_NETWORK = network;
+  process.env.KOOS_OG_ASSET_CACHE = diskCache;
+}
 
 beforeAll(async () => {
-  await closeRenderPool();
-  process.env.KOOS_OG_STUB_EMOJI = "1";
+  diskCache = await mkdtemp(join(tmpdir(), "koos-emoji-budget-"));
+  await freshWorkers("ok");
   fonts = await loadBrandFonts(null);
 });
 afterAll(async () => {
   await closeRenderPool();
-  delete process.env.KOOS_OG_STUB_EMOJI;
+  delete process.env.KOOS_OG_FAKE_NETWORK;
+  delete process.env.KOOS_OG_ASSET_CACHE;
 });
 
 /* Distinct pictographs, spaced so none joins another; an offset keeps each
@@ -36,6 +49,13 @@ afterAll(async () => {
 const distinct = (count: number, offset: number) =>
   Array.from({ length: count }, (_, i) =>
     String.fromCodePoint(0x1f400 + offset + i),
+  ).join(" ");
+
+/* Faces from the emoticons block, where every code point is an emoji
+   picture, so a count of them is a count of fetches. */
+const faces = (count: number, offset: number) =>
+  Array.from({ length: count }, (_, i) =>
+    String.fromCodePoint(0x1f600 + offset + i),
   ).join(" ");
 
 const page = (text: string) => (
@@ -53,6 +73,38 @@ const page = (text: string) => (
 );
 
 describe("the emoji budget in the render worker", () => {
+  it("counts a picture read from the disk cache, as production does", async () => {
+    /* Drawn once to put 24 pictures on disk, then asked for again by fresh
+       workers with nothing in memory, plus one more. */
+    await freshWorkers("ok");
+    await renderPng(
+      page(faces(MAX_EMOJI_FETCHES_PER_RENDER, 0)),
+      CANVAS,
+      fonts,
+    );
+    await freshWorkers("ok");
+    await expect(
+      renderPng(
+        page(faces(MAX_EMOJI_FETCHES_PER_RENDER + 1, 0)),
+        CANVAS,
+        fonts,
+      ),
+    ).rejects.toBeInstanceOf(EmojiBudgetError);
+  }, 60_000);
+
+  it("counts a picture once when its first fetch fails and is retried", async () => {
+    /* A retried fetch counted twice would refuse a legitimate design
+       whenever the CDN wobbles. */
+    await freshWorkers("503-once");
+    const png = await renderPng(
+      page(faces(MAX_EMOJI_FETCHES_PER_RENDER, 40)),
+      CANVAS,
+      fonts,
+    );
+    expect(png.length).toBeGreaterThan(0);
+    await freshWorkers("ok");
+  }, 60_000);
+
   it("is the schema's per-design cap", () => {
     expect(MAX_EMOJI_FETCHES_PER_RENDER).toBe(MAX_EMOJI_PER_DOCUMENT);
   });

@@ -37,10 +37,12 @@ export class RenderTimeoutError extends Error {
  * the text took five review rounds and still missed some (next/og joins a
  * design's emoji words before splitting them, so loose pieces attach to
  * their neighbours), so the worker counts them instead: past this many it
- * refuses the next fetch and the render fails with EmojiBudgetError. A
- * failed fetch is never cached by next/og, so nothing later is drawn
- * blank. The schema's per-design cap (text-safety.ts) is the same number,
- * so copy it accepts never reaches this.
+ * refuses the next fetch and the render fails with EmojiBudgetError. The
+ * refusal throws, and next/og caches only what a fetch returned, so nothing
+ * later is drawn blank. The schema's per-design cap (text-safety.ts) is the
+ * same number, so a layer document it accepts never reaches this; the
+ * composite path does not run that count, and the job says the emoji are
+ * the problem when every variant is refused for them.
  */
 export const MAX_EMOJI_FETCHES_PER_RENDER = 24;
 export const EMOJI_BUDGET = "EMOJI_BUDGET" as const;

@@ -66,6 +66,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
+const { EmojiBudgetError } = await import("@/lib/design/render/satori-pool");
 
 /* Sized to clear the pre-delivery blank-frame floor (KOOS-AI-001 §1.6): a
    64-byte stub for a 1024x1024 frame reads as blank by compressed density,
@@ -656,6 +657,17 @@ describe("a logo the renderer cannot decode", () => {
     expect(createNotification.mock.calls[0][0].payload.message).toMatch(
       /could not decode the file/i,
     );
+  });
+
+  /* Copy with more emoji than a render may fetch fails every variant the
+     same way, so "try again" would be wrong; the user has to change it. */
+  it("says the emoji are the problem when every variant is refused for them", async () => {
+    renderCompositeDesign.mockRejectedValue(new EmojiBudgetError(24));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      generateDesignWork({ context: context(), userId: "u1" }, runtime),
+    ).rejects.toThrow(/more than 24 different emoji/);
   });
 
   /* A failure that has nothing to do with the logo must not be relabelled as

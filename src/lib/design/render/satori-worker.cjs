@@ -87,12 +87,27 @@ const emoji = { asked: 0, budget: Number.POSITIVE_INFINITY };
 
 class EmojiBudgetExceeded extends Error {}
 
-/* Tests set this to draw emoji without the network. */
-const STUB_EMOJI = process.env.KOOS_OG_STUB_EMOJI === "1";
-const STUB_PICTURE =
+/* Tests replace the network under every path below (budget, disk cache,
+   retries) instead of skipping it: "ok" answers every emoji with a
+   picture, "503-once" fails each URL once first. Anything else is a 404. */
+const FAKE_NETWORK = process.env.KOOS_OG_FAKE_NETWORK;
+const FAKE_PICTURE =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36"/></svg>';
+const failedOnce = new Set();
 
-const network = globalThis.fetch;
+async function fakeNetwork(input) {
+  const url = typeof input === "string" ? input : (input.url ?? String(input));
+  if (new URL(url).host !== EMOJI_HOST) {
+    return new Response("", { status: 404 });
+  }
+  if (FAKE_NETWORK === "503-once" && !failedOnce.has(url)) {
+    failedOnce.add(url);
+    return new Response("", { status: 503 });
+  }
+  return new Response(FAKE_PICTURE);
+}
+
+const network = FAKE_NETWORK ? fakeNetwork : globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url =
     typeof input === "string"
@@ -104,7 +119,6 @@ globalThis.fetch = async (input, init) => {
   if (host === EMOJI_HOST) {
     emoji.asked += 1;
     if (emoji.asked > emoji.budget) throw new EmojiBudgetExceeded();
-    if (STUB_EMOJI) return new Response(STUB_PICTURE);
   }
   if (!OG_HOSTS.has(host)) return network(input, init);
   const dir = testCache ?? (host === EMOJI_HOST ? emojiCache : null);
