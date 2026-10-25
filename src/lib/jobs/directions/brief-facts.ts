@@ -1188,6 +1188,7 @@ export function coverBriefFacts<T extends FactCopy>(
       return direction;
     }
     const lines = [...direction.footerLines];
+    let subheadline = "";
     const touched = new Set<number>();
     const fitted: BriefFact[] = [];
     for (const fact of missing) {
@@ -1218,10 +1219,22 @@ export function coverBriefFacts<T extends FactCopy>(
           at = roomOn();
         }
       }
+      /* A direction with no subheadline has a line of room above the
+         footer: a fact the full footer cannot take goes there (round-6
+         live run: the named chocolatier left off a hero card whose footer
+         held three lines of facts). */
+      const lead = subheadline ? `${subheadline}${FOOTER_JOIN}${item}` : item;
       if (at >= 0) {
         lines[at] = `${lines[at]}${FOOTER_JOIN}${item}`;
       } else if (item.length <= limit && lines.length < MAX_FOOTER_LINES) {
         at = lines.push(item) - 1;
+      } else if (
+        !direction.subheadline &&
+        lead.length <= COPY_LIMITS.subheadline
+      ) {
+        subheadline = lead;
+        fitted.push(fact);
+        continue;
       } else {
         coverage.leftOff.push({
           direction: index,
@@ -1245,6 +1258,7 @@ export function coverBriefFacts<T extends FactCopy>(
     const drawn = withoutRedundant(
       {
         ...direction,
+        ...(subheadline ? { subheadline } : {}),
         footerLines: lines,
         footerStyle:
           direction.footerStyle === "none" ? "text" : direction.footerStyle,

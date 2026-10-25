@@ -431,3 +431,35 @@ describe("withoutLooseRepeats", () => {
     expect(out.footerLines).toEqual(["20 African countries"]);
   });
 });
+
+describe("a fact the full footer cannot take", () => {
+  it("goes into an empty subheadline rather than being left off", () => {
+    const facts: BriefFact[] = [
+      {
+        kind: "person",
+        text: "With chocolatier Kemi Durojaiye",
+        needs: ["^kemi", "^durojaiy"],
+      },
+    ];
+    const out = coverBriefFacts(
+      [
+        copy({
+          headline: "Master the Art of Chocolate",
+          subheadline: undefined,
+          footerLines: [
+            "Sat 29 Nov · 2pm–5pm · Our Lekki kitchen",
+            "WhatsApp 0813 222 7045 · 7 Admiralty Way, Lekki",
+            "₦28,000 per person · Ages 16 and up · 12 places",
+          ],
+          footerStyle: "bar",
+        }),
+      ],
+      facts,
+    );
+    expect(out.directions[0].subheadline).toBe(
+      "With chocolatier Kemi Durojaiye",
+    );
+    expect(out.coverage.leftOff).toEqual([]);
+    expect(out.coverage.stated[0]).toEqual(["With chocolatier Kemi Durojaiye"]);
+  });
+});
