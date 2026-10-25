@@ -360,12 +360,37 @@ describe("emoji, through the parser", () => {
         String.fromCodePoint(0x1f1e6 + letter.charCodeAt(0) - 65),
       ).join(""),
     ),
-    keycap: [
+    /* Only twelve keycaps exist; the rest of the row fills the cap. */
+    "keycap, filled to the cap": [
       ..."0123456789#*".split("").map((key) => `${key}️⃣`),
       ...["👍", "👋"].flatMap((base) => TONES.map((tone) => base + tone)),
       ..."😀😁😂😃".split(/(?:)/u),
     ],
   };
+
+  /* Pictographs that are text by default. Satori fetches each as a picture
+     whether or not VS16 asks for emoji presentation, so both spellings count. */
+  const TEXT_DEFAULT = Array.from(
+    "☀☁☂☃☄☎☑☘☝☠☢☣☦☪☮☯☸☹☺♀♂♟♠♣♥♦♨♻⚒⚔⚕⚖⚗⚙⚛⚜⚠✂✈✉✌✍✏✒✔✖✝✡✳✴❄❇❣❤",
+  );
+  SEQUENCES["text-default with VS16"] = TEXT_DEFAULT.map(
+    (pictograph) => `${pictograph}️`,
+  );
+  SEQUENCES["text-default bare"] = TEXT_DEFAULT;
+  /* Every one starts with the same person and tone, so a count keyed on the
+     first element, or with tones stripped inside a sequence, sees one. */
+  SEQUENCES["toned person joined to a tool"] = TONES.flatMap((tone) =>
+    ["🍳", "🎓", "🎤", "🎨", "🏫", "🔬"].map((tool) => `👩${tone}‍${tool}`),
+  );
+  /* Every one shares its first two elements. */
+  const KIN = ["👧", "👦", "👶", "🧒", "👨", "👩"];
+  SEQUENCES["family sharing two elements"] = [
+    ...KIN.map((a) => `👨‍👩‍${a}`),
+    ...KIN.flatMap((a) => KIN.map((b) => `👨‍👩‍${a}‍${b}`)),
+  ];
+  SEQUENCES["lone regional indicator"] = Array.from({ length: 26 }, (_, i) =>
+    String.fromCodePoint(0x1f1e6 + i),
+  );
 
   it.each(Object.entries(SEQUENCES))(
     "one design: %s sequences count one each, one more distinct is refused",
