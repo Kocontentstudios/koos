@@ -169,7 +169,8 @@ logs `net::ERR_NETWORK_CHANGED` (or `ERR_NETWORK_IO_SUSPENDED`,
 never hydrates. A clean round-5 run failed `brand (dark)` this way while the
 same route passed in every other run. The lane keeps the line as evidence and
 loads the route once more (`network.ts`); the same error on the second load
-fails the pass.
+fails the pass, and so does one after the first load finished, while the
+page is being measured.
 
 React's development build calls `performance.measure` for every render, and it
 throws "cannot have a negative time stamp" when a render began before the page's

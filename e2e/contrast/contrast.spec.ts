@@ -9,7 +9,7 @@ import {
   test,
 } from "@playwright/test";
 import { authState, SEEDED_IDS } from "./auth-state";
-import { isNetworkBlip } from "./network";
+import { networkCut } from "./network";
 import {
   failures,
   load,
@@ -146,7 +146,7 @@ async function openRoute(
   const clickErrors: string[] = [];
   const externalErrors: string[] = [];
   const clicking = { active: false };
-  const network = { reloaded: false, blipped: false };
+  const network = { loaded: false, reloaded: false, blipped: false };
   /* A hydration mismatch that names the probe's own data-cp-* marks is the
      probe's doing, whenever it lands. */
   const logError = (text: string) =>
@@ -159,7 +159,7 @@ async function openRoute(
     const text = message.text();
     if (BENIGN_CONSOLE.some((pattern) => pattern.test(text))) return;
     const from = message.location().url;
-    if (isNetworkBlip(text) && !network.reloaded) {
+    if (networkCut(text, network) === "reload") {
       network.blipped = true;
       externalErrors.push(`${text.slice(0, 200)}${from ? ` (${from})` : ""}`);
       return;
@@ -191,6 +191,7 @@ async function openRoute(
     consoleErrors.length = 0;
     await load(page, routePath(route, seededIds()));
   }
+  network.loaded = true;
   /* A route next dev was still compiling when its chunks were requested
      fails to hydrate with a ChunkLoadError; a second load is served from the
      compiled output. Only that error, only once. */
