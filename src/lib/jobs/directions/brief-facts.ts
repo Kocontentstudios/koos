@@ -1223,15 +1223,20 @@ export function coverBriefFacts<T extends FactCopy>(
          footer: a fact the full footer cannot take goes there (round-6
          live run: the named chocolatier left off a hero card whose footer
          held three lines of facts). */
-      const lead = subheadline ? `${subheadline}${FOOTER_JOIN}${item}` : item;
+      const above = subheadline || direction.subheadline || "";
+      /* A named person is said in a sentence of the subheadline when it
+         has room, rather than left off (round-6 eval: the ceramicist left
+         off under three lines of facts). */
+      const lead = !above
+        ? item
+        : fact.kind === "person" || !direction.subheadline
+          ? `${above.replace(/[\s.]+$/, "")}. ${item}.`
+          : "";
       if (at >= 0) {
         lines[at] = `${lines[at]}${FOOTER_JOIN}${item}`;
       } else if (item.length <= limit && lines.length < MAX_FOOTER_LINES) {
         at = lines.push(item) - 1;
-      } else if (
-        !direction.subheadline &&
-        lead.length <= COPY_LIMITS.subheadline
-      ) {
+      } else if (lead && lead.length <= COPY_LIMITS.subheadline) {
         subheadline = lead;
         fitted.push(fact);
         continue;

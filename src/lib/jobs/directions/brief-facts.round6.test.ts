@@ -463,3 +463,37 @@ describe("a fact the full footer cannot take", () => {
     expect(out.coverage.stated[0]).toEqual(["With chocolatier Kemi Durojaiye"]);
   });
 });
+
+describe("a named person the full footer cannot take", () => {
+  it("is said in a sentence of the subheadline when it has room", () => {
+    const facts: BriefFact[] = [
+      {
+        kind: "person",
+        text: "With ceramicist Bisi Adeleke",
+        needs: ["^bisi", "^adelek"],
+      },
+      { kind: "place", text: "Clay Room", needs: ["^clay", "^room"] },
+    ];
+    const out = coverBriefFacts(
+      [
+        copy({
+          headline: "Throw Your Own Pot",
+          subheadline: "A hands-on wheel-throwing evening in Surulere.",
+          footerLines: [
+            "Thu 20 Nov · 6pm–9pm · 10 seats only · Adults 18+",
+            "Clay and firing included · ₦25,000 a seat, paid ahead",
+            "WhatsApp 0703 666 1294 to book your seat for the night",
+          ],
+          footerStyle: "bar",
+        }),
+      ],
+      facts,
+    );
+    expect(out.directions[0].subheadline).toBe(
+      "A hands-on wheel-throwing evening in Surulere. With ceramicist Bisi Adeleke.",
+    );
+    expect(out.coverage.leftOff).toEqual([
+      expect.objectContaining({ fact: "Clay Room" }),
+    ]);
+  });
+});
