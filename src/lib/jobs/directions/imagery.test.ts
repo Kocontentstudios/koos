@@ -12,11 +12,38 @@ vi.mock("@/lib/design/quality/plate-check", () => ({
   checkPlateShowsProduct: (input: unknown) => checkPlateShowsProduct(input),
 }));
 
-const { briefNamesPeople, paintPlate, platePrompt, storeDrawnMark } =
-  await import("./imagery");
+const {
+  briefNamesPeople,
+  paintPlate,
+  platePrompt,
+  storeDrawnMark,
+  withoutLetteredThings,
+} = await import("./imagery");
 const { BRAND_ID, designPng, draftOf, verdict } = await import("./fixtures");
+const { encodePngRgba } = await import("@/lib/images/png-pixels");
+const { readImageDimensions } = await import("@/lib/design/png-dimensions");
+const { MAX_DOCUMENT_ASSET_EDGE } = await import(
+  "@/lib/design/document/rasterize"
+);
+const { default: sharp } = await import("sharp");
 
-const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46]);
+/* Plates are decoded and re-encoded before they are drawn, so these are
+   real images, not headers. */
+function plate(width: number, height: number): Uint8Array {
+  const pixels = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    pixels.set([200 - (i % width) / 4, 140, 90, 255], i * 4);
+  }
+  return encodePngRgba({ width, height, pixels });
+}
+
+const JPEG = new Uint8Array(
+  await sharp({
+    create: { width: 16, height: 16, channels: 3, background: "#c84" },
+  })
+    .jpeg()
+    .toBuffer(),
+);
 const WEBP = new TextEncoder().encode("RIFF\0\0\0\0WEBPVP8 ");
 
 const promptSent = (
@@ -66,7 +93,7 @@ describe("paintPlate", () => {
     });
 
   it("makes one call and stores the plate under generated/{brand}/plates/", async () => {
-    const plateModel = adapter(designPng(1024, 1280));
+    const plateModel = adapter(plate(1024, 1280));
     const { placed, imageCalls, check } = await paint(plateModel, PRODUCT);
     expect(plateModel.generate).toHaveBeenCalledTimes(1);
     expect(imageCalls).toBe(1);
@@ -88,7 +115,7 @@ describe("paintPlate", () => {
   /* Round-3 code critic P4a: a plate with no product to check it for was
      recorded "passed" after a look for lettering only. */
   it("records a plate with no product to check as unchecked, not passed", async () => {
-    const { check } = await paint(adapter(designPng(1024, 1280)));
+    const { check } = await paint(adapter(plate(1024, 1280)));
     expect(check).toBe("unchecked");
   });
 
@@ -109,11 +136,11 @@ describe("paintPlate", () => {
 
   it("never references a plate that could not be stored", async () => {
     uploadObject.mockRejectedValue(new Error("R2 down"));
-    expect((await paint(adapter(designPng(64, 64)))).placed).toBeNull();
+    expect((await paint(adapter(plate(64, 64)))).placed).toBeNull();
   });
 
   it("names the product first and keeps the direction's own scene", async () => {
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     await paint(plateModel, PRODUCT);
     const prompt = promptSent(plateModel, 0);
     expect(
@@ -125,7 +152,7 @@ describe("paintPlate", () => {
 
   /* Round-1 live critic: 3 of 4 KO plates showed no mille-feuille. */
   it("keeps a plate the check confirms shows the product", async () => {
-    const result = await paint(adapter(designPng(64, 64)), PRODUCT);
+    const result = await paint(adapter(plate(64, 64)), PRODUCT);
     expect(checkPlateShowsProduct).toHaveBeenCalledWith(
       expect.objectContaining({ product: PRODUCT.name, look: PRODUCT.look }),
     );
@@ -138,7 +165,7 @@ describe("paintPlate", () => {
     checkPlateShowsProduct
       .mockResolvedValueOnce(verdict(false, "a round strawberry tart"))
       .mockResolvedValueOnce(verdict(true, ""));
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     const result = await paint(plateModel, PRODUCT);
     expect(plateModel.generate).toHaveBeenCalledTimes(2);
     const retry = promptSent(plateModel, 1);
@@ -155,7 +182,7 @@ describe("paintPlate", () => {
 
   it("draws flat rather than over the wrong product twice", async () => {
     checkPlateShowsProduct.mockResolvedValue(verdict(false, "bread rolls"));
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     const result = await paint(plateModel, PRODUCT);
     expect(plateModel.generate).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
@@ -168,7 +195,7 @@ describe("paintPlate", () => {
 
   it("keeps the plate, marked unchecked, when the check cannot answer", async () => {
     checkPlateShowsProduct.mockResolvedValue(null);
-    const result = await paint(adapter(designPng(64, 64)), PRODUCT);
+    const result = await paint(adapter(plate(64, 64)), PRODUCT);
     expect(result.check).toBe("unchecked");
     expect(result.placed).not.toBeNull();
     expect(result.imageCalls).toBe(1);
@@ -191,7 +218,7 @@ describe("people on a plate", () => {
 
   it("paints no one when the brief names someone, and no stand-in otherwise", () => {
     expect(platePrompt(draftOf(), null, undefined, null, true)).toMatch(
-      /No people, faces or hands/,
+      /No people at all/,
     );
     expect(platePrompt(draftOf(), null)).toMatch(
       /never posed as a named host, speaker or customer/,
@@ -243,7 +270,7 @@ describe("paintPlate, lettering and unnamed products", () => {
     checkPlateShowsProduct
       .mockResolvedValueOnce(verdict(true, "a bottle", { lettering: true }))
       .mockResolvedValueOnce(verdict(true, "a bottle"));
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     const result = await paint(plateModel);
     expect(result).toMatchObject({ check: "passed-on-retry", imageCalls: 2 });
     expect(promptSent(plateModel, 1)).toContain("painted lettering");
@@ -253,7 +280,7 @@ describe("paintPlate, lettering and unnamed products", () => {
     checkPlateShowsProduct.mockResolvedValue(
       verdict(true, "a bottle", { lettering: true }),
     );
-    const result = await paint(adapter(designPng(64, 64)));
+    const result = await paint(adapter(plate(64, 64)));
     expect(result).toMatchObject({
       check: "failed-lettering",
       imageCalls: 2,
@@ -266,7 +293,7 @@ describe("paintPlate, lettering and unnamed products", () => {
     checkPlateShowsProduct.mockResolvedValue(
       verdict(true, "a slice", { subject, items: ["a slice", "a fork"] }),
     );
-    const result = await paint(adapter(designPng(64, 64)));
+    const result = await paint(adapter(plate(64, 64)));
     expect(result.look).toMatchObject({
       subject,
       items: ["a slice", "a fork"],
@@ -276,7 +303,7 @@ describe("paintPlate, lettering and unnamed products", () => {
   /* Round-2 code critic: a product the brief does not name was recorded as
      "not-applicable" with no check at all. */
   it("records a product it could not check for as unchecked", async () => {
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     const result = await paintPlate({
       adapter: plateModel,
       spec: draftOf(),
@@ -299,7 +326,7 @@ describe("events, services and named people", () => {
   };
 
   it("paints an event as a scene and checks it as one", async () => {
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     await paintPlate({
       adapter: plateModel,
       spec: draftOf(),
@@ -319,7 +346,7 @@ describe("events, services and named people", () => {
     checkPlateShowsProduct.mockResolvedValue(
       verdict(true, "a woman at a lectern", { person: true }),
     );
-    const plateModel = adapter(designPng(64, 64));
+    const plateModel = adapter(plate(64, 64));
     const result = await paintPlate({
       adapter: plateModel,
       spec: draftOf(),
@@ -344,7 +371,7 @@ describe("events, services and named people", () => {
       verdict(true, "a baker", { person: true }),
     );
     const result = await paintPlate({
-      adapter: adapter(designPng(64, 64)),
+      adapter: adapter(plate(64, 64)),
       spec: draftOf(),
       product: CLASS,
       brandId: BRAND_ID,
@@ -375,5 +402,114 @@ describe("storeDrawnMark", () => {
   it("reports a mark it could not store as absent", async () => {
     uploadObject.mockRejectedValue(new Error("R2 down"));
     expect(await storeDrawnMark(BRAND_ID, logo)).toBeNull();
+  });
+});
+
+describe("round 6: plates the renderer can draw, and why one is missing", () => {
+  /* An image model's 4K plate at 9:16 is about 3072 x 5504, past the 4096
+     px rasterizeDocument draws; it is fitted before it is checked, stored
+     or drawn. */
+  it("fits a 4K plate to 2560 px on its long edge before anything uses it", async () => {
+    const big = new Uint8Array(
+      await sharp({
+        create: { width: 3072, height: 5504, channels: 3, background: "#b85" },
+      })
+        .png()
+        .toBuffer(),
+    );
+    const { placed } = await paintPlate({
+      adapter: adapter(big),
+      spec: draftOf(),
+      product: PRODUCT,
+      brandId: BRAND_ID,
+    });
+    const size = readImageDimensions(placed?.asset.bytes as Uint8Array);
+    expect(size).toEqual({ width: 1429, height: 2560 });
+    expect(Math.max(size?.width ?? 0, size?.height ?? 0)).toBeLessThanOrEqual(
+      MAX_DOCUMENT_ASSET_EDGE,
+    );
+    const checked = checkPlateShowsProduct.mock.calls[0][0] as {
+      bytes: Uint8Array;
+    };
+    expect(readImageDimensions(checked.bytes)).toEqual(size);
+    const stored = uploadObject.mock.calls[0][0] as { body: Uint8Array };
+    expect(readImageDimensions(stored.body)).toEqual(size);
+  });
+
+  it("keeps a plate already small enough at its own size", async () => {
+    const { placed } = await paintPlate({
+      adapter: adapter(plate(640, 800)),
+      spec: draftOf(),
+      product: PRODUCT,
+      brandId: BRAND_ID,
+    });
+    expect(readImageDimensions(placed?.asset.bytes as Uint8Array)).toEqual({
+      width: 640,
+      height: 800,
+    });
+  });
+
+  it("says the image model was unavailable, not that a plate was wrong", async () => {
+    const result = await paintPlate({
+      adapter: adapter(new Error("Bedrock 503")),
+      spec: draftOf(),
+      product: PRODUCT,
+      brandId: BRAND_ID,
+    });
+    expect(result).toMatchObject({ check: "unavailable", placed: null });
+    expect(checkPlateShowsProduct).not.toHaveBeenCalled();
+  });
+
+  it("refuses any person beside a named one, even one not identifiable", async () => {
+    checkPlateShowsProduct.mockResolvedValue({
+      ...verdict(true, "a woman in profile beside a lectern"),
+      anyPerson: true,
+    });
+    const result = await paintPlate({
+      adapter: adapter(plate(64, 64)),
+      spec: draftOf(),
+      product: { ...PRODUCT, kind: "event" as const },
+      namesPeople: true,
+      brandId: BRAND_ID,
+    });
+    expect(result.check).toBe("failed-people");
+  });
+});
+
+describe("round 6: no lettered objects in a plate prompt", () => {
+  it("drops the scene clauses that ask for paper or screens", () => {
+    expect(
+      withoutLetteredThings(
+        "A bright co-working desk with financial documents and a laptop, warm morning light. Plants by the window.",
+      ),
+    ).toBe("Plants by the window.");
+    expect(
+      withoutLetteredThings("A shop owner's hands sorting coins, soft light"),
+    ).toBe("A shop owner's hands sorting coins, soft light");
+  });
+
+  it("asks a service for tools and place, never screens or paper", () => {
+    const prompt = platePrompt(
+      draftOf({
+        backgroundPrompt:
+          "Neat stacks of receipts and a bank statement on a desk, with a calculator",
+      }),
+      { name: "monthly bookkeeping", look: "", kind: "service" },
+    );
+    expect(prompt).not.toMatch(/receipts|statement/);
+    expect(prompt).toMatch(/no screens, paper or signs/);
+    expect(prompt).toMatch(/No phones, laptops or screens of any kind/);
+  });
+
+  it("still paints the product when the product is a lettered thing", () => {
+    const prompt = platePrompt(draftOf(), {
+      name: "linen notebook",
+      look: "",
+      kind: "product",
+    });
+    expect(prompt.startsWith("A linen notebook, clearly recognisable")).toBe(
+      true,
+    );
+    expect(prompt).not.toMatch(/no paper, documents, books/);
   });
 });

@@ -26,7 +26,7 @@ export const COPY_STRADDLES_PANEL =
 export const HEADLINE_NOT_LEADING =
   "the headline does not lead the footer by the type scale";
 export const CUTOUT_EDGE_SHOWS =
-  "the cut-out's light edge shows against a dark ground";
+  "the cut-out's light edge shows against a dark or coloured ground";
 
 export interface CraftFaults {
   hard: string | null;
@@ -155,8 +155,19 @@ export function paletteForCutout<
   };
 }
 
+/* How far from grey a ground may be before a pale rim reads as a white
+   cut line on it: the peach panel behind round-5's mille-feuille is about
+   0.17; a cream or warm-white page is under 0.08. */
+const COLOURED_GROUND = 0.12;
+
+function chroma([r, g, b]: number[]): number {
+  return (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+}
+
 /** Whether a cut-out with a pale rim is drawn on a dark ground, where the
- *  rim reads as torn paper (round-3 live critic). */
+ *  rim reads as torn paper (round-3 live critic), or on a coloured one,
+ *  where its matting shows as a hard white outline (round-5 live critic:
+ *  the mille-feuille's shadow on the peach panel). */
 export function cutoutEdgeShows(
   doc: Pick<DesignDocument, "elements" | "background">,
   facts: ImageFacts | null | undefined,
@@ -166,9 +177,8 @@ export function cutoutEdgeShows(
   if (!image) return false;
   const rim = cutoutEdgeLuminance(facts);
   const ground = groundUnder(doc, image);
-  return (
-    rim !== null && ground !== null && rim > 0.75 && luminance(ground) < 0.3
-  );
+  if (rim === null || ground === null || rim <= 0.75) return false;
+  return luminance(ground) < 0.3 || chroma(ground) >= COLOURED_GROUND;
 }
 
 /** The craft faults of `doc`, worst first. */

@@ -98,6 +98,10 @@ export interface ReadScore {
   peopleRight: boolean | null;
 }
 
+/* A fact ends on one of these only when it is cut off. */
+const DANGLING_END =
+  /\s(?:a|an|the|and|or|of|for|to|with|from|at|in|on|by|per|your|our|their|its|this|that)$/i;
+
 const GLUE = new Set(
   "a an the our your this that these from on at in to by for of and or via call text dm book booking whatsapp instagram ages age available only is are be with".split(
     " ",
@@ -169,17 +173,34 @@ export function scoreBriefRead({
   }));
   const extras: string[] = [];
   let precise = 0;
+  const saidOf = (label: (typeof placed)[number]) =>
+    new Set(
+      facts
+        .filter((f) => f.span && overlaps(f.span, label.span))
+        .flatMap((f) => [...f.words]),
+    );
   for (const fact of facts) {
     const span = fact.span;
     const reached = span ? placed.filter((l) => overlaps(l.span, span)) : [];
+    const labelWords = new Set(reached.flatMap((l) => [...l.words]));
+    /* Round-5 code critic: "₦3,000 an amazing" and "₦4,500 a box for the"
+       scored precise because each held a label whole. A fact carrying a
+       word no label it reaches has, or ending mid-phrase, is not one. */
+    const strays = [...fact.words].some((w) => !labelWords.has(w));
+    const dangling = DANGLING_END.test(fact.text.trim());
     const clean =
       span !== null &&
       reached.length > 0 &&
+      !strays &&
+      !dangling &&
       reached.every(
         (l) =>
           l.label.optional ||
           within(l.words, fact.words) ||
-          within(fact.words, l.words),
+          /* A part of one fact ("Yaba" of "Yaba and Surulere bars") only
+             when the rest of it is read too: "Shop 4" alone, cut from
+             "Shop 4, Sunday Market, Ikeja", loses the address. */
+          (within(fact.words, l.words) && within(l.words, saidOf(l))),
       );
     if (clean) precise += 1;
     else extras.push(fact.text);

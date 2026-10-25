@@ -5,6 +5,7 @@ import { documentFromSpec } from "@/lib/design/document/from-spec";
 import { createRendererMeasurer } from "@/lib/design/document/measure";
 import {
   type DocumentAsset,
+  DocumentAssetError,
   rasterizeDocument,
 } from "@/lib/design/document/rasterize";
 import {
@@ -25,6 +26,10 @@ import {
   LOGO_UNDECODABLE_IN_RENDER,
   type LoadedLogo,
 } from "@/lib/design/render/logo";
+import {
+  EmojiBudgetError,
+  RenderTimeoutError,
+} from "@/lib/design/render/satori-pool";
 import type { DesignSpec } from "@/lib/design/spec";
 import { type Guarded, guardRender } from "../design-gate";
 import { layoutCraftFaults } from "./craft";
@@ -160,8 +165,11 @@ export function documentRenderer(
     } catch (err) {
       /* Same rule as the composite route: a mark satori cannot decode must
          cost the user a corner, not the design. If the design draws without
-         it the mark was the cause; if not, the original error stands. */
-      if (!logo) throw err;
+         it the mark was the cause; if not, the original error stands. A
+         render refused for its emoji, an asset too large to draw, or one
+         stopped at its time limit is none of the mark's doing, and drawing
+         again without it would only blame the logo and repeat the cost. */
+      if (!logo || isRenderRefusal(err)) throw err;
       const bare = await draw(spec, null).catch(() => {
         throw err;
       });
@@ -172,6 +180,31 @@ export function documentRenderer(
       };
     }
   };
+}
+
+/** A render refused for what the document asks of the renderer, not for
+ *  any one asset in it. */
+export function isRenderRefusal(err: unknown): boolean {
+  return (
+    err instanceof EmojiBudgetError ||
+    err instanceof DocumentAssetError ||
+    err instanceof RenderTimeoutError
+  );
+}
+
+/** What the user is told when a direction's render was refused, in their
+ *  words, or null for any other failure. Trying again would fail the same
+ *  way, so each says what to change. */
+export function renderRefusalMessage(err: unknown): string | null {
+  if (err instanceof EmojiBudgetError) {
+    return `This design can't be drawn: ${err.message}, then try again.`;
+  }
+  if (err instanceof DocumentAssetError) {
+    return err.reason === "too_large"
+      ? "This design's image is too large to draw. Try a smaller image, or regenerate to make new imagery."
+      : "This design's image could not be read. Try another image, or regenerate to make new imagery.";
+  }
+  return null;
 }
 
 /** Whether `spec` keeps its copy off `subject` and draws it cleanly: the
@@ -285,10 +318,10 @@ export function directionGateRules({
 }: {
   spec: DesignSpec;
   assets: DirectionAssets;
-  copyHolds: (corrected: DesignSpec) => boolean;
+  copyHolds: (corrected: DesignSpec) => boolean | Promise<boolean>;
   keepsSubjectClear: SubjectBox | null;
 }): {
-  acceptCorrection: (corrected: DesignSpec) => boolean;
+  acceptCorrection: (corrected: DesignSpec) => Promise<boolean>;
   refuseSecond: (second: DocumentRender) => boolean;
 } {
   return {
@@ -296,10 +329,10 @@ export function directionGateRules({
        not move the layout the forcing rule settled; and a change the
        document does not draw (a plate prompt, the native prompt) would buy
        an identical second render. */
-    acceptCorrection: (corrected) =>
+    acceptCorrection: async (corrected) =>
       corrected.layout === spec.layout &&
       drawsDifferently(spec, corrected) &&
-      copyHolds(corrected),
+      (await copyHolds(corrected)),
     refuseSecond: (second) => {
       if (layoutCraftFaults(second.document).hard) return true;
       if (!keepsSubjectClear || !assets.imageFacts) return false;
@@ -335,7 +368,7 @@ export function renderDirectionGuarded({
   /** Whether a corrected spec's copy may be drawn: within its limits,
    *  stating only the brief's facts and losing none it stated. The judge
    *  rewrites copy too. */
-  copyHolds?: (spec: DesignSpec) => boolean;
+  copyHolds?: (spec: DesignSpec) => boolean | Promise<boolean>;
   /** The box the chosen layout keeps clear. A corrected render that lays
    *  copy on it is refused by measurement, whatever the builder reported
    *  (round-3 code critic: a correction reported only "cropped" while its

@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const rasterizeDocument = vi.fn();
 const judgeAndCorrect = vi.fn();
 
-vi.mock("@/lib/design/document/rasterize", () => ({
+vi.mock("@/lib/design/document/rasterize", async (importOriginal) => ({
+  DocumentAssetError: (
+    await importOriginal<typeof import("@/lib/design/document/rasterize")>()
+  ).DocumentAssetError,
   rasterizeDocument: (input: unknown) => rasterizeDocument(input),
 }));
 vi.mock("@/lib/design/document/measure", async () => {
@@ -19,8 +22,16 @@ vi.mock("@/lib/design/quality/judge", async (importOriginal) => ({
 const { LOGO_NOT_LEGIBLE } = await import("@/lib/design/logo-contrast");
 const { LOGO_UNDECODABLE_IN_RENDER } = await import("@/lib/design/render/logo");
 const { designDocumentSchema } = await import("@/lib/design/document/schema");
-const { documentRenderer, drawsDifferently, renderDirectionGuarded } =
-  await import("./render");
+const {
+  documentRenderer,
+  drawsDifferently,
+  renderDirectionGuarded,
+  renderRefusalMessage,
+} = await import("./render");
+const { DocumentAssetError } = await import("@/lib/design/document/rasterize");
+const { EmojiBudgetError, RenderTimeoutError } = await import(
+  "@/lib/design/render/satori-pool"
+);
 const { designSpecOf } = await import("./schema");
 const { designPng, directionsContext, draftOf } = await import("./fixtures");
 
@@ -109,6 +120,38 @@ describe("documentRenderer", () => {
     expect(out.logoFault).toBe(LOGO_UNDECODABLE_IN_RENDER);
     expect(out.logoUnplaced).toBe(true);
     expect(out.document.elements.some((e) => e.type === "logo")).toBe(false);
+  });
+
+  /* Layer document unit, round 6: the worker refuses a render for its
+     emoji or an asset too large to draw. Neither is the mark's doing, and
+     drawing again without the mark only blamed the logo for it. */
+  it.each([
+    ["the emoji budget", () => new EmojiBudgetError(16)],
+    [
+      "an asset past 4096 px",
+      () => new DocumentAssetError("generated/b/plates/p.png", "too_large"),
+    ],
+    ["the render time limit", () => new RenderTimeoutError(30_000)],
+  ])("refuses once for %s, never blaming the mark", async (_label, make) => {
+    const err = make();
+    rasterizeDocument.mockRejectedValue(err);
+    await expect(
+      documentRenderer(context, { image: photo, logo: mark }, fonts)(spec),
+    ).rejects.toBe(err);
+    expect(rasterizeDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the user what to change for each refusal, and nothing else", () => {
+    expect(renderRefusalMessage(new EmojiBudgetError(16))).toBe(
+      "This design can't be drawn: the design has more than 16 different emoji to draw; use fewer, then try again.",
+    );
+    expect(
+      renderRefusalMessage(new DocumentAssetError("k", "too_large")),
+    ).toMatch(/too large to draw/);
+    expect(
+      renderRefusalMessage(new DocumentAssetError("k", "unreadable")),
+    ).toMatch(/could not be read/);
+    expect(renderRefusalMessage(new Error("resvg out of memory"))).toBeNull();
   });
 
   it("reports the original failure when the mark was not the cause", async () => {

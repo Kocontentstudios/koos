@@ -14,9 +14,12 @@
 
 import type { DesignElement } from "@/lib/design/document/schema";
 import {
+  type BriefFact,
+  factStated,
   isProductName,
   redundantFooterItems,
 } from "@/lib/jobs/directions/brief-facts";
+import { looksCutOff } from "@/lib/jobs/directions/claims";
 
 export interface RenderedDirection {
   caseId: string;
@@ -85,6 +88,20 @@ export interface RenderedDirection {
   /** A KO direction drawn with no image because no plate passed. Null off
    *  KO. */
   textLed?: boolean | null;
+  /** Round 6: the job refused this direction for a subject fault (cut, or
+   *  copy on it), as it does in production. */
+  subjectRefused?: boolean;
+  /** Round 6: every real person the case names is named in the drawn copy.
+   *  Null when the case names nobody. */
+  peopleNamed?: boolean | null;
+  /** Round 6: the eval's own look at the plate saw a person beside a case
+   *  that names a real one. Null off KO or when nobody is named. */
+  personPainted?: boolean | null;
+  /** Round 6: the judge's reading of footer text that only repeats what
+   *  the copy already says, and of lines cut mid-phrase. Independent of
+   *  redundantFooterItems, which the job itself uses to remove repeats. */
+  judgeRepeated?: string[];
+  judgeFragments?: string[];
 }
 
 export interface DeliveredCraft {
@@ -96,6 +113,13 @@ export interface DeliveredCraft {
   productInFooter: boolean;
   /** A picture drawn over its card's border. */
   imageOverFrame: boolean;
+  /** Round 6: a picture narrower than its card, against the card's edge. */
+  imageAgainstFrame?: boolean;
+  /** Round 6: footer items that end mid-phrase ("fees for your"). */
+  fragments?: string[];
+  /** Round 6: price labels drawn in the footer as a bare number, without
+   *  the unit the brief gives (and not given above the footer). */
+  pricesDetached?: string[];
 }
 
 /**
@@ -113,6 +137,7 @@ export function craftOfDelivered(
     footerLines: string[];
   },
   product: string,
+  prices: readonly BriefFact[] = [],
 ): DeliveredCraft {
   const image = elements.findIndex((e) => e.type === "image");
   const footerItems = copy.footerLines.flatMap((line) =>
@@ -135,7 +160,32 @@ export function craftOfDelivered(
         picture.x + picture.width > card.x + card.width - border ||
         picture.y + picture.height > card.y + card.height - border),
   );
+  const anyCard = elements.find(
+    (e) => e.type === "shape" && (e.id === "card" || e.id === "card-edge"),
+  );
+  const imageAgainstFrame = Boolean(
+    anyCard &&
+      picture &&
+      picture.width < anyCard.width - 1 &&
+      Math.abs(picture.y - anyCard.y) <= 1,
+  );
+  const fragments = footerItems.filter((item) => item && looksCutOff(item));
+  const pricesDetached = prices
+    .filter((fact) => fact.kind === "price")
+    .filter((fact) => {
+      const numbers = fact.needs.filter((n) => n.startsWith("="));
+      if (numbers.length === 0) return false;
+      const bare = { kind: fact.kind, text: "", needs: numbers };
+      return (
+        footerItems.some((item) => factStated(bare, item)) &&
+        !factStated(fact, copy)
+      );
+    })
+    .map((fact) => fact.text);
   return {
+    imageAgainstFrame,
+    fragments,
+    pricesDetached,
     emptyImageRegion:
       image < 0 && elements.some((e) => e.id === "accent-panel"),
     footerRepeats: redundantFooterItems(copy),
@@ -192,6 +242,16 @@ export interface RenderTotals {
   /** KO directions drawn with no image, and how many KO directions. */
   textLed: number;
   koDirections: number;
+  textLedShare: number;
+  /** Round 6. */
+  subjectRefused: number;
+  deliveredSubjectCut: number;
+  peopleNamedShare: number;
+  personPainted: number;
+  judgeRepeatedShare: number;
+  fragments: number;
+  pricesDetached: number;
+  imageAgainstFrame: number;
 }
 
 /** Frozen before the round-3 run. */
@@ -242,6 +302,25 @@ export const RENDER_THRESHOLDS = {
   minCopyProbes: 1,
   maxCopyProbeFailures: 0,
   maxCopyProbeOverSubject: 0,
+  /** Round 6, frozen before its run (round-5 live critic's "what would
+   *  flip this"). A delivered subject cut by its frame: the job refuses
+   *  these, so any is a bug. */
+  maxDeliveredSubjectCut: 0,
+  /** KO directions laid out as text because no plate passed: paid image
+   *  calls that bought no image. */
+  maxTextLedShare: 0.25,
+  /** Directions naming every real person the brief names. */
+  minPeopleNamedShare: 1,
+  /** Plates showing any person beside a brief that names a real one. */
+  maxPersonPainted: 0,
+  /** Directions where the judge reads a footer repeat. A model's reading,
+   *  so a margin for its own errors. */
+  maxJudgeRepeatedShare: 0.15,
+  /** Footer items ending mid-phrase, prices drawn without their unit, and
+   *  a print against its card's edge: the job builds none of these. */
+  maxFragments: 0,
+  maxPricesDetached: 0,
+  maxImageAgainstFrame: 0,
   /** Bad photos refused, of those that must be. */
   minRefusals: 1,
   maxUnexpectedRefusals: 0,
@@ -355,6 +434,33 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
     koDirections: delivered.filter(
       (d) => d.textLed !== null && d.textLed !== undefined,
     ).length,
+    textLedShare: share(
+      delivered.filter((d) => d.textLed).length,
+      delivered.filter((d) => d.textLed !== null && d.textLed !== undefined)
+        .length,
+    ),
+    subjectRefused: all.filter((d) => d.subjectRefused).length,
+    deliveredSubjectCut: known.filter(
+      (d) => d.visibleShare !== null && d.visibleShare < 0.995,
+    ).length,
+    peopleNamedShare: (() => {
+      const named = delivered.filter((d) => d.peopleNamed != null);
+      return named.length === 0
+        ? 1
+        : share(named.filter((d) => d.peopleNamed).length, named.length);
+    })(),
+    personPainted: delivered.filter((d) => d.personPainted).length,
+    judgeRepeatedShare: share(
+      delivered.filter((d) => (d.judgeRepeated?.length ?? 0) > 0).length,
+      delivered.length,
+    ),
+    fragments: delivered.filter((d) => (d.craft5?.fragments?.length ?? 0) > 0)
+      .length,
+    pricesDetached: delivered.filter(
+      (d) => (d.craft5?.pricesDetached?.length ?? 0) > 0,
+    ).length,
+    imageAgainstFrame: delivered.filter((d) => d.craft5?.imageAgainstFrame)
+      .length,
     refusalsExpected: cases.filter((c) => c.expectRefused).length,
     refusalsMade: cases.filter((c) => c.expectRefused && c.refused).length,
     unexpectedRefusals: cases.filter((c) => !c.expectRefused && c.refused)
@@ -429,6 +535,34 @@ export function renderFailures(
     "copy correction put copy on the subject",
     t.copyProbeOverSubject,
     limits.maxCopyProbeOverSubject,
+  );
+  over(
+    "delivered subject cut by its frame",
+    t.deliveredSubjectCut,
+    limits.maxDeliveredSubjectCut,
+  );
+  over("KO laid out as text", t.textLedShare, limits.maxTextLedShare);
+  under(
+    "named people on every direction",
+    t.peopleNamedShare,
+    limits.minPeopleNamedShare,
+  );
+  over(
+    "person painted beside a named one",
+    t.personPainted,
+    limits.maxPersonPainted,
+  );
+  over(
+    "judge: footer repeats",
+    t.judgeRepeatedShare,
+    limits.maxJudgeRepeatedShare,
+  );
+  over("fact fragments", t.fragments, limits.maxFragments);
+  over("prices without their unit", t.pricesDetached, limits.maxPricesDetached);
+  over(
+    "picture against its card's edge",
+    t.imageAgainstFrame,
+    limits.maxImageAgainstFrame,
   );
   if (t.refusalsExpected > 0) {
     under(

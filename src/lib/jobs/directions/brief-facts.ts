@@ -38,8 +38,13 @@ export const BRIEF_FACT_KINDS = [
 
 export type BriefFactKind = (typeof BRIEF_FACT_KINDS)[number];
 
+/** A fact a design must state: one the reader returned, or a real person
+ *  the brief names (round-5 live critic: the named speaker was left off
+ *  one direction while coverage reported every fact delivered). */
+export type CoverKind = BriefFactKind | "person";
+
 export interface BriefFact {
-  kind: BriefFactKind;
+  kind: CoverKind;
   /** The brief's own words for it, which is what gets drawn when a
    *  direction left it out. */
   text: string;
@@ -90,8 +95,10 @@ function timesIn(text: string): Set<string> {
     const pm = m[5].toLowerCase() === "pm";
     const start = Number(m[1]);
     const end = Number(m[3]);
-    /* "11–2pm" runs from morning into afternoon. */
-    const startPm = pm && start <= end && start !== 12;
+    /* "11–2pm" runs from morning into afternoon; "12–6pm" from noon
+       (round-5 live critic: "12–6pm" read as midnight, so "12pm to 6pm"
+       beside it was not taken for the same hours). */
+    const startPm = pm && (start <= end || start === 12);
     times.add(
       String(((start % 12) + (startPm ? 12 : 0)) * 60 + Number(m[2] ?? 0)),
     );
@@ -173,46 +180,101 @@ function digitsOf(text: string): string {
 interface PhoneSpan {
   start: number;
   end: number;
+  /** The number without its country code or trunk 0. */
+  national: string;
   /** Every way of writing the number a design may use: the brief's own
    *  digits, with the country code, and with the trunk 0. */
   variants: string[];
+}
+
+/* Where a brand's numbers are dialled from first, then any country the
+   brief itself names: an Accra number in a Lagos brand's brief is still a
+   number (round-5 code critic). */
+export function phoneRegions(
+  briefText: string,
+  profileRegion: CountryCode,
+): CountryCode[] {
+  const regions: CountryCode[] = [profileRegion];
+  for (const [pattern, region] of REGION_HINTS) {
+    if (pattern.test(briefText) && !regions.includes(region)) {
+      regions.push(region);
+    }
+  }
+  return regions;
+}
+
+function asRegions(region: CountryCode | readonly CountryCode[]) {
+  return typeof region === "string" ? [region] : [...region];
 }
 
 /* "0803 555 0142 9-5" swallowed the hours into the number, and the number
    failed validation; the reader rarely hands over a span like that, but
    when it does the trailing words are dropped one at a time until the
    number reads. */
-function phonesIn(text: string, region: CountryCode): PhoneSpan[] {
+function phonesInRegion(text: string, region: CountryCode): PhoneSpan[] {
+  const spans: PhoneSpan[] = [];
+  let from = 0;
+  /* One number at a time, read again from where the last one ended:
+     "0803 555 0142, 0805 555 0199" is read as the first number with the
+     second's prefix for an extension, and the second was lost (round-5 code
+     critic). */
+  while (from < text.length) {
+    const next = firstPhone(text.slice(from), region);
+    if (!next) break;
+    spans.push({ ...next, start: next.start + from, end: next.end + from });
+    from += next.end;
+  }
+  return spans;
+}
+
+function firstPhone(text: string, region: CountryCode): PhoneSpan | null {
   let candidate = text;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const found = findPhoneNumbersInText(candidate, region).filter((f) =>
+    const found = findPhoneNumbersInText(candidate, region).find((f) =>
       f.number.isValid(),
     );
-    if (found.length > 0) {
-      return found.map((f) => {
-        const national = String(f.number.nationalNumber);
-        const forms = [
-          `${f.number.countryCallingCode}${national}`,
-          `0${national}`,
-          national,
-        ];
-        const surface = text.slice(f.startsAt, f.endsAt);
-        const own = digitsOf(surface);
-        /* libphonenumber reads "08035550142, 9" as the number with an
-           extension; the number is drawn and matched without it. */
-        const written = forms.find((form) => own.startsWith(form)) ?? own;
-        return {
-          start: f.startsAt,
-          end: f.startsAt + digitEnd(surface, written.length),
-          variants: [...new Set([written, ...forms.slice(0, 2)])],
-        };
-      });
+    if (found) {
+      const national = String(found.number.nationalNumber);
+      const forms = [
+        `${found.number.countryCallingCode}${national}`,
+        `0${national}`,
+        national,
+      ];
+      const surface = text.slice(found.startsAt, found.endsAt);
+      const own = digitsOf(surface);
+      /* libphonenumber reads "08035550142, 9" as the number with an
+         extension; the number is drawn and matched without it. */
+      const written = forms.find((form) => own.startsWith(form)) ?? own;
+      return {
+        start: found.startsAt,
+        end: found.startsAt + digitEnd(surface, written.length),
+        national,
+        variants: [...new Set([written, ...forms.slice(0, 2)])],
+      };
     }
     const shorter = candidate.replace(/[\s,;:]*\S+\s*$/, "");
     if (shorter === candidate || !shorter) break;
     candidate = shorter;
   }
-  return [];
+  return null;
+}
+
+/** Every valid phone number in `text`, read in each region in turn; a span
+ *  an earlier region read is kept. */
+function phonesIn(
+  text: string,
+  region: CountryCode | readonly CountryCode[],
+): PhoneSpan[] {
+  const spans: PhoneSpan[] = [];
+  for (const r of asRegions(region)) {
+    for (const phone of phonesInRegion(text, r)) {
+      const overlaps = spans.some(
+        (s) => phone.start < s.end && phone.end > s.start,
+      );
+      if (!overlaps) spans.push(phone);
+    }
+  }
+  return spans.sort((a, b) => a.start - b.start);
 }
 
 /** The offset in `surface` just past its `count`th digit. */
@@ -230,14 +292,29 @@ function digitEnd(surface: string, count: number): number {
 const PHONE_LIKE = /(?:\d[\s().-]{0,2}){7,}/;
 
 /* "9 Bourdillon Road, Thursday to Sunday": an address ends before the day
-   or time that follows it. */
+   or time that follows it. A weekday only ends it when it reads as a day,
+   not as part of a name: "Shop 4, Sunday Market, Ikeja" is one address
+   (round-5 code critic). */
 const AFTER_ADDRESS =
-  /(?:,\s*|\s+(?:on|from|every)\s+)(?:(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?s?\b|\d{1,2}(?:[:.]\d{2})?\s?(?:am|pm)\b|daily\b|weekdays?\b|weekends?\b).*$/i;
+  /(?:,\s*|\s+(?:on|from|every)\s+)(?:(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?s?\b(?=\s*(?:$|[,;.&\u2013\u2014-]|to\b|and\b|through\b|thru\b|from\b|only\b|\d))|\d{1,2}(?:[:.]\d{2})?\s?(?:am|pm)\b|daily\b|weekdays?\b|weekends?\b).*$/i;
 
-/* What follows a price and belongs to it: "for a set of four", "per
-   slice", "a slice", "each", "per person". */
-const PRICE_UNIT =
-  /^\s*(?:(?:for|per)\s+(?:a\s+|an\s+|one\s+)?(?:(?:set|pack|box|bundle|pair|bag|tray|dozen)\s+of\s+)?[\p{L}\d-]+|a\s+[\p{L}-]+|an\s+[\p{L}-]+|each|apiece)\b/iu;
+/* The nouns a price is "a", "per" or "for N" of. A price grows only by one
+   of these: "₦3,000 an amazing deal" and "₦5,000 for Saturday's show" grew
+   into "an amazing" and "for Saturday" when any word would do (round-5 code
+   critic). */
+const UNIT_NOUN =
+  "(?:slices?|pieces?|pcs|box(?:es)?|packs?|packets?|sets?|pairs?|bags?|bottles?|cups?|glass(?:es)?|plates?|bowls?|trays?|dozens?|loaf|loaves|jars?|tins?|cans?|cartons?|crates?|cases?|portions?|servings?|meals?|kg|kilos?|grams?|g|litres?|liters?|ml|cl|persons?|people|heads?|seats?|tickets?|guests?|couples?|adults?|child(?:ren)?|kids?|students?|learners?|entr(?:y|ies)|items?|units?|nights?|hours?|hrs?|days?|weeks?|months?|years?|sessions?|class(?:es)?|lessons?|visits?|trips?|rides?|rooms?|tables?|copies|copy|courses?|spots?|places?|shots?|scoops?|yards?|metres?|meters?|pages?|users?|members?|bundles?|rolls?|sticks?|wraps?|sachets?|pots?|cones?|tubs?|outfits?|looks?|hairdos?|styles?|minutes?|mins?|rounds?|bouquets?|stems?|cakes?|cupcakes?|pastries)";
+const COUNT = `(?:\\d+|${Object.keys(NUMBER_WORDS).join("|")}|one)`;
+const PRICE_UNIT = new RegExp(
+  [
+    `^\\s*(?:a|an|per|each)\\s+(?:${COUNT}\\s+)?${UNIT_NOUN}\\b`,
+    `^\\s*\\/\\s*${UNIT_NOUN}\\b`,
+    `^\\s*for\\s+(?:a|an|one|the)?\\s*(?:set|pack|box|bundle|pair|bag|tray|dozen|bottle|case|crate|basket|hamper)\\s+of\\s+${COUNT}\\b(?:\\s+${UNIT_NOUN}\\b)?`,
+    `^\\s*for\\s+${COUNT}\\b(?:\\s+${UNIT_NOUN}\\b)?`,
+    "^\\s*(?:each|apiece)\\b",
+  ].join("|"),
+  "iu",
+);
 
 function priceWithUnit(brief: string, end: number): number {
   const after = PRICE_UNIT.exec(brief.slice(end));
@@ -248,10 +325,11 @@ const EVERY_DAY = /\b(daily|every ?day|7 days a week|seven days a week)\b/i;
 
 /** What has to appear in a design for it to state `text` as a `kind`. */
 export function needsFor(
-  kind: BriefFactKind,
+  kind: CoverKind,
   text: string,
-  region: CountryCode = "NG",
+  regions: CountryCode | readonly CountryCode[] = "NG",
 ): string[] {
+  const region = asRegions(regions)[0] ?? "NG";
   const numbers = () => [...numbersIn(text)].map((n) => `=${n}`);
   const stems = (ignore: ReadonlySet<string> = FILLER) =>
     [...contentStems(text)]
@@ -260,7 +338,7 @@ export function needsFor(
   const days = () => [...new Set(calendarNames(text))].map((d) => `~${d}`);
   switch (kind) {
     case "contact": {
-      const phones = phonesIn(text, region);
+      const phones = phonesIn(text, regions);
       if (phones.length > 0) {
         return phones.map((p) => `#${p.variants.join(",")}`);
       }
@@ -308,6 +386,10 @@ export function needsFor(
     case "offer":
     case "condition":
       return stems();
+    case "person":
+      return [...contentStems(text)]
+        .filter((s) => !isNumberWord(s))
+        .map((s) => `^${s}`);
   }
 }
 
@@ -316,79 +398,254 @@ export interface BriefFactRead {
   /** What the reader returned that is not the brief's own words, or not a
    *  usable fact, and why: logged and recorded, never drawn. */
   dropped: { text: string; why: string }[];
+  /** Facts the reader saw but could not be held to the brief's words: a
+   *  span with a number, a day or a contact in it. Never drawn, but each is
+   *  checked against the delivered copy and recorded as left off when the
+   *  copy does not state it (round-5 code critic: a phone read as "0803
+   *  555 0142" for "0803-555-0142" was lost with no record). */
+  unread: BriefFact[];
+  /** Phone numbers in the brief the reader did not return, made facts by
+   *  libphonenumber. */
+  phonesAdded: string[];
 }
 
-/** Where `text` sits in the brief, read as the brief's own words: exactly,
- *  else ignoring case and runs of spaces. */
-function locate(brief: string, text: string): [number, number] | null {
-  const exact = brief.indexOf(text);
-  if (exact >= 0) return [exact, exact + text.length];
-  const pattern = text
-    .trim()
-    .split(/\s+/)
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("\\s+");
-  if (!pattern) return null;
-  const m = new RegExp(pattern, "i").exec(brief);
-  return m ? [m.index, m.index + m[0].length] : null;
+interface Token {
+  norm: string;
+  start: number;
+  end: number;
 }
+
+/* A word or a number, never part of one: "2pm" is not inside "12pm", "ice"
+   not inside "price", "Ada" not inside "Adaeze" (round-5 code critic). */
+const TOKEN = /[\p{L}\p{N}]+(?:['’][\p{L}]+)?/gu;
+
+function tokensOf(text: string): Token[] {
+  return [...text.matchAll(TOKEN)].map((m) => ({
+    norm: m[0]
+      .toLowerCase()
+      .replace(/’/g, "'")
+      .replace(/^(\d+)(?:st|nd|rd|th)$/, "$1"),
+    start: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length,
+  }));
+}
+
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+function onBoundary(brief: string, start: number, end: number): boolean {
+  const before = start > 0 ? brief[start - 1] : "";
+  const after = end < brief.length ? brief[end] : "";
+  return (
+    !(before && WORD_CHAR.test(before) && WORD_CHAR.test(brief[start])) &&
+    !(after && WORD_CHAR.test(after) && WORD_CHAR.test(brief[end - 1]))
+  );
+}
+
+/* A currency sign, a plus or a handle's @ belongs to the word it touches:
+   matched by words alone, "₦4,500" would be drawn as "4,500". */
+function withAttachedSigns(
+  brief: string,
+  [start, end]: [number, number],
+): [number, number] {
+  let s = start;
+  while (s > 0 && /[₦$£€+@#]/.test(brief[s - 1])) s -= 1;
+  let e = end;
+  while (e < brief.length && /[%+]/.test(brief[e])) e += 1;
+  return [s, e];
+}
+
+function sameSpan(a: [number, number], b: readonly [number, number]) {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+/** The token-run spans of `brief` that say `words` in order. */
+function tokenRuns(
+  brief: string,
+  briefTokens: Token[],
+  words: string[],
+): [number, number][] {
+  const runs: [number, number][] = [];
+  if (words.length === 0) return runs;
+  for (let i = 0; i + words.length <= briefTokens.length; i += 1) {
+    if (words.every((w, j) => briefTokens[i + j].norm === w)) {
+      runs.push(
+        withAttachedSigns(brief, [
+          briefTokens[i].start,
+          briefTokens[i + words.length - 1].end,
+        ]),
+      );
+    }
+  }
+  return runs;
+}
+
+/**
+ * Where `text` sits in the brief, as the brief's own words, never inside a
+ * longer word: exactly, else word for word with any punctuation or spacing
+ * between ("0803 555 0142" for "0803-555-0142", "15th" for "15"). A span
+ * already given to another fact is skipped, so two facts reading the same
+ * words twice take two places (round-5 code critic: two "₦4,500" both took
+ * the first).
+ */
+function locate(
+  brief: string,
+  briefTokens: Token[],
+  text: string,
+  taken: readonly (readonly [number, number])[],
+): [number, number] | null {
+  const free = (span: [number, number]) =>
+    !taken.some((t) => sameSpan(span, t));
+  const lowerBrief = brief.toLowerCase();
+  const lowerText = text.toLowerCase();
+  for (
+    let at = lowerBrief.indexOf(lowerText);
+    at >= 0;
+    at = lowerBrief.indexOf(lowerText, at + 1)
+  ) {
+    const span: [number, number] = [at, at + text.length];
+    if (onBoundary(brief, ...span) && free(span)) return span;
+  }
+  const words = tokensOf(text).map((t) => t.norm);
+  return tokenRuns(brief, briefTokens, words).find(free) ?? null;
+}
+
+/**
+ * The longest run of `text`'s words the brief says in order that keeps
+ * every number `text` has, for a span the reader put in its own words
+ * around the brief's ("Saturday 15th November" for "15 November", "₦4,500
+ * a slice" for "₦4,500 per slice"). Null without a number to anchor it: a
+ * run of plain words could be anything.
+ */
+function nearestRun(
+  brief: string,
+  briefTokens: Token[],
+  text: string,
+  taken: readonly (readonly [number, number])[],
+): [number, number] | null {
+  const words = tokensOf(text).map((t) => t.norm);
+  const numbers = words.filter((w) => /\d/.test(w));
+  if (numbers.length === 0) return null;
+  /* A lone number is not a reading of anything: "5" of "Friday, December
+     5th" would be drawn as the date. */
+  const shortest = Math.max(numbers.length, Math.min(2, words.length));
+  for (let length = words.length - 1; length >= shortest; length -= 1) {
+    for (let from = 0; from + length <= words.length; from += 1) {
+      const run = words.slice(from, from + length);
+      if (!numbers.every((n) => run.includes(n))) continue;
+      const span = tokenRuns(brief, briefTokens, run).find(
+        (candidate) => !taken.some((t) => sameSpan(candidate, t)),
+      );
+      if (span) return span;
+    }
+  }
+  return null;
+}
+
+/* What a span after a contact's number says by itself, when it says
+   anything a customer acts on: the hours or a count the reader glued to
+   the number. */
+function kindOfRemainder(text: string): BriefFactKind | null {
+  if (timesIn(text).size > 0) return "time";
+  if (calendarNames(text).length > 0) return "day";
+  if (/[₦$£€]\s?\d|\d\s?(?:naira|ngn)\b/i.test(text)) return "price";
+  if (/\d/.test(text)) return "quantity";
+  return null;
+}
+
+/* A span the reader returned that holds something a customer acts on: a
+   number, a day or a way to get in touch. Losing one is recorded. */
+function holdsHardDetail(text: string): boolean {
+  return (
+    /\d/.test(text) ||
+    calendarNames(text).length > 0 ||
+    /@|https?:|www\.|\.(?:com|ng|co|org|net|io|shop|store)\b/i.test(text)
+  );
+}
+
+/* Words a span may end on only when it is cut off: "₦4,500 a box for the"
+   was drawn as a price (round-5 code critic), "Zero transfer fees for
+   your" as a footer (round-5 live critic). */
+const DANGLING_WORD =
+  /\s+(?:a|an|the|and|or|but|of|for|to|with|from|at|in|on|by|per|your|our|their|its|my|this|that|these|those|every|than|into|which|who)$/i;
+
+function withoutDanglingWords(text: string): string {
+  let out = text.trim().replace(/[\s,;:–—-]+$/, "");
+  while (DANGLING_WORD.test(out)) {
+    out = out.replace(DANGLING_WORD, "").replace(/[\s,;:–—-]+$/, "");
+  }
+  return out;
+}
+
+const CHANNEL_BEFORE =
+  /\b(?:whatsapp|call(?:\s+or\s+whatsapp)?|text|phone|tel|sms|mobile|ring|dm)\b(?:\s+(?:us|me))?(?:\s+(?:on|at))?[\s:.-]*$/i;
 
 function isKind(kind: string): kind is BriefFactKind {
   return (BRIEF_FACT_KINDS as readonly string[]).includes(kind);
 }
 
+interface Located extends BriefFact {
+  start: number;
+  end: number;
+}
+
 /**
  * The reader's facts, held to the brief: every span must be the brief's own
- * words; a phone number must be a valid number in the brand's country, and
- * a contact span ends where its last number does; an address ends before
- * the day or time after it; a price keeps the unit or quantity that follows
- * it; the product itself is never a fact (it is the design's subject, and
- * drawn as a footer "fact" it read as a dump, round-4 live critic); a fact
- * inside another is dropped for the longer one. In the brief's order.
+ * words, matched on whole words; a phone number must be a valid number in
+ * the brand's country or one the brief names, and a contact span holding
+ * two numbers is two facts, with anything the reader glued after the last
+ * number read as its own fact; an address ends before the day or time after
+ * it; a price keeps the unit or quantity that follows it, and only that; no
+ * fact ends on a dangling word; the product itself is never a fact (it is
+ * the design's subject, and drawn as a footer "fact" it read as a dump,
+ * round-4 live critic); a fact inside another is dropped for the longer
+ * one; every valid phone number in the brief is a fact whether the reader
+ * returned it or not. In the brief's order.
  */
 export function settleBriefFacts(
   read: readonly ReadFact[],
   briefText: string,
-  { region = "NG", product = "" }: { region?: CountryCode; product?: string },
+  {
+    region = "NG",
+    product = "",
+  }: { region?: CountryCode | readonly CountryCode[]; product?: string },
 ): BriefFactRead {
   const brief = briefText ?? "";
+  const briefTokens = tokensOf(brief);
+  const regions = asRegions(region);
   const dropped: BriefFactRead["dropped"] = [];
-  const located: (BriefFact & { start: number; end: number })[] = [];
+  const unread: BriefFact[] = [];
+  const located: Located[] = [];
   const productStems = contentStems(product);
-  for (const raw of read) {
-    const said = (raw.text ?? "").trim().replace(/[\s.,;:!]+$/, "");
-    if (!said) continue;
-    if (!isKind(raw.kind)) {
-      dropped.push({ text: said, why: `unknown kind "${raw.kind}"` });
-      continue;
+  const briefPhones = phonesIn(brief, regions);
+  const queue: { kind: string; text: string }[] = read.map((r) => ({
+    kind: r.kind,
+    text: r.text ?? "",
+  }));
+  /* The brief's words each reading was matched to, before any growing or
+     cutting, so a second reading of the same words takes their next
+     occurrence. */
+  const claimed: [number, number][] = [];
+  const taken = () => [
+    ...claimed,
+    ...located.map((f) => [f.start, f.end] as const),
+  ];
+
+  const lose = (kind: BriefFactKind, text: string, why: string) => {
+    const needs = needsFor(kind, text, regions);
+    if (holdsHardDetail(text) && needs.length > 0) {
+      unread.push({ kind, text, needs });
     }
-    const at = locate(brief, said);
-    if (!at) {
-      dropped.push({ text: said, why: "not the brief's own words" });
-      continue;
+    dropped.push({ text, why });
+  };
+
+  const keep = (kind: BriefFactKind, start: number, end: number) => {
+    const raw = brief.slice(start, end);
+    const text = withoutDanglingWords(raw);
+    if (!text) {
+      dropped.push({ text: raw.trim(), why: "nothing left once trimmed" });
+      return;
     }
-    let [start, end] = at;
-    const kind = raw.kind;
-    if (kind === "contact") {
-      const span = brief.slice(start, end);
-      const phones = phonesIn(span, region);
-      if (phones.length === 0 && PHONE_LIKE.test(span)) {
-        dropped.push({ text: said, why: "not a valid phone number" });
-        continue;
-      }
-      if (phones.length > 0)
-        end = start + Math.max(...phones.map((p) => p.end));
-    }
-    if (kind === "place") {
-      const span = brief.slice(start, end);
-      const cut = AFTER_ADDRESS.exec(span);
-      if (cut && cut.index > 0) end = start + cut.index;
-    }
-    if (kind === "price") end = priceWithUnit(brief, end);
-    const text = brief
-      .slice(start, end)
-      .trim()
-      .replace(/[\s,;:]+$/, "");
+    const trimmedEnd = start + raw.indexOf(text) + text.length;
     const stems = [...contentStems(text)].filter((s) => !/^\d+$/.test(s));
     if (
       productStems.size > 0 &&
@@ -397,23 +654,132 @@ export function settleBriefFacts(
       numbersIn(text).size === 0
     ) {
       dropped.push({ text, why: "the product itself, not a fact about it" });
-      continue;
+      return;
     }
-    const needs = needsFor(kind, text, region);
+    const needs = needsFor(kind, text, regions);
     if (needs.length === 0) {
       dropped.push({ text, why: "nothing in it a design could state" });
-      continue;
+      return;
     }
     located.push({
       kind,
       text: kind === "day" || kind === "date" ? capitalise(text) : text,
       needs,
-      start,
-      end,
+      start: start + raw.indexOf(text),
+      end: trimmedEnd,
     });
+  };
+
+  while (queue.length > 0) {
+    const raw = queue.shift() as { kind: string; text: string };
+    const said = raw.text.trim().replace(/[\s.,;:!]+$/, "");
+    if (!said) continue;
+    if (!isKind(raw.kind)) {
+      dropped.push({ text: said, why: `unknown kind "${raw.kind}"` });
+      continue;
+    }
+    const kind = raw.kind;
+    let at = locate(brief, briefTokens, said, taken());
+    if (!at && kind === "contact" && PHONE_LIKE.test(said)) {
+      /* Phones compared digit for digit: "08035550142" is "0803 555
+         0142". A number the brief does not hold is dropped; the brief's
+         own numbers are facts below whatever the reader said. */
+      const digits = digitsOf(said);
+      const phone = briefPhones.find(
+        (p) => digits.endsWith(p.national) || p.variants.includes(digits),
+      );
+      if (!phone) {
+        dropped.push({
+          text: said,
+          why: "a phone number the brief does not hold",
+        });
+        continue;
+      }
+      at = [phone.start, phone.end];
+    }
+    if (!at && kind !== "contact") {
+      at = nearestRun(brief, briefTokens, said, taken());
+    }
+    if (!at) {
+      lose(kind, said, "not the brief's own words");
+      continue;
+    }
+    claimed.push(at);
+    let [start, end] = at;
+    if (kind === "contact") {
+      const span = brief.slice(start, end);
+      const phones = phonesIn(span, regions);
+      if (phones.length === 0 && PHONE_LIKE.test(span)) {
+        dropped.push({ text: said, why: "not a valid phone number" });
+        continue;
+      }
+      if (phones.length > 0) {
+        /* The channel the brief puts before the number ("WhatsApp"), when
+           the reader's span began at the digits. */
+        const lead = CHANNEL_BEFORE.exec(
+          brief.slice(Math.max(0, start - 30), start),
+        );
+        const from =
+          lead && phones[0].start === 0 ? start - lead[0].length : start;
+        keep("contact", from, start + phones[0].end);
+        for (const [k, phone] of phones.entries()) {
+          if (k === 0) continue;
+          const gap = span
+            .slice(phones[k - 1].end, phone.start)
+            .replace(/^[\s,;/&]*(?:or|and)?[\s,;/&]*/i, "");
+          const channel = CHANNEL_BEFORE.test(gap) ? gap.length : 0;
+          keep("contact", start + phone.start - channel, start + phone.end);
+        }
+        const rest = span.slice(phones[phones.length - 1].end);
+        const restText = rest.replace(/^[\s,;:/&()–—-]+/, "").trim();
+        if (restText) {
+          const restKind = kindOfRemainder(restText);
+          /* "9" cut from "9-5" by the reader's span is a fragment, not a
+             count; the reader's own reading of the hours stands. */
+          const fragment =
+            (restKind === "quantity" && !/\p{L}/u.test(restText)) ||
+            /^(?:ext|x)\b/i.test(restText);
+          if (restKind && !fragment) {
+            queue.push({ kind: restKind, text: restText });
+          } else {
+            dropped.push({
+              text: restText,
+              why: "after the contact, and not a fact by itself",
+            });
+          }
+        }
+        continue;
+      }
+    }
+    if (kind === "place") {
+      const span = brief.slice(start, end);
+      const cut = AFTER_ADDRESS.exec(span);
+      if (cut && cut.index > 0) end = start + cut.index;
+    }
+    if (kind === "price") end = priceWithUnit(brief, end);
+    keep(kind, start, end);
   }
+
+  /* The reader's answer is a reading; a valid phone number in the brief is
+     a fact whether it returned it or not (round-5 code critic: a design
+     shipped without the brief's only number and was recorded complete). */
+  const phonesAdded: string[] = [];
+  for (const phone of briefPhones) {
+    const held = located.some(
+      (f) =>
+        f.kind === "contact" && phone.start >= f.start && phone.end <= f.end,
+    );
+    if (held) continue;
+    const lead = CHANNEL_BEFORE.exec(
+      brief.slice(Math.max(0, phone.start - 30), phone.start),
+    );
+    const before = located.length;
+    keep("contact", phone.start - (lead?.[0].length ?? 0), phone.end);
+    if (located.length > before) phonesAdded.push(located[before].text);
+  }
+
   located.sort((a, b) => a.start - b.start || b.end - a.end);
-  const kept: typeof located = [];
+  const kept: Located[] = [];
   for (const fact of located) {
     const inside = kept.find((k) => fact.start >= k.start && fact.end <= k.end);
     if (inside) {
@@ -422,10 +788,19 @@ export function settleBriefFacts(
     }
     kept.push(fact);
   }
+  /* A span the reader misread is not lost when the brief's own words for it
+     are a fact anyway (a phone a digit out, beside the backstop's). */
+  const keptText = drawnTextOf(kept.map((f) => f.text));
   return {
     facts: kept.map(({ start: _s, end: _e, ...fact }) => fact),
     dropped,
+    unread: unread.filter((fact) => !factStated(fact, keptText)),
+    phonesAdded,
   };
+}
+
+function drawnTextOf(lines: string[]): string {
+  return lines.join(" \n ");
 }
 
 /* The brief's own words, whole: "4,500" inside "45,000" is not them. */
@@ -450,16 +825,60 @@ function phoneStated(variants: string[], copy: string): boolean {
   });
 }
 
-/** Whether `copy` states `fact`: the brief's own words for it, or every
- *  part of it in any spelling ("₦4,500" or "N4500", "7am" or "07:00"). */
-export function factStated(fact: BriefFact, copy: string): boolean {
-  if (saysVerbatim(fact.text, copy)) return true;
+/* "20-min" and "20-minute" are one duration, "2 hrs" and "2 hours" one
+   length (round-5 live critic: a free call drawn twice in one footer). */
+function meaningOf(text: string): string {
+  return text
+    .replace(/\b(\d+)\s*-?\s*(?:mins?|minutes?)\b/gi, "$1 minutes")
+    .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours");
+}
+
+/** The copy a direction draws, as one string to look for facts in. */
+export interface FactCopy {
+  headline: string;
+  subheadline?: string;
+  cta?: string;
+  footerLines: string[];
+  footerStyle: "bar" | "text" | "none";
+}
+
+type CopyFields = Omit<FactCopy, "footerStyle">;
+
+export function drawnText(copy: CopyFields): string {
+  return [copy.headline, copy.subheadline, copy.cta, ...copy.footerLines]
+    .filter(Boolean)
+    .join(" \n ");
+}
+
+const FOOTER_JOIN = " · ";
+
+/** The fields above the footer, and each footer item on its own. A string
+ *  is read as fields only, every line above the footer. */
+function copyParts(copy: string | CopyFields): {
+  above: string[];
+  items: string[];
+} {
+  if (typeof copy === "string") {
+    return { above: copy.split("\n").map((l) => l.trim()), items: [] };
+  }
+  return {
+    above: [copy.headline, copy.subheadline, copy.cta].filter(
+      (t): t is string => Boolean(t),
+    ),
+    items: copy.footerLines.flatMap((line) =>
+      line.split(FOOTER_JOIN).map((item) => item.trim()),
+    ),
+  };
+}
+
+function needsHold(needs: readonly string[], text: string): boolean {
+  const copy = meaningOf(text);
   const lower = copy.toLowerCase();
   const numbers = numbersIn(copy);
   const times = timesIn(copy);
   const days = new Set(calendarNames(copy));
   const stems = contentStems(copy);
-  return fact.needs.every((need) => {
+  return needs.every((need) => {
     if (need.startsWith("=")) return numbers.has(need.slice(1));
     if (need.startsWith("@")) return times.has(need.slice(1));
     if (need.startsWith("~")) return days.has(need.slice(1));
@@ -474,39 +893,65 @@ export function factStated(fact: BriefFact, copy: string): boolean {
   });
 }
 
-/** The copy a direction draws, as one string to look for facts in. */
-export interface FactCopy {
-  headline: string;
-  subheadline?: string;
-  cta?: string;
-  footerLines: string[];
-  footerStyle: "bar" | "text" | "none";
-}
-
-export function drawnText(copy: Omit<FactCopy, "footerStyle">): string {
-  return [copy.headline, copy.subheadline, copy.cta, ...copy.footerLines]
-    .filter(Boolean)
-    .join(" \n ");
+/**
+ * Whether `copy` states `fact`: the brief's own words for it, or every part
+ * of it in any spelling ("₦4,500" or "N4500", "7am" or "07:00", "20-min" or
+ * "20-minute").
+ *
+ * A price with a unit is stated when one field or footer item gives the
+ * number with its unit, or the copy above the footer gives the number (a
+ * headline price is the price, and drawing it again in the footer read as
+ * a repeat, round-5 live critic). In the footer the number alone, with the
+ * unit somewhere else, is a price detached from what it buys ("₦35,000"
+ * beside "8 seats").
+ */
+export function factStated(
+  fact: BriefFact,
+  copy: string | CopyFields,
+): boolean {
+  const text = typeof copy === "string" ? copy : drawnText(copy);
+  if (saysVerbatim(fact.text, text)) return true;
+  const numbers = fact.needs.filter((n) => n.startsWith("="));
+  const unit = fact.needs.filter((n) => n.startsWith("^"));
+  if (fact.kind === "price" && numbers.length > 0 && unit.length > 0) {
+    const { above, items } = copyParts(copy);
+    if ([...above, ...items].some((part) => needsHold(fact.needs, part))) {
+      return true;
+    }
+    return typeof copy !== "string" && needsHold(numbers, above.join(" \n "));
+  }
+  return needsHold(fact.needs, text);
 }
 
 /** The facts of `facts` that `copy` does not state. */
 export function factsMissing(
   facts: readonly BriefFact[],
-  copy: string,
+  copy: string | CopyFields,
 ): BriefFact[] {
   return facts.filter((fact) => !factStated(fact, copy));
 }
 
-const FOOTER_JOIN = " · ";
-
-/** What an item says: its content words and its numbers. */
-function said(text: string): Set<string> {
+/** What an item says: its content words and its numbers. A phone number
+ *  is one thing said, never its digit groups: "0803 orders" and "555
+ *  slices" above did not say "WhatsApp 0803 555 0142" (round-5 code
+ *  critic). */
+function said(raw: string): Set<string> {
   const out = new Set<string>();
-  for (const s of contentStems(text)) {
+  const text = meaningOf(raw).replace(
+    new RegExp(PHONE_LIKE.source, "g"),
+    (phone) => {
+      out.add(`#${digitsOf(phone)}`);
+      return " ";
+    },
+  );
+  for (const t of timesIn(text)) out.add(`@${t}`);
+  /* A clock time is said by its minutes, never by "12pm" as a word or 12
+     as a count: "12–6pm" and "12pm to 6pm" say the same thing. */
+  const rest = text.replace(SHARED_SUFFIX, " ").replace(CLOCK, " ");
+  for (const s of contentStems(rest)) {
     if (!FILLER.has(s) && !isNumberWord(s)) out.add(s);
   }
-  for (const n of numbersIn(text)) out.add(`=${n}`);
-  for (const t of timesIn(text)) out.add(`@${t}`);
+  for (const n of numbersIn(rest)) out.add(`=${n}`);
   return out;
 }
 
@@ -514,6 +959,27 @@ function within(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   if (a.size === 0) return true;
   for (const value of a) if (!b.has(value)) return false;
   return true;
+}
+
+const UNIT_STEMS = contentStems(
+  UNIT_NOUN.replace(/[()?:]/g, " ")
+    .split("|")
+    .map((w) => w.replace(/\\[a-z]|[^a-z]/gi, ""))
+    .join(" "),
+);
+
+const MONEY =
+  /(?:[₦$£€]\s?|\bN(?=\d))(\d[\d,]*(?:\.\d+)?)(\s?k\b)?|(\d[\d,]*(?:\.\d+)?)\s?(?:naira|ngn)\b/gi;
+
+function moneyIn(text: string): Set<string> {
+  const values = new Set<string>();
+  for (const m of text.matchAll(MONEY)) {
+    let value = Number.parseFloat((m[1] ?? m[3] ?? "").replace(/,/g, ""));
+    if (!Number.isFinite(value)) continue;
+    if (m[2]) value *= 1000;
+    values.add(String(value));
+  }
+  return values;
 }
 
 /** Whether a footer item is just the product's name: every word of the
@@ -533,17 +999,19 @@ export function isProductName(item: string, product: string): boolean {
  * The footer items of `copy` that say nothing the rest of it does not: an
  * item whose every word and number the headline, subheadline or button
  * already carries ("Pickup from 7am" under "available from Monday, 7am
- * pickup"), one another item already says, or the product's name when the
- * copy above names it. Round-4 live critic: five of eleven directions
- * repeated the subheadline in the footer, and two printed the address twice.
+ * pickup"), read for meaning ("20-min" is "20-minute", "12–6pm" is "12pm to
+ * 6pm"); a price whose amount the copy above already gives, with nothing
+ * more than its unit ("₦4,500 a slice" under "₦4,500."); one another item
+ * already says; or the product's name when the copy above names it.
+ * Round-4 live critic: five of eleven directions repeated the subheadline
+ * in the footer, and two printed the address twice.
  */
-export function redundantFooterItems(
-  copy: Omit<FactCopy, "footerStyle">,
-  product = "",
-): string[] {
-  const above = said(
-    [copy.headline, copy.subheadline, copy.cta].filter(Boolean).join(" "),
-  );
+export function redundantFooterItems(copy: CopyFields, product = ""): string[] {
+  const aboveText = [copy.headline, copy.subheadline, copy.cta]
+    .filter(Boolean)
+    .join(" ");
+  const above = said(aboveText);
+  const moneyAbove = moneyIn(aboveText);
   const productSaid = said(product);
   const productAbove = productSaid.size > 0 && within(productSaid, above);
   const items = copy.footerLines.flatMap((line) =>
@@ -554,13 +1022,25 @@ export function redundantFooterItems(
     const mine = said(item);
     if (mine.size === 0) return;
     const repeatsAbove = within(mine, above);
+    const money = moneyIn(item);
+    const pricedAbove =
+      money.size > 0 &&
+      [...money].every((m) => moneyAbove.has(m)) &&
+      [...mine].every(
+        (s) =>
+          above.has(s) ||
+          UNIT_STEMS.has(s) ||
+          (s.startsWith("=") && money.has(s.slice(1))),
+      );
     const isProduct = productAbove && isProductName(item, product);
     const repeatsSibling = items.some((other, j) => {
       if (j === i || redundant.includes(other)) return false;
       const theirs = said(other);
       return within(mine, theirs) && (theirs.size > mine.size || j < i);
     });
-    if (repeatsAbove || isProduct || repeatsSibling) redundant.push(item);
+    if (repeatsAbove || pricedAbove || isProduct || repeatsSibling) {
+      redundant.push(item);
+    }
   });
   return redundant;
 }
@@ -592,6 +1072,20 @@ function withoutRedundant<T extends FactCopy>(
   };
 }
 
+/* A footer line coverage may give up for a fact: never one with a phone, a
+   price, a time or a date in it (round-5 code critic: the model's own
+   "WhatsApp 0803 555 0142 to reserve" was spliced out for the address). */
+function holdsActionableDetail(line: string): boolean {
+  return (
+    PHONE_LIKE.test(line) ||
+    moneyIn(line).size > 0 ||
+    /\b(?:free|%)/i.test(line) ||
+    timesIn(line).size > 0 ||
+    calendarNames(line).length > 0 ||
+    /\b\d{1,2}\/\d{1,2}\b/.test(line)
+  );
+}
+
 export interface FactCoverage {
   /** Every hard fact the brief states. */
   facts: string[];
@@ -612,7 +1106,8 @@ export interface FactCoverage {
  * with a middle dot when it fits there (the last first), so a count is never
  * stranded on a line of its own; otherwise it starts a new line while there
  * is room. A fact that does not fit anywhere, or is longer than a line, is
- * left off and recorded with that reason.
+ * left off and recorded with that reason. What each direction states is
+ * counted on the footer as it is finally drawn.
  */
 export function coverBriefFacts<T extends FactCopy>(
   directions: T[],
@@ -631,7 +1126,7 @@ export function coverBriefFacts<T extends FactCopy>(
     const direction = withoutRedundant(original, product);
     coverage.repeatsDropped +=
       footerItems(original.footerLines) - footerItems(direction.footerLines);
-    const missing = factsMissing(facts, drawnText(direction));
+    const missing = factsMissing(facts, direction);
     if (missing.length === 0) {
       coverage.stated.push(facts.map((f) => f.text));
       return direction;
@@ -649,13 +1144,15 @@ export function coverBriefFacts<T extends FactCopy>(
       };
       let at = roomOn();
       /* A full footer gives up a line of its own words that states none of
-         the brief's facts before a fact is left off (round-5 eval: the
-         address and "apron and starter" were left off under three lines
-         of the model's). */
+         the brief's facts and holds nothing a customer acts on before a
+         fact is left off (round-5 eval: the address and "apron and
+         starter" were left off under three lines of the model's). */
       if (at < 0 && lines.length >= MAX_FOOTER_LINES && item.length <= limit) {
         const spare = lines.findLastIndex(
           (line, j) =>
-            !touched.has(j) && facts.every((f) => !factStated(f, line)),
+            !touched.has(j) &&
+            !holdsActionableDetail(line) &&
+            facts.every((f) => !factStated(f, line)),
         );
         if (spare >= 0) {
           lines.splice(spare, 1);
@@ -683,16 +1180,13 @@ export function coverBriefFacts<T extends FactCopy>(
       touched.add(at);
       fitted.push(fact);
     }
-    coverage.stated.push(
-      facts
-        .filter((f) => !missing.includes(f) || fitted.includes(f))
-        .map((f) => f.text),
-    );
-    if (fitted.length === 0) return direction;
-    for (const j of [...touched].sort((x, y) => x - y)) {
-      coverage.added.push({ direction: index, line: lines[j] });
+    if (fitted.length === 0) {
+      coverage.stated.push(
+        facts.filter((f) => factStated(f, direction)).map((f) => f.text),
+      );
+      return direction;
     }
-    return withoutRedundant(
+    const drawn = withoutRedundant(
       {
         ...direction,
         footerLines: lines,
@@ -701,6 +1195,26 @@ export function coverBriefFacts<T extends FactCopy>(
       },
       product,
     );
+    for (const j of [...touched].sort((x, y) => x - y)) {
+      if (drawn.footerLines.includes(lines[j])) {
+        coverage.added.push({ direction: index, line: lines[j] });
+      }
+    }
+    /* Counted after the last repeat is dropped: a fact counted when added
+       and then dropped as a repeat was reported delivered (round-5 code
+       critic). */
+    const stated = facts.filter((f) => factStated(f, drawn));
+    coverage.stated.push(stated.map((f) => f.text));
+    for (const fact of fitted) {
+      if (!stated.includes(fact)) {
+        coverage.leftOff.push({
+          direction: index,
+          fact: fact.text,
+          reason: "dropped from the footer as a repeat",
+        });
+      }
+    }
+    return drawn;
   });
   return { directions: covered, coverage };
 }

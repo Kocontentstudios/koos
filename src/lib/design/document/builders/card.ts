@@ -235,16 +235,28 @@ async function subjectAboveCopy(
   const copy = await placeStack(stack);
   const subjectBottom =
     Math.min(stack.top, boundsOf(copy)?.y ?? stack.top) - px(ctx.ref * 0.03);
-  const framed = framedImage(
-    ctx,
-    rect(region.x, region.y, region.width, subjectBottom - region.y),
-    {
+  const frameFrom = (top: number) =>
+    framedImage(ctx, rect(region.x, top, region.width, subjectBottom - top), {
       insets: { top: pad, bottom: 0, sides: pad },
       keepOut: copyKeepOut(copy),
       inset: true,
-    },
-  );
+    });
+  const bled = frameFrom(region.y);
+  /* A photo narrower than the card is a print laid on it, and one touching
+     the card's top edge read as jammed under the border, its rounded
+     corners under the straight stroke (round-5 live critic, the
+     regenerated stat card). Such a print starts a margin below the edge. */
+  const narrower =
+    bled !== null &&
+    !isCutout(ctx) &&
+    bled.element.width < region.width - 1 &&
+    bled.element.y <= region.y + 1;
+  const lowered = narrower ? frameFrom(region.y + pad) : null;
+  /* Never at the cost of the subject: a print that only fits whole at the
+     edge stays there. */
+  const framed = lowered && (lowered.clean || !bled?.clean) ? lowered : bled;
   if (!framed || (strict && !framed.clean)) return null;
+  const printed = !isCutout(ctx) && framed.element.width < region.width - 1;
   if (!framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
   commitFaults(ctx, stack);
   const elements: DesignElement[] = [
@@ -252,7 +264,14 @@ async function subjectAboveCopy(
     /* A cut-out's frame may be a room beside the logo, not the card's top,
        and the card already rounds the corners its transparent margin
        shows; a photograph is clipped to them. */
-    { ...framed.element, radius: isCutout(ctx) ? 0 : frame.radius },
+    {
+      ...framed.element,
+      radius: isCutout(ctx)
+        ? 0
+        : printed
+          ? framed.element.radius
+          : frame.radius,
+    },
     /* The subject frame starts at the card's top edge when the subject
        needs the room, and drew over the stat card's border there (round-4
        live critic, the regenerated stat card). */

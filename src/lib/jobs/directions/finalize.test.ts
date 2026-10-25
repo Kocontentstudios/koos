@@ -5,12 +5,14 @@ import {
   clampAtClause,
   copyFault,
   copyReasons,
+  correctionCheck,
   correctionHolds,
   type DirectionChecks,
   documentReasons,
   drawnCopyOf,
   factualReasons,
   finalizeDirection,
+  foreignWords,
   groundingAnchors,
   isGrounded,
   settleReasons,
@@ -613,5 +615,100 @@ describe("settleReasons, round 5", () => {
       image: "none",
     });
     expect(reasons.join(" ")).not.toMatch(/,\s+price/);
+  });
+});
+
+/* Round-5 code critic K14: a gate correction to "Livraison gratuite à
+   Lekki" was kept and delivered: French, an invented free delivery, and
+   the product no longer named. */
+describe("correctionHolds and correctionCheck, round 6", () => {
+  const brief =
+    "Launch our almond croissants, ₦4,500 a box. Pickup at weekends from our Lekki bakery.";
+  const ledger = factLedger([brief]);
+  const before = {
+    headline: "Almond croissants for the commute",
+    subheadline: "₦4,500 a box, weekends",
+    footerLines: [],
+  };
+  const brand = { name: "Crumb" } as never;
+
+  it("refuses copy in another language", () => {
+    const holds = correctionHolds(ledger, [], {
+      offering: "almond croissants",
+    });
+    expect(
+      holds(before, { ...before, headline: "Livraison gratuite à Lekki" }),
+    ).toBe(false);
+    expect(foreignWords("Livraison gratuite à Lekki", brief)).toEqual([
+      "Livraison",
+      "gratuite",
+      "à",
+    ]);
+    expect(foreignWords("Pickup at our Lekki café", "Our Lekki café")).toEqual(
+      [],
+    );
+  });
+
+  it("refuses a rewrite that stops naming what the brief promotes", () => {
+    const holds = correctionHolds(ledger, [], {
+      offering: "almond croissants",
+    });
+    expect(holds(before, { ...before, headline: "Your weekend treat" })).toBe(
+      false,
+    );
+    expect(
+      holds(before, { ...before, headline: "Almond croissants by the box" }),
+    ).toBe(true);
+  });
+
+  it("puts the fields a correction changed to the claim check", async () => {
+    const asked: string[][] = [];
+    const check = correctionCheck({
+      ledger,
+      facts: [],
+      offering: "almond croissants",
+      checker: async ({ fields }) => {
+        asked.push(fields.map((f) => f.id));
+        return fields.some((f) => /Ada/.test(f.text))
+          ? [{ id: fields[0].id, statement: "baked by Ada", rewrite: "" }]
+          : [];
+      },
+      briefText: brief,
+      title: "",
+      brand,
+    });
+    expect(
+      await check(before, {
+        ...before,
+        headline: "Almond croissants, baked by Ada",
+      }),
+    ).toBe(false);
+    expect(
+      await check(before, { ...before, headline: "Almond croissants, boxed" }),
+    ).toBe(true);
+    expect(asked).toEqual([["0.headline"], ["0.headline"]]);
+    expect(await check(before, before)).toBe(true);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("keeps the deterministic verdict when the claim check is down", async () => {
+    const check = correctionCheck({
+      ledger,
+      facts: [],
+      offering: "almond croissants",
+      checker: async () => null,
+      briefText: brief,
+      title: "",
+      brand,
+    });
+    expect(
+      await check(before, { ...before, headline: "Almond croissants, boxed" }),
+    ).toBe(true);
+    expect(
+      await check(before, {
+        ...before,
+        headline: "Livraison gratuite à Lekki",
+      }),
+    ).toBe(false);
   });
 });

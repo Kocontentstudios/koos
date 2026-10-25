@@ -7,6 +7,7 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 const { buildBriefReadPrompt, readBriefWithModel, settleBriefRead } =
   await import("./brief-read");
+const { factStated } = await import("./brief-facts");
 const { isBriefReadCall } = await import("./fixtures");
 
 const BRIEF =
@@ -102,7 +103,49 @@ describe("settleBriefRead", () => {
       facts: [],
       offering: null,
       people: [],
+      peopleFacts: [],
       dropped: [],
+      unread: [],
+      phonesAdded: [],
     });
+  });
+});
+
+/* Round-5 live critic: the named speaker was left off one direction while
+   every fact was reported delivered. A named person is a fact to cover. */
+describe("named people as facts, round 6", () => {
+  const brief =
+    "Croissant lamination masterclass with head baker Tunde Okafor, Friday 5 December.";
+
+  it("makes each named person a fact in the brief's words, with the role", () => {
+    const read = settleBriefRead(
+      {
+        facts: [],
+        offering: { kind: "event", phrase: "croissant lamination masterclass" },
+        people: ["Tunde Okafor", "Tunde Okafor"],
+      },
+      brief,
+      "NG",
+    );
+    expect(read.people).toEqual(["Tunde Okafor"]);
+    expect(read.peopleFacts).toEqual([
+      {
+        kind: "person",
+        text: "With head baker Tunde Okafor",
+        needs: ["^tunde", "^okafor"],
+      },
+    ]);
+    const [speaker] = read.peopleFacts;
+    expect(factStated(speaker, "Learn from Tunde Okafor")).toBe(true);
+    expect(factStated(speaker, "Learn from our head baker")).toBe(false);
+  });
+
+  it("takes the name alone when no role sits before it", () => {
+    const read = settleBriefRead(
+      { facts: [], offering: null, people: ["Ada Obi"] },
+      "Ada Obi opens the panel on Friday.",
+      "NG",
+    );
+    expect(read.peopleFacts.map((f) => f.text)).toEqual(["Ada Obi"]);
   });
 });

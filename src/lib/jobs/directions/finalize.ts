@@ -1,6 +1,8 @@
 import type { AspectRatio } from "@/lib/ai/image/types";
+import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import type { DesignElement } from "@/lib/design/document/schema";
-import { type BriefFact, drawnText, factsMissing } from "./brief-facts";
+import { type BriefFact, factsMissing } from "./brief-facts";
+import type { ClaimChecker, ClaimCheckField } from "./claim-check";
 import {
   type DrawnCopy,
   documentParts,
@@ -543,19 +545,54 @@ export function copyFault(
   return null;
 }
 
+/* Words of the languages KO's brands most often slip into, and the marks
+   only they carry. The claim check reads language too; this holds when it
+   cannot be reached (round-5 code critic: "Livraison gratuite à Lekki" was
+   kept as a correction). */
+const FOREIGN_WORD =
+  /^(?:le|la|les|des|du|une|et|pour|avec|sur|chez|votre|nos|gratuit|gratuite|livraison|maintenant|nouveau|nouvelle|el|los|las|una|para|con|nuestro|nuestra|gratis|ahora|envío|nuevo|nueva|uma|grátis|agora|entrega|und|der|das|mit|für|jetzt)$/i;
+const FOREIGN_MARK = /[àâäçèêëîïôöûùüÿñœæßãõ]/i;
+
+/** Words of `text` in another language than the brief's, or none. */
+export function foreignWords(text: string, sources: string): string[] {
+  const known = new Set(
+    (sources.toLowerCase().match(/[\p{L}']+/gu) ?? []).map((w) => w),
+  );
+  return (text.match(/[\p{L}']+/gu) ?? []).filter(
+    (word) =>
+      !known.has(word.toLowerCase()) &&
+      (FOREIGN_WORD.test(word) || FOREIGN_MARK.test(word)),
+  );
+}
+
+/** Whether `copy`'s headline, subheadline or button carries every word of
+ *  the brief's name for what it promotes. */
+export function copyNamesOffering(copy: DrawnCopy, offering: string): boolean {
+  const wanted = contentStems(offering);
+  const said = contentStems(
+    [copy.headline, copy.subheadline, copy.cta].filter(Boolean).join(" "),
+  );
+  return [...wanted].every((stem) => said.has(stem));
+}
+
 /**
  * Whether a correction's copy may replace `before`'s: every field within its
- * limit, finished, stating only the brief's facts, and losing none of the
- * brief's hard facts `before` stated. The gate checks the pixels, not the
+ * limit, finished, stating only the brief's facts, in the brief's language,
+ * still naming what the brief promotes when `before` did, and losing none of
+ * the brief's hard facts `before` stated. The gate checks the pixels, not the
  * brief, so its judge may rewrite copy in a way that drops them (round-3
  * code critic: a kept correction emptied the footer of all four facts).
  */
 export function correctionHolds(
   ledger: FactLedger,
   facts: readonly BriefFact[],
+  {
+    offering = "",
+    sources = ledger.text,
+  }: { offering?: string; sources?: string } = {},
 ): (before: DrawnCopy, after: DrawnCopy) => boolean {
   const missing = (copy: DrawnCopy) =>
-    new Set(factsMissing(facts, drawnText(copy)).map((f) => f.text));
+    new Set(factsMissing(facts, copy).map((f) => f.text));
   return (before, after) => {
     const fields: [string | undefined, number][] = [
       [after.headline, COPY_LIMITS.headline],
@@ -569,8 +606,96 @@ export function correctionHolds(
     if (fields.some(([text, max]) => text && copyFault(text, max, ledger))) {
       return false;
     }
+    if (fields.some(([text]) => text && foreignWords(text, sources).length)) {
+      return false;
+    }
+    if (
+      offering &&
+      copyNamesOffering(before, offering) &&
+      !copyNamesOffering(after, offering)
+    ) {
+      return false;
+    }
     const was = missing(before);
     return [...missing(after)].every((fact) => was.has(fact));
+  };
+}
+
+/** The fields a correction changed, as the claim check reads them. */
+export function changedFields(
+  before: DrawnCopy,
+  after: DrawnCopy,
+): ClaimCheckField[] {
+  const out: ClaimCheckField[] = [];
+  const field = (
+    id: string,
+    name: string,
+    text: string | undefined,
+    limit: number,
+    was: string | undefined,
+  ) => {
+    if (text && text !== was) out.push({ id, field: name, text, limit });
+  };
+  field(
+    "0.headline",
+    "headline",
+    after.headline,
+    COPY_LIMITS.headline,
+    before.headline,
+  );
+  field(
+    "0.subheadline",
+    "subheadline",
+    after.subheadline,
+    COPY_LIMITS.subheadline,
+    before.subheadline,
+  );
+  field("0.cta", "button", after.cta, COPY_LIMITS.cta, before.cta);
+  after.footerLines.forEach((line, j) => {
+    if (!before.footerLines.includes(line)) {
+      field(
+        `0.footerLines.${j}`,
+        "footer line",
+        line,
+        COPY_LIMITS.footerLine,
+        undefined,
+      );
+    }
+  });
+  return out;
+}
+
+/**
+ * correctionHolds, then the same claim check the directions passed, on the
+ * fields the correction changed: a judge rewrite is new copy, and the
+ * pattern checks cannot read a promise like "free delivery" in another
+ * language (round-5 code critic). An unreachable check leaves the
+ * deterministic verdict, as everywhere else the check is fail-soft.
+ */
+export function correctionCheck({
+  ledger,
+  facts,
+  offering,
+  checker,
+  briefText,
+  title,
+  brand,
+}: {
+  ledger: FactLedger;
+  facts: readonly BriefFact[];
+  offering: string;
+  checker: ClaimChecker;
+  briefText: string;
+  title: string;
+  brand: BrandSummary;
+}): (before: DrawnCopy, after: DrawnCopy) => Promise<boolean> {
+  const holds = correctionHolds(ledger, facts, { offering });
+  return async (before, after) => {
+    if (!holds(before, after)) return false;
+    const fields = changedFields(before, after);
+    if (fields.length === 0) return true;
+    const flagged = await checker({ fields, briefText, title, brand });
+    return flagged === null || flagged.length === 0;
   };
 }
 

@@ -60,8 +60,15 @@ const { briefNamesPeople, paintCheckedPlate } = await import(
 const { designSpecOf } = await import("../../../jobs/directions/schema");
 const { askVision } = await import("../../../design/quality/vision");
 const { lookAtPhoto } = await import("../../../design/quality/plate-check");
-const { brandRegion, brandSetting, drawnText, factsMissing, settleBriefFacts } =
-  await import("../../../jobs/directions/brief-facts");
+const {
+  brandRegion,
+  brandSetting,
+  factsMissing,
+  needsFor,
+  phoneRegions,
+  settleBriefFacts,
+} = await import("../../../jobs/directions/brief-facts");
+type BriefFact = import("../../../jobs/directions/brief-facts").BriefFact;
 const { readBriefWithModel, settleBriefRead } = await import(
   "../../../jobs/directions/brief-read"
 );
@@ -75,7 +82,7 @@ const {
   scoreBriefRead,
 } = await import("./read-score");
 type ReadScore = import("./read-score").ReadScore;
-const { chooseLayout, LAYOUT_CRAFT_FAILED } = await import(
+const { chooseLayout, LAYOUT_CRAFT_FAILED, SUBJECT_FACE_ONLY } = await import(
   "../../../jobs/directions/subject-layout"
 );
 const { directionGateRules, documentRenderer, layoutJudge } = await import(
@@ -92,9 +99,8 @@ const { measureImage } = await import("../../../design/document/image-facts");
 const { prepareDocumentFonts } = await import(
   "../../../design/document/rasterize"
 );
-const { measureSubject, SUBJECT_COVERED, subjectFromAlpha } = await import(
-  "../../../design/document/subject"
-);
+const { measureSubject, SUBJECT_COVERED, SUBJECT_CROPPED, subjectFromAlpha } =
+  await import("../../../design/document/subject");
 const { designImageFromBytes, DesignImageError } = await import(
   "../../../uploads/design-image"
 );
@@ -159,6 +165,7 @@ const lookSchema = z.object({
   subject: z.string(),
   isProduct: z.enum(["yes", "no"]),
   writing: z.enum(["yes", "no"]),
+  person: z.enum(["yes", "no"]),
 });
 async function lookAt(bytes: Uint8Array, product: string) {
   const { default: sharp } = await import("sharp");
@@ -170,7 +177,7 @@ async function lookAt(bytes: Uint8Array, product: string) {
     schema: lookSchema,
     system:
       "You describe photographs plainly and literally. Name what is actually in the picture, not what it might be meant to be.",
-    text: `First, name the main subject of this photograph in a few words. Then answer: is that subject ${product}? A similar but different item is "no". Last: is there any writing anywhere, real or imitation (letters, words, numbers, a logo, squiggles shaped like text on a label or sign)? Answer "writing".`,
+    text: `First, name the main subject of this photograph in a few words. Then answer: is that subject ${product}? A similar but different item is "no". Then: is there any writing anywhere, real or imitation (letters, words, numbers, a logo, squiggles shaped like text on a label or sign)? Answer "writing". Last: does any person appear at all, even in part, in profile, from behind or far off (hands alone do not count)? Answer "person".`,
     image: { bytes: new Uint8Array(small), mediaType: "image/jpeg" },
     maxOutputTokens: 200,
     timeoutMs: 30_000,
@@ -180,6 +187,7 @@ async function lookAt(bytes: Uint8Array, product: string) {
     subject: answer.subject,
     shows: answer.isProduct === "yes",
     writing: answer.writing === "yes",
+    person: answer.person === "yes",
   };
 }
 
@@ -222,6 +230,8 @@ async function lookAtRender(png: Uint8Array) {
 const judgeSchema = z.object({
   unsupported: z.array(z.string()),
   missing: z.array(z.string()),
+  repeated: z.array(z.string()),
+  fragments: z.array(z.string()),
 });
 async function judgeCopy(
   brief: string,
@@ -248,7 +258,7 @@ async function judgeCopy(
       `The brand profile: ${profile}`,
       "The design's copy:",
       ...lines,
-      'List in "unsupported" every statement in the copy that the brief and profile do not support: a number, price, day, date, time, count, duration, place or claim they never gave, or one whose meaning changed (for example "from ₦4,500" when the brief gives one price, "before 7am" for "from 7am", "only", "now", "fresh", "best"). Tone and invitations ("treat yourself") are not statements. List in "missing" every hard fact of the brief (day, date, time, price, ages, place, contact, quantity) the copy does not state, one fact per entry and nothing else: not the brand name, not the kind of event, not a comment. A fact stated in other words or abbreviated ("Sun 9 Nov", "Ages 16+") is stated. Empty lists when there is nothing.',
+      'List in "unsupported" every statement in the copy that the brief and profile do not support: a number, price, day, date, time, count, duration, place or claim they never gave, or one whose meaning changed (for example "from ₦4,500" when the brief gives one price, "before 7am" for "from 7am", "only", "now", "fresh", "best"). Tone and invitations ("treat yourself") are not statements. List in "missing" every hard fact of the brief (day, date, time, price, ages, place, contact, quantity) the copy does not state, one fact per entry and nothing else: not the brand name, not the kind of event, not a comment. A fact stated in other words or abbreviated ("Sun 9 Nov", "Ages 16+") is stated. List in "repeated" every footer item that only says again what the headline, subheadline, button or another footer item already says, in any words ("20-min call" and "20-minute call", "12–6pm" and "12pm to 6pm", a price the headline already gives). List in "fragments" every line or item that stops mid-phrase ("Zero fees for your"). Empty lists when there is nothing.',
     ].join("\n"),
     image: null,
     maxOutputTokens: 600,
@@ -338,13 +348,21 @@ for (const evalCase of cases) {
   /* The case's labelled facts, not the reader's: coverage is measured
      against what a person says the brief gives, so a fact the reader
      missed counts as missing from the design. */
-  const facts = settleBriefFacts(
+  const labelled = settleBriefFacts(
     evalCase.facts
       .filter((f) => !f.optional)
       .map((f) => ({ kind: labelKind(f.text), text: f.text })),
     r.briefText,
-    { region },
+    { region: phoneRegions(r.briefText, region) },
   ).facts;
+  /* The people the case names are facts each direction must state, as
+     they are in the job (round-5 live critic: a speaker left off). */
+  const people: BriefFact[] = (evalCase.people ?? []).map((name) => ({
+    kind: "person",
+    text: name,
+    needs: needsFor("person", name),
+  }));
+  const facts = [...labelled, ...people];
   const caseRecord: RenderedCase = {
     caseId: evalCase.id,
     expectRefused: Boolean(evalCase.expectRefused),
@@ -425,6 +443,7 @@ for (const evalCase of cases) {
       subjects: ({ x: number; y: number; w: number; h: number } | null)[];
       description?: string;
       lettering: boolean | null;
+      person?: boolean | null;
     } | null;
     const imagery: Imagery[] = result.directions.map(() => null);
     const plates = [];
@@ -471,10 +490,12 @@ for (const evalCase of cases) {
             subject: string;
             shows: boolean | null;
             writing: boolean | null;
+            person: boolean | null;
           } = {
             subject: "",
             shows: null,
             writing: null,
+            person: null,
           };
           if (plate.image) {
             const ext =
@@ -488,7 +509,7 @@ for (const evalCase of cases) {
               direction.productName || evalCase.product || "the main subject",
             ).catch((err) => {
               console.log(`   plate look failed: ${(err as Error).message}`);
-              return { subject: "", shows: null, writing: null };
+              return { subject: "", shows: null, writing: null, person: null };
             });
             imagery[i] = {
               asset: plate.image,
@@ -498,6 +519,7 @@ for (const evalCase of cases) {
                 ? [plate.look.seen, ...plate.look.items].join(", ")
                 : undefined,
               lettering: look.writing,
+              person: look.person,
             };
           }
           if (plate.seen.length > 0) {
@@ -586,17 +608,30 @@ for (const evalCase of cases) {
         plateLettering:
           evalCase.imageSource === "ko" ? (image?.lettering ?? null) : null,
         textLed: evalCase.imageSource === "ko" ? !image : null,
+        personPainted:
+          evalCase.imageSource === "ko" && people.length > 0
+            ? Boolean(image?.person)
+            : null,
       };
+      /* As the job does: a layout that cut the subject, or kept only a
+         face clear, is refused, never delivered with its fault. */
+      const subjectFaulted = choice.faults.some(
+        (f) => f === SUBJECT_CROPPED || f === SUBJECT_FACE_ONLY,
+      );
       if (
         choice.fault === SUBJECT_COVERED ||
-        choice.fault === LAYOUT_CRAFT_FAILED
+        choice.fault === LAYOUT_CRAFT_FAILED ||
+        subjectFaulted
       ) {
         caseRecord.directions.push({
           ...base,
+          subjectRefused: subjectFaulted,
           failed:
             choice.fault === SUBJECT_COVERED
               ? "copy could not be kept off the subject in any layout"
-              : "no layout drew the copy cleanly",
+              : subjectFaulted
+                ? "the subject could not be shown whole, clear of the copy"
+                : "no layout drew the copy cleanly",
           overlaps: 0,
           visibleShare: null,
           edgeShare: null,
@@ -637,10 +672,9 @@ for (const evalCase of cases) {
               spec: choice.spec,
               assets: laidOut,
               copyHolds: (corrected) =>
-                correctionHolds(result.checks.ledger, facts)(
-                  choice.spec,
-                  corrected,
-                ),
+                correctionHolds(result.checks.ledger, facts, {
+                  offering: result.read.offering?.phrase ?? "",
+                })(choice.spec, corrected),
               keepsSubjectClear: choice.subject,
             }),
           },
@@ -649,10 +683,8 @@ for (const evalCase of cases) {
         deliveredSpec = guarded.spec;
         const lost = factsMissing(
           facts,
-          drawnText(drawnCopyOf(out.document.elements)),
-        ).filter(
-          (f) => !factsMissing(facts, drawnText(firstCopy)).includes(f),
-        ).length;
+          drawnCopyOf(out.document.elements),
+        ).filter((f) => !factsMissing(facts, firstCopy).includes(f)).length;
         correction = {
           prescribed: Boolean(guarded.correction),
           kept: Boolean(guarded.correctionKept),
@@ -678,7 +710,9 @@ for (const evalCase of cases) {
           spec: deliveredSpec,
           assets: laidOut,
           copyHolds: (corrected) =>
-            correctionHolds(result.checks.ledger, facts)(first, {
+            correctionHolds(result.checks.ledger, facts, {
+              offering: result.read.offering?.phrase ?? "",
+            })(first, {
               headline: corrected.headline,
               subheadline: corrected.subheadline,
               cta: corrected.cta,
@@ -687,7 +721,7 @@ for (const evalCase of cases) {
           keepsSubjectClear: choice.subject,
         });
         const missingFrom = (copy: typeof first) =>
-          new Set(factsMissing(facts, drawnText(copy)).map((f) => f.text));
+          new Set(factsMissing(facts, copy).map((f) => f.text));
         const loses = (copy: typeof first) => {
           const before = missingFrom(first);
           return [...missingFrom(copy)].some((f) => !before.has(f));
@@ -704,7 +738,7 @@ for (const evalCase of cases) {
         const rewrite = { ...deliveredSpec, headline: r.title };
         const rewriteShouldHold =
           r.title.length <= 70 && !loses({ ...first, headline: r.title });
-        const rewriteKept = rules.acceptCorrection(rewrite);
+        const rewriteKept = await rules.acceptCorrection(rewrite);
         let rewriteOverSubject = false;
         if (rewriteKept) {
           const second = await draw(rewrite);
@@ -721,8 +755,8 @@ for (const evalCase of cases) {
         copyProbe = {
           lossRefused:
             !loses({ ...first, footerLines: [] }) ||
-            !rules.acceptCorrection(lossy),
-          inventionRefused: !rules.acceptCorrection(invented),
+            !(await rules.acceptCorrection(lossy)),
+          inventionRefused: !(await rules.acceptCorrection(invented)),
           rewriteKept: rewriteKept === rewriteShouldHold,
           rewriteOverSubject,
         };
@@ -739,14 +773,21 @@ for (const evalCase of cases) {
          line that repeats the copy above it. */
       const copy = drawnCopyOf(out.document.elements);
       delivered.push(copy);
-      const drawn = drawnText(copy);
+      const drawnAll = [
+        copy.headline,
+        copy.subheadline,
+        copy.cta,
+        ...copy.footerLines,
+      ]
+        .filter(Boolean)
+        .join(" \n ");
       const wholeSubject =
         choice.wholeSubject && imageFacts
           ? measureSubject(out.document, imageFacts, choice.wholeSubject)
           : null;
       const craft = layoutCraftFaults(out.document);
       const reasons = settleReasons(direction.rationale, {
-        factsMissing: factsMissing(facts, drawn).length,
+        factsMissing: factsMissing(facts, copy).length,
         copy,
         checks: result.checks,
         product: direction.productName,
@@ -771,7 +812,7 @@ for (const evalCase of cases) {
       const judged = await judgeCopy(r.briefText, profile, copy).catch(
         (err) => {
           console.log(`   judge failed: ${(err as Error).message}`);
-          return { unsupported: [], missing: [] };
+          return { unsupported: [], missing: [], repeated: [], fragments: [] };
         },
       );
       const record: RenderedDirection = {
@@ -782,14 +823,14 @@ for (const evalCase of cases) {
         edgeShare: wholeSubject?.edgeShare ?? null,
         lookTextOverSubject: look?.over ?? null,
         lookSubjectCut: look?.cut ?? null,
-        factsStated: facts.length - factsMissing(facts, drawn).length,
+        factsStated: facts.length - factsMissing(facts, copy).length,
         judgeUnsupported: judged.unsupported,
         judgeMissing: judged.missing,
         craftHard: craft.hard,
         craftSoft: craft.soft,
         productNamed: evalCase.product
           ? [...contentStems(evalCase.product)].every((stem) =>
-              contentStems(drawn).has(stem),
+              contentStems(drawnAll).has(stem),
             )
           : null,
         placeholders: [
@@ -806,7 +847,12 @@ for (const evalCase of cases) {
           out.document.elements,
           copy,
           evalCase.product ?? result.read.offering?.phrase ?? "",
+          labelled,
         ),
+        peopleNamed:
+          people.length > 0 ? factsMissing(people, copy).length === 0 : null,
+        judgeRepeated: judged.repeated ?? [],
+        judgeFragments: judged.fragments ?? [],
       };
       caseRecord.directions.push(record);
       console.log(
@@ -815,7 +861,7 @@ for (const evalCase of cases) {
       console.log(`       reasons: ${reasons.join(" | ")}`);
     }
     caseRecord.factsCoveredAnywhere = facts.filter((f) =>
-      delivered.some((copy) => factsMissing([f], drawnText(copy)).length === 0),
+      delivered.some((copy) => factsMissing([f], copy).length === 0),
     ).length;
 
     const score = scoreDirectionsCase(evalCase, result, plates);
@@ -965,6 +1011,9 @@ console.log(
 );
 console.log(
   `round-5 craft: empty image regions ${renderTotals.emptyImageRegions} (max ${rt.maxEmptyImageRegions}); footer repeats ${renderTotals.footerRepeats} (max ${rt.maxFooterRepeats}); product name in footer ${renderTotals.productInFooter} (max ${rt.maxProductInFooter}); picture over its frame ${renderTotals.imageOverFrame} (max ${rt.maxImageOverFrame})`,
+);
+console.log(
+  `round-6: delivered subject cut ${renderTotals.deliveredSubjectCut} (max ${rt.maxDeliveredSubjectCut}), refused for the subject ${renderTotals.subjectRefused}; KO laid out as text ${f2(renderTotals.textLedShare)} (max ${rt.maxTextLedShare}); named people on every direction ${f2(renderTotals.peopleNamedShare)} (min ${rt.minPeopleNamedShare}); person painted beside a named one ${renderTotals.personPainted} (max ${rt.maxPersonPainted}); judge footer repeats ${f2(renderTotals.judgeRepeatedShare)} (max ${rt.maxJudgeRepeatedShare}); fragments ${renderTotals.fragments} (max ${rt.maxFragments}); prices without unit ${renderTotals.pricesDetached} (max ${rt.maxPricesDetached}); picture against its card's edge ${renderTotals.imageAgainstFrame} (max ${rt.maxImageAgainstFrame})`,
 );
 console.log(
   `copy corrections: probed ${renderTotals.copyProbes} (min ${rt.minCopyProbes}), rules wrong ${renderTotals.copyProbeFailures} (max ${rt.maxCopyProbeFailures}), copy on the whole subject ${renderTotals.copyProbeOverSubject} (max ${rt.maxCopyProbeOverSubject})`,

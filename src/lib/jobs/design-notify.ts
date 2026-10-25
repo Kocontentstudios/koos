@@ -46,11 +46,15 @@ export async function notifyImageLeftOff({
   directions,
   of,
   subject,
+  cause = "rejected",
 }: {
   userId: string;
   directions: number;
   of: number;
   subject: string;
+  /** "unavailable": the image model returned nothing usable, so no plate
+   *  was judged. "rejected": plates were painted and turned down. */
+  cause?: "rejected" | "unavailable";
 }) {
   const which =
     of === 1
@@ -58,9 +62,13 @@ export async function notifyImageLeftOff({
       : directions === of
         ? "Both directions were"
         : "One direction was";
+  const why =
+    cause === "unavailable"
+      ? "KO's image service didn't return an image just now, so none could be used"
+      : `the images KO made${subject ? ` of the ${subject}` : ""} showed the wrong thing or painted made-up writing or a face, so none was used`;
   await notifyAssetFault(
     userId,
-    `${which} laid out with words only: the images KO made${subject ? ` of the ${subject}` : ""} showed the wrong thing or painted made-up writing or a face, so none was used. Regenerate it to try new imagery, or upload your own photo.`,
+    `${which} laid out with words only: ${why}. Regenerate it to try new imagery, or upload your own photo.`,
   );
 }
 

@@ -62,7 +62,10 @@ vi.mock("@/lib/uploads/design-image", async (importOriginal) => ({
   loadDesignImage: (key: string, brandId: string) =>
     loadDesignImage(key, brandId),
 }));
-vi.mock("@/lib/design/document/rasterize", () => ({
+vi.mock("@/lib/design/document/rasterize", async (importOriginal) => ({
+  DocumentAssetError: (
+    await importOriginal<typeof import("@/lib/design/document/rasterize")>()
+  ).DocumentAssetError,
   rasterizeDocument: (input: unknown) => rasterizeDocument(input),
   prepareDocumentFonts: async () => ({ fonts: [], fault: null }),
 }));
@@ -162,7 +165,7 @@ vi.mock("@/lib/jobs/design-gate", async (importOriginal) => {
       render: (s: unknown) => Promise<Record<string, unknown>>,
       spec: Record<string, unknown>,
       opts: {
-        acceptCorrection: (s: unknown) => boolean;
+        acceptCorrection: (s: unknown) => boolean | Promise<boolean>;
         refuseSecond?: (r: unknown) => boolean;
         onFirstRender?: () => void;
       },
@@ -171,7 +174,7 @@ vi.mock("@/lib/jobs/design-gate", async (importOriginal) => {
       opts.onFirstRender?.();
       const corrected = correctWith ? correctWith(spec) : null;
       if (!corrected) return { ...first, spec };
-      if (!opts.acceptCorrection(corrected))
+      if (!(await opts.acceptCorrection(corrected)))
         return {
           ...first,
           spec,
@@ -426,8 +429,9 @@ describe("round-3 job probes", () => {
   });
 
   /* P3: only the head was kept clear; the headline lay across the tray and
-     nothing was recorded. */
-  it("records a fault when only a person's face is kept clear", async () => {
+     nothing was recorded. Round 6: a direction with copy on the subject is
+     not delivered at all, and the user is told why. */
+  it("delivers nothing with only a person's face kept clear, and says why", async () => {
     const whole = { x: 0.05, y: 0.05, w: 0.9, h: 0.9 };
     const face = { x: 0.42, y: 0.08, w: 0.16, h: 0.16 };
     coverWholeWider = 0.85;
@@ -437,16 +441,24 @@ describe("round-3 job probes", () => {
       face,
       items: ["woman", "tray of croissants"],
     });
-    await run({ image: { source: "upload", key: UPLOAD_KEY } });
-    const { SUBJECT_FACE_ONLY } = await import("./directions/subject-layout");
-    const m = usage();
-    expect(m.subjectFaults).toEqual([SUBJECT_FACE_ONLY, SUBJECT_FACE_ONLY]);
-    expect(m.qualityFaults).toBe(2);
+    await expect(
+      run({ image: { source: "upload", key: UPLOAD_KEY } }),
+    ).rejects.toThrow(/could not be shown whole, clear of the copy/);
     for (const id of ["row-1", "row-2"]) {
-      expect(delivered(id)?.rationale.reasons.join(" ")).not.toMatch(
-        /drawn whole/,
+      expect(delivered(id)).toBeUndefined();
+      expect(updatesFor(id)).toContainEqual(
+        expect.objectContaining({
+          status: "failed",
+          error: expect.stringMatching(/could not be shown whole/),
+        }),
       );
     }
+    expect(uploadObject).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        contentType: "image/png",
+        key: expect.stringMatching(/^generated\/[^/]+\/[0-9a-f-]+\.png$/),
+      }),
+    );
   });
 
   /* P4a and P4b: the plate checked for nothing, or for "a strawberry". */
@@ -884,7 +896,7 @@ describe("round-4 critic job probes", () => {
       image: { source: "ko" },
     });
     for (const [input] of plateModel.generate.mock.calls) {
-      expect(input.prompt).toContain("No people, faces or hands");
+      expect(input.prompt).toContain("No people at all");
     }
     expect(usage().plateChecks).toEqual(["failed-people", "failed-people"]);
     expect(usage().textLed).toBe(2);

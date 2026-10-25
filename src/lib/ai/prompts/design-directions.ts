@@ -83,6 +83,8 @@ function imageBlock(source: DirectionsImageSource, attached: boolean): string {
     'Imagery: KO paints a separate text-free image for each direction from its "backgroundPrompt", led by "productLook".',
     "When the brief names a product, every direction's image shows that product, recognisably, as its subject: the backgroundPrompt describes the product itself first (from productLook), then the setting. Give each direction its own scene that serves its concept: a different viewpoint, setting or treatment of the same product, never a different product and never the same scene relit.",
     "Set each scene where the brand is (its city or neighbourhood in the profile above): local interiors, streets and people. Packaging, bottles and boxes are plain and unlabelled: the image model writes made-up brand names on anything with a label.",
+    "For a service, an app, a job or an event, show the work through hands, tools, materials, people and the place itself. Never a phone, laptop or other screen, paper, documents, charts, books, signs or posters: the image model paints gibberish writing on every one of them, and the image is thrown away.",
+    "When the brief names a real person (a speaker, host or chef), the scene has no people in it at all: the setting, the tools and the light, never a stand-in face.",
   ].join(" ");
 }
 

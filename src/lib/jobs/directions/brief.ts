@@ -12,10 +12,17 @@ import {
 import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import type { DesignContext } from "@/lib/design/context";
-import { brandRegion, coverBriefFacts, type FactCoverage } from "./brief-facts";
+import {
+  type BriefFact,
+  brandRegion,
+  coverBriefFacts,
+  type FactCoverage,
+} from "./brief-facts";
 import {
   type BriefRead,
   type BriefReader,
+  coverFactsOf,
+  NOT_AN_OFFERING,
   readBriefWithModel,
   settleBriefRead,
 } from "./brief-read";
@@ -125,6 +132,9 @@ export interface DraftDirectionsResult {
   productSources: ("read" | "model" | "sibling" | "brief" | "none")[];
   /** The brief as read: its facts, what it offers, the people it names. */
   read: BriefRead;
+  /** Every fact a direction must state: the brief's facts and the people
+   *  it names. */
+  coverFacts: BriefFact[];
   /** The brief's hard facts and which direction states each. */
   factCoverage: FactCoverage;
   claimCheck: ClaimCheckOutcome;
@@ -805,7 +815,11 @@ export async function draftDirections({
      into (round-4 code critic). The model's names are the fallback when
      the reader could not be reached. */
   const products = resolved.map((p) =>
-    read.offering ? { name: read.offering.phrase, from: "read" as const } : p,
+    read.offering
+      ? { name: read.offering.phrase, from: "read" as const }
+      : plausibleProduct(p.name)
+        ? p
+        : { name: "", from: "none" as const },
   );
   const looks = reports.map((r) => r.modelProduct.look);
   const named = directions.map((d, i) => {
@@ -828,9 +842,10 @@ export async function draftDirections({
       productLook: hint.slice(0, DRAFT_LIMITS.productLook),
     };
   });
+  const coverFacts = coverFactsOf(read);
   const { directions: drawnIn, coverage: factCoverage } = coverBriefFacts(
     named,
-    read.facts,
+    coverFacts,
     named.find((d) => d.productName)?.productName ?? "",
   );
   /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
@@ -876,7 +891,28 @@ export async function draftDirections({
     modelCalls,
     productSources: products.map((p) => p.from),
     read,
+    coverFacts,
     factCoverage,
     claimCheck,
   };
+}
+
+/* What the model's own product names fall back to when the reader is down,
+   and what they must not be: a shop ("Ikeja salon"), an offer ("Free
+   cookie"), a possessive ("bakery's") or a colour and material with no
+   thing ("black leather"), all of which were painted and checked as the
+   product (round-5 code critic). */
+const NOT_A_THING =
+  /^(?:black|white|tan|olive|navy|red|blue|green|gold|silver|pink|cream|grey|gray|brown|beige|ivory|leather|silk|cotton|linen|wool|denim|suede|velvet|satin|lace|wood|wooden|glass|ceramic|steel|brass|copper|organza|aso-oke|adire|ankara)$/i;
+
+export function plausibleProduct(name: string): boolean {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  const last = words[words.length - 1];
+  if (/['’]s?$/.test(last)) return false;
+  if (/^(?:free|new|our|the|your)$/i.test(words[0])) return false;
+  if (NOT_AN_OFFERING.test(last) || NOT_AN_OFFERING.test(name.trim())) {
+    return false;
+  }
+  return !words.every((w) => NOT_A_THING.test(w));
 }

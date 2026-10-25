@@ -141,8 +141,18 @@ describe("a cut-out's pale rim", () => {
     );
   });
 
+  /* Round-5 live critic: the mille-feuille's pale matting was a hard white
+     outline on the split layout's peach panel. */
+  it("shows on a coloured light panel, and is a soft fault there too", () => {
+    expect(cutoutEdgeShows(on("#F5D7C3"), facts)).toBe(true);
+    expect(layoutCraftFaults(on("#F5D7C3"), facts).soft).toBe(
+      CUTOUT_EDGE_SHOWS,
+    );
+  });
+
   it("does not show on a light card, or on a photograph", () => {
     expect(cutoutEdgeShows(on("#FFF4E6"), facts)).toBe(false);
+    expect(cutoutEdgeShows(on("#FFFFFF"), facts)).toBe(false);
     expect(cutoutEdgeShows(on("#3B2416"), { ...facts, cutout: false })).toBe(
       false,
     );

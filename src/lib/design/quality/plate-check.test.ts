@@ -52,6 +52,7 @@ describe("checkPlateShowsProduct", () => {
       items: [],
       lettering: false,
       person: false,
+      anyPerson: false,
     });
     const [text, image] = sent().messages[0].content;
     expect(text.text).toContain("The product: strawberry mille-feuille.");
@@ -252,5 +253,42 @@ describe("lookAtPhoto", () => {
   it("is null when the model cannot answer", async () => {
     generateObject.mockRejectedValue(new Error("throttled"));
     expect(await lookAtPhoto(plate)).toBeNull();
+  });
+});
+
+/* Round-5 live critic: an AI woman in profile stood beside "architect Ada
+   Obi" and was not an identifiable face. Any person is now reported. */
+describe("any person on a plate", () => {
+  it("reports a person who is not an identifiable face", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "a lecture hall",
+        showsProduct: true,
+        identifiablePerson: false,
+        anyPerson: true,
+      },
+    });
+    const verdict = await checkPlateShowsProduct({
+      bytes: plate,
+      product: "",
+      look: "",
+    });
+    expect(verdict).toMatchObject({ person: false, anyPerson: true });
+  });
+
+  it("counts an identifiable face as a person too", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "a speaker",
+        showsProduct: true,
+        identifiablePerson: true,
+      },
+    });
+    const verdict = await checkPlateShowsProduct({
+      bytes: plate,
+      product: "",
+      look: "",
+    });
+    expect(verdict).toMatchObject({ person: true, anyPerson: true });
   });
 });

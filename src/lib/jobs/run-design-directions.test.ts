@@ -58,7 +58,10 @@ vi.mock("@/lib/uploads/design-image", async (importOriginal) => ({
   loadDesignImage: (key: string, brandId: string) =>
     loadDesignImage(key, brandId),
 }));
-vi.mock("@/lib/design/document/rasterize", () => ({
+vi.mock("@/lib/design/document/rasterize", async (importOriginal) => ({
+  DocumentAssetError: (
+    await importOriginal<typeof import("@/lib/design/document/rasterize")>()
+  ).DocumentAssetError,
   rasterizeDocument: (input: unknown) => rasterizeDocument(input),
   prepareDocumentFonts: async () => ({ fonts: [], fault: null }),
 }));

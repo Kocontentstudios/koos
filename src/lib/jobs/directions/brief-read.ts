@@ -5,6 +5,8 @@ import { getModel } from "@/lib/ai/provider";
 import {
   BRIEF_FACT_KINDS,
   type BriefFact,
+  needsFor,
+  phoneRegions,
   type ReadFact,
   settleBriefFacts,
 } from "./brief-facts";
@@ -13,8 +15,9 @@ import {
  * One small structured call that reads a brief: its hard facts, what it
  * offers, and the real people it names. Reading a brief is judgement on
  * ambiguous text, so a model does it; settleBriefRead then holds every
- * answer to the brief's own words in code, and nothing the model says is
- * drawn unless it is.
+ * answer to the brief's own words in code: a fact is drawn only in the
+ * brief's words, and what the reader saw but could not be held to them is
+ * recorded, never drawn.
  *
  * Its own call rather than a field of the directions answer: it runs beside
  * that call (no added wait), it can be measured on a labelled set without
@@ -130,22 +133,93 @@ export interface BriefRead {
   offering: { kind: Exclude<OfferingKind, "none">; phrase: string } | null;
   /** Real people the brief names, in its words. */
   people: string[];
+  /** Each named person as a fact every direction must state, in the
+   *  brief's words with the role it gives them ("with head baker Tunde
+   *  Okafor"). */
+  peopleFacts: BriefFact[];
   /** What the reader said that was not the brief's own words, or not a
    *  usable fact. */
   dropped: { text: string; why: string }[];
+  /** Facts the reader saw but in words not the brief's (settleBriefFacts):
+   *  checked against the delivered copy, never drawn. */
+  unread: BriefFact[];
+  /** Phone numbers the brief gives that the reader did not return. */
+  phonesAdded: string[];
+}
+
+/** Every fact a design must state: the brief's facts and the people it
+ *  names. */
+export function coverFactsOf(read: BriefRead): BriefFact[] {
+  return [...read.facts, ...read.peopleFacts];
 }
 
 /* Words that are never what a brief sells, however the reader frames them
    (round-3 code critic: "WhatsApp", "shop" and "bakery's" resolved as
    products). */
-const NOT_AN_OFFERING =
+export const NOT_AN_OFFERING =
   /^(?:our\s+|the\s+)?(?:shop|store|bar|studio|bakery'?s?|salon|brand|business|whatsapp|instagram|facebook|tiktok|website|app)$/i;
 
-function inBrief(phrase: string, brief: string): string | null {
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/** `phrase` as the brief writes it, matched on whole words: "ice" is not in
+ *  "price", nor "Ada" in "Adaeze" (round-5 code critic). */
+export function inBrief(
+  phrase: string,
+  brief: string,
+): { text: string; start: number } | null {
   const said = phrase.trim().replace(/[\s.,;:!]+$/, "");
   if (!said) return null;
-  const at = brief.toLowerCase().indexOf(said.toLowerCase());
-  return at < 0 ? null : brief.slice(at, at + said.length);
+  const lower = brief.toLowerCase();
+  const wanted = said.toLowerCase();
+  for (
+    let at = lower.indexOf(wanted);
+    at >= 0;
+    at = lower.indexOf(wanted, at + 1)
+  ) {
+    const end = at + said.length;
+    const before = at > 0 ? brief[at - 1] : "";
+    const after = end < brief.length ? brief[end] : "";
+    const clean =
+      !(before && WORD_CHAR.test(before) && WORD_CHAR.test(brief[at])) &&
+      !(after && WORD_CHAR.test(after) && WORD_CHAR.test(brief[end - 1]));
+    if (clean) return { text: brief.slice(at, end), start: at };
+  }
+  return null;
+}
+
+/* The role a brief gives a person, read back from their name: "with head
+   baker Tunde Okafor", "Speaker: Ada Obi", "hosted by Chef Funke". */
+const ROLE_BEFORE =
+  /\b(?:with|featuring|feat\.?|by|hosted by|led by|taught by|speakers?|hosts?|guests?|keynote|panell?ists?)\s*:?\s+(?:[\p{L}'’.-]+\s+){0,3}$/iu;
+
+function personFact(
+  brief: string,
+  found: { text: string; start: number },
+): BriefFact {
+  const role = ROLE_BEFORE.exec(
+    brief.slice(Math.max(0, found.start - 60), found.start),
+  );
+  const between = role?.[0] ?? "";
+  /* Only lower-case role words may sit between the cue and the name; a
+     capitalised word there is another name or a sentence. */
+  const words = between.trim().split(/\s+/).slice(1);
+  const plain = words.every(
+    (w) =>
+      !/^\p{Lu}/u.test(w) ||
+      /^(?:Chef|Dr\.?|Mr\.?|Mrs\.?|Ms\.?|Prof\.?|Pastor|Coach|DJ|MC)$/.test(w),
+  );
+  const text =
+    role && plain
+      ? brief.slice(
+          found.start - between.length,
+          found.start + found.text.length,
+        )
+      : found.text;
+  return {
+    kind: "person",
+    text: text.charAt(0).toUpperCase() + text.slice(1),
+    needs: needsFor("person", found.text),
+  };
 }
 
 /** The reader's answer, held to the brief (settleBriefFacts for the facts;
@@ -155,18 +229,27 @@ export function settleBriefRead(
   briefText: string,
   region: CountryCode,
 ): BriefRead {
+  const brief = briefText ?? "";
+  const regions = phoneRegions(brief, region);
   if (!raw) {
+    /* The reader is the reading; without it the brief's phone numbers are
+       still facts, found by libphonenumber alone. */
+    const phones = settleBriefFacts([], brief, { region: regions });
     return {
       available: false,
-      facts: [],
+      facts: phones.facts,
       offering: null,
       people: [],
+      peopleFacts: [],
       dropped: [],
+      unread: [],
+      phonesAdded: phones.phonesAdded,
     };
   }
-  const brief = briefText ?? "";
   const dropped: BriefRead["dropped"] = [];
-  const phrase = raw.offering ? inBrief(raw.offering.phrase, brief) : null;
+  const phrase = raw.offering
+    ? inBrief(raw.offering.phrase, brief)?.text
+    : null;
   const kind = raw.offering?.kind;
   let offering: BriefRead["offering"] = null;
   if (
@@ -182,13 +265,20 @@ export function settleBriefRead(
       why: "offering not named in the brief's own words",
     });
   }
-  const people = raw.people.flatMap((name) => {
+  const people: string[] = [];
+  const peopleFacts: BriefFact[] = [];
+  for (const name of raw.people) {
     const found = inBrief(name, brief);
-    if (!found) dropped.push({ text: name, why: "person not in the brief" });
-    return found ? [found] : [];
-  });
+    if (!found) {
+      dropped.push({ text: name, why: "person not in the brief" });
+      continue;
+    }
+    if (people.includes(found.text)) continue;
+    people.push(found.text);
+    peopleFacts.push(personFact(brief, found));
+  }
   const settled = settleBriefFacts(raw.facts, brief, {
-    region,
+    region: regions,
     product: offering?.phrase ?? "",
   });
   return {
@@ -196,6 +286,9 @@ export function settleBriefRead(
     facts: settled.facts,
     offering,
     people,
+    peopleFacts,
     dropped: [...dropped, ...settled.dropped],
+    unread: settled.unread,
+    phonesAdded: settled.phonesAdded,
   };
 }

@@ -60,7 +60,7 @@ export interface GateOptions<R extends GateRender = GateRender> {
   /** Whether a corrected spec may be rendered. A caller with constraints the
    *  judge cannot see (two directions that must keep different layouts)
    *  refuses here, and the refusal is treated as no correction. */
-  acceptCorrection?: (corrected: DesignSpec) => boolean;
+  acceptCorrection?: (corrected: DesignSpec) => boolean | Promise<boolean>;
   /** Whether rendering the same spec again can come out differently. True for
    *  image models; false for a deterministic render over a stored plate, where
    *  a re-roll only repeats the fault at the cost of a render. */
@@ -181,7 +181,7 @@ export async function guardRender<R extends GateRender>(
     console.error("design judge", { variantId: id, correction });
   }
   const corrected = Boolean(
-    judged?.corrected && judged.spec && acceptCorrection(judged.spec),
+    judged?.corrected && judged.spec && (await acceptCorrection(judged.spec)),
   );
 
   /* Nothing new to render: the judge found no change it could make (or one

@@ -86,6 +86,11 @@ const plateSchema = z.object({
     .describe(
       "True if a person's face is visible enough that a viewer could take them for a particular individual. Hands, or a figure seen from behind or far off with no face, do not count.",
     ),
+  anyPerson: z
+    .boolean()
+    .describe(
+      "True if any person appears at all, even in part: a face in profile or turned away, a head, a body, a figure in the background or far off. Hands or arms alone do not count.",
+    ),
 });
 
 /* An event or a service is not an object: a sourdough class is a scene of
@@ -114,6 +119,10 @@ export interface PlateVerdict {
   lettering: boolean;
   /** A face a viewer could take for a particular person. */
   person: boolean;
+  /** Any person at all beyond hands: beside a real person the brief names,
+   *  a painted stranger in profile still stands in for them (round-5 live
+   *  critic: an AI woman beside "architect Ada Obi" passed as no face). */
+  anyPerson: boolean;
 }
 
 /* "A person wearing or holding": the round-3 eval saw a man in striped robes
@@ -211,6 +220,8 @@ export async function checkPlateShowsProduct({
         : [],
       lettering: answer.lettering === true,
       person: answer.identifiablePerson === true,
+      anyPerson:
+        answer.anyPerson === true || answer.identifiablePerson === true,
     };
   } catch (err) {
     console.error("plate check unavailable", err);

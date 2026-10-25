@@ -8,6 +8,7 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 const {
   applyFits,
   draftDirections,
+  plausibleProduct,
   fitRequests,
   namesOffering,
   ART_DIRECTOR_IMAGE_MAX_BYTES,
@@ -569,4 +570,26 @@ describe("naming what the brief promotes", () => {
       ).filter((r) => r.problems.some((p) => p.startsWith("does not name"))),
     ).toEqual([]);
   });
+});
+
+/* Round-5 code critic (rerun-r4-product.log): with the reader down, the
+   model's names fell back to a shop, an offer, a possessive and a colour,
+   each painted and checked as the product. */
+describe("plausibleProduct", () => {
+  it.each([
+    "Ikeja salon",
+    "Free cookie",
+    "bakery's",
+    "black leather",
+    "Our shop",
+  ])("refuses %s", (name) => {
+    expect(plausibleProduct(name)).toBe(false);
+  });
+
+  it.each(["Leather bag", "Oat latte", "Doughnut box", "chin chin"])(
+    "keeps %s",
+    (name) => {
+      expect(plausibleProduct(name)).toBe(true);
+    },
+  );
 });

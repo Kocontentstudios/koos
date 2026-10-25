@@ -11,7 +11,9 @@ import {
 import type { LoadedLogo } from "@/lib/design/render/logo";
 import type { DesignSpec } from "@/lib/design/spec";
 import { detectImageType } from "@/lib/images/detect";
+import { type ReencodeOptions, reencodeImage } from "@/lib/images/reencode";
 import { STORAGE_PREFIXES, uploadObject } from "@/lib/storage";
+import { NORMALISED_LONG_EDGE } from "@/lib/uploads/design-image-limits";
 
 /** An image a document draws: the key it names and the bytes behind it. */
 export interface PlacedAsset {
@@ -52,7 +54,12 @@ export type PlateCheck =
    *  against (none named, or one the brief never mentions); the plate is
    *  used, unverified. A plate checked only for lettering is not "passed"
    *  (round-3 code critic). */
-  | "unchecked";
+  | "unchecked"
+  /** The image model returned nothing that could be drawn (it failed, or
+   *  sent a format or size the renderer cannot take): no plate was judged
+   *  at all, and the user is told the image model was unavailable, not
+   *  that its plates were wrong (round-5 code critic). */
+  | "unavailable";
 
 export interface CheckedPlate {
   image: { bytes: Uint8Array; contentType: string } | null;
@@ -83,7 +90,10 @@ export function platePrompt(
   setting?: string | null,
   namesPeople = false,
 ): string {
-  const scene = buildBackgroundPlatePrompt(spec);
+  const scene = buildBackgroundPlatePrompt({
+    ...spec,
+    backgroundPrompt: withoutLetteredThings(spec.backgroundPrompt),
+  });
   /* Round 2 painted a Lagos bakery's pastry on a European street and wrote
      "MIOCZEBC PRALEF" on a zobo bottle. */
   const place = setting
@@ -92,12 +102,18 @@ export function platePrompt(
   /* Round-5 eval: phones, laptops and gym walls came back lettered twice
      and five directions were drawn as text; screens and signs are where
      the image model paints writing. */
-  const plain =
-    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos. No phone or laptop screens facing the viewer, no signs, posters or printed clothing";
+  const plain = [
+    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos",
+    /* Unless that is what is sold: a notebook brand's plate shows the
+       notebook. */
+    product && LETTERED_THINGS.test(product.name)
+      ? "No signs, posters or printed clothing"
+      : "No phones, laptops or screens of any kind, no paper, documents, books or charts, no signs, posters or printed clothing",
+  ].join(". ");
   /* A painted face beside a named speaker reads as that person (round-3
      live critic: the eval painted a woman for "Ada Obi"). */
   const people = namesPeople
-    ? "No people, faces or hands: the brief names real people, and a painted stranger would stand in for them"
+    ? "No people at all, not even in the background, in profile or far off; hands may appear: the brief names real people, and a painted stranger would stand in for them"
     : "Any person is an anonymous passer-by, never posed as a named host, speaker or customer";
   const tail = [scene, place, plain, people].filter(Boolean).join(". ");
   if (!product) {
@@ -110,9 +126,15 @@ export function platePrompt(
      the model's default street (round-3 live run, again European). */
   const where = setting ? `, in ${setting}` : "";
   const asScene = product.kind === "event" || product.kind === "service";
+  /* A service or an event is shown through its tools, place and light,
+     never through the paperwork or screens it involves: said first, where
+     the image model weighs most. */
+  const objectsOnly = asScene
+    ? " Shown through hands, tools, materials and the place itself, with no screens, paper or signs."
+    : "";
   if (!rejected) {
     return asScene
-      ? `A scene from the ${product.name}${where}, recognisable as that ${product.kind}. ${tail}`
+      ? `A scene from the ${product.name}${where}, recognisable as that ${product.kind}.${objectsOnly} ${tail}`
       : `A ${product.name}, clearly recognisable, as the subject${where}. ${tail}`;
   }
   const wrong = rejected.people
@@ -121,7 +143,7 @@ export function platePrompt(
       ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
       : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
   return asScene
-    ? `${product.look || product.name}. A scene that plainly belongs to the ${product.name}${where}; ${wrong}. ${tail}`
+    ? `${product.look || product.name}. A scene that plainly belongs to the ${product.name}${where}; ${wrong}.${objectsOnly} ${tail}`
     : `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
 }
 
@@ -146,10 +168,23 @@ export function briefNamesPeople(
   return NAMED_PERSON.test(briefText ?? "");
 }
 
-function drawable(
+/* An image model's largest plates (about 3072 x 5504 at 9:16) are past
+   the 4096 px the renderer draws (rasterizeDocument refuses them), and far
+   past what a 1080 px design needs. Read with room for them; written at
+   the long edge uploads are normalised to. */
+export const PLATE_REENCODE: ReencodeOptions = {
+  maxInputPixels: 8192 * 8192,
+  maxOutputSide: NORMALISED_LONG_EDGE,
+  minOutputSide: 1080,
+};
+
+/** The plate as the renderer may draw it: a PNG or JPEG, re-encoded by
+ *  libvips to at most 2560 px on its long edge. Null when it is neither,
+ *  or does not decode. */
+export async function drawablePlate(
   plate: { bytes: Uint8Array; contentType: string },
   adapterId: string,
-): { bytes: Uint8Array; contentType: string } | null {
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   const type = detectImageType(plate.bytes);
   if (type !== "png" && type !== "jpeg") {
     console.error(
@@ -157,7 +192,36 @@ function drawable(
     );
     return null;
   }
-  return { bytes: plate.bytes, contentType: DRAWABLE[type].contentType };
+  try {
+    const fitted = await reencodeImage(plate.bytes, type, PLATE_REENCODE);
+    return {
+      bytes: new Uint8Array(fitted.bytes),
+      contentType: DRAWABLE[type].contentType,
+    };
+  } catch (err) {
+    console.error(`plate from ${adapterId} could not be re-encoded`, err);
+    return null;
+  }
+}
+
+/* What image models paint writing on, whatever the prompt says: round 5's
+   service plates were "financial documents (lettered)" four times out of
+   four, and its eval lost fintech, recruitment and fitness plates to
+   phones, laptops and gym walls. A scene clause naming one is left out of
+   the plate prompt; the product, setting and light carry the scene. */
+const LETTERED_THINGS =
+  /\b(?:documents?|paper(?:work|s)?|receipts?|invoices?|reports?|statements?|spreadsheets?|ledgers?|forms?|contracts?|charts?|graphs?|dashboards?|screens?|monitors?|laptops?|computers?|tablets?|phones?|smartphones?|apps?|interfaces?|signs?|signage|signboards?|posters?|banners?|billboards?|menus?|books?|notebooks?|newspapers?|magazines?|labels?|price tags?|whiteboards?|blackboards?|chalkboards?|calendars?|clipboards?|cv|cvs|résumés?|resumes?|certificates?|cards?|tickets?|envelopes?|letters?|text|words?|writing|lettering|typography|numbers?)\b/i;
+
+/** `scene` without the clauses that ask for something image models letter. */
+export function withoutLetteredThings(scene: string): string {
+  const clauses = scene
+    .split(
+      /(?<=[.;])\s+|,\s+(?=(?:with|and|on|beside|near|showing|holding|where)\b)/i,
+    )
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const kept = clauses.filter((c) => !LETTERED_THINGS.test(c));
+  return kept.join(" ");
 }
 
 interface Rejection {
@@ -176,7 +240,9 @@ function rejection(
 ): Rejection | null {
   if (product && !verdict.shows) return { seen: verdict.seen };
   if (verdict.lettering) return { lettering: true };
-  if (namesPeople && verdict.person) return { people: true };
+  if (namesPeople && (verdict.person || verdict.anyPerson)) {
+    return { people: true };
+  }
   return null;
 }
 
@@ -226,7 +292,7 @@ export async function paintCheckedPlate({
         prompt,
         aspectRatio: spec.aspectRatio,
       });
-      return drawable(plate, adapter.id);
+      return drawablePlate(plate, adapter.id);
     } catch (err) {
       console.error("design plate generation failed, rendering flat", err);
       return null;
@@ -248,7 +314,7 @@ export async function paintCheckedPlate({
   if (!first) {
     return {
       image: null,
-      check: "unchecked",
+      check: "unavailable",
       imageCalls,
       seen: [],
       look: null,

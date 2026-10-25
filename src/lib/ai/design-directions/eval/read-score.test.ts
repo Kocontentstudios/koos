@@ -164,3 +164,42 @@ describe("the labels", () => {
     ]);
   });
 });
+
+/* Round-5 code critic (r5-scorer.log): every one of these scored precise. */
+describe("read precision sees the garbage-price class, round 6", () => {
+  it.each([
+    [
+      "Almond croissants ₦4,500 a box for the first 50 customers.",
+      "₦4,500 a box for the",
+      ["₦4,500 a box", "first 50 customers"],
+    ],
+    ["Only ₦3,000 an amazing deal", "₦3,000 an amazing", ["₦3,000"]],
+    ["₦2,000 per 2 hours", "₦2,000 per 2", ["₦2,000 per 2 hours"]],
+    [
+      "9 Bourdillon Road, Thursday to Sunday",
+      "9 Bourdillon Road, Thursday to Sunday".slice(0, 27),
+      ["9 Bourdillon Road", "Thursday to Sunday"],
+    ],
+    [
+      "Shop 4, Sunday Market, Ikeja.",
+      "Shop 4",
+      ["Shop 4, Sunday Market, Ikeja"],
+    ],
+  ])("%s: %s is not precise", (brief, read, labels) => {
+    const score = scoreBriefRead({
+      read: [{ text: read }],
+      labels: labels.map((text) => ({ text })),
+      brief,
+    });
+    expect(score.precise).toBe(0);
+  });
+
+  it("still takes a fact that is its label, glue and all", () => {
+    const score = scoreBriefRead({
+      read: [{ text: "₦4,500 a box" }],
+      labels: [{ text: "₦4,500 a box" }, { text: "first 50 customers" }],
+      brief: "Almond croissants ₦4,500 a box for the first 50 customers.",
+    });
+    expect(score.precise).toBe(1);
+  });
+});
