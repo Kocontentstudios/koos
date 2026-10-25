@@ -12,9 +12,9 @@ gradients, inset shadows, inherited foregrounds and HTML strings.
 
 The lane is **advisory, not a merge gate**. The other half of the colour
 contract is the source gate, part of `pnpm test`, which CI runs on every pull
-request (`.github/workflows/ci.yml`). Neither branch protection on `dev` nor
-on `main` makes that check required today, so a red result stops a merge
-only if the reviewer reads it.
+request (`.github/workflows/ci.yml`) as part of the `check` job. The
+protect-dev and protect-main rulesets require `check` to pass, so a red
+source gate blocks the merge.
 
 - **Before shipping any colour or component-state change** (a token, a fill,
   a hover, focus, pressed, loading, disabled or open style, a new component):

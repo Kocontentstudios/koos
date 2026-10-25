@@ -9,8 +9,8 @@ name: Rendered contrast
 # component-state change (Actions > Rendered contrast > Run workflow), and it
 # runs weekly on the default branch. It takes about 2.4 hours for every route,
 # so it is never a pull_request check: the source gate in ci.yml runs on every
-# pull request instead (not a required status check, so a red result is a
-# reviewer's stop, not a merge block). A run can go red for reasons that are not the change under
+# pull request instead, as part of the `check` job, which the protect-dev and
+# protect-main rulesets require to pass before a merge. A run can go red for reasons that are not the change under
 # review (a hydration warning after a probe reload, a dev-server restart), so
 # read the evidence before acting on a red run.
 on:
