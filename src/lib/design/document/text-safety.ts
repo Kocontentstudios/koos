@@ -222,6 +222,31 @@ export function emojiIn(text: string): Set<string> {
   return new Set(clustersOf(text).filter(isEmojiCluster));
 }
 
+/* A flag letter or a skin-tone swatch on its own, or a cluster that starts
+   with a joining mark. Satori joins every emoji word of a design into one
+   string before splitting it into pictures, so these attach to whatever
+   emoji came before: loose flag letters pair into new flags and loose
+   tones dye earlier hands, each a picture fetched that the count above
+   never saw (19 hands and 5 tones counted 24 and fetched 95). No one writes
+   them on purpose, so they are refused. */
+const LONE_REGIONAL = /^\p{Regional_Indicator}$/u;
+const LONE_TONE = /^\p{Emoji_Modifier}$/u;
+const STARTS_JOINED = /^[\p{Grapheme_Extend}\u{200D}]/u;
+
+function detachedPart(cluster: string): TextFault | null {
+  if (
+    LONE_REGIONAL.test(cluster) ||
+    LONE_TONE.test(cluster) ||
+    STARTS_JOINED.test(cluster)
+  ) {
+    return {
+      code: TEXT_CLUSTER_TOO_COMPLEX,
+      message: `"${cluster}" is part of an emoji on its own (a single flag letter, a skin-tone swatch or a joining mark), which designs can't draw; use the whole emoji`,
+    };
+  }
+  return null;
+}
+
 const CLUSTER_TOO_COMPLEX: TextFault = {
   code: "TEXT_CLUSTER_TOO_COMPLEX",
   message:
@@ -277,7 +302,7 @@ export function textFault(text: string): TextFault | null {
   for (const cluster of clustersOf(text)) {
     if (isEmojiCluster(cluster)) emoji += 1;
     if (emoji > MAX_EMOJI_PER_TEXT) return tooManyEmoji("one line of text");
-    const fault = clusterFault(cluster);
+    const fault = detachedPart(cluster) ?? clusterFault(cluster);
     if (fault) return fault;
   }
   return null;

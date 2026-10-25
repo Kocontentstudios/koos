@@ -69,14 +69,14 @@ describe("textFault", () => {
     expect(faultOf("1\u{20E3}\u{20E3}\u{20E3}")).toBe(TEXT_CLUSTER_TOO_COMPLEX);
   });
 
-  /* A browser draws a sequence no emoji set knows as its separate
-     pictures, so unjoining it draws the same thing as one unit per person. */
   it("allows sequences of at most four people, the longest real family", () => {
     /* Pinned as a literal: checked only against itself, the constant could
        be raised to any length with every test green. */
     expect(MAX_EMOJI_IN_SEQUENCE).toBe(4);
   });
 
+  /* A browser draws a sequence no emoji set knows as its separate
+     pictures, so unjoining it draws the same thing as one unit per person. */
   it("unjoins a chain longer than any real emoji sequence", () => {
     const family = Array(MAX_EMOJI_IN_SEQUENCE).fill("👨").join("‍");
     expect(normalizeText(family)).toBe(family);

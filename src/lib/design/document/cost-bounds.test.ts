@@ -388,9 +388,17 @@ describe("emoji, through the parser", () => {
     ...KIN.map((a) => `👨‍👩‍${a}`),
     ...KIN.flatMap((a) => KIN.map((b) => `👨‍👩‍${a}‍${b}`)),
   ];
-  SEQUENCES["lone regional indicator"] = Array.from({ length: 26 }, (_, i) =>
-    String.fromCodePoint(0x1f1e6 + i),
-  );
+
+  /* Satori joins a design's emoji words before splitting them into
+     pictures, so these would attach to a neighbour and become pictures the
+     count never saw (emoji-fetch.test.ts finds such designs at random). */
+  it.each([
+    ["a lone flag letter", "\u{1F1F3}"],
+    ["a lone skin tone", "\u{1F3FD}"],
+    ["a cluster starting with a joining mark", "\u20E3"],
+  ])("refuses %s", (_, part) => {
+    expectRefused(documentOf([textWith(`hello ${part}`)]));
+  });
 
   it.each(Object.entries(SEQUENCES))(
     "one design: %s sequences count one each, one more distinct is refused",
