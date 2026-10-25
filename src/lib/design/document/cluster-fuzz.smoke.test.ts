@@ -4,6 +4,7 @@ import { canvasFor } from "@/lib/design/canvas";
 import { type LoadedFont, loadBrandFonts } from "@/lib/design/render/fonts";
 import {
   closeRenderPool,
+  EmojiBudgetError,
   RenderTimeoutError,
   renderPng,
 } from "@/lib/design/render/satori-pool";
@@ -296,6 +297,15 @@ async function looping(
     );
     return [];
   } catch (error) {
+    /* A batch of 60 clusters can hold more emoji than one render may fetch;
+       that refusal says nothing about a loop, so the halves are drawn. */
+    if (error instanceof EmojiBudgetError) {
+      const half = Math.ceil(clusters.length / 2);
+      return [
+        ...(await looping(clusters.slice(0, half), letterSpacing)),
+        ...(await looping(clusters.slice(half), letterSpacing)),
+      ];
+    }
     if (!(error instanceof RenderTimeoutError)) throw error;
     if (clusters.length === 1) {
       return (await stillLoops(clusters[0], letterSpacing)) ? clusters : [];

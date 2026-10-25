@@ -248,3 +248,29 @@ describe("documentFromSpec and copy it cannot draw", () => {
     expect(specTextFault(spec)?.field).toBe("footer");
   });
 });
+
+describe("line breaks and loose pieces", () => {
+  /* Satori drew \r and \r\n as forced breaks and failed to rasterise \r\n
+     before an emoji, while the editor and fit.ts read them as one break. */
+  it.each([
+    ["\r\n", "a\r\nb"],
+    ["a lone \r", "a\rb"],
+    ["\r\n before an emoji", "a\r\n👍"],
+  ])("stores %s as \\n", (_, text) => {
+    expect(normalizeText(text)).toBe(text.replace(/\r\n?/g, "\n"));
+  });
+
+  it("names an accent with no letter before it as an accent, not an emoji", () => {
+    const fault = textFault(normalizeText("́a"));
+    expect(fault?.message).toContain("accent");
+    expect(fault?.message).not.toContain("emoji");
+  });
+
+  it.each([
+    ["a tone", "\u{1F3FD}"],
+    ["a tone with VS16", "\u{1F3FD}️"],
+    ["a flag letter", "\u{1F1F3}"],
+  ])("refuses %s on its own as part of an emoji", (_, piece) => {
+    expect(textFault(normalizeText(`${piece} a`))?.message).toContain("emoji");
+  });
+});

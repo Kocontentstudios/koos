@@ -19,9 +19,12 @@ import { MAX_EMOJI_PER_DOCUMENT } from "./text-safety";
  *
  * Each accepted design is drawn by a fresh copy of the bundled renderer
  * (its picture cache is per module, so a fresh copy is a cold worker) with
- * fetch stubbed, and the pictures it asks for are counted. A model of
- * next/og written into the gate keyed pictures by getIconCode and counted
- * too few: next/og fetches once per distinct emoji grapheme.
+ * fetch stubbed, and every picture it asks for is counted, request by
+ * request: a model of next/og written into the gate keyed pictures by
+ * getIconCode and counted too few, and counting distinct URLs here would
+ * repeat that mistake. Rendering only at the cap, this lane checks what the
+ * schema lets through; past the cap the render worker refuses the fetch
+ * itself (emoji-budget.smoke.test.tsx).
  */
 
 const OG = pathToFileURL(
@@ -66,7 +69,7 @@ async function picturesFetched(doc: DesignDocument): Promise<number> {
     })),
   });
   await response.arrayBuffer();
-  return new Set(pictures).size;
+  return pictures.length;
 }
 
 describe("next/og fetches no more pictures than the cap allows", () => {
@@ -83,9 +86,10 @@ describe("next/og fetches no more pictures than the cap allows", () => {
       const doc = designDocumentSchema.parse(
         designWith(clusters.slice(0, MAX_EMOJI_PER_DOCUMENT), separator),
       );
-      expect(await picturesFetched(doc)).toBeLessThanOrEqual(
-        MAX_EMOJI_PER_DOCUMENT,
-      );
+      const fetched = await picturesFetched(doc);
+      /* A render that never asked for a picture would pass vacuously. */
+      expect(fetched).toBeGreaterThan(0);
+      expect(fetched).toBeLessThanOrEqual(MAX_EMOJI_PER_DOCUMENT);
     },
     60_000,
   );

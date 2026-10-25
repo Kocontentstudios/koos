@@ -32,6 +32,29 @@ export class RenderTimeoutError extends Error {
   }
 }
 
+/**
+ * The most emoji pictures one render may fetch. Predicting the fetches from
+ * the text took five review rounds and still missed some (next/og joins a
+ * design's emoji words before splitting them, so loose pieces attach to
+ * their neighbours), so the worker counts them instead: past this many it
+ * refuses the next fetch and the render fails with EmojiBudgetError. A
+ * failed fetch is never cached by next/og, so nothing later is drawn
+ * blank. The schema's per-design cap (text-safety.ts) is the same number,
+ * so copy it accepts never reaches this.
+ */
+export const MAX_EMOJI_FETCHES_PER_RENDER = 24;
+export const EMOJI_BUDGET = "EMOJI_BUDGET" as const;
+
+export class EmojiBudgetError extends Error {
+  readonly code = EMOJI_BUDGET;
+  constructor(readonly limit: number) {
+    super(
+      `the design has more than ${limit} different emoji to draw; use fewer`,
+    );
+    this.name = "EmojiBudgetError";
+  }
+}
+
 /* A valid document draws in under 3s on a dev machine (schema.ts caps cost);
    the margin is for a loaded host, not for a pathological input. */
 export const DEFAULT_RENDER_LIMIT_MS = 20_000;
@@ -146,13 +169,23 @@ function spawn(): Slot {
   const slot: Slot = { worker, faces: new Set(), running: null };
   worker.on(
     "message",
-    (reply: { id: number; bytes?: Uint8Array; error?: string }) => {
+    (reply: {
+      id: number;
+      bytes?: Uint8Array;
+      error?: string;
+      code?: string;
+    }) => {
       if (slot.running?.task.id !== reply.id) return;
       settle(
         slot,
         reply.bytes
           ? { bytes: reply.bytes }
-          : { error: new Error(reply.error ?? "render failed") },
+          : {
+              error:
+                reply.code === EMOJI_BUDGET
+                  ? new EmojiBudgetError(MAX_EMOJI_FETCHES_PER_RENDER)
+                  : new Error(reply.error ?? "render failed"),
+            },
       );
     },
   );
@@ -227,8 +260,9 @@ export interface RenderPngOptions {
 }
 
 /** element to PNG bytes in the render worker. Rejects with the renderer's
- *  own message when satori or resvg throws, and with RenderTimeoutError when
- *  it runs past `limitMs`. */
+ *  own message when satori or resvg throws, with RenderTimeoutError when it
+ *  runs past `limitMs`, and with EmojiBudgetError when it would fetch more
+ *  emoji pictures than MAX_EMOJI_FETCHES_PER_RENDER. */
 export function renderPng(
   element: ReactElement,
   canvas: { width: number; height: number },
@@ -239,6 +273,7 @@ export function renderPng(
     element: toPlainTree(element),
     width: canvas.width,
     height: canvas.height,
+    emojiBudget: MAX_EMOJI_FETCHES_PER_RENDER,
     fonts: fonts.map((font) => ({
       id: faceId(font.data),
       name: font.name,

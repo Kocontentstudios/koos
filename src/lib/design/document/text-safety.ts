@@ -238,7 +238,9 @@ export function emojiIn(text: string): Set<string> {
    never saw (19 hands and 5 tones counted 24 and fetched 95). No one writes
    them on purpose, so they are refused. */
 const LONE_REGIONAL = /^\p{Regional_Indicator}$/u;
-const LONE_TONE = /^\p{Emoji_Modifier}$/u;
+/* A tone with VS16 is still a tone on its own (round 6i: "🏽️" at the start
+   of a run joined the last emoji of the run before). */
+const LONE_TONE = /^\p{Emoji_Modifier}\u{FE0F}?$/u;
 const STARTS_JOINED = /^[\p{Grapheme_Extend}\u{200D}]/u;
 
 const STARTS_WITH_ACCENT = /^\p{M}/u;

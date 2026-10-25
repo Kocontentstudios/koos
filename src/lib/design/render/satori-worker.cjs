@@ -79,6 +79,19 @@ async function intoCache(dir, file, body) {
   } catch {}
 }
 
+/* Emoji pictures this render has asked for, against the budget the pool
+   sends with each task (satori-pool.ts, MAX_EMOJI_FETCHES_PER_RENDER). A
+   worker runs one task at a time. next/og keeps what it loaded in memory,
+   so a picture drawn before is not asked for again. */
+const emoji = { asked: 0, budget: Number.POSITIVE_INFINITY };
+
+class EmojiBudgetExceeded extends Error {}
+
+/* Tests set this to draw emoji without the network. */
+const STUB_EMOJI = process.env.KOOS_OG_STUB_EMOJI === "1";
+const STUB_PICTURE =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36"/></svg>';
+
 const network = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url =
@@ -88,6 +101,11 @@ globalThis.fetch = async (input, init) => {
         ? input.href
         : input.url;
   const host = new URL(url).host;
+  if (host === EMOJI_HOST) {
+    emoji.asked += 1;
+    if (emoji.asked > emoji.budget) throw new EmojiBudgetExceeded();
+    if (STUB_EMOJI) return new Response(STUB_PICTURE);
+  }
   if (!OG_HOSTS.has(host)) return network(input, init);
   const dir = testCache ?? (host === EMOJI_HOST ? emojiCache : null);
   const file = dir
@@ -115,6 +133,8 @@ globalThis.fetch = async (input, init) => {
 };
 
 parentPort.on("message", async (task) => {
+  emoji.asked = 0;
+  emoji.budget = task.emojiBudget ?? Number.POSITIVE_INFINITY;
   try {
     const fonts = fontOptions(task.fonts);
     const response = new ImageResponse(task.element, {
@@ -125,9 +145,14 @@ parentPort.on("message", async (task) => {
     const bytes = new Uint8Array(await response.arrayBuffer());
     parentPort.postMessage({ id: task.id, bytes }, [bytes.buffer]);
   } catch (error) {
+    /* next/og awaits every picture together, so the refusal may arrive
+       wrapped or after another error; the count says what happened. */
+    const overBudget =
+      error instanceof EmojiBudgetExceeded || emoji.asked > emoji.budget;
     parentPort.postMessage({
       id: task.id,
       error: error instanceof Error ? error.message : String(error),
+      ...(overBudget ? { code: "EMOJI_BUDGET" } : {}),
     });
   }
 });

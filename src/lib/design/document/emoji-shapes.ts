@@ -195,6 +195,7 @@ export function designOfRuns(texts: string[]): DesignDocument {
  *  VS16 and a tag. */
 export const LOOSE_PIECES: Record<string, string> = {
   "skin tone": "\u{1F3FD}",
+  "skin tone with VS16": "\u{1F3FD}\uFE0F",
   "flag letter": "\u{1F1F3}",
   joiner: ZWJ,
   "keycap mark": "⃣",
