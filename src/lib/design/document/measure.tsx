@@ -105,6 +105,11 @@ function runStyle(look: TextLook, line?: { width: number; text: string }) {
 
 export interface RendererMeasurerOptions {
   fonts: LoadedFont[];
+  /** The limit counts from the moment a worker takes the probe, so a cold
+   *  worker's start and its fallback-face fetches spend it too. Tests on a
+   *  loaded machine pass a looser one (TEST_PROBE_LIMIT_MS); a probe that
+   *  loops never finishes, so a looser limit still catches it. */
+  probeLimitMs?: number;
 }
 
 export interface RendererMeasurer extends TextMeasurer {
@@ -114,6 +119,7 @@ export interface RendererMeasurer extends TextMeasurer {
 
 export function createRendererMeasurer({
   fonts,
+  probeLimitMs = PROBE_LIMIT_MS,
 }: RendererMeasurerOptions): RendererMeasurer {
   const cache = new Map<string, Promise<unknown>>();
   let rendered = 0;
@@ -125,7 +131,7 @@ export function createRendererMeasurer({
   ): Promise<T> {
     rendered += 1;
     const png = decodePngRgba(
-      await renderPng(element, size, fonts, { limitMs: PROBE_LIMIT_MS }),
+      await renderPng(element, size, fonts, { limitMs: probeLimitMs }),
     );
     if (!png) throw new Error("Text probe did not produce a readable PNG");
     return read(png);

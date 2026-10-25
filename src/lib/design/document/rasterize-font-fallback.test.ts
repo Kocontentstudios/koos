@@ -20,6 +20,8 @@ import {
   signatureOnlyFont,
 } from "@/lib/design/render/font-fixtures";
 import { __resetFontCaches } from "@/lib/design/render/fonts";
+import { EmojiBudgetError } from "@/lib/design/render/satori-pool";
+import { encodePngRgba } from "@/lib/images/png-pixels";
 import { rasterizeDocument } from "./rasterize";
 import type { DesignDocument } from "./schema";
 
@@ -111,6 +113,13 @@ describe("rasterizeDocument with a brand font that cannot be used", () => {
     expect(arrayBuffer).toHaveBeenCalledTimes(1);
   });
 
+  it("does not blame the brand face for copy with too many emoji", async () => {
+    getObjectBytes.mockResolvedValue(Buffer.from(buildFont()));
+    arrayBuffer.mockRejectedValue(new EmojiBudgetError(24));
+    await expect(render(FONT_URL)).rejects.toBeInstanceOf(EmojiBudgetError);
+    expect(arrayBuffer).toHaveBeenCalledTimes(1);
+  });
+
   it("rethrows the original error when the retry fails as well", async () => {
     getObjectBytes.mockResolvedValue(Buffer.from(buildFont()));
     arrayBuffer
@@ -148,7 +157,11 @@ describe("rasterizeDocument with a brand font that cannot be used", () => {
       },
       assets: {
         "logos/u1/mark.png": {
-          bytes: new Uint8Array([1]),
+          bytes: encodePngRgba({
+            width: 1,
+            height: 1,
+            pixels: new Uint8Array(4),
+          }),
           contentType: "image/png",
         },
       },

@@ -1,14 +1,87 @@
+import { z } from "zod";
 import { canvasFor } from "@/lib/design/canvas";
 import { encodePngRgba } from "@/lib/images/png-pixels";
+import { MAX_DOCUMENT_ASSET_EDGE } from "./rasterize";
 import {
   type DesignDocument,
   type DesignElement,
   DOCUMENT_LIMITS,
-  MAX_CANVAS_EDGE,
+  designDocumentSchema,
   MAX_GRADIENT_STOPS,
-  MAX_LABEL_LENGTH,
-  MAX_TEXT_LENGTH,
 } from "./schema";
+import { MAX_EMOJI_PER_DOCUMENT, MAX_EMOJI_PER_TEXT } from "./text-safety";
+
+interface Bound {
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  minItems?: number;
+  maxItems?: number;
+}
+
+const BOUND_KEYS = [
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "minLength",
+  "maxLength",
+  "minItems",
+  "maxItems",
+] as const;
+
+/**
+ * Every numeric and length bound the document schema enforces, read from
+ * the schema itself, keyed by element type and field ("shape.borderWidth").
+ * Pinning constants by name missed a bound the schema used directly (shape
+ * border width took the worst case from 2.4 s to 7.2 s with every gate
+ * green); reading what zod accepts cannot miss one.
+ */
+export function schemaBounds(): Record<string, Bound> {
+  const json = z.toJSONSchema(designDocumentSchema, {
+    unrepresentable: "any",
+    io: "input",
+  }) as Record<string, unknown>;
+  const bounds: Record<string, Bound> = {};
+  const visit = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child, path);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    const bound: Bound = {};
+    for (const key of BOUND_KEYS) {
+      if (typeof record[key] === "number") bound[key] = record[key] as number;
+    }
+    if (Object.keys(bound).length > 0) bounds[path || "document"] = bound;
+    const properties = record.properties as Record<string, unknown> | undefined;
+    const type = (properties?.type as { const?: string } | undefined)?.const;
+    for (const [key, child] of Object.entries(record)) {
+      if (key === "properties" && child && typeof child === "object") {
+        const scope = type ?? path;
+        for (const [field, value] of Object.entries(child)) {
+          visit(value, scope ? `${scope}.${field}` : field);
+        }
+      } else if (key !== "properties") {
+        visit(child, path);
+      }
+    }
+  };
+  visit(json, "");
+  return Object.fromEntries(
+    Object.entries(bounds).sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+function extreme(path: string, key: "minimum" | "maximum"): number {
+  const value = schemaBounds()[path]?.[key];
+  if (value === undefined) throw new Error(`schema has no ${key} for ${path}`);
+  return value;
+}
 
 /**
  * The costliest document the schema accepts, for the cost test and the
@@ -25,22 +98,21 @@ import {
  */
 
 const CANVAS = canvasFor("9:16");
-const REACH = MAX_CANVAS_EDGE * 2;
-const OFF = -(REACH - CANVAS.width) / 2;
-/* The largest image the server accepts on either side. */
-export const WORST_IMAGE_EDGE = 4096;
+export const WORST_IMAGE_EDGE = MAX_DOCUMENT_ASSET_EDGE;
 
 export const WORST_IMAGE_KEY = "design-images/b1/worst.png";
 export const WORST_LOGO_KEY = "logos/b1/worst.png";
 
-function base(id: string) {
+function base(id: string, type: DesignElement["type"]) {
+  const reach = extreme(`${type}.width`, "maximum");
+  const off = -(reach - CANVAS.width) / 2;
   return {
     id,
     name: id,
-    x: OFF,
-    y: OFF,
-    width: REACH,
-    height: REACH,
+    x: off,
+    y: off,
+    width: reach,
+    height: extreme(`${type}.height`, "maximum"),
     rotation: 45,
     opacity: 0.5,
     hidden: false,
@@ -73,46 +145,50 @@ export function worstCaseDocument(): DesignDocument {
   const elements: DesignElement[] = [];
   for (let i = 0; i < byType.image; i += 1) {
     elements.push({
-      ...base(`image-${i}`),
+      ...base(`image-${i}`, "image"),
       type: "image",
       asset: { key: WORST_IMAGE_KEY },
       fit: "cover",
-      crop: { zoom: 10, focusX: 0.5, focusY: 0.5 },
-      radius: MAX_CANVAS_EDGE,
+      crop: {
+        zoom: extreme("image.crop.zoom", "maximum"),
+        focusX: 0.5,
+        focusY: 0.5,
+      },
+      radius: extreme("image.radius", "maximum"),
     });
   }
   for (let i = 0; i < byType.shape; i += 1) {
     elements.push({
-      ...base(`shape-${i}`),
+      ...base(`shape-${i}`, "shape"),
       type: "shape",
       fill: i < gradients ? GRADIENT : "#336699",
       borderColor: "#000000",
-      borderWidth: MAX_CANVAS_EDGE,
-      radius: MAX_CANVAS_EDGE,
+      borderWidth: extreme("shape.borderWidth", "maximum"),
+      radius: extreme("shape.radius", "maximum"),
     });
   }
   const roles = Object.entries(byRole)
     .flatMap(([role, max]) => Array.from({ length: max }, () => role))
     .slice(0, byType.text);
   const labelLength = Math.min(
-    MAX_LABEL_LENGTH,
+    schemaBounds()["button.label"]?.maxLength ?? 0,
     Math.floor(textCodePoints / (roles.length + byType.button)),
   );
   const textLength = Math.min(
-    MAX_TEXT_LENGTH,
+    schemaBounds()["text.text"]?.maxLength ?? 0,
     Math.floor((textCodePoints - labelLength * byType.button) / roles.length),
   );
   roles.forEach((role, i) => {
     elements.push({
-      ...base(`text-${i}`),
+      ...base(`text-${i}`, "text"),
       type: "text",
       text: denseCopy(textLength, i * textLength),
       role: role as "body",
       font: "heading",
-      fontSize: Math.round(MAX_CANVAS_EDGE / 3),
+      fontSize: extreme("text.fontSize", "maximum"),
       fontWeight: 700,
-      lineHeight: 0.5,
-      letterSpacing: -0.5,
+      lineHeight: extreme("text.lineHeight", "minimum"),
+      letterSpacing: extreme("text.letterSpacing", "minimum"),
       align: "left",
       italic: true,
       color: "#000000",
@@ -120,19 +196,19 @@ export function worstCaseDocument(): DesignDocument {
   });
   for (let i = 0; i < byType.button; i += 1) {
     elements.push({
-      ...base(`button-${i}`),
+      ...base(`button-${i}`, "button"),
       type: "button",
       label: denseCopy(labelLength, i * labelLength + 7),
       fill: "#123456",
       color: "#FFFFFF",
-      radius: MAX_CANVAS_EDGE,
-      fontSize: Math.round(MAX_CANVAS_EDGE / 3),
+      radius: extreme("button.radius", "maximum"),
+      fontSize: extreme("button.fontSize", "maximum"),
       fontWeight: 700,
     });
   }
   for (let i = 0; i < byType.logo; i += 1) {
     elements.push({
-      ...base(`logo-${i}`),
+      ...base(`logo-${i}`, "logo"),
       type: "logo",
       asset: { key: WORST_LOGO_KEY },
       backing: "#FFFFFF",
@@ -144,6 +220,25 @@ export function worstCaseDocument(): DesignDocument {
     height: CANVAS.height,
     background: "#FFFFFF",
     elements: elements.slice(0, DOCUMENT_LIMITS.elements),
+  };
+}
+
+/**
+ * Everything that bounds what a document can cost to draw: every bound the
+ * schema enforces, the counts and copy budget its refinements check, the
+ * emoji caps, and the largest asset rasterizeDocument accepts. The gate
+ * compares this with what `bench:document-cost --record` last timed
+ * (cost-bench.json), because wall-clock time cannot be asserted in a gate
+ * without going flaky.
+ */
+export function currentCaps() {
+  return {
+    schema: schemaBounds(),
+    limits: DOCUMENT_LIMITS,
+    maxGradientStops: MAX_GRADIENT_STOPS,
+    maxEmojiPerText: MAX_EMOJI_PER_TEXT,
+    maxEmojiPerDocument: MAX_EMOJI_PER_DOCUMENT,
+    maxAssetEdge: MAX_DOCUMENT_ASSET_EDGE,
   };
 }
 

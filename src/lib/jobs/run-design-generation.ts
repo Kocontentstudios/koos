@@ -24,7 +24,10 @@ import {
   type LoadedLogo,
 } from "@/lib/design/render/logo";
 import { overlayLogo } from "@/lib/design/render/logo-overlay";
-import { RenderTimeoutError } from "@/lib/design/render/satori-pool";
+import {
+  EmojiBudgetError,
+  RenderTimeoutError,
+} from "@/lib/design/render/satori-pool";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
 import { detectImageType } from "@/lib/images/detect";
 import {
@@ -165,8 +168,15 @@ export async function renderVariant(
          logo was, and the user is told; if it fails too the fault is elsewhere
          and the original error stands. A render stopped at its time limit
          is not the logo's doing, and a second try would hold the render
-         pool for the whole limit again. */
-      if (!logo || err instanceof RenderTimeoutError) throw err;
+         pool for the whole limit again; nor is copy with more emoji than a
+         render may fetch. */
+      if (
+        !logo ||
+        err instanceof RenderTimeoutError ||
+        err instanceof EmojiBudgetError
+      ) {
+        throw err;
+      }
       result = await compose(null).catch(() => {
         throw err;
       });
@@ -289,6 +299,22 @@ export function renderGuarded(
 }
 
 /**
+ * What the user is told when no variant rendered. The composite path never
+ * runs the schema's emoji count, so copy with too many emoji reaches the
+ * render worker's budget and every variant is refused; trying again would
+ * fail the same way, so the message says what to change. Only when every
+ * failure was the emoji: a variant down for another reason (an outage) must
+ * not be hidden behind it.
+ */
+export function designFailureMessage(failures: unknown[]): string {
+  const emoji = failures.find((f) => f instanceof EmojiBudgetError);
+  if (emoji && failures.every((f) => f instanceof EmojiBudgetError)) {
+    return `This design can't be drawn: ${(emoji as EmojiBudgetError).message}, then try again.`;
+  }
+  return "Design generation failed. Please try again.";
+}
+
+/**
  * Art-directs one design spec, then renders it through every configured route
  * so the user can compare. Each variant is an independent row that succeeds or
  * fails on its own — the job only fails if nothing rendered at all.
@@ -404,6 +430,7 @@ export async function generateDesignWork(
     ),
   );
   const succeeded: string[] = [];
+  const failures: unknown[] = [];
   const failed: string[] = [];
   const brandFontFaults: string[] = [];
   /* The pre-delivery gate's findings were computed and dropped. Without these
@@ -467,6 +494,7 @@ export async function generateDesignWork(
         if (rendered.correction) judgeVerdicts.push(rendered.correction);
         if (rendered.correctionKept) correctionsKept.push(variant.id);
       } catch (err) {
+        failures.push(err);
         console.error(`design variant ${variant.id} failed`, err);
         await updateDesignGeneration(variant.id, {
           status: "failed",
@@ -504,7 +532,7 @@ export async function generateDesignWork(
   }
 
   if (succeeded.length === 0) {
-    throw new Error("Design generation failed. Please try again.");
+    throw new Error(designFailureMessage(failures));
   }
 
   // Closes the metering gap the old generate-image route left open: image

@@ -202,10 +202,18 @@ function withoutStrayJoiners(cluster: string): string {
   return out;
 }
 
-/** The copy as it is stored and drawn: NFC, with selectors and joiners
- *  that draw nothing removed. Idempotent. */
+/* Every line break becomes \n. A browser draws \r\n, \r and \n alike, but
+   next/og failed to rasterise a design whose \r\n was followed by an emoji
+   (librsvg refused the SVG satori wrote). */
+const LINE_BREAK = /\r\n?/g;
+
+/** The copy as it is stored and drawn: NFC, one kind of line break, and no
+ *  selectors or joiners that draw nothing. Idempotent. */
 export function normalizeText(text: string): string {
-  const composed = text.normalize("NFC").replace(DROPPED_SELECTORS, "");
+  const composed = text
+    .normalize("NFC")
+    .replace(LINE_BREAK, "\n")
+    .replace(DROPPED_SELECTORS, "");
   return clustersOf(composed).map(withoutStrayJoiners).join("");
 }
 
@@ -222,6 +230,44 @@ export function emojiIn(text: string): Set<string> {
   return new Set(clustersOf(text).filter(isEmojiCluster));
 }
 
+/* A flag letter or a skin-tone swatch on its own, or a cluster that starts
+   with a joining mark. Satori joins every emoji word of a design into one
+   string before splitting it into pictures, so these attach to whatever
+   emoji came before: loose flag letters pair into new flags and loose
+   tones dye earlier hands, each a picture fetched that the count above
+   never saw (19 hands and 5 tones counted 24 and fetched 95). No one writes
+   them on purpose, so they are refused. */
+const LONE_REGIONAL = /^\p{Regional_Indicator}$/u;
+/* A tone with VS16 is still a tone on its own (round 6i: "🏽️" at the start
+   of a run joined the last emoji of the run before). */
+const LONE_TONE = /^\p{Emoji_Modifier}\u{FE0F}?$/u;
+const STARTS_JOINED = /^[\p{Grapheme_Extend}\u{200D}]/u;
+
+const STARTS_WITH_ACCENT = /^\p{M}/u;
+
+function detachedPart(cluster: string): TextFault | null {
+  if (
+    STARTS_WITH_ACCENT.test(cluster) &&
+    !/^[\u{20E3}\u{FE0F}]/u.test(cluster)
+  ) {
+    return {
+      code: TEXT_CLUSTER_TOO_COMPLEX,
+      message: `"${cluster}" starts with an accent that has no letter before it, which designs can't draw; put the letter first`,
+    };
+  }
+  if (
+    LONE_REGIONAL.test(cluster) ||
+    LONE_TONE.test(cluster) ||
+    STARTS_JOINED.test(cluster)
+  ) {
+    return {
+      code: TEXT_CLUSTER_TOO_COMPLEX,
+      message: `"${cluster}" is part of an emoji on its own (a single flag letter, a skin-tone swatch or a joining mark), which designs can't draw; use the whole emoji`,
+    };
+  }
+  return null;
+}
+
 const CLUSTER_TOO_COMPLEX: TextFault = {
   code: "TEXT_CLUSTER_TOO_COMPLEX",
   message:
@@ -229,7 +275,7 @@ const CLUSTER_TOO_COMPLEX: TextFault = {
 };
 
 function clusterFault(cluster: string): TextFault | null {
-  if (Array.from(cluster).length === 1 || cluster === "\r\n") return null;
+  if (Array.from(cluster).length === 1) return null;
   if (isEmojiCluster(cluster)) return null;
   const marks = cluster.match(MARK) ?? [];
   if (marks.length > MAX_MARKS_PER_CLUSTER) return CLUSTER_TOO_COMPLEX;
@@ -277,7 +323,7 @@ export function textFault(text: string): TextFault | null {
   for (const cluster of clustersOf(text)) {
     if (isEmojiCluster(cluster)) emoji += 1;
     if (emoji > MAX_EMOJI_PER_TEXT) return tooManyEmoji("one line of text");
-    const fault = clusterFault(cluster);
+    const fault = detachedPart(cluster) ?? clusterFault(cluster);
     if (fault) return fault;
   }
   return null;

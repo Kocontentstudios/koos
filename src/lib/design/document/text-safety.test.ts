@@ -69,6 +69,12 @@ describe("textFault", () => {
     expect(faultOf("1\u{20E3}\u{20E3}\u{20E3}")).toBe(TEXT_CLUSTER_TOO_COMPLEX);
   });
 
+  it("allows sequences of at most four people, the longest real family", () => {
+    /* Pinned as a literal: checked only against itself, the constant could
+       be raised to any length with every test green. */
+    expect(MAX_EMOJI_IN_SEQUENCE).toBe(4);
+  });
+
   /* A browser draws a sequence no emoji set knows as its separate
      pictures, so unjoining it draws the same thing as one unit per person. */
   it("unjoins a chain longer than any real emoji sequence", () => {
@@ -240,5 +246,31 @@ describe("documentFromSpec and copy it cannot draw", () => {
       footerLines: ["0803 555 0142", REFUSED_COPY.arabic[0]],
     });
     expect(specTextFault(spec)?.field).toBe("footer");
+  });
+});
+
+describe("line breaks and loose pieces", () => {
+  /* Satori drew \r and \r\n as forced breaks and failed to rasterise \r\n
+     before an emoji, while the editor and fit.ts read them as one break. */
+  it.each([
+    ["\r\n", "a\r\nb"],
+    ["a lone \r", "a\rb"],
+    ["\r\n before an emoji", "a\r\n👍"],
+  ])("stores %s as \\n", (_, text) => {
+    expect(normalizeText(text)).toBe(text.replace(/\r\n?/g, "\n"));
+  });
+
+  it("names an accent with no letter before it as an accent, not an emoji", () => {
+    const fault = textFault(normalizeText("́a"));
+    expect(fault?.message).toContain("accent");
+    expect(fault?.message).not.toContain("emoji");
+  });
+
+  it.each([
+    ["a tone", "\u{1F3FD}"],
+    ["a tone with VS16", "\u{1F3FD}️"],
+    ["a flag letter", "\u{1F1F3}"],
+  ])("refuses %s on its own as part of an emoji", (_, piece) => {
+    expect(textFault(normalizeText(`${piece} a`))?.message).toContain("emoji");
   });
 });

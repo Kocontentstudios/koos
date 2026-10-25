@@ -90,9 +90,14 @@ describe("renderPng", () => {
       ),
     );
     expect(pooled?.width).toBe(CANVAS.width);
-    expect(Buffer.from(pooled?.pixels ?? [])).toEqual(
-      Buffer.from(direct?.pixels ?? []),
-    );
+    /* toEqual on two 4.7 MB buffers took 10s and timed the test out under
+       load; a byte compare says the same thing in milliseconds. */
+    expect(
+      Buffer.compare(
+        Buffer.from(pooled?.pixels ?? []),
+        Buffer.from(direct?.pixels ?? []),
+      ),
+    ).toBe(0);
   }, 60_000);
 
   it("stops a render that never returns, without blocking the event loop, and recovers", async () => {

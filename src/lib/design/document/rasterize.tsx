@@ -1,4 +1,5 @@
 import { LOGO_NOT_LEGIBLE, type MarkInk } from "@/lib/design/logo-contrast";
+import { readImageDimensions } from "@/lib/design/png-dimensions";
 import type { BrandFontUrls, LoadedFont } from "@/lib/design/render/fonts";
 import {
   createBrandRasterizer,
@@ -44,6 +45,39 @@ export interface RasterizeDocumentResult {
   brandFontFault: string | null;
 }
 
+/**
+ * The largest asset side a document draws. Decode and resample cost grows
+ * with pixels, not file size: an 8192 px image took 3.5 s and 5.2 GB to draw
+ * where 4096 px is inside the cost bench. The loaders already fit design
+ * images to 2560 px and logos to 1024 px; this holds the bound where the
+ * bytes enter the renderer, so no caller can skip it.
+ */
+export const MAX_DOCUMENT_ASSET_EDGE = 4096;
+
+export class DocumentAssetError extends Error {
+  constructor(
+    readonly key: string,
+    readonly reason: "unreadable" | "too_large",
+  ) {
+    super(
+      reason === "too_large"
+        ? `Asset ${key} is larger than ${MAX_DOCUMENT_ASSET_EDGE} px on a side`
+        : `Asset ${key} is not a PNG or JPEG with a readable size`,
+    );
+    this.name = "DocumentAssetError";
+  }
+}
+
+function checkAssetSizes(assets: Record<string, DocumentAsset>) {
+  for (const [key, asset] of Object.entries(assets)) {
+    const size = readImageDimensions(asset.bytes);
+    if (!size) throw new DocumentAssetError(key, "unreadable");
+    if (Math.max(size.width, size.height) > MAX_DOCUMENT_ASSET_EDGE) {
+      throw new DocumentAssetError(key, "too_large");
+    }
+  }
+}
+
 /** Satori resolves data URIs inline with no network I/O, so the lambda never
  *  races a signed URL's expiry or pays egress for its own bucket. */
 function toDataUris(assets: Record<string, DocumentAsset>): AssetSources {
@@ -76,6 +110,7 @@ export async function rasterizeDocument({
   logoInk = {},
   fonts,
 }: RasterizeDocumentInput): Promise<RasterizeDocumentResult> {
+  checkAssetSizes(assets);
   const sources = toDataUris(assets);
   const rasterizer = await createBrandRasterizer(
     { width: doc.width, height: doc.height },

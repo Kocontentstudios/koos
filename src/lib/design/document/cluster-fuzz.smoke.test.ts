@@ -4,6 +4,7 @@ import { canvasFor } from "@/lib/design/canvas";
 import { type LoadedFont, loadBrandFonts } from "@/lib/design/render/fonts";
 import {
   closeRenderPool,
+  EmojiBudgetError,
   RenderTimeoutError,
   renderPng,
 } from "@/lib/design/render/satori-pool";
@@ -35,6 +36,7 @@ const SEED = Number(process.env.FUZZ_SEED ?? 33);
 const CLUSTERS = Number(process.env.FUZZ_CLUSTERS ?? 400);
 const PER_DOCUMENT = 60;
 const LIMIT_MS = 8_000;
+const CONFIRM_LIMIT_MS = 60_000;
 const FONT_SIZE = 100;
 const TRACKINGS = [-0.5, 0, 2];
 
@@ -250,6 +252,35 @@ beforeAll(async () => {
 });
 afterAll(closeRenderPool);
 
+/* A timeout alone is not a loop: a timeout kills the worker, and its
+   replacement pays the fallback-face and emoji fetches on its first render,
+   which on a loaded machine can outlast LIMIT_MS by itself and cascade the
+   halving down to clusters that draw in 60 ms. A loop never finishes, so a
+   cluster counts only if it also times out alone on a warm worker with
+   CONFIRM_LIMIT_MS. */
+async function stillLoops(
+  cluster: string,
+  letterSpacing: number,
+): Promise<boolean> {
+  await renderPng(
+    documentElement(documentOf(["a"], letterSpacing), {}),
+    CANVAS,
+    fonts,
+  );
+  try {
+    await renderPng(
+      documentElement(documentOf([cluster], letterSpacing), {}),
+      CANVAS,
+      fonts,
+      { limitMs: CONFIRM_LIMIT_MS },
+    );
+    return false;
+  } catch (error) {
+    if (!(error instanceof RenderTimeoutError)) throw error;
+    return true;
+  }
+}
+
 /** Clusters that looped, found by halving any batch that timed out. */
 async function looping(
   clusters: string[],
@@ -266,8 +297,19 @@ async function looping(
     );
     return [];
   } catch (error) {
+    /* A batch of 60 clusters can hold more emoji than one render may fetch;
+       that refusal says nothing about a loop, so the halves are drawn. */
+    if (error instanceof EmojiBudgetError) {
+      const half = Math.ceil(clusters.length / 2);
+      return [
+        ...(await looping(clusters.slice(0, half), letterSpacing)),
+        ...(await looping(clusters.slice(half), letterSpacing)),
+      ];
+    }
     if (!(error instanceof RenderTimeoutError)) throw error;
-    if (clusters.length === 1) return clusters;
+    if (clusters.length === 1) {
+      return (await stillLoops(clusters[0], letterSpacing)) ? clusters : [];
+    }
     const half = Math.ceil(clusters.length / 2);
     return [
       ...(await looping(clusters.slice(0, half), letterSpacing)),

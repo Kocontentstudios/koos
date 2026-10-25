@@ -33,7 +33,8 @@
     "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts",
     "bench:reencode": "tsx scripts/bench-reencode.mts",
     "eval:subject-check": "tsx scripts/eval-subject-check.mts",
-    "eval:subject-parity": "tsx scripts/eval-subject-parity.mts"
+    "eval:subject-parity": "tsx scripts/eval-subject-parity.mts",
+    "bench:document-cost": "tsx scripts/bench-document-cost.mts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "4.0.198",

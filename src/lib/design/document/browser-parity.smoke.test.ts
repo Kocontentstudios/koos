@@ -38,6 +38,7 @@ import {
   satoriInk,
   shifted,
 } from "./testing-ink";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 import { cacheOgAssets } from "./testing-og-assets";
 
 /**
@@ -171,7 +172,10 @@ async function fallbackFaces(): Promise<{ cjk: string; emoji: string }> {
 
 beforeAll(async () => {
   fonts = await loadBrandFonts(null);
-  measurer = createRendererMeasurer({ fonts });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts,
+  });
   const fallbacks = await fallbackFaces();
   const face = (font: (typeof fonts)[number], src: string, extra = "") =>
     `@font-face{font-family:"${font.name}";font-weight:${font.weight};font-style:${font.style ?? "normal"};src:url(${src});${extra}}`;

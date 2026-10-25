@@ -26,6 +26,7 @@ import {
   type SubjectReport,
   subjectFromAlpha,
 } from "./subject";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * The subject rule on every layout: copy, buttons, the accent rule, the
@@ -53,7 +54,10 @@ let photoFacts: ImageFacts;
 let cutoutFacts: ImageFacts;
 
 beforeAll(async () => {
-  measurer = createRendererMeasurer({ fonts: await loadBrandFonts(null) });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts: await loadBrandFonts(null),
+  });
   const photo = await measureImage(IMAGES.busy);
   const cutout = await measureImage(IMAGES.cutout);
   if (!photo || !cutout) throw new Error("fixtures did not measure");

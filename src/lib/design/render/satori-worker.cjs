@@ -79,7 +79,50 @@ async function intoCache(dir, file, body) {
   } catch {}
 }
 
-const network = globalThis.fetch;
+/* Emoji pictures this render has asked for, against the budget the pool
+   sends with each task (satori-pool.ts, MAX_EMOJI_FETCHES_PER_RENDER). A
+   worker runs one task at a time. next/og keeps what it loaded in memory,
+   so a picture drawn before is not asked for again. */
+const emoji = { asked: 0, budget: Number.POSITIVE_INFINITY };
+
+class EmojiBudgetExceeded extends Error {}
+
+/* Tests replace the network under every path below (budget, disk cache,
+   retries) instead of skipping it: "ok" answers every emoji with a
+   picture, "503-once" fails each URL once first, "503-always" never
+   answers; fonts and other hosts get a 404. Only those exact values switch
+   it on, and never in production, where it would draw every emoji as a
+   black square with no error. */
+const FAKE_NETWORK = process.env.KOOS_OG_FAKE_NETWORK || null;
+const FAKE_MODES = new Set(["ok", "503-once", "503-always"]);
+if (FAKE_NETWORK !== null) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("KOOS_OG_FAKE_NETWORK is set in production; unset it");
+  }
+  if (!FAKE_MODES.has(FAKE_NETWORK)) {
+    throw new Error(`KOOS_OG_FAKE_NETWORK=${FAKE_NETWORK} is not a test mode`);
+  }
+}
+const FAKE_PICTURE =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36"/></svg>';
+const failedOnce = new Set();
+
+async function fakeNetwork(input) {
+  const url = typeof input === "string" ? input : (input.url ?? String(input));
+  if (new URL(url).host !== EMOJI_HOST) {
+    return new Response("", { status: 404 });
+  }
+  if (FAKE_NETWORK === "503-always") {
+    return new Response("", { status: 503 });
+  }
+  if (FAKE_NETWORK === "503-once" && !failedOnce.has(url)) {
+    failedOnce.add(url);
+    return new Response("", { status: 503 });
+  }
+  return new Response(FAKE_PICTURE);
+}
+
+const network = FAKE_NETWORK ? fakeNetwork : globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url =
     typeof input === "string"
@@ -88,6 +131,10 @@ globalThis.fetch = async (input, init) => {
         ? input.href
         : input.url;
   const host = new URL(url).host;
+  if (host === EMOJI_HOST) {
+    emoji.asked += 1;
+    if (emoji.asked > emoji.budget) throw new EmojiBudgetExceeded();
+  }
   if (!OG_HOSTS.has(host)) return network(input, init);
   const dir = testCache ?? (host === EMOJI_HOST ? emojiCache : null);
   const file = dir
@@ -115,6 +162,8 @@ globalThis.fetch = async (input, init) => {
 };
 
 parentPort.on("message", async (task) => {
+  emoji.asked = 0;
+  emoji.budget = task.emojiBudget ?? Number.POSITIVE_INFINITY;
   try {
     const fonts = fontOptions(task.fonts);
     const response = new ImageResponse(task.element, {
@@ -125,9 +174,14 @@ parentPort.on("message", async (task) => {
     const bytes = new Uint8Array(await response.arrayBuffer());
     parentPort.postMessage({ id: task.id, bytes }, [bytes.buffer]);
   } catch (error) {
+    /* next/og awaits every picture together, so the refusal may arrive
+       wrapped or after another error; the count says what happened. */
+    const overBudget =
+      error instanceof EmojiBudgetExceeded || emoji.asked > emoji.budget;
     parentPort.postMessage({
       id: task.id,
       error: error instanceof Error ? error.message : String(error),
+      ...(overBudget ? { code: "EMOJI_BUDGET" } : {}),
     });
   }
 });

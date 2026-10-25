@@ -10,7 +10,7 @@ import {
   type LoadedFont,
   loadBrandFonts,
 } from "./fonts";
-import { RenderTimeoutError, renderPng } from "./satori-pool";
+import { EmojiBudgetError, RenderTimeoutError, renderPng } from "./satori-pool";
 
 /**
  * The satori + resvg path every composite render goes through: the flex
@@ -63,9 +63,11 @@ export async function createBrandRasterizer(
        same reason. The bundled faces then stay in use, so a multi-pass render
        does not pay for the refused face on every pass. */
       if (!usedBrandFace || current !== loaded) throw error;
-      /* A render that ran out of time would run out of time again in the
-         bundled faces: the copy, not the face, is what costs. */
+      /* A render that ran out of time, or asked for too many emoji
+         pictures, would do the same again in the bundled faces: the copy,
+         not the face, is what costs. */
       if (error instanceof RenderTimeoutError) throw error;
+      if (error instanceof EmojiBudgetError) throw error;
       /* Deliberately not the exception text: satori's messages are internals
        ("Cannot read properties of undefined (reading '257')") that mean
        nothing to the person who uploaded a font. The structural reasons above

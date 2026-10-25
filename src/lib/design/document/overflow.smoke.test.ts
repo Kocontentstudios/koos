@@ -30,6 +30,7 @@ import {
   overflowOf,
   satoriInk,
 } from "./testing-ink";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * Acceptance: no text overflow at worst-case copy (70/140/32 characters and
@@ -46,7 +47,10 @@ let measurer: RendererMeasurer;
 
 beforeAll(async () => {
   fonts = await loadBrandFonts(null);
-  measurer = createRendererMeasurer({ fonts });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts,
+  });
 });
 
 /* What each case may report. Copy at the schema's limits in plain words

@@ -23,6 +23,7 @@ import {
   type DesignElement,
   designDocumentSchema,
 } from "./schema";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * Acceptance 1: the schema accepts every document the builders produce, for
@@ -34,7 +35,10 @@ import {
 
 let measurer: RendererMeasurer;
 beforeAll(async () => {
-  measurer = createRendererMeasurer({ fonts: await loadBrandFonts(null) });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts: await loadBrandFonts(null),
+  });
 });
 
 const COPIES = { realistic: REALISTIC, "worst-case": WORST_CASE } as const;
@@ -155,7 +159,10 @@ describe("documentFromSpec design rules", () => {
       canvas: canvasFor("4:5"),
       image: IMAGE,
       logo: { asset: LOGO, aspect: LOGO_ASPECT },
-      measurer: createRendererMeasurer({ fonts: await loadBrandFonts(null) }),
+      measurer: createRendererMeasurer({
+        probeLimitMs: TEST_PROBE_LIMIT_MS,
+        fonts: await loadBrandFonts(null),
+      }),
     });
     expect(b.document).toEqual(a);
   });

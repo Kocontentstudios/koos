@@ -19,7 +19,10 @@ vi.mock("@/lib/storage", () => ({
   storageKeyFrom: vi.fn(),
 }));
 
-import { RenderTimeoutError } from "@/lib/design/render/satori-pool";
+import {
+  EmojiBudgetError,
+  RenderTimeoutError,
+} from "@/lib/design/render/satori-pool";
 import { renderVariant } from "@/lib/jobs/run-design-generation";
 
 /** A real PNG header, so the size comes from the file rather than a stub. */
@@ -163,6 +166,29 @@ describe("renderVariant native sizing", () => {
         [],
       ),
     ).rejects.toBeInstanceOf(RenderTimeoutError);
+    expect(renderCompositeDesign).toHaveBeenCalledTimes(1);
+  });
+
+  /* Copy with more emoji than a render may fetch is not the logo's doing;
+     retrying without it spent a second refused render. */
+  it("does not retry a render refused for its emoji", async () => {
+    renderCompositeDesign.mockRejectedValue(new EmojiBudgetError(24));
+
+    await expect(
+      renderVariant(
+        {
+          renderer: "composite",
+          adapter: {
+            id: "bedrock-stability",
+            generate: vi.fn().mockRejectedValue(new Error("plate down")),
+          },
+        } as never,
+        spec,
+        context,
+        { bytes: png(10, 10), contentType: "image/png" } as never,
+        [],
+      ),
+    ).rejects.toBeInstanceOf(EmojiBudgetError);
     expect(renderCompositeDesign).toHaveBeenCalledTimes(1);
   });
 });

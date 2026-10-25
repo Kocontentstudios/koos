@@ -26,6 +26,7 @@ import type {
   DesignElement,
   ImageElement,
 } from "./schema";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 
 /**
  * The visual verdict's two image findings, measured on renders:
@@ -52,7 +53,10 @@ const facts = {} as Record<keyof typeof IMAGES, ImageFacts>;
 
 beforeAll(async () => {
   fonts = await loadBrandFonts(null);
-  measurer = createRendererMeasurer({ fonts });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts,
+  });
   for (const name of Object.keys(IMAGES) as (keyof typeof IMAGES)[]) {
     const measured = await measureImage(IMAGES[name]);
     if (!measured) throw new Error(`${name} did not measure`);

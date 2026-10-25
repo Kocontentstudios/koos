@@ -15,6 +15,7 @@ import {
 import { COPY_SHRUNK, COPY_TOO_LONG, documentFromSpec } from "./from-spec";
 import { createRendererMeasurer, type RendererMeasurer } from "./measure";
 import { INK_TOLERANCE, overflowOf, satoriInk } from "./testing-ink";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
 import { cacheOgAssets } from "./testing-og-assets";
 
 /**
@@ -40,7 +41,10 @@ let fonts: Awaited<ReturnType<typeof loadBrandFonts>>;
 let measurer: RendererMeasurer;
 beforeAll(async () => {
   fonts = await loadBrandFonts(null);
-  measurer = createRendererMeasurer({ fonts });
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts,
+  });
 });
 
 describe.each(Object.keys(SCRIPTS) as (keyof typeof SCRIPTS)[])(
