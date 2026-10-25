@@ -202,10 +202,18 @@ function withoutStrayJoiners(cluster: string): string {
   return out;
 }
 
-/** The copy as it is stored and drawn: NFC, with selectors and joiners
- *  that draw nothing removed. Idempotent. */
+/* Every line break becomes \n. A browser draws \r\n, \r and \n alike, but
+   next/og failed to rasterise a design whose \r\n was followed by an emoji
+   (librsvg refused the SVG satori wrote). */
+const LINE_BREAK = /\r\n?/g;
+
+/** The copy as it is stored and drawn: NFC, one kind of line break, and no
+ *  selectors or joiners that draw nothing. Idempotent. */
 export function normalizeText(text: string): string {
-  const composed = text.normalize("NFC").replace(DROPPED_SELECTORS, "");
+  const composed = text
+    .normalize("NFC")
+    .replace(LINE_BREAK, "\n")
+    .replace(DROPPED_SELECTORS, "");
   return clustersOf(composed).map(withoutStrayJoiners).join("");
 }
 
@@ -233,7 +241,18 @@ const LONE_REGIONAL = /^\p{Regional_Indicator}$/u;
 const LONE_TONE = /^\p{Emoji_Modifier}$/u;
 const STARTS_JOINED = /^[\p{Grapheme_Extend}\u{200D}]/u;
 
+const STARTS_WITH_ACCENT = /^\p{M}/u;
+
 function detachedPart(cluster: string): TextFault | null {
+  if (
+    STARTS_WITH_ACCENT.test(cluster) &&
+    !/^[\u{20E3}\u{FE0F}]/u.test(cluster)
+  ) {
+    return {
+      code: TEXT_CLUSTER_TOO_COMPLEX,
+      message: `"${cluster}" starts with an accent that has no letter before it, which designs can't draw; put the letter first`,
+    };
+  }
   if (
     LONE_REGIONAL.test(cluster) ||
     LONE_TONE.test(cluster) ||
@@ -254,7 +273,7 @@ const CLUSTER_TOO_COMPLEX: TextFault = {
 };
 
 function clusterFault(cluster: string): TextFault | null {
-  if (Array.from(cluster).length === 1 || cluster === "\r\n") return null;
+  if (Array.from(cluster).length === 1) return null;
   if (isEmojiCluster(cluster)) return null;
   const marks = cluster.match(MARK) ?? [];
   if (marks.length > MAX_MARKS_PER_CLUSTER) return CLUSTER_TOO_COMPLEX;
