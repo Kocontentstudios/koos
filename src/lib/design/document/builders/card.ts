@@ -251,10 +251,15 @@ async function subjectAboveCopy(
     !isCutout(ctx) &&
     bled.element.width < region.width - 1 &&
     bled.element.y <= region.y + 1;
-  const lowered = narrower ? frameFrom(region.y + pad) : null;
   /* Never at the cost of the subject: a print that only fits whole at the
-     edge stays there. */
-  const framed = lowered && (lowered.clean || !bled?.clean) ? lowered : bled;
+     edge stays there, and the layout check counts it against the layout
+     (craft.ts, IMAGE_AGAINST_EDGE). */
+  const lowered = narrower
+    ? [pad, Math.round(pad / 2)]
+        .map((inset) => frameFrom(region.y + inset))
+        .find((f) => f && (f.clean || !bled?.clean))
+    : null;
+  const framed = lowered ?? bled;
   if (!framed || (strict && !framed.clean)) return null;
   const printed = !isCutout(ctx) && framed.element.width < region.width - 1;
   if (!framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);

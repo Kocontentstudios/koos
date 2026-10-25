@@ -765,8 +765,13 @@ for (const evalCase of cases) {
           headline: "Still warm from the oven at 6am",
         };
         const rewrite = { ...deliveredSpec, headline: r.title };
+        /* A headline already the title draws nothing new, and the gate
+           rightly refuses a correction that would only repeat the render
+           (round-6 run: bakery-ko-1 scored as a rules failure). */
         const rewriteShouldHold =
-          r.title.length <= 70 && !loses({ ...first, headline: r.title });
+          r.title.length <= 70 &&
+          first.headline !== r.title &&
+          !loses({ ...first, headline: r.title });
         const rewriteKept = await rules.acceptCorrection(rewrite);
         let rewriteOverSubject = false;
         if (rewriteKept) {

@@ -9,6 +9,7 @@ import {
   type ReadFact,
   redundantFooterItems,
   settleBriefFacts,
+  withoutLooseRepeats,
 } from "./brief-facts";
 import { settleBriefRead } from "./brief-read";
 
@@ -394,5 +395,39 @@ describe("footer repeats read for meaning (round-5 live critic)", () => {
     expect(out.directions[0].footerLines.join(" | ")).toBe(
       "WhatsApp 0816 333 9025 · ₦35,000 a seat",
     );
+  });
+});
+
+describe("withoutLooseRepeats", () => {
+  it("drops an item that mostly repeats the copy above, never a fact", () => {
+    const facts = settle("Classes at our Yaba studio, Saturday 9am.", [
+      { kind: "day", text: "Saturday" },
+      { kind: "time", text: "9am" },
+    ]).facts;
+    const out = withoutLooseRepeats(
+      copy({
+        headline: "Stretch in Yaba",
+        subheadline: "Saturday at 9am",
+        footerLines: ["Yaba studio · Saturday 9am"],
+        footerStyle: "text",
+      }),
+      facts,
+    );
+    expect(out.footerLines).toEqual([]);
+  });
+
+  it("keeps an item whose words carry a fact the copy above does not", () => {
+    const facts = settle("Send money to 20 African countries.", [
+      { kind: "quantity", text: "20 African countries" },
+    ]).facts;
+    const out = withoutLooseRepeats(
+      copy({
+        headline: "Zero fees. 20 countries.",
+        footerLines: ["20 African countries"],
+        footerStyle: "text",
+      }),
+      facts,
+    );
+    expect(out.footerLines).toEqual(["20 African countries"]);
   });
 });

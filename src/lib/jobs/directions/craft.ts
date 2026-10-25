@@ -28,6 +28,9 @@ export const HEADLINE_NOT_LEADING =
 export const CUTOUT_EDGE_SHOWS =
   "the cut-out's light edge shows against a dark or coloured ground";
 
+export const IMAGE_AGAINST_EDGE =
+  "the picture is narrower than its card but flush against the card's edge";
+
 export interface CraftFaults {
   hard: string | null;
   soft: string | null;
@@ -181,6 +184,19 @@ export function cutoutEdgeShows(
   return luminance(ground) < 0.3 || chroma(ground) >= COLOURED_GROUND;
 }
 
+/* Round-5 live critic: a print narrower than its card, jammed against the
+   card's top edge, read as a mistake. */
+function imageAgainstCardEdge(visible: readonly DesignElement[]): boolean {
+  const image = visible.find((e) => e.type === "image");
+  const card = visible.find(
+    (e) => e.type === "shape" && (e.id === "card" || e.id === "card-edge"),
+  );
+  if (!image || !card || !inside(image, card)) return false;
+  return (
+    image.width < card.width - TOLERANCE && Math.abs(image.y - card.y) <= 1
+  );
+}
+
 /** The craft faults of `doc`, worst first. */
 export function layoutCraftFaults(
   doc: Pick<DesignDocument, "elements"> &
@@ -221,6 +237,7 @@ export function layoutCraftFaults(
       }
     }
   }
+  if (!soft && imageAgainstCardEdge(visible)) soft = IMAGE_AGAINST_EDGE;
   if (
     !soft &&
     doc.background !== undefined &&

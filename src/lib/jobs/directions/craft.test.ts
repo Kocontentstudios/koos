@@ -6,6 +6,7 @@ import {
   cutoutEdgeShows,
   HEADLINE_NOT_LEADING,
   HEADLINE_UNDER_COPY,
+  IMAGE_AGAINST_EDGE,
   layoutCraftFaults,
   paletteForCutout,
 } from "./craft";
@@ -207,5 +208,35 @@ describe("paletteForCutout", () => {
       grid: { ...pale.grid, rgba: rgba.map((v, i) => (i % 4 === 3 ? v : 30)) },
     };
     expect(paletteForCutout(spec, dark)).toBe(spec);
+  });
+});
+
+describe("a print against its card's edge", () => {
+  const card = shape("card", [86, 86, 908, 777]);
+  const image = (y: number, width: number) => ({
+    id: "image",
+    type: "image",
+    hidden: false,
+    x: 200,
+    y,
+    width,
+    height: 380,
+  });
+
+  it("is a soft fault when narrower than the card and flush with its top", () => {
+    expect(
+      layoutCraftFaults({ elements: [card, image(86, 681)] } as never).soft,
+    ).toBe(IMAGE_AGAINST_EDGE);
+  });
+
+  it("is no fault inset from the edge, or the card's full width", () => {
+    expect(
+      layoutCraftFaults({ elements: [card, image(150, 681)] } as never).soft,
+    ).toBeNull();
+    expect(
+      layoutCraftFaults({
+        elements: [card, { ...image(86, 908), x: 86 }],
+      } as never).soft,
+    ).toBeNull();
   });
 });

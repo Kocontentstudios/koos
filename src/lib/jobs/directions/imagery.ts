@@ -132,6 +132,13 @@ export function platePrompt(
   const objectsOnly = asScene
     ? " Shown through hands, tools, materials and the place itself, with no screens, paper or signs."
     : "";
+  /* Beside a named person a scene of the activity is a scene of people,
+     and every one painted was refused (round-6 eval: pottery and panel
+     plates rejected twice for a face). A still life of the work's tools
+     and room has no one to mistake for them. */
+  if (asScene && namesPeople) {
+    return `A still life with no people in it: the tools, materials and room of the ${product.name}${where}, ready for it to begin${rejected ? `; ${rejected.people ? "the last attempt painted a person, which is wrong" : rejected.lettering ? "the last attempt painted lettering, which is wrong" : `the last attempt showed ${rejected.seen || "something else"}, which is wrong`}` : ""}. ${tail}`;
+  }
   if (!rejected) {
     return asScene
       ? `A scene from the ${product.name}${where}, recognisable as that ${product.kind}.${objectsOnly} ${tail}`

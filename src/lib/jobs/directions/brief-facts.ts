@@ -1109,6 +1109,59 @@ export interface FactCoverage {
  * left off and recorded with that reason. What each direction states is
  * counted on the footer as it is finally drawn.
  */
+/**
+ * Footer items that mostly say again what the copy above says, dropped
+ * only when nothing the brief gives goes with them: every number, time and
+ * phone of the item is above, at least half its words are, and each brief
+ * fact the direction stated is still stated without it. Round-5 eval: a
+ * reader judged four in ten directions to repeat themselves in the footer
+ * where no item was a word-for-word repeat ("Yaba Studio" under "in
+ * Yaba", "Pickup · 7am" under "pick up from 7am").
+ */
+export function withoutLooseRepeats<T extends FactCopy>(
+  direction: T,
+  facts: readonly BriefFact[],
+): T {
+  const above = said(
+    [direction.headline, direction.subheadline, direction.cta]
+      .filter(Boolean)
+      .join(" "),
+  );
+  let current = direction;
+  const stated = (copy: T) =>
+    facts.filter((f) => factStated(f, copy)).map((f) => f.text);
+  const before = stated(direction);
+  for (const item of direction.footerLines.flatMap((line) =>
+    line.split(FOOTER_JOIN).map((i) => i.trim()),
+  )) {
+    const mine = [...said(item)];
+    const hard = mine.filter((s) => /^[=@#]/.test(s));
+    const words = mine.filter((s) => !/^[=@#]/.test(s));
+    const wordsAbove = words.filter((w) => above.has(w)).length;
+    const repeats =
+      mine.length > 0 &&
+      hard.every((h) => above.has(h)) &&
+      wordsAbove * 2 >= words.length;
+    if (!repeats) continue;
+    const footerLines = current.footerLines
+      .map((line) =>
+        line
+          .split(FOOTER_JOIN)
+          .map((i) => i.trim())
+          .filter((i) => i !== item)
+          .join(FOOTER_JOIN),
+      )
+      .filter(Boolean);
+    const trial = {
+      ...current,
+      footerLines,
+      footerStyle: footerLines.length > 0 ? current.footerStyle : "none",
+    } as T;
+    if (stated(trial).length === before.length) current = trial;
+  }
+  return current;
+}
+
 export function coverBriefFacts<T extends FactCopy>(
   directions: T[],
   facts: readonly BriefFact[],
@@ -1123,7 +1176,10 @@ export function coverBriefFacts<T extends FactCopy>(
   };
   const limit = COPY_LIMITS.footerLine;
   const covered = directions.map((original, index) => {
-    const direction = withoutRedundant(original, product);
+    const direction = withoutLooseRepeats(
+      withoutRedundant(original, product),
+      facts,
+    );
     coverage.repeatsDropped +=
       footerItems(original.footerLines) - footerItems(direction.footerLines);
     const missing = factsMissing(facts, direction);

@@ -363,7 +363,9 @@ describe("events, services and named people", () => {
       "a woman at a lectern (a face)",
       "a woman at a lectern (a face)",
     ]);
-    expect(promptSent(plateModel, 1)).toContain("painted a person's face");
+    expect(promptSent(plateModel, 1)).toContain(
+      "painted a person, which is wrong",
+    );
   });
 
   it("keeps a face when nobody is named", async () => {
@@ -511,5 +513,30 @@ describe("round 6: no lettered objects in a plate prompt", () => {
       true,
     );
     expect(prompt).not.toMatch(/no paper, documents, books/);
+  });
+});
+
+describe("round 6: an event beside a named person is a still life", () => {
+  it("asks for the room and tools, with no people, first", () => {
+    const prompt = platePrompt(
+      draftOf(),
+      { name: "wheel-throwing evening", look: "", kind: "event" },
+      undefined,
+      null,
+      true,
+    );
+    expect(
+      prompt.startsWith(
+        "A still life with no people in it: the tools, materials and room of the wheel-throwing evening",
+      ),
+    ).toBe(true);
+    const retry = platePrompt(
+      draftOf(),
+      { name: "wheel-throwing evening", look: "", kind: "event" },
+      { people: true },
+      null,
+      true,
+    );
+    expect(retry).toMatch(/the last attempt painted a person, which is wrong/);
   });
 });
