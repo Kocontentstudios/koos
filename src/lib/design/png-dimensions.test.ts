@@ -155,6 +155,27 @@ describe("readJpegDimensions", () => {
     expect(readJpegDimensions(bytes)).toBeNull();
   });
 
+  it.each([
+    ["TEM", 0x01],
+    ["RST0", 0xd0],
+    ["RST7", 0xd7],
+  ])("refuses %s before the first scan instead of skipping it", (_, marker) => {
+    /* Round 6e's shape: the reader skipped these as length-less while the
+       decoder read a length after them and landed on the real header. */
+    const bytes = new Uint8Array([
+      0xff,
+      0xd8,
+      0xff,
+      marker,
+      0xff,
+      marker,
+      ...comment(sof(10, 10)),
+      ...sof(8192, 8192),
+      ...SCAN,
+    ]);
+    expect(readJpegDimensions(bytes)).toBeNull();
+  });
+
   it("refuses a stray byte between segments", () => {
     const bytes = new Uint8Array([
       0xff,

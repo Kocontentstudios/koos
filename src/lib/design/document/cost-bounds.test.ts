@@ -308,6 +308,81 @@ describe("emoji, through the parser", () => {
     expectAccepted(documentOf(split(MAX_EMOJI_PER_DOCUMENT)));
     expectRefused(documentOf(split(MAX_EMOJI_PER_DOCUMENT + 1)));
   });
+
+  /* Each picture satori fetches is one emoji, however many code points spell
+     it. A cap that counted only single pictographs let 144 distinct pictures
+     through by stripping skin tones before counting (5.3-5.9 s cold). */
+  const TONES = [
+    "\u{1F3FB}",
+    "\u{1F3FC}",
+    "\u{1F3FD}",
+    "\u{1F3FE}",
+    "\u{1F3FF}",
+  ];
+  const SEQUENCES: Record<string, string[]> = {
+    "skin-tone": ["👍", "👋", "✋", "👌", "👏", "🙏"].flatMap((base) =>
+      TONES.map((tone) => base + tone),
+    ),
+    "zero-width-joiner": ["👨", "👩", "🧑"].flatMap((person) =>
+      ["🍳", "🎓", "🎤", "🎨", "🏫", "🏭", "💻", "💼", "🔧", "🔬"].map(
+        (tool) => `${person}‍${tool}`,
+      ),
+    ),
+    flag: [
+      "NG",
+      "GH",
+      "KE",
+      "ZA",
+      "EG",
+      "US",
+      "GB",
+      "FR",
+      "DE",
+      "IT",
+      "ES",
+      "PT",
+      "BR",
+      "AR",
+      "MX",
+      "CA",
+      "JP",
+      "KR",
+      "CN",
+      "IN",
+      "AU",
+      "NZ",
+      "SE",
+      "NO",
+      "DK",
+      "FI",
+    ].map((code) =>
+      Array.from(code, (letter) =>
+        String.fromCodePoint(0x1f1e6 + letter.charCodeAt(0) - 65),
+      ).join(""),
+    ),
+    keycap: [
+      ..."0123456789#*".split("").map((key) => `${key}️⃣`),
+      ...["👍", "👋"].flatMap((base) => TONES.map((tone) => base + tone)),
+      ..."😀😁😂😃".split(/(?:)/u),
+    ],
+  };
+
+  it.each(Object.entries(SEQUENCES))(
+    "one design: %s sequences count one each, one more distinct is refused",
+    (_, sequences) => {
+      expect(sequences.length).toBeGreaterThan(MAX_EMOJI_PER_DOCUMENT);
+      const split = (total: number) => {
+        const all = sequences.slice(0, total);
+        const half = Math.ceil(all.length / 2);
+        return [
+          textWith(all.slice(0, half).join(" "), "a"),
+          textWith(all.slice(half).join(" "), "b"),
+        ];
+      };
+      expectAccepted(documentOf(split(MAX_EMOJI_PER_DOCUMENT)));
+      expectRefused(documentOf(split(MAX_EMOJI_PER_DOCUMENT + 1)));
+    },
+  );
 });
 
 describe("gradient stops, through the parser", () => {

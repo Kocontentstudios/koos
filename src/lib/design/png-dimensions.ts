@@ -67,7 +67,10 @@ const SOF_MARKERS = new Set([
  * read as a marker with a length, each passed an 8192 px image as 10x10.
  * Every encoder writes segments back to back, so anything else between
  * them (a stray byte, 0xFF00 outside scan data, a second start of image or
- * frame header) is refused rather than interpreted.
+ * frame header) is refused rather than interpreted. So are TEM and the
+ * restart markers before the first scan: this reader took them as having
+ * no length while next/og's decoder reads one, and two of them steered the
+ * reader onto a fake header. No encoder writes them there.
  */
 export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
@@ -82,8 +85,7 @@ export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
     const marker = bytes[offset];
     offset += 1;
     if (marker === 0x00 || marker === 0xd8) return null;
-    // Standalone markers carry no length payload.
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) return null;
     if (marker === 0xd9 || marker === 0xda) return found; // EOI / scan data
     if (offset + 2 > bytes.length) return found;
     const length = view.getUint16(offset);

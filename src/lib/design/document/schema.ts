@@ -318,8 +318,9 @@ export const designElementSchema = z.discriminatedUnion("type", [
  * 3s. cost-bounds.test.ts refuses one step past every bound and cap, with
  * the overflow on every element that can carry it and in every text look;
  * it tests the shapes it builds, so a change to limitIssues or text-safety
- * is a review item. cost.smoke.test.ts fails if a declared bound moves
- * without a new recorded bench run.
+ * is a review item. cost.smoke.test.ts fails if a declared bound moves and
+ * cost-bench.json is not re-recorded; a hand edit that also recomputes its
+ * digest passes, so a change to that file is a review item too.
  * A process's first render also pays the handshakes for
  * the fallback faces and emoji next/og fetches, about 2s more whatever the
  * emoji count, which the render limit (satori-pool.ts) bounds.
