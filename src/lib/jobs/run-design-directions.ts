@@ -586,7 +586,7 @@ export async function generateDirectionsWork(
     try {
       const mark = marks[i];
       const image = images[i];
-      const assets: DirectionAssets = {
+      let assets: DirectionAssets = {
         image,
         imageFacts: image ? await facts.get(image) : null,
         logo: mark?.placed
@@ -597,13 +597,20 @@ export async function generateDirectionsWork(
          so the spec must not keep its corner either. */
       const unmarked = (spec: DesignSpec) =>
         assets.logo ? spec : { ...spec, logoPlacement: "none" as const };
-      const judge = layoutJudge(context, assets, prepared);
       const apartFrom = sharesPhoto && i > 0 ? await firstPlaced : siblingPlace;
+      const relayout = (spec: DesignSpec, layout: DesignSpec["layout"]) =>
+        unmarked(
+          respecForLayout(spec, layout, {
+            modelChoice: brief.directions[i].logoPlacement,
+            hasLogo: Boolean(assets.logo),
+          }),
+        );
+      const imageless = { ...assets, image: null, imageFacts: null };
       const choice = await settleDirectionLayout({
         self: { id: row.id, set, slot, replacing: request.regenerateOf },
         readSet: () => listDirectionSet(brandId, set),
-        choose: (held) =>
-          chooseLayout({
+        choose: async (held) => {
+          const withImage = await chooseLayout({
             spec: unmarked(
               paletteForCutout(settled[i].spec, assets.imageFacts),
             ),
@@ -611,15 +618,30 @@ export async function generateDirectionsWork(
             subjects: assets.image ? subjectBoxes[i] : [],
             imageless: !assets.image,
             apartFrom,
-            judge,
-            relayout: (spec, layout) =>
-              unmarked(
-                respecForLayout(spec, layout, {
-                  modelChoice: brief.directions[i].logoPlacement,
-                  hasLogo: Boolean(assets.logo),
-                }),
-              ),
-          }),
+            judge: layoutJudge(context, assets, prepared),
+            relayout,
+          });
+          const subjectFaulted =
+            withImage.fault === SUBJECT_COVERED ||
+            withImage.faults.some((f) => SUBJECT_FAULTS.includes(f));
+          /* A plate KO painted is not the client's photograph: one that no
+             free layout shows whole and clear is left off and the design
+             laid out as text, as for a plate that failed its check, rather
+             than losing the direction. */
+          if (upload || !assets.image || !subjectFaulted) {
+            return { ...withImage, plateLeftOff: false };
+          }
+          const asText = await chooseLayout({
+            spec: unmarked(settled[i].spec),
+            held,
+            subjects: [],
+            imageless: true,
+            apartFrom: null,
+            judge: layoutJudge(context, imageless, prepared),
+            relayout,
+          });
+          return { ...asText, plateLeftOff: true };
+        },
         claim: (spec, isFree) =>
           claimDirectionLayout({
             brandId,
@@ -631,6 +653,15 @@ export async function generateDirectionsWork(
       });
       layoutChoices[i] = choice;
       if (i === 0) placeFirst(choice.place);
+      if (choice.plateLeftOff) {
+        assets = imageless;
+        images[i] = null;
+        imageStates[i] = "none";
+        addFault(
+          row.id,
+          "no free layout showed the generated image whole and clear of the copy, so the design was laid out as text",
+        );
+      }
       /* No layout kept the copy off the product, or drew it cleanly: a
          design with the headline across the pastry, or under the small
          print, is not delivered. It fails with the reason, and without

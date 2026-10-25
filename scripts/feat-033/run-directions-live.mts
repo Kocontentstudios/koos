@@ -2,10 +2,10 @@
  * Runs the FEAT-033 directions job end to end against the LOCAL database and
  * the configured R2 bucket, for the live check: the round-1 bakery brief on
  * the cut-out and on KO imagery plus one regenerate, a cafe brief with a
- * price for a set on a busy espresso-bar photo, a fashion brief with an
- * address followed by days on a portrait, an event naming a real person on
- * KO imagery, and the kids' workshop brief on a near-blank photo, which must
- * be refused. Real model,
+ * multi-item price on a busy espresso-bar photo at 1:1, a fashion brief on a
+ * portrait at 16:9, an event naming a real person on KO imagery, a service
+ * with no physical product on KO imagery, and the kids' workshop brief on a
+ * near-blank photo, which must be refused. Real model,
  * real plate model and checks, real storage. The local-verify counterpart of
  * the integration test.
  *
@@ -17,7 +17,7 @@
  * user, workspace and brands when they are missing. Writes only under
  * design-images/{qa brand}/ and generated/{qa brand}/ in the bucket. Uploads
  * each photo as the browser normaliser would send it. Saves each
- * direction's PNG and layer document to outDir (default /tmp/feat-033/u3-r5)
+ * direction's PNG and layer document to outDir (default /tmp/feat-033/u3-r6)
  * with live-summary.json, counting image calls by wrapping the plate adapter
  * rather than trusting the job's own counter.
  */
@@ -37,7 +37,7 @@ process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 const outDir =
   process.argv[2] && !process.argv[2].startsWith("--")
     ? process.argv[2]
-    : "/tmp/feat-033/u3-r5";
+    : "/tmp/feat-033/u3-r6";
 const only = process.argv.includes("--only")
   ? process.argv[process.argv.indexOf("--only") + 1]
   : null;
@@ -124,6 +124,14 @@ const brands = {
     offer: "Hand-dyed adire dresses and separates",
     colors: ["#F5F0E6", "#1E3A8A", "#7C2D12"],
   }),
+  laundry: await qaBrand(owner, {
+    name: "FEAT-033 QA Laundry",
+    overview: "Laundry pickup and delivery service in Lekki, Lagos.",
+    audience: "Busy professionals and young families",
+    tone: "Brisk, dependable, friendly",
+    offer: "Same-day wash, dry and fold with pickup and return",
+    colors: ["#F0F9FF", "#0369A1", "#0C4A6E"],
+  }),
 };
 
 const plate = getPlateAdapter();
@@ -155,14 +163,17 @@ await mkdir(outDir, { recursive: true });
 const BRIEFS = {
   bakery:
     "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
-  /* Round 5, in words no eval case uses: a price with its quantity, an
-     address followed by days, and an event naming a real person with a
-     phone, a day, a time, a price, ages and a place. */
-  cafe: "Our ceramic pour-over drippers are in: ₦12,000 each, or NGN 30,000 for a set of four. On sale every day, 9am to 7pm, at the bar, 22 Herbert Macaulay Way, Yaba. Gift wrapping on request.",
+  /* Round 6, written fresh: in words no eval case or critic brief uses. A
+     multi-item price, a portrait drawn at 16:9, an event with a phone, a
+     day, a time, a price, ages, a place and a named speaker, and a service
+     with no physical product. */
+  cafe: "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.",
   fashion:
-    "The indigo adire kaftan is back in three sizes, ₦64,000, only 20 made. See it at our studio, 14 Bourdillon Road, Ikoyi, Wednesday to Saturday, 10am to 5pm.",
+    "The Ire wrap dress in sage silk with pearl buttons, ₦78,000, sizes 8 to 16, only 15 made. Fittings at 3 Raymond Njoku Street, Ikoyi, Tuesday to Saturday, 11am to 6pm.",
   event:
-    "Pastry masterclass with pastry chef Funmi Adebayo on Sunday 23 November, 11am to 3pm, at our Lekki shop, 7 Admiralty Way. ₦30,000 per person, ages 16 and up, 10 places only. Call 0907 222 3190 to book.",
+    "Chocolate tempering masterclass with chocolatier Kemi Durojaiye on Saturday 29 November, 2pm to 5pm, at our Lekki kitchen, 7 Admiralty Way. ₦28,000 per person, ages 16 and up, 12 places. WhatsApp 0813 222 7045 to book.",
+  service:
+    "Same-day laundry pickup across Lekki and Ajah: we collect by 10am and bring it back washed and folded by 7pm. ₦9,500 for a 10kg bag. Book on 0809 111 4462.",
   workshop:
     "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.",
 };
@@ -171,7 +182,7 @@ interface Job {
   name: string;
   brand: keyof typeof brands;
   brief: keyof typeof BRIEFS;
-  aspect: "1:1" | "4:5" | "9:16";
+  aspect: "1:1" | "4:5" | "9:16" | "16:9";
   photo?: string;
   regenerateOf?: string;
   mustRefuse?: boolean;
@@ -311,6 +322,7 @@ async function run(job: Job) {
     briefRead: m.briefRead,
     footerRepeatsDropped: m.footerRepeatsDropped,
     textLed: m.textLed,
+    textLedImageModelDown: m.textLedImageModelDown,
     subjectUnknown: m.subjectUnknown,
     failed: failedRows.map((r) => ({ id: r.id, error: r.error })),
     progress: [...new Set(progress)],
@@ -363,7 +375,7 @@ results.push(
     name: "fashion-photo",
     brand: "fashion",
     brief: "fashion",
-    aspect: "4:5",
+    aspect: "16:9",
     photo: `${FIXTURES}/portrait-fashion.jpg`,
   }),
 );
@@ -372,6 +384,14 @@ results.push(
     name: "event-ko",
     brand: "bakery",
     brief: "event",
+    aspect: "1:1",
+  }),
+);
+results.push(
+  await run({
+    name: "service-ko",
+    brand: "laundry",
+    brief: "service",
     aspect: "1:1",
   }),
 );

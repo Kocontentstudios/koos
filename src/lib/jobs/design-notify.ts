@@ -65,7 +65,7 @@ export async function notifyImageLeftOff({
   const why =
     cause === "unavailable"
       ? "KO's image service didn't return an image just now, so none could be used"
-      : `the images KO made${subject ? ` of the ${subject}` : ""} showed the wrong thing or painted made-up writing or a face, so none was used`;
+      : `the images KO made${subject ? ` of the ${subject}` : ""} couldn't be used: they showed the wrong thing, painted made-up writing or a face, or left no room to show the subject whole`;
   await notifyAssetFault(
     userId,
     `${which} laid out with words only: ${why}. Regenerate it to try new imagery, or upload your own photo.`,

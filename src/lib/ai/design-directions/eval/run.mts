@@ -567,9 +567,9 @@ for (const evalCase of cases) {
       .filter(Boolean)
       .join(" ");
     for (const [i, direction] of result.directions.entries()) {
-      const image = imagery[i];
-      const imageFacts = image ? await measureImage(image.asset) : null;
-      const assets = {
+      let image = imagery[i];
+      let imageFacts = image ? await measureImage(image.asset) : null;
+      let assets = {
         image: image ? { ref: { key: image.key }, asset: image.asset } : null,
         imageFacts,
         logo: null,
@@ -578,25 +578,54 @@ for (const evalCase of cases) {
         ...designSpecOf(direction),
         logoPlacement: "none" as const,
       };
-      const choice = await chooseLayout({
+      const held = [
+        ...taken,
+        ...result.directions.slice(i + 1).map((d) => d.layout),
+      ];
+      const relayout = (
+        s: ReturnType<typeof designSpecOf>,
+        layout: typeof spec.layout,
+      ) => ({
+        ...respecForLayout(s, layout, {
+          modelChoice: "none",
+          hasLogo: false,
+        }),
+        logoPlacement: "none" as const,
+      });
+      let choice = await chooseLayout({
         spec,
-        held: [
-          ...taken,
-          ...result.directions.slice(i + 1).map((d) => d.layout),
-        ],
+        held,
         subjects: image ? image.subjects : [],
         imageless: !image,
         apartFrom:
           evalCase.imageSource === "upload" && i > 0 ? firstPlace : null,
         judge: layoutJudge(context, assets, fonts),
-        relayout: (s, layout) => ({
-          ...respecForLayout(s, layout, {
-            modelChoice: "none",
-            hasLogo: false,
-          }),
-          logoPlacement: "none" as const,
-        }),
+        relayout,
       });
+      /* As the job does: a KO plate no free layout shows whole and clear is
+         left off and the design laid out as text. */
+      const plateFaulted =
+        evalCase.imageSource === "ko" &&
+        image !== null &&
+        (choice.fault === SUBJECT_COVERED ||
+          choice.faults.some(
+            (f) => f === SUBJECT_CROPPED || f === SUBJECT_FACE_ONLY,
+          ));
+      if (plateFaulted) {
+        image = null;
+        imageFacts = null;
+        assets = { image: null, imageFacts: null, logo: null };
+        choice = await chooseLayout({
+          spec,
+          held,
+          subjects: [],
+          imageless: true,
+          apartFrom: null,
+          judge: layoutJudge(context, assets, fonts),
+          relayout,
+        });
+        console.log(`\n   [${i}] plate left off: no layout showed it whole`);
+      }
       taken.push(choice.spec.layout);
       if (i === 0) firstPlace = choice.place;
       const base = {

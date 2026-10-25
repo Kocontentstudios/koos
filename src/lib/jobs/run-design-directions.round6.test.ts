@@ -552,6 +552,34 @@ describe("round-5 critic job probes", () => {
     }
   });
 
+  /* Round-5 live critic: never deliver a subject fault. A KO plate no
+     layout shows whole and clear is left off, and the direction is laid
+     out as text, rather than delivered cut or failed outright. */
+  it("lays a KO direction out as text when no layout shows its plate whole", async () => {
+    coverWholeWider = 0.85;
+    checkPlateShowsProduct.mockResolvedValue({
+      shows: true,
+      seen: "almond croissants",
+      subject: { x: 0.04, y: 0.05, w: 0.92, h: 0.9 },
+      items: [],
+      lettering: false,
+      person: false,
+    });
+    await run({ image: { source: "ko" } });
+    const m = usage();
+    expect(m.textLed).toBe(2);
+    expect(m.qualityFaults).toBe(2);
+    const { TEXT_LED_LAYOUTS } = await import("./directions/subject-layout");
+    for (const id of ["row-1", "row-2"]) {
+      const doc = delivered(id)?.document as {
+        elements: { type: string }[];
+      };
+      expect(doc.elements.some((e) => e.type === "image")).toBe(false);
+      expect(TEXT_LED_LAYOUTS).toContain(delivered(id)?.spec.layout);
+    }
+    expect(notified()[0]).toMatch(/left no room to show the subject whole/);
+  });
+
   /* A regenerate of one direction on an upload made one row, so it never
      kept apart from the sibling drawing the same photo. */
   it("keeps a regenerated upload direction apart from its sibling's photo", async () => {
