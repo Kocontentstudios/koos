@@ -175,6 +175,42 @@ watch. Brief facts per direction and on any direction are now measured
 against the labels, so a fact the reader missed counts as missing from the
 design.
 
+### Round 6 additions, frozen before the round-6 run
+
+The round-5 critics found defects every metric passed: a portrait on 16:9
+delivered cut at the mouth, a named speaker left off one direction, footer
+repeats in other words, "Zero transfer fees for your" printed, a price
+detached from its unit, an AI person beside "architect Ada Obi", and a
+precision score that could not see "₦3,000 an amazing". The eval now
+mirrors the job's refusals (a layout that cuts the subject or keeps only a
+face clear is refused on an upload, and a KO plate no layout shows whole is
+left off and the direction laid out as text), counts the people a case
+names as facts, and asks two independent questions of every delivered
+design: the copy judge also lists footer repeats and fragments, and the
+plate look also says whether any person appears.
+
+| Metric | Meaning | Threshold |
+|---|---|---|
+| read precision | A fact is also imprecise when it carries a word no label it reaches has, ends on a dangling word, or is a part of a label whose rest no fact reads ("Shop 4" of "Shop 4, Sunday Market, Ikeja") | ≥ 0.95 (unchanged) |
+| `deliveredSubjectCut` | Delivered directions whose known subject is cut by its frame | 0 |
+| `textLedShare` | KO directions laid out as text: paid image calls that bought no image | ≤ 0.25 |
+| `peopleNamedShare` | Directions naming every real person the case names | 1.0 |
+| `personPainted` | Plates on which the eval's look sees any person, on a case naming a real one | 0 |
+| `judgeRepeatedShare` | Directions where the judge reads a footer item that only repeats the copy, in any words | ≤ 0.15 |
+| `fragments` | Footer items that end mid-phrase (`looksCutOff`) | 0 |
+| `pricesDetached` | A labelled price drawn in the footer as a bare number without its unit, and not given above the footer | 0 |
+| `imageAgainstFrame` | A picture narrower than its card, flush against the card's edge | 0 |
+
+Brief facts per direction now include the people a case names. Three
+cases copied word for word from the round-4 critic's live briefs
+(`cups-photo-upload`, `coat-portrait-upload`, `sourdough-class-ko`) are
+replaced by five written fresh and held out from every critic brief:
+`kimono-wide-upload` (a portrait at 16:9), `tutoring-ko` (a service with no
+product), `pottery-evening-ko` (an event naming a real person, every hard
+fact), `storefront-reopening-upload` (a 24 MP storefront, two prices with
+their units) and `retreat-sky-upload` (a landscape on a 9:16 story).
+`cases.test.ts` holds every label to the brief's own words.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a
@@ -240,9 +276,11 @@ scene must now show the same product. A pair is a near-duplicate at headline
 | `fashion-portrait-upload` | product | portrait-fashion.jpg | A person: copy may never cover the face |
 | `masterclass-ko` | event | KO | Round-3 live critic's event: a weekday with its date, an age limit, a street address, inclusions, a count and a phone number |
 | `workshop-blank-upload` | event | photo-a.jpg | A near-white photo the loader must refuse before any model call |
-| `cups-photo-upload` | product | busy-cafe-espresso.jpg | Round 5: a price for a set of four on a busy photo |
-| `coat-portrait-upload` | product | portrait-fashion.jpg, 9:16 | Round 5: an address followed by days, a count ("only 15 made") |
-| `sourdough-class-ko` | event | KO | Round 5: an event (the plate is a scene) naming a real person (no face may be painted), with a phone, a date, a time, a price, ages and a place |
+| `kimono-wide-upload` | product | portrait-fashion.jpg, 16:9 | Round 6: a portrait on a wide canvas, an address followed by days, a count |
+| `tutoring-ko` | service | KO | Round 6: a service with no product, whose plates must not be paper or screens |
+| `pottery-evening-ko` | event | KO | Round 6: an event naming a real person (no person painted), with every hard fact |
+| `storefront-reopening-upload` | offer | busy-storefront-24mp.jpg | Round 6: a 24 MP photo, two prices with their units |
+| `retreat-sky-upload` | event | sky-over-stone.jpg, 9:16 | Round 6: a landscape on a story, a date range, a website |
 
 The photo fixtures are royalty-free stock in `/tmp/feat-033/fixtures` (kept
 out of the repo, they are binaries).
