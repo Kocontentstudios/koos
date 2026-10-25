@@ -8,7 +8,11 @@ import {
   MAX_GRADIENT_STOPS,
 } from "./schema";
 import { schemaBounds, worstCaseDocument } from "./testing-cost";
-import { MAX_EMOJI_PER_DOCUMENT, MAX_EMOJI_PER_TEXT } from "./text-safety";
+import {
+  MAX_EMOJI_PER_DOCUMENT,
+  MAX_EMOJI_PER_TEXT,
+  MAX_MARKS_PER_CLUSTER,
+} from "./text-safety";
 
 /**
  * What the schema does at every cost bound, not how it is written.
@@ -60,16 +64,49 @@ function withField(
 
 const parses = (doc: DesignDocument) => designDocumentSchema.safeParse(doc);
 
+/* Every look a run of text can take. A rule can hide behind one: a role cap
+   that skipped runs set in the body face, and a transform that grew only
+   non-italic type, both passed while every test document was italic in
+   the heading face. */
+const LOOKS = [
+  {},
+  { italic: false },
+  { font: "body" },
+  { align: "center" },
+  { align: "right" },
+  { fontWeight: 100 },
+  { fontWeight: 900 },
+] as const;
+
+function inEveryLook(doc: DesignDocument): DesignDocument[] {
+  return LOOKS.map((look) => ({
+    ...doc,
+    elements: doc.elements.map((element) => {
+      if (element.type === "text")
+        return { ...element, ...look } as DesignElement;
+      if (element.type === "button" && "fontWeight" in look) {
+        return { ...element, fontWeight: look.fontWeight } as DesignElement;
+      }
+      return element;
+    }),
+  }));
+}
+
 function expectAccepted(doc: DesignDocument) {
-  const result = parses(doc);
-  expect(result.error?.issues ?? []).toEqual([]);
-  /* A transform that grows a value after the bound check passes the check
-     and draws the grown value; the parsed document must be the input. */
-  expect(result.data).toEqual(doc);
+  for (const variant of inEveryLook(doc)) {
+    const result = parses(variant);
+    expect(result.error?.issues ?? []).toEqual([]);
+    /* A transform that grows a value after the bound check passes the
+       check and draws the grown value; the parsed document must be the
+       input. */
+    expect(result.data).toEqual(variant);
+  }
 }
 
 function expectRefused(doc: DesignDocument) {
-  expect(parses(doc).success).toBe(false);
+  for (const variant of inEveryLook(doc)) {
+    expect(parses(variant).success).toBe(false);
+  }
 }
 
 /* Past a bound by less than any value a person or model would choose, but
@@ -324,6 +361,174 @@ describe("no number without a bound", () => {
     };
     visit(json, "");
     expect(unbounded).toEqual([]);
+  });
+});
+
+/**
+ * Each cap again, with the overflow in every element that can carry it.
+ *
+ * One document shape per cap let a cap be loosened where that shape never
+ * looks: the copy budget summed over the first two elements, headlines or
+ * button labels left out of it, gradients counted on shapes only, the
+ * emoji cap on the first two runs, labels skipping the text checks. All
+ * passed with copy only in body runs and gradients only on shapes. Here the
+ * load is spread over every carrier the caps allow (every text role and
+ * both buttons) and the one-too-many lands on each carrier in turn.
+ */
+describe("every cap, overflowing in every carrier", () => {
+  const ROLES = Object.entries(DOCUMENT_LIMITS.byRole)
+    .flatMap(([role, n]) => Array.from({ length: n }, () => role))
+    .slice(0, DOCUMENT_LIMITS.byType.text);
+
+  /** One element per place copy can go: every text run the caps allow, by
+   *  role, and every button. */
+  function carriers(copies: string[]): DesignElement[] {
+    const texts = ROLES.map(
+      (role, i) =>
+        ({
+          ...plain("text", `text-${i}`),
+          role,
+          text: copies[i],
+        }) as DesignElement,
+    );
+    const buttons = Array.from(
+      { length: DOCUMENT_LIMITS.byType.button },
+      (_, i) =>
+        ({
+          ...plain("button", `button-${i}`),
+          label: copies[ROLES.length + i],
+        }) as DesignElement,
+    );
+    return [...texts, ...buttons];
+  }
+  const CARRIERS = ROLES.length + DOCUMENT_LIMITS.byType.button;
+  const names = [
+    ...ROLES.map((role, i) => `${role} run ${i}`),
+    ...Array.from(
+      { length: DOCUMENT_LIMITS.byType.button },
+      (_, i) => `button ${i}`,
+    ),
+  ];
+
+  /** `total` copy spread evenly, with the remainder on carrier `last`. */
+  function spread(total: number, last: number): string[] {
+    const share = Math.floor(total / CARRIERS);
+    return Array.from({ length: CARRIERS }, (_, i) =>
+      "a".repeat(share + (i === last ? total - share * CARRIERS : 0)),
+    );
+  }
+
+  it("spreads the full copy budget over every carrier", () => {
+    expectAccepted(
+      documentOf(carriers(spread(DOCUMENT_LIMITS.textCodePoints, 0))),
+    );
+  });
+
+  it.each(names.map((name, i) => [name, i] as const))(
+    "copy budget plus one, the extra in %s, is refused",
+    (_, i) => {
+      expectRefused(
+        documentOf(carriers(spread(DOCUMENT_LIMITS.textCodePoints + 1, i))),
+      );
+    },
+  );
+
+  /* Distinct pictographs, as many on each carrier as the total allows. */
+  function emojiSpread(total: number, last: number): string[] {
+    const all = Array.from({ length: total }, (_, i) =>
+      String.fromCodePoint(0x1f600 + i),
+    );
+    const share = Math.floor(total / CARRIERS);
+    const runs: string[] = [];
+    let next = 0;
+    for (let i = 0; i < CARRIERS; i += 1) {
+      const count = share + (i === last ? total - share * CARRIERS : 0);
+      runs.push(all.slice(next, next + count).join(" ") || "a");
+      next += count;
+    }
+    return runs;
+  }
+
+  it("spreads the distinct-emoji cap over every carrier", () => {
+    expectAccepted(
+      documentOf(carriers(emojiSpread(MAX_EMOJI_PER_DOCUMENT, 0))),
+    );
+  });
+
+  it.each(names.map((name, i) => [name, i] as const))(
+    "one distinct emoji too many, the extra in %s, is refused",
+    (_, i) => {
+      expectRefused(
+        documentOf(carriers(emojiSpread(MAX_EMOJI_PER_DOCUMENT + 1, i))),
+      );
+    },
+  );
+
+  it("refuses a button label past the per-run emoji cap", () => {
+    const label = (count: number) =>
+      ({
+        ...plain("button"),
+        label: Array(count).fill("\u{1F600}").join(" "),
+      }) as DesignElement;
+    expectAccepted(documentOf([label(MAX_EMOJI_PER_TEXT)]));
+    expectRefused(documentOf([label(MAX_EMOJI_PER_TEXT + 1)]));
+  });
+
+  it("refuses a button label satori could loop on, as it does a text run", () => {
+    const cluster = `a${"\u0301".repeat(MAX_MARKS_PER_CLUSTER + 1)}`;
+    expectRefused(
+      documentOf([{ ...plain("button"), label: cluster } as DesignElement]),
+    );
+    expectRefused(
+      documentOf([
+        { ...plain("text"), role: "body", text: cluster } as DesignElement,
+      ]),
+    );
+  });
+
+  const gradientFill = worst.elements.find(
+    (element) =>
+      element.type === "shape" && element.fill.startsWith("linear-gradient"),
+  );
+  const GRADIENT = gradientFill?.type === "shape" ? gradientFill.fill : "";
+
+  /** Gradients on `onShapes` shapes and `onButtons` buttons. */
+  function gradients(onShapes: number, onButtons: number): DesignElement[] {
+    return [
+      ...Array.from(
+        { length: onShapes },
+        (_, i) =>
+          ({
+            ...plain("shape", `shape-${i}`),
+            fill: GRADIENT,
+          }) as DesignElement,
+      ),
+      ...Array.from(
+        { length: onButtons },
+        (_, i) =>
+          ({
+            ...plain("button", `button-${i}`),
+            fill: GRADIENT,
+          }) as DesignElement,
+      ),
+    ];
+  }
+
+  it("counts gradients on buttons as well as shapes", () => {
+    const cap = DOCUMENT_LIMITS.gradients;
+    expect(GRADIENT).not.toBe("");
+    const buttons = DOCUMENT_LIMITS.byType.button;
+    expectAccepted(documentOf(gradients(cap - 1, 1)));
+    /* One too many with as many as possible on buttons, then with the extra
+       one on a button. */
+    expectRefused(documentOf(gradients(cap + 1 - buttons, buttons)));
+    expectRefused(documentOf(gradients(cap, 1)));
+  });
+
+  it("refuses a gradient spelled in a way satori draws as black", () => {
+    for (const fill of [` ${GRADIENT}`, GRADIENT.toUpperCase()]) {
+      expectRefused(documentOf([{ ...plain("shape"), fill } as DesignElement]));
+    }
   });
 });
 

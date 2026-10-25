@@ -128,8 +128,11 @@ function splitTopLevel(input: string): string[] {
 /** The builders use three; every stop is another band resvg rasterises. */
 export const MAX_GRADIENT_STOPS = 5;
 
+/* Exact spelling only: satori draws " linear-gradient(...)" or an upper-case
+   one as solid black while a browser draws the gradient, so the editor and
+   the PNG would disagree, and the gradient cap would not count it. */
 export function isDocumentGradient(value: string): boolean {
-  const match = /^linear-gradient\((.*)\)$/i.exec(value.trim());
+  const match = /^linear-gradient\((.*)\)$/.exec(value);
   if (!match) return false;
   const parts = splitTopLevel(match[1]);
   if (parts.length < 3) return false;
@@ -312,9 +315,11 @@ export const designElementSchema = z.discriminatedUnion("type", [
  * code points; the room above that is for the editor. The worst document
  * these caps allow (testing-cost.ts) draws in 2.1-2.5s alone and 2.2-2.8s
  * beside another on the render pool; `bench:document-cost` holds it under
- * 3s; cost-bounds.test.ts refuses one step past every bound and cap
- * wherever it is enforced, and cost.smoke.test.ts fails if a declared one
- * moves without a new recorded bench run.
+ * 3s. cost-bounds.test.ts refuses one step past every bound and cap, with
+ * the overflow on every element that can carry it and in every text look;
+ * it tests the shapes it builds, so a change to limitIssues or text-safety
+ * is a review item. cost.smoke.test.ts fails if a declared bound moves
+ * without a new recorded bench run.
  * A process's first render also pays the handshakes for
  * the fallback faces and emoji next/og fetches, about 2s more whatever the
  * emoji count, which the render limit (satori-pool.ts) bounds.
@@ -359,7 +364,7 @@ function limitIssues(
     }
   }
   if (
-    count((e) => Boolean(e.fill?.startsWith("linear-gradient"))) >
+    count((e) => e.fill !== undefined && isDocumentGradient(e.fill)) >
     DOCUMENT_LIMITS.gradients
   ) {
     return `A design holds at most ${DOCUMENT_LIMITS.gradients} gradient fills`;

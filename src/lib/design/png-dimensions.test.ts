@@ -138,6 +138,34 @@ describe("readJpegDimensions", () => {
     expect(readJpegDimensions(bytes)).toEqual({ width: 8192, height: 8192 });
   });
 
+  it("refuses a stuffed 0xFF00 between segments instead of jumping on it", () => {
+    /* Round 6d's shape: 0xFF00 read as a marker took the next two bytes as a
+       length and landed on a fake frame header inside a comment. */
+    const bytes = new Uint8Array([
+      0xff,
+      0xd8,
+      0xff,
+      0x00,
+      0x00,
+      0x08,
+      ...comment(sof(10, 10)),
+      ...sof(8192, 8192),
+      ...SCAN,
+    ]);
+    expect(readJpegDimensions(bytes)).toBeNull();
+  });
+
+  it("refuses a stray byte between segments", () => {
+    const bytes = new Uint8Array([
+      0xff,
+      0xd8,
+      0x00,
+      ...sof(8192, 8192),
+      ...SCAN,
+    ]);
+    expect(readJpegDimensions(bytes)).toBeNull();
+  });
+
   it("refuses two frame headers before the first scan", () => {
     const bytes = new Uint8Array([
       0xff,

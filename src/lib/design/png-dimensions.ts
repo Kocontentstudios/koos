@@ -60,50 +60,44 @@ const SOF_MARKERS = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
 ]);
 
+/**
+ * Strict on purpose. A decoder skips bytes it does not expect; a reader
+ * that guesses differently can be steered onto a fake frame header while
+ * the decoder draws the real one: a 0xFF fill byte, then a stuffed 0xFF00
+ * read as a marker with a length, each passed an 8192 px image as 10x10.
+ * Every encoder writes segments back to back, so anything else between
+ * them (a stray byte, 0xFF00 outside scan data, a second start of image or
+ * frame header) is refused rather than interpreted.
+ */
 export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 2;
   let found: PngDimensions | null = null;
 
-  while (offset + 4 <= bytes.length) {
-    if (bytes[offset] !== 0xff) {
-      offset += 1; // resynchronise on fill bytes
-      continue;
-    }
-    const marker = bytes[offset + 1];
-    /* Any number of 0xFF fill bytes may precede a marker. Reading one as a
-       marker took the next two bytes as a length, skipped the real frame
-       header and read a fake 10x10 one from inside a comment, so an
-       8192 px image passed the renderer's size check. */
-    if (marker === 0xff) {
-      offset += 1;
-      continue;
-    }
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    if (offset >= bytes.length) return found;
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0x00 || marker === 0xd8) return null;
     // Standalone markers carry no length payload.
-    if (
-      marker === 0xd8 ||
-      marker === 0x01 ||
-      (marker >= 0xd0 && marker <= 0xd7)
-    ) {
-      offset += 2;
-      continue;
-    }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
     if (marker === 0xd9 || marker === 0xda) return found; // EOI / scan data
-    const length = view.getUint16(offset + 2);
+    if (offset + 2 > bytes.length) return found;
+    const length = view.getUint16(offset);
     if (length < 2) return null;
     if (SOF_MARKERS.has(marker)) {
-      /* A baseline or progressive image has one frame header before its
-         first scan. Two leave no single honest size to check. */
-      if (found || offset + 9 > bytes.length) return null;
-      const height = view.getUint16(offset + 5);
-      const width = view.getUint16(offset + 7);
+      if (found || offset + 7 > bytes.length) return null;
+      const height = view.getUint16(offset + 3);
+      const width = view.getUint16(offset + 5);
       if (!isPlausibleDimension(width) || !isPlausibleDimension(height)) {
         return null;
       }
       found = { width, height };
     }
-    offset += 2 + length;
+    offset += length;
   }
   return found;
 }
