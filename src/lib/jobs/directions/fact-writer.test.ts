@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FactWriter } from "./fact-writer";
 
 const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
@@ -54,7 +55,7 @@ describe("copyProblems", () => {
 
 describe("settleFacts", () => {
   it("takes a rewrite that states what was missing and fixes the fragment", async () => {
-    const writer = vi.fn(async () => [
+    const writer = vi.fn(async (_input: Parameters<FactWriter>[0]) => [
       {
         id: 0,
         subheadline: "Join our new Ikoyi kitchen for ₦220,000 a month.",
