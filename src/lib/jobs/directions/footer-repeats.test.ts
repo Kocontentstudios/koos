@@ -6,9 +6,12 @@ vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 const {
+  askFooterRewrites,
   buildFooterRepeatPrompt,
+  buildFooterRewritePrompt,
   checkFooterRepeats,
   dropMarkedRepeats,
+  marksNeedingRewrite,
   settleMarkedRepeats,
 } = await import("./footer-repeats");
 const { settleBriefFacts } = await import("./brief-facts");
@@ -88,7 +91,7 @@ describe("dropMarkedRepeats", () => {
       expect.objectContaining({
         item: "Friday 12 December",
         dropped: false,
-        kept: "it carries a brief fact said nowhere else",
+        kept: expect.stringMatching(/carries a brief fact said nowhere else/),
       }),
     ]);
   });
@@ -164,6 +167,8 @@ describe("settleMarkedRepeats", () => {
   });
 });
 
+/* Oluwaseyi's ruling: a merge never replaces a button's ask. The round-6
+   live run had made the button "WhatsApp 0813 222 7045". */
 describe("merges into a button", () => {
   const facts = settleBriefFacts(
     [{ kind: "contact", text: "WhatsApp 0813 222 7045" }],
@@ -177,7 +182,7 @@ describe("merges into a button", () => {
     footerStyle: "text" as const,
   };
 
-  it("keeps the button short: a long merged button is refused", async () => {
+  it("never rewrites the button; the detail stays below", async () => {
     const { directions, outcomes } = await settleMarkedRepeats(
       [direction],
       [
@@ -185,13 +190,91 @@ describe("merges into a button", () => {
           id: "0.0",
           repeats: "the button",
           field: "button",
-          rewrite: "WhatsApp 0813 222 7045 to Book",
+          rewrite: "WhatsApp 0813 222 7045",
         },
       ],
       facts,
       async () => true,
     );
     expect(directions[0]).toEqual(direction);
-    expect(outcomes[0].kept).toMatch(/would not fit/);
+    expect(directions[0].cta).toBe("WhatsApp to Book");
+    expect(outcomes[0].kept).toBe("a button stays an action");
+  });
+});
+
+describe("the second, targeted ask", () => {
+  const facts = settleBriefFacts(
+    [{ kind: "contact", text: "WhatsApp 0813 222 7045" }],
+    "Book on WhatsApp 0813 222 7045.",
+    { region: "NG" },
+  ).facts;
+  const direction = {
+    headline: "Temper chocolate",
+    subheadline: "A masterclass in Lekki.",
+    cta: "WhatsApp to book",
+    footerLines: ["WhatsApp 0813 222 7045 · Ages 16+"],
+    footerStyle: "text" as const,
+  };
+
+  it("asks only for marked items that carry a fact and have no rewrite", () => {
+    expect(
+      marksNeedingRewrite(
+        [direction],
+        [
+          { id: "0.0", repeats: "the button" },
+          { id: "0.1", repeats: "nothing" },
+        ],
+        facts,
+      ),
+    ).toEqual([{ id: "0.0", item: "WhatsApp 0813 222 7045" }]);
+  });
+
+  it("asks for a subheadline or headline rewrite and never the button", async () => {
+    generateObject.mockResolvedValueOnce({
+      object: {
+        rewrites: [
+          {
+            id: "0.0",
+            field: "subheadline",
+            rewrite: "A masterclass in Lekki. WhatsApp 0813 222 7045.",
+          },
+        ],
+      },
+    });
+    const out = await askFooterRewrites(
+      [direction],
+      [{ id: "0.0", item: "WhatsApp 0813 222 7045" }],
+    );
+    expect(out).toEqual([
+      {
+        id: "0.0",
+        field: "subheadline",
+        rewrite: "A masterclass in Lekki. WhatsApp 0813 222 7045.",
+      },
+    ]);
+    expect(
+      buildFooterRewritePrompt(
+        [direction],
+        [{ id: "0.0", item: "WhatsApp 0813 222 7045" }],
+      ),
+    ).toContain("Never touch the button");
+  });
+
+  it("strips a button field from the first answer", async () => {
+    generateObject.mockResolvedValueOnce({
+      object: {
+        repeats: [
+          {
+            id: "0.0",
+            repeats: "the button",
+            field: "button",
+            rewrite: "WhatsApp 0813 222 7045",
+          },
+        ],
+      },
+    });
+    expect(await checkFooterRepeats([direction])).toEqual([
+      { id: "0.0", repeats: "the button" },
+    ]);
   });
 });

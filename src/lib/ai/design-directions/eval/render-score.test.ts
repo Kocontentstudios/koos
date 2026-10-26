@@ -3,6 +3,7 @@ import {
   aggregateRender,
   craftOfDelivered,
   isCropped,
+  majorityJudge,
   RENDER_THRESHOLDS,
   type RenderedCase,
   type RenderedDirection,
@@ -259,6 +260,28 @@ describe("craftOfDelivered (round-4 live critic's craft defects)", () => {
         "copy corrections the rules got wrong 1.00 > 0",
         "copy correction put copy on the subject 1.00 > 0",
       ]),
+    );
+  });
+});
+
+describe("majorityJudge", () => {
+  const none = { unsupported: [], missing: [], repeated: [], fragments: [] };
+  it("counts a flag only when two of three readings agree", () => {
+    expect(
+      majorityJudge([
+        { ...none, unsupported: ["fresh"] },
+        none,
+        { ...none, unsupported: ["fresh daily"], missing: ["the phone"] },
+      ]),
+    ).toEqual({ ...none, unsupported: ["fresh"] });
+  });
+
+  it("flags nothing on one reading alone, or when two readings failed", () => {
+    expect(majorityJudge([{ ...none, missing: ["x"] }, none, none])).toEqual(
+      none,
+    );
+    expect(majorityJudge([{ ...none, repeated: ["x"] }, null, null])).toEqual(
+      none,
     );
   });
 });

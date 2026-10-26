@@ -262,6 +262,25 @@ check), and loses no fact; then the footer item goes. Each merge is in the
 case log (`footer repeats marked … "merged"`). The judge's footer-repeat
 gate (≤ 0.15) is unchanged.
 
+### Round 6e: judged gates read three times
+
+Every gate the copy judge decides (`judgeInventedShare`,
+`judgeMissingShare`, `judgeRepeatedShare`) is now a stable reading: the
+judge reads each direction three times, and a direction counts as flagged
+for a category only when at least two of the three readings flag it
+(`majorityJudge`, render-score.ts). On the same delivery rules a single
+reading put the invented share anywhere from 0.03 to 0.21 across six runs,
+so one sample, not the designs, decided the gate. A reading that fails is
+no vote, and a direction with fewer than two readings is not flagged.
+Thresholds are unchanged. It triples the judge's calls.
+
+The footer merge also asks again: every marked item that carries a fact
+and came back without a rewrite gets a second, targeted ask for one (so
+each gets a merge attempt; if none holds, the item stays and why is
+recorded). A merge never rewrites the button, which stays an action, and
+no footer item is left as a lone time, date, number or contact
+(`withoutBareItems`).
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

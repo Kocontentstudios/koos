@@ -578,3 +578,38 @@ export function renderFailures(
   );
   return failures;
 }
+
+/** One reading of a direction's copy by the eval's judge. */
+export interface JudgeReading {
+  unsupported: string[];
+  missing: string[];
+  repeated: string[];
+  fragments: string[];
+}
+
+const JUDGED = ["unsupported", "missing", "repeated", "fragments"] as const;
+
+/**
+ * Three readings of one direction, made one stable reading: a category
+ * counts as flagged only when at least two readings flag it, and its
+ * entries are those of the first reading that does. Round 6: on the same
+ * delivery rules the judge's invented share read 0.03 to 0.21 across six
+ * runs; a single sample decided a gate. A reading that failed is no vote;
+ * with fewer than two readings nothing is flagged on that direction.
+ */
+export function majorityJudge(
+  readings: readonly (JudgeReading | null)[],
+): JudgeReading {
+  const got = readings.filter((r): r is JudgeReading => r !== null);
+  const out: JudgeReading = {
+    unsupported: [],
+    missing: [],
+    repeated: [],
+    fragments: [],
+  };
+  for (const key of JUDGED) {
+    const flagging = got.filter((r) => (r[key] ?? []).length > 0);
+    if (flagging.length >= 2) out[key] = flagging[0][key];
+  }
+  return out;
+}

@@ -137,7 +137,7 @@ describe("settleBriefFacts: the reader's spans, held to the brief", () => {
       { kind: "day", text: "Tuesday" },
       { kind: "colour", text: "red" },
     ]);
-    expect(texts(facts)).toEqual([["time", "7am"]]);
+    expect(texts(facts)).toEqual([["time", "from 7am"]]);
     expect(dropped.map((d) => d.why)).toEqual([
       "not the brief's own words",
       'unknown kind "colour"',

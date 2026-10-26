@@ -598,7 +598,26 @@ function withoutDanglingWords(text: string): string {
 }
 
 const CHANNEL_BEFORE =
-  /\b(?:whatsapp|call(?:\s+or\s+whatsapp)?|text|phone|tel|sms|mobile|ring|dm)\b(?:\s+(?:us|me))?(?:\s+(?:on|at))?[\s:.-]*$/i;
+  /\b(?:whatsapp|call(?:\s+or\s+whatsapp)?|text|phone|tel|sms|mobile|ring|dm|book(?:ings?)?|order|reach us)\b(?:\s+(?:us|me))?(?:\s+(?:on|at|via))?[\s:.-]*$/i;
+
+/* A clock time read bare ("10am") keeps the word that says how it stands:
+   "by 10am", "from 7am" (round-6 live run: a footer that read only
+   "10am"). */
+const TIME_LEAD = /\b(?:by|from|at|until|till|before|after|between)\s+$/iu;
+
+/** Whether `text` says nothing but a time, date, number or contact: no
+ *  word a reader could take as context. */
+export function isBare(text: string): boolean {
+  const words = text
+    .replace(/\b\d{1,2}(?:[:.]\d{2})?\s?(?:am|pm)\b/gi, " ")
+    .replace(
+      /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/gi,
+      " ",
+    )
+    .replace(/\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b/gi, " ")
+    .match(/\p{L}{2,}/gu);
+  return !words && /\d/.test(text);
+}
 
 function isKind(kind: string): kind is BriefFactKind {
   return (BRIEF_FACT_KINDS as readonly string[]).includes(kind);
@@ -659,7 +678,12 @@ export function settleBriefFacts(
     dropped.push({ text, why });
   };
 
-  const keep = (kind: BriefFactKind, start: number, end: number) => {
+  const keep = (kind: BriefFactKind, from: number, end: number) => {
+    let start = from;
+    if (kind === "time" && isBare(brief.slice(start, end))) {
+      const lead = TIME_LEAD.exec(brief.slice(Math.max(0, start - 30), start));
+      if (lead) start -= lead[0].length;
+    }
     const raw = brief.slice(start, end);
     const text = withoutDanglingWords(raw);
     if (!text) {
@@ -1409,4 +1433,86 @@ export function brandSetting(
     return `${fromBrief}, ${fromProfile}`;
   }
   return fromProfile ?? fromBrief ?? null;
+}
+
+const BARE_LABEL: Partial<Record<CoverKind, string>> = {
+  contact: "Phone",
+  time: "Time",
+  date: "Date",
+  day: "Day",
+};
+
+/**
+ * Footer items that are only a time, date, number or contact, given their
+ * context (Oluwaseyi's ruling: never a lone "10am"). In order of
+ * preference: the item becomes the brief's words for the fact it states
+ * ("By 10am"), or that fact joins the subheadline as a sentence, or the
+ * item goes when every fact is still stated without it, or, last, it is
+ * labelled with what it is ("Time: 10am").
+ */
+export function withoutBareItems<T extends FactCopy>(
+  direction: T,
+  facts: readonly BriefFact[],
+): T {
+  let current = direction;
+  const items = direction.footerLines.flatMap((line) =>
+    line.split(FOOTER_JOIN).map((item) => item.trim()),
+  );
+  const stated = (copy: T) => facts.filter((f) => factStated(f, copy)).length;
+  const replaceItem = (copy: T, item: string, next: string | null): T => {
+    const footerLines = copy.footerLines
+      .map((line) =>
+        line
+          .split(FOOTER_JOIN)
+          .map((i) => i.trim())
+          .flatMap((i) => (i === item ? (next ? [next] : []) : [i]))
+          .join(FOOTER_JOIN),
+      )
+      .filter(Boolean);
+    return {
+      ...copy,
+      footerLines,
+      footerStyle: footerLines.length > 0 ? copy.footerStyle : "none",
+    } as T;
+  };
+  for (const item of items) {
+    if (!isBare(item)) continue;
+    const fact = facts.find((f) => factStated(f, item));
+    const without = replaceItem(current, item, null);
+    if (fact && stated(without) === stated(current)) {
+      current = without;
+      continue;
+    }
+    const words =
+      fact && !isBare(fact.text)
+        ? fact.kind === "contact"
+          ? fact.text
+          : capitalise(fact.text)
+        : null;
+    if (words) {
+      const trial = replaceItem(current, item, words);
+      if (
+        trial.footerLines.every((l) => l.length <= COPY_LIMITS.footerLine) &&
+        stated(trial) >= stated(current)
+      ) {
+        current = trial;
+        continue;
+      }
+      const sub = current.subheadline?.trim();
+      const lead = sub ? `${sub.replace(/[\s.]+$/, "")}. ${words}.` : null;
+      if (lead && lead.length <= COPY_LIMITS.subheadline) {
+        current = { ...without, subheadline: lead };
+        continue;
+      }
+    }
+    const label = fact
+      ? BARE_LABEL[fact.kind]
+      : PHONE_LIKE.test(item)
+        ? "Phone"
+        : timesIn(item).size > 0
+          ? "Time"
+          : undefined;
+    if (label) current = replaceItem(current, item, `${label}: ${item}`);
+  }
+  return current;
 }

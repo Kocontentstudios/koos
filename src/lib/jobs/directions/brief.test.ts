@@ -50,6 +50,7 @@ function input(over: Record<string, unknown> = {}) {
     claimChecker,
     briefReader,
     footerRepeatChecker,
+    footerRewriter: async () => [],
     ...over,
   };
 }
@@ -768,5 +769,50 @@ describe("footer detail merged up", () => {
         merged: expect.objectContaining({ field: "subheadline" }),
       }),
     ]);
+  });
+});
+
+describe("every marked footer item that carries a fact gets a merge attempt", () => {
+  it("asks again for a rewrite the first answer left out, and merges it", async () => {
+    const first = draftOf({
+      headline: "Almond croissants",
+      subheadline: "Pickup from 7am.",
+      footerLines: ["Saturdays from 7am"],
+      footerStyle: "text",
+    });
+    generateObject.mockResolvedValue(answer(first, contrastingDraft()));
+    briefReader.mockResolvedValueOnce({
+      facts: [{ kind: "day", text: "Saturdays" }] as never[],
+      offering: null,
+      people: [],
+    });
+    const footerRewriter = vi.fn(async () => [
+      {
+        id: "0.0",
+        field: "subheadline" as const,
+        rewrite: "Pickup from 7am on Saturdays.",
+      },
+    ]);
+    const result = await draftDirections(
+      input({
+        context: directionsContext({
+          briefText: "Almond croissants, pickup from 7am on Saturdays.",
+        }),
+        footerRepeatChecker: async () => [
+          { id: "0.0", repeats: "the pickup time" },
+        ],
+        footerRewriter,
+      }),
+    );
+    expect(footerRewriter).toHaveBeenCalledWith(expect.anything(), [
+      { id: "0.0", item: "Saturdays from 7am" },
+    ]);
+    expect(result.directions[0].subheadline).toBe(
+      "Pickup from 7am on Saturdays.",
+    );
+    expect(result.footerRepeats.outcomes[0]).toMatchObject({
+      dropped: true,
+      merged: { field: "subheadline" },
+    });
   });
 });

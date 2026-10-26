@@ -68,7 +68,7 @@ export function buildFooterRepeatPrompt(
   );
   return [
     "You edit social media designs. For each direction below, mark every footer item that repeats, in any words, something the same direction's headline, subheadline or button already says: the same date, time, place, price, count, offer or instruction, abbreviated or reworded ('12–14 December' and 'Friday 12 December · Sunday 14 December', 'Register Free' and 'Free registration', a phone number under a 'WhatsApp to book' button). Do not mark an item about something not said above it at all.",
-    'When a marked item adds a detail to what is above (the weekdays of a date range, the number for a \'WhatsApp to book\' button), also give "field": the one field above that should carry the detail (prefer the subheadline; use the button only when the detail is short), and "rewrite": that whole field written again with the detail in, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140, button 22: a button stays a short ask). Otherwise leave field and rewrite empty.',
+    "When a marked item adds a detail to what is above (the weekdays of a date range, the number for a 'WhatsApp to book' button), also give \"field\": the subheadline, or the headline when there is no subheadline, and \"rewrite\": that whole field written again with the detail in, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140). Never rewrite the button: it stays an action ('WhatsApp to book'). Otherwise leave field and rewrite empty.",
     blocks.join("\n\n"),
     'Return "repeats": one entry per marked item with its id ("0.1"), in a few words what above it the item repeats, and field and rewrite as above. An empty list when nothing repeats.',
   ].join("\n\n");
@@ -111,7 +111,8 @@ export const checkFooterRepeats: FooterRepeatChecker = async (directions) => {
           ids.has(mark.id),
       )
       .map((mark): FooterRepeatMark => {
-        const field = ["headline", "subheadline", "button"].includes(mark.field)
+        /* A merge never replaces a button's ask (Oluwaseyi's ruling). */
+        const field = ["headline", "subheadline"].includes(mark.field)
           ? (mark.field as FooterRepeatMark["field"])
           : undefined;
         const rewrite =
@@ -138,7 +139,7 @@ export interface FooterRepeatOutcome {
   kept?: string;
   /** The field above rewritten to carry the item's detail, when it was. */
   merged?: {
-    field: "headline" | "subheadline" | "cta";
+    field: "headline" | "subheadline";
     from: string;
     to: string;
   };
@@ -187,7 +188,9 @@ export function dropMarkedRepeats<T extends FactCopy>(
         dropped: keepsFacts,
         ...(keepsFacts
           ? {}
-          : { kept: "it carries a brief fact said nowhere else" }),
+          : {
+              kept: "it carries a brief fact said nowhere else, and no rewrite of the field above was offered",
+            }),
       });
       if (keepsFacts) current = trial;
     }
@@ -196,10 +199,10 @@ export function dropMarkedRepeats<T extends FactCopy>(
   return { directions: out, outcomes };
 }
 
-/* A button keeps one short ask (Oluwaseyi's ruling): a merge into it that
-   makes it longer than this is refused, and the detail stays below. The
-   round-6 live run made "WhatsApp 0813 222 7045 to Book" (30 characters). */
-const LIMITS = { headline: 70, subheadline: 140, cta: 22 } as const;
+/* A button stays an action ("WhatsApp to book"): a merge never rewrites
+   it (Oluwaseyi's ruling; the round-6 live run had put the phone number on
+   the button in place of the ask). */
+const LIMITS = { headline: 70, subheadline: 140 } as const;
 
 function withoutItem<T extends FactCopy>(copy: T, item: string): T {
   const footerLines = copy.footerLines
@@ -248,7 +251,11 @@ export async function settleMarkedRepeats<T extends FactCopy>(
       outcomes.push(outcome);
       continue;
     }
-    const field = mark.field === "button" ? "cta" : mark.field;
+    if (mark.field === "button") {
+      outcomes.push({ ...outcome, kept: "a button stays an action" });
+      continue;
+    }
+    const field = mark.field;
     const current = out[outcome.direction];
     const from = current[field] ?? "";
     const to = mark.rewrite.replace(/\s+/g, " ").trim();
@@ -278,4 +285,95 @@ export async function settleMarkedRepeats<T extends FactCopy>(
     }
   }
   return { directions: out, outcomes };
+}
+
+/** A rewrite of the field above for one marked footer item. */
+export interface FooterRewrite {
+  id: string;
+  field: "headline" | "subheadline";
+  rewrite: string;
+}
+
+export type FooterRewriter = (
+  directions: Parameters<FooterRepeatChecker>[0],
+  items: readonly { id: string; item: string }[],
+) => Promise<FooterRewrite[] | null>;
+
+export function buildFooterRewritePrompt(
+  directions: Parameters<FooterRepeatChecker>[0],
+  items: readonly { id: string; item: string }[],
+): string {
+  return [
+    "You edit social media designs. Each footer item below repeats something its direction already says above, but carries a detail the copy above does not (a weekday, a phone number, an address). For each, write the direction's subheadline again (or its headline when it has no subheadline) so it carries that detail too: the whole field, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140). Never touch the button.",
+    ...items.map(({ id, item }) => {
+      const d = directions[Number(id.split(".")[0])];
+      return [
+        `Item ${id}: ${item}`,
+        `  headline: ${d.headline}`,
+        d.subheadline ? `  subheadline: ${d.subheadline}` : null,
+        d.cta ? `  button: ${d.cta}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }),
+    'Return "rewrites": one entry per item with its id, "field" ("subheadline" or "headline") and "rewrite".',
+  ].join("\n\n");
+}
+
+const rewriteSchema = z.object({
+  rewrites: z
+    .array(
+      z.object({
+        id: z.string(),
+        field: z.enum(["headline", "subheadline"]),
+        rewrite: z.string().max(200),
+      }),
+    )
+    .max(30),
+});
+
+/**
+ * The second, targeted ask: a rewrite for every marked item that carries a
+ * fact and came back without one, so each gets a merge attempt. Fail-soft
+ * like the first.
+ */
+export const askFooterRewrites: FooterRewriter = async (directions, items) => {
+  if (items.length === 0) return [];
+  const ids = new Set(items.map((i) => i.id));
+  try {
+    const { object } = await generateObject({
+      model: getModel("strategy"),
+      schema: rewriteSchema,
+      maxOutputTokens: 1200,
+      prompt: buildFooterRewritePrompt(directions, items),
+    });
+    const rewrites = (object as { rewrites?: unknown }).rewrites;
+    if (!Array.isArray(rewrites)) return null;
+    return rewrites.filter(
+      (r): r is FooterRewrite =>
+        typeof r?.id === "string" &&
+        ids.has(r.id) &&
+        (r.field === "headline" || r.field === "subheadline") &&
+        typeof r.rewrite === "string" &&
+        r.rewrite.trim().length > 0,
+    );
+  } catch (err) {
+    console.error("footer rewrite ask unavailable", err);
+    return null;
+  }
+};
+
+/** The marked items that carry a brief fact and have no rewrite yet. */
+export function marksNeedingRewrite(
+  directions: Parameters<FooterRepeatChecker>[0],
+  marks: readonly FooterRepeatMark[],
+  facts: readonly BriefFact[],
+): { id: string; item: string }[] {
+  return marks.flatMap((mark) => {
+    if (mark.rewrite) return [];
+    const [d, j] = mark.id.split(".").map(Number);
+    const item = footerItemsOf(directions[d]?.footerLines ?? [])[j];
+    if (!item || !facts.some((f) => factStated(f, item))) return [];
+    return [{ id: mark.id, item }];
+  });
 }

@@ -112,6 +112,7 @@ const { aggregateDirections, directionsFailures, scoreDirectionsCase } =
 const {
   aggregateRender,
   craftOfDelivered,
+  majorityJudge,
   isCropped,
   renderFailures,
   RENDER_THRESHOLDS,
@@ -861,12 +862,16 @@ for (const evalCase of cases) {
               return null;
             })
           : null;
-      const judged = await judgeCopy(r.briefText, profile, copy).catch(
-        (err) => {
-          console.log(`   judge failed: ${(err as Error).message}`);
-          return { unsupported: [], missing: [], repeated: [], fragments: [] };
-        },
+      /* Three readings, counted only where two agree (majorityJudge). */
+      const readings = await Promise.all(
+        [0, 1, 2].map(() =>
+          judgeCopy(r.briefText, profile, copy).catch((err) => {
+            console.log(`   judge failed: ${(err as Error).message}`);
+            return null;
+          }),
+        ),
       );
+      const judged = majorityJudge(readings);
       const record: RenderedDirection = {
         ...base,
         failed: null,

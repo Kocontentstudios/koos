@@ -17,6 +17,7 @@ import {
   brandRegion,
   coverBriefFacts,
   type FactCoverage,
+  withoutBareItems,
 } from "./brief-facts";
 import {
   type BriefRead,
@@ -48,9 +49,12 @@ import {
   settleReasons,
 } from "./finalize";
 import {
+  askFooterRewrites,
   checkFooterRepeats,
   type FooterRepeatChecker,
   type FooterRepeatOutcome,
+  type FooterRewriter,
+  marksNeedingRewrite,
   settleMarkedRepeats,
 } from "./footer-repeats";
 import { forceDistinctLayouts } from "./layouts";
@@ -99,6 +103,8 @@ export interface DraftDirectionsInput {
   briefReader?: BriefReader;
   /** Marks footer items repeating the copy above (footer-repeats.ts). */
   footerRepeatChecker?: FooterRepeatChecker;
+  /** Writes a rewrite for marked items the first answer left without one. */
+  footerRewriter?: FooterRewriter;
 }
 
 /** What the claim check found and what became of it. */
@@ -564,6 +570,7 @@ export async function draftDirections({
   claimChecker = checkClaims,
   briefReader = readBriefWithModel,
   footerRepeatChecker = checkFooterRepeats,
+  footerRewriter = askFooterRewrites,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
   const showImage =
@@ -942,10 +949,23 @@ export async function draftDirections({
   /* Repeats in other words are marked by a model and dropped by code only
      when no stated fact goes with them (footer-repeats.ts). */
   const hasFooter = coveredFooters.some((d) => d.footerLines.length > 0);
-  const repeatMarks = hasFooter
-    ? await footerRepeatChecker(coveredFooters)
-    : [];
+  const firstMarks = hasFooter ? await footerRepeatChecker(coveredFooters) : [];
   if (hasFooter) modelCalls += 1;
+  /* Every marked item that carries a fact gets a merge attempt: a second,
+     targeted ask for the ones the first answer gave no rewrite. */
+  const needing = firstMarks
+    ? marksNeedingRewrite(coveredFooters, firstMarks, coverFacts)
+    : [];
+  const rewrites =
+    needing.length > 0 ? await footerRewriter(coveredFooters, needing) : [];
+  if (needing.length > 0) modelCalls += 1;
+  const repeatMarks =
+    firstMarks?.map((mark) => {
+      const found = rewrites?.find((r) => r.id === mark.id);
+      return found && !mark.rewrite
+        ? { ...mark, field: found.field, rewrite: found.rewrite }
+        : mark;
+    }) ?? null;
   /* A merge rewrites the copy above, so it is held like any correction:
      the brief's facts, language and offering, and the claim check. */
   const mergeHolds = correctionCheck({
@@ -966,7 +986,10 @@ export async function draftDirections({
     coverFacts,
     mergeHolds,
   );
-  const drawnIn = repeatDrops.directions;
+  /* Never a lone "10am" in a footer (withoutBareItems). */
+  const drawnIn = repeatDrops.directions.map((d) =>
+    withoutBareItems(d, coverFacts),
+  );
   /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
      settled against the old footer ("the footer carries the date") is held
      again to the new one (round-5 eval: two such reasons). */

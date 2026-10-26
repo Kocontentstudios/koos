@@ -9,6 +9,7 @@ import {
   type ReadFact,
   redundantFooterItems,
   settleBriefFacts,
+  withoutBareItems,
   withoutLooseRepeats,
 } from "./brief-facts";
 import { settleBriefRead } from "./brief-read";
@@ -630,5 +631,54 @@ describe("footer dedupe reads & as and, incl. as included", () => {
         }),
       ),
     ).toEqual(["All milk and beans included"]);
+  });
+});
+
+/* Oluwaseyi's ruling: never a lone fragment footer (round-6 live run:
+   a laundry direction's footer read only "10am"). */
+describe("withoutBareItems", () => {
+  it("gives a bare time the brief's words for it", () => {
+    const facts = settle(
+      "Same-day laundry: we collect by 10am and return by 7pm.",
+      [{ kind: "time", text: "10am" }],
+    ).facts;
+    expect(facts[0].text).toBe("by 10am");
+    const out = withoutBareItems(
+      copy({ footerLines: ["0809 111 4462", "10am"], footerStyle: "text" }),
+      facts,
+    );
+    expect(out.footerLines).toEqual(["Phone: 0809 111 4462", "By 10am"]);
+  });
+
+  it("drops a bare item whose fact the copy states elsewhere", () => {
+    const facts = settle("Collect by 10am.", [
+      { kind: "time", text: "by 10am" },
+    ]).facts;
+    const out = withoutBareItems(
+      copy({
+        subheadline: "We collect by 10am.",
+        footerLines: ["10am"],
+        footerStyle: "text",
+      }),
+      facts,
+    );
+    expect(out.footerLines).toEqual([]);
+  });
+
+  it("labels what it cannot place, never shows it bare", () => {
+    const fact: BriefFact = {
+      kind: "contact",
+      text: "0809 111 4462",
+      needs: ["#08091114462,2348091114462"],
+    };
+    const out = withoutBareItems(
+      copy({
+        subheadline: "x".repeat(138),
+        footerLines: ["0809 111 4462"],
+        footerStyle: "text",
+      }),
+      [fact],
+    );
+    expect(out.footerLines).toEqual(["Phone: 0809 111 4462"]);
   });
 });
