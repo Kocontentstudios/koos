@@ -670,3 +670,33 @@ describe("headlines kept apart after the claim check", () => {
     expect(result.directions[1].subheadline).toBe("Apply on WhatsApp.");
   });
 });
+
+describe("buttons kept apart", () => {
+  /* Round-6 eval, conference-ko: short copy with "Register Free" on both
+     buttons read as one direction twice. */
+  it("drops the later of two identical buttons when that separates the pair", async () => {
+    const first = draftOf({
+      headline: "Croissant mornings",
+      subheadline: undefined,
+      cta: "Reserve a tray",
+      footerLines: [],
+    });
+    const twin = contrastingDraft({
+      headline: "Croissant weekends",
+      subheadline: undefined,
+      cta: "Reserve a tray",
+      footerLines: [],
+    });
+    generateObject.mockResolvedValue(answer(first, twin));
+    const result = await draftDirections(
+      input({
+        context: directionsContext({
+          briefText: "Promote our almond croissants.",
+        }),
+      }),
+    );
+    expect(result.directions[0].cta).toBe("Reserve a tray");
+    expect(result.directions[1].cta).toBeUndefined();
+    expect(result.overlap?.copy ?? 1).toBeLessThan(0.45);
+  });
+});

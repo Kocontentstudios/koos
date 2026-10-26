@@ -846,6 +846,27 @@ export async function draftDirections({
       }
     }
   }
+  /* Two buttons with one label make short copy read as one (round-6 eval,
+     conference: "Register Free" twice put the pair over the copy bar).
+     The later one goes; a button is optional, the facts are not on it. */
+  if (finalPair && isNearDuplicate(finalPair.overlap)) {
+    const later = finalPair.later;
+    const label = directions[later].cta?.trim().toLowerCase();
+    const shared =
+      label &&
+      [...existing, ...directions.filter((_, i) => i !== later)].some(
+        (d) => d.cta?.trim().toLowerCase() === label,
+      );
+    if (shared) {
+      const { cta: _cta, ...withoutButton } = directions[later];
+      const trial = directions.map((d, i) => (i === later ? withoutButton : d));
+      const retried = closestPair(trial, existing, overlapOptions);
+      if (retried && !isNearDuplicate(retried.overlap)) {
+        directions[later] = withoutButton;
+        finalPair = retried;
+      }
+    }
+  }
   worst = finalPair ?? worst;
 
   if (read.dropped.length > 0) {

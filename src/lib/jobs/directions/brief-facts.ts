@@ -942,6 +942,19 @@ export function factStated(
     }
     return typeof copy !== "string" && needsHold(numbers, above.join(" \n "));
   }
+  /* What is included or required, put in other words: "meals and a shared
+     room" states "a shared room and all meals included". Only for words,
+     never for a number, time, day or contact, and only when three in four
+     of its words are said (round-6 eval: the footer drew it again and read
+     as a repeat). */
+  if (
+    (fact.kind === "offer" || fact.kind === "condition") &&
+    unit.length >= 3 &&
+    unit.length === fact.needs.length
+  ) {
+    const said = unit.filter((need) => needsHold([need], text)).length;
+    return said >= Math.ceil(unit.length * 0.75);
+  }
   return needsHold(fact.needs, text);
 }
 

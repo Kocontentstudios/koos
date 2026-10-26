@@ -600,3 +600,20 @@ describe("footer repeats, round 6f", () => {
     expect(out.footerLines).toEqual(["Three 150ml tasters for ₦6,000"]);
   });
 });
+
+describe("an inclusion put in other words, round 6g", () => {
+  const fact = () =>
+    settle("Shared room and all meals included.", [
+      { kind: "offer", text: "Shared room and all meals included" },
+    ]).facts[0];
+
+  it("is stated when three in four of its words are said", () => {
+    expect(
+      factStated(fact(), copy({ subheadline: "Meals and a shared room." })),
+    ).toBe(true);
+  });
+
+  it("is not stated by half of them", () => {
+    expect(factStated(fact(), copy({ subheadline: "All meals." }))).toBe(false);
+  });
+});
