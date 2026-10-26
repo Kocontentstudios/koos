@@ -255,7 +255,7 @@ async function subjectAboveCopy(
      edge stays there, and the layout check counts it against the layout
      (craft.ts, IMAGE_AGAINST_EDGE). */
   const lowered = narrower
-    ? [pad, Math.round(pad / 2)]
+    ? [pad, Math.round(pad / 2), Math.round(pad / 3), Math.round(pad / 4)]
         .map((inset) => frameFrom(region.y + inset))
         .find((f) => f && (f.clean || !bled?.clean))
     : null;
