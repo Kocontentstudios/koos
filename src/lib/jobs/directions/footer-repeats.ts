@@ -68,7 +68,7 @@ export function buildFooterRepeatPrompt(
   );
   return [
     "You edit social media designs. For each direction below, mark every footer item that repeats, in any words, something the same direction's headline, subheadline or button already says: the same date, time, place, price, count, offer or instruction, abbreviated or reworded ('12–14 December' and 'Friday 12 December · Sunday 14 December', 'Register Free' and 'Free registration', a phone number under a 'WhatsApp to book' button). Do not mark an item about something not said above it at all.",
-    'When a marked item adds a detail to what is above (the weekdays of a date range, the number for a \'WhatsApp to book\' button), also give "field": the one field above that should carry the detail (prefer the subheadline; use the button only when the detail is short), and "rewrite": that whole field written again with the detail in, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140, button 32). Otherwise leave field and rewrite empty.',
+    'When a marked item adds a detail to what is above (the weekdays of a date range, the number for a \'WhatsApp to book\' button), also give "field": the one field above that should carry the detail (prefer the subheadline; use the button only when the detail is short), and "rewrite": that whole field written again with the detail in, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140, button 22: a button stays a short ask). Otherwise leave field and rewrite empty.',
     blocks.join("\n\n"),
     'Return "repeats": one entry per marked item with its id ("0.1"), in a few words what above it the item repeats, and field and rewrite as above. An empty list when nothing repeats.',
   ].join("\n\n");
@@ -196,7 +196,10 @@ export function dropMarkedRepeats<T extends FactCopy>(
   return { directions: out, outcomes };
 }
 
-const LIMITS = { headline: 70, subheadline: 140, cta: 32 } as const;
+/* A button keeps one short ask (Oluwaseyi's ruling): a merge into it that
+   makes it longer than this is refused, and the detail stays below. The
+   round-6 live run made "WhatsApp 0813 222 7045 to Book" (30 characters). */
+const LIMITS = { headline: 70, subheadline: 140, cta: 22 } as const;
 
 function withoutItem<T extends FactCopy>(copy: T, item: string): T {
   const footerLines = copy.footerLines

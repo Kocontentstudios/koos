@@ -163,3 +163,35 @@ describe("settleMarkedRepeats", () => {
     expect(outcomes[0].kept).toMatch(/would not fit/);
   });
 });
+
+describe("merges into a button", () => {
+  const facts = settleBriefFacts(
+    [{ kind: "contact", text: "WhatsApp 0813 222 7045" }],
+    "Book on WhatsApp 0813 222 7045.",
+    { region: "NG" },
+  ).facts;
+  const direction = {
+    headline: "Temper chocolate",
+    cta: "WhatsApp to Book",
+    footerLines: ["WhatsApp 0813 222 7045"],
+    footerStyle: "text" as const,
+  };
+
+  it("keeps the button short: a long merged button is refused", async () => {
+    const { directions, outcomes } = await settleMarkedRepeats(
+      [direction],
+      [
+        {
+          id: "0.0",
+          repeats: "the button",
+          field: "button",
+          rewrite: "WhatsApp 0813 222 7045 to Book",
+        },
+      ],
+      facts,
+      async () => true,
+    );
+    expect(directions[0]).toEqual(direction);
+    expect(outcomes[0].kept).toMatch(/would not fit/);
+  });
+});
