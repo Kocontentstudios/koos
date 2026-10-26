@@ -1169,9 +1169,29 @@ export function withoutLooseRepeats<T extends FactCopy>(
     /* "S – L" under "sizes S to L": an item of letters too short to say
        anything is a fragment of copy above. */
     const saysNothing = mine.length === 0 && /\p{L}/u.test(item);
+    /* "₦6,000 flight" beside "Three 150ml tasters for ₦6,000": an item that
+       states no fact of its own, whose numbers the rest of the copy
+       already gives (round-6 live run, cafe). */
+    const elsewhere = said(
+      [
+        direction.headline,
+        direction.subheadline,
+        direction.cta,
+        ...current.footerLines
+          .flatMap((line) => line.split(FOOTER_JOIN).map((i) => i.trim()))
+          .filter((other) => other !== item),
+      ]
+        .filter(Boolean)
+        .join(" \n "),
+    );
+    const numbersElsewhere =
+      itsFacts.length === 0 &&
+      hard.length > 0 &&
+      hard.every((h) => elsewhere.has(h));
     const repeats =
       factsAbove ||
       saysNothing ||
+      numbersElsewhere ||
       (mine.length > 0 &&
         hard.every((h) => above.has(h)) &&
         wordsAbove * 2 >= words.length);

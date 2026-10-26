@@ -583,3 +583,20 @@ describe("footer repeats, round 6d", () => {
     expect(out.footerLines).toEqual([]);
   });
 });
+
+describe("footer repeats, round 6f", () => {
+  it("drops an item whose numbers the rest of the copy gives and that states no fact", () => {
+    const facts = settle("Three 150ml tasters for ₦6,000.", [
+      { kind: "price", text: "Three 150ml tasters for ₦6,000" },
+    ]).facts;
+    const out = withoutLooseRepeats(
+      copy({
+        headline: "The Cold Brew Flight",
+        footerLines: ["₦6,000 flight", "Three 150ml tasters for ₦6,000"],
+        footerStyle: "text",
+      }),
+      facts,
+    );
+    expect(out.footerLines).toEqual(["Three 150ml tasters for ₦6,000"]);
+  });
+});
