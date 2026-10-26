@@ -1,16 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   type BriefFact,
-  coverBriefFacts,
-  drawnText,
+  dropFooterRepeats,
   type FactCopy,
   factStated,
-  factsMissing,
   phoneRegions,
   type ReadFact,
   redundantFooterItems,
   settleBriefFacts,
-  withoutBareItems,
   withoutLooseRepeats,
 } from "./brief-facts";
 import { settleBriefRead } from "./brief-read";
@@ -184,10 +181,6 @@ describe("a contact span is one fact per number (round-5 break 5)", () => {
       { kind: "contact", text: "Call 0803 555 0142, 0805 555 0199" },
     ]);
     expect(texts(facts)).toEqual(["Call 0803 555 0142", "0805 555 0199"]);
-    const both = coverBriefFacts([copy()], facts);
-    const drawn = drawnText(both.directions[0]);
-    expect(drawn).toContain("0803 555 0142");
-    expect(drawn).toContain("0805 555 0199");
   });
 
   it("keeps the channel of a second number", () => {
@@ -244,50 +237,6 @@ describe("every phone in the brief is a fact (round-5 break 2)", () => {
   });
 });
 
-describe("the spare-line rule keeps what a customer acts on", () => {
-  /* K3 and r5-spare2: the reader omitted the phone and the model's footer
-     carried it; coverage spliced it out for the address. */
-  it("never gives up a line with a phone, price, time or date", () => {
-    const brief =
-      "Strawberry mille-feuille ₦4,500 a slice. Saturday 7am to 11am pickup at 9 Bourdillon Road, Ikoyi. Pre-orders close Thursday 6pm. Only 40 made. WhatsApp 0803 555 0142.";
-    const read = settle(
-      brief,
-      [
-        { kind: "price", text: "₦4,500 a slice" },
-        { kind: "day", text: "Saturday" },
-        { kind: "time", text: "7am to 11am" },
-        { kind: "place", text: "9 Bourdillon Road, Ikoyi" },
-        { kind: "quantity", text: "Only 40 made" },
-      ],
-      "strawberry mille-feuille",
-    );
-    const out = coverBriefFacts(
-      [
-        copy({
-          headline: "Strawberry mille-feuille",
-          footerLines: [
-            "Pre-orders close Thursday 6pm, no exceptions at all",
-            "WhatsApp 0803 555 0142 to reserve your slice today",
-            "Saturday 7am to 11am · ₦4,500 a slice · Only 40 made",
-          ],
-          footerStyle: "text",
-        }),
-      ],
-      read.facts,
-      "strawberry mille-feuille",
-    );
-    const drawn = drawnText(out.directions[0]);
-    expect(drawn).toContain("0803 555 0142");
-    expect(drawn).toContain("Pre-orders close Thursday 6pm");
-    /* The full footer keeps its facts; the address goes into the
-       subheadline instead of being left off. */
-    expect(out.directions[0].subheadline).toBe(
-      "Layered by hand. 9 Bourdillon Road, Ikoyi.",
-    );
-    expect(out.coverage.leftOff).toEqual([]);
-  });
-});
-
 describe("smaller round-5 breaks", () => {
   it("B2: two readings of one price take its two places", () => {
     const { facts } = settle(
@@ -319,19 +268,6 @@ describe("smaller round-5 breaks", () => {
       ),
     ).toEqual([]);
   });
-
-  it("counts what is stated after the last repeat is dropped", () => {
-    const facts: BriefFact[] = [
-      { kind: "price", text: "₦4,500", needs: ["=4500"] },
-      { kind: "time", text: "7am", needs: ["@420"] },
-    ];
-    const out = coverBriefFacts(
-      [copy({ headline: "₦4,500 at 7am", footerLines: [] })],
-      facts,
-    );
-    expect(out.coverage.stated[0]).toEqual(["₦4,500", "7am"]);
-    expect(out.coverage.added).toEqual([]);
-  });
 });
 
 describe("footer repeats read for meaning (round-5 live critic)", () => {
@@ -340,7 +276,7 @@ describe("footer repeats read for meaning (round-5 live critic)", () => {
       "Monthly bookkeeping. Book a free 20-minute call on 0701 888 2210.",
       [{ kind: "offer", text: "free 20-minute call" }],
     ).facts;
-    const out = coverBriefFacts(
+    const out = dropFooterRepeats(
       [
         copy({
           headline: "Books closed by the 5th",
@@ -354,7 +290,6 @@ describe("footer repeats read for meaning (round-5 live critic)", () => {
     expect(out.directions[0].footerLines).toEqual([
       "Book a free 20-min call: 0701 888 2210",
     ]);
-    expect(out.coverage.added).toEqual([]);
   });
 
   it("12–6pm is 12pm to 6pm", () => {
@@ -369,17 +304,23 @@ describe("footer repeats read for meaning (round-5 live critic)", () => {
     ).toEqual(["12pm to 6pm"]);
   });
 
-  it("a price the headline gives is not drawn again with its unit", () => {
+  /* Round 7: a bare headline amount is not the price; the footer's
+     price with its unit is, and stays. */
+  it("keeps a footer price with its unit under a bare headline amount", () => {
     const facts = settle("Strawberry mille-feuille, ₦4,500 a slice.", [
       { kind: "price", text: "₦4,500 a slice" },
     ]).facts;
-    const out = coverBriefFacts([copy({ headline: "₦4,500." })], facts);
-    expect(out.directions[0].footerLines).toEqual([]);
-    expect(
-      redundantFooterItems(
-        copy({ headline: "₦4,500.", footerLines: ["₦4,500 a slice"] }),
-      ),
-    ).toEqual(["₦4,500 a slice"]);
+    const out = dropFooterRepeats(
+      [
+        copy({
+          headline: "₦4,500.",
+          footerLines: ["₦4,500 a slice"],
+          footerStyle: "text",
+        }),
+      ],
+      facts,
+    );
+    expect(out.directions[0].footerLines).toEqual(["₦4,500 a slice"]);
   });
 
   /* Event s0: "WhatsApp 0816 333 9025 · ₦35,000" beside "8 seats". */
@@ -395,10 +336,6 @@ describe("footer repeats read for meaning (round-5 live critic)", () => {
       footerStyle: "text",
     });
     expect(factStated(facts[0], detached)).toBe(false);
-    const out = coverBriefFacts([detached], facts);
-    expect(out.directions[0].footerLines.join(" | ")).toBe(
-      "WhatsApp 0816 333 9025 · ₦35,000 a seat",
-    );
   });
 });
 
@@ -436,70 +373,6 @@ describe("withoutLooseRepeats", () => {
   });
 });
 
-describe("a fact the full footer cannot take", () => {
-  it("goes into an empty subheadline rather than being left off", () => {
-    const facts: BriefFact[] = [
-      {
-        kind: "person",
-        text: "With chocolatier Kemi Durojaiye",
-        needs: ["^kemi", "^durojaiy"],
-      },
-    ];
-    const out = coverBriefFacts(
-      [
-        copy({
-          headline: "Master the Art of Chocolate",
-          subheadline: undefined,
-          footerLines: [
-            "Sat 29 Nov · 2pm–5pm · Our Lekki kitchen",
-            "WhatsApp 0813 222 7045 · 7 Admiralty Way, Lekki",
-            "₦28,000 per person · Ages 16 and up · 12 places",
-          ],
-          footerStyle: "bar",
-        }),
-      ],
-      facts,
-    );
-    expect(out.directions[0].subheadline).toBe(
-      "With chocolatier Kemi Durojaiye",
-    );
-    expect(out.coverage.leftOff).toEqual([]);
-    expect(out.coverage.stated[0]).toEqual(["With chocolatier Kemi Durojaiye"]);
-  });
-});
-
-describe("a named person the full footer cannot take", () => {
-  it("is said in a sentence of the subheadline when it has room", () => {
-    const facts: BriefFact[] = [
-      {
-        kind: "person",
-        text: "With ceramicist Bisi Adeleke",
-        needs: ["^bisi", "^adelek"],
-      },
-      { kind: "place", text: "Clay Room", needs: ["^clay", "^room"] },
-    ];
-    const out = coverBriefFacts(
-      [
-        copy({
-          headline: "Throw Your Own Pot",
-          subheadline: "A hands-on wheel-throwing evening in Surulere.",
-          footerLines: [
-            "Thu 20 Nov · 6pm–9pm · 10 seats only · Adults 18+",
-            "Clay and firing included · ₦25,000 a seat, paid ahead",
-            "WhatsApp 0703 666 1294 to book your seat for the night",
-          ],
-          footerStyle: "bar",
-        }),
-      ],
-      facts,
-    );
-    expect(out.directions[0].subheadline).toBe(
-      "A hands-on wheel-throwing evening in Surulere. With ceramicist Bisi Adeleke. Clay Room.",
-    );
-    expect(out.coverage.leftOff).toEqual([]);
-  });
-});
-
 /* Oluwaseyi's decision, round 6: a fact the headline, subheadline or
    button already states is left out of the footer; each fact still
    appears once. Round-6 eval: the judge read footer repeats on four in ten
@@ -515,7 +388,7 @@ describe("footers drop facts stated above", () => {
     ]).facts;
 
   it("drops a footer item whose fact the copy above states", () => {
-    const out = coverBriefFacts(
+    const out = dropFooterRepeats(
       [
         copy({
           headline: "Step away this December",
@@ -528,21 +401,6 @@ describe("footers drop facts stated above", () => {
       facts(),
     );
     expect(out.directions[0].footerLines).toEqual(["₦120,000 per person"]);
-    expect(out.coverage.stated[0]).toHaveLength(3);
-  });
-
-  it("draws a fact into the footer only when it is stated nowhere else", () => {
-    const out = coverBriefFacts(
-      [
-        copy({
-          headline: "Step away this December",
-          subheadline: "₦120,000 per person, 16 places.",
-          footerLines: [],
-        }),
-      ],
-      facts(),
-    );
-    expect(out.directions[0].footerLines).toEqual(["stillwater.ng"]);
   });
 });
 
@@ -603,20 +461,27 @@ describe("footer repeats, round 6f", () => {
   });
 });
 
-describe("an inclusion put in other words, round 6g", () => {
+/* Round 7 (Oluwaseyi's ruling): an offer or condition is stated only
+   whole; three words in four lost "Ikoyi" (round-6 code critic, P2). */
+describe("an inclusion is stated only whole", () => {
   const fact = () =>
     settle("Shared room and all meals included.", [
       { kind: "offer", text: "Shared room and all meals included" },
     ]).facts[0];
 
-  it("is stated when three in four of its words are said", () => {
+  it("is not stated in other words", () => {
     expect(
       factStated(fact(), copy({ subheadline: "Meals and a shared room." })),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("is not stated by half of them", () => {
-    expect(factStated(fact(), copy({ subheadline: "All meals." }))).toBe(false);
+  it("is stated whole, & and incl. read as words", () => {
+    expect(
+      factStated(
+        fact(),
+        copy({ footerLines: ["Shared room & all meals incl."] }),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -632,73 +497,5 @@ describe("footer dedupe reads & as and, incl. as included", () => {
         }),
       ),
     ).toEqual(["All milk and beans included"]);
-  });
-});
-
-/* Oluwaseyi's ruling: never a lone fragment footer (round-6 live run:
-   a laundry direction's footer read only "10am"). */
-describe("withoutBareItems", () => {
-  it("gives a bare time the brief's words for it", () => {
-    const facts = settle(
-      "Same-day laundry: we collect by 10am and return by 7pm.",
-      [{ kind: "time", text: "10am" }],
-    ).facts;
-    expect(facts[0].text).toBe("by 10am");
-    const out = withoutBareItems(
-      copy({ footerLines: ["0809 111 4462", "10am"], footerStyle: "text" }),
-      facts,
-    );
-    expect(out.footerLines).toEqual(["Phone: 0809 111 4462", "By 10am"]);
-  });
-
-  it("drops a bare item whose fact the copy states elsewhere", () => {
-    const facts = settle("Collect by 10am.", [
-      { kind: "time", text: "by 10am" },
-    ]).facts;
-    const out = withoutBareItems(
-      copy({
-        subheadline: "We collect by 10am.",
-        footerLines: ["10am"],
-        footerStyle: "text",
-      }),
-      facts,
-    );
-    expect(out.footerLines).toEqual([]);
-  });
-
-  it("labels what it cannot place, never shows it bare", () => {
-    const fact: BriefFact = {
-      kind: "contact",
-      text: "0809 111 4462",
-      needs: ["#08091114462,2348091114462"],
-    };
-    const out = withoutBareItems(
-      copy({
-        subheadline: "x".repeat(138),
-        footerLines: ["0809 111 4462"],
-        footerStyle: "text",
-      }),
-      [fact],
-    );
-    expect(out.footerLines).toEqual(["Phone: 0809 111 4462"]);
-  });
-});
-
-describe("withoutBareItems keeps every fact an item carries", () => {
-  /* Round-6 live run, fashion: "Tue – Sat, 11am – 6pm" was read as bare
-     and replaced by its days alone; the hours were lost. */
-  it("leaves a days-and-hours item alone, and never loses a fact", () => {
-    const facts = settle("Fittings Tuesday to Saturday, 11am to 6pm.", [
-      { kind: "day", text: "Tuesday to Saturday" },
-      { kind: "time", text: "11am to 6pm" },
-    ]).facts;
-    const before = copy({
-      subheadline: "Sage silk, pearl buttons.",
-      footerLines: ["Tue – Sat, 11am – 6pm"],
-      footerStyle: "text",
-    });
-    const out = withoutBareItems(before, facts);
-    expect(out.footerLines).toEqual(["Tue – Sat, 11am – 6pm"]);
-    expect(factsMissing(facts, out)).toEqual([]);
   });
 });

@@ -15,10 +15,19 @@ const rasterizeDocument = vi.fn();
 
 const readBrief = vi.fn();
 vi.mock("ai", async () => {
-  const { isBriefReadCall } = await import("./directions/fixtures");
+  const { fakeFactWrite, isBriefReadCall, isClaimCheckCall, isFactWriteCall } =
+    await import("./directions/fixtures");
   return {
     generateObject: (o: unknown) =>
-      isBriefReadCall(o) ? readBrief(o) : generateObject(o),
+      isBriefReadCall(o)
+        ? readBrief(o)
+        : isFactWriteCall(o)
+          ? fakeFactWrite(o)
+          : isClaimCheckCall(o) &&
+              !(globalThis as { claimCheckThroughDouble?: boolean })
+                .claimCheckThroughDouble
+            ? { object: { unsupported: [] } }
+            : generateObject(o),
   };
 });
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
@@ -850,13 +859,14 @@ describe("an unusable upload", () => {
 });
 
 describe("the brief's facts", () => {
-  it("draws a fact a direction left out and records coverage", async () => {
+  /* Round 7: the model writes the fact in; code checks and counts it. */
+  it("has the model write in a fact a direction left out, and records coverage", async () => {
     readBrief.mockResolvedValue(
       readAnswer([{ kind: "day", text: "weekends" }]),
     );
     await run({ image: { source: "ko" } });
     const [first] = createDesignGeneration.mock.calls.map(([r]) => r);
-    expect(first.spec.footerLines).toContain("Weekends");
+    expect(first.spec.footerLines).toContain("Open Weekends");
     const metadata = recordUsageEvent.mock.calls[0][0].metadata;
     expect(metadata.briefFacts).toBeGreaterThan(0);
     expect(metadata.briefFactsDelivered).toBe(metadata.briefFacts);

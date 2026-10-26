@@ -79,9 +79,11 @@ describe("inventedFacts", () => {
       "Send money to 20 African countries with zero transfer fees for your first month.",
     ]);
     expect(inventedFacts("Send money free for a month", fintech)).toEqual([]);
+    /* Round 7: a method claim is licensed only by itself, "Handwoven"
+       does not say "Handmade" (round-6 code critic, C2). */
     expect(
       inventedFacts(
-        "Handmade in Iseyin",
+        "Handwoven in Iseyin",
         factLedger(["Handwoven aso-oke textiles"]),
       ),
     ).toEqual([]);
@@ -918,7 +920,7 @@ describe("method, origin and material are the brief's alone", () => {
   it("refuses 'woven by hand' and 'hand-woven' the brief does not state", () => {
     expect(
       inventedFacts("Each one woven by hand in Iseyin", withProfile),
-    ).toEqual(["by hand"]);
+    ).toEqual(["woven by hand"]);
     expect(inventedFacts("Hand-woven in Iseyin", withProfile)).toEqual([
       "Hand-woven",
     ]);
@@ -936,6 +938,62 @@ describe("method, origin and material are the brief's alone", () => {
     expect(inventedFacts("Locally sourced fibres", withProfile)).toEqual([
       "Locally sourced",
     ]);
-    expect(inventedFacts("Pure natural cotton", withProfile)).toEqual(["Pure"]);
+    expect(inventedFacts("100% natural cotton", withProfile)).toContain(
+      "100% natural",
+    );
+  });
+});
+
+/* Round-6 code critic, r6-claims.log C1 to C7. */
+describe("brief-only claims, variant by variant", () => {
+  const ledger = (brief: string, profile: string) =>
+    factLedger([brief, "", profile], 2);
+
+  it("C1: 'Locally made' does not license 'Imported'", () => {
+    expect(
+      inventedFacts(
+        "Imported silk, ₦12,000",
+        ledger("Locally made silk scarves, ₦12,000.", "Lagos scarf label."),
+      ),
+    ).toEqual(["Imported"]);
+  });
+
+  it("C2: 'Hand-dyed' does not license 'Hand-woven'", () => {
+    expect(
+      inventedFacts(
+        "Hand-woven adire throws",
+        ledger("Hand-dyed adire throws, ₦30,000.", "Textile studio."),
+      ),
+    ).toEqual(["Hand-woven"]);
+  });
+
+  it("C3 and C4: tone and light are not claims", () => {
+    expect(
+      inventedFacts(
+        "Pure joy in every slice",
+        ledger("Chocolate cake, ₦15,000 a box.", "Bakery in Yaba."),
+      ),
+    ).toEqual([]);
+    expect(
+      inventedFacts(
+        "Portraits in natural light",
+        ledger("Portrait sessions Saturday, ₦40,000.", "Photography studio."),
+      ),
+    ).toEqual([]);
+  });
+
+  it("C5: the profile's handmade does not license it", () => {
+    expect(
+      inventedFacts(
+        "Handmade mugs, ₦8,000",
+        ledger("Ceramic mugs ₦8,000.", "We handmake ceramics in Ibadan."),
+      ),
+    ).toEqual(["Handmade"]);
+  });
+
+  it("licenses each spelling of the one claim the brief makes", () => {
+    const brief = ledger("Each throw woven by hand in Iseyin.", "Textiles.");
+    expect(inventedFacts("Hand-woven in Iseyin", brief)).toEqual([]);
+    expect(inventedFacts("Handwoven throws", brief)).toEqual([]);
   });
 });

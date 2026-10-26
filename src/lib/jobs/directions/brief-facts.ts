@@ -2,9 +2,7 @@ import {
   type CountryCode,
   findPhoneNumbersInText,
 } from "libphonenumber-js/max";
-import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
-import { calendarNames, NUMBER_WORDS } from "./claims";
-import { COPY_LIMITS } from "./schema";
+import { calendarNames, looksCutOff, NUMBER_WORDS } from "./claims";
 import { contentStems } from "./text-overlap";
 
 /**
@@ -41,7 +39,7 @@ export type BriefFactKind = (typeof BRIEF_FACT_KINDS)[number];
 /** A fact a design must state: one the reader returned, or a real person
  *  the brief names (round-5 live critic: the named speaker was left off
  *  one direction while coverage reported every fact delivered). */
-export type CoverKind = BriefFactKind | "person";
+export type CoverKind = BriefFactKind | "person" | "product";
 
 export interface BriefFact {
   kind: CoverKind;
@@ -376,8 +374,11 @@ export function needsFor(
       return [...numbers(), ...days()];
     }
     case "time": {
+      /* Hours with no am or pm keep their numbers, and the days they are
+         for: "9-5 weekdays" read as only "weekdays" lost the hours
+         (round-6 code critic). */
       const times = [...timesIn(text)].map((t) => `@${t}`);
-      return times.length > 0 ? times : numbers();
+      return times.length > 0 ? times : [...numbers(), ...days()];
     }
     case "price": {
       /* A size the price is for ("a 1-litre bottle", "150ml tasters") is
@@ -408,6 +409,7 @@ export function needsFor(
     case "condition":
       return stems();
     case "person":
+    case "product":
       return [...contentStems(text)]
         .filter((s) => !isNumberWord(s))
         .map((s) => `^${s}`);
@@ -562,11 +564,14 @@ function nearestRun(
   return null;
 }
 
+/* "9-5" or "10–6": opening hours written without am or pm. */
+const HOUR_RANGE = /\b\d{1,2}(?:[:.]\d{2})?\s?[-–]\s?\d{1,2}(?:[:.]\d{2})?\b/;
+
 /* What a span after a contact's number says by itself, when it says
    anything a customer acts on: the hours or a count the reader glued to
    the number. */
 function kindOfRemainder(text: string): BriefFactKind | null {
-  if (timesIn(text).size > 0) return "time";
+  if (timesIn(text).size > 0 || HOUR_RANGE.test(text)) return "time";
   if (calendarNames(text).length > 0) return "day";
   if (/[₦$£€]\s?\d|\d\s?(?:naira|ngn)\b/i.test(text)) return "price";
   if (/\d/.test(text)) return "quantity";
@@ -597,6 +602,10 @@ function withoutDanglingWords(text: string): string {
   return out;
 }
 
+const LEAD_WORD = /\p{L}[\p{L}'’-]*[\s:]+$/u;
+const NOT_A_LEAD =
+  /^(?:to|on|at|via|or|and|is|are|the|a|an|number|no|num|us|me|from|by|of|for|with|in):?$/i;
+
 const CHANNEL_BEFORE =
   /\b(?:whatsapp|call(?:\s+or\s+whatsapp)?|text|phone|tel|sms|mobile|ring|dm|book(?:ings?)?|order|reach us)\b(?:\s+(?:us|me))?(?:\s+(?:on|at|via))?[\s:.-]*$/i;
 
@@ -616,6 +625,34 @@ export function isBare(text: string): boolean {
     )
     .match(/\p{L}{2,}/gu);
   return !words && /\d/.test(text);
+}
+
+const COUNT_ONLY = new RegExp(
+  `^(?:${Object.keys(NUMBER_WORDS).join("|")}|one|\\d[\\d,.]*)$`,
+  "i",
+);
+
+/** A footer item no one can act on alone: a bare time, number or count
+ *  ("Two", "10am"), or one cut off mid-phrase (round-6 critics: "Two" on
+ *  both recruitment directions). */
+export function isFragment(item: string): boolean {
+  const text = item.trim().replace(/[.!]+$/, "");
+  /* "₦2,000 each" ends on a word a cut-off phrase ends on, but is a whole
+     price. */
+  const wholePrice = moneyIn(text).size > 0 && /\b(?:each|apiece)$/i.test(text);
+  return (
+    isBare(text) || COUNT_ONLY.test(text) || (!wholePrice && looksCutOff(text))
+  );
+}
+
+/** A footer line that prints a time beside a phone number, where the time
+ *  reads as the phone's hours. */
+export function timeOnPhoneLine(line: string): boolean {
+  return (
+    PHONE_LIKE.test(line) &&
+    (timesIn(line.replace(new RegExp(PHONE_LIKE.source, "g"), " ")).size > 0 ||
+      HOUR_RANGE.test(line.replace(new RegExp(PHONE_LIKE.source, "g"), " ")))
+  );
 }
 
 function isKind(kind: string): kind is BriefFactKind {
@@ -814,9 +851,14 @@ export function settleBriefFacts(
         f.kind === "contact" && phone.start >= f.start && phone.end <= f.end,
     );
     if (held) continue;
-    const lead = CHANNEL_BEFORE.exec(
-      brief.slice(Math.max(0, phone.start - 30), phone.start),
-    );
+    /* The brief's own word before the number, whatever it is: "Opay
+       8035550142" is an account, and drawn as a bare number it was
+       labelled a phone (round-6 code critic). */
+    const preceding = brief.slice(Math.max(0, phone.start - 30), phone.start);
+    const word = LEAD_WORD.exec(preceding);
+    const lead =
+      CHANNEL_BEFORE.exec(preceding) ??
+      (word && !NOT_A_LEAD.test(word[0].trim()) ? word : null);
     const before = located.length;
     keep("contact", phone.start - (lead?.[0].length ?? 0), phone.end);
     if (located.length > before) phonesAdded.push(located[before].text);
@@ -845,18 +887,6 @@ export function settleBriefFacts(
 
 function drawnTextOf(lines: string[]): string {
   return lines.join(" \n ");
-}
-
-/* The brief's own words, whole: "4,500" inside "45,000" is not them. */
-function saysVerbatim(phrase: string, copy: string): boolean {
-  const flat = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
-  const wanted = flat(phrase);
-  if (!wanted) return false;
-  const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
-    `(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`,
-    "u",
-  ).test(flat(copy));
 }
 
 /* A phone number is stated only whole, on one line, between digit-group
@@ -899,23 +929,45 @@ export function drawnText(copy: CopyFields): string {
 
 const FOOTER_JOIN = " · ";
 
-/** The fields above the footer, and each footer item on its own. A string
- *  is read as fields only, every line above the footer. */
-function copyParts(copy: string | CopyFields): {
-  above: string[];
-  items: string[];
-} {
+/** One place a fact can be stated: a field, or a footer item read with the
+ *  footer line it is drawn on. */
+interface CopyPart {
+  text: string;
+  line: string;
+}
+
+/** Every field and every footer item of `copy`, each on its own. A string
+ *  is split into its lines and its middle-dotted items. */
+function copyParts(copy: string | CopyFields): CopyPart[] {
+  const itemsOf = (line: string) =>
+    line
+      .split(/\s+[·•]\s+/)
+      .map((text) => ({ text: text.trim(), line }))
+      .filter((part) => part.text);
   if (typeof copy === "string") {
-    return { above: copy.split("\n").map((l) => l.trim()), items: [] };
+    return copy.split("\n").flatMap((line) => itemsOf(line.trim()));
   }
-  return {
-    above: [copy.headline, copy.subheadline, copy.cta].filter(
-      (t): t is string => Boolean(t),
-    ),
-    items: copy.footerLines.flatMap((line) =>
-      line.split(FOOTER_JOIN).map((item) => item.trim()),
-    ),
-  };
+  return [
+    ...[copy.headline, copy.subheadline, copy.cta]
+      .filter((t): t is string => Boolean(t))
+      .map((text) => ({ text, line: text })),
+    ...copy.footerLines.flatMap(itemsOf),
+  ];
+}
+
+/* Words compared as words: case, punctuation and the "&"/"incl." ways of
+   writing them aside. */
+function wordsOf(text: string): string {
+  return meaningOf(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}₦$£€%@+]+/gu, " ")
+    .trim();
+}
+
+/** Whether `part` holds `phrase` whole, as words. */
+function holdsWhole(phrase: string, part: string): boolean {
+  const wanted = wordsOf(phrase);
+  return wanted.length > 0 && ` ${wordsOf(part)} `.includes(` ${wanted} `);
 }
 
 function needsHold(needs: readonly string[], text: string): boolean {
@@ -940,47 +992,41 @@ function needsHold(needs: readonly string[], text: string): boolean {
   });
 }
 
+function statedIn(fact: BriefFact, part: CopyPart): boolean {
+  /* A time printed on a phone's line reads as the phone's hours (round-6
+     live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
+  if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
+  if (holdsWhole(fact.text, part.text)) return true;
+  /* An offer or condition is its whole span: three words in four of "Free
+     delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic). */
+  if (fact.kind === "offer" || fact.kind === "condition") return false;
+  if (fact.kind === "price") {
+    /* Currency, amount and unit together: a bare "2,000" is never the
+       price, nor "₦18,000" without "per split unit" (round-6 critics). */
+    const amounts = moneyIn(fact.text);
+    const drawn = moneyIn(part.text);
+    if ([...amounts].some((amount) => !drawn.has(amount))) return false;
+  }
+  return needsHold(fact.needs, part.text);
+}
+
 /**
- * Whether `copy` states `fact`: the brief's own words for it, or every part
- * of it in any spelling ("₦4,500" or "N4500", "7am" or "07:00", "20-min" or
- * "20-minute").
+ * Whether `copy` states `fact`, literally and in one place: one field or
+ * one footer item holds the brief's own words for it, or every part of it
+ * ("₦4,500 a slice" or "N4500 a slice", "7am" or "07:00"). Oluwaseyi's
+ * ruling (round 7): the same verifier decides every drop and merge, the
+ * job's metrics and the eval's coverage gate, so no rule can count a fact
+ * delivered that the design does not carry.
  *
- * A price with a unit is stated when one field or footer item gives the
- * number with its unit, or the copy above the footer gives the number (a
- * headline price is the price, and drawing it again in the footer read as
- * a repeat, round-5 live critic). In the footer the number alone, with the
- * unit somewhere else, is a price detached from what it buys ("₦35,000"
- * beside "8 seats").
+ *  - A price is its currency, amount and unit in one place.
+ *  - An offer or condition is its whole span.
+ *  - A time never counts on a footer line holding a phone number.
  */
 export function factStated(
   fact: BriefFact,
   copy: string | CopyFields,
 ): boolean {
-  const text = typeof copy === "string" ? copy : drawnText(copy);
-  if (saysVerbatim(fact.text, text)) return true;
-  const numbers = fact.needs.filter((n) => n.startsWith("="));
-  const unit = fact.needs.filter((n) => n.startsWith("^"));
-  if (fact.kind === "price" && numbers.length > 0 && unit.length > 0) {
-    const { above, items } = copyParts(copy);
-    if ([...above, ...items].some((part) => needsHold(fact.needs, part))) {
-      return true;
-    }
-    return typeof copy !== "string" && needsHold(numbers, above.join(" \n "));
-  }
-  /* What is included or required, put in other words: "meals and a shared
-     room" states "a shared room and all meals included". Only for words,
-     never for a number, time, day or contact, and only when three in four
-     of its words are said (round-6 eval: the footer drew it again and read
-     as a repeat). */
-  if (
-    (fact.kind === "offer" || fact.kind === "condition") &&
-    unit.length >= 3 &&
-    unit.length === fact.needs.length
-  ) {
-    const said = unit.filter((need) => needsHold([need], text)).length;
-    return said >= Math.ceil(unit.length * 0.75);
-  }
-  return needsHold(fact.needs, text);
+  return copyParts(copy).some((part) => statedIn(fact, part));
 }
 
 /** The facts of `facts` that `copy` does not state. */
@@ -1110,73 +1156,102 @@ function footerItems(lines: readonly string[]): number {
     .length;
 }
 
-function withoutRedundant<T extends FactCopy>(
-  direction: T,
-  product: string,
-): T {
-  const redundant = new Set(redundantFooterItems(direction, product));
-  if (redundant.size === 0) return direction;
-  const footerLines = direction.footerLines
+function withoutItem<T extends FactCopy>(copy: T, item: string): T {
+  const footerLines = copy.footerLines
     .map((line) =>
       line
         .split(FOOTER_JOIN)
-        .map((item) => item.trim())
-        .filter((item) => !redundant.has(item))
+        .map((i) => i.trim())
+        .filter((i) => i !== item)
         .join(FOOTER_JOIN),
     )
     .filter(Boolean);
   return {
-    ...direction,
+    ...copy,
     footerLines,
-    footerStyle: footerLines.length > 0 ? direction.footerStyle : "none",
+    footerStyle: footerLines.length > 0 ? copy.footerStyle : "none",
   };
 }
 
-/* A footer line coverage may give up for a fact: never one with a phone, a
-   price, a time or a date in it (round-5 code critic: the model's own
-   "WhatsApp 0803 555 0142 to reserve" was spliced out for the address). */
-function holdsActionableDetail(line: string): boolean {
-  return (
-    PHONE_LIKE.test(line) ||
-    moneyIn(line).size > 0 ||
-    /\b(?:free|%)/i.test(line) ||
-    timesIn(line).size > 0 ||
-    calendarNames(line).length > 0 ||
-    /\b\d{1,2}\/\d{1,2}\b/.test(line)
-  );
+/** `copy` without `item`, when that loses nothing: every brief fact it
+ *  stated is still stated, and what a customer acts on in the item (a
+ *  phone, price, time, date or place) is in one other place of the copy.
+ *  The one test every drop passes (Oluwaseyi's ruling, round 7). */
+export function droppedSafely<T extends FactCopy>(
+  copy: T,
+  item: string,
+  facts: readonly BriefFact[],
+): T | null {
+  const trial = withoutItem(copy, item);
+  const stated = (c: T) => facts.filter((f) => factStated(f, c)).length;
+  if (stated(trial) < stated(copy)) return null;
+  return detailHeldElsewhere(item, trial) ? trial : null;
+}
+
+function withoutRedundant<T extends FactCopy>(
+  direction: T,
+  product: string,
+  facts: readonly BriefFact[],
+): T {
+  let current = direction;
+  for (const item of redundantFooterItems(direction, product)) {
+    current = droppedSafely(current, item, facts) ?? current;
+  }
+  return current;
+}
+
+/* What in an item a customer acts on: its phone numbers, money, times,
+   numbers, days, months and the places it names. */
+function hardDetailOf(item: string): Set<string> {
+  const out = new Set<string>();
+  for (const token of said(item)) if (/^[=@#]/.test(token)) out.add(token);
+  for (const amount of moneyIn(item)) out.add(`$${amount}`);
+  for (const name of calendarNames(item)) out.add(`~${name}`);
+  for (const place of placesIn(item)) {
+    for (const stem of contentStems(place)) out.add(`^${stem}`);
+  }
+  return out;
+}
+
+/** Whether everything a customer acts on in `item` is in one other field
+ *  or footer item of `copy` (which no longer holds `item`): "Pre-orders
+ *  close Thursday 6pm" never goes on a model's reading that it repeats
+ *  "order early", nor "pickup in Lekki Phase 1" as a button echo (round-6
+ *  code critic, P4 and P5). */
+export function detailHeldElsewhere(item: string, copy: CopyFields): boolean {
+  const detail = hardDetailOf(item);
+  if (detail.size === 0) return true;
+  return copyParts(copy).some((part) => {
+    const theirs = hardDetailOf(part.text);
+    const stems = contentStems(part.text);
+    return [...detail].every(
+      (d) => theirs.has(d) || (d.startsWith("^") && stems.has(d.slice(1))),
+    );
+  });
 }
 
 export interface FactCoverage {
-  /** Every hard fact the brief states. */
+  /** Every fact the brief states, the offering's name among them. */
   facts: string[];
-  /** Per direction, the facts it states after coverage. */
+  /** Per direction, the facts it states as delivered. */
   stated: string[][];
-  /** Facts drawn into a direction's footer because it left them out. */
-  added: { direction: number; line: string }[];
-  /** Facts a direction still does not state, and why. */
+  /** Facts the model wrote into a direction that had left them out. */
+  added: { direction: number; fact: string }[];
+  /** Facts a direction does not state, and why. */
   leftOff: { direction: number; fact: string; reason: string }[];
   /** Footer items dropped as repeats of the copy above or of each other. */
   repeatsDropped: number;
 }
 
 /**
- * Draws every brief fact a direction left out into its footer, so whichever
- * design the client picks can be acted on, after dropping footer items that
- * only repeat (redundantFooterItems). A fact joins an existing footer line
- * with a middle dot when it fits there (the last first), so a count is never
- * stranded on a line of its own; otherwise it starts a new line while there
- * is room. A fact that does not fit anywhere, or is longer than a line, is
- * left off and recorded with that reason. What each direction states is
- * counted on the footer as it is finally drawn.
- */
-/**
  * Footer items that mostly say again what the copy above says, dropped
- * only when nothing the brief gives goes with them: every number, time and
- * phone of the item is above, at least half its words are, and each brief
- * fact the direction stated is still stated without it. Round-5 eval: a
- * reader judged four in ten directions to repeat themselves in the footer
- * where no item was a word-for-word repeat ("Yaba Studio" under "in
- * Yaba", "Pickup · 7am" under "pick up from 7am").
+ * only when that loses nothing (droppedSafely): every number, time and
+ * phone of the item is above, at least half its words are, every brief
+ * fact the direction stated is still stated, and what a customer acts on
+ * in it is in one other place. Round-5 eval: a reader judged four in ten
+ * directions to repeat themselves in the footer where no item was a
+ * word-for-word repeat ("Yaba Studio" under "in Yaba", "Pickup · 7am" under
+ * "pick up from 7am").
  */
 export function withoutLooseRepeats<T extends FactCopy>(
   direction: T,
@@ -1189,9 +1264,6 @@ export function withoutLooseRepeats<T extends FactCopy>(
   );
   const aboveCopy = { ...direction, footerLines: [] };
   let current = direction;
-  const stated = (copy: T) =>
-    facts.filter((f) => factStated(f, copy)).map((f) => f.text);
-  const before = stated(direction);
   for (const item of direction.footerLines.flatMap((line) =>
     line.split(FOOTER_JOIN).map((i) => i.trim()),
   )) {
@@ -1234,156 +1306,41 @@ export function withoutLooseRepeats<T extends FactCopy>(
         hard.every((h) => above.has(h)) &&
         wordsAbove * 2 >= words.length);
     if (!repeats) continue;
-    const footerLines = current.footerLines
-      .map((line) =>
-        line
-          .split(FOOTER_JOIN)
-          .map((i) => i.trim())
-          .filter((i) => i !== item)
-          .join(FOOTER_JOIN),
-      )
-      .filter(Boolean);
-    const trial = {
-      ...current,
-      footerLines,
-      footerStyle: footerLines.length > 0 ? current.footerStyle : "none",
-    } as T;
-    if (stated(trial).length === before.length) current = trial;
+    current = droppedSafely(current, item, facts) ?? current;
   }
   return current;
 }
 
-export function coverBriefFacts<T extends FactCopy>(
+/**
+ * Every direction's footer without the items that only repeat the copy
+ * above or another footer item, each dropped only when that loses nothing.
+ * Code drops; it never writes (Oluwaseyi's ruling, round 7).
+ */
+export function dropFooterRepeats<T extends FactCopy>(
   directions: T[],
   facts: readonly BriefFact[],
   product = "",
-): { directions: T[]; coverage: FactCoverage } {
-  const coverage: FactCoverage = {
-    facts: facts.map((f) => f.text),
-    stated: [],
-    added: [],
-    leftOff: [],
-    repeatsDropped: 0,
-  };
-  const limit = COPY_LIMITS.footerLine;
-  const covered = directions.map((original, index) => {
-    const direction = withoutLooseRepeats(
-      withoutRedundant(original, product),
-      facts,
-    );
-    coverage.repeatsDropped +=
-      footerItems(original.footerLines) - footerItems(direction.footerLines);
-    const missing = factsMissing(facts, direction);
-    if (missing.length === 0) {
-      coverage.stated.push(facts.map((f) => f.text));
-      return direction;
-    }
-    const lines = [...direction.footerLines];
-    let subheadline = "";
-    const touched = new Set<number>();
-    const fitted: BriefFact[] = [];
-    for (const fact of missing) {
-      /* "stillwater.ng" and "@cake.ng" are written as the brief writes
-         them: capitalised, a web address reads as a typo. */
-      const item = fact.kind === "contact" ? fact.text : capitalise(fact.text);
-      const roomOn = () => {
-        for (let j = lines.length - 1; j >= 0 && item.length <= limit; j -= 1) {
-          if (`${lines[j]}${FOOTER_JOIN}${item}`.length <= limit) return j;
-        }
-        return -1;
-      };
-      let at = roomOn();
-      /* A full footer gives up a line of its own words that states none of
-         the brief's facts and holds nothing a customer acts on before a
-         fact is left off (round-5 eval: the address and "apron and
-         starter" were left off under three lines of the model's). */
-      if (at < 0 && lines.length >= MAX_FOOTER_LINES && item.length <= limit) {
-        const spare = lines.findLastIndex(
-          (line, j) =>
-            !touched.has(j) &&
-            !holdsActionableDetail(line) &&
-            facts.every((f) => !factStated(f, line)),
-        );
-        if (spare >= 0) {
-          lines.splice(spare, 1);
-          const shifted = [...touched].map((j) => (j > spare ? j - 1 : j));
-          touched.clear();
-          for (const j of shifted) touched.add(j);
-          at = roomOn();
-        }
-      }
-      /* A direction with no subheadline has a line of room above the
-         footer: a fact the full footer cannot take goes there (round-6
-         live run: the named chocolatier left off a hero card whose footer
-         held three lines of facts). */
-      const above = subheadline || direction.subheadline || "";
-      /* A fact is said in a sentence of the subheadline when it has room,
-         rather than left off (round-6 eval: the ceramicist and a
-         masterclass's address left off under three lines of facts). */
-      const lead = above ? `${above.replace(/[\s.]+$/, "")}. ${item}.` : item;
-      if (at >= 0) {
-        lines[at] = `${lines[at]}${FOOTER_JOIN}${item}`;
-      } else if (item.length <= limit && lines.length < MAX_FOOTER_LINES) {
-        at = lines.push(item) - 1;
-      } else if (lead.length <= COPY_LIMITS.subheadline) {
-        subheadline = lead;
-        fitted.push(fact);
-        continue;
-      } else {
-        coverage.leftOff.push({
-          direction: index,
-          fact: fact.text,
-          reason:
-            item.length > limit
-              ? "longer than a footer line"
-              : "the footer has no room left for it",
-        });
-        continue;
-      }
-      touched.add(at);
-      fitted.push(fact);
-    }
-    if (fitted.length === 0) {
-      coverage.stated.push(
-        facts.filter((f) => factStated(f, direction)).map((f) => f.text),
-      );
-      return direction;
-    }
-    const drawn = withoutLooseRepeats(
-      withoutRedundant(
-        {
-          ...direction,
-          ...(subheadline ? { subheadline } : {}),
-          footerLines: lines,
-          footerStyle:
-            direction.footerStyle === "none" ? "text" : direction.footerStyle,
-        },
-        product,
+): { directions: T[]; dropped: number } {
+  let dropped = 0;
+  const out = directions.map((original) => {
+    /* One separator: "·" and "•" mixed in one footer read as two styles,
+       and an item behind a "•" was never compared with the others (round-6
+       live critic: "Free Wi-Fi" twice). */
+    const direction = {
+      ...original,
+      footerLines: original.footerLines.map((line) =>
+        line.replace(/\s+[•·]\s+/g, FOOTER_JOIN),
       ),
+    };
+    const kept = withoutLooseRepeats(
+      withoutRedundant(direction, product, facts),
       facts,
     );
-    for (const j of [...touched].sort((x, y) => x - y)) {
-      if (drawn.footerLines.includes(lines[j])) {
-        coverage.added.push({ direction: index, line: lines[j] });
-      }
-    }
-    /* Counted after the last repeat is dropped: a fact counted when added
-       and then dropped as a repeat was reported delivered (round-5 code
-       critic). */
-    const stated = facts.filter((f) => factStated(f, drawn));
-    coverage.stated.push(stated.map((f) => f.text));
-    for (const fact of fitted) {
-      if (!stated.includes(fact)) {
-        coverage.leftOff.push({
-          direction: index,
-          fact: fact.text,
-          reason: "dropped from the footer as a repeat",
-        });
-      }
-    }
-    return drawn;
+    dropped +=
+      footerItems(direction.footerLines) - footerItems(kept.footerLines);
+    return kept;
   });
-  return { directions: covered, coverage };
+  return { directions: out, dropped };
 }
 
 const PLACE =
@@ -1432,98 +1389,4 @@ export function brandSetting(
     return `${fromBrief}, ${fromProfile}`;
   }
   return fromProfile ?? fromBrief ?? null;
-}
-
-const BARE_LABEL: Partial<Record<CoverKind, string>> = {
-  contact: "Phone",
-  time: "Time",
-  date: "Date",
-  day: "Day",
-};
-
-/**
- * Footer items that are only a time, date, number or contact, given their
- * context (Oluwaseyi's ruling: never a lone "10am"). In order of
- * preference: the item becomes the brief's words for the fact it states
- * ("By 10am"), or that fact joins the subheadline as a sentence, or the
- * item goes when every fact is still stated without it, or, last, it is
- * labelled with what it is ("Time: 10am").
- */
-export function withoutBareItems<T extends FactCopy>(
-  direction: T,
-  facts: readonly BriefFact[],
-): T {
-  let current = direction;
-  const items = direction.footerLines.flatMap((line) =>
-    line.split(FOOTER_JOIN).map((item) => item.trim()),
-  );
-  const stated = (copy: T) => facts.filter((f) => factStated(f, copy)).length;
-  const replaceItem = (copy: T, item: string, next: string | null): T => {
-    const footerLines = copy.footerLines
-      .map((line) =>
-        line
-          .split(FOOTER_JOIN)
-          .map((i) => i.trim())
-          .flatMap((i) => (i === item ? (next ? [next] : []) : [i]))
-          .join(FOOTER_JOIN),
-      )
-      .filter(Boolean);
-    return {
-      ...copy,
-      footerLines,
-      footerStyle: footerLines.length > 0 ? copy.footerStyle : "none",
-    } as T;
-  };
-  for (const item of items) {
-    if (!isBare(item)) continue;
-    const itsFacts = facts.filter((f) => factStated(f, item));
-    const fact = itsFacts[0];
-    const without = replaceItem(current, item, null);
-    if (fact && stated(without) === stated(current)) {
-      current = without;
-      continue;
-    }
-    /* Every fact the item states, in the brief's words: an item read for
-       one of two facts lost the other (round-6 live run: the hours went
-       with "Tue – Sat"). */
-    const words =
-      itsFacts.length > 0 && itsFacts.every((f) => !isBare(f.text))
-        ? itsFacts
-            .map((f, k) =>
-              f.kind === "contact" || k > 0 ? f.text : capitalise(f.text),
-            )
-            .join(", ")
-        : null;
-    if (words) {
-      const trial = replaceItem(current, item, words);
-      if (
-        trial.footerLines.every((l) => l.length <= COPY_LIMITS.footerLine) &&
-        stated(trial) >= stated(current)
-      ) {
-        current = trial;
-        continue;
-      }
-      const sub = current.subheadline?.trim();
-      const lead = sub ? `${sub.replace(/[\s.]+$/, "")}. ${words}.` : null;
-      const moved = lead ? { ...without, subheadline: lead } : null;
-      if (
-        moved &&
-        lead &&
-        lead.length <= COPY_LIMITS.subheadline &&
-        stated(moved) >= stated(current)
-      ) {
-        current = moved;
-        continue;
-      }
-    }
-    const label = fact
-      ? BARE_LABEL[fact.kind]
-      : PHONE_LIKE.test(item)
-        ? "Phone"
-        : timesIn(item).size > 0
-          ? "Time"
-          : undefined;
-    if (label) current = replaceItem(current, item, `${label}: ${item}`);
-  }
-  return current;
 }

@@ -204,13 +204,13 @@ const CLAIMS: {
   {
     stem: "handmade",
     pattern:
-      /\bhand-?(made|crafted|woven|stitched|built|painted|poured|finished|dyed|picked)\b|\bby hand\b/i,
+      /\bhand-?(made|crafted|woven|stitched|built|painted|poured|finished|dyed|picked|sewn)\b|\b(?:(made|crafted|woven|stitched|built|painted|poured|finished|dyed|picked|sewn)\s+)?by hand\b/i,
     briefOnly: true,
   },
   {
     stem: "sourced",
     pattern:
-      /\b(locally|ethically|sustainably|responsibly) (sourced|made|grown)\b|\bimported\b|\beco-?friendly\b|\bsustainabl[ey]\b|\b(100% )?(pure|natural)\b/i,
+      /\b(locally|ethically|sustainably|responsibly) (sourced|made|grown)\b|\bimported\b|\beco-?friendly\b|\bsustainabl[ey]\b|\b100% (?:pure|natural)\b/i,
     briefOnly: true,
   },
   { stem: "nationwide", pattern: /\bnationwide\b/i },
@@ -431,10 +431,18 @@ const ONE_COUNT =
 function withoutPhones(text: string): string {
   let masked = text;
   for (const found of findPhoneNumbersInText(text, "NG")) {
+    /* libphonenumber takes the "9" of "08035550142, 9-5" into the number;
+       the hours keep it (round-6 code critic, J3). */
+    const surface = text.slice(found.startsAt, found.endsAt);
+    const trimmed = surface.replace(/(?:[,;/]\s*|\s+)\d{1,2}$/, "");
+    const end =
+      trimmed.replace(/\D/g, "").length >= 10
+        ? found.startsAt + trimmed.length
+        : found.endsAt;
     masked =
       masked.slice(0, found.startsAt) +
-      " ".repeat(found.endsAt - found.startsAt) +
-      masked.slice(found.endsAt);
+      " ".repeat(end - found.startsAt) +
+      masked.slice(end);
   }
   return masked;
 }
@@ -662,8 +670,16 @@ export function inventedFacts(text: string, ledger: FactLedger): string[] {
     const match = claim.pattern.exec(text);
     if (!match) continue;
     if (claim.briefOnly) {
-      const brief = ledger.brief ?? ledger.text;
-      if (!claim.pattern.test(brief)) invented.push(match[0]);
+      /* Variant by variant: "Locally made" does not license "Imported",
+         nor "Hand-dyed" "Hand-woven" (round-6 code critic). */
+      const said = new Set(
+        [
+          ...(ledger.brief ?? ledger.text).matchAll(everywhere(claim.pattern)),
+        ].map((m) => claimVariant(m[0])),
+      );
+      for (const m of text.matchAll(everywhere(claim.pattern))) {
+        if (!said.has(claimVariant(m[0]))) invented.push(m[0]);
+      }
       continue;
     }
     if (
@@ -783,6 +799,22 @@ export function spatialClaim(reason: string, sources = ""): string | null {
    on them ("the pastry commuters queue for"). */
 const DANGLING_END =
   /(\s(a|an|the|and|or|but|of|than|its|their|your|our|every|each|very|this|these|those|into|which|who))$|[,;:–—-]$|(…|\.\.\.)$/i;
+
+function everywhere(pattern: RegExp): RegExp {
+  return new RegExp(
+    pattern.source,
+    pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+  );
+}
+
+/** One method or origin claim however it is spelled: "hand-woven",
+ *  "handwoven" and "woven by hand" are one; "hand-dyed" is another. */
+function claimVariant(match: string): string {
+  const said = match.toLowerCase().replace(/\s+/g, " ").trim();
+  const hand = /^hand-?\s?(\w+)$/.exec(said) ?? /^(\w+) by hand$/.exec(said);
+  if (hand) return `hand:${hand[1]}`;
+  return said.replace(/-/g, "");
+}
 
 export function looksCutOff(text: string): boolean {
   const clean = text.replace(/\s+/g, " ").trim();

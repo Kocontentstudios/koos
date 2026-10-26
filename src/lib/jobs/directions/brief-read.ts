@@ -147,10 +147,16 @@ export interface BriefRead {
   phonesAdded: string[];
 }
 
-/** Every fact a design must state: the brief's facts and the people it
- *  names. */
+/** Every fact a design must state: what the brief offers, by its name
+ *  (Oluwaseyi's ruling, round 7: a cafe direction that never named the
+ *  flat white and wrap it priced was reported complete), its facts and
+ *  the people it names. */
 export function coverFactsOf(read: BriefRead): BriefFact[] {
-  return [...read.facts, ...read.peopleFacts];
+  const phrase = read.offering?.phrase ?? "";
+  const needs = phrase ? needsFor("product", phrase) : [];
+  const offering: BriefFact[] =
+    needs.length > 0 ? [{ kind: "product", text: phrase, needs }] : [];
+  return [...offering, ...read.facts, ...read.peopleFacts];
 }
 
 /* Words that are never what a brief sells, however the reader frames them

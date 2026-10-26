@@ -15,9 +15,9 @@ import type { DesignContext } from "@/lib/design/context";
 import {
   type BriefFact,
   brandRegion,
-  coverBriefFacts,
+  dropFooterRepeats,
   type FactCoverage,
-  withoutBareItems,
+  factStated,
 } from "./brief-facts";
 import {
   type BriefRead,
@@ -40,12 +40,14 @@ import {
   spatialClaim,
 } from "./claims";
 import type { ConceptLens } from "./concepts";
+import { type FactWriter, settleFacts, writeFacts } from "./fact-writer";
 import {
   copyFault,
   correctionCheck,
   type DirectionChecks,
   type FinalizeReport,
   finalizeDirection,
+  isAction,
   settleReasons,
 } from "./finalize";
 import {
@@ -111,6 +113,8 @@ export interface DraftDirectionsInput {
   /** New headlines on another idea, for a pair nothing on the page can
    *  separate (headline-rewrite.ts). */
   headlineRewriter?: HeadlineRewriter;
+  /** Writes what a direction leaves out into its copy (fact-writer.ts). */
+  factWriter?: FactWriter;
 }
 
 /** What the claim check found and what became of it. */
@@ -232,6 +236,21 @@ export function fitRequests(
       COPY_LIMITS.subheadline,
     );
     copy(`${i}.cta`, "button", draft.cta, COPY_LIMITS.cta);
+    if (draft.cta?.trim() && !isAction(draft.cta)) {
+      const problem =
+        'a button is an action the customer takes, starting with a verb ("Book a free session"), not what they get';
+      const asked = requests.find((r) => r.id === `${i}.cta`);
+      if (asked) asked.problems.push(problem);
+      else {
+        requests.push({
+          id: `${i}.cta`,
+          field: "button",
+          text: draft.cta,
+          limit: COPY_LIMITS.cta,
+          problems: [problem],
+        });
+      }
+    }
     for (const [j, line] of (draft.footerLines ?? []).entries()) {
       copy(
         `${i}.footerLines.${j}`,
@@ -580,6 +599,7 @@ export async function draftDirections({
   footerRepeatChecker = checkFooterRepeats,
   footerRewriter = askFooterRewrites,
   headlineRewriter = rewriteHeadline,
+  factWriter = writeFacts,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
   const showImage =
@@ -1020,14 +1040,10 @@ export async function draftDirections({
       productLook: hint.slice(0, DRAFT_LIMITS.productLook),
     };
   });
-  const offeringNamed = named.map((d) => nameOffering(d, read, checks));
   const coverFacts = coverFactsOf(read);
-  const { directions: coveredFooters, coverage: factCoverage } =
-    coverBriefFacts(
-      offeringNamed,
-      coverFacts,
-      named.find((d) => d.productName)?.productName ?? "",
-    );
+  const product = named.find((d) => d.productName)?.productName ?? "";
+  const deduped = dropFooterRepeats(named, coverFacts, product);
+  const coveredFooters = deduped.directions;
   /* Repeats in other words are marked by a model and dropped by code only
      when no stated fact goes with them (footer-repeats.ts). */
   const hasFooter = coveredFooters.some((d) => d.footerLines.length > 0);
@@ -1075,17 +1091,62 @@ export async function draftDirections({
     (merged) => !apartBeforeMerges || !nearDuplicateSet(merged),
   );
   const echoes = dropButtonEchoes(repeatDrops.directions, coverFacts);
-  /* Never a lone "10am" in a footer (withoutBareItems). */
-  const drawnIn = echoes.directions.map((d) => withoutBareItems(d, coverFacts));
-  /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
-     settled against the old footer ("the footer carries the date") is held
-     again to the new one (round-5 eval: two such reasons). */
+  /* Model writes, code verifies (Oluwaseyi's ruling, round 7): what a
+     direction leaves out is written in by the model and checked here,
+     never appended by code (fact-writer.ts). */
+  const written = await settleFacts({
+    directions: echoes.directions,
+    facts: coverFacts,
+    ledger: checks.ledger,
+    writer: factWriter,
+    claimCheck: (fields) =>
+      claimChecker({
+        fields,
+        briefText: checks.briefText,
+        title: checks.title,
+        brand: context.brandSummary,
+      }),
+    briefText: checks.briefText,
+    title: checks.title,
+  });
+  modelCalls += written.modelCalls;
+  const final = dropFooterRepeats(written.directions, coverFacts, product);
+  const drawnIn = final.directions;
+  const factCoverage: FactCoverage = {
+    facts: coverFacts.map((f) => f.text),
+    stated: drawnIn.map((d) =>
+      coverFacts.filter((f) => factStated(f, d)).map((f) => f.text),
+    ),
+    added: written.added.filter(({ direction, fact }) =>
+      coverFacts.some(
+        (f) => f.text === fact && factStated(f, drawnIn[direction]),
+      ),
+    ),
+    leftOff: drawnIn.flatMap((d, i) =>
+      coverFacts
+        .filter((f) => !factStated(f, d))
+        .map(
+          (f) =>
+            written.leftOff.find(
+              (l) => l.direction === i && l.fact === f.text,
+            ) ?? {
+              direction: i,
+              fact: f.text,
+              reason: "dropped as a repeat after it was written in",
+            },
+        ),
+    ),
+    repeatsDropped: deduped.dropped + final.dropped,
+  };
+  /* Footers and subheadlines change here (repeats dropped, facts written
+     in), so a reason settled against the old copy ("the footer carries
+     the date") is held again to the new one (round-5 eval). */
   const covered = drawnIn.map((d, i) =>
     d.headline === headlinesBefore[i] &&
-    d.footerLines.join("|") === offeringNamed[i].footerLines.join("|") &&
-    d.subheadline === offeringNamed[i].subheadline &&
-    d.headline === offeringNamed[i].headline &&
-    d.cta === offeringNamed[i].cta
+    d.footerLines.join("|") === named[i].footerLines.join("|") &&
+    d.subheadline === named[i].subheadline &&
+    d.headline === named[i].headline &&
+    d.cta === named[i].cta
       ? d
       : {
           ...d,
@@ -1153,28 +1214,4 @@ export function plausibleProduct(name: string): boolean {
     return false;
   }
   return !words.every((w) => NOT_A_THING.test(w));
-}
-
-/**
- * A direction that still does not name what the brief promotes after the
- * fit pass names it in its subheadline, in the brief's words: as a lead-in
- * to the subheadline when that fits, else as the subheadline when there is
- * none. Round-6 eval: one textile direction called the aso-oke collection
- * "twelve autumn pieces" and never named it.
- */
-export function nameOffering<
-  D extends Pick<DirectionSpec, "headline" | "subheadline" | "cta">,
->(direction: D, read: Pick<BriefRead, "offering">, checks: DirectionChecks): D {
-  const phrase = read.offering?.phrase ?? "";
-  if (!phrase || namesOffering(direction, phrase)) return direction;
-  const name = phrase.charAt(0).toUpperCase() + phrase.slice(1);
-  const sub = direction.subheadline?.trim() ?? "";
-  const candidate = sub ? `${name}: ${sub}` : name;
-  if (
-    candidate.length > COPY_LIMITS.subheadline ||
-    copyFault(candidate, COPY_LIMITS.subheadline, checks.ledger)
-  ) {
-    return direction;
-  }
-  return { ...direction, subheadline: candidate };
 }

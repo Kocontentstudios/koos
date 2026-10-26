@@ -93,7 +93,7 @@ describe("dropMarkedRepeats", () => {
       expect.objectContaining({
         item: "Friday 12 December",
         dropped: false,
-        kept: expect.stringMatching(/carries a brief fact said nowhere else/),
+        kept: expect.stringMatching(/said nowhere else/),
       }),
     ]);
   });
@@ -556,5 +556,122 @@ describe("a merge with no subheadline to carry it", () => {
       async () => false,
     );
     expect(directions[0]).toEqual(bare);
+  });
+});
+
+/* Round-6 code critic, r6-footer.log P4 to P6: drops and merges are held
+   to the literal verifier, and an item a customer acts on is never dropped
+   on a model's reading or a word-share rule unless it is said elsewhere. */
+describe("drops that would lose what a customer acts on", () => {
+  it("P4: a marked cut-off the reader missed stays", () => {
+    const facts = settleBriefFacts(
+      [
+        { kind: "price", text: "₦15,000" },
+        { kind: "contact", text: "WhatsApp 0803 555 0142" },
+      ],
+      "Cakes ₦15,000. Pre-orders close Thursday 6pm. WhatsApp 0803 555 0142.",
+      { region: "NG" },
+    ).facts;
+    const design = {
+      headline: "Cakes for the weekend",
+      subheadline: "Order early this week.",
+      cta: "WhatsApp to order",
+      footerLines: [
+        "₦15,000 · WhatsApp 0803 555 0142",
+        "Pre-orders close Thursday 6pm",
+      ],
+      footerStyle: "text" as const,
+    };
+    const { directions, outcomes } = dropMarkedRepeats(
+      [design],
+      [{ id: "0.2", repeats: "order early" }],
+      facts,
+    );
+    expect(directions[0].footerLines).toContain(
+      "Pre-orders close Thursday 6pm",
+    );
+    expect(outcomes[0].dropped).toBe(false);
+  });
+
+  it("P5: a button echo naming a place stays", () => {
+    const facts = settleBriefFacts(
+      [{ kind: "price", text: "₦8,000 a tray" }],
+      "Order ahead for pickup at our Lekki Phase 1 shop. Small chops ₦8,000 a tray.",
+      { region: "NG" },
+    ).facts;
+    const { directions } = dropButtonEchoes(
+      [
+        {
+          headline: "Party trays, sorted",
+          subheadline: "Small chops for the weekend.",
+          cta: "Order ahead for pickup",
+          footerLines: [
+            "₦8,000 a tray",
+            "Order ahead for pickup in Lekki Phase 1",
+          ],
+          footerStyle: "text" as const,
+        },
+      ],
+      facts,
+    );
+    expect(directions[0].footerLines).toContain(
+      "Order ahead for pickup in Lekki Phase 1",
+    );
+  });
+
+  it("P6: a merge that drops a place from the offer is refused", async () => {
+    const facts = settleBriefFacts(
+      [
+        { kind: "offer", text: "Free delivery to Lekki, Ajah and Ikoyi" },
+        { kind: "price", text: "₦15,000" },
+      ],
+      "Free delivery to Lekki, Ajah and Ikoyi this week. Cakes ₦15,000.",
+      { region: "NG" },
+    ).facts;
+    const design = {
+      headline: "Cakes at your door",
+      subheadline: "₦15,000 cakes.",
+      cta: "Order now",
+      footerLines: ["Free delivery to Lekki, Ajah and Ikoyi"],
+      footerStyle: "text" as const,
+    };
+    const { directions } = await settleMarkedRepeats(
+      [design],
+      [
+        {
+          id: "0.0",
+          repeats: "delivery",
+          field: "subheadline",
+          rewrite: "₦15,000 cakes, with free delivery in Lekki and Ajah.",
+        },
+      ],
+      facts,
+      async () => true,
+    );
+    expect(directions[0]).toEqual(design);
+  });
+});
+
+describe("the repeat checker reads a long explanation", () => {
+  it("cuts it instead of losing the whole reading", async () => {
+    generateObject.mockResolvedValueOnce({
+      object: { repeats: [{ id: "0.0", repeats: "x".repeat(400) }] },
+    });
+    const out = await checkFooterRepeats([
+      {
+        headline: "Step away",
+        footerLines: ["Free registration"],
+      },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out?.[0].repeats).toHaveLength(200);
+  });
+
+  it("asks for footer items repeating each other, in a clean sentence", () => {
+    const prompt = buildFooterRepeatPrompt([
+      { headline: "h", footerLines: ["a · b"] },
+    ]);
+    expect(prompt).toContain("another of its footer items");
+    expect(prompt).not.toMatch(/stays an action: it stays an action/);
   });
 });

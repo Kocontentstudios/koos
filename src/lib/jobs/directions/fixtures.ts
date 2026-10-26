@@ -154,3 +154,87 @@ export function readAnswer(
 ) {
   return { object: { facts, offering, people } };
 }
+
+const promptOf = (options: unknown): string => {
+  const prompt = (options as { prompt?: unknown } | null)?.prompt;
+  return typeof prompt === "string" ? prompt : "";
+};
+
+/** The fact writer's call (fact-writer.ts). */
+export function isFactWriteCall(options: unknown): boolean {
+  return promptOf(options).startsWith(
+    "You edit the copy of social media designs",
+  );
+}
+
+/** The claim check's call (claim-check.ts). */
+export function isClaimCheckCall(options: unknown): boolean {
+  return promptOf(options).startsWith("You check marketing copy");
+}
+
+const quoted = (text: string) =>
+  [...text.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+
+/**
+ * A well-behaved model's answer to the fact writer: the subheadline kept,
+ * fragment items and times on a phone's line moved apart, and each missing
+ * fact written in the brief's words on a footer line of its own, joined to
+ * the last line once there are three. Job tests use it where the real model
+ * would write the facts in.
+ */
+export function fakeFactWrite(options: unknown): {
+  object: {
+    rewrites: { id: number; subheadline: string; footerLines: string[] }[];
+  };
+} {
+  const blocks = promptOf(options)
+    .split(/\n\n(?=Design \d+:)/)
+    .slice(1);
+  const rewrites = blocks.map((block) => {
+    const id = Number(/^Design (\d+):/.exec(block)?.[1] ?? 0);
+    const field = (name: string) =>
+      new RegExp(`^  ${name}: (.*)$`, "m").exec(block)?.[1] ?? "";
+    const sub = field("subheadline");
+    const footer = field("footer lines");
+    const missing = quoted(field("must state"));
+    const items = (footer === "(none)" ? [] : quoted(footer))
+      .map((line) =>
+        line
+          .split(" · ")
+          .filter(
+            (item) => !/^(?:one|two|three|four|five|\d[\d,.]*)$/i.test(item),
+          )
+          .join(" · "),
+      )
+      .filter(Boolean);
+    /* Hours and days a model writes as opening times, never bare. */
+    const isHours = (text: string) =>
+      !/\d{7,}|\d[\d\s-]{8,}/.test(text) &&
+      (/^[\d\s:.–-]+(?:am|pm)?$/i.test(text) ||
+        /^(?:daily|weekdays?|weekends?|every ?day|(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*)(?:\s|$)/i.test(
+          text,
+        ) ||
+        /^\d{1,2}\s?[-–]\s?\d{1,2}\b/.test(text));
+    const hours = missing.filter(isHours);
+    const lines: string[] = [];
+    const written = [
+      ...items,
+      ...missing.filter((m) => !isHours(m)),
+      ...(hours.length > 0 ? [`Open ${hours.join(" ")}`] : []),
+    ];
+    for (const item of written) {
+      const bareNumber = /^[\d\s+().-]{7,}$/.test(item);
+      const phoneLine = lines.findIndex((l) => /\d{4}/.test(l));
+      if (bareNumber && phoneLine >= 0) {
+        lines[phoneLine] = `${lines[phoneLine]} or ${item}`;
+      } else if (lines.length < 3) lines.push(item);
+      else lines[2] = `${lines[2]} · ${item}`;
+    }
+    return {
+      id,
+      subheadline: sub === "(none)" ? "" : sub,
+      footerLines: lines,
+    };
+  });
+  return { object: { rewrites } };
+}

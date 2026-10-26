@@ -691,7 +691,9 @@ describe("correctionHolds and correctionCheck, round 6", () => {
     expect(asked).toHaveLength(2);
   });
 
-  it("keeps the deterministic verdict when the claim check is down", async () => {
+  /* Round 7: fail-closed (round-6 code critic, r6-merge: a "Hand-woven"
+     merge shipped while the check was down). */
+  it("refuses every change when the claim check is down", async () => {
     const check = correctionCheck({
       ledger,
       facts: [],
@@ -703,7 +705,8 @@ describe("correctionHolds and correctionCheck, round 6", () => {
     });
     expect(
       await check(before, { ...before, headline: "Almond croissants, boxed" }),
-    ).toBe(true);
+    ).toBe(false);
+    expect(await check(before, before)).toBe(true);
     expect(
       await check(before, {
         ...before,

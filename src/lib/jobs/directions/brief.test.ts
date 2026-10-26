@@ -11,7 +11,6 @@ const {
   draftDirections,
   plausibleProduct,
   fitRequests,
-  nameOffering,
   namesOffering,
   ART_DIRECTOR_IMAGE_MAX_BYTES,
 } = await import("./brief");
@@ -545,7 +544,7 @@ describe("naming what the brief promotes", () => {
   };
   const draft = draftOf({
     headline: "Take one home",
-    subheadline: "Glazed by hand in Yaba",
+    subheadline: "Glazed in Yaba",
     cta: "Ask at the bar",
   });
 
@@ -567,7 +566,7 @@ describe("naming what the brief promotes", () => {
     const refused = applyFits(
       [draft],
       requests,
-      [{ id: "0.subheadline", text: "Glazed by hand, made to keep" }],
+      [{ id: "0.subheadline", text: "Glazed in Yaba, made to keep" }],
       checks,
       "stoneware cups",
     );
@@ -575,11 +574,11 @@ describe("naming what the brief promotes", () => {
     const kept = applyFits(
       [draft],
       requests,
-      [{ id: "0.subheadline", text: "Stoneware cups glazed by hand" }],
+      [{ id: "0.subheadline", text: "Stoneware cups, glazed in Yaba" }],
       checks,
       "stoneware cups",
     );
-    expect(kept.drafts[0].subheadline).toBe("Stoneware cups glazed by hand");
+    expect(kept.drafts[0].subheadline).toBe("Stoneware cups, glazed in Yaba");
   });
 
   it("asks nothing of a direction that names it", () => {
@@ -617,43 +616,6 @@ describe("plausibleProduct", () => {
 
 /* Round-6 eval, textile-launch-ko direction 1: "Twelve autumn pieces" and
    never the aso-oke collection. */
-describe("nameOffering", () => {
-  const checks = {
-    ledger: factLedger([
-      "Launch our autumn aso-oke collection: twelve new throws and cushions.",
-    ]),
-    briefText:
-      "Launch our autumn aso-oke collection: twelve new throws and cushions.",
-    title: "",
-  };
-  const read = {
-    offering: { kind: "product" as const, phrase: "autumn aso-oke collection" },
-  };
-
-  it("leads the subheadline with the offering when the copy never names it", () => {
-    const out = nameOffering(
-      {
-        headline: "One artisan. Every piece.",
-        subheadline: "Twelve new throws and cushions.",
-        cta: "Discover",
-      },
-      read,
-      checks,
-    );
-    expect(out.subheadline).toBe(
-      "Autumn aso-oke collection: Twelve new throws and cushions.",
-    );
-  });
-
-  it("leaves a direction that names it alone", () => {
-    const d = {
-      headline: "The autumn aso-oke collection",
-      subheadline: "Twelve new throws.",
-    };
-    expect(nameOffering(d, read, checks)).toBe(d);
-  });
-});
-
 /* Round-6 eval, recruitment-ko: the claim check set one headline to the
    brief's title, which the other already was in all but one word. */
 describe("headlines kept apart after the claim check", () => {

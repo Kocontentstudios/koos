@@ -533,6 +533,16 @@ function saysTheSame(a: string, b: string): boolean {
 type CopyField = "headline" | "subheadline" | "cta";
 
 /** Why a piece of copy cannot go on the design as written, or null. */
+/* The verbs a button starts with: what the customer does by tapping. */
+const ACTION_VERB =
+  /^(?:book|order|pre-?order|call|text|whatsapp|dm|message|chat|email|e-mail|contact|shop|buy|get|grab|reserve|join|register|sign|apply|send|submit|visit|come|walk|stop|try|claim|discover|explore|learn|start|enrol|enroll|save|see|view|watch|download|subscribe|follow|pick|collect|request|ask|find|meet|attend|taste|browse|read|rsvp|secure|donate|pay|upgrade|open|schedule|check|tap|click|enquire|inquire|talk|reach|hire|rent|treat|choose|pre-?book|plan|refer|share|vote|tell|take|bring|make|give|let|celebrate|enjoy|dine|eat|drink|sip|order|book)\b/i;
+
+/** Whether a button label is an action: it starts with what the customer
+ *  does ("Book a session"), not what they get ("First session free"). */
+export function isAction(label: string): boolean {
+  return ACTION_VERB.test(label.trim().replace(/^[^\p{L}]+/u, ""));
+}
+
 export function copyFault(
   text: string,
   max: number,
@@ -676,8 +686,10 @@ export function changedFields(
  * correctionHolds, then the same claim check the directions passed, on the
  * fields the correction changed: a judge rewrite is new copy, and the
  * pattern checks cannot read a promise like "free delivery" in another
- * language (round-5 code critic). An unreachable check leaves the
- * deterministic verdict, as everywhere else the check is fail-soft.
+ * language (round-5 code critic). Fail-closed: new model-written copy is
+ * never delivered unread, so an unreachable check refuses it and the copy
+ * it would have replaced stands (Oluwaseyi's ruling, round 7; round-6 code
+ * critic: a "Hand-woven" merge shipped while the check was down).
  */
 export function correctionCheck({
   ledger,
@@ -702,7 +714,7 @@ export function correctionCheck({
     const fields = changedFields(before, after);
     if (fields.length === 0) return true;
     const flagged = await checker({ fields, briefText, title, brand });
-    return flagged === null || flagged.length === 0;
+    return flagged !== null && flagged.length === 0;
   };
 }
 
@@ -775,7 +787,14 @@ export function finalizeDirection(
     draft.subheadline,
     COPY_LIMITS.subheadline,
   );
-  const cta = fit("cta", draft.cta, COPY_LIMITS.cta);
+  const fitted = fit("cta", draft.cta, COPY_LIMITS.cta);
+  /* A button that is not an action is left off rather than drawn: "First
+     session free" on a button reads as a label to tap (round-6 eval,
+     tutoring-ko). The fit pass asked the model for an action first. */
+  const cta = fitted && isAction(fitted) ? fitted : null;
+  if (fitted && !cta) {
+    copyFallbacks.push({ field: "cta", from: fitted, to: null });
+  }
   const footerLines = (draft.footerLines ?? [])
     .map((line) => fit("footer", line, COPY_LIMITS.footerLine))
     .filter((line): line is string => Boolean(line));

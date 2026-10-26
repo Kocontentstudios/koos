@@ -1,0 +1,273 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const generateObject = vi.fn();
+vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
+vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
+
+const { settleBriefFacts } = await import("./brief-facts");
+const { factLedger } = await import("./claims");
+const { buildFactWritePrompt, copyProblems, settleFacts, writeFacts } =
+  await import("./fact-writer");
+
+/* Oluwaseyi's ruling, round 7: the model writes what a direction leaves
+   out, code verifies it, and nothing is appended by code. */
+
+const brief =
+  "Three line cooks for our new Ikoyi kitchen. ₦220,000 a month plus staff meals. Two senior React engineers wanted. CV to jobs@emberandoak.ng by 15 November.";
+const facts = settleBriefFacts(
+  [
+    { kind: "price", text: "₦220,000 a month" },
+    { kind: "contact", text: "jobs@emberandoak.ng" },
+  ],
+  brief,
+  { region: "NG" },
+).facts;
+const ledger = factLedger([brief]);
+
+const direction = {
+  headline: "Cook over real fire",
+  subheadline: "Join our new Ikoyi kitchen.",
+  cta: "Send your CV",
+  footerLines: ["Two"],
+  footerStyle: "text" as const,
+};
+
+const passing = async () => [];
+
+beforeEach(() => generateObject.mockReset());
+
+describe("copyProblems", () => {
+  it("names a fragment, a time on a phone's line and a list", () => {
+    expect(
+      copyProblems({
+        subheadline: "A day at the loom. Bring your own loom. Certificates.",
+        footerLines: ["Two", "Call 0705 919 2284 · 9am to 4pm"],
+      }),
+    ).toEqual([
+      expect.stringMatching(/reads as a list/),
+      expect.stringMatching(/"Two" is a fragment/),
+      expect.stringMatching(/puts a time beside a phone number/),
+    ]);
+  });
+});
+
+describe("settleFacts", () => {
+  it("takes a rewrite that states what was missing and fixes the fragment", async () => {
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline: "Join our new Ikoyi kitchen for ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0]).toMatchObject({
+      headline: "Cook over real fire",
+      cta: "Send your CV",
+      subheadline: "Join our new Ikoyi kitchen for ₦220,000 a month.",
+      footerLines: ["CV to jobs@emberandoak.ng"],
+    });
+    expect(out.added.map((a) => a.fact)).toEqual([
+      "₦220,000 a month",
+      "jobs@emberandoak.ng",
+    ]);
+    expect(out.leftOff).toEqual([]);
+    expect(writer).toHaveBeenCalledTimes(1);
+    expect(writer.mock.calls[0][0].requests[0]).toMatchObject({
+      missing: ["₦220,000 a month", "jobs@emberandoak.ng"],
+      problems: [expect.stringMatching(/"Two" is a fragment/)],
+    });
+  });
+
+  it("takes a partial rewrite, then asks once more for the price with its unit", async () => {
+    const writer = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          id: 0,
+          subheadline: "Join our new Ikoyi kitchen. ₦220,000.",
+          footerLines: ["CV to jobs@emberandoak.ng"],
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 0,
+          subheadline: "Join our new Ikoyi kitchen, ₦220,000 a month.",
+          footerLines: ["CV to jobs@emberandoak.ng"],
+        },
+      ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(writer).toHaveBeenCalledTimes(2);
+    /* The first answer stated the email, so it was taken; the second
+       carries the price with its unit. */
+    expect(out.directions[0].subheadline).toBe(
+      "Join our new Ikoyi kitchen, ₦220,000 a month.",
+    );
+    expect(out.leftOff).toEqual([]);
+  });
+
+  it("never takes a rewrite that reads as a list or loses a fact", async () => {
+    const stated = {
+      ...direction,
+      footerLines: ["CV to jobs@emberandoak.ng"],
+    };
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline:
+          "Join our new Ikoyi kitchen. ₦220,000 a month. Staff meals. Full-time.",
+        footerLines: ["CV by 15 November"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [stated],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0]).toEqual(stated);
+    expect(out.leftOff).toEqual([
+      expect.objectContaining({
+        fact: "₦220,000 a month",
+        reason: expect.stringMatching(/refused/),
+      }),
+    ]);
+  });
+
+  it("takes nothing when the claim check is down", async () => {
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline: "Join our new Ikoyi kitchen for ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: async () => null,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0]).toEqual(direction);
+    expect(out.leftOff.map((l) => l.reason)).toEqual([
+      expect.stringMatching(/claim check could not be read/),
+      expect.stringMatching(/claim check could not be read/),
+    ]);
+  });
+
+  it("refuses a rewrite the claim check flags", async () => {
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline:
+          "Join our award-winning Ikoyi kitchen for ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: async (fields) =>
+        fields
+          .filter((f) => f.text.includes("award"))
+          .map((f) => ({ id: f.id })),
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0]).toEqual(direction);
+  });
+
+  it("asks nothing of a direction that is complete", async () => {
+    const writer = vi.fn();
+    const complete = {
+      ...direction,
+      subheadline: "₦220,000 a month in our new Ikoyi kitchen.",
+      footerLines: ["CV to jobs@emberandoak.ng"],
+    };
+    const out = await settleFacts({
+      directions: [complete],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(writer).not.toHaveBeenCalled();
+    expect(out.modelCalls).toBe(0);
+  });
+});
+
+describe("writeFacts", () => {
+  it("asks for the subheadline and footer only, with the literal rules", async () => {
+    generateObject.mockResolvedValueOnce({
+      object: {
+        rewrites: [
+          { id: 0, subheadline: "s", footerLines: ["f"] },
+          { id: 7, subheadline: "x", footerLines: [] },
+        ],
+      },
+    });
+    const input = {
+      requests: [
+        {
+          id: 0,
+          copy: direction,
+          missing: ["₦220,000 a month"],
+          keep: [],
+          problems: [],
+        },
+      ],
+      briefText: brief,
+      title: "",
+    };
+    expect(await writeFacts(input)).toEqual([
+      { id: 0, subheadline: "s", footerLines: ["f"] },
+    ]);
+    const prompt = buildFactWritePrompt(input);
+    expect(prompt).toContain("Do not change the headline or the button");
+    expect(prompt).toContain('never "₦18,000" alone');
+    expect(prompt).toContain('must state: "₦220,000 a month"');
+    expect(prompt).toMatch(
+      /Never put a time or opening hours on the same footer line as a phone number/,
+    );
+  });
+
+  it("is unavailable, not empty, when the call fails", async () => {
+    generateObject.mockRejectedValueOnce(new Error("throttled"));
+    expect(
+      await writeFacts({
+        requests: [
+          { id: 0, copy: direction, missing: ["x"], keep: [], problems: [] },
+        ],
+        briefText: brief,
+        title: "",
+      }),
+    ).toBeNull();
+  });
+});

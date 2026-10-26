@@ -1,7 +1,13 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel } from "@/lib/ai/provider";
-import { type BriefFact, type FactCopy, factStated } from "./brief-facts";
+import {
+  type BriefFact,
+  detailHeldElsewhere,
+  droppedSafely,
+  type FactCopy,
+  factStated,
+} from "./brief-facts";
 import { contentStems } from "./text-overlap";
 
 /**
@@ -68,8 +74,8 @@ export function buildFooterRepeatPrompt(
       .join("\n"),
   );
   return [
-    "You edit social media designs. For each direction below, mark every footer item that repeats, in any words, something the same direction's headline, subheadline or button already says: the same date, time, place, price, count, offer or instruction, abbreviated or reworded ('12–14 December' and 'Friday 12 December · Sunday 14 December', 'Register Free' and 'Free registration', a phone number under a 'WhatsApp to book' button). Do not mark an item about something not said above it at all.",
-    'When a marked item adds a detail to what is above (the weekdays of a date range, the number for a \'WhatsApp to book\' button), also give "field": "subheadline", and "rewrite": the subheadline written again with the detail in (a short new subheadline carrying it when there is none), using only words and facts from the subheadline and the item, within 140 characters, as one or two sentences, not a list. Never rewrite the headline or the button: the headline stays the idea, the button stays an action: it stays an action (\'WhatsApp to book\'). Otherwise leave field and rewrite empty.',
+    "You edit social media designs. For each direction below, mark every footer item that repeats, in any words, something the same direction's headline, subheadline, button or another of its footer items already says: the same date, time, place, price, count, offer or instruction, abbreviated or reworded ('12–14 December' and 'Friday 12 December · Sunday 14 December', 'Register Free' and 'Free registration', a phone number under a 'WhatsApp to book' button, 'Free Wi-Fi' beside 'Free Wi-Fi for lunch guests'). Of two footer items saying the same thing, mark the one that says less. Do not mark an item about something said nowhere else.",
+    'When a marked item adds a detail to what is above (the weekdays of a date range, the number for a \'WhatsApp to book\' button), also give "field": "subheadline", and "rewrite": the subheadline written again with the detail in (a short new subheadline carrying it when there is none), using only words and facts from the subheadline and the item, within 140 characters, as one or two sentences, not a list. Never rewrite the headline or the button: the headline stays the idea and the button stays an action (\'WhatsApp to book\'). Otherwise leave field and rewrite empty.',
     blocks.join("\n\n"),
     'Return "repeats": one entry per marked item with its id ("0.1"), in a few words what above it the item repeats, and field and rewrite as above. An empty list when nothing repeats.',
   ].join("\n\n");
@@ -80,9 +86,12 @@ const schema = z.object({
     .array(
       z.object({
         id: z.string(),
-        repeats: z.string().max(200),
+        /* A long explanation is cut, not a reason to lose the whole
+           reading (round-6 live critic: fintech's check went unavailable
+           on one 200-character answer). */
+        repeats: z.string(),
         field: z.enum(["headline", "subheadline", "button", ""]).optional(),
-        rewrite: z.string().max(200).optional(),
+        rewrite: z.string().optional(),
       }),
     )
     .max(30),
@@ -123,7 +132,7 @@ export const checkFooterRepeats: FooterRepeatChecker = async (directions) => {
           typeof mark.rewrite === "string" ? mark.rewrite.trim() : "";
         return {
           id: mark.id,
-          repeats: mark.repeats,
+          repeats: mark.repeats.slice(0, 200),
           ...(field && rewrite ? { field, rewrite } : {}),
         };
       });
@@ -168,35 +177,19 @@ export function dropMarkedRepeats<T extends FactCopy>(
       .filter((m) => m.item !== undefined);
     let current = direction;
     for (const mark of marked) {
-      const stated = (copy: T) =>
-        facts.filter((f) => factStated(f, copy)).length;
-      const footerLines = current.footerLines
-        .map((line) =>
-          line
-            .split(FOOTER_JOIN)
-            .map((item) => item.trim())
-            .filter((item) => item !== mark.item)
-            .join(FOOTER_JOIN),
-        )
-        .filter(Boolean);
-      const trial = {
-        ...current,
-        footerLines,
-        footerStyle: footerLines.length > 0 ? current.footerStyle : "none",
-      } as T;
-      const keepsFacts = stated(trial) === stated(current);
+      const trial = droppedSafely(current, mark.item, facts);
       outcomes.push({
         direction: i,
         item: mark.item,
         repeats: mark.repeats,
-        dropped: keepsFacts,
-        ...(keepsFacts
+        dropped: trial !== null,
+        ...(trial
           ? {}
           : {
-              kept: "it carries a brief fact said nowhere else, and no rewrite of the field above was offered",
+              kept: "it carries a fact, or a time, price, date, place or contact, said nowhere else",
             }),
       });
-      if (keepsFacts) current = trial;
+      if (trial) current = trial;
     }
     return current;
   });
@@ -300,7 +293,8 @@ export async function settleMarkedRepeats<T extends FactCopy>(
     }
     const merges =
       fits &&
-      stated(trial) === stated(current) &&
+      stated(trial) >= stated(current) &&
+      detailHeldElsewhere(outcome.item, trial) &&
       (await holds(current, trial));
     if (merges) {
       out[outcome.direction] = trial;
@@ -362,7 +356,7 @@ const rewriteSchema = z.object({
       z.object({
         id: z.string(),
         field: z.enum(["headline", "subheadline"]),
-        rewrite: z.string().max(200),
+        rewrite: z.string(),
       }),
     )
     .max(30),
@@ -439,7 +433,7 @@ function echoesButton(
 
 /**
  * The directions without footer items that only say the button's action
- * again, when every brief fact each direction states is still stated.
+ * again, when the drop loses nothing (droppedSafely).
  */
 export function dropButtonEchoes<T extends FactCopy>(
   directions: T[],
@@ -450,10 +444,8 @@ export function dropButtonEchoes<T extends FactCopy>(
     let current = direction;
     for (const item of footerItemsOf(direction.footerLines)) {
       if (!echoesButton(item, direction.cta ?? "", facts)) continue;
-      const trial = withoutItem(current, item);
-      const stated = (copy: T) =>
-        facts.filter((f) => factStated(f, copy)).length;
-      if (stated(trial) !== stated(current)) continue;
+      const trial = droppedSafely(current, item, facts);
+      if (!trial) continue;
       current = trial;
       outcomes.push({
         direction: i,

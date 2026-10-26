@@ -3,7 +3,7 @@ import {
   type BriefFact,
   brandRegion,
   brandSetting,
-  coverBriefFacts,
+  dropFooterRepeats,
   type FactCopy,
   factStated,
   factsMissing,
@@ -255,99 +255,9 @@ describe("redundantFooterItems", () => {
   });
 });
 
-describe("coverBriefFacts", () => {
-  const brief =
-    "Kids' croissant-making workshop this Saturday, 10am to 12pm at our Lekki shop. ₦15,000 per child, ages 7 to 12, only 8 spots. Book on WhatsApp 0803 555 0142.";
-  const { facts } = settle(brief, [
-    { kind: "day", text: "this Saturday" },
-    { kind: "time", text: "10am to 12pm" },
-    { kind: "place", text: "our Lekki shop" },
-    { kind: "price", text: "₦15,000 per child" },
-    { kind: "age", text: "ages 7 to 12" },
-    { kind: "quantity", text: "only 8 spots" },
-    { kind: "contact", text: "WhatsApp 0803 555 0142" },
-  ]);
-
-  it("draws what a direction left out into its footer", () => {
-    const { directions, coverage } = coverBriefFacts(
-      [copy({ subheadline: "This Saturday, 10am to 12pm, ages 7 to 12" })],
-      facts,
-    );
-    expect(
-      factsMissing(facts, directions[0].footerLines.join("\n")),
-    ).not.toEqual(facts);
-    expect(coverage.leftOff).toEqual([]);
-    expect(
-      factsMissing(
-        facts,
-        [directions[0].subheadline, ...directions[0].footerLines].join("\n"),
-      ),
-    ).toEqual([]);
-    expect(directions[0].footerStyle).toBe("text");
-  });
-
-  it("gives up the model's own factless lines before leaving a fact off", () => {
-    const { directions, coverage } = coverBriefFacts(
-      [
-        copy({
-          footerLines: [
-            "Croissants, pain au chocolat and tea for every child there",
-            "Aprons and hats are handed out at the door by our bakers",
-            "Parents are welcome to stay and watch from the counter",
-          ],
-        }),
-      ],
-      facts,
-    );
-    expect(directions[0].footerLines).toHaveLength(3);
-    expect(coverage.leftOff).toEqual([]);
-    expect(factsMissing(facts, directions[0].footerLines.join("\n"))).toEqual(
-      [],
-    );
-  });
-
-  it("records what will not fit, and why, when every line carries a fact", () => {
-    const { coverage } = coverBriefFacts(
-      [
-        copy({
-          subheadline:
-            "Little hands, real pastry: a morning of rolling, folding and shaping croissants with our bakers, then tasting them warm.",
-          footerLines: [
-            "This Saturday, 10am to 12pm, at our Lekki shop, ages 7-12",
-            "₦15,000 per child · only 8 spots, so book early with us",
-            "Book now on WhatsApp 0803 555 0142 · aprons provided",
-          ],
-        }),
-      ],
-      [
-        ...facts,
-        ...settle(
-          "Croissant-making workshop. Each child takes home a box of six croissants they shaped.",
-          [
-            {
-              kind: "offer",
-              text: "Each child takes home a box of six croissants they shaped",
-            },
-          ],
-        ).facts,
-      ],
-    );
-    expect(coverage.leftOff).toEqual([
-      expect.objectContaining({ reason: "the footer has no room left for it" }),
-    ]);
-  });
-
-  it("never draws the product as a fact", () => {
-    const { directions } = coverBriefFacts(
-      [copy({ headline: "Cups for the shelf" })],
-      [],
-      "stoneware cups",
-    );
-    expect(directions[0].footerLines).toEqual([]);
-  });
-
-  it("drops footer repeats before counting what is missing", () => {
-    const { directions, coverage } = coverBriefFacts(
+describe("dropFooterRepeats", () => {
+  it("drops footer repeats of the copy above", () => {
+    const { directions, dropped } = dropFooterRepeats(
       [
         copy({
           subheadline: "Available from Monday, 7am pickup",
@@ -359,7 +269,16 @@ describe("coverBriefFacts", () => {
     );
     expect(directions[0].footerLines).toEqual([]);
     expect(directions[0].footerStyle).toBe("none");
-    expect(coverage.repeatsDropped).toBe(2);
+    expect(dropped).toBe(2);
+  });
+
+  it("never writes: a direction short of a fact is left as it is", () => {
+    const { facts } = settle("Cups ₦9,500 each. WhatsApp 0803 555 0142.", [
+      { kind: "price", text: "₦9,500 each" },
+      { kind: "contact", text: "WhatsApp 0803 555 0142" },
+    ]);
+    const short = copy({ headline: "Cups for the shelf" });
+    expect(dropFooterRepeats([short], facts).directions[0]).toEqual(short);
   });
 });
 

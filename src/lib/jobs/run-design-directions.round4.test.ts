@@ -19,10 +19,19 @@ const rasterizeDocument = vi.fn();
 
 const readBrief = vi.fn();
 vi.mock("ai", async () => {
-  const { isBriefReadCall } = await import("./directions/fixtures");
+  const { fakeFactWrite, isBriefReadCall, isClaimCheckCall, isFactWriteCall } =
+    await import("./directions/fixtures");
   return {
     generateObject: (o: unknown) =>
-      isBriefReadCall(o) ? readBrief(o) : generateObject(o),
+      isBriefReadCall(o)
+        ? readBrief(o)
+        : isFactWriteCall(o)
+          ? fakeFactWrite(o)
+          : isClaimCheckCall(o) &&
+              !(globalThis as { claimCheckThroughDouble?: boolean })
+                .claimCheckThroughDouble
+            ? { object: { unsupported: [] } }
+            : generateObject(o),
   };
 });
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));

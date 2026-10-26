@@ -19,10 +19,19 @@ const rasterizeDocument = vi.fn();
 
 const readBrief = vi.fn();
 vi.mock("ai", async () => {
-  const { isBriefReadCall } = await import("./directions/fixtures");
+  const { fakeFactWrite, isBriefReadCall, isClaimCheckCall, isFactWriteCall } =
+    await import("./directions/fixtures");
   return {
     generateObject: (o: unknown) =>
-      isBriefReadCall(o) ? readBrief(o) : generateObject(o),
+      isBriefReadCall(o)
+        ? readBrief(o)
+        : isFactWriteCall(o)
+          ? fakeFactWrite(o)
+          : isClaimCheckCall(o) &&
+              !(globalThis as { claimCheckThroughDouble?: boolean })
+                .claimCheckThroughDouble
+            ? { object: { unsupported: [] } }
+            : generateObject(o),
   };
 });
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
@@ -478,8 +487,9 @@ describe("round-5 critic job probes", () => {
       { image: { source: "upload", key: UPLOAD_KEY } },
     );
     const m = usage();
-    expect(m.briefFacts).toBe(2);
-    expect(m.briefFactsByDirection).toEqual([2, 2]);
+    /* The offering's name, the price and the speaker (round 7). */
+    expect(m.briefFacts).toBe(3);
+    expect(m.briefFactsByDirection).toEqual([3, 3]);
     for (const id of ["row-1", "row-2"]) {
       expect(drawnOf(id)).toMatch(/Tunde Okafor/);
     }
@@ -671,6 +681,87 @@ describe("round 6c: object-free scenes", () => {
       expect(input.prompt).toMatch(
         /^A soft-focus, close-up photograph of light and texture that suits the /,
       );
+    }
+  });
+});
+
+/* Round-6 code critic's job probes K15 and K16: a drop decided by a rule
+   that counted a fact stated when the design no longer carried it. */
+describe("round-6 critic job probes", () => {
+  it("K15: a count above never makes the footer price a repeat", async () => {
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "quantity", text: "2,000 happy customers" },
+          { kind: "price", text: "₦2,000 each" },
+          { kind: "contact", text: "WhatsApp 0803 555 0142" },
+        ],
+        { kind: "product", phrase: "chin chin jars" },
+      ),
+    );
+    const footerLines = ["₦2,000 each · WhatsApp 0803 555 0142"];
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            headline: "2,000 happy customers can't be wrong",
+            subheadline: "Crunchy chin chin jars, fried fresh.",
+            footerLines,
+            footerStyle: "text",
+          }),
+          contrastingDraft({
+            headline: "Join 2,000 happy customers",
+            subheadline: "Our chin chin jars, fried fresh.",
+            footerLines,
+            footerStyle: "text",
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Join 2,000 happy customers. Chin chin jars ₦2,000 each. WhatsApp 0803 555 0142.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    for (const id of ["row-1", "row-2"]) {
+      expect(drawnOf(id)).toContain("₦2,000 each");
+    }
+    expect(usage().factsLeftOff).toEqual([]);
+  });
+
+  it("K16: three places in four never drops the offer", async () => {
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "offer", text: "Free delivery to Lekki, Ajah and Ikoyi" },
+          { kind: "price", text: "₦15,000" },
+        ],
+        { kind: "product", phrase: "cakes" },
+      ),
+    );
+    const footerLines = ["Free delivery to Lekki, Ajah and Ikoyi"];
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            headline: "Cakes at your door",
+            subheadline: "₦15,000 cakes with free delivery in Lekki and Ajah.",
+            footerLines,
+            footerStyle: "text",
+          }),
+          contrastingDraft({
+            subheadline: "₦15,000 cakes. Free delivery in Lekki and Ajah.",
+            footerLines,
+            footerStyle: "text",
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Cakes ₦15,000. Free delivery to Lekki, Ajah and Ikoyi this week.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    for (const id of ["row-1", "row-2"]) {
+      expect(drawnOf(id)).toContain("Ikoyi");
     }
   });
 });
