@@ -183,8 +183,7 @@ describe("settleFacts", () => {
     const writer = vi.fn(async () => [
       {
         id: 0,
-        subheadline:
-          "Join our award-winning Ikoyi kitchen for ₦220,000 a month.",
+        subheadline: "Join our spacious Ikoyi kitchen for ₦220,000 a month.",
         footerLines: ["CV to jobs@emberandoak.ng"],
       },
     ]);
@@ -195,12 +194,111 @@ describe("settleFacts", () => {
       writer,
       claimCheck: async (fields) =>
         fields
-          .filter((f) => f.text.includes("award"))
+          .filter((f) => f.text.includes("spacious"))
           .map((f) => ({ id: f.id })),
       briefText: brief,
       title: "",
     });
     expect(out.directions[0]).toEqual(direction);
+  });
+
+  /* Round-7 live run: whole rewrites refused for a list-like subheadline
+     left a price without its unit; the footer half is taken. */
+  it("takes the footer half when the subheadline half fails", async () => {
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline:
+          "Join our new Ikoyi kitchen. Staff meals. Full-time. Five days.",
+        footerLines: ["₦220,000 a month", "CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0]).toMatchObject({
+      subheadline: direction.subheadline,
+      footerLines: ["₦220,000 a month", "CV to jobs@emberandoak.ng"],
+    });
+    expect(out.leftOff).toEqual([]);
+  });
+
+  /* Round-7 eval, fitness and fintech: two rewrites came back as one
+     sentence, and the pair read as one design. */
+  it("refuses a rewrite that makes the pair one design, and says so", async () => {
+    const writer = vi.fn(async (_input: Parameters<FactWriter>[0]) => [
+      {
+        id: 0,
+        subheadline: "Join our new Ikoyi kitchen for ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+      keepsApart: () => false,
+    });
+    expect(out.directions[0]).toEqual(direction);
+    expect(writer).toHaveBeenCalledTimes(2);
+    expect(writer.mock.calls[1][0].requests[0].problems).toContainEqual(
+      expect.stringMatching(/reads like the other design/),
+    );
+  });
+
+  it("names what the claim check found when it asks again", async () => {
+    const writer = vi.fn(async (_input: Parameters<FactWriter>[0]) => [
+      {
+        id: 0,
+        subheadline: "Join our spacious kitchen for ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: async (fields) =>
+        fields
+          .filter((f) => f.text.includes("spacious"))
+          .map((f) => ({ id: f.id, statement: "spacious" })),
+      briefText: brief,
+      title: "",
+    });
+    expect(writer.mock.calls[1][0].requests[0].problems).toContainEqual(
+      expect.stringMatching(/"spacious"/),
+    );
+  });
+
+  it("shows the model the other design's subheadline not to echo", () => {
+    const prompt = buildFactWritePrompt({
+      requests: [
+        {
+          id: 1,
+          copy: direction,
+          missing: ["x"],
+          keep: [],
+          problems: [],
+          others: ["Send money to 20 African countries."],
+        },
+      ],
+      briefText: brief,
+      title: "",
+    });
+    expect(prompt).toContain(
+      'the other design\'s subheadline, not to echo: "Send money to 20 African countries."',
+    );
   });
 
   it("asks nothing of a direction that is complete", async () => {

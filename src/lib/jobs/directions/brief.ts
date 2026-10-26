@@ -1113,6 +1113,8 @@ export async function draftDirections({
       }),
     briefText: checks.briefText,
     title: checks.title,
+    keepsApart: (set) =>
+      nearDuplicateSet(echoes.directions) || !nearDuplicateSet(set),
   });
   modelCalls += written.modelCalls;
   const final = dropFooterRepeats(written.directions, coverFacts, product);

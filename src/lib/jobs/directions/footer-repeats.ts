@@ -418,12 +418,11 @@ export function hasSubheadlineRewrite(mark: FooterRepeatMark): boolean {
    under "Order Ahead", unmarked by the model). */
 const BUTTON_ECHO_SHARE = 0.5;
 
-function echoesButton(
-  item: string,
-  button: string,
-  facts: readonly BriefFact[],
-): boolean {
-  if (!button || facts.some((f) => factStated(f, item))) return false;
+function echoesButton(item: string, button: string): boolean {
+  /* A fact on the item is not a reason to keep it: droppedSafely keeps it
+     when the fact is said nowhere else ("Book on WhatsApp" under "WhatsApp
+     to Book" was kept as a fact the button already states, round-7 eval). */
+  if (!button) return false;
   const words = contentStems(item);
   if (words.size === 0) return false;
   const ask = contentStems(button);
@@ -443,7 +442,7 @@ export function dropButtonEchoes<T extends FactCopy>(
   const out = directions.map((direction, i) => {
     let current = direction;
     for (const item of footerItemsOf(direction.footerLines)) {
-      if (!echoesButton(item, direction.cta ?? "", facts)) continue;
+      if (!echoesButton(item, direction.cta ?? "")) continue;
       const trial = droppedSafely(current, item, facts);
       if (!trial) continue;
       current = trial;

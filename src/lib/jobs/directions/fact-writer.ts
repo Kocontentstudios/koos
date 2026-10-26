@@ -39,6 +39,10 @@ export interface FactWriteRequest {
   keep: string[];
   /** What else is wrong with the copy, in words. */
   problems: string[];
+  /** The other designs' subheadlines, which this one must not echo: two
+   *  rewrites of one brief came back as the same sentence (round-7 eval,
+   *  fitness and fintech). */
+  others?: string[];
 }
 
 export interface FactWrite {
@@ -77,9 +81,10 @@ export function buildFactWritePrompt({
     [
       "Rules:",
       "- Do not change the headline or the button. Return only the subheadline and the footer lines.",
-      '- State every fact listed under "must state", in the brief\'s words or with every part of it in one place: a price with its currency, amount and unit together ("₦18,000 per split unit", never "₦18,000" alone); a count with its noun ("two senior React engineers", never "Two"); an offer or condition whole ("Free delivery to Lekki, Ajah and Ikoyi").',
+      '- State every fact listed under "must state", in the brief\'s words or with every part of it in one place: a price with its currency, amount and unit together ("₦18,000 per split unit", never "₦18,000" alone); a count with its noun ("two senior React engineers", never "Two"); an offer, condition or requirement word for word as the brief writes it ("Free delivery to Lekki, Ajah and Ikoyi", "You need at least 2 years in a busy kitchen").',
       '- Keep every fact listed under "keep".',
-      "- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is one or two sentences, at most 140 characters, never a list of clauses.",
+      "- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is at most two sentences and 140 characters; never string clauses together with dashes, semicolons or full stops into a list. What does not fit that goes in the footer.",
+      "- Keep each design's own idea: its subheadline must not repeat or reorder another design's.",
       `- The footer is at most ${MAX_FOOTER_LINES} lines of at most 60 characters; items on one line are joined by " · ".`,
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
       "- Never put a time or opening hours on the same footer line as a phone number.",
@@ -105,6 +110,9 @@ export function buildFactWritePrompt({
             ? `  keep: ${r.keep.map((m) => `"${m}"`).join(", ")}`
             : null,
           r.problems.length > 0 ? `  fix: ${r.problems.join("; ")}` : null,
+          r.others && r.others.length > 0
+            ? `  the other design's subheadline, not to echo: ${r.others.map((o) => `"${o}"`).join(", ")}`
+            : null,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -202,13 +210,19 @@ export function rewriteFault(
   if (lost.length > 0) {
     return `it loses ${lost.map((f) => `"${f.text}"`).join(", ")}`;
   }
-  const problems = copyProblems(after);
-  if (problems.length > 0) return problems[0];
+  /* No new problem, though one the rewrite left alone may stand: a footer
+     that now carries the price is worth taking under a subheadline the
+     model could not fix. */
+  const had = copyProblems(before);
+  const has = copyProblems(after);
+  const added = has.filter((p) => !had.includes(p));
+  if (added.length > 0) return added[0];
   const gained = facts.filter(
     (f) => !factStated(f, before) && factStated(f, after),
   );
-  const fixed = copyProblems(before).length > 0;
-  if (gained.length === 0 && !fixed) return "it states nothing more";
+  if (gained.length === 0 && has.length >= had.length) {
+    return "it states nothing more";
+  }
   return null;
 }
 
@@ -239,6 +253,7 @@ export async function settleFacts<T extends FactCopy>({
   claimCheck,
   briefText,
   title,
+  keepsApart = () => true,
 }: {
   directions: T[];
   facts: readonly BriefFact[];
@@ -247,9 +262,11 @@ export async function settleFacts<T extends FactCopy>({
   /** The claim check on the new fields; null when it could not be read. */
   claimCheck: (
     fields: { id: string; field: string; text: string; limit: number }[],
-  ) => Promise<{ id: string }[] | null>;
+  ) => Promise<{ id: string; statement?: string }[] | null>;
   briefText: string;
   title: string;
+  /** False when the set would read as one design twice. */
+  keepsApart?: (directions: T[]) => boolean;
 }): Promise<FactSettlement<T>> {
   const out = [...directions];
   const refused: FactSettlement<T>["refused"] = [];
@@ -270,6 +287,10 @@ export async function settleFacts<T extends FactCopy>({
           problems: why
             ? [...problems, `your last rewrite was refused: ${why}`]
             : problems,
+          others: out
+            .filter((_, j) => j !== id)
+            .map((d) => d.subheadline ?? "")
+            .filter(Boolean),
         },
       ];
     });
@@ -302,13 +323,33 @@ export async function settleFacts<T extends FactCopy>({
               ? "text"
               : before.footerStyle,
       } as T;
-      const fault = rewriteFault(before, after, facts, ledger);
-      if (fault) {
-        feedback.set(request.id, fault);
-        refused.push({ direction: request.id, why: fault });
+      const faultOf = (copy: T) =>
+        rewriteFault(before, copy, facts, ledger) ??
+        (keepsApart(out.map((d, j) => (j === request.id ? copy : d)))
+          ? null
+          : "it reads like the other design; keep this design's own idea");
+      /* The whole rewrite first; failing that, its footer under the old
+         subheadline, or its subheadline over the old footer: the half the
+         model got right is taken, the other half asked for again. */
+      const halves = [
+        after,
+        { ...after, subheadline: before.subheadline } as T,
+        {
+          ...after,
+          footerLines: before.footerLines,
+          footerStyle: before.footerStyle,
+        } as T,
+      ];
+      const fault = faultOf(after);
+      const taken = halves.find((copy) => faultOf(copy) === null);
+      if (!taken) {
+        const why = fault ?? "it states nothing more";
+        feedback.set(request.id, why);
+        refused.push({ direction: request.id, why });
         continue;
       }
-      candidates.push({ id: request.id, copy: after });
+      if (fault) feedback.set(request.id, fault);
+      candidates.push({ id: request.id, copy: taken });
     }
     if (candidates.length === 0) continue;
     const fields = candidates.flatMap(({ id, copy }) => [
@@ -334,11 +375,14 @@ export async function settleFacts<T extends FactCopy>({
     modelCalls += fields.length > 0 ? 1 : 0;
     const flagged = fields.length > 0 ? await claimCheck(fields) : [];
     for (const { id, copy } of candidates) {
+      const claims = (flagged ?? []).filter((f) => f.id.startsWith(`${id}.`));
       const why =
         flagged === null
           ? "the claim check could not be read"
-          : flagged.some((f) => f.id.startsWith(`${id}.`))
-            ? "the claim check found a claim the brief does not make"
+          : claims.length > 0
+            ? `the claim check found what the brief does not say: ${claims
+                .map((c) => `"${c.statement ?? "a claim"}"`)
+                .join(", ")}`
             : null;
       if (why) {
         feedback.set(id, why);

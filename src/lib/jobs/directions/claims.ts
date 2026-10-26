@@ -392,8 +392,10 @@ function currencyOf(symbol: string | undefined): string | null {
   return CURRENCIES.find(([pattern]) => pattern.test(said))?.[1] ?? null;
 }
 
+/* A number never ends on its comma: "UK 8 to 14, ₦115,000" read "14," and
+   then "115" as what fourteen counted (round-7 live run, fashion). */
 const NUMERIC =
-  /([₦$£€]\s?|\bN(?=\d))?(\d[\d,]*(?:\.\d+)?)(\s?k\b)?(\s?%|\s?(?:am|pm)\b|:\d{2})?/gi;
+  /([₦$£€]\s?|\bN(?=\d))?(\d(?:[\d,]*\d)?(?:\.\d+)?)(\s?k\b)?(\s?%|\s?(?:am|pm)\b|:\d{2})?/gi;
 const WORD_NUMBER = new RegExp(
   `\\b(${Object.keys(NUMBER_WORDS).join("|")})\\b`,
   "gi",

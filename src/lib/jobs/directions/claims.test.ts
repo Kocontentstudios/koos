@@ -997,3 +997,12 @@ describe("brief-only claims, variant by variant", () => {
     expect(inventedFacts("Handwoven throws", brief)).toEqual([]);
   });
 });
+
+/* Round-7 live run, fashion: "fits UK 8 to 14, ₦115,000" read "14," as a
+   count of "115" and refused a correct rewrite. */
+it("never reads the number after a comma as what a count counts", () => {
+  const coat = factLedger([
+    "Our wrap coat, ₦115,000, fits UK 8 to 14, made to order in 10 days.",
+  ]);
+  expect(inventedFacts("Fits UK 8 to 14, ₦115,000.", coat)).toEqual([]);
+});

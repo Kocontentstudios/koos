@@ -440,12 +440,12 @@ describe("dropButtonEchoes", () => {
     ]);
   });
 
-  it("keeps an item that carries a brief fact, however close to the button", () => {
+  it("keeps an item carrying a brief fact the button does not state", () => {
     const { directions } = dropButtonEchoes(
       [
         {
           ...direction,
-          cta: "Pickup from 7am",
+          cta: "Order for pickup",
           footerLines: ["Pickup from 7am"],
         },
       ],
@@ -674,4 +674,26 @@ describe("the repeat checker reads a long explanation", () => {
     expect(prompt).toContain("another of its footer items");
     expect(prompt).not.toMatch(/stays an action: it stays an action/);
   });
+});
+
+/* Round-7 eval, fitness: "Book on WhatsApp" under "WhatsApp to Book" was
+   kept because it carries a fact, one the button already states. */
+it("drops a button echo whose fact the button states", () => {
+  const facts = settleBriefFacts(
+    [{ kind: "contact", text: "book on WhatsApp" }],
+    "6am HIIT every weekday. First class free, book on WhatsApp.",
+    { region: "NG" },
+  ).facts;
+  const { directions } = dropButtonEchoes(
+    [
+      {
+        headline: "Your first class is free",
+        cta: "WhatsApp to Book",
+        footerLines: ["Book on WhatsApp"],
+        footerStyle: "text" as const,
+      },
+    ],
+    facts,
+  );
+  expect(directions[0].footerLines).toEqual([]);
 });
