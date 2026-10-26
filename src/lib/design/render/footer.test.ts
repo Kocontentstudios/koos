@@ -161,13 +161,16 @@ describe("footerLinesFor with the call to action", () => {
     ).toEqual(["0803 555 0142 | Lekki"]);
   });
 
-  it("keeps what follows a call to action used as a label", () => {
+  /* Round 7: cutting the CTA off an item rewrote it, and "Order by 8pm
+     for next-day pickup" under "Order by 8pm" was drawn as "Next-day
+     pickup", losing the deadline. */
+  it("keeps an item led by the call to action whole", () => {
     expect(
       linesFor("Order on WhatsApp", ["Order on WhatsApp: 0803 555 0142"]),
-    ).toEqual(["0803 555 0142"]);
-    expect(linesFor("Order now", ["Order now at crumbandco.ng"])).toEqual([
-      "crumbandco.ng",
-    ]);
+    ).toEqual(["Order on WhatsApp: 0803 555 0142"]);
+    expect(
+      linesFor("Order by 8pm", ["Order by 8pm for next-day pickup"]),
+    ).toEqual(["Order by 8pm for next-day pickup"]);
   });
 
   it("drops an item that is part of the call to action or contains it", () => {
@@ -230,12 +233,12 @@ describe("footerLinesFor never deletes contact details to avoid a repeat", () =>
     ]);
   });
 
-  it("keeps the address after a CTA used as a lead", () => {
+  it("keeps an item led by the CTA whole, the address and code with it", () => {
     expect(linesFor("Visit us", "Visit us at 12 Admiralty Way, Lekki")).toEqual(
-      ["12 Admiralty Way, Lekki"],
+      ["Visit us at 12 Admiralty Way, Lekki"],
     );
     expect(linesFor("Get 20% off", "Get 20% off with code CRUMB20")).toEqual([
-      "Code CRUMB20",
+      "Get 20% off with code CRUMB20",
     ]);
   });
 });

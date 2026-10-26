@@ -285,3 +285,27 @@ describe("footer items compared with each other", () => {
     ]);
   });
 });
+
+/* Round-7 eval: "First session is free" was not taken for the brief's
+   "the first session is free", nor "Shared room and all meals included"
+   for "a shared room and all meals included". */
+describe("a leading article", () => {
+  it("is not part of the fact", () => {
+    const facts = settle(
+      "Home tutoring, the first session is free. Retreat with a shared room and all meals included.",
+      [
+        { kind: "offer", text: "the first session is free" },
+        { kind: "offer", text: "a shared room and all meals included" },
+      ],
+    );
+    expect(
+      onDesign(
+        facts,
+        copy({
+          subheadline: "First session is free.",
+          footerLines: ["Shared room and all meals included"],
+        }),
+      ),
+    ).toHaveLength(2);
+  });
+});

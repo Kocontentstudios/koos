@@ -964,9 +964,11 @@ function wordsOf(text: string): string {
     .trim();
 }
 
-/** Whether `part` holds `phrase` whole, as words. */
+/** Whether `part` holds `phrase` whole, as words. A leading article is
+ *  not part of the fact: "First session is free" states "the first
+ *  session is free" (round-7 eval, tutoring and retreat). */
 function holdsWhole(phrase: string, part: string): boolean {
-  const wanted = wordsOf(phrase);
+  const wanted = wordsOf(phrase).replace(/^(?:the|a|an) /, "");
   return wanted.length > 0 && ` ${wordsOf(part)} `.includes(` ${wanted} `);
 }
 

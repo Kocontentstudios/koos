@@ -47,8 +47,6 @@ export function footerLinesFor(spec: FooterSpec): string[] {
    into items; "Shop 12, Admiralty Mall" splits too, harmlessly, because an
    item is only ever removed whole. */
 const SEPARATOR = /(\s*[·•|]\s*|\s+[–—/-]\s+|,\s+)/;
-const CONNECTOR = /^(?:at|on|via|by|from|to|for|in|with)\s+/i;
-const CLAUSE = /^(?:and|or|but|then|to|if|unless|until|while|except)\b/i;
 const EDGE_PUNCTUATION = /^[^\p{L}\p{N}@#₦$€£%]+|[^\p{L}\p{N}%]+$/gu;
 
 /** A token compared as a whole: lower case, edge punctuation off, times
@@ -122,8 +120,8 @@ function capitalized(line: string): string {
  * 0803 555 0142" under an "Order now" button), and restates the subheadline's
  * day and time, so the design says it twice. Per item:
  *  - the CTA alone goes;
- *  - an item led by the CTA keeps what follows ("Order on WhatsApp: 0803..."
- *    keeps the number);
+ *  - an item led by the CTA is kept whole ("Order on WhatsApp: 0803 555
+ *    0142", "Order by 8pm for next-day pickup"): cutting it rewrites it;
  *  - an item that carries the CTA elsewhere goes only when it carries no
  *    fact: "Call 0803 555 0142 to book a table" keeps the number, so it is
  *    kept whole;
@@ -170,17 +168,11 @@ function keptItem(raw: string, cta: string[]): string {
       return "";
     }
     const at = cta.length >= 2 ? indexOfRun(tokens, cta) : -1;
-    if (at === 0) {
-      const words = item.split(/\s+/);
-      const after = words.slice(cta.length).join(" ");
-      /* "Order now and save 20%" is one offer, not the CTA and a remainder. */
-      if (CLAUSE.test(after)) return item;
-      const rest = after
-        .replace(/^[\s:,–—-]+/, "")
-        .replace(CONNECTOR, "")
-        .trim();
-      return tokensOf(rest).length > 0 ? keptItem(rest, []) : "";
-    }
+    /* An item led by the call to action is kept whole: cutting the CTA
+       off "Order by 8pm for next-day pickup" drew "Next-day pickup" and
+       lost the deadline (round-7 live run). Code drops a repeat whole; it
+       never rewrites one (Oluwaseyi's ruling, round 7). */
+    if (at === 0) return item;
     if (at > 0 && facts.length === 0) return "";
     if (tokens.length >= 2 && indexOfRun(cta, tokens) >= 0) return "";
   }
