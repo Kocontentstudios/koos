@@ -10,6 +10,7 @@ const {
   draftDirections,
   plausibleProduct,
   fitRequests,
+  nameOffering,
   namesOffering,
   ART_DIRECTOR_IMAGE_MAX_BYTES,
 } = await import("./brief");
@@ -206,6 +207,19 @@ describe("draftDirections", () => {
     expect(result.redrafted).toBe(false);
     expect(result.modelCalls).toBe(4);
     expect(result.directions[1].title).toBe("Morning bake");
+  });
+
+  /* Round-6 eval, cafe: the redraft came back with the same headline, and
+     the pair shipped as near-duplicates. */
+  it("gives a headline the redraft could not move the brief's title", async () => {
+    const first = draftOf();
+    const twin = contrastingDraft({ headline: first.headline });
+    generateObject
+      .mockResolvedValueOnce(answer(first, twin))
+      .mockResolvedValueOnce(answer(twin));
+    const result = await draftDirections(input());
+    expect(result.directions[1].headline).toBe("Croissant launch");
+    expect(result.overlap?.headline ?? 1).toBeLessThan(0.5);
   });
 
   it("keeps the first draft when the redraft call fails", async () => {
@@ -592,4 +606,43 @@ describe("plausibleProduct", () => {
       expect(plausibleProduct(name)).toBe(true);
     },
   );
+});
+
+/* Round-6 eval, textile-launch-ko direction 1: "Twelve autumn pieces" and
+   never the aso-oke collection. */
+describe("nameOffering", () => {
+  const checks = {
+    ledger: factLedger([
+      "Launch our autumn aso-oke collection: twelve new throws and cushions.",
+    ]),
+    briefText:
+      "Launch our autumn aso-oke collection: twelve new throws and cushions.",
+    title: "",
+  };
+  const read = {
+    offering: { kind: "product" as const, phrase: "autumn aso-oke collection" },
+  };
+
+  it("leads the subheadline with the offering when the copy never names it", () => {
+    const out = nameOffering(
+      {
+        headline: "One artisan. Every piece.",
+        subheadline: "Twelve new throws and cushions.",
+        cta: "Discover",
+      },
+      read,
+      checks,
+    );
+    expect(out.subheadline).toBe(
+      "Autumn aso-oke collection: Twelve new throws and cushions.",
+    );
+  });
+
+  it("leaves a direction that names it alone", () => {
+    const d = {
+      headline: "The autumn aso-oke collection",
+      subheadline: "Twelve new throws.",
+    };
+    expect(nameOffering(d, read, checks)).toBe(d);
+  });
 });

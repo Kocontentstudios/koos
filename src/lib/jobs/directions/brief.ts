@@ -773,6 +773,33 @@ export async function draftDirections({
       console.error("direction redraft failed; keeping the first draft", err);
     }
   }
+  /* A redraft that still repeats its sibling's headline gets the user's
+     own words instead (round-6 eval: "Three shots. One flight." against
+     "Three shots. One flight. ₦6,000." after the redraft). */
+  if (worst && isNearDuplicate(worst.overlap)) {
+    const later = worst.later;
+    const offering = (await reading).offering?.phrase ?? "";
+    for (const candidate of [
+      checks.title,
+      offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
+    ]) {
+      if (
+        !candidate ||
+        copyFault(candidate, COPY_LIMITS.headline, checks.ledger)
+      ) {
+        continue;
+      }
+      const trial = directions.map((d, i) =>
+        i === later ? { ...d, headline: candidate } : d,
+      );
+      const retried = closestPair(trial, existing, overlapOptions);
+      if (retried && !isNearDuplicate(retried.overlap)) {
+        directions[later] = trial[later];
+        worst = retried;
+        break;
+      }
+    }
+  }
 
   const fields = claimFields(directions);
   const flagged =
@@ -842,9 +869,10 @@ export async function draftDirections({
       productLook: hint.slice(0, DRAFT_LIMITS.productLook),
     };
   });
+  const offeringNamed = named.map((d) => nameOffering(d, read, checks));
   const coverFacts = coverFactsOf(read);
   const { directions: drawnIn, coverage: factCoverage } = coverBriefFacts(
-    named,
+    offeringNamed,
     coverFacts,
     named.find((d) => d.productName)?.productName ?? "",
   );
@@ -852,7 +880,8 @@ export async function draftDirections({
      settled against the old footer ("the footer carries the date") is held
      again to the new one (round-5 eval: two such reasons). */
   const covered = drawnIn.map((d, i) =>
-    d.footerLines.join("|") === named[i].footerLines.join("|")
+    d.footerLines.join("|") === offeringNamed[i].footerLines.join("|") &&
+    d.subheadline === offeringNamed[i].subheadline
       ? d
       : {
           ...d,
@@ -915,4 +944,28 @@ export function plausibleProduct(name: string): boolean {
     return false;
   }
   return !words.every((w) => NOT_A_THING.test(w));
+}
+
+/**
+ * A direction that still does not name what the brief promotes after the
+ * fit pass names it in its subheadline, in the brief's words: as a lead-in
+ * to the subheadline when that fits, else as the subheadline when there is
+ * none. Round-6 eval: one textile direction called the aso-oke collection
+ * "twelve autumn pieces" and never named it.
+ */
+export function nameOffering<
+  D extends Pick<DirectionSpec, "headline" | "subheadline" | "cta">,
+>(direction: D, read: Pick<BriefRead, "offering">, checks: DirectionChecks): D {
+  const phrase = read.offering?.phrase ?? "";
+  if (!phrase || namesOffering(direction, phrase)) return direction;
+  const name = phrase.charAt(0).toUpperCase() + phrase.slice(1);
+  const sub = direction.subheadline?.trim() ?? "";
+  const candidate = sub ? `${name}: ${sub}` : name;
+  if (
+    candidate.length > COPY_LIMITS.subheadline ||
+    copyFault(candidate, COPY_LIMITS.subheadline, checks.ledger)
+  ) {
+    return direction;
+  }
+  return { ...direction, subheadline: candidate };
 }

@@ -113,10 +113,11 @@ describe("paintPlate", () => {
   });
 
   /* Round-3 code critic P4a: a plate with no product to check it for was
-     recorded "passed" after a look for lettering only. */
-  it("records a plate with no product to check as unchecked, not passed", async () => {
+     recorded "passed" after a look for lettering only. Round 6: with no
+     product it is an object-free scene, recorded as such, never "passed". */
+  it("records a plate with no product as a scene, not passed", async () => {
     const { check } = await paint(adapter(plate(1024, 1280)));
-    expect(check).toBe("unchecked");
+    expect(check).toBe("scene");
   });
 
   it("names a JPEG plate for what it is", async () => {
@@ -216,21 +217,24 @@ describe("people on a plate", () => {
     ).toBe(false);
   });
 
-  it("paints no one when the brief names someone, and no stand-in otherwise", () => {
-    expect(platePrompt(draftOf(), null, undefined, null, true)).toMatch(
+  it("paints no one beside a named person, and no stand-in otherwise", () => {
+    expect(platePrompt(draftOf(), PRODUCT, undefined, null, true)).toMatch(
       /No people at all/,
     );
-    expect(platePrompt(draftOf(), null)).toMatch(
+    expect(platePrompt(draftOf(), PRODUCT)).toMatch(
       /never posed as a named host, speaker or customer/,
     );
+    expect(platePrompt(draftOf(), null)).toMatch(/No people, no faces/);
   });
 });
 
 describe("platePrompt", () => {
-  it("is the scene alone when the brief names no product", () => {
-    expect(platePrompt(draftOf(), null).startsWith("a bakery counter")).toBe(
-      true,
-    );
+  it("is an object-free place when the brief names no product", () => {
+    expect(
+      platePrompt(draftOf(), null).startsWith(
+        "A quiet, empty view of a place that suits the brand",
+      ),
+    ).toBe(true);
   });
 
   /* Round-2 live run: a Lagos bakery's pastry on a European street, and a
@@ -302,7 +306,7 @@ describe("paintPlate, lettering and unnamed products", () => {
 
   /* Round-2 code critic: a product the brief does not name was recorded as
      "not-applicable" with no check at all. */
-  it("records a product it could not check for as unchecked", async () => {
+  it("records a product it could not check for as a scene, never passed", async () => {
     const plateModel = adapter(plate(64, 64));
     const result = await paintPlate({
       adapter: plateModel,
@@ -311,7 +315,7 @@ describe("paintPlate, lettering and unnamed products", () => {
       productUnchecked: true,
       brandId: BRAND_ID,
     });
-    expect(result.check).toBe("unchecked");
+    expect(result.check).toBe("scene");
     expect(checkPlateShowsProduct).toHaveBeenCalledWith(
       expect.objectContaining({ product: "" }),
     );
@@ -325,20 +329,24 @@ describe("events, services and named people", () => {
     kind: "event" as const,
   };
 
-  it("paints an event as a scene and checks it as one", async () => {
+  /* Round 6 (Oluwaseyi's decision): an event is painted as the place it
+     happens, with nothing in it to letter, and checked for writing and
+     people only. */
+  it("paints an event as an empty place and checks it for writing and people", async () => {
     const plateModel = adapter(plate(64, 64));
-    await paintPlate({
+    const result = await paintPlate({
       adapter: plateModel,
       spec: draftOf(),
       product: CLASS,
       brandId: BRAND_ID,
     });
     expect(promptSent(plateModel, 0)).toMatch(
-      /^A scene from the teen sourdough baking class, recognisable as that event/,
+      /^A quiet, empty view of the place where the teen sourdough baking class happens/,
     );
     expect(checkPlateShowsProduct).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "event" }),
+      expect.objectContaining({ product: "" }),
     );
+    expect(result.check).toBe("scene");
   });
 
   /* Round-4 live critic: an AI woman beside "with Ada Obi". */
@@ -368,7 +376,7 @@ describe("events, services and named people", () => {
     );
   });
 
-  it("keeps a face when nobody is named", async () => {
+  it("refuses a person on a scene even when nobody is named", async () => {
     checkPlateShowsProduct.mockResolvedValue(
       verdict(true, "a baker", { person: true }),
     );
@@ -376,6 +384,19 @@ describe("events, services and named people", () => {
       adapter: adapter(plate(64, 64)),
       spec: draftOf(),
       product: CLASS,
+      brandId: BRAND_ID,
+    });
+    expect(result.check).toBe("failed-people");
+  });
+
+  it("keeps a face on a product plate when nobody is named", async () => {
+    checkPlateShowsProduct.mockResolvedValue(
+      verdict(true, "a baker holding the pastry", { person: true }),
+    );
+    const result = await paintPlate({
+      adapter: adapter(plate(64, 64)),
+      spec: draftOf(),
+      product: PRODUCT,
       brandId: BRAND_ID,
     });
     expect(result.check).toBe("passed");
@@ -490,17 +511,20 @@ describe("round 6: no lettered objects in a plate prompt", () => {
     ).toBe("A shop owner's hands sorting coins, soft light");
   });
 
-  it("asks a service for tools and place, never screens or paper", () => {
+  it("asks a service for a place only, never paper, screens or people", () => {
     const prompt = platePrompt(
       draftOf({
         backgroundPrompt:
-          "Neat stacks of receipts and a bank statement on a desk, with a calculator",
+          "Neat stacks of receipts and a bank statement on a desk, warm afternoon light, a bookkeeper smiling at a client",
       }),
       { name: "monthly bookkeeping", look: "", kind: "service" },
     );
-    expect(prompt).not.toMatch(/receipts|statement/);
-    expect(prompt).toMatch(/no screens, paper or signs/);
-    expect(prompt).toMatch(/No phones, laptops or screens of any kind/);
+    expect(prompt).not.toMatch(/receipts|statement|bookkeeper|client/);
+    expect(prompt).toContain("warm afternoon light");
+    expect(prompt).toMatch(/architecture, light, colour and texture only/);
+    expect(prompt).toMatch(
+      /no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters/,
+    );
   });
 
   it("still paints the product when the product is a lettered thing", () => {
@@ -516,27 +540,21 @@ describe("round 6: no lettered objects in a plate prompt", () => {
   });
 });
 
-describe("round 6: an event beside a named person is a still life", () => {
-  it("asks for the room and tools, with no people, first", () => {
-    const prompt = platePrompt(
-      draftOf(),
-      { name: "wheel-throwing evening", look: "", kind: "event" },
-      undefined,
-      null,
-      true,
-    );
+describe("round 6: an event beside a named person is an empty place", () => {
+  it("asks for the place with no people, and names what was wrong on a retry", () => {
+    const event = {
+      name: "wheel-throwing evening",
+      look: "",
+      kind: "event" as const,
+    };
+    const prompt = platePrompt(draftOf(), event, undefined, "Surulere", true);
     expect(
       prompt.startsWith(
-        "A still life with no people in it: the tools, materials and room of the wheel-throwing evening",
+        "A quiet, empty view of the place where the wheel-throwing evening happens in Surulere",
       ),
     ).toBe(true);
-    const retry = platePrompt(
-      draftOf(),
-      { name: "wheel-throwing evening", look: "", kind: "event" },
-      { people: true },
-      null,
-      true,
+    expect(platePrompt(draftOf(), event, { people: true }, null, true)).toMatch(
+      /The last attempt painted a person, which is wrong/,
     );
-    expect(retry).toMatch(/the last attempt painted a person, which is wrong/);
   });
 });

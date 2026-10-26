@@ -211,6 +211,19 @@ fact), `storefront-reopening-upload` (a 24 MP storefront, two prices with
 their units) and `retreat-sky-upload` (a landscape on a 9:16 story).
 `cases.test.ts` holds every label to the brief's own words.
 
+### Round 6b: the judge's "missing" question, made literal
+
+The run at f2ce91c read 0.21 for `judgeMissingShare`, and part of it was
+the judge, not the designs: `retreat-sky-upload` direction 0 was said to
+be missing "stillwater.ng" with "stillwater.ng · Friday 12 December to
+Sunday 14 December" in its footer, direction 1 with "stillwater.ng" as its
+button; `bakery-upload` was missing "Lekki", which the brief never gives;
+`kimono-wide-upload` was missing "Hand-finished", a description. The
+question now says to look on every line, the button included, and not to
+list descriptions or anything the brief itself does not give. The
+threshold is unchanged; what it gates is still every real omission
+(`masterclass-ko` direction 0 left its address off, and that was real).
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

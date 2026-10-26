@@ -321,6 +321,11 @@ function priceWithUnit(brief: string, end: number): number {
   return after ? end + after[0].length : end;
 }
 
+/* A size or volume: "1-litre", "150ml", "10kg", "2 yards" is not one (a
+   yard is what is sold by the yard). */
+const MEASURE =
+  /\b\d+(?:\.\d+)?\s*-?\s*(?:ml|cl|l|litres?|liters?|kg|g|grams?|cm|mm|inch(?:es)?|oz)\b/gi;
+
 const EVERY_DAY = /\b(daily|every ?day|7 days a week|seven days a week)\b/i;
 
 /** What has to appear in a design for it to state `text` as a `kind`. */
@@ -374,7 +379,23 @@ export function needsFor(
       const times = [...timesIn(text)].map((t) => `@${t}`);
       return times.length > 0 ? times : numbers();
     }
-    case "price":
+    case "price": {
+      /* A size the price is for ("a 1-litre bottle", "150ml tasters") is
+         detail, not the fact: "₦15,500 bottle & 2 glasses" states "a
+         1-litre bottle and two glasses for ₦15,500" (round-6 live run). */
+      const sizes = [...text.matchAll(MEASURE)];
+      if (sizes.length === 0) return [...numbers(), ...stems()];
+      const bare = text.replace(MEASURE, " ");
+      const sizeStems = contentStems(sizes.map((m) => m[0]).join(" "));
+      return [
+        ...[...numbersIn(bare)].map((n) => `=${n}`),
+        ...[...contentStems(bare)]
+          .filter(
+            (s) => !FILLER.has(s) && !isNumberWord(s) && !sizeStems.has(s),
+          )
+          .map((s) => `^${s}`),
+      ];
+    }
     case "quantity":
       return [...numbers(), ...stems()];
     case "age":
@@ -1127,6 +1148,7 @@ export function withoutLooseRepeats<T extends FactCopy>(
       .filter(Boolean)
       .join(" "),
   );
+  const aboveCopy = { ...direction, footerLines: [] };
   let current = direction;
   const stated = (copy: T) =>
     facts.filter((f) => factStated(f, copy)).map((f) => f.text);
@@ -1138,10 +1160,16 @@ export function withoutLooseRepeats<T extends FactCopy>(
     const hard = mine.filter((s) => /^[=@#]/.test(s));
     const words = mine.filter((s) => !/^[=@#]/.test(s));
     const wordsAbove = words.filter((w) => above.has(w)).length;
+    const itsFacts = facts.filter((f) => factStated(f, item));
+    /* Oluwaseyi's rule (round 6): a fact the headline, subheadline or
+       button already states is left out of the footer. */
+    const factsAbove =
+      itsFacts.length > 0 && itsFacts.every((f) => factStated(f, aboveCopy));
     const repeats =
-      mine.length > 0 &&
-      hard.every((h) => above.has(h)) &&
-      wordsAbove * 2 >= words.length;
+      factsAbove ||
+      (mine.length > 0 &&
+        hard.every((h) => above.has(h)) &&
+        wordsAbove * 2 >= words.length);
     if (!repeats) continue;
     const footerLines = current.footerLines
       .map((line) =>
@@ -1192,7 +1220,9 @@ export function coverBriefFacts<T extends FactCopy>(
     const touched = new Set<number>();
     const fitted: BriefFact[] = [];
     for (const fact of missing) {
-      const item = capitalise(fact.text);
+      /* "stillwater.ng" and "@cake.ng" are written as the brief writes
+         them: capitalised, a web address reads as a typo. */
+      const item = fact.kind === "contact" ? fact.text : capitalise(fact.text);
       const roomOn = () => {
         for (let j = lines.length - 1; j >= 0 && item.length <= limit; j -= 1) {
           if (`${lines[j]}${FOOTER_JOIN}${item}`.length <= limit) return j;
@@ -1224,19 +1254,15 @@ export function coverBriefFacts<T extends FactCopy>(
          live run: the named chocolatier left off a hero card whose footer
          held three lines of facts). */
       const above = subheadline || direction.subheadline || "";
-      /* A named person is said in a sentence of the subheadline when it
-         has room, rather than left off (round-6 eval: the ceramicist left
-         off under three lines of facts). */
-      const lead = !above
-        ? item
-        : fact.kind === "person" || !direction.subheadline
-          ? `${above.replace(/[\s.]+$/, "")}. ${item}.`
-          : "";
+      /* A fact is said in a sentence of the subheadline when it has room,
+         rather than left off (round-6 eval: the ceramicist and a
+         masterclass's address left off under three lines of facts). */
+      const lead = above ? `${above.replace(/[\s.]+$/, "")}. ${item}.` : item;
       if (at >= 0) {
         lines[at] = `${lines[at]}${FOOTER_JOIN}${item}`;
       } else if (item.length <= limit && lines.length < MAX_FOOTER_LINES) {
         at = lines.push(item) - 1;
-      } else if (lead && lead.length <= COPY_LIMITS.subheadline) {
+      } else if (lead.length <= COPY_LIMITS.subheadline) {
         subheadline = lead;
         fitted.push(fact);
         continue;
@@ -1260,15 +1286,18 @@ export function coverBriefFacts<T extends FactCopy>(
       );
       return direction;
     }
-    const drawn = withoutRedundant(
-      {
-        ...direction,
-        ...(subheadline ? { subheadline } : {}),
-        footerLines: lines,
-        footerStyle:
-          direction.footerStyle === "none" ? "text" : direction.footerStyle,
-      },
-      product,
+    const drawn = withoutLooseRepeats(
+      withoutRedundant(
+        {
+          ...direction,
+          ...(subheadline ? { subheadline } : {}),
+          footerLines: lines,
+          footerStyle:
+            direction.footerStyle === "none" ? "text" : direction.footerStyle,
+        },
+        product,
+      ),
+      facts,
     );
     for (const j of [...touched].sort((x, y) => x - y)) {
       if (drawn.footerLines.includes(lines[j])) {

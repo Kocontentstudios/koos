@@ -310,7 +310,8 @@ describe("coverBriefFacts", () => {
     const { coverage } = coverBriefFacts(
       [
         copy({
-          subheadline: "Little hands, real pastry",
+          subheadline:
+            "Little hands, real pastry: a morning of rolling, folding and shaping croissants with our bakers, then tasting them warm.",
           footerLines: [
             "This Saturday, 10am to 12pm, at our Lekki shop, ages 7-12",
             "₦15,000 per child · only 8 spots, so book early with us",

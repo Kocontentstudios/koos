@@ -55,6 +55,10 @@ export type PlateCheck =
    *  used, unverified. A plate checked only for lettering is not "passed"
    *  (round-3 code critic). */
   | "unchecked"
+  /** An object-free scene (an event, a service, or no physical product)
+   *  that carries no writing and no people. It shows a place, not the
+   *  offering, so nothing may be said about what it shows. */
+  | "scene"
   /** The image model returned nothing that could be drawn (it failed, or
    *  sent a format or size the renderer cannot take): no plate was judged
    *  at all, and the user is told the image model was unavailable, not
@@ -90,6 +94,9 @@ export function platePrompt(
   setting?: string | null,
   namesPeople = false,
 ): string {
+  if (!product || isSceneKind(product.kind)) {
+    return objectFreePrompt(spec, product, rejected, setting);
+  }
   const scene = buildBackgroundPlatePrompt({
     ...spec,
     backgroundPrompt: withoutLetteredThings(spec.backgroundPrompt),
@@ -101,14 +108,15 @@ export function platePrompt(
     : null;
   /* Round-5 eval: phones, laptops and gym walls came back lettered twice
      and five directions were drawn as text; screens and signs are where
-     the image model paints writing. */
+     the image model paints writing. The product is kept; what it sits in
+     or on is kept free of writing (Oluwaseyi's decision, round 6). */
   const plain = [
-    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos",
+    "Any packaging, bottle, box or bag is plain and unbranded, with no label text, printed words, letters or logos, and the surface it sits on is plain",
     /* Unless that is what is sold: a notebook brand's plate shows the
        notebook. */
-    product && LETTERED_THINGS.test(product.name)
+    LETTERED_THINGS.test(product.name)
       ? "No signs, posters or printed clothing"
-      : "No phones, laptops or screens of any kind, no paper, documents, books or charts, no signs, posters or printed clothing",
+      : "No phones, laptops or screens of any kind, no paper, documents, books, menus, cash or charts, no signs, posters or printed clothing",
   ].join(". ");
   /* A painted face beside a named speaker reads as that person (round-3
      live critic: the eval painted a woman for "Ada Obi"). */
@@ -116,42 +124,75 @@ export function platePrompt(
     ? "No people at all, not even in the background, in profile or far off; hands may appear: the brief names real people, and a painted stranger would stand in for them"
     : "Any person is an anonymous passer-by, never posed as a named host, speaker or customer";
   const tail = [scene, place, plain, people].filter(Boolean).join(". ");
-  if (!product) {
-    if (setting && !rejected?.lettering) return `In ${setting}: ${tail}`;
-    return rejected?.lettering
-      ? `Nothing in the image carries any writing; the last attempt painted lettering, which is wrong. ${tail}`
-      : tail;
-  }
   /* Said up front as well: at the end of a long prompt the setting lost to
      the model's default street (round-3 live run, again European). */
   const where = setting ? `, in ${setting}` : "";
-  const asScene = product.kind === "event" || product.kind === "service";
-  /* A service or an event is shown through its tools, place and light,
-     never through the paperwork or screens it involves: said first, where
-     the image model weighs most. */
-  const objectsOnly = asScene
-    ? " Shown through hands, tools, materials and the place itself, with no screens, paper or signs."
-    : "";
-  /* Beside a named person a scene of the activity is a scene of people,
-     and every one painted was refused (round-6 eval: pottery and panel
-     plates rejected twice for a face). A still life of the work's tools
-     and room has no one to mistake for them. */
-  if (asScene && namesPeople) {
-    return `A still life with no people in it: the tools, materials and room of the ${product.name}${where}, ready for it to begin${rejected ? `; ${rejected.people ? "the last attempt painted a person, which is wrong" : rejected.lettering ? "the last attempt painted lettering, which is wrong" : `the last attempt showed ${rejected.seen || "something else"}, which is wrong`}` : ""}. ${tail}`;
-  }
   if (!rejected) {
-    return asScene
-      ? `A scene from the ${product.name}${where}, recognisable as that ${product.kind}.${objectsOnly} ${tail}`
-      : `A ${product.name}, clearly recognisable, as the subject${where}. ${tail}`;
+    return `A ${product.name}, clearly recognisable, as the subject${where}. ${tail}`;
   }
   const wrong = rejected.people
     ? "the last attempt painted a person's face, which is wrong: no faces anywhere"
     : rejected.lettering
       ? "the last attempt painted lettering on it, which is wrong: no writing anywhere"
       : `the last attempt showed ${rejected.seen || "something else"} instead, which is wrong`;
-  return asScene
-    ? `${product.look || product.name}. A scene that plainly belongs to the ${product.name}${where}; ${wrong}.${objectsOnly} ${tail}`
-    : `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
+  return `${product.look || product.name}. The ${product.name} is the clear subject${where}, whole and unmistakable; ${wrong}. ${tail}`;
+}
+
+/** An event, a service, or no physical product: painted as a place, not a
+ *  thing. */
+export function isSceneKind(kind: OfferingKind | undefined): boolean {
+  return kind === "event" || kind === "service";
+}
+
+/* Who a scene clause would put in the picture. */
+const PEOPLE_WORDS =
+  /\b(?:people|persons?|man|men|woman|women|girls?|boys?|child(?:ren)?|kids?|students?|customers?|guests?|clients?|staff|team|crowd|hands?|faces?|baker|barista|chef|teacher|tutor|coach|host|speaker|audience|attendees?|participants?|workers?|someone|friends?|famil(?:y|ies)|couple|athletes?)\b/i;
+
+/**
+ * The plate for an event, a service or a brief with no physical product:
+ * the place it happens, in light, colour and texture only, with no people
+ * and nothing that carries writing. Round 6's eval lost 12 of 21 KO plates
+ * to lettering on paper, cash, screens and gym walls and to scenes of
+ * people that stood in for a named host; a place with nothing in it to
+ * letter or mistake for anyone is what the image model paints cleanly
+ * (Oluwaseyi's decision, round 6). The direction's own scene still sets
+ * the light and mood, without its people or lettered objects, so two
+ * directions do not paint one room twice.
+ */
+export function objectFreePrompt(
+  spec: DesignSpec,
+  product: PlateProduct | null,
+  rejected?: Rejection,
+  setting?: string | null,
+): string {
+  const mood = spec.backgroundPrompt
+    .split(/[.;]\s+|,\s+/)
+    .map((clause) => clause.trim().replace(/[.\s]+$/, ""))
+    .filter(
+      (clause) =>
+        clause && !LETTERED_THINGS.test(clause) && !PEOPLE_WORDS.test(clause),
+    )
+    .join(", ");
+  const scene = buildBackgroundPlatePrompt({ ...spec, backgroundPrompt: mood });
+  const where = setting ? ` in ${setting}` : "";
+  const what = product
+    ? `the place where the ${product.name} happens${where}`
+    : `a place that suits the brand${where}`;
+  const wrong = rejected
+    ? rejected.people
+      ? ". The last attempt painted a person, which is wrong"
+      : rejected.lettering
+        ? ". The last attempt painted writing, which is wrong"
+        : ""
+    : "";
+  return [
+    `A quiet, empty view of ${what}: architecture, light, colour and texture only${wrong}`,
+    "No people, no faces and no hands",
+    "No objects that carry writing: no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters",
+    scene.replace(/^[.\s]+/, ""),
+  ]
+    .filter(Boolean)
+    .join(". ");
 }
 
 /* "Speaker: Ada Obi", "hosted by Tunde Bakare", "with Chef Funke". */
@@ -245,7 +286,15 @@ function rejection(
   product: PlateProduct | null,
   namesPeople: boolean,
 ): Rejection | null {
-  if (product && !verdict.shows) return { seen: verdict.seen };
+  /* An object-free scene is checked for what it must not hold: writing and
+     people. Whether an empty room "fits" a class is not a question it can
+     fail usefully. */
+  if (!product || isSceneKind(product.kind)) {
+    if (verdict.lettering) return { lettering: true };
+    if (verdict.person || verdict.anyPerson) return { people: true };
+    return null;
+  }
+  if (!verdict.shows) return { seen: verdict.seen };
   if (verdict.lettering) return { lettering: true };
   if (namesPeople && (verdict.person || verdict.anyPerson)) {
     return { people: true };
@@ -305,15 +354,22 @@ export async function paintCheckedPlate({
       return null;
     }
   };
+  const objectFree = !product || isSceneKind(product.kind);
+  /* An object-free scene is looked at for its subject box, writing and
+     people only: no product is asked about. */
   const look = (bytes: Uint8Array) =>
     checkPlateShowsProduct({
       bytes,
-      product: product?.name ?? "",
-      look: product?.look ?? "",
-      kind: product?.kind ?? "product",
+      product: objectFree ? "" : (product?.name ?? ""),
+      look: objectFree ? "" : (product?.look ?? ""),
+      kind: "product",
     });
   const unverifiable = productUnchecked || !product;
-  const passed = unverifiable ? "unchecked" : "passed";
+  const passed: PlateCheck = objectFree
+    ? "scene"
+    : unverifiable
+      ? "unchecked"
+      : "passed";
 
   const first = await paint(
     platePrompt(spec, product, undefined, setting, namesPeople),
@@ -369,7 +425,11 @@ export async function paintCheckedPlate({
   if (!secondRejection) {
     return {
       image: second,
-      check: unverifiable ? "unchecked" : "passed-on-retry",
+      check: objectFree
+        ? "scene"
+        : unverifiable
+          ? "unchecked"
+          : "passed-on-retry",
       imageCalls,
       seen,
       look: again,

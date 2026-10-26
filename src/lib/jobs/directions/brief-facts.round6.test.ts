@@ -277,10 +277,12 @@ describe("the spare-line rule keeps what a customer acts on", () => {
     const drawn = drawnText(out.directions[0]);
     expect(drawn).toContain("0803 555 0142");
     expect(drawn).toContain("Pre-orders close Thursday 6pm");
-    expect(out.coverage.leftOff).toEqual([
-      expect.objectContaining({ fact: "9 Bourdillon Road, Ikoyi" }),
-    ]);
-    expect(out.coverage.stated[0]).not.toContain("9 Bourdillon Road, Ikoyi");
+    /* The full footer keeps its facts; the address goes into the
+       subheadline instead of being left off. */
+    expect(out.directions[0].subheadline).toBe(
+      "Layered by hand. 9 Bourdillon Road, Ikoyi.",
+    );
+    expect(out.coverage.leftOff).toEqual([]);
   });
 });
 
@@ -490,10 +492,79 @@ describe("a named person the full footer cannot take", () => {
       facts,
     );
     expect(out.directions[0].subheadline).toBe(
-      "A hands-on wheel-throwing evening in Surulere. With ceramicist Bisi Adeleke.",
+      "A hands-on wheel-throwing evening in Surulere. With ceramicist Bisi Adeleke. Clay Room.",
     );
-    expect(out.coverage.leftOff).toEqual([
-      expect.objectContaining({ fact: "Clay Room" }),
-    ]);
+    expect(out.coverage.leftOff).toEqual([]);
+  });
+});
+
+/* Oluwaseyi's decision, round 6: a fact the headline, subheadline or
+   button already states is left out of the footer; each fact still
+   appears once. Round-6 eval: the judge read footer repeats on four in ten
+   directions. */
+describe("footers drop facts stated above", () => {
+  const brief =
+    "Weekend yoga retreat, ₦120,000 per person, 16 places. Book at stillwater.ng.";
+  const facts = () =>
+    settle(brief, [
+      { kind: "price", text: "₦120,000 per person" },
+      { kind: "quantity", text: "16 places" },
+      { kind: "contact", text: "stillwater.ng" },
+    ]).facts;
+
+  it("drops a footer item whose fact the copy above states", () => {
+    const out = coverBriefFacts(
+      [
+        copy({
+          headline: "Step away this December",
+          subheadline: "A small-group retreat, 16 places.",
+          cta: "stillwater.ng",
+          footerLines: ["₦120,000 per person · 16 places", "stillwater.ng"],
+          footerStyle: "text",
+        }),
+      ],
+      facts(),
+    );
+    expect(out.directions[0].footerLines).toEqual(["₦120,000 per person"]);
+    expect(out.coverage.stated[0]).toHaveLength(3);
+  });
+
+  it("draws a fact into the footer only when it is stated nowhere else", () => {
+    const out = coverBriefFacts(
+      [
+        copy({
+          headline: "Step away this December",
+          subheadline: "₦120,000 per person, 16 places.",
+          footerLines: [],
+        }),
+      ],
+      facts(),
+    );
+    expect(out.directions[0].footerLines).toEqual(["stillwater.ng"]);
+  });
+});
+
+/* Round-6 live run, cafe: "₦15,500 bottle & 2 glasses" was not taken for
+   "a 1-litre bottle and two glasses for ₦15,500". */
+describe("a price stated without the size it is for", () => {
+  const fact = () =>
+    settle(
+      "Three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500.",
+      [{ kind: "price", text: "a 1-litre bottle and two glasses for ₦15,500" }],
+    ).facts[0];
+
+  it("is stated with the count and the things, without the size", () => {
+    expect(
+      factStated(fact(), copy({ footerLines: ["₦15,500 bottle & 2 glasses"] })),
+    ).toBe(true);
+  });
+
+  it("is not stated without the count or the thing", () => {
+    expect(factStated(fact(), copy({ footerLines: ["₦15,500 bottle"] }))).toBe(
+      false,
+    );
+    expect(
+      factStated(fact(), copy({ footerLines: ["₦15,500 for two glasses"] })),
+    ).toBe(false);
   });
 });

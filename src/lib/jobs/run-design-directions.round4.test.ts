@@ -510,7 +510,7 @@ describe("round-3 job probes", () => {
     },
   );
 
-  it("records a plate it had no product to check as unchecked, and its image unverified", async () => {
+  it("records a plate it had no product to check as a scene, and its image unverified", async () => {
     const ctx = directionsContext({
       briefText: "Wish our customers a happy new month from all of us.",
       title: "Happy new month",
@@ -540,7 +540,7 @@ describe("round-3 job probes", () => {
       },
       runtime as never,
     );
-    expect(usage().plateChecks).toEqual(["unchecked", "unchecked"]);
+    expect(usage().plateChecks).toEqual(["scene", "scene"]);
     expect(delivered("row-1")?.rationale.reasons.join(" ")).not.toMatch(
       /image shows/i,
     );
@@ -815,8 +815,10 @@ describe("round-4 critic job probes", () => {
   });
 
   /* Round-4 live critic: "sourdough baking class" was checked as an object,
-     and two right plates were rejected twice. */
-  it("checks an event's plate for a scene that fits it", async () => {
+     and two right plates were rejected twice. Round 6: an event is painted
+     as the empty place it happens in, and checked for writing and people
+     only. */
+  it("paints an event's plate as an empty place and checks it for writing", async () => {
     readBrief.mockResolvedValue(
       readAnswer([], { kind: "event", phrase: "teen sourdough baking class" }),
     );
@@ -825,15 +827,13 @@ describe("round-4 critic job probes", () => {
     });
     for (const [input] of plateModel.generate.mock.calls) {
       expect(input.prompt).toMatch(
-        /^A scene from the teen sourdough baking class/i,
+        /^A quiet, empty view of the place where the Teen sourdough baking class happens/i,
       );
     }
     for (const [input] of checkPlateShowsProduct.mock.calls) {
-      expect(input).toMatchObject({
-        product: "Teen sourdough baking class",
-        kind: "event",
-      });
+      expect(input).toMatchObject({ product: "" });
     }
+    expect(usage().plateChecks).toEqual(["scene", "scene"]);
   });
 
   /* Round-4 live critic: event-ko shipped with half the canvas an empty
@@ -896,7 +896,7 @@ describe("round-4 critic job probes", () => {
       image: { source: "ko" },
     });
     for (const [input] of plateModel.generate.mock.calls) {
-      expect(input.prompt).toContain("No people at all");
+      expect(input.prompt).toContain("No people, no faces");
     }
     expect(usage().plateChecks).toEqual(["failed-people", "failed-people"]);
     expect(usage().textLed).toBe(2);
