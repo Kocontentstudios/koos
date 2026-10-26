@@ -19,6 +19,7 @@ import {
   storedRationale,
 } from "@/lib/design/direction-rationale";
 import { measureImage } from "@/lib/design/document/image-facts";
+import { cleanCutoutBytes } from "@/lib/images/cutout-edge";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import {
   measureSubject,
@@ -462,6 +463,15 @@ export async function generateDirectionsWork(
       ? [subjectFromAlpha(measured)]
       : [photoLook?.subject ?? null, photoLook?.face ?? null];
     for (let i = 0; i < settled.length; i += 1) subjectBoxes[i] = boxes;
+    /* Drawn on a coloured ground, a cut-out's baked shadow and white fringe
+       show; its edge is feathered and decontaminated first (cutout-edge). */
+    if (measured?.cutout) {
+      images[0].asset = {
+        ...images[0].asset,
+        bytes: await cleanCutoutBytes(images[0].asset.bytes),
+        contentType: "image/png",
+      };
+    }
   }
 
   const largestImage = Math.max(
@@ -631,8 +641,16 @@ export async function generateDirectionsWork(
           /* A plate KO painted is not the client's photograph: one that no
              free layout shows whole and clear is left off and the design
              laid out as text, as for a plate that failed its check, rather
-             than losing the direction. */
-          if (upload || !assets.image || !subjectFaulted) {
+             than losing the direction. So is the client's own photo when
+             its sibling already shows it and the one layout that fits is
+             taken (Oluwaseyi's ruling, round 7: a 16:9 portrait delivered
+             one direction of two). */
+          const siblingShowsPhoto = upload && apartFrom !== null;
+          if (
+            !assets.image ||
+            !subjectFaulted ||
+            (upload && !siblingShowsPhoto)
+          ) {
             return { ...withImage, plateLeftOff: false };
           }
           const asText = await chooseLayout({
@@ -663,7 +681,9 @@ export async function generateDirectionsWork(
         imageStates[i] = "none";
         addFault(
           row.id,
-          "no free layout showed the generated image whole and clear of the copy, so the design was laid out as text",
+          upload
+            ? "the photo fits only the layout the other direction shows it in, so this direction was laid out as text"
+            : "no free layout showed the generated image whole and clear of the copy, so the design was laid out as text",
         );
       }
       /* No layout kept the copy off the product, or drew it cleanly: a

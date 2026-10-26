@@ -316,6 +316,21 @@ while a clean layout existed) is gated, at 0. When a KO plate is left off
 because no layout showed it whole, the case log lists every layout judged
 (`plate layouts judged: …`).
 
+### Round 7: one literal verifier, every direction delivered
+
+Fact coverage (`directionFactCoverage`, `caseFactCoverage`) is read by the
+same literal verifier the job's drops and metrics use (`factStated`): a price
+counts only with its currency, amount and unit together in one place, an
+offer or condition only whole, a time never on a phone's line, and the case's
+product name is a fact every direction must state. `fragments` now counts a
+bare count or price ("Two", "₦18,000") as well as a phrase cut off. New gates:
+
+| Metric | What it counts | Gate |
+|---|---|---|
+| `failedDirections` | Requested directions not delivered (a photo that fits one layout leaves its sibling laid out as text, never undelivered) | 0 |
+| `buttonsNotActions` | Buttons that are not an action ("First session free") | 0 |
+| `unjudged` | Delivered directions with fewer than two usable judge readings; left out of every judged share, never counted clean | share ≤ 0.1 |
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

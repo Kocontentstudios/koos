@@ -16,10 +16,11 @@ import type { DesignElement } from "@/lib/design/document/schema";
 import {
   type BriefFact,
   factStated,
+  isFragment,
   isProductName,
   redundantFooterItems,
 } from "@/lib/jobs/directions/brief-facts";
-import { looksCutOff } from "@/lib/jobs/directions/claims";
+import { isAction } from "@/lib/jobs/directions/finalize";
 
 export interface RenderedDirection {
   caseId: string;
@@ -85,6 +86,10 @@ export interface RenderedDirection {
   } | null;
   /** Round 5 craft, measured on the delivered document (craftOfDelivered). */
   craft5?: DeliveredCraft;
+  /** Round 7: at least two of the judge's three readings came back. A
+   *  direction with fewer is unjudged, not clean, and is left out of every
+   *  judged share. Undefined on records from before round 7. */
+  judged?: boolean;
   /** Layouts the chooser judged that showed the whole subject uncut, with
    *  no hard fault and the picture off its card's edge. */
   cleanLayouts?: string[];
@@ -120,6 +125,8 @@ export interface DeliveredCraft {
   imageAgainstFrame?: boolean;
   /** Round 6: footer items that end mid-phrase ("fees for your"). */
   fragments?: string[];
+  /** Round 7: a button that is not an action ("First session free"). */
+  buttonNotAction?: boolean;
   /** Round 6: price labels drawn in the footer as a bare number, without
    *  the unit the brief gives (and not given above the footer). */
   pricesDetached?: string[];
@@ -172,7 +179,9 @@ export function craftOfDelivered(
       picture.width < anyCard.width - 1 &&
       Math.abs(picture.y - anyCard.y) <= 1,
   );
-  const fragments = footerItems.filter((item) => item && looksCutOff(item));
+  /* Round 7: a bare count ("Two") or price is a fragment too (round-6
+     live critic: the gate passed "Two" on both recruitment directions). */
+  const fragments = footerItems.filter((item) => item && isFragment(item));
   const pricesDetached = prices
     .filter((fact) => fact.kind === "price")
     .filter((fact) => {
@@ -187,6 +196,7 @@ export function craftOfDelivered(
     .map((fact) => fact.text);
   return {
     imageAgainstFrame,
+    buttonNotAction: Boolean(copy.cta?.trim()) && !isAction(copy.cta ?? ""),
     fragments,
     pricesDetached,
     emptyImageRegion:
@@ -212,6 +222,10 @@ export interface RenderTotals {
   cases: number;
   directions: number;
   failedDirections: number;
+  /** Delivered directions the judge could not read twice. */
+  unjudged: number;
+  /** Delivered buttons that are not an action. */
+  buttonsNotActions: number;
   subjectKnownShare: number;
   copyOverSubject: number;
   lookTextOverSubjectShare: number;
@@ -330,6 +344,14 @@ export const RENDER_THRESHOLDS = {
    *  ruling, round 6); only one delivered while a clean layout existed is
    *  a failure. The rest are reported. */
   maxImageAgainstFrameAvoidable: 0,
+  /** Round 7: every requested direction is delivered (Oluwaseyi's ruling:
+   *  a photo that fits one layout leaves the sibling text-led, never
+   *  undelivered), every button is an action, and at most one in ten
+   *  directions goes unjudged; an unjudged direction is never counted
+   *  clean. */
+  maxFailedDirections: 0,
+  maxButtonsNotActions: 0,
+  maxUnjudgedShare: 0.1,
   /** Bad photos refused, of those that must be. */
   minRefusals: 1,
   maxUnexpectedRefusals: 0,
@@ -354,10 +376,14 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
   const factCases = cases.filter((c) => c.factsTotal > 0 && !c.refused);
   const factDirections = delivered.filter((d) => d.factsTotal > 0);
   const productDirections = delivered.filter((d) => d.productNamed != null);
+  const judged = delivered.filter((d) => d.judged !== false);
   return {
     cases: cases.length,
     directions: all.length,
     failedDirections: all.length - delivered.length,
+    unjudged: delivered.length - judged.length,
+    buttonsNotActions: delivered.filter((d) => d.craft5?.buttonNotAction)
+      .length,
     subjectKnownShare: share(known.length, delivered.length),
     copyOverSubject: known.filter((d) => d.overlaps > 0).length,
     lookTextOverSubjectShare: share(
@@ -381,12 +407,12 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
             0,
           ) / factDirections.length,
     judgeInventedShare: share(
-      delivered.filter((d) => d.judgeUnsupported.length > 0).length,
-      delivered.length,
+      judged.filter((d) => d.judgeUnsupported.length > 0).length,
+      judged.length,
     ),
     judgeMissingShare: share(
-      delivered.filter((d) => d.judgeMissing.length > 0).length,
-      delivered.length,
+      judged.filter((d) => d.judgeMissing.length > 0).length,
+      judged.length,
     ),
     plates: plates.length,
     letteredPlateShare: share(
@@ -460,8 +486,8 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
     })(),
     personPainted: delivered.filter((d) => d.personPainted).length,
     judgeRepeatedShare: share(
-      delivered.filter((d) => (d.judgeRepeated?.length ?? 0) > 0).length,
-      delivered.length,
+      judged.filter((d) => (d.judgeRepeated?.length ?? 0) > 0).length,
+      judged.length,
     ),
     fragments: delivered.filter((d) => (d.craft5?.fragments?.length ?? 0) > 0)
       .length,
@@ -572,6 +598,21 @@ export function renderFailures(
   over("fact fragments", t.fragments, limits.maxFragments);
   over("prices without their unit", t.pricesDetached, limits.maxPricesDetached);
   over(
+    "directions not delivered",
+    t.failedDirections,
+    limits.maxFailedDirections,
+  );
+  over(
+    "buttons that are not actions",
+    t.buttonsNotActions,
+    limits.maxButtonsNotActions,
+  );
+  over(
+    "unjudged directions",
+    share(t.unjudged, t.directions - t.failedDirections),
+    limits.maxUnjudgedShare,
+  );
+  over(
     "picture against its card's edge with a clean layout to take",
     t.imageAgainstFrameAvoidable,
     limits.maxImageAgainstFrameAvoidable,
@@ -607,11 +648,12 @@ const JUDGED = ["unsupported", "missing", "repeated", "fragments"] as const;
  * entries are those of the first reading that does. Round 6: on the same
  * delivery rules the judge's invented share read 0.03 to 0.21 across six
  * runs; a single sample decided a gate. A reading that failed is no vote;
- * with fewer than two readings nothing is flagged on that direction.
+ * with fewer than two readings the direction is unjudged (round-6 code
+ * critic: it was counted clean, so a judge outage passed every gate).
  */
 export function majorityJudge(
   readings: readonly (JudgeReading | null)[],
-): JudgeReading {
+): JudgeReading & { judged: boolean } {
   const got = readings.filter((r): r is JudgeReading => r !== null);
   const out: JudgeReading = {
     unsupported: [],
@@ -623,5 +665,5 @@ export function majorityJudge(
     const flagging = got.filter((r) => (r[key] ?? []).length > 0);
     if (flagging.length >= 2) out[key] = flagging[0][key];
   }
-  return out;
+  return { ...out, judged: got.length >= 2 };
 }

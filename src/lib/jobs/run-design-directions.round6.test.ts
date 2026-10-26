@@ -85,6 +85,9 @@ vi.mock("@/lib/design/document/measure", async () => {
 /* Off by default: the real builders decide. On, every build reports the
    subject covered, the case no layout can fix. */
 let forceCovered = false;
+/* When set, the photo fits this layout alone: every other build with the
+   image reports it covered. */
+let fitsOnly: string | null = null;
 vi.mock("@/lib/design/document/from-spec", async (importOriginal) => {
   const real =
     await importOriginal<typeof import("@/lib/design/document/from-spec")>();
@@ -140,6 +143,13 @@ vi.mock("@/lib/design/document/from-spec", async (importOriginal) => {
         const { SUBJECT_COVERED } = await import(
           "@/lib/design/document/subject"
         );
+        return { ...built, subjectFault: SUBJECT_COVERED };
+      }
+      if (
+        fitsOnly &&
+        input.image &&
+        (input.spec as { layout: string }).layout !== fitsOnly
+      ) {
         return { ...built, subjectFault: SUBJECT_COVERED };
       }
       return forceCovered && input.image
@@ -364,6 +374,7 @@ const delivered = (id: string) =>
   updatesFor(id).find((p) => p.status === "succeeded");
 
 beforeEach(() => {
+  fitsOnly = null;
   correctWith = null;
   overlapHeadline = null;
   coverWholeWider = 2;
@@ -763,5 +774,42 @@ describe("round-6 critic job probes", () => {
     for (const id of ["row-1", "row-2"]) {
       expect(drawnOf(id)).toContain("Ikoyi");
     }
+  });
+});
+
+/* Oluwaseyi's ruling, round 7: a photo that fits one layout, which its
+   sibling takes, leaves the second direction laid out as text, so the
+   client always gets two (round-6 live critic: a 16:9 portrait delivered
+   one direction of two). */
+describe("an upload that fits one layout", () => {
+  it("delivers the second direction laid out as text", async () => {
+    fitsOnly = "split-left";
+    lookAtPhoto.mockResolvedValue({
+      description: "a woman in a green coat",
+      subject: { x: 0.3, y: 0.05, w: 0.4, h: 0.9 },
+      face: null,
+      items: ["a coat"],
+    });
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({ layout: "split-left" }),
+          contrastingDraft({ layout: "banner-bottom" }),
+        ],
+      },
+    });
+    await run({ image: { source: "upload", key: UPLOAD_KEY } });
+    const docs = ["row-1", "row-2"].map(
+      (id) =>
+        delivered(id)?.document as { elements: { type: string }[] } | undefined,
+    );
+    expect(docs.every(Boolean)).toBe(true);
+    const withPhoto = docs.map((d) =>
+      Boolean(d?.elements.some((e) => e.type === "image")),
+    );
+    expect(withPhoto.filter(Boolean)).toHaveLength(1);
+    const { TEXT_LED_LAYOUTS } = await import("./directions/subject-layout");
+    const textLed = ["row-1", "row-2"][withPhoto.indexOf(false)];
+    expect(TEXT_LED_LAYOUTS).toContain(delivered(textLed)?.spec.layout);
   });
 });

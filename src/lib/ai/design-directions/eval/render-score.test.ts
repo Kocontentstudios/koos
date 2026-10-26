@@ -300,15 +300,62 @@ describe("majorityJudge", () => {
         none,
         { ...none, unsupported: ["fresh daily"], missing: ["the phone"] },
       ]),
-    ).toEqual({ ...none, unsupported: ["fresh"] });
+    ).toEqual({ ...none, unsupported: ["fresh"], judged: true });
   });
 
-  it("flags nothing on one reading alone, or when two readings failed", () => {
-    expect(majorityJudge([{ ...none, missing: ["x"] }, none, none])).toEqual(
-      none,
+  it("flags nothing on one reading alone", () => {
+    expect(majorityJudge([{ ...none, missing: ["x"] }, none, none])).toEqual({
+      ...none,
+      judged: true,
+    });
+  });
+
+  /* Round-6 code critic: a direction with two failed readings was counted
+     clean, so a judge outage passed every judged gate. */
+  it("calls a direction with fewer than two readings unjudged", () => {
+    expect(majorityJudge([{ ...none, repeated: ["x"] }, null, null])).toEqual({
+      ...none,
+      judged: false,
+    });
+  });
+});
+
+describe("round 7 gates", () => {
+  it("leaves unjudged directions out of the judged shares, and gates them", () => {
+    const totals = aggregateRender([
+      okCase([
+        direction({ judgeRepeated: ["x"] }),
+        direction({ index: 1 }),
+        direction({ index: 2, judged: false }),
+      ]),
+    ]);
+    expect(totals.unjudged).toBe(1);
+    expect(totals.judgeRepeatedShare).toBe(0.5);
+    expect(renderFailures(totals).join()).toContain("unjudged directions");
+  });
+
+  it("fails a run that leaves a requested direction undelivered", () => {
+    const totals = aggregateRender([
+      okCase([direction(), direction({ index: 1, failed: "subject" })]),
+    ]);
+    expect(renderFailures(totals).join()).toContain("directions not delivered");
+  });
+
+  it("fails a button that is not an action, and a bare count in the footer", () => {
+    const craft = craftOfDelivered(
+      [],
+      {
+        headline: "We're hiring",
+        cta: "First session free",
+        footerLines: ["Two · Fully remote"],
+      },
+      "",
     );
-    expect(majorityJudge([{ ...none, repeated: ["x"] }, null, null])).toEqual(
-      none,
-    );
+    expect(craft.buttonNotAction).toBe(true);
+    expect(craft.fragments).toEqual(["Two"]);
+    const totals = aggregateRender([okCase([direction({ craft5: craft })])]);
+    const failures = renderFailures(totals).join();
+    expect(failures).toContain("buttons that are not actions");
+    expect(failures).toContain("fact fragments");
   });
 });

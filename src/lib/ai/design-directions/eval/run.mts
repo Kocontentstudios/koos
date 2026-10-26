@@ -98,6 +98,7 @@ const { placeholderIn } = await import("../../../jobs/directions/claims");
 const { guardRender } = await import("../../../jobs/design-gate");
 const { respecForLayout } = await import("../../../jobs/design-logo-settle");
 const { measureImage } = await import("../../../design/document/image-facts");
+const { cleanCutoutBytes } = await import("../../../images/cutout-edge");
 const { prepareDocumentFonts } = await import(
   "../../../design/document/rasterize"
 );
@@ -365,7 +366,18 @@ for (const evalCase of cases) {
     text: name,
     needs: needsFor("person", name),
   }));
-  const facts = [...labelled, ...people];
+  /* The offering's name is a fact every direction states, as in the job
+     (Oluwaseyi's ruling, round 7). */
+  const offering: BriefFact[] = evalCase.product
+    ? [
+        {
+          kind: "product",
+          text: evalCase.product,
+          needs: needsFor("product", evalCase.product),
+        },
+      ]
+    : [];
+  const facts = [...offering, ...labelled, ...people];
   const caseRecord: RenderedCase = {
     caseId: evalCase.id,
     expectRefused: Boolean(evalCase.expectRefused),
@@ -576,6 +588,17 @@ for (const evalCase of cases) {
     for (const [i, direction] of result.directions.entries()) {
       let image = imagery[i];
       let imageFacts = image ? await measureImage(image.asset) : null;
+      /* As the job does: a cut-out's edge is cleaned before it is drawn. */
+      if (image && imageFacts?.cutout) {
+        image = {
+          ...image,
+          asset: {
+            ...image.asset,
+            bytes: await cleanCutoutBytes(image.asset.bytes),
+            contentType: "image/png",
+          },
+        };
+      }
       let assets = {
         image: image ? { ref: { key: image.key }, asset: image.asset } : null,
         imageFacts,
@@ -610,9 +633,12 @@ for (const evalCase of cases) {
         relayout,
       });
       /* As the job does: a KO plate no free layout shows whole and clear is
-         left off and the design laid out as text. */
+         left off and the design laid out as text, and so is an upload whose
+         sibling already shows it in the one layout that fits. */
+      const siblingShowsPhoto =
+        evalCase.imageSource === "upload" && i > 0 && firstPlace !== null;
       const plateFaulted =
-        evalCase.imageSource === "ko" &&
+        (evalCase.imageSource === "ko" || siblingShowsPhoto) &&
         image !== null &&
         (choice.fault === SUBJECT_COVERED ||
           choice.faults.some(
@@ -638,7 +664,9 @@ for (const evalCase of cases) {
           judge: layoutJudge(context, assets, fonts),
           relayout,
         });
-        console.log(`\n   [${i}] plate left off: no layout showed it whole`);
+        console.log(
+          `\n   [${i}] ${siblingShowsPhoto ? "photo" : "plate"} left off: no free layout showed it whole`,
+        );
       }
       taken.push(choice.spec.layout);
       if (i === 0) firstPlace = choice.place;
@@ -891,6 +919,7 @@ for (const evalCase of cases) {
         lookTextOverSubject: look?.over ?? null,
         lookSubjectCut: look?.cut ?? null,
         factsStated: facts.length - factsMissing(facts, copy).length,
+        judged: judged.judged,
         judgeUnsupported: judged.unsupported,
         judgeMissing: judged.missing,
         craftHard: craft.hard,
@@ -1089,6 +1118,7 @@ console.log(
 );
 console.log(
   `round-6: delivered subject cut ${renderTotals.deliveredSubjectCut} (max ${rt.maxDeliveredSubjectCut}), refused for the subject ${renderTotals.subjectRefused}; KO laid out as text ${f2(renderTotals.textLedShare)} (max ${rt.maxTextLedShare}); named people on every direction ${f2(renderTotals.peopleNamedShare)} (min ${rt.minPeopleNamedShare}); person painted beside a named one ${renderTotals.personPainted} (max ${rt.maxPersonPainted}); judge footer repeats ${f2(renderTotals.judgeRepeatedShare)} (max ${rt.maxJudgeRepeatedShare}); fragments ${renderTotals.fragments} (max ${rt.maxFragments}); prices without unit ${renderTotals.pricesDetached} (max ${rt.maxPricesDetached}); picture against its card's edge ${renderTotals.imageAgainstFrame} (reported), of those with a clean layout to take ${renderTotals.imageAgainstFrameAvoidable} (max ${rt.maxImageAgainstFrameAvoidable})`,
+  `round-7: directions not delivered ${renderTotals.failedDirections} (max ${rt.maxFailedDirections}); buttons that are not actions ${renderTotals.buttonsNotActions} (max ${rt.maxButtonsNotActions}); unjudged directions ${renderTotals.unjudged} (max share ${rt.maxUnjudgedShare}, excluded from every judged share); fact coverage by the literal verifier, per direction ${f2(renderTotals.directionFactCoverage)}, per case ${f2(renderTotals.caseFactCoverage)}`,
 );
 console.log(
   `copy corrections: probed ${renderTotals.copyProbes} (min ${rt.minCopyProbes}), rules wrong ${renderTotals.copyProbeFailures} (max ${rt.maxCopyProbeFailures}), copy on the whole subject ${renderTotals.copyProbeOverSubject} (max ${rt.maxCopyProbeOverSubject})`,

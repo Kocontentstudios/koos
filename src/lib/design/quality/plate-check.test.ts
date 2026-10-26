@@ -151,6 +151,58 @@ describe("an event or a service", () => {
   });
 });
 
+/* Round-6 live critic: a cracked, stone-like loaf on an event plate and a
+   stained, derelict room on a service plate were delivered. */
+describe("an object-free backdrop a brand would publish", () => {
+  const ask = () =>
+    checkPlateShowsProduct({
+      bytes: plate,
+      product: "AC servicing",
+      look: "",
+      kind: "service",
+    });
+
+  it("refuses a run-down scene, saying why for the retry", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "a worn room with a stained wall",
+        fitsBrief: true,
+        publishable: false,
+        showsObject: false,
+      },
+    });
+    expect(await ask()).toMatchObject({
+      shows: false,
+      seen: "a worn room with a stained wall (a scene that looks run-down or unappealing)",
+    });
+    expect(sent().system).toContain("whether the brand would publish it");
+  });
+
+  it("refuses an object on an object-free plate", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "a cracked white loaf on crumbs",
+        fitsBrief: true,
+        publishable: true,
+        showsObject: true,
+      },
+    });
+    expect(await ask()).toMatchObject({ shows: false });
+  });
+
+  it("passes a clean, fitting backdrop", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "soft light on a pale wall",
+        fitsBrief: true,
+        publishable: true,
+        showsObject: false,
+      },
+    });
+    expect(await ask()).toMatchObject({ shows: true });
+  });
+});
+
 describe("the plate look's other answers", () => {
   /* Round-2 live run: "ZOBO / MIOCZEBC PRALEF" on the bottle. */
   it("reports lettering and the subject's box in the same call", async () => {

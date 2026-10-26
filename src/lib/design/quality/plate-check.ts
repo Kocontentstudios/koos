@@ -102,7 +102,33 @@ const sceneSchema = plateSchema.omit({ showsProduct: true }).extend({
     .describe(
       "True if the scene plausibly belongs to what the brief promotes: its activity, setting or props fit. It need not show any one object.",
     ),
+  publishable: z
+    .boolean()
+    .describe(
+      "True only if the brand would publish this image beside its offer: clean, well kept and appealing. False if anything looks run-down, stained, dirty, cracked, dusty, damaged, derelict or unappetising.",
+    ),
+  showsObject: z
+    .boolean()
+    .describe(
+      "True if the image shows any distinct object: food such as a loaf or a cake, a tool, a utensil, a device, furniture, a product or packaging. False when it is only texture, surface, fabric, light and space.",
+    ),
 });
+
+/* Round-6 live critic: an event plate painted a cracked, stone-like loaf
+   and a service plate a stained, derelict room. Event and service plates
+   are object-free backdrops (imagery.ts), and must be ones a brand would
+   publish. */
+function sceneRefusal(answer: {
+  fitsBrief?: unknown;
+  publishable?: unknown;
+  showsObject?: unknown;
+}): string | null {
+  if (answer.publishable === false) {
+    return "a scene that looks run-down or unappealing";
+  }
+  if (answer.showsObject === true) return "an object, not a plain backdrop";
+  return null;
+}
 
 /** What the brief offers, as the plate is checked for it. */
 export type OfferingKind = "product" | "event" | "service";
@@ -129,7 +155,7 @@ export interface PlateVerdict {
    pass as aso-oke throws. */
 const SYSTEM = `You check images for a design studio before a client sees them. The first question is identity: is the thing in the picture the named product? A different item of the same kind (a tart for a mille-feuille, a cake for a pastry, a cushion for a throw, bread for a croissant) is NOT the product, and neither is a person wearing or holding something like it when the product is the object itself. Presentation is NOT the question: the angle, crop, plating, number of pieces, background and lighting do not matter, and a description of how it might look is only a hint to recognise it. Then say where the subject is, list what else is in the picture, and say whether any writing appears: generated images often paint made-up brand names or squiggles that look like text on labels and packaging, and those count. Judge only what is visible.`;
 
-const SCENE_SYSTEM = `You check images for a design studio before a client sees them. The brief promotes an event or a service, not an object, so the question is whether the scene fits it: a customer seeing it beside the brief would recognise the activity, setting or props as belonging to it. Any reasonable scene of that activity fits; a scene of something unrelated does not. Then say where the main subject is, list what else is in the picture, say whether any writing appears (generated images often paint made-up brand names or squiggles that look like text on signs, aprons, packaging and walls, and those count), and whether a face could be taken for a particular person. Judge only what is visible.`;
+const SCENE_SYSTEM = `You check images for a design studio before a client sees them. The brief promotes an event or a service, not an object, and the image is meant as a plain backdrop of texture, surface, light and space behind the copy. The first question is whether the scene fits it: a customer seeing it beside the brief would recognise its mood and setting as belonging to it. Any reasonable backdrop fits; a scene of something unrelated does not. The second is whether the brand would publish it: anything run-down, stained, dirty, cracked, dusty, damaged, derelict or unappetising would not be. The third is whether it shows any distinct object at all, such as food, a tool, furniture or a device. Then say where the main subject is, list what else is in the picture, say whether any writing appears (generated images often paint made-up brand names or squiggles that look like text on signs, aprons, packaging and walls, and those count), and whether a face could be taken for a particular person. Judge only what is visible.`;
 
 async function smaller(
   bytes: Uint8Array,
@@ -211,9 +237,12 @@ export async function checkPlateShowsProduct({
         ? (answer as { fitsBrief?: unknown }).fitsBrief
         : (answer as { showsProduct?: unknown } | null)?.showsProduct;
     if (typeof shows !== "boolean") return null;
+    const refused = scene ? sceneRefusal(answer as object) : null;
+    const subject =
+      typeof answer.mainSubject === "string" ? answer.mainSubject : "";
     return {
-      shows: product ? shows : true,
-      seen: typeof answer.mainSubject === "string" ? answer.mainSubject : "",
+      shows: product ? shows && !refused : true,
+      seen: refused ? `${subject} (${refused})` : subject,
       subject: subjectBoxFrom(answer.subjectBox ?? null),
       items: Array.isArray(answer.visibleItems)
         ? answer.visibleItems.filter((i): i is string => typeof i === "string")

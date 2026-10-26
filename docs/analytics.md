@@ -161,6 +161,31 @@ counts directions with an image whose subject could not be found (the look
 was unavailable, or found only a face), each also a quality fault.
 `productSources` gains `read` (the reader's phrase).
 
+Round 6 adds plate check values and outcomes. `plateChecks` gains `scene` (an
+event or service plate drawn as an object-free backdrop, with no subject to
+keep copy off) and `unavailable` (the image model returned nothing drawable;
+the design is laid out as text and the bell says the image service was down,
+counted as `textLedImageModelDown` on the row and `text_led_image_model_down`
+on the event). `briefRead.unread` lists facts the reader returned in words
+that are not the brief's (never drawn, checked against each design and
+recorded as left off when missing), and `briefRead.phonesAdded` the phone
+numbers in the brief the reader did not return, each kept with the brief's
+own lead word ("WhatsApp 0803 555 0142", "Opay 8035550142").
+`footerParaphrases` records the model's footer-repeat reading: `available`,
+and per marked item its `outcomes` (`dropped`, `kept` with the reason, or
+`merged` with the field rewritten, `from` and `to`; button echoes appear as
+`repeats: "the button's action"`).
+
+Round 7 (Oluwaseyi's ruling: model writes, code verifies). Code no longer
+writes copy: `factsAdded` now counts facts the model wrote into a direction
+that had left them out, each checked by the literal verifier and the claim
+check (fail-closed), and `factsLeftOff` reasons say when the model's rewrite
+was refused and why. Whether a design states a fact is literal and in one
+place: a price is its currency, amount and unit together, an offer or
+condition its whole span, a time never counts on a phone's line, and the
+offering's own name is a fact every direction must state (so `briefFacts`
+counts it).
+
 ## Funnels
 
 Both live on the **Activation funnels** dashboard in PostHog, already created:
