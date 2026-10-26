@@ -282,6 +282,40 @@ recorded). A merge never rewrites the button, which stays an action, and
 no footer item is left as a lone time, date, number or contact
 (`withoutBareItems`).
 
+### Round 6f: the footer-repeat gate is a known trade-off
+
+The judge's footer-repeat gate (`judgeRepeatedShare` ≤ 0.15) fails, and is
+left failing on purpose. Three rules the delivered copy now keeps cost it:
+
+- every brief fact stays stated: an item that carries a fact said nowhere
+  else in full stays in the footer unless a merge carries it;
+- no headline merges: the headline is the idea, never the carrier of a
+  footer detail (a merge of "from 7am" into a headline made the bakery
+  pair near-duplicates); the detail may go to a fresh subheadline instead;
+- no list-like subheadlines: a merge leaving more than two clauses is
+  refused, and the item stays below.
+
+Items that only say the button's action again are dropped
+(`dropButtonEchoes`). What is left are footer items the judge reads as
+saying again, in other words, a fact the copy above already carries, and
+some readings the judge argues against itself ("this count ... appears
+nowhere else ... so it is not repeated") or aims at the headline and
+subheadline, not the footer. Measured, two runs each:
+
+| HEAD | `judgeRepeatedShare` |
+|---|---|
+| 966d108 (headline merges allowed with no subheadline) | 0.147, 0.147 |
+| 10e7278 (no headline merges, no list merges) | 0.18, 0.21 |
+| 8447620 (plus button echoes dropped, fresh-subheadline merges) | 0.18, 0.24 |
+
+The deterministic footer-repeat gate (`footerRepeats`) stays at 0.
+
+The flush-photo gate changes in the same round: `imageAgainstFrame` is
+reported, and only `imageAgainstFrameAvoidable` (a flush photo delivered
+while a clean layout existed) is gated, at 0. When a KO plate is left off
+because no layout showed it whole, the case log lists every layout judged
+(`plate layouts judged: …`).
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

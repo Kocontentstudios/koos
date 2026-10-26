@@ -619,6 +619,13 @@ for (const evalCase of cases) {
             (f) => f === SUBJECT_CROPPED || f === SUBJECT_FACE_ONLY,
           ));
       if (plateFaulted) {
+        const judged = choice.considered
+          .map(
+            (c) =>
+              `${c.layout}: ${c.subjectFault ?? c.hard ?? c.soft ?? (c.faceOnly ? "face only" : "clean")}`,
+          )
+          .join("; ");
+        console.log(`\n   [${i}] plate layouts judged: ${judged}`);
         image = null;
         imageFacts = null;
         assets = { image: null, imageFacts: null, logo: null };
