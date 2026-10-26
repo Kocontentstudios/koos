@@ -307,6 +307,14 @@ subheadline, not the footer. Measured, two runs each:
 | 966d108 (headline merges allowed with no subheadline) | 0.147, 0.147 |
 | 10e7278 (no headline merges, no list merges) | 0.18, 0.21 |
 | 8447620 (plus button echoes dropped, fresh-subheadline merges) | 0.18, 0.24 |
+| 2f12001 (round 7: literal verifier, model-written facts, every drop guarded) | 0.24, 0.33 |
+
+Round 7 widens the gap for a known reason: the literal verifier keeps a
+footer item that states a fact word for word when the copy above says it
+only in other words ("All milk and beans included" under "with all beans
+and milk included"), because dropping it would leave the fact stated
+nowhere literally. The code-side `footerRepeats` metric, which reads for
+meaning, counts the same items (1 direction in each round-7 run).
 
 The deterministic footer-repeat gate (`footerRepeats`) stays at 0.
 
