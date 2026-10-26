@@ -224,6 +224,25 @@ list descriptions or anything the brief itself does not give. The
 threshold is unchanged; what it gates is still every real omission
 (`masterclass-ko` direction 0 left its address off, and that was real).
 
+### Round 6c: texture backdrops and repeats in other words
+
+KO plates for an event, a service or a brief with no physical product are
+now object-free texture backdrops (check `scene`, Oluwaseyi's decision).
+**The subject look (`lookTextOverSubjectShare`, and the "cut" look beside
+it) skips them** (Oluwaseyi's ruling): a texture has no subject for copy to
+cover, so the question "does text sit on the subject" can only answer yes
+for a design that puts its copy on the backdrop by intent. At 4315cd6 all
+13 of the look's flags were such plates. The threshold (≤ 0.15) is
+unchanged and still applies to every product plate and every uploaded
+photo; the contrast, veil and craft checks still run on texture plates.
+
+Footer items that repeat the copy above in other words are marked by a
+small model call (`footer-repeats.ts`, the directions model) and dropped by
+code only when every brief fact the direction states is still stated
+without them. Each case logs what was marked and whether it was dropped
+(`footer repeats marked …`, and `footerRepeats` in the report). The judge's
+footer-repeat gate (≤ 0.15) is unchanged.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

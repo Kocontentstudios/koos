@@ -443,6 +443,8 @@ for (const evalCase of cases) {
       description?: string;
       lettering: boolean | null;
       person?: boolean | null;
+      /** An object-free texture plate: no subject to cover. */
+      scene?: boolean;
     } | null;
     const imagery: Imagery[] = result.directions.map(() => null);
     const plates = [];
@@ -520,6 +522,7 @@ for (const evalCase of cases) {
                 : undefined,
               lettering: look.writing,
               person: look.person,
+              scene: plate.check === "scene",
             };
           }
           if (plate.seen.length > 0) {
@@ -844,12 +847,16 @@ for (const evalCase of cases) {
         imageDescription: image?.description,
         drawn: { document: out.document, subject: wholeSubject },
       }).reasons;
-      const look = image
-        ? await lookAtRender(out.bytes).catch((err) => {
-            console.log(`   render look failed: ${(err as Error).message}`);
-            return null;
-          })
-        : null;
+      /* Oluwaseyi's ruling (round 6): a texture backdrop ("scene") has no
+         subject for copy to cover, so the subject look skips it; the
+         contrast and craft checks still run on it. */
+      const look =
+        image && !image.scene
+          ? await lookAtRender(out.bytes).catch((err) => {
+              console.log(`   render look failed: ${(err as Error).message}`);
+              return null;
+            })
+          : null;
       const judged = await judgeCopy(r.briefText, profile, copy).catch(
         (err) => {
           console.log(`   judge failed: ${(err as Error).message}`);
@@ -938,6 +945,11 @@ for (const evalCase of cases) {
           `      plate: ${plate.check} (${plate.imageCalls} call${plate.imageCalls === 1 ? "" : "s"}), eval sees "${plate.subject}" -> ${plate.showsProduct}`,
         );
       }
+    }
+    if (result.footerRepeats.outcomes.length > 0) {
+      console.log(
+        `   footer repeats marked ${JSON.stringify(result.footerRepeats.outcomes)}`,
+      );
     }
     if (
       result.factCoverage.added.length > 0 ||

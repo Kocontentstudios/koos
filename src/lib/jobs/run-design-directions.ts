@@ -972,6 +972,9 @@ export async function generateDirectionsWork(
         phonesAdded: brief.read.phonesAdded,
       },
       footerRepeatsDropped: brief.factCoverage.repeatsDropped,
+      /* Round-6 outcome: footer items a model read as repeating the copy
+         above in other words, and which code dropped. */
+      footerParaphrases: brief.footerRepeats,
       textLed,
       textLedImageModelDown: imageModelDown,
       subjectUnknown: layoutChoices.filter((choice) =>

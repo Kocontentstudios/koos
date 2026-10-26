@@ -852,7 +852,9 @@ function meaningOf(text: string): string {
   return text
     .replace(/\b(\d+)\s*-?\s*(?:mins?|minutes?)\b/gi, "$1 minutes")
     .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours")
-    .replace(/\bpick[\s-]+up\b/gi, "pickup");
+    .replace(/\bpick[\s-]+up\b/gi, "pickup")
+    .replace(/\s&\s/g, " and ")
+    .replace(/\bincl\.?(?=\s|$)/gi, "included");
 }
 
 /** The copy a direction draws, as one string to look for facts in. */

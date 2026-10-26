@@ -31,6 +31,7 @@ function answer(...drafts: ReturnType<typeof draftOf>[]) {
 /* The claim check is its own model call (claim-check.ts); these tests count
    the art director's, so it finds nothing unless a test says otherwise. */
 const claimChecker = vi.fn(async () => [] as never[]);
+const footerRepeatChecker = vi.fn(async () => [] as never[]);
 /* The brief reader too (brief-read.ts): its own call, counted in
    modelCalls, tested in brief-read.test.ts. */
 const briefReader = vi.fn(async () => ({
@@ -48,6 +49,7 @@ function input(over: Record<string, unknown> = {}) {
     recentLayouts: [],
     claimChecker,
     briefReader,
+    footerRepeatChecker,
     ...over,
   };
 }

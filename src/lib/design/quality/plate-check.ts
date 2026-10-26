@@ -79,7 +79,7 @@ const plateSchema = z.object({
   lettering: z
     .boolean()
     .describe(
-      "True if a product, its packaging, a label, a sign, a garment or a wall carries letters, words, numbers, a brand name, a logo, or marks that imitate writing. Tiny interface detail on a phone or computer screen that cannot be read as words does not count.",
+      "True if anything anywhere in the picture carries letters, words, numbers, a brand name, a logo, or marks that imitate writing: a product, its packaging, a label, a sign, a garment, a wall, a book or its pages, paper, a screen, a poster. Rows of tiny printed lines on a page count. Tiny interface detail on a phone or computer screen that cannot be read as words does not count.",
     ),
   identifiablePerson: z
     .boolean()

@@ -46,6 +46,12 @@ import {
   finalizeDirection,
   settleReasons,
 } from "./finalize";
+import {
+  checkFooterRepeats,
+  dropMarkedRepeats,
+  type FooterRepeatChecker,
+  type FooterRepeatOutcome,
+} from "./footer-repeats";
 import { forceDistinctLayouts } from "./layouts";
 import { repairDirectionsFor, repairFitText } from "./repair";
 import {
@@ -90,6 +96,8 @@ export interface DraftDirectionsInput {
   claimChecker?: ClaimChecker;
   /** Reads the brief's facts, offering and people (brief-read.ts). */
   briefReader?: BriefReader;
+  /** Marks footer items repeating the copy above (footer-repeats.ts). */
+  footerRepeatChecker?: FooterRepeatChecker;
 }
 
 /** What the claim check found and what became of it. */
@@ -138,6 +146,9 @@ export interface DraftDirectionsResult {
   /** The brief's hard facts and which direction states each. */
   factCoverage: FactCoverage;
   claimCheck: ClaimCheckOutcome;
+  /** Footer items a model marked as repeating the copy above in other
+   *  words, and whether code dropped each. */
+  footerRepeats: { available: boolean; outcomes: FooterRepeatOutcome[] };
 }
 
 /** The fit pass's answer: the rewritten text for each field it was asked
@@ -551,6 +562,7 @@ export async function draftDirections({
   existing = [],
   claimChecker = checkClaims,
   briefReader = readBriefWithModel,
+  footerRepeatChecker = checkFooterRepeats,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
   const showImage =
@@ -910,11 +922,25 @@ export async function draftDirections({
   });
   const offeringNamed = named.map((d) => nameOffering(d, read, checks));
   const coverFacts = coverFactsOf(read);
-  const { directions: drawnIn, coverage: factCoverage } = coverBriefFacts(
-    offeringNamed,
+  const { directions: coveredFooters, coverage: factCoverage } =
+    coverBriefFacts(
+      offeringNamed,
+      coverFacts,
+      named.find((d) => d.productName)?.productName ?? "",
+    );
+  /* Repeats in other words are marked by a model and dropped by code only
+     when no stated fact goes with them (footer-repeats.ts). */
+  const hasFooter = coveredFooters.some((d) => d.footerLines.length > 0);
+  const repeatMarks = hasFooter
+    ? await footerRepeatChecker(coveredFooters)
+    : [];
+  if (hasFooter) modelCalls += 1;
+  const repeatDrops = dropMarkedRepeats(
+    coveredFooters,
+    repeatMarks ?? [],
     coverFacts,
-    named.find((d) => d.productName)?.productName ?? "",
   );
+  const drawnIn = repeatDrops.directions;
   /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
      settled against the old footer ("the footer carries the date") is held
      again to the new one (round-5 eval: two such reasons). */
@@ -962,6 +988,10 @@ export async function draftDirections({
     coverFacts,
     factCoverage,
     claimCheck,
+    footerRepeats: {
+      available: repeatMarks !== null,
+      outcomes: repeatDrops.outcomes,
+    },
   };
 }
 

@@ -144,6 +144,14 @@ export function isSceneKind(kind: OfferingKind | undefined): boolean {
   return kind === "event" || kind === "service";
 }
 
+/* Of the direction's scene, an object-free plate keeps only its light and
+   mood: a tutoring scene's "study desk by the window" came back as a desk
+   of open books (round-6 eval, two lettered plates). */
+const LIGHT_WORDS =
+  /\b(?:light|lit|morning|afternoon|evening|dusk|dawn|sunrise|sunset|sun|sunlit|shadows?|warm|cool|soft|golden|glow|colou?rs?|palette|tones?|mist|haze|calm|quiet|bright|muted|pastel|earthy)\b/i;
+const FURNISHED =
+  /\b(?:desks?|tables?|shelf|shelves|classroom|office|library|kitchen|studio|counter|room|interior|chairs?|benches|workbench|bookcase|shop|stall|market)\b/i;
+
 /* Who a scene clause would put in the picture. */
 const PEOPLE_WORDS =
   /\b(?:people|persons?|man|men|woman|women|girls?|boys?|child(?:ren)?|kids?|students?|customers?|guests?|clients?|staff|team|crowd|hands?|faces?|baker|barista|chef|teacher|tutor|coach|host|speaker|audience|attendees?|participants?|workers?|someone|friends?|famil(?:y|ies)|couple|athletes?)\b/i;
@@ -170,7 +178,11 @@ export function objectFreePrompt(
     .map((clause) => clause.trim().replace(/[.\s]+$/, ""))
     .filter(
       (clause) =>
-        clause && !LETTERED_THINGS.test(clause) && !PEOPLE_WORDS.test(clause),
+        clause &&
+        LIGHT_WORDS.test(clause) &&
+        !LETTERED_THINGS.test(clause) &&
+        !PEOPLE_WORDS.test(clause) &&
+        !FURNISHED.test(clause),
     )
     .join(", ");
   const scene = buildBackgroundPlatePrompt({ ...spec, backgroundPrompt: mood });

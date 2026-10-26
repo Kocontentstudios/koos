@@ -617,3 +617,18 @@ describe("an inclusion put in other words, round 6g", () => {
     expect(factStated(fact(), copy({ subheadline: "All meals." }))).toBe(false);
   });
 });
+
+describe("footer dedupe reads & as and, incl. as included", () => {
+  it("keeps one of two spellings of one item", () => {
+    expect(
+      redundantFooterItems(
+        copy({
+          footerLines: [
+            "All milk & beans incl.",
+            "All milk and beans included",
+          ],
+        }),
+      ),
+    ).toEqual(["All milk and beans included"]);
+  });
+});

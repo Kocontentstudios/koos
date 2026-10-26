@@ -601,3 +601,19 @@ describe("round 6e: what a plate must not show goes in the negative prompt", () 
     ).toBe(negativeFor(true));
   });
 });
+
+describe("round 6i: an object-free plate keeps only the scene's light", () => {
+  /* Round-6 eval: "a study desk by a sunny window" came back as a desk of
+     open books, lettered, on both tutoring plates. */
+  it("drops furnished clauses even when they mention light", () => {
+    const prompt = platePrompt(
+      draftOf({
+        backgroundPrompt:
+          "A study desk by a sunny window, soft golden morning light, quiet mood",
+      }),
+      { name: "maths tutoring", look: "", kind: "service" },
+    );
+    expect(prompt).not.toMatch(/desk|window/);
+    expect(prompt).toContain("soft golden morning light");
+  });
+});
