@@ -53,6 +53,9 @@ describe("checkClaims", () => {
     expect(prompt).toMatch(/scale, reach or ambition/);
     expect(prompt).toMatch(/"Africa's payments future"/);
     expect(prompt).toMatch(/role, title or topic added to a person/);
+    /* Round 7: the examples made the check flag the brief's own words. */
+    expect(prompt).toMatch(/anything the brief itself says in the same words/);
+    expect(prompt).not.toMatch(/"architect Ada Obi" when/);
   });
 
   it("returns what it flags, for fields it was asked about only", async () => {
