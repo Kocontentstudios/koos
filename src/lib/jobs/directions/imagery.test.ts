@@ -17,6 +17,7 @@ const {
   paintPlate,
   platePrompt,
   storeDrawnMark,
+  negativeFor,
   withoutLetteredThings,
 } = await import("./imagery");
 const { BRAND_ID, designPng, draftOf, verdict } = await import("./fixtures");
@@ -224,7 +225,9 @@ describe("people on a plate", () => {
     expect(platePrompt(draftOf(), PRODUCT)).toMatch(
       /never posed as a named host, speaker or customer/,
     );
-    expect(platePrompt(draftOf(), null)).toMatch(/No people, no faces/);
+    expect(platePrompt(draftOf(), null)).not.toMatch(
+      /\bno (?:text|letters|words|writing|people|paper)/i,
+    );
   });
 });
 
@@ -371,9 +374,11 @@ describe("events, services and named people", () => {
       "a woman at a lectern (a face)",
       "a woman at a lectern (a face)",
     ]);
-    expect(promptSent(plateModel, 1)).toContain(
-      "painted a person, which is wrong",
-    );
+    expect(promptSent(plateModel, 1)).toContain("seen in soft morning light");
+    for (const call of plateModel.generate.mock.calls) {
+      const [input] = call as unknown as [{ negativePrompt?: string }];
+      expect(input.negativePrompt).toMatch(/people, person, face/);
+    }
   });
 
   it("refuses a person on a scene even when nobody is named", async () => {
@@ -522,9 +527,14 @@ describe("round 6: no lettered objects in a plate prompt", () => {
     expect(prompt).not.toMatch(/receipts|statement|bookkeeper|client/);
     expect(prompt).toContain("warm afternoon light");
     expect(prompt).toMatch(/one clean material or surface/);
-    expect(prompt).toMatch(
-      /no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters/,
+    /* Told "no writing" the plate model painted stencilled words; the
+       scene prompt names only what to paint, and the rest is negative. */
+    expect(prompt).not.toMatch(
+      /\bno (?:text|letters|words|writing|people|paper)/i,
     );
+    expect(negativeFor(true)).toMatch(/text, letters, words, writing/);
+    expect(negativeFor(true)).toMatch(/people, person, face/);
+    expect(negativeFor(false)).not.toMatch(/people/);
   });
 
   it("still paints the product when the product is a lettered thing", () => {
@@ -541,7 +551,7 @@ describe("round 6: no lettered objects in a plate prompt", () => {
 });
 
 describe("round 6: an event beside a named person is an empty place", () => {
-  it("asks for the place with no people, and names what was wrong on a retry", () => {
+  it("asks for light and texture only, and another light on a retry", () => {
     const event = {
       name: "wheel-throwing evening",
       look: "",
@@ -554,7 +564,40 @@ describe("round 6: an event beside a named person is an empty place", () => {
       ),
     ).toBe(true);
     expect(platePrompt(draftOf(), event, { people: true }, null, true)).toMatch(
-      /The last attempt painted a person, which is wrong/,
+      /seen in soft morning light/,
     );
+  });
+});
+
+describe("round 6e: what a plate must not show goes in the negative prompt", () => {
+  it("sends writing as negative on a product plate, and people too on a scene", async () => {
+    const productModel = adapter(plate(64, 64));
+    await paintPlate({
+      adapter: productModel,
+      spec: draftOf(),
+      product: PRODUCT,
+      brandId: BRAND_ID,
+    });
+    expect(
+      (
+        productModel.generate.mock.calls[0] as unknown as [
+          { negativePrompt: string },
+        ]
+      )[0].negativePrompt,
+    ).toBe(negativeFor(false));
+    const sceneModel = adapter(plate(64, 64));
+    await paintPlate({
+      adapter: sceneModel,
+      spec: draftOf(),
+      product: { name: "laundry pickup", look: "", kind: "service" },
+      brandId: BRAND_ID,
+    });
+    expect(
+      (
+        sceneModel.generate.mock.calls[0] as unknown as [
+          { negativePrompt: string },
+        ]
+      )[0].negativePrompt,
+    ).toBe(negativeFor(true));
   });
 });

@@ -176,22 +176,29 @@ export function objectFreePrompt(
   const scene = buildBackgroundPlatePrompt({ ...spec, backgroundPrompt: mood });
   const where = setting ? ` in ${setting}` : "";
   const what = product ? `the ${product.name}${where}` : `the brand${where}`;
-  const wrong = rejected
-    ? rejected.people
-      ? ". The last attempt painted a person, which is wrong"
-      : rejected.lettering
-        ? ". The last attempt painted writing, which is wrong"
-        : ""
-    : "";
+  /* Nothing here says what not to paint: told "no writing", the plate
+     model painted stencilled words on bare wood (round-6 live run). What
+     must not appear goes in the negative prompt (negativeFor). A retry is
+     the same request in another light. */
+  const retryMood = rejected ? ", seen in soft morning light" : "";
   return [
-    `A soft-focus, close-up photograph of light and texture that suits ${what}: one clean material or surface (wood grain, linen, plaster, stone, water, foliage or sky) in warm, well-kept condition${wrong}`,
-    "No room, no building, no furniture, no shopfront, no wall art and no notices",
-    "No people, no faces and no hands",
-    "No objects that carry writing: no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters",
-    scene.replace(/^[.\s]+/, ""),
+    `A soft-focus, close-up photograph of light and texture that suits ${what}: one clean material or surface (wood grain, linen, plaster, stone, water, foliage or sky) in warm, well-kept condition${retryMood}`,
+    scene.replace(/^[.\s]+/, "").replace(/\.?\s*No text, no letters[^.]*$/, ""),
   ]
     .filter(Boolean)
     .join(". ");
+}
+
+/* What a plate must never show. Writing always; people too on an
+   object-free scene or beside a named person. */
+const NEGATIVE_WRITING =
+  "text, letters, words, writing, typography, numbers, signs, signage, labels, logos, watermark, graffiti, stencil, posters, menus, paper, documents, screens";
+const NEGATIVE_PEOPLE = "people, person, face, crowd, figure, hands";
+
+export function negativeFor(noPeople: boolean): string {
+  return noPeople
+    ? `${NEGATIVE_WRITING}, ${NEGATIVE_PEOPLE}`
+    : NEGATIVE_WRITING;
 }
 
 /* "Speaker: Ada Obi", "hosted by Tunde Bakare", "with Chef Funke". */
@@ -340,12 +347,14 @@ export async function paintCheckedPlate({
   namesPeople?: boolean;
 }): Promise<CheckedPlate> {
   let imageCalls = 0;
+  const objectFree = !product || isSceneKind(product.kind);
   const paint = async (prompt: string) => {
     imageCalls += 1;
     try {
       const plate = await adapter.generate({
         prompt,
         aspectRatio: spec.aspectRatio,
+        negativePrompt: negativeFor(objectFree || namesPeople),
       });
       return drawablePlate(plate, adapter.id);
     } catch (err) {
@@ -353,7 +362,6 @@ export async function paintCheckedPlate({
       return null;
     }
   };
-  const objectFree = !product || isSceneKind(product.kind);
   /* An object-free scene is looked at for its subject box, writing and
      people only: no product is asked about. */
   const look = (bytes: Uint8Array) =>

@@ -896,7 +896,7 @@ describe("round-4 critic job probes", () => {
       image: { source: "ko" },
     });
     for (const [input] of plateModel.generate.mock.calls) {
-      expect(input.prompt).toContain("No people, no faces");
+      expect(input.negativePrompt).toMatch(/people, person, face/);
     }
     expect(usage().plateChecks).toEqual(["failed-people", "failed-people"]);
     expect(usage().textLed).toBe(2);
