@@ -232,7 +232,7 @@ describe("platePrompt", () => {
   it("is an object-free place when the brief names no product", () => {
     expect(
       platePrompt(draftOf(), null).startsWith(
-        "A quiet, empty view of a place that suits the brand",
+        "A quiet, close view of a place that suits the brand",
       ),
     ).toBe(true);
   });
@@ -341,7 +341,7 @@ describe("events, services and named people", () => {
       brandId: BRAND_ID,
     });
     expect(promptSent(plateModel, 0)).toMatch(
-      /^A quiet, empty view of the place where the teen sourdough baking class happens/,
+      /^A quiet, close view of the place where the teen sourdough baking class happens/,
     );
     expect(checkPlateShowsProduct).toHaveBeenCalledWith(
       expect.objectContaining({ product: "" }),
@@ -521,7 +521,9 @@ describe("round 6: no lettered objects in a plate prompt", () => {
     );
     expect(prompt).not.toMatch(/receipts|statement|bookkeeper|client/);
     expect(prompt).toContain("warm afternoon light");
-    expect(prompt).toMatch(/architecture, light, colour and texture only/);
+    expect(prompt).toMatch(
+      /bare walls, floor, window light, colour and texture only/,
+    );
     expect(prompt).toMatch(
       /no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters/,
     );
@@ -550,7 +552,7 @@ describe("round 6: an event beside a named person is an empty place", () => {
     const prompt = platePrompt(draftOf(), event, undefined, "Surulere", true);
     expect(
       prompt.startsWith(
-        "A quiet, empty view of the place where the wheel-throwing evening happens in Surulere",
+        "A quiet, close view of the place where the wheel-throwing evening happens in Surulere",
       ),
     ).toBe(true);
     expect(platePrompt(draftOf(), event, { people: true }, null, true)).toMatch(

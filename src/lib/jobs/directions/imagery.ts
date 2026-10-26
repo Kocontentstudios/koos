@@ -186,7 +186,8 @@ export function objectFreePrompt(
         : ""
     : "";
   return [
-    `A quiet, empty view of ${what}: architecture, light, colour and texture only${wrong}`,
+    `A quiet, close view of ${what}: bare walls, floor, window light, colour and texture only${wrong}`,
+    "Plain surfaces with nothing on them: no shopfronts, no wall art, no notices",
     "No people, no faces and no hands",
     "No objects that carry writing: no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters",
     scene.replace(/^[.\s]+/, ""),

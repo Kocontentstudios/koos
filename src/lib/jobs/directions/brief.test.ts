@@ -646,3 +646,27 @@ describe("nameOffering", () => {
     expect(nameOffering(d, read, checks)).toBe(d);
   });
 });
+
+/* Round-6 eval, recruitment-ko: the claim check set one headline to the
+   brief's title, which the other already was in all but one word. */
+describe("headlines kept apart after the claim check", () => {
+  it("moves the subheadline's first sentence up when the title is taken", async () => {
+    const first = draftOf({ headline: "Almond bakers wanted in Lekki" });
+    const twin = contrastingDraft({
+      headline: "Almond bakers wanted",
+      subheadline: "Early starts in Lekki. Apply on WhatsApp.",
+    });
+    generateObject.mockResolvedValue(answer(first, twin));
+    const result = await draftDirections(
+      input({
+        context: directionsContext({
+          title: "Almond bakers wanted",
+          briefText:
+            "Almond bakers wanted for early starts in Lekki. Apply on WhatsApp.",
+        }),
+      }),
+    );
+    expect(result.directions[1].headline).toBe("Early starts in Lekki");
+    expect(result.directions[1].subheadline).toBe("Apply on WhatsApp.");
+  });
+});

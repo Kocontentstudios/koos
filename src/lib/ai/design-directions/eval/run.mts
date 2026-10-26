@@ -514,7 +514,8 @@ for (const evalCase of cases) {
             imagery[i] = {
               asset: plate.image,
               key: `generated/${EVAL_BRAND}/plates/${evalCase.id}-${i}.${ext}`,
-              subjects: [plate.look?.subject ?? null],
+              subjects:
+                plate.check === "scene" ? [] : [plate.look?.subject ?? null],
               description: plate.look
                 ? [plate.look.seen, ...plate.look.items].join(", ")
                 : undefined,

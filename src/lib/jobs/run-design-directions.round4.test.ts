@@ -827,7 +827,7 @@ describe("round-4 critic job probes", () => {
     });
     for (const [input] of plateModel.generate.mock.calls) {
       expect(input.prompt).toMatch(
-        /^A quiet, empty view of the place where the Teen sourdough baking class happens/i,
+        /^A quiet, close view of the place where the Teen sourdough baking class happens/i,
       );
     }
     for (const [input] of checkPlateShowsProduct.mock.calls) {

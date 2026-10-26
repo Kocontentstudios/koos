@@ -644,3 +644,31 @@ describe("round-5 critic job probes", () => {
     ).toBe(true);
   });
 });
+
+describe("round 6c: object-free scenes", () => {
+  /* Round-6 eval at 8cc381c: a scene's subject box was the whole room, so
+     every layout covered it and seven plates were left off. */
+  it("draws a scene plate as a backdrop with no subject to keep clear", async () => {
+    readBrief.mockResolvedValue(
+      readAnswer([], { kind: "service", phrase: "laundry pickup" }),
+    );
+    checkPlateShowsProduct.mockResolvedValue({
+      shows: true,
+      seen: "an empty courtyard",
+      subject: { x: 0.02, y: 0.02, w: 0.96, h: 0.96 },
+      items: [],
+      lettering: false,
+      person: false,
+    });
+    await runBrief("Same-day laundry pickup across Lekki.", {
+      image: { source: "ko" },
+    });
+    const m = usage();
+    expect(m.plateChecks).toEqual(["scene", "scene"]);
+    expect(m.textLed).toBe(0);
+    expect(m.subjectKnown).toEqual([false, false]);
+    for (const [input] of plateModel.generate.mock.calls) {
+      expect(input.prompt).toMatch(/^A quiet, close view of the place where/);
+    }
+  });
+});

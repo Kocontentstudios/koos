@@ -405,7 +405,11 @@ export async function generateDirectionsWork(
       /* A plate whose subject was not boxed is laid out as unknown, and
          that is recorded (chooseLayout), never as a plate with nothing in
          it to keep clear. */
-      subjectBoxes[i] = [plate.look?.subject ?? null];
+      /* An object-free scene is a backdrop: there is no subject to keep
+         the copy off, and treating the whole room as one left every
+         layout covering it (round-6 eval: seven plates left off). */
+      subjectBoxes[i] =
+        plate.check === "scene" ? [] : [plate.look?.subject ?? null];
       if (plate.look) {
         descriptions[i] = [plate.look.seen, ...plate.look.items].join(", ");
       }

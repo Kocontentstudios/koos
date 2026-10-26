@@ -773,34 +773,6 @@ export async function draftDirections({
       console.error("direction redraft failed; keeping the first draft", err);
     }
   }
-  /* A redraft that still repeats its sibling's headline gets the user's
-     own words instead (round-6 eval: "Three shots. One flight." against
-     "Three shots. One flight. ₦6,000." after the redraft). */
-  if (worst && isNearDuplicate(worst.overlap)) {
-    const later = worst.later;
-    const offering = (await reading).offering?.phrase ?? "";
-    for (const candidate of [
-      checks.title,
-      offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
-    ]) {
-      if (
-        !candidate ||
-        copyFault(candidate, COPY_LIMITS.headline, checks.ledger)
-      ) {
-        continue;
-      }
-      const trial = directions.map((d, i) =>
-        i === later ? { ...d, headline: candidate } : d,
-      );
-      const retried = closestPair(trial, existing, overlapOptions);
-      if (retried && !isNearDuplicate(retried.overlap)) {
-        directions[later] = trial[later];
-        worst = retried;
-        break;
-      }
-    }
-  }
-
   const fields = claimFields(directions);
   const flagged =
     fields.length > 0
@@ -830,6 +802,52 @@ export async function draftDirections({
   };
 
   const read = await reading;
+  /* A pair that still repeats one headline, after the redraft and after
+     the claim check (whose fallback is the brief's title, which one of the
+     pair may already be), gets the user's own words for the later one
+     (round-6 eval: "Three shots. One flight." twice, and "Senior React
+     engineers" beside "We're Hiring Senior React Engineers"). */
+  let finalPair = closestPair(directions, existing, overlapOptions);
+  if (finalPair && isNearDuplicate(finalPair.overlap)) {
+    const later = finalPair.later;
+    const offering = read.offering?.phrase ?? "";
+    /* The subheadline's first sentence moves up, the rest stays below. */
+    const sub = directions[later].subheadline ?? "";
+    const firstSentence = /^[^.!?]+[.!?]/.exec(sub)?.[0].trim() ?? "";
+    const rest = sub.slice(firstSentence.length).trim();
+    for (const [candidate, subheadline] of [
+      [checks.title, sub],
+      [
+        offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
+        sub,
+      ],
+      [firstSentence.replace(/[.]$/, ""), rest],
+    ] as const) {
+      if (
+        !candidate ||
+        copyFault(candidate, COPY_LIMITS.headline, checks.ledger)
+      ) {
+        continue;
+      }
+      const trial = directions.map((d, i) => {
+        if (i !== later) return d;
+        const { subheadline: _old, ...others } = d;
+        return {
+          ...others,
+          headline: candidate,
+          ...(subheadline ? { subheadline } : {}),
+        };
+      });
+      const retried = closestPair(trial, existing, overlapOptions);
+      if (retried && !isNearDuplicate(retried.overlap)) {
+        directions[later] = trial[later];
+        finalPair = retried;
+        break;
+      }
+    }
+  }
+  worst = finalPair ?? worst;
+
   if (read.dropped.length > 0) {
     console.error("brief read: answers not held to the brief", read.dropped);
   }
