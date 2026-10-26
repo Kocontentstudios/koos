@@ -175,9 +175,7 @@ export function objectFreePrompt(
     .join(", ");
   const scene = buildBackgroundPlatePrompt({ ...spec, backgroundPrompt: mood });
   const where = setting ? ` in ${setting}` : "";
-  const what = product
-    ? `the place where the ${product.name} happens${where}`
-    : `a place that suits the brand${where}`;
+  const what = product ? `the ${product.name}${where}` : `the brand${where}`;
   const wrong = rejected
     ? rejected.people
       ? ". The last attempt painted a person, which is wrong"
@@ -186,8 +184,8 @@ export function objectFreePrompt(
         : ""
     : "";
   return [
-    `A quiet, close view of ${what}: bare walls, floor, window light, colour and texture only${wrong}`,
-    "Plain surfaces with nothing on them: no shopfronts, no wall art, no notices",
+    `A soft-focus, close-up photograph of light and texture that suits ${what}: one clean material or surface (wood grain, linen, plaster, stone, water, foliage or sky) in warm, well-kept condition${wrong}`,
+    "No room, no building, no furniture, no shopfront, no wall art and no notices",
     "No people, no faces and no hands",
     "No objects that carry writing: no paper, documents, books, screens, phones, laptops, signs, menus, packaging, labels, cash or wall posters",
     scene.replace(/^[.\s]+/, ""),

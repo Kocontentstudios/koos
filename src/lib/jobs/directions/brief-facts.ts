@@ -851,7 +851,8 @@ function phoneStated(variants: string[], copy: string): boolean {
 function meaningOf(text: string): string {
   return text
     .replace(/\b(\d+)\s*-?\s*(?:mins?|minutes?)\b/gi, "$1 minutes")
-    .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours");
+    .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours")
+    .replace(/\bpick[\s-]+up\b/gi, "pickup");
 }
 
 /** The copy a direction draws, as one string to look for facts in. */
@@ -1165,8 +1166,12 @@ export function withoutLooseRepeats<T extends FactCopy>(
        button already states is left out of the footer. */
     const factsAbove =
       itsFacts.length > 0 && itsFacts.every((f) => factStated(f, aboveCopy));
+    /* "S – L" under "sizes S to L": an item of letters too short to say
+       anything is a fragment of copy above. */
+    const saysNothing = mine.length === 0 && /\p{L}/u.test(item);
     const repeats =
       factsAbove ||
+      saysNothing ||
       (mine.length > 0 &&
         hard.every((h) => above.has(h)) &&
         wordsAbove * 2 >= words.length);

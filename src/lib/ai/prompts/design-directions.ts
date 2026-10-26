@@ -129,10 +129,18 @@ export function buildDirectionsPrompt(
     lensBlock(lenses),
     avoidBlock(existing),
     imageBlock(imageSource, imageAttached),
+    FINAL_CHECK,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
+
+/* Said last, where the model reads it just before answering: the words
+   that carried most of round 6's invented facts in the model's first
+   answer ("now", "only", "today", "limited", "₦0", and counts such as "two
+   remote roles" or "16 people" the brief never gave). */
+const FINAL_CHECK =
+  'Last check before you answer: in every field and reason, delete "now", "only", "fresh", "today", "limited", "new" (unless the brief says it), a "₦0" for "free" or "zero fees", and any count or number the brief does not give for that same thing ("two roles", "three origins", "16 people" when it says "16 places").';
 
 /** The second chance for a direction that came back as a copy of another. */
 export function buildRedraftPrompt(

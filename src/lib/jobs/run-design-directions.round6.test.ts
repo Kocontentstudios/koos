@@ -668,7 +668,9 @@ describe("round 6c: object-free scenes", () => {
     expect(m.textLed).toBe(0);
     expect(m.subjectKnown).toEqual([false, false]);
     for (const [input] of plateModel.generate.mock.calls) {
-      expect(input.prompt).toMatch(/^A quiet, close view of the place where/);
+      expect(input.prompt).toMatch(
+        /^A soft-focus, close-up photograph of light and texture that suits the /,
+      );
     }
   });
 });

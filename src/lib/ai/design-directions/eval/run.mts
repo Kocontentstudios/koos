@@ -88,9 +88,8 @@ const { chooseLayout, LAYOUT_CRAFT_FAILED, SUBJECT_FACE_ONLY } = await import(
 const { directionGateRules, documentRenderer, layoutJudge } = await import(
   "../../../jobs/directions/render"
 );
-const { correctionHolds, drawnCopyOf, settleReasons } = await import(
-  "../../../jobs/directions/finalize"
-);
+const { copyNamesOffering, correctionHolds, drawnCopyOf, settleReasons } =
+  await import("../../../jobs/directions/finalize");
 const { layoutCraftFaults } = await import("../../../jobs/directions/craft");
 const { placeholderIn } = await import("../../../jobs/directions/claims");
 const { guardRender } = await import("../../../jobs/design-gate");
@@ -769,10 +768,17 @@ for (const evalCase of cases) {
         /* A headline already the title draws nothing new, and the gate
            rightly refuses a correction that would only repeat the render
            (round-6 run: bakery-ko-1 scored as a rules failure). */
+        /* A rewrite that stops naming what the brief promotes is refused
+           too (correctionHolds, round 6): "Ofe kimono jacket" for a copy
+           that named the "Ofe linen kimono jacket". */
+        const offering = result.read.offering?.phrase ?? "";
         const rewriteShouldHold =
           r.title.length <= 70 &&
           first.headline !== r.title &&
-          !loses({ ...first, headline: r.title });
+          !loses({ ...first, headline: r.title }) &&
+          (!offering ||
+            !copyNamesOffering(first, offering) ||
+            copyNamesOffering({ ...first, headline: r.title }, offering));
         const rewriteKept = await rules.acceptCorrection(rewrite);
         let rewriteOverSubject = false;
         if (rewriteKept) {

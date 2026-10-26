@@ -568,3 +568,18 @@ describe("a price stated without the size it is for", () => {
     ).toBe(false);
   });
 });
+
+describe("footer repeats, round 6d", () => {
+  it("drops an item too short to say anything and one that reads 'pick up' as 'pickup'", () => {
+    const out = withoutLooseRepeats(
+      copy({
+        headline: "The Ofe kimono jacket",
+        subheadline: "Sizes S to L. Order ahead, pick up from Monday.",
+        footerLines: ["S – L · Order ahead for pickup"],
+        footerStyle: "text",
+      }),
+      [],
+    );
+    expect(out.footerLines).toEqual([]);
+  });
+});
