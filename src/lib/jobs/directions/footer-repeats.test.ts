@@ -278,3 +278,35 @@ describe("the second, targeted ask", () => {
     ]);
   });
 });
+
+describe("a headline merge", () => {
+  it("is refused while the direction has a subheadline", async () => {
+    const facts = settleBriefFacts(
+      [{ kind: "contact", text: "Call 0809 111 4462" }],
+      "Call 0809 111 4462.",
+      { region: "NG" },
+    ).facts;
+    const direction = {
+      headline: "Back by 7pm",
+      subheadline: "Same-day laundry.",
+      cta: "Call to book",
+      footerLines: ["Call 0809 111 4462"],
+      footerStyle: "text" as const,
+    };
+    const { directions, outcomes } = await settleMarkedRepeats(
+      [direction],
+      [
+        {
+          id: "0.0",
+          repeats: "the button",
+          field: "headline",
+          rewrite: "Back by 7pm. Call 0809 111 4462",
+        },
+      ],
+      facts,
+      async () => true,
+    );
+    expect(directions[0]).toEqual(direction);
+    expect(outcomes[0].kept).toMatch(/headline is not rewritten/);
+  });
+});

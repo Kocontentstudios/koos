@@ -614,7 +614,6 @@ export function isBare(text: string): boolean {
       /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/gi,
       " ",
     )
-    .replace(/\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b/gi, " ")
     .match(/\p{L}{2,}/gu);
   return !words && /\d/.test(text);
 }
@@ -1477,17 +1476,23 @@ export function withoutBareItems<T extends FactCopy>(
   };
   for (const item of items) {
     if (!isBare(item)) continue;
-    const fact = facts.find((f) => factStated(f, item));
+    const itsFacts = facts.filter((f) => factStated(f, item));
+    const fact = itsFacts[0];
     const without = replaceItem(current, item, null);
     if (fact && stated(without) === stated(current)) {
       current = without;
       continue;
     }
+    /* Every fact the item states, in the brief's words: an item read for
+       one of two facts lost the other (round-6 live run: the hours went
+       with "Tue – Sat"). */
     const words =
-      fact && !isBare(fact.text)
-        ? fact.kind === "contact"
-          ? fact.text
-          : capitalise(fact.text)
+      itsFacts.length > 0 && itsFacts.every((f) => !isBare(f.text))
+        ? itsFacts
+            .map((f, k) =>
+              f.kind === "contact" || k > 0 ? f.text : capitalise(f.text),
+            )
+            .join(", ")
         : null;
     if (words) {
       const trial = replaceItem(current, item, words);
@@ -1500,8 +1505,14 @@ export function withoutBareItems<T extends FactCopy>(
       }
       const sub = current.subheadline?.trim();
       const lead = sub ? `${sub.replace(/[\s.]+$/, "")}. ${words}.` : null;
-      if (lead && lead.length <= COPY_LIMITS.subheadline) {
-        current = { ...without, subheadline: lead };
+      const moved = lead ? { ...without, subheadline: lead } : null;
+      if (
+        moved &&
+        lead &&
+        lead.length <= COPY_LIMITS.subheadline &&
+        stated(moved) >= stated(current)
+      ) {
+        current = moved;
         continue;
       }
     }

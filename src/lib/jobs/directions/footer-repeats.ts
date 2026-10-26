@@ -255,6 +255,15 @@ export async function settleMarkedRepeats<T extends FactCopy>(
       outcomes.push({ ...outcome, kept: "a button stays an action" });
       continue;
     }
+    /* The headline carries a detail only when there is no subheadline to
+       take it (round-6 live run: a phone number ended a headline). */
+    if (mark.field === "headline" && out[outcome.direction].subheadline) {
+      outcomes.push({
+        ...outcome,
+        kept: "a headline is not rewritten while there is a subheadline",
+      });
+      continue;
+    }
     const field = mark.field;
     const current = out[outcome.direction];
     const from = current[field] ?? "";

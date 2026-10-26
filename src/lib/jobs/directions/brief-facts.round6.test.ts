@@ -5,6 +5,7 @@ import {
   drawnText,
   type FactCopy,
   factStated,
+  factsMissing,
   phoneRegions,
   type ReadFact,
   redundantFooterItems,
@@ -680,5 +681,24 @@ describe("withoutBareItems", () => {
       [fact],
     );
     expect(out.footerLines).toEqual(["Phone: 0809 111 4462"]);
+  });
+});
+
+describe("withoutBareItems keeps every fact an item carries", () => {
+  /* Round-6 live run, fashion: "Tue – Sat, 11am – 6pm" was read as bare
+     and replaced by its days alone; the hours were lost. */
+  it("leaves a days-and-hours item alone, and never loses a fact", () => {
+    const facts = settle("Fittings Tuesday to Saturday, 11am to 6pm.", [
+      { kind: "day", text: "Tuesday to Saturday" },
+      { kind: "time", text: "11am to 6pm" },
+    ]).facts;
+    const before = copy({
+      subheadline: "Sage silk, pearl buttons.",
+      footerLines: ["Tue – Sat, 11am – 6pm"],
+      footerStyle: "text",
+    });
+    const out = withoutBareItems(before, facts);
+    expect(out.footerLines).toEqual(["Tue – Sat, 11am – 6pm"]);
+    expect(factsMissing(facts, out)).toEqual([]);
   });
 });
