@@ -59,6 +59,7 @@ import {
   type FooterRewriter,
   hasSubheadlineRewrite,
   marksNeedingRewrite,
+  readsAsList,
   settleMarkedRepeats,
 } from "./footer-repeats";
 import { type HeadlineRewriter, rewriteHeadline } from "./headline-rewrite";
@@ -340,6 +341,8 @@ export function applyFits(
         ? reasonProblems(text, checks).length === 0
         : !copyFault(text, request.limit, checks.ledger) &&
           !looksCutOff(text) &&
+          !(field === "subheadline" && readsAsList(text)) &&
+          !(field === "cta" && !isAction(text)) &&
           (!mustName ||
             [...contentStems(offering)].every((stem) =>
               contentStems(text).has(stem),
@@ -490,6 +493,8 @@ export function applyClaimCheck(
     const holds =
       Boolean(text) &&
       !sibling &&
+      !(field === "subheadline" && readsAsList(text)) &&
+      !(field === "cta" && !isAction(text)) &&
       (field === "rationale"
         ? reasonProblems(text, checks).length === 0
         : !copyFault(text, limit, checks.ledger));

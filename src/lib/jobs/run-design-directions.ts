@@ -19,7 +19,6 @@ import {
   storedRationale,
 } from "@/lib/design/direction-rationale";
 import { measureImage } from "@/lib/design/document/image-facts";
-import { cleanCutoutBytes } from "@/lib/images/cutout-edge";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import {
   measureSubject,
@@ -32,6 +31,7 @@ import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { lookAtPhoto, type PhotoLook } from "@/lib/design/quality/plate-check";
 import type { DesignSpec } from "@/lib/design/spec";
+import { cleanCutoutBytes } from "@/lib/images/cutout-edge";
 import { STORAGE_PREFIXES, uploadObject } from "@/lib/storage";
 import { loadDesignImage } from "@/lib/uploads/design-image";
 import { mapWithConcurrency } from "./calendar-assembly";
@@ -674,7 +674,14 @@ export async function generateDirectionsWork(
           }),
       });
       layoutChoices[i] = choice;
-      if (i === 0) placeFirst(choice.place);
+      /* Where the first direction shows the photo, only when it will: a
+         first direction refused for its subject shows it nowhere, and its
+         sibling must not give the photo up on its account. */
+      const refusedForSubject =
+        choice.fault === SUBJECT_COVERED ||
+        choice.fault === LAYOUT_CRAFT_FAILED ||
+        choice.faults.some((f) => SUBJECT_FAULTS.includes(f));
+      if (i === 0) placeFirst(refusedForSubject ? null : choice.place);
       if (choice.plateLeftOff) {
         assets = imageless;
         images[i] = null;

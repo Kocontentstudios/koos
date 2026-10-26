@@ -900,3 +900,55 @@ describe("every marked footer item that carries a fact gets a merge attempt", ()
     expect(result.directions[0].footerLines).toEqual([]);
   });
 });
+
+/* Round 7: every subheadline a model rewrites is held to the list rule,
+   and every button rewrite must be an action. */
+describe("model rewrites held to the list and action rules", () => {
+  const checks = {
+    ledger: factLedger(["Almond croissants, ₦3,000 each, Saturdays from 7am."]),
+    briefText: "Almond croissants, ₦3,000 each, Saturdays from 7am.",
+    title: "Croissants",
+  };
+  const draft = draftOf({ subheadline: "x".repeat(150), cta: "Free coffee" });
+
+  it("refuses a fit that makes the subheadline a list or the button a label", () => {
+    const requests = fitRequests([draft], checks);
+    const out = applyFits(
+      [draft],
+      requests,
+      [
+        {
+          id: "0.subheadline",
+          text: "Almond croissants. ₦3,000 each. Saturdays from 7am.",
+        },
+        { id: "0.cta", text: "Croissants on Saturday" },
+      ],
+      checks,
+    );
+    expect(out.fixed).toBe(0);
+    const kept = applyFits(
+      [draft],
+      requests,
+      [
+        {
+          id: "0.subheadline",
+          text: "Almond croissants at ₦3,000 each, Saturdays from 7am.",
+        },
+        { id: "0.cta", text: "Order for Saturday" },
+      ],
+      checks,
+    );
+    expect(kept.fixed).toBe(2);
+  });
+
+  it("asks the fit pass for an action on a label button", () => {
+    expect(fitRequests([draft], checks)).toContainEqual(
+      expect.objectContaining({
+        id: "0.cta",
+        problems: expect.arrayContaining([
+          expect.stringMatching(/a button is an action/),
+        ]),
+      }),
+    );
+  });
+});

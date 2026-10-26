@@ -669,7 +669,16 @@ for (const evalCase of cases) {
         );
       }
       taken.push(choice.spec.layout);
-      if (i === 0) firstPlace = choice.place;
+      if (i === 0) {
+        firstPlace =
+          choice.fault === SUBJECT_COVERED ||
+          choice.fault === LAYOUT_CRAFT_FAILED ||
+          choice.faults.some(
+            (f) => f === SUBJECT_CROPPED || f === SUBJECT_FACE_ONLY,
+          )
+            ? null
+            : choice.place;
+      }
       const base = {
         caseId: evalCase.id,
         index: i,
