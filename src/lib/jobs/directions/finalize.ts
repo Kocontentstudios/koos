@@ -487,10 +487,17 @@ export function settleReasons(
   /* Topped up in order of how much each says about this brief. The copy
      quotes come last and cannot run out, so a direction always shows two
      (round-2 critic: every candidate before them could be refused). */
+  /* A quote of the copy can still read as a claim the copy does not back
+     ("The headline reads "Send money. Zero fees."" was scored as saying a
+     price is shown, round-6 eval): quotes are held to the same rule, and
+     the two floors that claim nothing come last. */
   const topUps = [
     ...factualReasons(settings),
     ...(settings.drawn ? documentReasons(settings.drawn) : []),
-    ...copyReasons(settings.copy),
+    ...copyReasons(settings.copy).filter(
+      (reason) => COPY_FLOORS.includes(reason) || holdsFor(settings, reason).ok,
+    ),
+    ...COPY_FLOORS,
   ];
   /* A top-up that only repeats the price or time a kept reason already
      gives says nothing new (round-4 live run: two reasons, both the

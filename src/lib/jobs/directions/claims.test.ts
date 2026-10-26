@@ -891,3 +891,15 @@ describe("round-4 eval false positives and misses", () => {
     ).toBe("single-origin espresso flight");
   });
 });
+
+/* Round-6 eval, fintech-ko: "The stat treatment puts the one-month duration
+   as the dominant read" was delivered; it describes a layout. */
+describe("spatialClaim, round 6", () => {
+  it("catches a treatment or a dominant read", () => {
+    expect(
+      spatialClaim(
+        "The stat treatment puts the one-month duration as the dominant read.",
+      ),
+    ).not.toBeNull();
+  });
+});

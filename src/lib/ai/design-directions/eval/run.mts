@@ -835,9 +835,13 @@ for (const evalCase of cases) {
         copy,
         checks: result.checks,
         product: direction.productName,
+        /* A texture backdrop shows no offering, so nothing may be said of
+           it, as in the job ("scene" is unverified there too). */
         image: image
           ? evalCase.imageSource === "ko"
-            ? "verified"
+            ? image.scene
+              ? "unverified"
+              : "verified"
             : "seen"
           : "none",
         paintedScene:

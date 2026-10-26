@@ -823,38 +823,48 @@ export async function draftDirections({
   if (finalPair && isNearDuplicate(finalPair.overlap)) {
     const later = finalPair.later;
     const offering = read.offering?.phrase ?? "";
-    /* The subheadline's first sentence moves up, the rest stays below. */
-    const sub = directions[later].subheadline ?? "";
-    const firstSentence = /^[^.!?]+[.!?]/.exec(sub)?.[0].trim() ?? "";
-    const rest = sub.slice(firstSentence.length).trim();
-    for (const [candidate, subheadline] of [
-      [checks.title, sub],
-      [
-        offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
-        sub,
-      ],
-      [firstSentence.replace(/[.]$/, ""), rest],
-    ] as const) {
-      if (
-        !candidate ||
-        copyFault(candidate, COPY_LIMITS.headline, checks.ledger)
-      ) {
-        continue;
-      }
-      const trial = directions.map((d, i) => {
-        if (i !== later) return d;
-        const { subheadline: _old, ...others } = d;
-        return {
-          ...others,
-          headline: candidate,
-          ...(subheadline ? { subheadline } : {}),
-        };
-      });
-      const retried = closestPair(trial, existing, overlapOptions);
-      if (retried && !isNearDuplicate(retried.overlap)) {
-        directions[later] = trial[later];
-        finalPair = retried;
-        break;
+    /* The later direction first; in a fresh pair the earlier one too, when
+       only it can move (round-6 eval: "Latte Art Masterclass" beside
+       "Learn Latte Art", both naming the event as they must). */
+    const movable =
+      existing.length === 0 && directions.length === 2
+        ? [later, 1 - later]
+        : [later];
+    search: for (const target of movable) {
+      /* The subheadline's first sentence moves up, the rest stays below;
+         a subheadline of one sentence moves up whole. */
+      const sub = directions[target].subheadline ?? "";
+      const firstSentence = /^[^.!?]+[.!?]/.exec(sub)?.[0].trim() ?? sub.trim();
+      const rest = sub.slice(firstSentence.length).trim();
+      for (const [candidate, subheadline] of [
+        [checks.title, sub],
+        [
+          offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
+          sub,
+        ],
+        [firstSentence.replace(/[.]$/, ""), rest],
+      ] as const) {
+        if (
+          !candidate ||
+          copyFault(candidate, COPY_LIMITS.headline, checks.ledger)
+        ) {
+          continue;
+        }
+        const trial = directions.map((d, i) => {
+          if (i !== target) return d;
+          const { subheadline: _old, ...others } = d;
+          return {
+            ...others,
+            headline: candidate,
+            ...(subheadline ? { subheadline } : {}),
+          };
+        });
+        const retried = closestPair(trial, existing, overlapOptions);
+        if (retried && !isNearDuplicate(retried.overlap)) {
+          directions[target] = trial[target];
+          finalPair = retried;
+          break search;
+        }
       }
     }
   }

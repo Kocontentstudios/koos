@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { settleBriefFacts } from "./brief-facts";
-import { factLedger, looksCutOff } from "./claims";
+import { factLedger, looksCutOff, reasonHolds } from "./claims";
 import {
   clampAtClause,
   copyFault,
@@ -710,5 +710,43 @@ describe("correctionHolds and correctionCheck, round 6", () => {
         headline: "Livraison gratuite à Lekki",
       }),
     ).toBe(false);
+  });
+});
+
+/* Round-6 eval, fintech-ko: two quote top-ups were delivered that the
+   reason check reads as claiming a price is shown. */
+describe("settleReasons top-ups hold too", () => {
+  it("never tops up with a quote the reason check refuses", () => {
+    const checks = {
+      ledger: factLedger([
+        "Send money to 20 African countries with zero transfer fees for your first month.",
+      ]),
+      briefText:
+        "Send money to 20 African countries with zero transfer fees for your first month.",
+      title: "",
+    };
+    const copy = {
+      headline: "Send money. Zero fees.",
+      cta: "Download the app",
+      footerLines: [],
+    };
+    const { reasons } = settleReasons([], {
+      copy,
+      checks,
+      product: "",
+      image: "none",
+    });
+    expect(reasons).toHaveLength(2);
+    for (const reason of reasons) {
+      expect(
+        reasonHolds(reason, {
+          copy,
+          ledger: checks.ledger,
+          briefText: checks.briefText,
+          product: "",
+          image: "pending",
+        }).ok,
+      ).toBe(true);
+    }
   });
 });

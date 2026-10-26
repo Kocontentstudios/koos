@@ -702,3 +702,29 @@ describe("buttons kept apart", () => {
     expect(result.overlap?.copy ?? 1).toBeLessThan(0.45);
   });
 });
+
+describe("headlines kept apart, either direction", () => {
+  /* Round-6 eval, masterclass-ko: "Latte Art Masterclass" beside "Learn
+     Latte Art"; only the earlier direction could move. */
+  it("moves the earlier direction's headline when the later cannot move", async () => {
+    const first = draftOf({
+      headline: "Almond croissant mornings",
+      subheadline: "Pickup from 7am in Lekki",
+    });
+    const twin = contrastingDraft({
+      headline: "Almond croissant weekends",
+      subheadline: undefined,
+    });
+    generateObject.mockResolvedValue(answer(first, twin));
+    const result = await draftDirections(
+      input({
+        context: directionsContext({
+          title: "Almond croissant weekends",
+          briefText:
+            "Promote our almond croissant mornings and weekends. Pickup from 7am in Lekki.",
+        }),
+      }),
+    );
+    expect(result.overlap?.headline ?? 1).toBeLessThan(0.5);
+  });
+});

@@ -674,7 +674,7 @@ const TYPE =
    uncluttered layout", "Generous spacing", "Symmetry", "Gradient wash"
    (round-3 code critic). */
 const COMPOSITION =
-  "layouts?|spacing|spaced|composition|composed|uncluttered|clutter(?:ed|ing|s)?|minimal(?:ist)?|symmetr\\w*|balanced|gradients?|textures?|textured|airy|breathes?|breathing|pops?|eyes?|gaze|glance|scan(?:s|ned|ning)?|reading order|hierarch\\w*";
+  "layouts?|spacing|spaced|composition|composed|uncluttered|clutter(?:ed|ing|s)?|minimal(?:ist)?|symmetr\\w*|balanced|gradients?|textures?|textured|airy|breathes?|breathing|pops?|eyes?|gaze|glance|scan(?:s|ned|ning)?|reading order|hierarch\\w*|dominant|dominates?|treatment|first read|dominant read";
 const SPATIAL = new RegExp(
   `\\b(${[PLACE_AND_SIZE, LIGHT, COLOUR, TYPE, COMPOSITION].join("|")})\\b|\\d+\\s?%|\\b(white|negative|empty) space\\b|\\bnext to\\b|\\bup ?front\\b|\\bprominent(ly)?\\b|\\b(dark|light|pale|cream|white|black) ground\\b|\\broom to breathe\\b`,
   "gi",
