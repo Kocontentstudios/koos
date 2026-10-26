@@ -4,7 +4,7 @@ import {
   type SubjectBox,
 } from "@/lib/design/document/subject";
 import type { DesignSpec } from "@/lib/design/spec";
-import type { CraftFaults } from "./craft";
+import { type CraftFaults, IMAGE_AGAINST_EDGE } from "./craft";
 import { layoutCandidates } from "./layouts";
 
 /** Only a person's head and shoulders could be kept clear: the copy is on
@@ -115,6 +115,11 @@ function rank(
   if (verdict.subjectFault === SUBJECT_CROPPED || verdict.subjectFault) {
     return 4 + soft;
   }
+  /* A photo flush against its card's edge reads as a mistake where a
+     headline that does not lead reads as a choice (round-6 eval, run b:
+     textile quote-card, every inset cropping), so any other layout with a
+     whole subject is taken first. */
+  if (verdict.craft.soft === IMAGE_AGAINST_EDGE) return 3;
   return soft * 2;
 }
 

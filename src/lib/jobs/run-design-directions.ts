@@ -926,6 +926,7 @@ export async function generateDirectionsWork(
       correctionsKept: correctionsKept.length,
       layoutsForced: brief.layoutsForced,
       redrafted: brief.redrafted,
+      headlineRewritten: brief.headlineRewritten,
       modelCalls: brief.modelCalls,
       /* Round-2 outcomes: how often the model had to be asked to rewrite,
          what still fell back, how many reasons were not true of the

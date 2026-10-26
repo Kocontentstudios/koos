@@ -57,6 +57,7 @@ import {
   marksNeedingRewrite,
   settleMarkedRepeats,
 } from "./footer-repeats";
+import { type HeadlineRewriter, rewriteHeadline } from "./headline-rewrite";
 import { forceDistinctLayouts } from "./layouts";
 import { repairDirectionsFor, repairFitText } from "./repair";
 import {
@@ -105,6 +106,9 @@ export interface DraftDirectionsInput {
   footerRepeatChecker?: FooterRepeatChecker;
   /** Writes a rewrite for marked items the first answer left without one. */
   footerRewriter?: FooterRewriter;
+  /** New headlines on another idea, for a pair nothing on the page can
+   *  separate (headline-rewrite.ts). */
+  headlineRewriter?: HeadlineRewriter;
 }
 
 /** What the claim check found and what became of it. */
@@ -136,6 +140,8 @@ export interface DraftDirectionsResult {
   imageSeen: boolean;
   /** Directions whose layout the forcing rule changed. */
   layoutsForced: number;
+  /** A pair nothing on the page could separate got a new headline. */
+  headlineRewritten: boolean;
   /** A near-duplicate was found and one direction was written again. */
   redrafted: boolean;
   /** The closest pair after any redraft, new against new and new against
@@ -571,6 +577,7 @@ export async function draftDirections({
   briefReader = readBriefWithModel,
   footerRepeatChecker = checkFooterRepeats,
   footerRewriter = askFooterRewrites,
+  headlineRewriter = rewriteHeadline,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
   const showImage =
@@ -580,12 +587,15 @@ export async function draftDirections({
     recentLayouts,
   });
   const checks: DirectionChecks = {
-    ledger: factLedger([
-      context.briefText,
-      context.title,
-      ...brandFacts(context.brandSummary),
-      memorySummary,
-    ]),
+    ledger: factLedger(
+      [
+        context.briefText,
+        context.title,
+        ...brandFacts(context.brandSummary),
+        memorySummary,
+      ],
+      2,
+    ),
     briefText: context.briefText ?? "",
     title: context.title ?? "",
     audience: context.brandSummary.targetAudience,
@@ -828,6 +838,8 @@ export async function draftDirections({
      (round-6 eval: "Three shots. One flight." twice, and "Senior React
      engineers" beside "We're Hiring Senior React Engineers"). */
   let finalPair = closestPair(directions, existing, overlapOptions);
+  let headlineRewritten = false;
+  const headlinesBefore = directions.map((d) => d.headline);
   if (finalPair && isNearDuplicate(finalPair.overlap)) {
     const later = finalPair.later;
     const offering = read.offering?.phrase ?? "";
@@ -838,40 +850,108 @@ export async function draftDirections({
       existing.length === 0 && directions.length === 2
         ? [later, 1 - later]
         : [later];
+    const withHeadline = (target: number, headline: string, sub: string) =>
+      directions.map((d, i) => {
+        if (i !== target) return d;
+        const { subheadline: _old, ...others } = d;
+        return { ...others, headline, ...(sub ? { subheadline: sub } : {}) };
+      });
+    const separates = (trial: typeof directions) => {
+      const retried = closestPair(trial, existing, overlapOptions);
+      return retried && !isNearDuplicate(retried.overlap) ? retried : null;
+    };
+    const fitsHeadline = (candidate: string) =>
+      Boolean(candidate) &&
+      !copyFault(candidate, COPY_LIMITS.headline, checks.ledger);
     search: for (const target of movable) {
-      /* The subheadline's first sentence moves up, the rest stays below;
-         a subheadline of one sentence moves up whole. */
       const sub = directions[target].subheadline ?? "";
-      const firstSentence = /^[^.!?]+[.!?]/.exec(sub)?.[0].trim() ?? sub.trim();
-      const rest = sub.slice(firstSentence.length).trim();
-      for (const [candidate, subheadline] of [
-        [checks.title, sub],
-        [
-          offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
-          sub,
-        ],
-        [firstSentence.replace(/[.]$/, ""), rest],
-      ] as const) {
-        if (
-          !candidate ||
-          copyFault(candidate, COPY_LIMITS.headline, checks.ledger)
-        ) {
-          continue;
-        }
-        const trial = directions.map((d, i) => {
-          if (i !== target) return d;
-          const { subheadline: _old, ...others } = d;
-          return {
-            ...others,
-            headline: candidate,
-            ...(subheadline ? { subheadline } : {}),
-          };
-        });
-        const retried = closestPair(trial, existing, overlapOptions);
-        if (retried && !isNearDuplicate(retried.overlap)) {
+      /* The brief's own words first: its title, its name for the offering. */
+      for (const candidate of [
+        checks.title,
+        offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
+      ]) {
+        if (!fitsHeadline(candidate)) continue;
+        const trial = withHeadline(target, candidate, sub);
+        const retried = separates(trial);
+        if (retried) {
           directions[target] = trial[target];
           finalPair = retried;
           break search;
+        }
+      }
+      /* Then a different idea, written for it and held to every rule a
+         headline is: a promoted sentence keeps the words the pair shares
+         and reads as copy moved up, not a headline (round-6 eval). */
+      const others = [
+        ...existing,
+        ...directions.filter((_, i) => i !== target),
+      ].map((d) => d.headline);
+      const otherStems = contentStems(others.join(" "), ignore);
+      const avoid = (
+        directions[target].headline.match(/[\p{L}\p{N}'-]+/gu) ?? []
+      ).filter((word) =>
+        [...contentStems(word, ignore)].some((stem) => otherStems.has(stem)),
+      );
+      modelCalls += 1;
+      const written =
+        (await headlineRewriter({
+          headline: directions[target].headline,
+          subheadline: sub || undefined,
+          cta: directions[target].cta,
+          others,
+          avoid,
+          briefText: checks.briefText,
+          title: checks.title,
+        })) ?? [];
+      const apart = written.filter(
+        (candidate) =>
+          fitsHeadline(candidate) &&
+          separates(withHeadline(target, candidate, sub)),
+      );
+      if (apart.length > 0) {
+        modelCalls += 1;
+        const flagged = await claimChecker({
+          fields: apart.map((text, i) => ({
+            id: `${target}.headline.${i}`,
+            field: "headline",
+            text,
+            limit: COPY_LIMITS.headline,
+          })),
+          briefText: checks.briefText,
+          title: checks.title,
+          brand: context.brandSummary,
+        });
+        /* Unchecked copy is not delivered in place of checked copy. */
+        const held =
+          flagged === null
+            ? undefined
+            : apart.find(
+                (_, i) =>
+                  !flagged.some((f) => f.id === `${target}.headline.${i}`),
+              );
+        if (held) {
+          const trial = withHeadline(target, held, sub);
+          directions[target] = trial[target];
+          finalPair = separates(trial) ?? finalPair;
+          headlineRewritten = true;
+          break;
+        }
+      }
+      /* Last, the subheadline's first sentence moves up, the rest stays
+         below, when it fits a headline and the pair then reads apart. */
+      const firstSentence = /^[^.!?]+[.!?]/.exec(sub)?.[0].trim() ?? sub.trim();
+      const promoted = firstSentence.replace(/[.]$/, "");
+      if (fitsHeadline(promoted)) {
+        const trial = withHeadline(
+          target,
+          promoted,
+          sub.slice(firstSentence.length).trim(),
+        );
+        const retried = separates(trial);
+        if (retried) {
+          directions[target] = trial[target];
+          finalPair = retried;
+          break;
         }
       }
     }
@@ -980,11 +1060,17 @@ export async function draftDirections({
     title: checks.title,
     brand: context.brandSummary,
   });
+  const nearDuplicateSet = (set: typeof coveredFooters) => {
+    const pair = closestPair(set, existing, overlapOptions);
+    return pair !== null && isNearDuplicate(pair.overlap);
+  };
+  const apartBeforeMerges = !nearDuplicateSet(coveredFooters);
   const repeatDrops = await settleMarkedRepeats(
     coveredFooters,
     repeatMarks ?? [],
     coverFacts,
     mergeHolds,
+    (merged) => !apartBeforeMerges || !nearDuplicateSet(merged),
   );
   /* Never a lone "10am" in a footer (withoutBareItems). */
   const drawnIn = repeatDrops.directions.map((d) =>
@@ -994,6 +1080,7 @@ export async function draftDirections({
      settled against the old footer ("the footer carries the date") is held
      again to the new one (round-5 eval: two such reasons). */
   const covered = drawnIn.map((d, i) =>
+    d.headline === headlinesBefore[i] &&
     d.footerLines.join("|") === offeringNamed[i].footerLines.join("|") &&
     d.subheadline === offeringNamed[i].subheadline &&
     d.headline === offeringNamed[i].headline &&
@@ -1032,6 +1119,7 @@ export async function draftDirections({
     imageSeen,
     layoutsForced,
     redrafted,
+    headlineRewritten,
     overlap: worst?.overlap ?? null,
     modelCalls,
     productSources: products.map((p) => p.from),

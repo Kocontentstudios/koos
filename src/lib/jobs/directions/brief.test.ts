@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { HeadlineRewriteInput } from "./headline-rewrite";
 
 const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
@@ -51,6 +52,7 @@ function input(over: Record<string, unknown> = {}) {
     briefReader,
     footerRepeatChecker,
     footerRewriter: async () => [],
+    headlineRewriter: async () => [],
     ...over,
   };
 }
@@ -208,7 +210,9 @@ describe("draftDirections", () => {
       .mockResolvedValueOnce(answer(twin));
     const result = await draftDirections(input());
     expect(result.redrafted).toBe(false);
-    expect(result.modelCalls).toBe(4);
+    /* Draft, redraft, reader, claim check, and a headline rewrite asked for
+       each of the twins, which nothing on the page could separate. */
+    expect(result.modelCalls).toBe(6);
     expect(result.directions[1].title).toBe("Morning bake");
   });
 
@@ -671,6 +675,79 @@ describe("headlines kept apart after the claim check", () => {
     );
     expect(result.directions[1].headline).toBe("Early starts in Lekki");
     expect(result.directions[1].subheadline).toBe("Apply on WhatsApp.");
+  });
+});
+
+/* Round-6 eval, bakery-upload: "Strawberry Mille-Feuille" beside "Order
+   your strawberry mille-feuille from 7am."; the title, the offering and the
+   subheadline all named the pastry, so nothing on the page moved them. */
+describe("headlines kept apart by a different idea", () => {
+  const bakery = directionsContext({
+    title: "Strawberry mille-feuille launch",
+    briefText:
+      "Launch our strawberry mille-feuille, ₦4,500 a slice, from Monday. Pickup from 7am.",
+  });
+  const pair = () => [
+    draftOf({
+      headline: "Strawberry Mille-Feuille",
+      subheadline: "Flaky pastry and cream. ₦4,500 a slice.",
+    }),
+    contrastingDraft({
+      headline: "Order your strawberry mille-feuille from 7am.",
+      subheadline: "Order our strawberry mille-feuille ahead. ₦4,500 a slice.",
+    }),
+  ];
+
+  it("rewrites one headline to an idea the pair does not share", async () => {
+    generateObject.mockResolvedValue(answer(...pair()));
+    const headlineRewriter = vi.fn(async (_input: HeadlineRewriteInput) => [
+      "Order our strawberry mille-feuille",
+      "Your 7am pickup stop",
+    ]);
+    const result = await draftDirections(
+      input({ context: bakery, headlineRewriter }),
+    );
+    expect(headlineRewriter).toHaveBeenCalledTimes(1);
+    expect(headlineRewriter.mock.calls[0][0]).toMatchObject({
+      headline: "Order your strawberry mille-feuille from 7am.",
+      others: ["Strawberry Mille-Feuille"],
+      avoid: expect.arrayContaining(["strawberry"]),
+    });
+    expect(result.directions[1].headline).toBe("Your 7am pickup stop");
+    expect(result.directions[1].subheadline).toBe(
+      "Order our strawberry mille-feuille ahead. ₦4,500 a slice.",
+    );
+    expect(result.headlineRewritten).toBe(true);
+    expect(result.overlap?.headline ?? 1).toBeLessThan(0.5);
+  });
+
+  it("never delivers a rewrite the claim check flags", async () => {
+    generateObject.mockResolvedValue(answer(...pair()));
+    const flagging = vi.fn(async (input: { fields: { id: string }[] }) =>
+      input.fields
+        .filter((f) => f.id.includes(".headline."))
+        .map((f) => ({ id: f.id, statement: "warm", rewrite: "" })),
+    );
+    const result = await draftDirections(
+      input({
+        context: bakery,
+        claimChecker: flagging,
+        headlineRewriter: async () => ["Still warm at 7am"],
+      }),
+    );
+    expect(result.directions.map((d) => d.headline)).not.toContain(
+      "Still warm at 7am",
+    );
+    expect(result.headlineRewritten).toBe(false);
+  });
+
+  it("never promotes a sentence that leaves the pair near-duplicates", async () => {
+    generateObject.mockResolvedValue(answer(...pair()));
+    const result = await draftDirections(input({ context: bakery }));
+    for (const d of result.directions) {
+      expect(d.headline).not.toBe("Order our strawberry mille-feuille ahead");
+    }
+    expect(result.headlineRewritten).toBe(false);
   });
 });
 

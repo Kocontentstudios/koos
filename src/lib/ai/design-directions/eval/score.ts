@@ -92,6 +92,7 @@ export interface DirectionsCaseScore {
   finalNearDuplicate: boolean;
   distinctness: number;
   redrafted: boolean;
+  headlineRewritten: boolean;
   modelCalls: number;
   fitAsked: number;
   fitFixed: number;
@@ -171,6 +172,7 @@ export function scoreDirectionsCase(
     directions: DirectionSpec[];
     drafts: DirectionDraft[];
     redrafted: boolean;
+    headlineRewritten?: boolean;
     modelCalls: number;
     fit?: { asked: number; fixed: number };
   },
@@ -293,6 +295,7 @@ export function scoreDirectionsCase(
     finalNearDuplicate: finalOverlap ? isNearDuplicate(finalOverlap) : true,
     distinctness: finalOverlap ? distinctness(finalOverlap) : 0,
     redrafted: result.redrafted,
+    headlineRewritten: result.headlineRewritten ?? false,
     modelCalls: result.modelCalls,
     fitAsked: result.fit?.asked ?? 0,
     fitFixed: result.fit?.fixed ?? 0,

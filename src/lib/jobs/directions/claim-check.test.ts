@@ -42,6 +42,19 @@ describe("checkClaims", () => {
     expect(prompt).toMatch(/not written in English/);
   });
 
+  /* Round-6 eval, run a: the judge flagged "hand-woven" on a brief that says
+     "woven by one artisan", "Build Africa's Payments Future" on a launch
+     brief, and "architect Ada Obi on Building for Heat" on a brief that
+     names the panel. */
+  it("names near-synonym method claims, added scale and added roles or topics", () => {
+    const prompt = buildClaimCheckPrompt(input);
+    expect(prompt).toMatch(/"woven by hand" for "woven by one artisan"/);
+    expect(prompt).toMatch(/a near-synonym is a different claim/);
+    expect(prompt).toMatch(/scale, reach or ambition/);
+    expect(prompt).toMatch(/"Africa's payments future"/);
+    expect(prompt).toMatch(/role, title or topic added to a person/);
+  });
+
   it("returns what it flags, for fields it was asked about only", async () => {
     generateObject.mockResolvedValue({
       object: {

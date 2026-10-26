@@ -43,7 +43,10 @@ describe("inventedFacts", () => {
 
   it("accepts the brief's own count, price, time and day in any spelling", () => {
     expect(inventedFacts("12 new throws and cushions", textile)).toEqual([]);
-    expect(inventedFacts("Twelve handwoven throws", textile)).toEqual([]);
+    /* Round 6: "woven by one artisan" does not say by hand. */
+    expect(inventedFacts("Twelve handwoven throws", textile)).toEqual([
+      "handwoven",
+    ]);
     expect(inventedFacts("₦4,500 a slice from Monday", bakery)).toEqual([]);
     expect(inventedFacts("N4,500. Ready at 7am", bakery)).toEqual([]);
     expect(inventedFacts("₦4.5k, pick up 7 AM", bakery)).toEqual([]);
@@ -901,5 +904,38 @@ describe("spatialClaim, round 6", () => {
         "The stat treatment puts the one-month duration as the dominant read.",
       ),
     ).not.toBeNull();
+  });
+});
+
+/* Round-6 eval, run a: method and origin claims the brief does not make,
+   licensed before by the brand profile's own "handwoven". */
+describe("method, origin and material are the brief's alone", () => {
+  const withProfile = factLedger(
+    [TEXTILE_BRIEF, "", "Handwoven aso-oke textiles for modern homes."],
+    2,
+  );
+
+  it("refuses 'woven by hand' and 'hand-woven' the brief does not state", () => {
+    expect(
+      inventedFacts("Each one woven by hand in Iseyin", withProfile),
+    ).toEqual(["by hand"]);
+    expect(inventedFacts("Hand-woven in Iseyin", withProfile)).toEqual([
+      "Hand-woven",
+    ]);
+  });
+
+  it("keeps what the brief does say", () => {
+    expect(
+      inventedFacts("Each woven by one artisan in Iseyin", withProfile),
+    ).toEqual([]);
+    const handBrief = factLedger(["Our hand-dyed adire, ₦20,000."], 1);
+    expect(inventedFacts("Hand-dyed adire", handBrief)).toEqual([]);
+  });
+
+  it("refuses an origin or material claim the brief does not make", () => {
+    expect(inventedFacts("Locally sourced fibres", withProfile)).toEqual([
+      "Locally sourced",
+    ]);
+    expect(inventedFacts("Pure natural cotton", withProfile)).toEqual(["Pure"]);
   });
 });

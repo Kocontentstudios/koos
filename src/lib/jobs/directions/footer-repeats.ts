@@ -68,7 +68,7 @@ export function buildFooterRepeatPrompt(
   );
   return [
     "You edit social media designs. For each direction below, mark every footer item that repeats, in any words, something the same direction's headline, subheadline or button already says: the same date, time, place, price, count, offer or instruction, abbreviated or reworded ('12–14 December' and 'Friday 12 December · Sunday 14 December', 'Register Free' and 'Free registration', a phone number under a 'WhatsApp to book' button). Do not mark an item about something not said above it at all.",
-    "When a marked item adds a detail to what is above (the weekdays of a date range, the number for a 'WhatsApp to book' button), also give \"field\": the subheadline, or the headline when there is no subheadline, and \"rewrite\": that whole field written again with the detail in, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140). Never rewrite the button: it stays an action ('WhatsApp to book'). Otherwise leave field and rewrite empty.",
+    'When a marked item adds a detail to what is above (the weekdays of a date range, the number for a \'WhatsApp to book\' button), also give "field": "subheadline", and "rewrite": the subheadline written again with the detail in (a short new subheadline carrying it when there is none), using only words and facts from the subheadline and the item, within 140 characters, as one or two sentences, not a list. Never rewrite the headline or the button: the headline stays the idea, the button stays an action: it stays an action (\'WhatsApp to book\'). Otherwise leave field and rewrite empty.',
     blocks.join("\n\n"),
     'Return "repeats": one entry per marked item with its id ("0.1"), in a few words what above it the item repeats, and field and rewrite as above. An empty list when nothing repeats.',
   ].join("\n\n");
@@ -204,6 +204,14 @@ export function dropMarkedRepeats<T extends FactCopy>(
    the button in place of the ask). */
 const LIMITS = { headline: 70, subheadline: 140 } as const;
 
+/* Round-6 eval, event slot 1: three merges made a 130-character
+   subheadline of three clauses, a footer read aloud in the wrong place. */
+const CLAUSE_BREAK = /[.!?](?:\s+|$)|\s+·\s+|\s+[—–]\s+|;\s*/;
+
+export function readsAsList(text: string): boolean {
+  return text.split(CLAUSE_BREAK).filter((part) => part.trim()).length > 2;
+}
+
 function withoutItem<T extends FactCopy>(copy: T, item: string): T {
   const footerLines = copy.footerLines
     .map((line) =>
@@ -235,6 +243,8 @@ export async function settleMarkedRepeats<T extends FactCopy>(
   marks: readonly FooterRepeatMark[],
   facts: readonly BriefFact[],
   holds: (before: T, after: T) => Promise<boolean>,
+  /** False when the merged set leaves two directions near-duplicates. */
+  keepsApart: (directions: T[]) => boolean = () => true,
 ): Promise<{ directions: T[]; outcomes: FooterRepeatOutcome[] }> {
   const dropped = dropMarkedRepeats(directions, marks, facts);
   const out = [...dropped.directions];
@@ -255,13 +265,12 @@ export async function settleMarkedRepeats<T extends FactCopy>(
       outcomes.push({ ...outcome, kept: "a button stays an action" });
       continue;
     }
-    /* The headline carries a detail only when there is no subheadline to
-       take it (round-6 live run: a phone number ended a headline). */
-    if (mark.field === "headline" && out[outcome.direction].subheadline) {
-      outcomes.push({
-        ...outcome,
-        kept: "a headline is not rewritten while there is a subheadline",
-      });
+    /* The headline is the idea, never a carrier for footer details (round-6
+       live run: a phone number ended a headline; round-6 eval: a merged
+       "Order your strawberry mille-feuille from 7am." became its sibling's
+       headline again). */
+    if (mark.field === "headline") {
+      outcomes.push({ ...outcome, kept: "a headline is never rewritten" });
       continue;
     }
     const field = mark.field;
@@ -271,6 +280,20 @@ export async function settleMarkedRepeats<T extends FactCopy>(
     const stated = (copy: T) => facts.filter((f) => factStated(f, copy)).length;
     const trial = { ...withoutItem(current, outcome.item), [field]: to } as T;
     const fits = to.length > 0 && to.length <= LIMITS[field] && to !== from;
+    if (fits && readsAsList(to)) {
+      outcomes.push({ ...outcome, kept: "the merged field reads as a list" });
+      continue;
+    }
+    if (
+      fits &&
+      !keepsApart(out.map((d, i) => (i === outcome.direction ? trial : d)))
+    ) {
+      outcomes.push({
+        ...outcome,
+        kept: "the merged field would leave two directions near-duplicates",
+      });
+      continue;
+    }
     const merges =
       fits &&
       stated(trial) === stated(current) &&
@@ -313,7 +336,7 @@ export function buildFooterRewritePrompt(
   items: readonly { id: string; item: string }[],
 ): string {
   return [
-    "You edit social media designs. Each footer item below repeats something its direction already says above, but carries a detail the copy above does not (a weekday, a phone number, an address). For each, write the direction's subheadline again (or its headline when it has no subheadline) so it carries that detail too: the whole field, using only words and facts from the field and the item, within its limit (headline 70 characters, subheadline 140). Never touch the button.",
+    "You edit social media designs. Each footer item below repeats something its direction already says above, but carries a detail the copy above does not (a weekday, a phone number, an address). For each, write the direction's subheadline again (a short new one when it has none) so it carries that detail too: the whole subheadline, using only words and facts from it and the item, within 140 characters, as one or two sentences, not a list. Never touch the headline or the button.",
     ...items.map(({ id, item }) => {
       const d = directions[Number(id.split(".")[0])];
       return [
@@ -325,7 +348,7 @@ export function buildFooterRewritePrompt(
         .filter(Boolean)
         .join("\n");
     }),
-    'Return "rewrites": one entry per item with its id, "field" ("subheadline" or "headline") and "rewrite".',
+    'Return "rewrites": one entry per item with its id, "field" ("subheadline") and "rewrite".',
   ].join("\n\n");
 }
 

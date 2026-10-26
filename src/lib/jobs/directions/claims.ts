@@ -161,7 +161,16 @@ const MAY_MONTH =
 
 /* Claims a customer would act on that are never safe to assume: each is
    allowed only when its stem is in the brief or the brand profile. */
-const CLAIMS: { stem: string; pattern: RegExp; also?: RegExp }[] = [
+const CLAIMS: {
+  stem: string;
+  pattern: RegExp;
+  also?: RegExp;
+  /** How the product is made, where it comes from, what it is made of:
+   *  licensed by the brief alone, never by the brand profile. A profile
+   *  that calls the brand "handwoven" does not say this collection is woven
+   *  by hand (round-6 eval: "woven by hand" for "woven by one artisan"). */
+  briefOnly?: true;
+}[] = [
   {
     stem: "free",
     pattern: /\bfree\b|\bcomplimentary\b|\bon the house\b/i,
@@ -194,8 +203,15 @@ const CLAIMS: { stem: string; pattern: RegExp; also?: RegExp }[] = [
   { stem: "homemade", pattern: /\bhome-?made\b/i },
   {
     stem: "handmade",
-    pattern: /\bhand-?made\b|\bhand-?crafted\b/i,
-    also: /\bhand-?(woven|crafted|stitched|built|painted|poured)\b|\bby hand\b/i,
+    pattern:
+      /\bhand-?(made|crafted|woven|stitched|built|painted|poured|finished|dyed|picked)\b|\bby hand\b/i,
+    briefOnly: true,
+  },
+  {
+    stem: "sourced",
+    pattern:
+      /\b(locally|ethically|sustainably|responsibly) (sourced|made|grown)\b|\bimported\b|\beco-?friendly\b|\bsustainabl[ey]\b|\b(100% )?(pure|natural)\b/i,
+    briefOnly: true,
   },
   { stem: "nationwide", pattern: /\bnationwide\b/i },
   { stem: "same-day", pattern: /\bsame[- ]day\b/i },
@@ -331,6 +347,9 @@ export interface FactLedger {
   words: Set<string>;
   /** The sources lowercased, for phrase checks. */
   text: string;
+  /** The brief and its title alone, lowercased: what licenses a claim
+   *  about method, origin or material (CLAIMS briefOnly). */
+  brief?: string;
   /** "qualifier|value" for every price or time the sources qualify
    *  ("from|7", "only|4500"). */
   qualified: Set<string>;
@@ -543,8 +562,14 @@ export function calendarNames(text: string): string[] {
   return names;
 }
 
-export function factLedger(sources: (string | null | undefined)[]): FactLedger {
+export function factLedger(
+  sources: (string | null | undefined)[],
+  /** How many leading sources are the brief itself (the brief and its
+   *  title); the rest are the brand profile and memory. */
+  briefSources = sources.length,
+): FactLedger {
   const text = sources.filter(Boolean).join("\n");
+  const brief = sources.slice(0, briefSources).filter(Boolean).join("\n");
   const numbers = new Map<number, Set<string>>();
   const money = new Set<number>();
   const qualified = new Set<string>();
@@ -572,6 +597,7 @@ export function factLedger(sources: (string | null | undefined)[]): FactLedger {
     calendar: new Set(calendarNames(text)),
     words: contentStems(text),
     text: text.toLowerCase(),
+    brief: brief.toLowerCase(),
     qualified,
     currencies,
   };
@@ -634,8 +660,13 @@ export function inventedFacts(text: string, ledger: FactLedger): string[] {
   }
   for (const claim of CLAIMS) {
     const match = claim.pattern.exec(text);
+    if (!match) continue;
+    if (claim.briefOnly) {
+      const brief = ledger.brief ?? ledger.text;
+      if (!claim.pattern.test(brief)) invented.push(match[0]);
+      continue;
+    }
     if (
-      match &&
       !ledgerHasStem(ledger, claim.stem) &&
       !ledger.text.includes(match[0].toLowerCase()) &&
       !claim.also?.test(ledger.text)

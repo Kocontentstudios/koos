@@ -12,6 +12,7 @@ const {
   checkFooterRepeats,
   dropMarkedRepeats,
   marksNeedingRewrite,
+  readsAsList,
   settleMarkedRepeats,
 } = await import("./footer-repeats");
 const { settleBriefFacts } = await import("./brief-facts");
@@ -229,7 +230,7 @@ describe("the second, targeted ask", () => {
     ).toEqual([{ id: "0.0", item: "WhatsApp 0813 222 7045" }]);
   });
 
-  it("asks for a subheadline or headline rewrite and never the button", async () => {
+  it("asks for a subheadline rewrite and never the headline or button", async () => {
     generateObject.mockResolvedValueOnce({
       object: {
         rewrites: [
@@ -257,7 +258,7 @@ describe("the second, targeted ask", () => {
         [direction],
         [{ id: "0.0", item: "WhatsApp 0813 222 7045" }],
       ),
-    ).toContain("Never touch the button");
+    ).toContain("Never touch the headline or the button");
   });
 
   it("strips a button field from the first answer", async () => {
@@ -280,33 +281,122 @@ describe("the second, targeted ask", () => {
 });
 
 describe("a headline merge", () => {
+  const facts = settleBriefFacts(
+    [{ kind: "contact", text: "Call 0809 111 4462" }],
+    "Call 0809 111 4462.",
+    { region: "NG" },
+  ).facts;
+  const direction = {
+    headline: "Back by 7pm",
+    subheadline: "Same-day laundry.",
+    cta: "Call to book",
+    footerLines: ["Call 0809 111 4462"],
+    footerStyle: "text" as const,
+  };
+  const headlineMark = {
+    id: "0.0",
+    repeats: "the button",
+    field: "headline" as const,
+    rewrite: "Back by 7pm. Call 0809 111 4462",
+  };
+
   it("is refused while the direction has a subheadline", async () => {
-    const facts = settleBriefFacts(
-      [{ kind: "contact", text: "Call 0809 111 4462" }],
-      "Call 0809 111 4462.",
-      { region: "NG" },
-    ).facts;
-    const direction = {
-      headline: "Back by 7pm",
-      subheadline: "Same-day laundry.",
-      cta: "Call to book",
-      footerLines: ["Call 0809 111 4462"],
-      footerStyle: "text" as const,
-    };
+    const { directions, outcomes } = await settleMarkedRepeats(
+      [direction],
+      [headlineMark],
+      facts,
+      async () => true,
+    );
+    expect(directions[0]).toEqual(direction);
+    expect(outcomes[0].kept).toMatch(/headline is never rewritten/);
+  });
+
+  /* Round-6 eval, bakery-upload: a merge into a headline with no
+     subheadline turned it into its sibling's headline plus a time. */
+  it("is refused without a subheadline too", async () => {
+    const { subheadline: _s, ...bare } = direction;
+    const { directions, outcomes } = await settleMarkedRepeats(
+      [bare],
+      [headlineMark],
+      facts,
+      async () => true,
+    );
+    expect(directions[0]).toEqual(bare);
+    expect(outcomes[0].kept).toMatch(/headline is never rewritten/);
+  });
+
+  it("is not asked for", () => {
+    const prompt = buildFooterRepeatPrompt([direction]);
+    expect(prompt).toMatch(/Never rewrite the headline or the button/);
+    expect(prompt).not.toMatch(/or the headline when there is no subheadline/);
+  });
+});
+
+describe("a subheadline merge", () => {
+  const facts = settleBriefFacts(
+    [
+      { kind: "date", text: "Saturday 15 November" },
+      { kind: "time", text: "10am to 2pm" },
+      { kind: "place", text: "Yaba Tech Hub" },
+    ],
+    "Hackathon at Yaba Tech Hub, Saturday 15 November, 10am to 2pm.",
+    { region: "NG" },
+  ).facts;
+  const direction = {
+    headline: "Build something by Saturday",
+    subheadline: "A one-day hackathon. Saturday 15 November.",
+    footerLines: ["10am to 2pm · Yaba Tech Hub"],
+    footerStyle: "text" as const,
+  };
+
+  /* Round-6 eval, event slot 1: a 130-character subheadline of three
+     clauses read as the footer moved up. */
+  it("is refused when it reads as a list of more than two clauses", async () => {
+    const holds = vi.fn(async () => true);
     const { directions, outcomes } = await settleMarkedRepeats(
       [direction],
       [
         {
           id: "0.0",
-          repeats: "the button",
-          field: "headline",
-          rewrite: "Back by 7pm. Call 0809 111 4462",
+          repeats: "the day",
+          field: "subheadline",
+          rewrite:
+            "A one-day hackathon. Saturday 15 November. 10am to 2pm at Yaba Tech Hub.",
+        },
+      ],
+      facts,
+      holds,
+    );
+    expect(directions[0]).toEqual(direction);
+    expect(outcomes[0].kept).toMatch(/reads as a list/);
+    expect(holds).not.toHaveBeenCalled();
+  });
+
+  it("is refused when it leaves two directions near-duplicates", async () => {
+    const { outcomes } = await settleMarkedRepeats(
+      [direction],
+      [
+        {
+          id: "0.0",
+          repeats: "the day",
+          field: "subheadline",
+          rewrite: "A one-day hackathon, Saturday 15 November, 10am to 2pm.",
         },
       ],
       facts,
       async () => true,
+      () => false,
     );
-    expect(directions[0]).toEqual(direction);
-    expect(outcomes[0].kept).toMatch(/headline is not rewritten/);
+    expect(outcomes[0].dropped).toBe(false);
+    expect(outcomes[0].kept).toMatch(/near-duplicates/);
+  });
+
+  it("counts clauses on sentence ends, middots, dashes and semicolons", () => {
+    expect(readsAsList("A one-day hackathon. Saturday 15 November.")).toBe(
+      false,
+    );
+    expect(readsAsList("Hackathon · Saturday · Yaba")).toBe(true);
+    expect(readsAsList("Hackathon — Saturday; Yaba")).toBe(true);
+    expect(readsAsList("Doors at 9.30am, talks from 10am")).toBe(false);
   });
 });

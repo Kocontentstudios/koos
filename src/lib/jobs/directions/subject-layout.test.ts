@@ -5,7 +5,11 @@ import {
   type SubjectBox,
 } from "@/lib/design/document/subject";
 import type { DesignSpec } from "@/lib/design/spec";
-import { HEADLINE_NOT_LEADING, HEADLINE_UNDER_COPY } from "./craft";
+import {
+  HEADLINE_NOT_LEADING,
+  HEADLINE_UNDER_COPY,
+  IMAGE_AGAINST_EDGE,
+} from "./craft";
 import { draftOf } from "./fixtures";
 import { designSpecOf } from "./schema";
 import {
@@ -191,6 +195,65 @@ describe("chooseLayout", () => {
       relayout,
     });
     expect(soft.fault).toBe(HEADLINE_NOT_LEADING);
+  });
+
+  /* Round-6 eval, run b: textile-launch-ko's quote-card shipped its photo
+     flush against the card edge because every inset cropped it, while
+     other layouts had only a softer fault. */
+  describe("a photo against the card edge", () => {
+    it("is passed over for a layout with a softer fault", async () => {
+      const judge = vi.fn(async (s: DesignSpec) =>
+        verdict(null, {
+          soft:
+            s.layout === "quote-card"
+              ? IMAGE_AGAINST_EDGE
+              : HEADLINE_NOT_LEADING,
+        }),
+      );
+      const choice = await chooseLayout({
+        spec: { ...spec, layout: "quote-card" },
+        held: [],
+        subjects: [whole],
+        judge,
+        relayout,
+      });
+      expect(choice.spec.layout).not.toBe("quote-card");
+      expect(choice.fault).toBe(HEADLINE_NOT_LEADING);
+    });
+
+    it("is passed over for a clean layout", async () => {
+      const judge = vi.fn(async (s: DesignSpec) =>
+        verdict(null, {
+          soft: s.layout === "quote-card" ? IMAGE_AGAINST_EDGE : null,
+        }),
+      );
+      const choice = await chooseLayout({
+        spec: { ...spec, layout: "quote-card" },
+        held: [],
+        subjects: [whole],
+        judge,
+        relayout,
+      });
+      expect(choice.spec.layout).not.toBe("quote-card");
+      expect(choice.fault).toBeNull();
+    });
+
+    it("is delivered, with its fault, only when every other layout crops or covers", async () => {
+      const judge = vi.fn(async (s: DesignSpec) =>
+        s.layout === "quote-card"
+          ? verdict(null, { soft: IMAGE_AGAINST_EDGE })
+          : verdict(SUBJECT_CROPPED),
+      );
+      const choice = await chooseLayout({
+        spec: { ...spec, layout: "hero-center" },
+        held: [],
+        subjects: [whole],
+        judge,
+        relayout,
+      });
+      expect(choice.spec.layout).toBe("quote-card");
+      expect(choice.faults).toContain(IMAGE_AGAINST_EDGE);
+    });
   });
 
   it("judges craft without a known subject, and still avoids held layouts", async () => {
