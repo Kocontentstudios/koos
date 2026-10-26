@@ -456,10 +456,9 @@ export function directionsFailures(
     totals.modelSpatialShare <= t.maxModelSpatialShare,
     "model spatial claims",
   );
-  need(
-    totals.modelInventedShare <= t.maxModelInventedShare,
-    "model invented facts",
-  );
+  /* Reported, not gated (Oluwaseyi's ruling, round 6): every invention in
+     the model's first draft is caught before delivery, and the delivered
+     lane's invented gate stays at 0. */
   need(
     totals.modelCutOffShare <= t.maxModelCutOffShare,
     "model cut-off reasons",

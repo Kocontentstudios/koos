@@ -728,3 +728,45 @@ describe("headlines kept apart, either direction", () => {
     expect(result.overlap?.headline ?? 1).toBeLessThan(0.5);
   });
 });
+
+describe("footer detail merged up", () => {
+  it("carries a footer item's detail into the subheadline and records it", async () => {
+    const first = draftOf({
+      headline: "Almond croissants",
+      subheadline: "Pickup from 7am.",
+      footerLines: ["Saturdays from 7am"],
+      footerStyle: "text",
+    });
+    generateObject.mockResolvedValue(answer(first, contrastingDraft()));
+    briefReader.mockResolvedValueOnce({
+      facts: [{ kind: "day", text: "Saturdays" }] as never[],
+      offering: null,
+      people: [],
+    });
+    const result = await draftDirections(
+      input({
+        context: directionsContext({
+          briefText: "Almond croissants, pickup from 7am on Saturdays.",
+        }),
+        footerRepeatChecker: async () => [
+          {
+            id: "0.0",
+            repeats: "the pickup time",
+            field: "subheadline" as const,
+            rewrite: "Pickup from 7am on Saturdays.",
+          },
+        ],
+      }),
+    );
+    expect(result.directions[0].subheadline).toBe(
+      "Pickup from 7am on Saturdays.",
+    );
+    expect(result.directions[0].footerLines).toEqual([]);
+    expect(result.footerRepeats.outcomes).toEqual([
+      expect.objectContaining({
+        dropped: true,
+        merged: expect.objectContaining({ field: "subheadline" }),
+      }),
+    ]);
+  });
+});

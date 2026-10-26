@@ -1006,7 +1006,7 @@ console.log(
   `spatial reasons ${f2(totals.modelSpatialShare)} (max ${t.maxModelSpatialShare})`,
 );
 console.log(
-  `invented facts ${f2(totals.modelInventedShare)} of fields (max ${t.maxModelInventedShare})`,
+  `invented facts ${f2(totals.modelInventedShare)} of fields (reported, not gated; was max ${t.maxModelInventedShare}; delivered invented must be 0)`,
 );
 console.log(
   `cut-off reasons ${f2(totals.modelCutOffShare)} (max ${t.maxModelCutOffShare})`,

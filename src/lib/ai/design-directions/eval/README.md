@@ -243,6 +243,25 @@ without them. Each case logs what was marked and whether it was dropped
 (`footer repeats marked …`, and `footerRepeats` in the report). The judge's
 footer-repeat gate (≤ 0.15) is unchanged.
 
+### Round 6d: the first-draft lane reported; footer detail merged up
+
+`modelInventedShare` (the model's first draft, before the fit pass, the
+claim check and finalising) is **reported, no longer a pass/fail gate**
+(Oluwaseyi's ruling). Six runs read 0.04 to 0.06 against the old 0.05 on
+"now", "only", "today" and counts in reasons, and every one of them was
+caught before delivery: the delivered lane's `invented` gate stays at 0
+and holds in every run. The figure is still printed, beside the 0.05 it
+used to be held to.
+
+A footer item the paraphrase check marks as only adding detail to the copy
+above ("Friday 12 December to Sunday 14 December" under "12–14 December")
+is merged up: the model writes that field again with the detail, and code
+keeps the rewrite only when it fits its limit, holds to every rule a
+correction must (the brief's facts and language, the offering, the claim
+check), and loses no fact; then the footer item goes. Each merge is in the
+case log (`footer repeats marked … "merged"`). The judge's footer-repeat
+gate (≤ 0.15) is unchanged.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

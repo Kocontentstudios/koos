@@ -128,9 +128,9 @@ describe("the directions eval", () => {
       expect.arrayContaining([
         "model reasons grounded",
         "model spatial claims",
-        "model invented facts",
       ]),
     );
+    expect(failuresOf(score)).not.toContain("model invented facts");
   });
 
   it("counts invented facts in the model's copy", () => {
@@ -250,5 +250,25 @@ describe("the directions eval", () => {
 
   it("fails a run that lost a case to an error", () => {
     expect(failuresOf(scored([good(), other()]), 9)).toContain("cases 1/9");
+  });
+});
+
+/* Oluwaseyi's ruling, round 6: the model's first-draft inventions are
+   reported, never a failure; the delivered lane still fails on any. */
+describe("model invented is reported, not gated", () => {
+  it("does not fail a run on the first-draft share", async () => {
+    const { directionsFailures, aggregateDirections } = await import("./score");
+    const { DIRECTIONS_EVAL_THRESHOLDS } = await import("./cases");
+    const totals = { ...aggregateDirections([]), modelInventedShare: 0.5 };
+    expect(
+      directionsFailures(totals, DIRECTIONS_EVAL_THRESHOLDS, 0).join(" "),
+    ).not.toMatch(/model invented/);
+    expect(
+      directionsFailures(
+        { ...totals, invented: 1 },
+        DIRECTIONS_EVAL_THRESHOLDS,
+        0,
+      ).join(" "),
+    ).toMatch(/invented/);
   });
 });

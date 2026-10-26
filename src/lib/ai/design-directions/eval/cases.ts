@@ -708,7 +708,8 @@ export const DIRECTIONS_EVAL_THRESHOLDS = {
   minModelGroundedShare: 0.8,
   /** Model reasons claiming a position, size or light. */
   maxModelSpatialShare: 0.1,
-  /** Model copy fields and reasons stating a fact the brief does not hold. */
+  /** Model copy fields and reasons stating a fact the brief does not hold.
+   *  Reported against this figure, no longer a pass/fail gate (round 6). */
   maxModelInventedShare: 0.05,
   /** Model reasons that read as unfinished. */
   maxModelCutOffShare: 0.05,

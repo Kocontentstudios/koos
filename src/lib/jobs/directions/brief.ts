@@ -41,6 +41,7 @@ import {
 import type { ConceptLens } from "./concepts";
 import {
   copyFault,
+  correctionCheck,
   type DirectionChecks,
   type FinalizeReport,
   finalizeDirection,
@@ -48,9 +49,9 @@ import {
 } from "./finalize";
 import {
   checkFooterRepeats,
-  dropMarkedRepeats,
   type FooterRepeatChecker,
   type FooterRepeatOutcome,
+  settleMarkedRepeats,
 } from "./footer-repeats";
 import { forceDistinctLayouts } from "./layouts";
 import { repairDirectionsFor, repairFitText } from "./repair";
@@ -945,10 +946,25 @@ export async function draftDirections({
     ? await footerRepeatChecker(coveredFooters)
     : [];
   if (hasFooter) modelCalls += 1;
-  const repeatDrops = dropMarkedRepeats(
+  /* A merge rewrites the copy above, so it is held like any correction:
+     the brief's facts, language and offering, and the claim check. */
+  const mergeHolds = correctionCheck({
+    ledger: checks.ledger,
+    facts: coverFacts,
+    offering: read.offering?.phrase ?? "",
+    checker: async (input) => {
+      modelCalls += 1;
+      return claimChecker(input);
+    },
+    briefText: checks.briefText,
+    title: checks.title,
+    brand: context.brandSummary,
+  });
+  const repeatDrops = await settleMarkedRepeats(
     coveredFooters,
     repeatMarks ?? [],
     coverFacts,
+    mergeHolds,
   );
   const drawnIn = repeatDrops.directions;
   /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
@@ -956,7 +972,9 @@ export async function draftDirections({
      again to the new one (round-5 eval: two such reasons). */
   const covered = drawnIn.map((d, i) =>
     d.footerLines.join("|") === offeringNamed[i].footerLines.join("|") &&
-    d.subheadline === offeringNamed[i].subheadline
+    d.subheadline === offeringNamed[i].subheadline &&
+    d.headline === offeringNamed[i].headline &&
+    d.cta === offeringNamed[i].cta
       ? d
       : {
           ...d,
