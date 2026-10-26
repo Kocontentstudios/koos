@@ -199,7 +199,8 @@ plate look also says whether any person appears.
 | `judgeRepeatedShare` | Directions where the judge reads a footer item that only repeats the copy, in any words | ≤ 0.15 |
 | `fragments` | Footer items that end mid-phrase (`looksCutOff`) | 0 |
 | `pricesDetached` | A labelled price drawn in the footer as a bare number without its unit, and not given above the footer | 0 |
-| `imageAgainstFrame` | A picture narrower than its card, flush against the card's edge | 0 |
+| `imageAgainstFrameAvoidable` | A picture narrower than its card, flush against the card's edge, delivered while the layout chooser had judged a clean layout (whole subject uncut, no hard fault, picture off the edge; `cleanLayouts` on each direction) | 0 |
+| `imageAgainstFrame` | Every flush picture, including those with no clean layout to take, which are delivered with the fault recorded (Oluwaseyi's ruling, round 6) | reported |
 
 Brief facts per direction now include the people a case names. Three
 cases copied word for word from the round-4 critic's live briefs

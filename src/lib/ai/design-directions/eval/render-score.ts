@@ -85,6 +85,9 @@ export interface RenderedDirection {
   } | null;
   /** Round 5 craft, measured on the delivered document (craftOfDelivered). */
   craft5?: DeliveredCraft;
+  /** Layouts the chooser judged that showed the whole subject uncut, with
+   *  no hard fault and the picture off its card's edge. */
+  cleanLayouts?: string[];
   /** A KO direction drawn with no image because no plate passed. Null off
    *  KO. */
   textLed?: boolean | null;
@@ -252,6 +255,8 @@ export interface RenderTotals {
   fragments: number;
   pricesDetached: number;
   imageAgainstFrame: number;
+  /** Of those, delivered while a clean layout was there to take. */
+  imageAgainstFrameAvoidable: number;
 }
 
 /** Frozen before the round-3 run. */
@@ -316,11 +321,15 @@ export const RENDER_THRESHOLDS = {
   /** Directions where the judge reads a footer repeat. A model's reading,
    *  so a margin for its own errors. */
   maxJudgeRepeatedShare: 0.15,
-  /** Footer items ending mid-phrase, prices drawn without their unit, and
-   *  a print against its card's edge: the job builds none of these. */
+  /** Footer items ending mid-phrase and prices drawn without their unit:
+   *  the job builds none of these. */
   maxFragments: 0,
   maxPricesDetached: 0,
-  maxImageAgainstFrame: 0,
+  /** A photo flush against its card's edge is delivered, with its fault,
+   *  when every layout would crop or cover the product (Oluwaseyi's
+   *  ruling, round 6); only one delivered while a clean layout existed is
+   *  a failure. The rest are reported. */
+  maxImageAgainstFrameAvoidable: 0,
   /** Bad photos refused, of those that must be. */
   minRefusals: 1,
   maxUnexpectedRefusals: 0,
@@ -461,6 +470,9 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
     ).length,
     imageAgainstFrame: delivered.filter((d) => d.craft5?.imageAgainstFrame)
       .length,
+    imageAgainstFrameAvoidable: delivered.filter(
+      (d) => d.craft5?.imageAgainstFrame && (d.cleanLayouts?.length ?? 0) > 0,
+    ).length,
     refusalsExpected: cases.filter((c) => c.expectRefused).length,
     refusalsMade: cases.filter((c) => c.expectRefused && c.refused).length,
     unexpectedRefusals: cases.filter((c) => !c.expectRefused && c.refused)
@@ -560,9 +572,9 @@ export function renderFailures(
   over("fact fragments", t.fragments, limits.maxFragments);
   over("prices without their unit", t.pricesDetached, limits.maxPricesDetached);
   over(
-    "picture against its card's edge",
-    t.imageAgainstFrame,
-    limits.maxImageAgainstFrame,
+    "picture against its card's edge with a clean layout to take",
+    t.imageAgainstFrameAvoidable,
+    limits.maxImageAgainstFrameAvoidable,
   );
   if (t.refusalsExpected > 0) {
     under(

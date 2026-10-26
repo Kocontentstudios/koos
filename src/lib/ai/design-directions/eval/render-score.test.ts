@@ -137,6 +137,33 @@ describe("aggregateRender", () => {
     ).toContain("correction paths probed");
   });
 
+  /* Oluwaseyi's ruling, round 6: a flush photo is delivered when every
+     layout would crop or cover the product; only one delivered while a
+     clean layout existed fails. */
+  it("gates a photo against its card's edge only when a clean layout existed", () => {
+    const flush = (cleanLayouts: string[]) =>
+      direction({
+        layout: "quote-card",
+        cleanLayouts,
+        craft5: {
+          emptyImageRegion: false,
+          footerRepeats: [],
+          productInFooter: false,
+          imageOverFrame: false,
+          imageAgainstFrame: true,
+        },
+      });
+    const forced = aggregateRender([okCase([flush([])])]);
+    expect(forced.imageAgainstFrame).toBe(1);
+    expect(forced.imageAgainstFrameAvoidable).toBe(0);
+    expect(renderFailures(forced).join()).not.toContain("card's edge");
+    const avoidable = aggregateRender([okCase([flush(["split-left"])])]);
+    expect(avoidable.imageAgainstFrameAvoidable).toBe(1);
+    expect(renderFailures(avoidable).join()).toContain(
+      "picture against its card's edge with a clean layout to take",
+    );
+  });
+
   it("counts a refusal of a good photo against the run", () => {
     const totals = aggregateRender([okCase([], { refused: "no_subject" })]);
     expect(renderFailures(totals).join()).toContain("unexpected refusals");

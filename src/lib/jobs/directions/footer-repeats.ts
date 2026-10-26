@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel } from "@/lib/ai/provider";
 import { type BriefFact, type FactCopy, factStated } from "./brief-facts";
+import { contentStems } from "./text-overlap";
 
 /**
  * Footer items that say again, in other words, what the headline,
@@ -111,10 +112,13 @@ export const checkFooterRepeats: FooterRepeatChecker = async (directions) => {
           ids.has(mark.id),
       )
       .map((mark): FooterRepeatMark => {
-        /* A merge never replaces a button's ask (Oluwaseyi's ruling). */
-        const field = ["headline", "subheadline"].includes(mark.field)
-          ? (mark.field as FooterRepeatMark["field"])
-          : undefined;
+        /* A merge never replaces a button's ask or the headline's idea
+           (Oluwaseyi's rulings); those marks are asked again for a
+           subheadline. */
+        const field =
+          mark.field === "subheadline"
+            ? (mark.field as FooterRepeatMark["field"])
+            : undefined;
         const rewrite =
           typeof mark.rewrite === "string" ? mark.rewrite.trim() : "";
         return {
@@ -385,7 +389,7 @@ export const askFooterRewrites: FooterRewriter = async (directions, items) => {
       (r): r is FooterRewrite =>
         typeof r?.id === "string" &&
         ids.has(r.id) &&
-        (r.field === "headline" || r.field === "subheadline") &&
+        r.field === "subheadline" &&
         typeof r.rewrite === "string" &&
         r.rewrite.trim().length > 0,
     );
@@ -402,10 +406,63 @@ export function marksNeedingRewrite(
   facts: readonly BriefFact[],
 ): { id: string; item: string }[] {
   return marks.flatMap((mark) => {
-    if (mark.rewrite) return [];
+    if (hasSubheadlineRewrite(mark)) return [];
     const [d, j] = mark.id.split(".").map(Number);
     const item = footerItemsOf(directions[d]?.footerLines ?? [])[j];
     if (!item || !facts.some((f) => factStated(f, item))) return [];
     return [{ id: mark.id, item }];
   });
+}
+
+/** A mark already carrying the one merge allowed: into the subheadline. */
+export function hasSubheadlineRewrite(mark: FooterRepeatMark): boolean {
+  return Boolean(mark.rewrite) && mark.field === "subheadline";
+}
+
+/* Half an item's words on the button, and no fact of its own, is the
+   button's ask said again (round-6 live run: "Order ahead for pickup"
+   under "Order Ahead", unmarked by the model). */
+const BUTTON_ECHO_SHARE = 0.5;
+
+function echoesButton(
+  item: string,
+  button: string,
+  facts: readonly BriefFact[],
+): boolean {
+  if (!button || facts.some((f) => factStated(f, item))) return false;
+  const words = contentStems(item);
+  if (words.size === 0) return false;
+  const ask = contentStems(button);
+  const shared = [...words].filter((w) => ask.has(w)).length;
+  return shared / words.size >= BUTTON_ECHO_SHARE;
+}
+
+/**
+ * The directions without footer items that only say the button's action
+ * again, when every brief fact each direction states is still stated.
+ */
+export function dropButtonEchoes<T extends FactCopy>(
+  directions: T[],
+  facts: readonly BriefFact[],
+): { directions: T[]; outcomes: FooterRepeatOutcome[] } {
+  const outcomes: FooterRepeatOutcome[] = [];
+  const out = directions.map((direction, i) => {
+    let current = direction;
+    for (const item of footerItemsOf(direction.footerLines)) {
+      if (!echoesButton(item, direction.cta ?? "", facts)) continue;
+      const trial = withoutItem(current, item);
+      const stated = (copy: T) =>
+        facts.filter((f) => factStated(f, copy)).length;
+      if (stated(trial) !== stated(current)) continue;
+      current = trial;
+      outcomes.push({
+        direction: i,
+        item,
+        repeats: "the button's action",
+        dropped: true,
+      });
+    }
+    return current;
+  });
+  return { directions: out, outcomes };
 }

@@ -892,4 +892,49 @@ describe("every marked footer item that carries a fact gets a merge attempt", ()
       merged: { field: "subheadline" },
     });
   });
+  /* Oluwaseyi's ruling, round 6: the headline is never the carrier; a
+     direction with no subheadline gets a fresh one. */
+  it("turns a headline rewrite into a fresh subheadline", async () => {
+    const first = draftOf({
+      headline: "Almond croissants",
+      subheadline: undefined,
+      footerLines: ["Saturdays from 7am"],
+      footerStyle: "text",
+    });
+    generateObject.mockResolvedValue(answer(first, contrastingDraft()));
+    briefReader.mockResolvedValueOnce({
+      facts: [{ kind: "day", text: "Saturdays" }] as never[],
+      offering: null,
+      people: [],
+    });
+    const footerRewriter = vi.fn(async () => [
+      {
+        id: "0.0",
+        field: "subheadline" as const,
+        rewrite: "Pickup from 7am on Saturdays.",
+      },
+    ]);
+    const result = await draftDirections(
+      input({
+        context: directionsContext({
+          briefText: "Almond croissants, pickup from 7am on Saturdays.",
+        }),
+        footerRepeatChecker: async () => [
+          {
+            id: "0.0",
+            repeats: "the pickup time",
+            field: "headline" as const,
+            rewrite: "Almond croissants, Saturdays from 7am",
+          },
+        ],
+        footerRewriter,
+      }),
+    );
+    expect(footerRewriter).toHaveBeenCalledTimes(1);
+    expect(result.directions[0].headline).toBe("Almond croissants");
+    expect(result.directions[0].subheadline).toBe(
+      "Pickup from 7am on Saturdays.",
+    );
+    expect(result.directions[0].footerLines).toEqual([]);
+  });
 });

@@ -14,6 +14,7 @@ import { draftOf } from "./fixtures";
 import { designSpecOf } from "./schema";
 import {
   chooseLayout,
+  isCleanAlternative,
   LAYOUT_CRAFT_FAILED,
   LayoutsHeldError,
   type LayoutVerdict,
@@ -236,6 +237,9 @@ describe("chooseLayout", () => {
       });
       expect(choice.spec.layout).not.toBe("quote-card");
       expect(choice.fault).toBeNull();
+      expect(
+        choice.considered.filter(isCleanAlternative).map((c) => c.layout),
+      ).toEqual([choice.spec.layout]);
     });
 
     it("is delivered, with its fault, only when every other layout crops or covers", async () => {
@@ -253,6 +257,8 @@ describe("chooseLayout", () => {
       });
       expect(choice.spec.layout).toBe("quote-card");
       expect(choice.faults).toContain(IMAGE_AGAINST_EDGE);
+      expect(choice.considered.filter(isCleanAlternative)).toEqual([]);
+      expect(choice.considered.map((c) => c.layout)).toContain("split-left");
     });
   });
 

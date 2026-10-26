@@ -51,9 +51,11 @@ import {
 import {
   askFooterRewrites,
   checkFooterRepeats,
+  dropButtonEchoes,
   type FooterRepeatChecker,
   type FooterRepeatOutcome,
   type FooterRewriter,
+  hasSubheadlineRewrite,
   marksNeedingRewrite,
   settleMarkedRepeats,
 } from "./footer-repeats";
@@ -1042,7 +1044,7 @@ export async function draftDirections({
   const repeatMarks =
     firstMarks?.map((mark) => {
       const found = rewrites?.find((r) => r.id === mark.id);
-      return found && !mark.rewrite
+      return found && !hasSubheadlineRewrite(mark)
         ? { ...mark, field: found.field, rewrite: found.rewrite }
         : mark;
     }) ?? null;
@@ -1072,10 +1074,9 @@ export async function draftDirections({
     mergeHolds,
     (merged) => !apartBeforeMerges || !nearDuplicateSet(merged),
   );
+  const echoes = dropButtonEchoes(repeatDrops.directions, coverFacts);
   /* Never a lone "10am" in a footer (withoutBareItems). */
-  const drawnIn = repeatDrops.directions.map((d) =>
-    withoutBareItems(d, coverFacts),
-  );
+  const drawnIn = echoes.directions.map((d) => withoutBareItems(d, coverFacts));
   /* Coverage changes footers (repeats dropped, facts drawn in), so a reason
      settled against the old footer ("the footer carries the date") is held
      again to the new one (round-5 eval: two such reasons). */
@@ -1129,7 +1130,7 @@ export async function draftDirections({
     claimCheck,
     footerRepeats: {
       available: repeatMarks !== null,
-      outcomes: repeatDrops.outcomes,
+      outcomes: [...repeatDrops.outcomes, ...echoes.outcomes],
     },
   };
 }

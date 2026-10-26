@@ -100,6 +100,30 @@ export interface LayoutChoice {
   /** Where the chosen layout draws its picture, for its sibling to keep
    *  apart from. */
   place: PhotoPlace | null;
+  /** Every layout judged and what each would have carried, so a delivered
+   *  fault can be shown to have had no clean alternative. */
+  considered: ConsideredLayout[];
+}
+
+export interface ConsideredLayout {
+  layout: DesignSpec["layout"];
+  /** Kept only the head and shoulders clear. */
+  faceOnly: boolean;
+  subjectFault: string | null;
+  hard: string | null;
+  soft: string | null;
+}
+
+/** A layout that shows the whole subject uncut and clear, with no hard
+ *  fault and its picture off the card's edge: what a flush photo is
+ *  delivered only in the absence of. */
+export function isCleanAlternative(layout: ConsideredLayout): boolean {
+  return (
+    !layout.faceOnly &&
+    !layout.subjectFault &&
+    !layout.hard &&
+    layout.soft !== IMAGE_AGAINST_EDGE
+  );
 }
 
 /* Lower is better. A hard craft fault is never a candidate. */
@@ -178,6 +202,7 @@ export async function chooseLayout({
   const boxes: (SubjectBox | null)[] = known.length > 0 ? known : [null];
   const unknownFault = unknown ? [SUBJECT_UNKNOWN] : [];
   let tried = 0;
+  const considered: ConsideredLayout[] = [];
   let best: { score: number; choice: LayoutChoice } | null = null;
   let craftBlocked = false;
   for (const [boxIndex, box] of boxes.entries()) {
@@ -188,6 +213,13 @@ export async function chooseLayout({
         craftBlocked = true;
       }
       const partial = boxIndex > 0 && !unknown;
+      considered.push({
+        layout: candidate.layout,
+        faceOnly: partial,
+        subjectFault: verdict.subjectFault,
+        hard: verdict.craft.hard,
+        soft: verdict.craft.soft,
+      });
       const looksAlike = Boolean(
         apartFrom && verdict.place && sameShape(apartFrom, verdict.place),
       );
@@ -202,6 +234,7 @@ export async function chooseLayout({
           faults: unknownFault,
           tried,
           place: verdict.place ?? null,
+          considered,
         };
       }
       if (!best || score < best.score) {
@@ -222,6 +255,7 @@ export async function chooseLayout({
             faults,
             tried: 0,
             place: verdict.place ?? null,
+            considered: [],
           },
         };
       }
@@ -230,7 +264,7 @@ export async function chooseLayout({
        soft fault, beats one that keeps only the face clear. */
     if (best) break;
   }
-  if (best) return { ...best.choice, tried };
+  if (best) return { ...best.choice, tried, considered };
   /* Said for the reason a better photo or shorter copy would fix: a layout
      that cleared the subject but drew the copy badly is a copy problem. */
   const fault =
@@ -243,5 +277,6 @@ export async function chooseLayout({
     faults: [fault],
     tried,
     place: null,
+    considered,
   };
 }

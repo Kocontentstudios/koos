@@ -82,9 +82,12 @@ const {
   scoreBriefRead,
 } = await import("./read-score");
 type ReadScore = import("./read-score").ReadScore;
-const { chooseLayout, LAYOUT_CRAFT_FAILED, SUBJECT_FACE_ONLY } = await import(
-  "../../../jobs/directions/subject-layout"
-);
+const {
+  chooseLayout,
+  isCleanAlternative,
+  LAYOUT_CRAFT_FAILED,
+  SUBJECT_FACE_ONLY,
+} = await import("../../../jobs/directions/subject-layout");
 const { directionGateRules, documentRenderer, layoutJudge } = await import(
   "../../../jobs/directions/render"
 );
@@ -906,6 +909,9 @@ for (const evalCase of cases) {
           evalCase.product ?? result.read.offering?.phrase ?? "",
           labelled,
         ),
+        cleanLayouts: choice.considered
+          .filter(isCleanAlternative)
+          .map((c) => c.layout),
         peopleNamed:
           people.length > 0 ? factsMissing(people, copy).length === 0 : null,
         judgeRepeated: judged.repeated ?? [],
@@ -1075,7 +1081,7 @@ console.log(
   `round-5 craft: empty image regions ${renderTotals.emptyImageRegions} (max ${rt.maxEmptyImageRegions}); footer repeats ${renderTotals.footerRepeats} (max ${rt.maxFooterRepeats}); product name in footer ${renderTotals.productInFooter} (max ${rt.maxProductInFooter}); picture over its frame ${renderTotals.imageOverFrame} (max ${rt.maxImageOverFrame})`,
 );
 console.log(
-  `round-6: delivered subject cut ${renderTotals.deliveredSubjectCut} (max ${rt.maxDeliveredSubjectCut}), refused for the subject ${renderTotals.subjectRefused}; KO laid out as text ${f2(renderTotals.textLedShare)} (max ${rt.maxTextLedShare}); named people on every direction ${f2(renderTotals.peopleNamedShare)} (min ${rt.minPeopleNamedShare}); person painted beside a named one ${renderTotals.personPainted} (max ${rt.maxPersonPainted}); judge footer repeats ${f2(renderTotals.judgeRepeatedShare)} (max ${rt.maxJudgeRepeatedShare}); fragments ${renderTotals.fragments} (max ${rt.maxFragments}); prices without unit ${renderTotals.pricesDetached} (max ${rt.maxPricesDetached}); picture against its card's edge ${renderTotals.imageAgainstFrame} (max ${rt.maxImageAgainstFrame})`,
+  `round-6: delivered subject cut ${renderTotals.deliveredSubjectCut} (max ${rt.maxDeliveredSubjectCut}), refused for the subject ${renderTotals.subjectRefused}; KO laid out as text ${f2(renderTotals.textLedShare)} (max ${rt.maxTextLedShare}); named people on every direction ${f2(renderTotals.peopleNamedShare)} (min ${rt.minPeopleNamedShare}); person painted beside a named one ${renderTotals.personPainted} (max ${rt.maxPersonPainted}); judge footer repeats ${f2(renderTotals.judgeRepeatedShare)} (max ${rt.maxJudgeRepeatedShare}); fragments ${renderTotals.fragments} (max ${rt.maxFragments}); prices without unit ${renderTotals.pricesDetached} (max ${rt.maxPricesDetached}); picture against its card's edge ${renderTotals.imageAgainstFrame} (reported), of those with a clean layout to take ${renderTotals.imageAgainstFrameAvoidable} (max ${rt.maxImageAgainstFrameAvoidable})`,
 );
 console.log(
   `copy corrections: probed ${renderTotals.copyProbes} (min ${rt.minCopyProbes}), rules wrong ${renderTotals.copyProbeFailures} (max ${rt.maxCopyProbeFailures}), copy on the whole subject ${renderTotals.copyProbeOverSubject} (max ${rt.maxCopyProbeOverSubject})`,

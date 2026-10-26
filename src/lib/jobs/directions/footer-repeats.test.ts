@@ -10,6 +10,7 @@ const {
   buildFooterRepeatPrompt,
   buildFooterRewritePrompt,
   checkFooterRepeats,
+  dropButtonEchoes,
   dropMarkedRepeats,
   marksNeedingRewrite,
   readsAsList,
@@ -398,5 +399,162 @@ describe("a subheadline merge", () => {
     expect(readsAsList("Hackathon · Saturday · Yaba")).toBe(true);
     expect(readsAsList("Hackathon — Saturday; Yaba")).toBe(true);
     expect(readsAsList("Doors at 9.30am, talks from 10am")).toBe(false);
+  });
+});
+
+/* Round-6 live run, r1-upload: "Order ahead for pickup" under an "Order
+   Ahead" button, which the model did not mark. */
+describe("dropButtonEchoes", () => {
+  const brief =
+    "Strawberry mille-feuille, ₦4,500 a slice, from Monday. Order ahead; pickup from 7am.";
+  const facts = settleBriefFacts(
+    [
+      { kind: "time", text: "pickup from 7am" },
+      { kind: "day", text: "from Monday" },
+    ],
+    brief,
+    { region: "NG" },
+  ).facts;
+  const direction = {
+    headline: "Strawberry Mille-Feuille",
+    subheadline: "Laminated pastry and strawberries. ₦4,500 a slice.",
+    cta: "Order Ahead",
+    footerLines: [
+      "Available from Monday · Pickup from 7am",
+      "Order ahead for pickup",
+    ],
+    footerStyle: "text" as const,
+  };
+
+  it("drops an item that only says the button's action again", () => {
+    const { directions, outcomes } = dropButtonEchoes([direction], facts);
+    expect(directions[0].footerLines).toEqual([
+      "Available from Monday · Pickup from 7am",
+    ]);
+    expect(outcomes).toEqual([
+      expect.objectContaining({
+        item: "Order ahead for pickup",
+        dropped: true,
+        repeats: "the button's action",
+      }),
+    ]);
+  });
+
+  it("keeps an item that carries a brief fact, however close to the button", () => {
+    const { directions } = dropButtonEchoes(
+      [
+        {
+          ...direction,
+          cta: "Pickup from 7am",
+          footerLines: ["Pickup from 7am"],
+        },
+      ],
+      facts,
+    );
+    expect(directions[0].footerLines).toEqual(["Pickup from 7am"]);
+  });
+
+  it("keeps an item with nothing in common with the button", () => {
+    const { directions } = dropButtonEchoes(
+      [{ ...direction, footerLines: ["Lekki shop"] }],
+      facts,
+    );
+    expect(directions[0].footerLines).toEqual(["Lekki shop"]);
+  });
+});
+
+/* Oluwaseyi's ruling, round 6: with headline merges forbidden, a
+   fact-carrying item may still merge, into a fresh subheadline. */
+describe("a merge with no subheadline to carry it", () => {
+  const facts = settleBriefFacts(
+    [{ kind: "contact", text: "Call 0809 111 4462" }],
+    "Same-day laundry. Call 0809 111 4462.",
+    { region: "NG" },
+  ).facts;
+  const bare = {
+    headline: "Back by 7pm",
+    cta: "Call to book",
+    footerLines: ["Call 0809 111 4462"],
+    footerStyle: "text" as const,
+  };
+
+  it("asks again for a subheadline when the first answer gave a headline rewrite", () => {
+    expect(
+      marksNeedingRewrite(
+        [bare],
+        [
+          {
+            id: "0.0",
+            repeats: "the button",
+            field: "headline",
+            rewrite: "Back by 7pm. Call 0809 111 4462",
+          },
+        ],
+        facts,
+      ),
+    ).toEqual([{ id: "0.0", item: "Call 0809 111 4462" }]);
+  });
+
+  it("strips a headline field from the first answer", async () => {
+    generateObject.mockResolvedValueOnce({
+      object: {
+        repeats: [
+          {
+            id: "0.0",
+            repeats: "the button",
+            field: "headline",
+            rewrite: "Back by 7pm. Call 0809 111 4462",
+          },
+        ],
+      },
+    });
+    expect(await checkFooterRepeats([bare])).toEqual([
+      { id: "0.0", repeats: "the button" },
+    ]);
+  });
+
+  it("writes a fresh subheadline carrying the detail, held like any merge", async () => {
+    const holds = vi.fn(async () => true);
+    const { directions, outcomes } = await settleMarkedRepeats(
+      [bare],
+      [
+        {
+          id: "0.0",
+          repeats: "the button",
+          field: "subheadline",
+          rewrite: "Same-day laundry. Call 0809 111 4462.",
+        },
+      ],
+      facts,
+      holds,
+    );
+    expect(directions[0].headline).toBe("Back by 7pm");
+    expect(directions[0]).toMatchObject({
+      subheadline: "Same-day laundry. Call 0809 111 4462.",
+      footerLines: [],
+    });
+    expect(outcomes[0].merged).toEqual({
+      field: "subheadline",
+      from: "",
+      to: "Same-day laundry. Call 0809 111 4462.",
+    });
+    expect(holds).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the item when the fresh subheadline does not hold", async () => {
+    const { directions } = await settleMarkedRepeats(
+      [bare],
+      [
+        {
+          id: "0.0",
+          repeats: "the button",
+          field: "subheadline",
+          rewrite: "Same-day laundry. Call 0809 111 4462.",
+        },
+      ],
+      facts,
+      async () => false,
+    );
+    expect(directions[0]).toEqual(bare);
   });
 });
