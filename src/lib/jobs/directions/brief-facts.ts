@@ -3,7 +3,7 @@ import {
   findPhoneNumbersInText,
 } from "libphonenumber-js/max";
 import { calendarNames, looksCutOff, NUMBER_WORDS } from "./claims";
-import { contentStems } from "./text-overlap";
+import { contentStems, stem } from "./text-overlap";
 
 /**
  * The hard facts a brief states, and whether a design states them.
@@ -1004,10 +1004,28 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
   if (fact.kind === "offer" || fact.kind === "condition") return false;
   if (fact.kind === "price") {
     /* Currency, amount and unit together: a bare "2,000" is never the
-       price, nor "₦18,000" without "per split unit" (round-6 critics). */
-    const amounts = moneyIn(fact.text);
-    const drawn = moneyIn(part.text);
+       price, nor "₦18,000" without "per split unit" (round-6 critics), nor
+       "₦20" for "$20" (round-7 code critic). A price whose currency code
+       cannot read is held only whole. */
+    const amounts = moneyOf(fact.text);
+    if (amounts.size === 0 || [...amounts].some((m) => m.startsWith("?|"))) {
+      return false;
+    }
+    const drawn = moneyOf(part.text);
     if ([...amounts].some((amount) => !drawn.has(amount))) return false;
+    return needsHold(fact.needs, part.text);
+  }
+  /* Clock times are read as minutes past midnight (timesIn), whatever
+     their spelling; every other number keeps its place. */
+  const clocked = fact.needs.some((n) => n.startsWith("@"));
+  const numericDate = fact.kind === "date" && /\d\/\d/.test(fact.text);
+  if (
+    fact.kind !== "contact" &&
+    !clocked &&
+    !numericDate &&
+    !numbersHeldInPlace(fact.text, part.text)
+  ) {
+    return false;
   }
   return needsHold(fact.needs, part.text);
 }
@@ -1076,18 +1094,151 @@ const UNIT_STEMS = contentStems(
     .join(" "),
 );
 
+/* An amount with its currency: "₦4,500", "N4500", "NGN 4,500", "4,500
+   naira", "$20", "GH₵50", "GHS 50", "KSh 300", "R250", "ZAR 250". Round-7
+   code critic: only ₦, $, £ and € were read, so a Ghana price was "stated"
+   by any count, and "$20" by "₦20". */
+const CURRENCY_BEFORE: [RegExp, string][] = [
+  [/^(?:₦|N|NGN)$/i, "ngn"],
+  [/^(?:\$|USD|US\$)$/i, "usd"],
+  [/^(?:£|GBP)$/i, "gbp"],
+  [/^(?:€|EUR)$/i, "eur"],
+  [/^(?:GH₵|GH¢|GHS|GH₵\.|₵)$/i, "ghs"],
+  [/^(?:KSh|KES|Ksh\.?)$/i, "kes"],
+  [/^(?:R|ZAR)$/, "zar"],
+];
+const CURRENCY_AFTER: [RegExp, string][] = [
+  [/^(?:naira|ngn)$/i, "ngn"],
+  [/^(?:cedis?|ghs)$/i, "ghs"],
+  [/^(?:shillings?|kes)$/i, "kes"],
+  [/^(?:rand|zar)$/i, "zar"],
+  [/^(?:dollars?|usd)$/i, "usd"],
+];
 const MONEY =
-  /(?:[₦$£€]\s?|\bN(?=\d))(\d[\d,]*(?:\.\d+)?)(\s?k\b)?|(\d[\d,]*(?:\.\d+)?)\s?(?:naira|ngn)\b/gi;
+  /(?<![\p{L}\d])(₦|GH₵|GH¢|₵|\$|£|€|US\$|(?:NGN|USD|GBP|EUR|GHS|KES|KSh|ZAR)(?=\s?\d)|N(?=\d)|R(?=\d))\s?(\d[\d,]*(?:\.\d+)?)(\s?k\b)?|(\d[\d,]*(?:\.\d+)?)\s?(naira|ngn|cedis?|ghs|shillings?|kes|rand|zar|dollars?|usd)\b/giu;
+
+/** "currency|value" for every amount `text` states with a currency. */
+function moneyOf(text: string): Set<string> {
+  const found = new Set<string>();
+  for (const m of text.matchAll(MONEY)) {
+    let value = Number.parseFloat((m[2] ?? m[4] ?? "").replace(/,/g, ""));
+    if (!Number.isFinite(value)) continue;
+    if (m[3]) value *= 1000;
+    const sign = m[1] ?? m[5] ?? "";
+    const table = m[1] ? CURRENCY_BEFORE : CURRENCY_AFTER;
+    const currency = table.find(([re]) => re.test(sign.trim()))?.[1] ?? "?";
+    found.add(`${currency}|${value}`);
+  }
+  return found;
+}
 
 function moneyIn(text: string): Set<string> {
-  const values = new Set<string>();
-  for (const m of text.matchAll(MONEY)) {
-    let value = Number.parseFloat((m[1] ?? m[3] ?? "").replace(/,/g, ""));
-    if (!Number.isFinite(value)) continue;
-    if (m[2]) value *= 1000;
-    values.add(String(value));
+  return new Set([...moneyOf(text)].map((m) => m.split("|")[1]));
+}
+
+/* A number read with the words either side of it: "Ages 8+" is 8 beside
+   "ages" and "+", "8 seats" 8 beside "seats", "9-5" a range. The hour of
+   "8pm", a street number or a day of the month has other neighbours, and
+   never stands in for an age or a count (round-7 code critic, K17: "Doors
+   open 8pm" stated "Ages 8+"). */
+interface NumberInPlace {
+  value: string;
+  /** The other end of a range ("9-5", "5 to 12"), or null. */
+  rangeTo: string | null;
+  neighbours: Set<string>;
+}
+
+const PLACE_TOKEN = /\d[\d,]*(?:\.\d+)?|[\p{L}]+|[+%]/gu;
+const NOT_A_NEIGHBOUR = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "for",
+  "only",
+  "just",
+]);
+
+function neighbourOf(token: string): string {
+  if (/^[+%]$/.test(token)) return token;
+  const lower = token.toLowerCase();
+  if (/^(?:am|pm)$/.test(lower)) return "@clock";
+  const named = calendarNames(token);
+  if (named.length > 0) return `~${named[0]}`;
+  return stem(lower);
+}
+
+function numbersInPlace(text: string): NumberInPlace[] {
+  const tokens = [...meaningOf(text).matchAll(PLACE_TOKEN)].map((m) => ({
+    text: m[0],
+    at: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length,
+  }));
+  const out: NumberInPlace[] = [];
+  const asNumber = (t: string): string | null =>
+    /^\d/.test(t)
+      ? String(Number.parseFloat(t.replace(/,/g, "")))
+      : t.toLowerCase() in NUMBER_WORDS
+        ? String(NUMBER_WORDS[t.toLowerCase()])
+        : null;
+  const isNumber = (t: string) => asNumber(t) !== null;
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!isNumber(tokens[i].text)) continue;
+    const value = asNumber(tokens[i].text) as string;
+    let rangeTo: string | null = null;
+    let last = i;
+    /* "9am–5pm" is the range "9-5" with its clock words. */
+    const clock = /^(?:am|pm)$/i.test(tokens[i + 1]?.text ?? "") ? 1 : 0;
+    const next = tokens[i + 1 + clock];
+    const gap = text.slice(
+      tokens[i + clock].end,
+      next?.at ?? tokens[i + clock].end,
+    );
+    if (next && isNumber(next.text) && /^\s?[-–—]\s?$/.test(gap)) {
+      rangeTo = asNumber(next.text);
+      last = i + 1 + clock;
+    } else if (
+      next?.text.toLowerCase() === "to" &&
+      tokens[i + 2 + clock] &&
+      isNumber(tokens[i + 2 + clock].text)
+    ) {
+      rangeTo = asNumber(tokens[i + 2 + clock].text);
+      last = i + 2 + clock;
+    }
+    /* "8pm" is one token pair with no space: the clock word beside it. */
+    const neighbours = new Set<string>();
+    const look = (j: number, step: number) => {
+      for (let k = j; k >= 0 && k < tokens.length; k += step) {
+        const word = tokens[k].text.toLowerCase();
+        if (isNumber(word)) return;
+        if (NOT_A_NEIGHBOUR.has(word)) continue;
+        neighbours.add(neighbourOf(tokens[k].text));
+        return;
+      }
+    };
+    look(i - 1, -1);
+    look(last + 1, 1);
+    out.push({ value, rangeTo, neighbours });
+    i = last;
   }
-  return values;
+  return out;
+}
+
+/** Whether every number of `fact` is in `part` as the fact has it: the
+ *  same range, or beside one of the same neighbouring words. */
+function numbersHeldInPlace(fact: string, part: string): boolean {
+  const theirs = numbersInPlace(part);
+  return numbersInPlace(fact).every((mine) =>
+    theirs.some(
+      (t) =>
+        t.value === mine.value &&
+        t.rangeTo === mine.rangeTo &&
+        (mine.rangeTo !== null && mine.neighbours.size === 0
+          ? true
+          : [...mine.neighbours].some((n) => t.neighbours.has(n)) ||
+            (mine.neighbours.size === 0 && t.neighbours.size === 0)),
+    ),
+  );
 }
 
 /** Whether a footer item is just the product's name: every word of the

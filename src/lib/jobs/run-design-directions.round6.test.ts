@@ -852,3 +852,43 @@ describe("KO imagery behind FEATURE_KO_IMAGERY (round 8)", () => {
     }
   });
 });
+
+/* Round-7 code critic, K17: "Doors open 8pm" counted the age "Ages 8+"
+   stated, so the writer was never asked and the metrics said 4 of 4. */
+describe("round-7 critic job probes", () => {
+  it("K17: an age the design never prints is written in, never counted from a door time", async () => {
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "day", text: "this Friday" },
+          { kind: "time", text: "8pm" },
+          { kind: "age", text: "Ages 8+" },
+        ],
+        { kind: "event", phrase: "Family movie night" },
+      ),
+    );
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            headline: "Family movie night",
+            subheadline: "This Friday, doors open 8pm.",
+            footerLines: [],
+          }),
+          contrastingDraft({
+            headline: "Popcorn, blankets, Friday",
+            subheadline: "Family movie night this Friday. Doors open 8pm.",
+            footerLines: [],
+          }),
+        ],
+      },
+    });
+    await runBrief("Family movie night this Friday, doors open 8pm. Ages 8+.", {
+      image: { source: "none" },
+    });
+    for (const id of ["row-1", "row-2"]) {
+      expect(drawnOf(id)).toContain("Ages 8+");
+    }
+    expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
+  });
+});
