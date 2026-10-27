@@ -1018,6 +1018,7 @@ export async function generateDirectionsWork(
       briefFactsDelivered: factsDelivered,
       briefFactsByDirection: factsByDirection,
       factsAdded: brief.factCoverage.added.length,
+      factHeadlinesRewritten: brief.factCoverage.headlinesRewritten.length,
       factsLeftOff: factsLost,
       productSources: brief.productSources,
       /* Round-4 outcomes: what the claim check read, and how many times

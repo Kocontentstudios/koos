@@ -1316,7 +1316,7 @@ function footerItems(lines: readonly string[]): number {
     .length;
 }
 
-function withoutItem<T extends FactCopy>(copy: T, item: string): T {
+export function withoutItem<T extends FactCopy>(copy: T, item: string): T {
   const footerLines = copy.footerLines
     .map((line) =>
       line
@@ -1430,6 +1430,8 @@ export interface FactCoverage {
   leftOff: { direction: number; fact: string; reason: string }[];
   /** Footer items dropped as repeats of the copy above or of each other. */
   repeatsDropped: number;
+  /** Headlines the fact writer moved out of a fact's way. */
+  headlinesRewritten: { direction: number; from: string; to: string }[];
 }
 
 /**
@@ -1590,9 +1592,16 @@ export function brandSetting(
 export function aboveRepeats(
   copy: Pick<FactCopy, "headline" | "subheadline" | "cta">,
 ): string[] {
+  return aboveRepeatsBy(copy).map((r) => r.repeat);
+}
+
+/** aboveRepeats, with the field the subheadline repeats. */
+export function aboveRepeatsBy(
+  copy: Pick<FactCopy, "headline" | "subheadline" | "cta">,
+): { field: "headline" | "button"; repeat: string }[] {
   const sub = copy.subheadline?.trim();
   if (!sub) return [];
-  const found: string[] = [];
+  const found: { field: "headline" | "button"; repeat: string }[] = [];
   for (const [name, field] of [
     ["headline", copy.headline],
     ["button", copy.cta],
@@ -1600,7 +1609,10 @@ export function aboveRepeats(
     if (!field?.trim()) continue;
     const money = [...moneyOf(field)].filter((m) => moneyOf(sub).has(m));
     if (money.length > 0) {
-      found.push(`the subheadline repeats the ${name}'s price`);
+      found.push({
+        field: name,
+        repeat: `the subheadline repeats the ${name}'s price`,
+      });
       continue;
     }
     /* "one" and "two" are words more than counts ("for two", "One box"). */
@@ -1609,7 +1621,10 @@ export function aboveRepeats(
       .filter((v) => v !== "1" && v !== "2");
     const subNumbers = new Set(numbersInPlace(sub).map((n) => n.value));
     if (numbers.some((v) => subNumbers.has(v))) {
-      found.push(`the subheadline repeats a number from the ${name}`);
+      found.push({
+        field: name,
+        repeat: `the subheadline repeats a number from the ${name}`,
+      });
       continue;
     }
     if (name !== "headline") continue;
@@ -1617,10 +1632,35 @@ export function aboveRepeats(
     const subWords = contentStems(sub);
     const shared = words.filter((w) => subWords.has(w)).length;
     if (words.length >= 2 && shared * 3 >= words.length * 2) {
-      found.push("the subheadline says the headline again");
+      found.push({
+        field: name,
+        repeat: "the subheadline says the headline again",
+      });
     }
   }
   return found;
+}
+
+/**
+ * The headline stands in the way of a fact: the subheadline repeats it
+ * now, or stating a fact the copy leaves out, whole, would repeat it.
+ * Round-8 eval: "Senior React Engineers Wanted" over a brief needing "two
+ * senior React engineers", "₦6,000 buys you one espresso flight" over
+ * "three shots for ₦6,000". The only case in which the fact writer may
+ * move the headline.
+ */
+export function headlineInTheWay(
+  copy: Pick<FactCopy, "headline" | "subheadline" | "cta" | "footerLines">,
+  facts: readonly BriefFact[],
+): boolean {
+  const repeatsHeadline = (subheadline: string) =>
+    aboveRepeatsBy({ headline: copy.headline, subheadline }).some(
+      (r) => r.field === "headline",
+    );
+  if (copy.subheadline && repeatsHeadline(copy.subheadline)) return true;
+  return facts.some(
+    (fact) => !factStated(fact, copy) && repeatsHeadline(fact.text),
+  );
 }
 
 /**

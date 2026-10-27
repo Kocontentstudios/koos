@@ -78,6 +78,7 @@ import {
   contentStems,
   type DirectionOverlap,
   directionOverlap,
+  distinctiveWords,
   isNearDuplicate,
 } from "./text-overlap";
 
@@ -1116,6 +1117,14 @@ export async function draftDirections({
     title: checks.title,
     keepsApart: (set) =>
       nearDuplicateSet(echoes.directions) || !nearDuplicateSet(set),
+    wordsOfOthers: (set, id) =>
+      distinctiveWords(
+        [...existing, ...set.filter((_, j) => j !== id)]
+          .flatMap((d) => [d.headline, d.subheadline, d.cta])
+          .filter(Boolean)
+          .join(" "),
+        new Set([...ignore, ...briefWords, ...contentStems(set[id].cta)]),
+      ),
   });
   modelCalls += written.modelCalls;
   const final = dropFooterRepeats(written.directions, coverFacts, product);
@@ -1147,6 +1156,9 @@ export async function draftDirections({
         ),
     ),
     repeatsDropped: deduped.dropped + final.dropped,
+    headlinesRewritten: written.headlines.filter(
+      ({ direction, to }) => drawnIn[direction].headline === to,
+    ),
   };
   /* Footers and subheadlines change here (repeats dropped, facts written
      in), so a reason settled against the old copy ("the footer carries

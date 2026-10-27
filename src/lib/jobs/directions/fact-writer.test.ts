@@ -449,7 +449,7 @@ describe("writeFacts", () => {
       { id: 0, subheadline: "s", footerLines: ["f"] },
     ]);
     const prompt = buildFactWritePrompt(input);
-    expect(prompt).toContain("Do not change the headline or the button");
+    expect(prompt).toContain("Never change the button");
     expect(prompt).toContain('never "₦18,000" alone');
     expect(prompt).toContain('must state: "₦220,000 a month"');
     expect(prompt).toMatch(

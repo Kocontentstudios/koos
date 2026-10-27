@@ -952,3 +952,31 @@ describe("model rewrites held to the list and action rules", () => {
     );
   });
 });
+
+describe("the fact writer is told the other design's own words", () => {
+  /* Round-8 eval, conference-ko: a named speaker left off twice as "reads
+     like the other design", with no word of what it borrowed. */
+  it("lists the sibling's words beyond the brief, the brand and its own button", async () => {
+    generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
+    const factWriter = vi.fn(async () => []);
+    await draftDirections(
+      input({
+        briefReader: async () => ({
+          facts: [],
+          offering: { kind: "product", phrase: "almond croissants" },
+          people: [],
+        }),
+        factWriter,
+      }),
+    );
+    const requests = (
+      factWriter.mock.calls[0] as unknown as [
+        { requests: { id: number; avoid?: string[] }[] },
+      ]
+    )[0].requests;
+    const avoid = requests.find((r) => r.id === 1)?.avoid ?? [];
+    expect(avoid).toEqual(expect.arrayContaining(["sunrise", "pickup"]));
+    expect(avoid).not.toContain("almond");
+    expect(avoid).not.toContain("crumb");
+  });
+});

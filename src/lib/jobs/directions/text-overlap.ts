@@ -53,6 +53,23 @@ export function contentStems(
   return stems;
 }
 
+/** The words of `text` whose stems `exclude` does not hold, one per stem,
+ *  as written (lowercased): what a direction says beyond the brief, in
+ *  words a writer can be told to leave alone. */
+export function distinctiveWords(
+  text: string | null | undefined,
+  exclude: ReadonlySet<string> = new Set(),
+): string[] {
+  const words = new Map<string, string>();
+  for (const token of (text ?? "").toLowerCase().match(/[\p{L}\p{N}']+/gu) ??
+    []) {
+    const word = token.replace(/^'+|'+$/g, "");
+    const [s] = contentStems(word, exclude);
+    if (s && !words.has(s)) words.set(s, word);
+  }
+  return [...words.values()];
+}
+
 /** Shared share of the union. 0 for two empty sets: nothing said twice. */
 export function jaccard(a: ReadonlySet<string>, b: ReadonlySet<string>) {
   if (a.size === 0 && b.size === 0) return 0;

@@ -8,14 +8,17 @@ import {
   detailHeldAcross,
   type FactCopy,
   factStated,
+  headlineInTheWay,
   isFragment,
   redundantFooterItems,
   timeOnPhoneLine,
+  withoutItem,
 } from "./brief-facts";
 import type { FactLedger } from "./claims";
 import { copyFault } from "./finalize";
 import { readsAsList } from "./footer-repeats";
-import { COPY_LIMITS } from "./schema";
+import { COPY_LIMITS, COPY_TARGETS } from "./schema";
+import { contentStems } from "./text-overlap";
 
 /**
  * Model writes, code verifies (Oluwaseyi's ruling, round 7).
@@ -28,8 +31,10 @@ import { COPY_LIMITS } from "./schema";
  * lists (round-6 critics). Now the model rewrites the subheadline and the
  * footer to carry what is missing, in its own sentences, and code checks
  * the result against the literal verifier (factStated) and the drawing
- * rules. The headline and the button are never rewritten here: they are
- * the idea and the ask.
+ * rules. The button is never rewritten here: it is the ask. The headline
+ * is the idea and moves only when it stands in the way of a fact
+ * (headlineInTheWay, round 8): then the model may write it again on the
+ * same idea so the subheadline need not repeat it.
  */
 
 export interface FactWriteRequest {
@@ -46,10 +51,18 @@ export interface FactWriteRequest {
    *  rewrites of one brief came back as the same sentence (round-7 eval,
    *  fitness and fintech). */
   others?: string[];
+  /** The other designs' own words, beyond the brief's: a rewrite that
+   *  borrows them reads as the other design (round-8 eval, conference:
+   *  a named speaker left off twice for "reads like the other design"). */
+  avoid?: string[];
+  /** The headline stands in the way of a fact (headlineInTheWay). */
+  headlineMayChange?: boolean;
 }
 
 export interface FactWrite {
   id: number;
+  /** Only for a request whose headline may change. */
+  headline?: string;
   subheadline: string;
   footerLines: string[];
 }
@@ -65,6 +78,7 @@ const schema = z.object({
     .array(
       z.object({
         id: z.number(),
+        headline: z.string().optional(),
         subheadline: z.string(),
         footerLines: z.array(z.string()),
       }),
@@ -78,12 +92,13 @@ export function buildFactWritePrompt({
   title,
 }: Parameters<FactWriter>[0]): string {
   return [
-    "You edit the copy of social media designs for a small business. Each design below leaves out something its brief says, or has a footer problem. Rewrite only its subheadline and its footer lines so it states everything listed, naturally, as a person would write it.",
+    "You edit the copy of social media designs for a small business. Each design below leaves out something its brief says, or has a footer problem. Rewrite its subheadline and its footer lines so it states everything listed, naturally, as a person would write it.",
     `The brief: ${briefText}`,
     title ? `Its title: ${title}` : null,
     [
       "Rules:",
-      "- Do not change the headline or the button. Return only the subheadline and the footer lines.",
+      '- Never change the button. Leave the headline as it is, unless the design says "headline may change".',
+      `- A design whose headline may change has a headline that already says part of a fact, so stating the fact below would repeat it. Return a "headline" for it only if that is so: the same idea in other words that either states the whole fact itself or no longer says any of it, keeping at least one of the headline's own words, at most ${COPY_TARGETS.headline.chars} characters, and not the other design's headline. Then the subheadline says nothing the new headline says.`,
       '- State every fact listed under "must state", in the brief\'s words or with every part of it in one place: a price with its currency, amount and unit together ("₦18,000 per split unit", never "₦18,000" alone); a count with its noun ("two senior React engineers", never "Two"); an offer, condition or requirement word for word as the brief writes it ("Free delivery to Lekki, Ajah and Ikoyi", "You need at least 2 years in a busy kitchen").',
       '- Keep every fact listed under "keep".',
       "- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is at most two sentences and 140 characters; never string clauses together with dashes, semicolons or full stops into a list. What does not fit that goes in the footer.",
@@ -92,7 +107,7 @@ export function buildFactWritePrompt({
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
       "- Never put a time or opening hours on the same footer line as a phone number.",
       "- No footer item repeats the headline, the subheadline, the button or another footer item, and the subheadline never says again a price, number, name or phrase the headline or button already says: leave that out of it.",
-      "- Use only what the brief says. Add no fact, claim or quality of your own.",
+      '- Use only what the brief says. Add no fact, claim or quality of your own, and no word of scarcity or urgency the brief does not use ("only", "just", "hurry", "last chance").',
     ].join("\n"),
     requests
       .map((r) =>
@@ -116,12 +131,16 @@ export function buildFactWritePrompt({
           r.others && r.others.length > 0
             ? `  the other design's subheadline, not to echo: ${r.others.map((o) => `"${o}"`).join(", ")}`
             : null,
+          r.avoid && r.avoid.length > 0
+            ? `  the other design's own words, not to use: ${r.avoid.map((w) => `"${w}"`).join(", ")}`
+            : null,
+          r.headlineMayChange ? "  headline may change" : null,
         ]
           .filter(Boolean)
           .join("\n"),
       )
       .join("\n\n"),
-    'Return "rewrites": one entry per design with its id, "subheadline" and "footerLines".',
+    'Return "rewrites": one entry per design with its id, "subheadline" and "footerLines", and "headline" only where it may change and you changed it.',
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -144,6 +163,7 @@ export const writeFacts: FactWriter = async (input) => {
         typeof r?.id === "number" &&
         asked.has(r.id) &&
         typeof r.subheadline === "string" &&
+        (r.headline === undefined || typeof r.headline === "string") &&
         Array.isArray(r.footerLines) &&
         r.footerLines.every((l: unknown) => typeof l === "string"),
     );
@@ -211,6 +231,33 @@ export function copyProblems(
   return problems;
 }
 
+/** Why a new headline cannot replace the old, or null when it can: it
+ *  may move only out of a fact's way, must clear the repeat it moved for,
+ *  keep the old one's idea (one of its words or numbers) and hold to every
+ *  rule copy does. The pair kept apart and the claim check are the
+ *  caller's. */
+export function headlineFault(
+  before: FactCopy,
+  after: FactCopy,
+  facts: readonly BriefFact[],
+  ledger: FactLedger,
+): string | null {
+  if (!headlineInTheWay(before, facts)) {
+    return "the headline may change only when the subheadline would repeat it";
+  }
+  const fault = copyFault(after.headline, COPY_LIMITS.headline, ledger);
+  if (fault) return `headline: ${fault}`;
+  const old = contentStems(before.headline);
+  if (![...contentStems(after.headline)].some((s) => old.has(s))) {
+    return "the new headline drops the headline's idea; keep at least one of its words";
+  }
+  if (readsAsList(after.headline)) return "the new headline reads as a list";
+  if (headlineInTheWay(after, facts)) {
+    return "the subheadline would still repeat the new headline";
+  }
+  return null;
+}
+
 /** Why a rewrite cannot be drawn, or null when it can. */
 export function rewriteFault(
   before: FactCopy,
@@ -218,6 +265,11 @@ export function rewriteFault(
   facts: readonly BriefFact[],
   ledger: FactLedger,
 ): string | null {
+  if (after.cta !== before.cta) return "the button changed";
+  if (after.headline !== before.headline) {
+    const fault = headlineFault(before, after, facts, ledger);
+    if (fault) return fault;
+  }
   const sub = after.subheadline?.trim() ?? "";
   if (sub) {
     const fault = copyFault(sub, COPY_LIMITS.subheadline, ledger);
@@ -280,16 +332,86 @@ export interface FactSettlement<T> {
   leftOff: { direction: number; fact: string; reason: string }[];
   /** Rewrites refused, and why; their reasons reach factsLeftOff. */
   refused: { direction: number; why: string }[];
+  /** Headlines the model moved out of a fact's way (headlineInTheWay). */
+  headlines: { direction: number; from: string; to: string }[];
   modelCalls: number;
+}
+
+/** The rewrite without the footer items that say again what its copy
+ *  above says. Code drops, never writes: the model put the fact above and
+ *  echoed it below (round-8 eval, retreat: "Reserve at stillwater.ng" under
+ *  a button giving it refused a rewrite that added three facts). */
+function withoutEchoes<T extends FactCopy>(copy: T): T {
+  return redundantFooterItems(copy).reduce(
+    (trimmed, item) => withoutItem(trimmed, item),
+    copy,
+  );
+}
+
+/** What of a rewrite to try, most of it first: the whole; the same with
+ *  its footer echoes dropped; then the parts the model got right under the
+ *  old headline, subheadline or footer. A new headline only ever comes with
+ *  the new subheadline it was written for. */
+function rewriteParts<T extends FactCopy>(before: T, after: T): T[] {
+  const oldFooter = {
+    footerLines: before.footerLines,
+    footerStyle: before.footerStyle,
+  };
+  const oldHeadline = { headline: before.headline };
+  const oldSubheadline = { subheadline: before.subheadline };
+  const parts = [
+    after,
+    withoutEchoes(after),
+    { ...after, ...oldHeadline },
+    withoutEchoes({ ...after, ...oldHeadline }),
+    { ...after, ...oldHeadline, ...oldSubheadline },
+    withoutEchoes({ ...after, ...oldHeadline, ...oldSubheadline }),
+    { ...after, ...oldFooter },
+    { ...after, ...oldHeadline, ...oldFooter },
+  ] as T[];
+  const seen = new Set<string>([copyKey(before)]);
+  return parts.filter((copy) => {
+    const key = copyKey(copy);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function copyKey(copy: FactCopy): string {
+  return JSON.stringify([
+    copy.headline,
+    copy.subheadline ?? "",
+    copy.footerLines,
+  ]);
+}
+
+/** The other designs' words this rewrite borrows. */
+function borrowed(copy: FactCopy, avoid: readonly string[]): string[] {
+  const own = contentStems(
+    [copy.headline, copy.subheadline, copy.cta].filter(Boolean).join(" "),
+  );
+  return avoid.filter((word) =>
+    [...contentStems(word)].some((s) => own.has(s)),
+  );
+}
+
+function readsLikeTheOther(words: readonly string[]): string {
+  return words.length > 0
+    ? `it reads like the other design (both say ${words
+        .map((w) => `"${w}"`)
+        .join(", ")}); keep this design's own idea in its own words`
+    : "it reads like the other design; keep this design's own idea";
 }
 
 /**
  * Asks the model to state what each direction leaves out and to fix its
  * footer, verifies every answer, and asks once more, with what went wrong,
  * for the directions still short. A rewrite is taken only when it draws,
- * loses no fact, fixes something, and passes the claim check; with the
- * claim check down nothing is taken (fail-closed). What is still missing
- * after that is left off and recorded, never patched in by code.
+ * loses no fact, fixes something, keeps the set apart beside every other
+ * rewrite taken with it, and passes the claim check; with the claim check
+ * down nothing is taken (fail-closed). What is still missing after that is
+ * left off and recorded, never patched in by code.
  */
 export async function settleFacts<T extends FactCopy>({
   directions,
@@ -300,6 +422,7 @@ export async function settleFacts<T extends FactCopy>({
   briefText,
   title,
   keepsApart = () => true,
+  wordsOfOthers = () => [],
 }: {
   directions: T[];
   facts: readonly BriefFact[];
@@ -313,6 +436,9 @@ export async function settleFacts<T extends FactCopy>({
   title: string;
   /** False when the set would read as one design twice. */
   keepsApart?: (directions: T[]) => boolean;
+  /** The words the other designs of the set say beyond the brief, which a
+   *  rewrite of direction `id` should not borrow. */
+  wordsOfOthers?: (directions: T[], id: number) => string[];
 }): Promise<FactSettlement<T>> {
   const out = [...directions];
   const refused: FactSettlement<T>["refused"] = [];
@@ -324,6 +450,7 @@ export async function settleFacts<T extends FactCopy>({
       const problems = copyProblems(copy);
       if (missing.length === 0 && problems.length === 0) return [];
       const why = feedback.get(id);
+      const avoid = wordsOfOthers(out, id);
       return [
         {
           id,
@@ -337,33 +464,49 @@ export async function settleFacts<T extends FactCopy>({
             .filter((_, j) => j !== id)
             .map((d) => d.subheadline ?? "")
             .filter(Boolean),
+          ...(avoid.length > 0 ? { avoid } : {}),
+          ...(headlineInTheWay(copy, facts) ? { headlineMayChange: true } : {}),
         },
       ];
     });
+  const setWith = (id: number, copy: T) =>
+    out.map((d, j) => (j === id ? copy : d));
+  const apartFault = (id: number, copy: T) =>
+    keepsApart(setWith(id, copy))
+      ? null
+      : readsLikeTheOther(borrowed(copy, wordsOfOthers(out, id)));
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const requests = needing();
     if (requests.length === 0) break;
     modelCalls += 1;
     const written = (await writer({ requests, briefText, title })) ?? [];
-    const candidates: { id: number; copy: T }[] = [];
+    /* `partly`: why the whole rewrite was not taken, when only part was;
+       the next ask says so (round-8 eval, pottery: three facts went
+       unasked-for after a partial take cleared the reason). */
+    const candidates: { id: number; copy: T; partly: string | null }[] = [];
     for (const request of requests) {
       const answer = written.find((w) => w.id === request.id);
       if (!answer) {
         feedback.set(request.id, "no rewrite came back");
         continue;
       }
+      const before = out[request.id];
       /* An empty answer keeps the subheadline: the model was asked to
          rewrite it, not to delete it (round-7 code critic, W7). */
       const subheadline =
         answer.subheadline.replace(/\s+/g, " ").trim() ||
-        (out[request.id].subheadline ?? "");
+        (before.subheadline ?? "");
+      const headline =
+        (request.headlineMayChange &&
+          answer.headline?.replace(/\s+/g, " ").trim()) ||
+        before.headline;
       const footerLines = answer.footerLines
         .map((l) => l.replace(/\s+/g, " ").trim())
         .filter(Boolean);
-      const before = out[request.id];
       const { subheadline: _old, ...rest } = before;
       const after = {
         ...rest,
+        headline,
         ...(subheadline ? { subheadline } : {}),
         footerLines,
         footerStyle:
@@ -375,34 +518,31 @@ export async function settleFacts<T extends FactCopy>({
       } as T;
       const faultOf = (copy: T) =>
         rewriteFault(before, copy, facts, ledger) ??
-        (keepsApart(out.map((d, j) => (j === request.id ? copy : d)))
-          ? null
-          : "it reads like the other design; keep this design's own idea");
-      /* The whole rewrite first; failing that, its footer under the old
-         subheadline, or its subheadline over the old footer: the half the
-         model got right is taken, the other half asked for again. */
-      const halves = [
-        after,
-        { ...after, subheadline: before.subheadline } as T,
-        {
-          ...after,
-          footerLines: before.footerLines,
-          footerStyle: before.footerStyle,
-        } as T,
-      ];
+        apartFault(request.id, copy);
       const fault = faultOf(after);
-      const taken = halves.find((copy) => faultOf(copy) === null);
+      const taken = rewriteParts(before, after).find(
+        (copy) => faultOf(copy) === null,
+      );
       if (!taken) {
         const why = fault ?? "it states nothing more";
         feedback.set(request.id, why);
         refused.push({ direction: request.id, why });
         continue;
       }
-      if (fault) feedback.set(request.id, fault);
-      candidates.push({ id: request.id, copy: taken });
+      candidates.push({ id: request.id, copy: taken, partly: fault });
     }
     if (candidates.length === 0) continue;
     const fields = candidates.flatMap(({ id, copy }) => [
+      ...(copy.headline !== out[id].headline
+        ? [
+            {
+              id: `${id}.headline`,
+              field: "headline",
+              text: copy.headline,
+              limit: COPY_LIMITS.headline,
+            },
+          ]
+        : []),
       ...(copy.subheadline && copy.subheadline !== directions[id].subheadline
         ? [
             {
@@ -424,8 +564,12 @@ export async function settleFacts<T extends FactCopy>({
     ]);
     modelCalls += fields.length > 0 ? 1 : 0;
     const flagged = fields.length > 0 ? await claimCheck(fields) : [];
-    for (const { id, copy } of candidates) {
+    for (const { id, copy, partly } of candidates) {
       const claims = (flagged ?? []).filter((f) => f.id.startsWith(`${id}.`));
+      /* Each rewrite was held apart from the set as it stood; two taken in
+         one round must also hold apart from each other (round-8 eval,
+         fitness: both subheadlines came back as "Join our HIIT class ...",
+         each fine beside the other's old copy). */
       const why =
         flagged === null
           ? "the claim check could not be read"
@@ -433,14 +577,15 @@ export async function settleFacts<T extends FactCopy>({
             ? `the claim check found what the brief does not say: ${claims
                 .map((c) => `"${c.statement ?? "a claim"}"`)
                 .join(", ")}`
-            : null;
+            : apartFault(id, copy);
       if (why) {
         feedback.set(id, why);
         refused.push({ direction: id, why });
         continue;
       }
       out[id] = copy;
-      feedback.delete(id);
+      if (partly) feedback.set(id, partly);
+      else feedback.delete(id);
     }
   }
   const added = out.flatMap((copy, direction) =>
@@ -461,5 +606,16 @@ export async function settleFacts<T extends FactCopy>({
           : "the model did not state it",
       })),
   );
-  return { directions: out, added, leftOff, refused, modelCalls };
+  const headlines = out.flatMap((copy, direction) =>
+    copy.headline !== directions[direction].headline
+      ? [
+          {
+            direction,
+            from: directions[direction].headline,
+            to: copy.headline,
+          },
+        ]
+      : [],
+  );
+  return { directions: out, added, leftOff, refused, headlines, modelCalls };
 }
