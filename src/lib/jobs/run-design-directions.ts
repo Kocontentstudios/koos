@@ -1019,6 +1019,9 @@ export async function generateDirectionsWork(
       briefFactsByDirection: factsByDirection,
       factsAdded: brief.factCoverage.added.length,
       factHeadlinesRewritten: brief.factCoverage.headlinesRewritten.length,
+      /* Round-8d outcome: repeats, fragments and footer echoes the fact
+         writer could not clear after its targeted asks. */
+      factDefectsLeft: brief.factCoverage.defectsLeft.length,
       factsLeftOff: factsLost,
       productSources: brief.productSources,
       /* Round-4 outcomes: what the claim check read, and how many times

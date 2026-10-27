@@ -3,7 +3,7 @@ import {
   findPhoneNumbersInText,
 } from "libphonenumber-js/max";
 import { calendarNames, looksCutOff, NUMBER_WORDS } from "./claims";
-import { contentStems, stem } from "./text-overlap";
+import { contentStems, distinctiveWords, stem } from "./text-overlap";
 
 /**
  * The hard facts a brief states, and whether a design states them.
@@ -1478,6 +1478,10 @@ export interface FactCoverage {
   /** Every fact-writer rewrite refused, and why, including those that only
    *  fixed a repeat and so leave no fact off. */
   rewritesRefused: { direction: number; why: string }[];
+  /** Faults besides missing facts left in the delivered copy after every
+   *  ask (fact-writer.ts copyProblems), so the gate's failures trace to a
+   *  job. Empty when the writer cleared them all. */
+  defectsLeft: { direction: number; problem: string }[];
 }
 
 /**
@@ -1641,46 +1645,59 @@ export function aboveRepeats(
   return aboveRepeatsBy(copy).map((r) => r.repeat);
 }
 
-/** aboveRepeats, with the field the subheadline repeats. */
+/** aboveRepeats, with the field the subheadline repeats and that field's
+ *  own words the subheadline says again, as written there. */
 export function aboveRepeatsBy(
   copy: Pick<FactCopy, "headline" | "subheadline" | "cta">,
-): { field: "headline" | "button"; repeat: string }[] {
+): { field: "headline" | "button"; repeat: string; words: string[] }[] {
   const sub = copy.subheadline?.trim();
   if (!sub) return [];
-  const found: { field: "headline" | "button"; repeat: string }[] = [];
+  const found: {
+    field: "headline" | "button";
+    repeat: string;
+    words: string[];
+  }[] = [];
   for (const [name, field] of [
     ["headline", copy.headline],
     ["button", copy.cta],
   ] as const) {
     if (!field?.trim()) continue;
-    const money = [...moneyOf(field)].filter((m) => moneyOf(sub).has(m));
+    const subMoney = moneyOf(sub);
+    const money = [...field.matchAll(MONEY)]
+      .filter((m) => [...moneyOf(m[0])].some((v) => subMoney.has(v)))
+      .map((m) => m[0].trim());
     if (money.length > 0) {
       found.push({
         field: name,
         repeat: `the subheadline repeats the ${name}'s price`,
+        words: money,
       });
       continue;
     }
     /* "one" and "two" are words more than counts ("for two", "One box"). */
-    const numbers = numbersInPlace(field)
-      .map((n) => n.value)
-      .filter((v) => v !== "1" && v !== "2");
     const subNumbers = new Set(numbersInPlace(sub).map((n) => n.value));
-    if (numbers.some((v) => subNumbers.has(v))) {
+    const numbers = numbersInPlace(field).filter(
+      (n) => n.value !== "1" && n.value !== "2" && subNumbers.has(n.value),
+    );
+    if (numbers.length > 0) {
       found.push({
         field: name,
         repeat: `the subheadline repeats a number from the ${name}`,
+        words: [...new Set(numbers.map((n) => n.value))],
       });
       continue;
     }
     if (name !== "headline") continue;
     const words = [...contentStems(field)].filter((s) => !FILLER.has(s));
     const subWords = contentStems(sub);
-    const shared = words.filter((w) => subWords.has(w)).length;
-    if (words.length >= 2 && shared * 3 >= words.length * 2) {
+    const shared = words.filter((w) => subWords.has(w));
+    if (words.length >= 2 && shared.length * 3 >= words.length * 2) {
       found.push({
         field: name,
         repeat: "the subheadline says the headline again",
+        words: distinctiveWords(field).filter((word) =>
+          [...contentStems(word)].some((s) => shared.includes(s)),
+        ),
       });
     }
   }
@@ -1688,12 +1705,16 @@ export function aboveRepeatsBy(
 }
 
 /**
- * The headline stands in the way of a fact: the subheadline repeats it
- * now, or stating a fact the copy leaves out, whole, would repeat it.
- * Round-8 eval: "Senior React Engineers Wanted" over a brief needing "two
- * senior React engineers", "₦6,000 buys you one espresso flight" over
- * "three shots for ₦6,000". The only case in which the fact writer may
- * move the headline.
+ * The headline stands in the way of a fact: a fact the copy leaves out,
+ * stated whole, would repeat it, or the facts the subheadline states and
+ * the headline does not, together, repeat it. Round-8 eval: "Senior React
+ * Engineers Wanted" over a brief needing "two senior React engineers",
+ * "₦6,000 buys you one espresso flight" over "three shots for ₦6,000". The
+ * only case in which the fact writer may move the headline. A subheadline
+ * that repeats a headline which already states its fact ("Strawberry
+ * Mille-Feuille" over "our strawberry mille-feuille is ₦4,500 a slice")
+ * is the subheadline's fault, not the headline's (round-8c eval: told the
+ * headline may change, the writer moved it four times, all refused).
  */
 export function headlineInTheWay(
   copy: Pick<FactCopy, "headline" | "subheadline" | "cta" | "footerLines">,
@@ -1703,7 +1724,18 @@ export function headlineInTheWay(
     aboveRepeatsBy({ headline: copy.headline, subheadline }).some(
       (r) => r.field === "headline",
     );
-  if (copy.subheadline && repeatsHeadline(copy.subheadline)) return true;
+  const sub = copy.subheadline?.trim();
+  if (sub && repeatsHeadline(sub)) {
+    const carried = facts.filter(
+      (f) => factStated(f, sub) && !factStated(f, copy.headline),
+    );
+    if (
+      carried.length > 0 &&
+      repeatsHeadline(carried.map((f) => f.text).join(". "))
+    ) {
+      return true;
+    }
+  }
   return facts.some(
     (fact) => !factStated(fact, copy) && repeatsHeadline(fact.text),
   );

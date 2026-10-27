@@ -42,7 +42,12 @@ import {
   spatialClaim,
 } from "./claims";
 import type { ConceptLens } from "./concepts";
-import { type FactWriter, settleFacts, writeFacts } from "./fact-writer";
+import {
+  copyProblems,
+  type FactWriter,
+  settleFacts,
+  writeFacts,
+} from "./fact-writer";
 import {
   copyFault,
   correctionCheck,
@@ -1170,6 +1175,9 @@ export async function draftDirections({
     ),
     repeatsDropped: deduped.dropped + final.dropped,
     rewritesRefused: written.refused,
+    defectsLeft: drawnIn.flatMap((d, i) =>
+      copyProblems(d).map((problem) => ({ direction: i, problem })),
+    ),
     headlinesRewritten: written.headlines.filter(
       ({ direction, to }) => drawnIn[direction].headline === to,
     ),

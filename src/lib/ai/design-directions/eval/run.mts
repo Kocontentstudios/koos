@@ -1050,6 +1050,11 @@ for (const caseAsWritten of cases) {
         `   rewrites refused ${JSON.stringify(result.factCoverage.rewritesRefused)}`,
       );
     }
+    if (result.factCoverage.defectsLeft.length > 0) {
+      console.log(
+        `   defects left after every ask ${JSON.stringify(result.factCoverage.defectsLeft)}`,
+      );
+    }
     if (result.factCoverage.headlinesRewritten.length > 0) {
       console.log(
         `   headlines moved out of a fact's way ${JSON.stringify(result.factCoverage.headlinesRewritten)}`,
