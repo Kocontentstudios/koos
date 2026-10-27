@@ -4,8 +4,9 @@
  * Off by default (Oluwaseyi's ruling, round 8): KO plates for services,
  * events and briefs with no product kept shipping objects and run-down
  * scenes, so PR 1 ships directions on the client's own photo or laid out as
- * text, and KO imagery waits for its follow-up. Read here and nowhere else;
- * the design studio page passes the value to the client as `koImagery`.
+ * text, and KO imagery waits for its follow-up. Read here and nowhere else.
+ * No client surface offers KO imagery yet; the directions dialog reads it
+ * from the server when it lands.
  */
 export function koImageryEnabled(
   env: Record<string, string | undefined> = process.env,

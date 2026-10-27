@@ -1,7 +1,8 @@
--- FEAT-033 round 8: a two-direction job with no image ({ source: "none" },
--- and every request while FEATURE_KO_IMAGERY is off and no photo is chosen)
--- records image_source = 'none'. 0037's CHECK allowed only 'upload' and 'ko',
--- so every such row failed to insert. The constraint is replaced, not
+-- FEAT-033 round 8: a directions job asked for no image ({ source: "none" },
+-- the text-led choice and PR 1's default while FEATURE_KO_IMAGERY is off)
+-- records image_source = 'none'. A request with no image field takes the
+-- variant path and records NULL, as before. 0037's CHECK allowed only
+-- 'upload' and 'ko', so every 'none' row failed to insert. The constraint is replaced, not
 -- relaxed: the three values the drizzle schema names, nothing else.
 ALTER TABLE "design_generations" DROP CONSTRAINT IF EXISTS "design_generations_image_source_check";
 --> statement-breakpoint

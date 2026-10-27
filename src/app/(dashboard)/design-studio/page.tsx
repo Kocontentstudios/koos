@@ -4,7 +4,6 @@ import {
   getActiveBrandForMember,
   listDesignGenerationsForBrand,
 } from "@/lib/db/queries";
-import { koImageryEnabled } from "@/lib/design/ko-imagery-flag";
 import { serializeGeneration } from "@/lib/design/serialize";
 import { DesignStudioClient } from "./design-studio-client";
 
@@ -25,7 +24,6 @@ export default async function DesignStudioPage() {
       brandId={brand?.id ?? null}
       brandName={brand?.name ?? null}
       initialGenerations={generations.filter((g) => g.status === "succeeded")}
-      koImagery={koImageryEnabled()}
     />
   );
 }
