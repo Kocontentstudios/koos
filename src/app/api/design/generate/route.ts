@@ -12,6 +12,10 @@ import {
 import { type AttachmentRef, isAttachmentType } from "@/lib/design/attachments";
 import { DesignContextError, resolveDesignContext } from "@/lib/design/context";
 import { readRationale } from "@/lib/design/direction-rationale";
+import {
+  KoImageryDisabledError,
+  koImageryEnabled,
+} from "@/lib/design/ko-imagery-flag";
 import { checkDesignQuota, quotaExceeded } from "@/lib/design/quota";
 import type { DirectionsImage } from "@/lib/jobs/run-design-directions";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
@@ -61,6 +65,7 @@ function parseImage(value: unknown): DirectionsImage | undefined | null {
   if (typeof value !== "object") return null;
   const { source, key } = value as Record<string, unknown>;
   if (source === "ko") return { source: "ko" };
+  if (source === "none") return { source: "none" };
   if (source === "upload" && typeof key === "string" && key.length <= 512) {
     return { source: "upload", key };
   }
@@ -196,7 +201,22 @@ export async function POST(req: Request) {
   /* Fail before creating a job rather than leaving a job row that can only
      fail. An uploaded image needs no image model, so only the other paths
      need a provider. */
-  if (image?.source !== "upload" && resolveDesignProviders().length === 0) {
+  /* KO imagery is behind FEATURE_KO_IMAGERY (round 8): refused before any
+     job, row or model call. */
+  if (image?.source === "ko" && !koImageryEnabled()) {
+    return Response.json(
+      {
+        error: new KoImageryDisabledError().message,
+        code: "ko_imagery_disabled",
+      },
+      { status: 403 },
+    );
+  }
+  if (
+    image?.source !== "upload" &&
+    image?.source !== "none" &&
+    resolveDesignProviders().length === 0
+  ) {
     return Response.json(
       { error: "Image generation is not configured." },
       { status: 503 },

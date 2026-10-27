@@ -5,6 +5,10 @@
    guardRender does. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The KO path runs behind FEATURE_KO_IMAGERY (round 8); its tests run with
+   the flag on. */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 const generateObject = vi.fn();
 const getPlateAdapter = vi.fn();
 const createDesignGeneration = vi.fn();
@@ -811,5 +815,40 @@ describe("an upload that fits one layout", () => {
     const { TEXT_LED_LAYOUTS } = await import("./directions/subject-layout");
     const textLed = ["row-1", "row-2"][withPhoto.indexOf(false)];
     expect(TEXT_LED_LAYOUTS).toContain(delivered(textLed)?.spec.layout);
+  });
+});
+
+describe("KO imagery behind FEATURE_KO_IMAGERY (round 8)", () => {
+  it("refuses a KO request with the flag off: no rows, no image calls", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await expect(run({ image: { source: "ko" } })).rejects.toThrow(
+        /KO-generated images are not available yet/,
+      );
+      expect(createDesignGeneration).not.toHaveBeenCalled();
+      expect(plateModel.generate).not.toHaveBeenCalled();
+      expect(generateObject).not.toHaveBeenCalled();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  it("lays out a no-photo request as text, with no image calls", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await run({ image: { source: "none" } });
+      expect(plateModel.generate).not.toHaveBeenCalled();
+      const { TEXT_LED_LAYOUTS } = await import("./directions/subject-layout");
+      for (const id of ["row-1", "row-2"]) {
+        const doc = delivered(id)?.document as {
+          elements: { type: string }[];
+        };
+        expect(doc.elements.some((e) => e.type === "image")).toBe(false);
+        expect(TEXT_LED_LAYOUTS).toContain(delivered(id)?.spec.layout);
+      }
+      expect(usage().imageCalls).toBe(0);
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
   });
 });

@@ -691,7 +691,7 @@ export const designGenerations = pgTable(
     /** A direction's name and "why this works" list: { title, reasons }, plus
      *  the set and slot that pair it with its sibling for regeneration. */
     rationale: jsonb("rationale"),
-    imageSource: text("image_source", { enum: ["upload", "ko"] }),
+    imageSource: text("image_source", { enum: ["upload", "ko", "none"] }),
     /** The user's upload this design was built around, when it was. */
     sourceImageKey: text("source_image_key"),
     createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -20,7 +20,7 @@ import type { BrandSummary } from "./strategy";
  * layout memory) applies here too.
  */
 
-export type DirectionsImageSource = "upload" | "ko";
+export type DirectionsImageSource = "upload" | "ko" | "none";
 
 /** A direction that already exists and the new one must not echo. */
 export interface ExistingDirection {
@@ -70,6 +70,12 @@ export function buildDirectionsSystemPrompt(
 }
 
 function imageBlock(source: DirectionsImageSource, attached: boolean): string {
+  if (source === "none") {
+    return [
+      "Imagery: there is no image. Every direction is laid out as text: type, colour and space carry it, in a text-led layout (hero-center, stat-highlight or quote-card).",
+      'Set "backgroundPrompt" to a one-line description of the colour ground and "backgroundTreatment" to "solid" or "gradient".',
+    ].join(" ");
+  }
   if (source === "upload") {
     return [
       "Imagery: the client supplied their own photograph, and every direction is built around it. It fills the image area of whichever layout you choose; no image will be generated.",

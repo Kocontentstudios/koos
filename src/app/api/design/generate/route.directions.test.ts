@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The KO path runs behind FEATURE_KO_IMAGERY (round 8); its tests run with
+   the flag on. */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 /* The FEAT-033 request fields. Kept apart from route.test.ts so that file,
    which pins the behaviour every existing caller relies on, stays exactly as
    it was. */
@@ -123,6 +127,28 @@ describe("design generate route, image choice", () => {
     expect((await post({ image: { source: "ko" } })).status).toBe(202);
     expect(generateDesignWork.mock.calls[0][0].directions.image).toEqual({
       source: "ko",
+    });
+  });
+
+  /* Oluwaseyi's ruling, round 8: KO imagery is behind FEATURE_KO_IMAGERY,
+     default off. */
+  it("refuses KO imagery with the flag off, before any job", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      const res = await post({ image: { source: "ko" } });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "ko_imagery_disabled" });
+      expect(createGenerationJob).not.toHaveBeenCalled();
+      expect(generateDesignWork).not.toHaveBeenCalled();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  it("passes a no-photo, text-led choice through without an image model", async () => {
+    expect((await post({ image: { source: "none" } })).status).toBe(202);
+    expect(generateDesignWork.mock.calls[0][0].directions.image).toEqual({
+      source: "none",
     });
   });
 

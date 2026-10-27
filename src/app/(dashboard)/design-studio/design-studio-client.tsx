@@ -26,6 +26,10 @@ interface DesignStudioClientProps {
   brandId: string | null;
   brandName: string | null;
   initialGenerations: SerializedGeneration[];
+  /** FEATURE_KO_IMAGERY, from the server (src/lib/design/ko-imagery-flag.ts):
+   *  false hides the KO-images choice; the directions dialog wires it in at
+   *  integration. */
+  koImagery?: boolean;
 }
 
 export function DesignStudioClient({

@@ -53,8 +53,10 @@ export async function notifyImageLeftOff({
   of: number;
   subject: string;
   /** "unavailable": the image model returned nothing usable, so no plate
-   *  was judged. "rejected": plates were painted and turned down. */
-  cause?: "rejected" | "unavailable";
+   *  was judged. "rejected": plates were painted and turned down.
+   *  "photo": the client's photo fits only the layout its sibling shows it
+   *  in, so this direction is laid out as text (round 8). */
+  cause?: "rejected" | "unavailable" | "photo";
 }) {
   const which =
     of === 1
@@ -62,6 +64,13 @@ export async function notifyImageLeftOff({
       : directions === of
         ? "Both directions were"
         : "One direction was";
+  if (cause === "photo") {
+    await notifyAssetFault(
+      userId,
+      `${which} laid out with words only: your photo fits only the layout the other direction shows it in. Regenerate it for another layout, or upload a photo with more room around the subject.`,
+    );
+    return;
+  }
   const why =
     cause === "unavailable"
       ? "KO's image service didn't return an image just now, so none could be used"

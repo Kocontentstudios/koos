@@ -5,6 +5,10 @@
    guardRender does, refusals included. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The KO path runs behind FEATURE_KO_IMAGERY (round 8); its tests run with
+   the flag on. */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 const generateObject = vi.fn();
 const getPlateAdapter = vi.fn();
 const createDesignGeneration = vi.fn();

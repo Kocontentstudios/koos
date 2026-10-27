@@ -27,6 +27,10 @@ import {
   type SubjectBox,
   subjectFromAlpha,
 } from "@/lib/design/document/subject";
+import {
+  KoImageryDisabledError,
+  koImageryEnabled,
+} from "@/lib/design/ko-imagery-flag";
 import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { lookAtPhoto, type PhotoLook } from "@/lib/design/quality/plate-check";
@@ -87,7 +91,10 @@ import type { JobRuntime } from "./run-generation";
 
 export type DirectionsImage =
   | { source: "upload"; key: string }
-  | { source: "ko" };
+  | { source: "ko" }
+  /* No photo: every direction is laid out as text (round 8, with KO
+     imagery behind FEATURE_KO_IMAGERY). */
+  | { source: "none" };
 
 export interface DirectionsRequest {
   image: DirectionsImage;
@@ -258,6 +265,10 @@ export async function generateDirectionsWork(
 ): Promise<{ resultId?: string; result: unknown }> {
   const brandId = context.brand.id;
   const source: DirectionsImageSource = request.image.source;
+  /* Refused before any row, model call or image call. */
+  if (source === "ko" && !koImageryEnabled()) {
+    throw new KoImageryDisabledError();
+  }
   const regenerating = Boolean(request.regenerateOf);
   const count = regenerating ? 1 : 2;
   const stage = createStageReporter(runtime.reportProgress, count);
@@ -359,6 +370,9 @@ export async function generateDirectionsWork(
         descriptions[i] = photoLook.description;
       }
     }
+  } else if (source === "none") {
+    images = settled.map(() => null);
+    imageStates = settled.map((): ImageState => "none");
   } else {
     let painted = 0;
     stage("imagery", 0, "Creating imagery…");
@@ -791,7 +805,7 @@ export async function generateDirectionsWork(
         checks: brief.checks,
         product: direction.productName,
         image: assets.image ? imageStates[i] : "none",
-        paintedScene: upload ? undefined : direction.backgroundPrompt,
+        paintedScene: source === "ko" ? direction.backgroundPrompt : undefined,
         imageDescription: assets.image ? descriptions[i] : undefined,
         /* Measured against the whole subject or not at all: a reason
            that the product is drawn whole must not rest on a face box. */
@@ -879,6 +893,21 @@ export async function generateDirectionsWork(
       of: count,
       subject: brief.directions.find((d) => d.productName)?.productName ?? "",
       cause: imageModelDown === textLed ? "unavailable" : "rejected",
+    });
+  }
+  /* An upload direction laid out as text because its photo fits only the
+     layout its sibling shows it in: counted and told, like a KO one (round-7
+     code critic: the two-directions path was untraced). */
+  const textLedUpload = rows.filter(
+    (row, i) => upload && !images[i] && succeeded.includes(row.id),
+  ).length;
+  if (textLedUpload > 0) {
+    await notifyImageLeftOff({
+      userId,
+      directions: textLedUpload,
+      of: count,
+      subject: "",
+      cause: "photo",
     });
   }
   const leftOff = settled.find((s) => s.logoFree);
@@ -1004,6 +1033,7 @@ export async function generateDirectionsWork(
          above in other words, and which code dropped. */
       footerParaphrases: brief.footerRepeats,
       textLed,
+      textLedUpload,
       textLedImageModelDown: imageModelDown,
       subjectUnknown: layoutChoices.filter((choice) =>
         choice?.faults.includes(SUBJECT_UNKNOWN),
@@ -1030,6 +1060,7 @@ export async function generateDirectionsWork(
       plates_rejected: platesRejected.filter((n) => n > 0).length,
       plates_failed: plateChecks.filter((c) => c.startsWith("failed")).length,
       text_led: textLed,
+      text_led_upload: textLedUpload,
       text_led_image_model_down: imageModelDown,
     },
   });

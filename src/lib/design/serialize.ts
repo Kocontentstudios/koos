@@ -22,7 +22,7 @@ export interface SerializedGeneration {
   createdAt: string;
   /** A direction's name and "why this works" list; null on variant rows. */
   direction: { title: string; reasons: string[] } | null;
-  imageSource: "upload" | "ko" | null;
+  imageSource: "upload" | "ko" | "none" | null;
   /** Whether a layer document exists to edit. Old rows have none. */
   editable: boolean;
 }

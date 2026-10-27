@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+/* The KO path runs behind FEATURE_KO_IMAGERY (round 8); its tests run with
+   the flag on. */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 /**
  * The directions job end to end against the local Postgres: real context
  * resolution, real rows, real document building and satori rendering, real
