@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel } from "@/lib/ai/provider";
 import {
+  aboveRepeats,
   type BriefFact,
   detailHeldElsewhere,
   droppedSafely,
@@ -279,6 +280,17 @@ export async function settleMarkedRepeats<T extends FactCopy>(
     const fits = to.length > 0 && to.length <= LIMITS[field] && to !== from;
     if (fits && readsAsList(to)) {
       outcomes.push({ ...outcome, kept: "the merged field reads as a list" });
+      continue;
+    }
+    /* Every fact once above the footer too: a footer item that repeats the
+       headline merged into the subheadline only moves the repeat up
+       (round-8 eval at 5011429, valentine: "Pre-orders close 12 February"
+       merged under "Made for two. Pre-orders close 12 Feb."). */
+    if (fits && aboveRepeats(trial).length > aboveRepeats(current).length) {
+      outcomes.push({
+        ...outcome,
+        kept: "the merged field would repeat the headline or button",
+      });
       continue;
     }
     if (

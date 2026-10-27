@@ -376,6 +376,13 @@ The 653f975 runs failed `aboveRepeats` (1 in each), `peopleNamedShare`
   by 30 November." under a button saying it). Every rewrite the writer had
   refused is in the log (`rewrites refused`) and in
   `factCoverage.rewritesRefused`.
+- A footer merge that would make the subheadline repeat the headline or
+  button is refused and the item stays (valentine-box-upload at 5011429:
+  "Pre-orders close 12 February" merged under "Made for two. Pre-orders
+  close 12 Feb."). A refused headline says which fact it still stands in
+  the way of, and the writer aims the subheadline at about 100 characters
+  (masterclass-ko at 5011429: every rewrite of a no-subheadline direction
+  came back at 145 to 155 characters).
 
 ### Grounding
 

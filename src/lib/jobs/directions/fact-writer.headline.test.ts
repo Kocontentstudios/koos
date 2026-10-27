@@ -207,7 +207,20 @@ describe("the fact writer moves a headline only out of a fact's way", () => {
         hiringFacts,
         factLedger([hiring]),
       ),
-    ).toMatch(/still repeat/);
+    ).toMatch(/still says what the new headline says/);
+  });
+
+  it("names the fact a new headline still stands in the way of", () => {
+    expect(
+      headlineFault(
+        wanted,
+        { ...wanted, headline: "Senior React Engineers, Remote" },
+        hiringFacts,
+        factLedger([hiring]),
+      ),
+    ).toMatch(
+      /"two senior React engineers" is still not stated and saying it below would repeat the new headline/,
+    );
   });
 
   it("refuses a new headline over its limit", () => {

@@ -101,7 +101,7 @@ export function buildFactWritePrompt({
       `- A design whose headline may change has a headline that already says part of a fact, so stating the fact below would repeat it. Return a "headline" for it only if that is so: the same idea in other words that either states the whole fact itself or no longer says any of it, keeping at least one of the headline's own words, at most ${COPY_TARGETS.headline.chars} characters, and not the other design's headline. Then the subheadline says nothing the new headline says.`,
       '- State every fact listed under "must state", in the brief\'s words or with every part of it in one place: a price with its currency, amount and unit together ("₦18,000 per split unit", never "₦18,000" alone); a count with its noun ("two senior React engineers", never "Two"); an offer, condition or requirement word for word as the brief writes it ("Free delivery to Lekki, Ajah and Ikoyi", "You need at least 2 years in a busy kitchen").',
       '- Keep every fact listed under "keep".',
-      "- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is at most two sentences and 140 characters; never string clauses together with dashes, semicolons or full stops into a list. What does not fit that goes in the footer.",
+      `- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is at most two sentences, about ${COPY_TARGETS.subheadline.chars} characters and never over ${COPY_LIMITS.subheadline}; never string clauses together with dashes, semicolons or full stops into a list. What does not fit that goes in the footer.`,
       "- Keep each design's own idea: its subheadline must not repeat or reorder another design's.",
       `- The footer is at most ${MAX_FOOTER_LINES} lines of at most 60 characters; items on one line are joined by " · ".`,
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
@@ -252,10 +252,21 @@ export function headlineFault(
     return "the new headline drops the headline's idea; keep at least one of its words";
   }
   if (readsAsList(after.headline)) return "the new headline reads as a list";
-  if (headlineInTheWay(after, facts)) {
-    return "the subheadline would still repeat the new headline";
-  }
-  return null;
+  return stillInTheWay(after, facts);
+}
+
+/** What of the copy the new headline still stands in the way of, in words
+ *  the next ask can act on, or null. */
+function stillInTheWay(after: FactCopy, facts: readonly BriefFact[]) {
+  if (!headlineInTheWay(after, facts)) return null;
+  const blocked = facts.find(
+    (f) =>
+      !factStated(f, after) &&
+      headlineInTheWay({ ...after, subheadline: undefined }, [f]),
+  );
+  return blocked
+    ? `"${blocked.text}" is still not stated and saying it below would repeat the new headline; state it whole in the headline, or keep the headline off it`
+    : "the subheadline still says what the new headline says; leave that out of the subheadline";
 }
 
 /** Why a rewrite cannot be drawn, or null when it can. */

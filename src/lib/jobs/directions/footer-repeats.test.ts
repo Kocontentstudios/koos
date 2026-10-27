@@ -373,6 +373,39 @@ describe("a subheadline merge", () => {
     expect(holds).not.toHaveBeenCalled();
   });
 
+  /* Round-8 eval at 5011429, valentine-box-upload: a footer item saying
+     the headline's deadline was merged into the subheadline under it. */
+  it("is refused when it makes the subheadline repeat the headline", async () => {
+    const deadline = {
+      headline: "Made for two. Pre-orders close 12 Feb.",
+      subheadline: "A dessert box with a handwritten card.",
+      footerLines: ["Pre-orders close 12 February"],
+      footerStyle: "text" as const,
+    };
+    const holds = vi.fn(async () => true);
+    const { directions, outcomes } = await settleMarkedRepeats(
+      [deadline],
+      [
+        {
+          id: "0.0",
+          repeats: "the deadline in the headline",
+          field: "subheadline",
+          rewrite:
+            "A dessert box with a handwritten card. Pre-orders close 12 February.",
+        },
+      ],
+      settleBriefFacts(
+        [{ kind: "condition", text: "Pre-orders close 12 February" }],
+        "Valentine's dessert box for two. Pre-orders close 12 February.",
+        { region: "NG" },
+      ).facts,
+      holds,
+    );
+    expect(directions[0]).toEqual(deadline);
+    expect(outcomes[0].kept).toMatch(/would repeat the headline or button/);
+    expect(holds).not.toHaveBeenCalled();
+  });
+
   it("is refused when it leaves two directions near-duplicates", async () => {
     const { outcomes } = await settleMarkedRepeats(
       [direction],
