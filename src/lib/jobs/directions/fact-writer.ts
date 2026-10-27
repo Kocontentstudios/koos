@@ -264,7 +264,7 @@ export interface FactSettlement<T> {
   added: { direction: number; fact: string }[];
   /** Facts still left out, and why. */
   leftOff: { direction: number; fact: string; reason: string }[];
-  /** Rewrites refused, and why, for the usage row. */
+  /** Rewrites refused, and why; their reasons reach factsLeftOff. */
   refused: { direction: number; why: string }[];
   modelCalls: number;
 }
