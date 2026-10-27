@@ -424,7 +424,9 @@ its place name with the venue noun or the brand's name
 (`withVenueOrBrand`, used by the job and by the eval's labels alike): "Brew
 Lab, Yaba" and "Yaba bar" state it, "in Surulere and Yaba" does not, "our"
 never has to appear, and an address still needs its number and street
-name.
+name. From round 9 the brand stands in only for a possessive "our/my
+<Place> <noun>", never for a landmark noun: "Brew Lab, Lekki" does not
+state "Lekki toll gate", nor "Brew Lab in Yaba" "Yaba market".
 
 A headline move may not assert what the old headline asked or hedged
 (`assertsWhatWasAsked`, round 8c): when the old one ends in "?" or hedges
