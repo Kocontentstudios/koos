@@ -416,6 +416,14 @@ Lab, Yaba" and "Yaba bar" state it, "in Surulere and Yaba" does not, "our"
 never has to appear, and an address still needs its number and street
 name.
 
+A headline move may not assert what the old headline asked or hedged
+(`assertsWhatWasAsked`, round 8c): when the old one ends in "?" or hedges
+("could", "might", "maybe", "perhaps"), the new one must too, unless every
+content word of it is in the brief, the brand profile or the rest of the
+old copy. conference-ko at 33090f8 moved "Can design beat the heat?" to
+"Design that beats the heat", which the judge flagged as invented. Every
+refusal, whole or in part, is in `factCoverage.rewritesRefused`.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

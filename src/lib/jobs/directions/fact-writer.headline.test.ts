@@ -9,8 +9,13 @@ const { aboveRepeats, headlineInTheWay } = await import("./brief-facts");
 type BriefFact = import("./brief-facts").BriefFact;
 type FactCopy = import("./brief-facts").FactCopy;
 const { factLedger } = await import("./claims");
-const { buildFactWritePrompt, headlineFault, rewriteFault, settleFacts } =
-  await import("./fact-writer");
+const {
+  assertsWhatWasAsked,
+  buildFactWritePrompt,
+  headlineFault,
+  rewriteFault,
+  settleFacts,
+} = await import("./fact-writer");
 const { directionOverlap, distinctiveWords, isNearDuplicate, contentStems } =
   await import("./text-overlap");
 
@@ -552,5 +557,95 @@ describe("a rewrite taken in part", () => {
         /your last rewrite was refused: subheadline: .*today/,
       ),
     );
+  });
+});
+
+describe("a headline move never turns a question into a claim", () => {
+  /* Round-8 eval at 33090f8, conference-ko run a, direction 1: "Can
+     design beat the heat?" became "Design that beats the heat", and the
+     judge flagged the claim. */
+  const conferenceBrief =
+    "Announce our panel 'Building for Heat' with architect Ada Obi, Friday 14 March at 4pm, Landmark Centre. Free registration, limited seats.";
+  const ledger = factLedger([
+    conferenceBrief,
+    "Lagos Design Week",
+    "Annual festival of African design and architecture.",
+  ]);
+  const asked: FactCopy = {
+    headline: "Can design beat the heat?",
+    subheadline:
+      "The 'Building for Heat' panel is at Landmark Centre on Friday 14 March at 4pm.",
+    cta: "Claim Your Seat",
+    footerLines: [
+      "With architect Ada Obi",
+      "Free registration · Limited seats",
+    ],
+    footerStyle: "text",
+  };
+  const facts = [
+    fact("product", "Building for Heat", ["^build", "^heat"]),
+    fact("person", "With architect Ada Obi", ["^ada", "^obi"]),
+  ];
+
+  it("refuses the move the run made", () => {
+    expect(
+      headlineFault(
+        asked,
+        { ...asked, headline: "Design that beats the heat" },
+        facts,
+        ledger,
+      ),
+    ).toMatch(/asserts what "Can design beat the heat\?" only asked/);
+  });
+
+  it("allows a statement made only of what the brief and the copy say", () => {
+    expect(
+      assertsWhatWasAsked(asked, "Building for Heat with Ada Obi", ledger),
+    ).toBeNull();
+    expect(
+      assertsWhatWasAsked(asked, "Can architecture outlast the heat?", ledger),
+    ).toBeNull();
+  });
+
+  it("refuses a hedge made an assertion", () => {
+    expect(
+      assertsWhatWasAsked(
+        { ...asked, headline: "Design might beat the heat" },
+        "Design beats the heat",
+        ledger,
+      ),
+    ).toMatch(/only hedged/);
+  });
+
+  it("records the refusal, and keeps the question", async () => {
+    const writer = vi.fn(async (_input: Parameters<FactWriter>[0]) => [
+      {
+        id: 0,
+        headline: "Design that beats the heat",
+        subheadline:
+          "Design and the heat, at Landmark Centre on Friday 14 March.",
+        footerLines: asked.footerLines,
+      },
+    ]);
+    const inTheWay = {
+      ...asked,
+      subheadline:
+        "Design and the heat, at Landmark Centre on Friday 14 March.",
+    };
+    expect(headlineInTheWay(inTheWay, facts)).toBe(true);
+    const out = await settleFacts({
+      directions: [inTheWay],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: conferenceBrief,
+      title: "Panel announcement",
+    });
+    expect(out.directions[0].headline).toBe("Can design beat the heat?");
+    expect(out.refused).toContainEqual({
+      direction: 0,
+      why: expect.stringMatching(/only asked/),
+    });
   });
 });

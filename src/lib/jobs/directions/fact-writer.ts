@@ -98,7 +98,7 @@ export function buildFactWritePrompt({
     [
       "Rules:",
       '- Never change the button. Leave the headline as it is, unless the design says "headline may change".',
-      `- A design whose headline may change has a headline that already says part of a fact, so stating the fact below would repeat it. Return a "headline" for it only if that is so: the same idea in other words that either states the whole fact itself or no longer says any of it, keeping at least one of the headline's own words, at most ${COPY_TARGETS.headline.chars} characters, and not the other design's headline. Then the subheadline says nothing the new headline says.`,
+      `- A design whose headline may change has a headline that already says part of a fact, so stating the fact below would repeat it. Return a "headline" for it only if that is so: the same idea in other words that either states the whole fact itself or no longer says any of it, keeping at least one of the headline's own words, at most ${COPY_TARGETS.headline.chars} characters, and not the other design's headline. A headline that asks stays a question; one that hedges stays hedged. Then the subheadline says nothing the new headline says.`,
       '- State every fact listed under "must state", in the brief\'s words or with every part of it in one place: a price with its currency, amount and unit together ("₦18,000 per split unit", never "₦18,000" alone); a count with its noun ("two senior React engineers", never "Two"); an offer, condition or requirement word for word as the brief writes it ("Free delivery to Lekki, Ajah and Ikoyi", "You need at least 2 years in a busy kitchen").',
       '- Keep every fact listed under "keep".',
       `- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is at most two sentences, about ${COPY_TARGETS.subheadline.chars} characters and never over ${COPY_LIMITS.subheadline}; never string clauses together with dashes, semicolons or full stops into a list. What does not fit that goes in the footer.`,
@@ -242,6 +242,8 @@ export function headlineFault(
   facts: readonly BriefFact[],
   ledger: FactLedger,
 ): string | null {
+  const mood = assertsWhatWasAsked(before, after.headline, ledger);
+  if (mood) return mood;
   if (!headlineInTheWay(before, facts)) {
     return "the headline may change only when the subheadline would repeat it";
   }
@@ -253,6 +255,41 @@ export function headlineFault(
   }
   if (readsAsList(after.headline)) return "the new headline reads as a list";
   return stillInTheWay(after, facts);
+}
+
+const HEDGE = /\b(?:could|might|maybe|perhaps)\b/i;
+
+/**
+ * A new headline that states what the old one only asked or hedged, in
+ * words neither the sources nor the rest of the old copy give. Round-8
+ * eval at 33090f8, conference-ko: "Can design beat the heat?" moved to
+ * "Design that beats the heat", a claim the brief never makes, and the
+ * judge flagged it. The old headline's own words do not license it: the
+ * question is what changed.
+ */
+export function assertsWhatWasAsked(
+  before: FactCopy,
+  headline: string,
+  ledger: FactLedger,
+): string | null {
+  const old = before.headline.trim();
+  const next = headline.trim();
+  const asked = old.endsWith("?") && !next.endsWith("?");
+  const hedged = HEDGE.test(old) && !HEDGE.test(next);
+  if (!asked && !hedged) return null;
+  const known = new Set([
+    ...contentStems(ledger.text),
+    ...contentStems(
+      [before.subheadline, before.cta, ...before.footerLines]
+        .filter(Boolean)
+        .join(" "),
+    ),
+  ]);
+  const beyond = [...contentStems(next)].filter((s) => !known.has(s));
+  if (beyond.length === 0) return null;
+  return `the new headline asserts what "${old}" only ${
+    asked ? "asked" : "hedged"
+  }; keep it ${asked ? "a question" : "hedged"}, or say only what the brief says`;
 }
 
 /** What of the copy the new headline still stands in the way of, in words
@@ -341,8 +378,9 @@ export interface FactSettlement<T> {
   added: { direction: number; fact: string }[];
   /** Facts still left out, and why. */
   leftOff: { direction: number; fact: string; reason: string }[];
-  /** Rewrites refused, and why; their reasons reach factsLeftOff, and all
-   *  of them factCoverage.rewritesRefused. */
+  /** Rewrites refused, whole or in part ("in part: ..."), and why; their
+   *  reasons reach factsLeftOff, and all of them
+   *  factCoverage.rewritesRefused. */
   refused: { direction: number; why: string }[];
   /** Headlines the model moved out of a fact's way (headlineInTheWay). */
   headlines: { direction: number; from: string; to: string }[];
@@ -596,8 +634,10 @@ export async function settleFacts<T extends FactCopy>({
         continue;
       }
       out[id] = copy;
-      if (partly) feedback.set(id, partly);
-      else feedback.delete(id);
+      if (partly) {
+        feedback.set(id, partly);
+        refused.push({ direction: id, why: `in part: ${partly}` });
+      } else feedback.delete(id);
     }
   }
   const added = out.flatMap((copy, direction) =>
