@@ -886,6 +886,16 @@ describe("KO imagery behind FEATURE_KO_IMAGERY (round 8)", () => {
         expect(TEXT_LED_LAYOUTS).toContain(delivered(id)?.spec.layout);
       }
       expect(usage().imageCalls).toBe(0);
+      /* Round-8 code critic: a text-led row was stored and costed as an
+         upload. */
+      for (const [row] of createDesignGeneration.mock.calls) {
+        expect(row).toMatchObject({
+          imageSource: "none",
+          provider: "none",
+          model: "none",
+        });
+      }
+      expect(usage().renderers).toEqual(["composite:none", "composite:none"]);
     } finally {
       process.env.FEATURE_KO_IMAGERY = "1";
     }

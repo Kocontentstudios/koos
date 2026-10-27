@@ -335,6 +335,9 @@ export async function generateDirectionsWork(
   );
 
   const set = target?.set ?? randomUUID();
+  /* Named as image_source is: a text-led row was once stored and costed as
+     "upload" (round-8 code critic). */
+  const imageProvider = plateAdapter?.id ?? (upload ? "upload" : "none");
   const rows = await Promise.all(
     brief.directions.map((direction, i) =>
       createDesignGeneration({
@@ -347,7 +350,7 @@ export async function generateDirectionsWork(
         designType: context.designType,
         spec: settled[i].spec,
         renderer: "composite",
-        provider: plateAdapter?.id ?? "upload",
+        provider: imageProvider,
         model: plateAdapter?.model ?? "none",
         status: "pending",
         rationale: storedRationale(direction, set, target?.slot ?? i),
@@ -1000,9 +1003,7 @@ export async function generateDirectionsWork(
       failed: failed.length,
       /* The cost outcome FEAT-033 names: on an upload no image model runs,
          and this is where that is visible per generation. */
-      renderers: rows.map(() =>
-        plateAdapter ? `composite:${plateAdapter.id}` : "composite:upload",
-      ),
+      renderers: rows.map(() => `composite:${imageProvider}`),
       imageCalls,
       imageSource: source,
       directions: generationIds.length,
