@@ -158,5 +158,6 @@ it("asks for what an offer is for and the word that places it", () => {
     title: "",
   });
   expect(prompt).toContain('"for WAEC and JAMB"');
+  expect(prompt).toContain("Not a description of who might like it");
   expect(prompt).toContain('"near Termini"');
 });

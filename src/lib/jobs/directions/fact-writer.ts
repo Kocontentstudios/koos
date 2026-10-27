@@ -90,7 +90,7 @@ export function buildFactWritePrompt({
       `- The footer is at most ${MAX_FOOTER_LINES} lines of at most 60 characters; items on one line are joined by " · ".`,
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
       "- Never put a time or opening hours on the same footer line as a phone number.",
-      "- No footer item repeats the headline, the subheadline, the button or another footer item.",
+      "- No footer item repeats the headline, the subheadline, the button or another footer item, and the subheadline never says again a price, number, name or phrase the headline or button already says: leave that out of it.",
       "- Use only what the brief says. Add no fact, claim or quality of your own.",
     ].join("\n"),
     requests
@@ -225,13 +225,12 @@ export function rewriteFault(
      elsewhere, as for any drop: a reader-missed "Pre-orders close Thursday
      6pm" went with a rewrite that added the facts asked for (round-7 code
      critic, W5). */
-  const kept = new Set(after.footerLines);
-  for (const line of before.footerLines) {
-    if (kept.has(line)) continue;
-    const fragmentsOnly = footerItemsOf([line]).every(isFragment);
-    if (!fragmentsOnly && !detailHeldElsewhere(line, after)) {
-      return `it loses "${line}"`;
-    }
+  /* Item by item: a rewrite may move a line's date into the subheadline
+     and its place onto another line (round-8 eval: whole lines refused). */
+  const keptItems = new Set(footerItemsOf(after.footerLines));
+  for (const item of footerItemsOf(before.footerLines)) {
+    if (keptItems.has(item) || isFragment(item)) continue;
+    if (!detailHeldElsewhere(item, after)) return `it loses "${item}"`;
   }
   /* A list stays a fault whether or not the draft had one: the rewrite
      was its chance to fix it (round-7 code critic, W6). */

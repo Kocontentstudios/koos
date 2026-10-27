@@ -4,6 +4,7 @@ import {
   type BriefFact,
   type FactCopy,
   factStated,
+  withoutRepeatingSubheadline,
 } from "./brief-facts";
 
 /* The round-7 code critic's verifier probes (r7-verifier.log V1 to V3c,
@@ -129,5 +130,32 @@ describe("aboveRepeats", () => {
         cta: "Preorder",
       }),
     ).toEqual([]);
+  });
+});
+
+describe("withoutRepeatingSubheadline", () => {
+  it("drops a subheadline that only says the headline again", () => {
+    const d = copy({
+      headline: "Your first 3 rides are free",
+      subheadline: "Your first 3 rides are free.",
+      footerLines: ["Lagos and Abuja"],
+      footerStyle: "text",
+    });
+    expect(withoutRepeatingSubheadline(d, []).subheadline).toBeUndefined();
+  });
+
+  it("keeps one that carries a fact said nowhere else", () => {
+    const tray = fact("price", "₦13,500 for a tray of four", [
+      "=13500",
+      "^tray",
+      "=4",
+    ]);
+    const d = copy({
+      headline: "A Tray for ₦13,500",
+      subheadline: "₦13,500 for a tray of four, this weekend.",
+    });
+    expect(withoutRepeatingSubheadline(d, [tray]).subheadline).toBe(
+      "₦13,500 for a tray of four, this weekend.",
+    );
   });
 });

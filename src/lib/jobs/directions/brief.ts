@@ -18,6 +18,7 @@ import {
   dropFooterRepeats,
   type FactCoverage,
   factStated,
+  withoutRepeatingSubheadline,
 } from "./brief-facts";
 import {
   type BriefRead,
@@ -1118,7 +1119,9 @@ export async function draftDirections({
   });
   modelCalls += written.modelCalls;
   const final = dropFooterRepeats(written.directions, coverFacts, product);
-  const drawnIn = final.directions;
+  const drawnIn = final.directions.map((d) =>
+    withoutRepeatingSubheadline(d, coverFacts),
+  );
   const factCoverage: FactCoverage = {
     facts: coverFacts.map((f) => f.text),
     stated: drawnIn.map((d) =>

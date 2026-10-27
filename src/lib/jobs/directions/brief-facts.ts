@@ -1603,3 +1603,22 @@ export function aboveRepeats(
   }
   return found;
 }
+
+/**
+ * The direction without a subheadline that only says again what the
+ * headline or button says, when dropping it loses no fact and no detail a
+ * customer acts on. Code drops; it never rewrites (round 8: the writer
+ * could not always fix "Your first 3 rides are free" said twice).
+ */
+export function withoutRepeatingSubheadline<T extends FactCopy>(
+  direction: T,
+  facts: readonly BriefFact[],
+): T {
+  const sub = direction.subheadline?.trim();
+  if (!sub || aboveRepeats(direction).length === 0) return direction;
+  const { subheadline: _sub, ...rest } = direction;
+  const trial = rest as T;
+  const stated = (copy: T) => facts.filter((f) => factStated(f, copy)).length;
+  if (stated(trial) < stated(direction)) return direction;
+  return detailHeldElsewhere(sub, trial) ? trial : direction;
+}
