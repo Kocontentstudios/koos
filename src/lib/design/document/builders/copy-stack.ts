@@ -2,6 +2,7 @@ import {
   balancedWidth,
   type FittedText,
   fitText,
+  hasLoneShortWord,
   inkOverhang,
   lineBox,
   sizeRange,
@@ -171,8 +172,15 @@ async function ctaItem(
   );
   const largest = sizes[0];
 
+  /* A button on two lines reads as a paragraph in a pill (round-7 live
+     critic, cafe: "Join us for breakfast"): below the role's sizes, down
+     to the floor, before it wraps. */
+  const smaller: number[] = [];
+  for (let s = sizes[sizes.length - 1] - 1; s >= floorPx(ctx); s -= 1) {
+    smaller.push(s);
+  }
   let oneLine: number | null = null;
-  for (const size of sizes) {
+  for (const size of [...sizes, ...smaller]) {
     const width = await measurer.lineWidth(label, looks.cta(size));
     if (width + wrapSlack(width) + buttonPaddingX(size) * 2 <= zoneWidth) {
       oneLine = size;
@@ -394,6 +402,25 @@ async function stackAt(
     if (!headline.fits) headline = await fitHeadline(reservedFor(sub), all);
   }
   if (!headline) throw new Error("No headline was fitted");
+  /* A short word alone on a line before the last reads as a broken
+     headline; a smaller step on the ladder sets it beside its neighbour. */
+  if (headline.fits && !headline.breaksWords) {
+    for (const size of ladder.filter((s) => s < (headline?.fontSize ?? 0))) {
+      if (
+        !(await hasLoneShortWord(
+          measurer,
+          spec.headline,
+          looks.headline(headline.fontSize, textAlign),
+          zone.width,
+        ))
+      ) {
+        break;
+      }
+      const smaller = await fitHeadline(reservedFor(sub), [size]);
+      if (!smaller.fits || smaller.breaksWords) break;
+      headline = smaller;
+    }
+  }
   const headlineLook = looks.headline(headline.fontSize, textAlign);
   let headlineWidth: number | undefined;
   if (headline.fits && !headline.breaksWords) {

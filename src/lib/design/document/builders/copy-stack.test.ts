@@ -70,3 +70,33 @@ describe("copyStack in a short zone", () => {
     expect(tight.headline).toBeGreaterThan(tight.cta);
   });
 });
+
+/* Round-7 live critic, cafe: "Join us for breakfast" wrapped to a 2-line
+   pill in a split layout's narrow column. */
+describe("the button in a narrow column", () => {
+  it("keeps its label on one line", async () => {
+    const ctx = context();
+    ctx.spec = { ...ctx.spec, cta: "Join us for breakfast" };
+    const stack = await copyStack(ctx, {
+      zone: rect(86, 120, 390, 700),
+      align: "left",
+      vAlign: "end",
+      colors: flatColors(ctx),
+    });
+    const button = (await placeStack(stack)).find((e) => e.id === "cta");
+    expect(button?.type).toBe("button");
+    if (button?.type !== "button") return;
+    const measurer = monospaceMeasurer();
+    const labelWidth = await measurer.lineWidth("Join us for breakfast", {
+      font: "body",
+      fontSize: button.fontSize,
+      fontWeight: 600,
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      align: "left",
+      italic: false,
+    });
+    expect(labelWidth).toBeLessThanOrEqual(button.width);
+    expect(button.height).toBeLessThan(button.fontSize * 3);
+  });
+});

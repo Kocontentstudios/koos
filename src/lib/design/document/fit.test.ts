@@ -3,6 +3,7 @@ import {
   balancedWidth,
   fitText,
   glyphOverhang,
+  hasLoneShortWord,
   hasOrphan,
   inkOverhang,
   largestFitting,
@@ -481,5 +482,31 @@ describe("inkOverhang", () => {
     const extent = await inkOverhang(measurer, "Ẫ", look(100));
     expect(extent.above).toBe(19);
     expect(extent.below).toBe(glyphOverhang(look(100)));
+  });
+});
+
+/* Round-7 live critic, travel: "Rome / Is / Waiting / for You". */
+describe("hasLoneShortWord", () => {
+  it("finds a short word alone on a line before the last", async () => {
+    /* At 100 px per character, 6 characters a line. */
+    expect(
+      await hasLoneShortWord(
+        monospaceMeasurer(),
+        "Rome Is Waiting for You",
+        look(200),
+        600,
+      ),
+    ).toBe(true);
+  });
+
+  it("passes a headline whose lines each hold two words or a long one", async () => {
+    expect(
+      await hasLoneShortWord(
+        monospaceMeasurer(),
+        "Rome Is Waiting for You",
+        look(100),
+        900,
+      ),
+    ).toBe(false);
   });
 });

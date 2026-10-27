@@ -191,10 +191,14 @@ export function framedImage(
             align: options.align,
           })
         : null);
-    const placement =
+    const placement = balancedInset(
       exact ??
-      coverPlacement(facts, ctx.subject, frame, avoid, 0) ??
-      centredOn(ctx.subject, frame);
+        coverPlacement(facts, ctx.subject, frame, avoid, 0) ??
+        centredOn(ctx.subject, frame),
+      frame,
+      avoid,
+      options.align,
+    );
     const result = framed(
       placement,
       subjectOnCanvas(facts, ctx.subject, placement),
@@ -304,6 +308,35 @@ export type InsetAlign = "axis" | "start";
  * picture centred in it is centred on the copy below. From the start: only
  * rooms that begin at the region's left edge, where flush-left copy does.
  */
+/* A print set from the left edge that leaves more than this share of its
+   region empty on the right reads as parked, not aligned (round-7 live
+   critic: a 9:16 photo with 220 px blank beside it). */
+const PARKED_SHARE = 0.12;
+
+/** An inset print lined up from the left, moved to the middle of its
+ *  region when it would leave a blank side, and when the middle is clear
+ *  of the logo and anything kept out. */
+export function balancedInset(
+  placement: ImagePlacement,
+  region: Rect,
+  avoid: Rect[],
+  align: InsetAlign | undefined,
+): ImagePlacement {
+  const inner = placement.frame;
+  if (align !== "start" || inner === region) return placement;
+  const blank = region.x + region.width - (inner.x + inner.width);
+  const leftGap = inner.x - region.x;
+  if (blank - leftGap <= region.width * PARKED_SHARE) return placement;
+  const centred = rect(
+    region.x + (region.width - inner.width) / 2,
+    inner.y,
+    inner.width,
+    inner.height,
+  );
+  if (avoid.some((zone) => intersection(centred, zone))) return placement;
+  return { ...placement, frame: centred };
+}
+
 function alignedRooms(
   rooms: Rect[],
   region: Rect,

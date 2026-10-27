@@ -201,17 +201,28 @@ describe("an inset picture lines up with its copy", () => {
     }
   });
 
+  /* Round 8: from the copy's left edge, unless that parks it with a blank
+     side wider than its left margin by an eighth of the band (round-7 live
+     critic): then on the band's axis. */
   it.each(RATIOS)(
-    "banner-bottom %s: from the copy's left edge",
+    "banner-bottom %s: from the copy's left edge, or centred when it would park",
     async (ratio) => {
       for (const subject of subjects) {
-        const { image, headline, isInset } = await inset(
+        const { document, image, headline, isInset } = await inset(
           "banner-bottom",
           ratio,
           subject,
         );
         if (!isInset || image.fit === "contain") continue;
-        expect(image.x, `${ratio} ${JSON.stringify(subject)}`).toBe(headline.x);
+        const label = `${ratio} ${JSON.stringify(subject)}`;
+        const left = image.x - headline.x;
+        const right = document.width - headline.x - (image.x + image.width);
+        /* Lined up with the copy, or centred; centring is skipped only
+           when the logo sits where the centred print would go. */
+        expect(
+          image.x === headline.x || Math.abs(left - right) <= 1,
+          label,
+        ).toBe(true);
       }
     },
   );

@@ -440,3 +440,34 @@ export async function widthWithoutOrphan(
   }
   return null;
 }
+
+/**
+ * Whether greedy wrapping at `width` sets a short word on a line of its own
+ * before the last ("Rome / Is / Waiting / for You"). A box too narrow for
+ * two words at the chosen size does this, and reads as a broken headline
+ * (round-7 live critic, travel).
+ */
+export async function hasLoneShortWord(
+  measurer: TextMeasurer,
+  text: string,
+  look: TextLook,
+  width: number,
+): Promise<boolean> {
+  const words = breakableWords(text);
+  if (words.length < 3) return false;
+  const lines: string[][] = [[]];
+  for (const word of words) {
+    const line = lines[lines.length - 1];
+    const trial = [...line, word].join(" ");
+    if (line.length > 0 && (await measurer.lineWidth(trial, look)) > width) {
+      lines.push([word]);
+    } else {
+      line.push(word);
+    }
+  }
+  return lines
+    .slice(0, -1)
+    .some(
+      (line) => line.length === 1 && line[0].replace(/\W/g, "").length <= 3,
+    );
+}
