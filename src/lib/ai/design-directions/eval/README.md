@@ -350,6 +350,33 @@ or button's price, number or most of its words, at 0. A two-direction
 upload always delivers two: a slot whose photo fits no free layout, or only
 in its sibling's shape, is laid out as text.
 
+The 653f975 runs failed `aboveRepeats` (1 in each), `peopleNamedShare`
+(0.75, run a), `judgeMissingShare` (0.21, run a) and `finalNearDuplicates`
+(1, run b). What changed after them:
+
+- A headline that paraphrases a fact the literal verifier needs whole
+  ("Senior React Engineers Wanted" over "two senior React engineers")
+  stands in the fact's way (`headlineInTheWay`). Only then may the fact
+  writer return a headline, held by `headlineFault`: clear of the repeat,
+  one of the old headline's words kept, within the headline limit, no
+  invented fact, claim-checked fail-closed, the pair kept apart. The button
+  never changes. Each move is logged (`headlines moved out of a fact's
+  way`) and counted on the usage row (`factHeadlinesRewritten`).
+- Two rewrites taken in one round are held apart from each other, not
+  only from the other's old copy (fitness-ko, "Join our HIIT class" twice).
+- The writer is told the sibling's own words beyond the brief, and a
+  refusal for reading like the other design names the words both say
+  (conference-ko: "With architect Ada Obi" refused twice without them).
+- A rewrite whose footer only echoes the copy above is taken without the
+  echo when that loses nothing (retreat-sky-upload: three facts refused
+  for "Reserve at stillwater.ng" under a button giving it).
+- A subheadline whose one sentence says the button or headline again
+  loses that sentence when the rest keeps every fact and the pair stays
+  apart (`withoutRepeatingSubheadline`; recruitment-ko at 69381d4: "Apply
+  by 30 November." under a button saying it). Every rewrite the writer had
+  refused is in the log (`rewrites refused`) and in
+  `factCoverage.rewritesRefused`.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a

@@ -161,6 +161,41 @@ describe("withoutRepeatingSubheadline", () => {
   });
 });
 
+describe("withoutRepeatingSubheadline drops one repeating sentence", () => {
+  /* Round-8 eval at 69381d4, recruitment-ko run a. */
+  const remote = fact("place", "fully remote anywhere in Africa", [
+    "^remote",
+    "^africa",
+  ]);
+  const deadline = fact("date", "Apply by 30 November", ["=30", "~nov"]);
+  const d = copy({
+    headline: "Senior React Engineers Wanted",
+    subheadline: "Fully remote across Africa. Apply by 30 November.",
+    cta: "Apply by 30 November",
+  });
+
+  it("keeps the sentence with a fact and drops the one the button says", () => {
+    expect(withoutRepeatingSubheadline(d, [remote, deadline]).subheadline).toBe(
+      "Fully remote across Africa.",
+    );
+  });
+
+  it("drops nothing when the repeating sentence holds a fact said nowhere else", () => {
+    const only = copy({ ...d, cta: "Apply 30 November" });
+    const both = copy({
+      ...d,
+      subheadline: "Apply by 30 November, fully remote across Africa.",
+    });
+    expect(withoutRepeatingSubheadline(both, [remote, deadline])).toBe(both);
+    expect(
+      withoutRepeatingSubheadline(
+        { ...only, subheadline: "Fully remote. Apply by 30 November now." },
+        [remote, fact("offer", "Apply by 30 November now", ["^now", "=30"])],
+      ).subheadline,
+    ).toBe("Fully remote. Apply by 30 November now.");
+  });
+});
+
 describe("the meaning check reads a price as a price", () => {
   it("does not take '₦2,000 each' for '2,000 happy customers' said again", () => {
     expect(

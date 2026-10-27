@@ -1432,6 +1432,9 @@ export interface FactCoverage {
   repeatsDropped: number;
   /** Headlines the fact writer moved out of a fact's way. */
   headlinesRewritten: { direction: number; from: string; to: string }[];
+  /** Every fact-writer rewrite refused, and why, including those that only
+   *  fixed a repeat and so leave no fact off. */
+  rewritesRefused: { direction: number; why: string }[];
 }
 
 /**
@@ -1676,8 +1679,22 @@ export function withoutRepeatingSubheadline<T extends FactCopy>(
   const sub = direction.subheadline?.trim();
   if (!sub || aboveRepeats(direction).length === 0) return direction;
   const { subheadline: _sub, ...rest } = direction;
-  const trial = rest as T;
   const stated = (copy: T) => facts.filter((f) => factStated(f, copy)).length;
-  if (stated(trial) < stated(direction)) return direction;
-  return detailHeldElsewhere(sub, trial) ? trial : direction;
+  const keepsAll = (trial: T, dropped: string) =>
+    stated(trial) >= stated(direction) && detailHeldElsewhere(dropped, trial);
+  const whole = rest as T;
+  if (keepsAll(whole, sub)) return whole;
+  /* One whole sentence that alone says the button or headline again goes,
+     the rest stays as written (round-8 eval, recruitment: "Fully remote
+     across Africa. Apply by 30 November." under "Apply by 30 November"). */
+  const sentences = sub.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((t) => t.trim());
+  if (!sentences || sentences.length < 2) return direction;
+  for (const [i, sentence] of sentences.entries()) {
+    const remaining = sentences.filter((_, j) => j !== i).join(" ");
+    const trial = { ...direction, subheadline: remaining };
+    if (aboveRepeats(trial).length === 0 && keepsAll(trial, sentence)) {
+      return trial;
+    }
+  }
+  return direction;
 }

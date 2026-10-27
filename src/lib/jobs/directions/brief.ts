@@ -1128,8 +1128,17 @@ export async function draftDirections({
   });
   modelCalls += written.modelCalls;
   const final = dropFooterRepeats(written.directions, coverFacts, product);
-  const drawnIn = final.directions.map((d) =>
-    withoutRepeatingSubheadline(d, coverFacts),
+  /* A drop shortens the copy the near-duplicate rule compares, so one that
+     would make a pair that reads apart read as one is not made. */
+  const apartBeforeDrops = !nearDuplicateSet(final.directions);
+  const drawnIn = final.directions.reduce(
+    (set, d, i) => {
+      const trial = set.map((other, j) =>
+        j === i ? withoutRepeatingSubheadline(d, coverFacts) : other,
+      );
+      return !apartBeforeDrops || !nearDuplicateSet(trial) ? trial : set;
+    },
+    [...final.directions],
   );
   const factCoverage: FactCoverage = {
     facts: coverFacts.map((f) => f.text),
@@ -1156,6 +1165,7 @@ export async function draftDirections({
         ),
     ),
     repeatsDropped: deduped.dropped + final.dropped,
+    rewritesRefused: written.refused,
     headlinesRewritten: written.headlines.filter(
       ({ direction, to }) => drawnIn[direction].headline === to,
     ),

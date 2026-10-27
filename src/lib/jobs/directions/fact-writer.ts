@@ -330,7 +330,8 @@ export interface FactSettlement<T> {
   added: { direction: number; fact: string }[];
   /** Facts still left out, and why. */
   leftOff: { direction: number; fact: string; reason: string }[];
-  /** Rewrites refused, and why; their reasons reach factsLeftOff. */
+  /** Rewrites refused, and why; their reasons reach factsLeftOff, and all
+   *  of them factCoverage.rewritesRefused. */
   refused: { direction: number; why: string }[];
   /** Headlines the model moved out of a fact's way (headlineInTheWay). */
   headlines: { direction: number; from: string; to: string }[];
