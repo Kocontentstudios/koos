@@ -427,9 +427,20 @@ export function needsFor(
       /* A size the price is for ("a 1-litre bottle", "150ml tasters") is
          detail, not the fact: "₦15,500 bottle & 2 glasses" states "a
          1-litre bottle and two glasses for ₦15,500" (round-6 live run). */
-      const sizes = [...text.matchAll(MEASURE)];
-      if (sizes.length === 0) return [...numbers(), ...stems()];
-      const bare = text.replace(MEASURE, " ");
+      /* The currency is checked by moneyOf, through its aliases: as a word
+         need, "KSh 300" refused "KES 300" and "R250" needed "r250"
+         (round-8 code critic, C5 and C6). */
+      const words = withoutCurrency(text);
+      const sizes = [...words.matchAll(MEASURE)];
+      if (sizes.length === 0) {
+        return [
+          ...numbers(),
+          ...[...contentStems(words)]
+            .filter((s) => !FILLER.has(s) && !isNumberWord(s))
+            .map((s) => `^${s}`),
+        ];
+      }
+      const bare = words.replace(MEASURE, " ");
       const sizeStems = contentStems(sizes.map((m) => m[0]).join(" "));
       return [
         ...[...numbersIn(bare)].map((n) => `=${n}`),
@@ -1171,7 +1182,16 @@ const CURRENCY_AFTER: [RegExp, string][] = [
   [/^(?:dollars?|usd)$/i, "usd"],
 ];
 const MONEY =
-  /(?<![\p{L}\d])(₦|GH₵|GH¢|₵|\$|£|€|US\$|(?:NGN|USD|GBP|EUR|GHS|KES|KSh|ZAR)(?=\s?\d)|N(?=\d)|R(?=\d))\s?(\d[\d,]*(?:\.\d+)?)(\s?k\b)?|(\d[\d,]*(?:\.\d+)?)\s?(naira|ngn|cedis?|ghs|shillings?|kes|rand|zar|dollars?|usd)\b/giu;
+  /(?<![\p{L}\d])(₦|GH₵|GH¢|₵|\$|£|€|US\$|(?:NGN|USD|GBP|EUR|GHS|KES|KSh\.?|ZAR)(?=\s?\d)|N(?=\d)|R(?=\d))\s?(\d[\d,]*(?:\.\d+)?)(\s?k\b)?|(\d[\d,]*(?:\.\d+)?)\s?(naira|ngn|cedis?|ghs|shillings?|kes|rand|zar|dollars?|usd)\b/giu;
+
+/** `text` with each amount's currency taken off, its number kept. */
+function withoutCurrency(text: string): string {
+  return text.replace(
+    MONEY,
+    (_all, _sign, before: string | undefined, k: string | undefined, after) =>
+      ` ${before ?? after}${k ?? ""} `,
+  );
+}
 
 /** "currency|value" for every amount `text` states with a currency. */
 function moneyOf(text: string): Set<string> {
