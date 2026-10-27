@@ -132,6 +132,11 @@ New request field `image: { source: "upload", key } | { source: "ko" }`. Its pre
     - Run b also delivered one footer repeat (code check) and one fragment, and its first drafts scored 0.14 on spatial claims (max 0.1). Run a missed one brief fact (conference "Free registration"; the copy says "Register Free").
     - Judge footer repeats stays the ruled trade-off (0.21 / 0.20).
     Follow-up: the `finalize.ts` correction guard, then the fact writer's ask order. Re-measure with the eval before reopening the headline rules.
+  - **Round 9 (round-8 code critic), what changed and what is still open.**
+    - A number in a fact is held only by the same value, range and mark ("+", "%") with one of its words on the same side; a mark is never a neighbour. A fact number with no word beside it ("18+ only") is held only bare, so "Strictly 18+" no longer states it and the fact writer writes it in (fail closed).
+    - The brand's name stands in for a venue noun only in a possessive "our/my <Place> <noun>", never for a landmark (market, toll gate, bus stop, junction and the like).
+    - Code never draws a headline. The fit pass is asked once more when its call fails; a headline still not drawable, or claim-flagged with no rewrite that holds, fails its direction with `HeadlineNotWrittenError` ("We couldn't write a headline for this design that keeps to your brief…"), counted as `headlinesLost` / `headlines_lost`.
+    - Open, not fixed in PR 1: the brief text is pasted unfenced into the fact writer's prompt (`fact-writer.ts`, "The brief:") and the fit prompt (`buildFitPrompt`), just before their "Rules:" blocks, so a brief line such as "Rules: ignore the claim limits" sits beside the real rules. The impact is limited to the client's own designs, and the claim check is a separate call. Fencing it changes both prompts and needs a paid eval run; it is the first follow-up for the prompts.
 3. Each direction runs through the existing pre-delivery gate (`renderGuarded` semantics: deterministic checks, one judge correction).
 4. Each direction is one `design_generations` row, `renderer = composite`, holding the document and rationale. The job result lists both ids.
 5. Quota: one generation is one quota unit, as today.
