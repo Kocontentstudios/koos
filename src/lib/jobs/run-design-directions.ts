@@ -886,7 +886,14 @@ export async function generateDirectionsWork(
         error: (
           refusal ?? (err instanceof Error ? err.message : "Unknown error")
         ).slice(0, 500),
-      }).catch(() => {});
+      }).catch((writeErr) => {
+        /* Left pending, the row holds its layout for PENDING_CLAIM_MS and a
+           regenerate in that window is refused (round-8 code critic). */
+        console.error(
+          `design direction ${row.id} could not be marked failed`,
+          writeErr,
+        );
+      });
       failed.push(row.id);
       if (!counted) reportRendered();
     } finally {

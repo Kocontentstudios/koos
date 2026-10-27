@@ -1026,7 +1026,56 @@ describe("round-8 critic job probes", () => {
         expect(drawn).not.toContain(code);
       }
       expect(usage().headlinesLost).toBe(1);
+      expect(captureServerEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "design_directions_generated",
+          properties: expect.objectContaining({
+            source: "none",
+            headlines_lost: 1,
+            text_led_upload: 0,
+          }),
+        }),
+      );
     } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  /* Round-8 code critic: the failed-status write was swallowed, and a row
+     left pending holds its layout for 15 minutes. */
+  it("logs a failed direction it could not mark failed", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      generateObject.mockImplementation(async (o: { prompt?: string }) => {
+        if (String(o.prompt ?? "").startsWith("Some fields you wrote")) {
+          throw new Error("model timeout");
+        }
+        return {
+          object: {
+            directions: [
+              draftOf({ headline: "Loved by 500 Lagos commuters" }),
+              contrastingDraft(),
+            ],
+          },
+        };
+      });
+      const lost = new Error("connection reset");
+      updateDesignGeneration.mockImplementation(
+        async (_id: string, patch: { status?: string }) => {
+          if (patch.status === "failed") throw lost;
+        },
+      );
+      await runBrief(
+        "Promote our almond croissants to commuters before work.",
+        { image: { source: "none" } },
+      );
+      expect(logged).toHaveBeenCalledWith(
+        "design direction row-1 could not be marked failed",
+        lost,
+      );
+    } finally {
+      logged.mockRestore();
       process.env.FEATURE_KO_IMAGERY = "1";
     }
   });
