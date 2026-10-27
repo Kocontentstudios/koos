@@ -158,11 +158,45 @@ describe("finalizeDirection", () => {
     expect(report.copyFallbacks).toHaveLength(1);
   });
 
-  it("falls back to the brief's title when the headline cannot be kept", () => {
-    const { direction } = run({
+  /* Round-8 code critic, break 3: the brief's internal title, the
+     playbook's lead and "Design direction" were drawn as the headline. */
+  it("never draws a headline code wrote when the model's cannot be kept", () => {
+    const { direction, report } = run({
       headline: "Seven layers, seven minutes from your door",
     });
-    expect(direction.headline).toBe("Strawberry mille-feuille launch");
+    expect(direction.headline).toBe("");
+    expect(report.headlineLost).toBe(true);
+    expect(report.copyFallbacks).toContainEqual({
+      field: "headline",
+      from: "Seven layers, seven minutes from your door",
+      to: null,
+    });
+  });
+
+  it.each([
+    ["Q1 promo push (internal)", "benefit or offer"],
+    ["", "benefit or offer"],
+    ["", ""],
+  ])(
+    "draws neither the title %j nor the lead %j as a headline",
+    (title, lead) => {
+      const { direction, report } = finalizeDirection(
+        { ...draft, headline: "Loved by 500 Lagos commuters" },
+        {
+          aspectRatio: "4:5",
+          checks: { ...checks, title },
+          fallbackTitle: lead,
+        },
+      );
+      expect(direction.headline).toBe("");
+      expect(report.headlineLost).toBe(true);
+    },
+  );
+
+  it("keeps the model's headline when it can be drawn", () => {
+    const { direction, report } = run({});
+    expect(direction.headline).not.toBe("");
+    expect(report.headlineLost).toBe(false);
   });
 
   /* Round-1 code critic, variant a: "Pre-order your handwoven throw…" on the
@@ -496,12 +530,13 @@ describe("copyFault on the model's own copy", () => {
     ).toBe(null);
   });
 
-  it("falls back to the brief's title rather than draw a cut headline", () => {
+  it("loses a cut headline rather than draw the brief's title", () => {
     const { direction, report } = finalizeDirection(
       { ...draft, headline: "Treat yourself to the" },
       { aspectRatio: "4:5", checks, fallbackTitle: "show the product" },
     );
-    expect(direction.headline).toBe("Strawberry mille-feuille launch");
+    expect(direction.headline).toBe("");
+    expect(report.headlineLost).toBe(true);
     expect(report.copyFallbacks[0]).toMatchObject({ field: "headline" });
   });
 });

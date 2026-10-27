@@ -759,6 +759,9 @@ export interface FinalizeReport {
    *  was drawn instead. */
   copyFallbacks: { field: string; from: string; to: string | null }[];
   reasonsDropped: { reason: string; why: string }[];
+  /** The model's headline could not be drawn: the direction fails rather
+   *  than ship a headline code wrote. */
+  headlineLost: boolean;
   /** The product as the model named and described it, before it was held
    *  to the brief (resolveBriefProducts). */
   modelProduct: { name: string; look: string };
@@ -797,13 +800,11 @@ export function finalizeDirection(
     return out;
   };
 
-  const headline =
-    fit("headline", draft.headline, COPY_LIMITS.headline) ??
-    fitCopy(checks.title, COPY_LIMITS.headline, checks.ledger) ??
-    fitCopy(capitalise(fallbackTitle), COPY_LIMITS.headline, checks.ledger) ??
-    "Design direction";
-  const headlineFallback = copyFallbacks.find((f) => f.field === "headline");
-  if (headlineFallback) headlineFallback.to = headline;
+  /* Model writes, code verifies: a headline the model could not deliver
+     is never replaced by code's own words (the brief's internal title, a
+     playbook lead, "Design direction"; round-8 code critic, break 3). The
+     direction carries no headline and fails before it is drawn. */
+  const headline = fit("headline", draft.headline, COPY_LIMITS.headline) ?? "";
   const subheadline = fit(
     "subheadline",
     draft.subheadline,
@@ -866,6 +867,7 @@ export function finalizeDirection(
     report: {
       copyFallbacks,
       reasonsDropped: dropped,
+      headlineLost: !headline,
       modelProduct: {
         name: clean(draft.productName),
         look: clean(draft.productLook).slice(0, DRAFT_LIMITS.productLook),

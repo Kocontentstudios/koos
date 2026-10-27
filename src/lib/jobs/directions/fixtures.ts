@@ -44,7 +44,7 @@ export function contrastingDraft(
 ): DirectionDraft {
   return draftOf({
     layout: "quote-card",
-    headline: "Your weekend table is waiting",
+    headline: "Your table is waiting",
     subheadline: "Slow brunch, good coffee, no rush",
     cta: "Book a table",
     backgroundPrompt: "a sunlit cafe table set for two with coffee",

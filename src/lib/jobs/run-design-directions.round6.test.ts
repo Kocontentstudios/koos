@@ -928,3 +928,121 @@ describe("round-7 critic job probes", () => {
     expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
   });
 });
+
+/* Round-8 code critic, job probes J1 and J3 (r8-job-probes.log), on the
+   PR 1 default path: the flag off and no photo. */
+describe("round-8 critic job probes", () => {
+  it("J1: an age the design never prints is written in, never counted from '8+ flavours'", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      readBrief.mockResolvedValue(
+        readAnswer(
+          [
+            { kind: "day", text: "this Saturday" },
+            { kind: "age", text: "Ages 8+" },
+          ],
+          { kind: "event", phrase: "ice cream social" },
+        ),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Ice cream social",
+              subheadline: "This Saturday, 8+ flavours to try.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Scoops this Saturday",
+              subheadline: "Our ice cream social is back with 8+ flavours.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Ice cream social this Saturday with 8+ flavours. Ages 8+.",
+        { image: { source: "none" } },
+      );
+      for (const id of ["row-1", "row-2"]) {
+        expect(drawnOf(id)).toMatch(/ages 8\+/i);
+      }
+      expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
+      expect(usage().factsLeftOff).toEqual([]);
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  /* Break 3: with the fit pass down, the brief's internal title was drawn
+     as the headline. The fit pass is asked once more; when it is still
+     down the direction fails with a message, and its sibling ships. */
+  it("J3: with the fit pass down, fails the direction rather than draw code's headline", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      const fitCalls: string[] = [];
+      generateObject.mockImplementation(async (o: { prompt?: string }) => {
+        const prompt = typeof o.prompt === "string" ? o.prompt : "";
+        if (prompt.startsWith("Some fields you wrote")) {
+          fitCalls.push(prompt);
+          throw new Error("model timeout");
+        }
+        return {
+          object: {
+            directions: [
+              draftOf({ headline: "Loved by 500 Lagos commuters" }),
+              contrastingDraft(),
+            ],
+          },
+        };
+      });
+      await runBrief(
+        "Promote our almond croissants to commuters before work.",
+        { image: { source: "none" } },
+      );
+      expect(fitCalls).toHaveLength(2);
+      expect(delivered("row-1")).toBeUndefined();
+      expect(updatesFor("row-1")).toContainEqual({
+        status: "failed",
+        error:
+          "We couldn't write a headline for this design that keeps to your brief. Regenerate it to try again, or add more detail to the brief.",
+      });
+      expect(delivered("row-2")?.spec.headline).toBe("Your table is waiting");
+      const drawn = updatesFor("row-1").map((p) => p.spec?.headline);
+      for (const code of ["Croissant launch", "Product", "Design direction"]) {
+        expect(drawn).not.toContain(code);
+      }
+      expect(usage().headlinesLost).toBe(1);
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  it("J3: says so in the job's error when every direction loses its headline", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      generateObject.mockImplementation(async (o: { prompt?: string }) => {
+        if (String(o.prompt ?? "").startsWith("Some fields you wrote")) {
+          throw new Error("model timeout");
+        }
+        return {
+          object: {
+            directions: [
+              draftOf({ headline: "Loved by 500 Lagos commuters" }),
+              contrastingDraft({ headline: "Rated 4.9 by 2,000 regulars" }),
+            ],
+          },
+        };
+      });
+      await expect(
+        runBrief("Promote our almond croissants to commuters before work.", {
+          image: { source: "none" },
+        }),
+      ).rejects.toThrow(
+        "We couldn't write a headline for this design that keeps to your brief.",
+      );
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+});

@@ -152,6 +152,9 @@ export interface DraftDirectionsResult {
   layoutsForced: number;
   /** A pair nothing on the page could separate got a new headline. */
   headlineRewritten: boolean;
+  /** Per direction: its headline could not be drawn as the model wrote it,
+   *  so it fails rather than ship one code wrote. */
+  headlineLost: boolean[];
   /** A near-duplicate was found and one direction was written again. */
   redrafted: boolean;
   /** The closest pair after any redraft, new against new and new against
@@ -389,14 +392,16 @@ const FIELD_NAMES: Record<string, string> = {
 
 function claimFields(directions: DirectionSpec[]): ClaimCheckField[] {
   return directions.flatMap((d, i) => {
-    const out: ClaimCheckField[] = [
-      {
-        id: `${i}.headline`,
-        field: FIELD_NAMES.headline,
-        text: d.headline,
-        limit: COPY_LIMITS.headline,
-      },
-    ];
+    const out: ClaimCheckField[] = d.headline
+      ? [
+          {
+            id: `${i}.headline`,
+            field: FIELD_NAMES.headline,
+            text: d.headline,
+            limit: COPY_LIMITS.headline,
+          },
+        ]
+      : [];
     if (d.subheadline) {
       out.push({
         id: `${i}.subheadline`,
@@ -436,35 +441,27 @@ function claimFields(directions: DirectionSpec[]): ClaimCheckField[] {
   });
 }
 
-/* A headline the claim check refused falls back to the user's own words:
-   the brief's title, else the product the brief names. Never the concept's
-   title, which describes the idea to the client and reads as a label on
-   the design (round-4 live run: "Origin voice"). */
-function fallbackHeadline(d: DirectionSpec, checks: DirectionChecks): string {
-  const product = d.productName
-    ? d.productName.charAt(0).toUpperCase() + d.productName.slice(1)
-    : "";
-  return (
-    [checks.title, product].find(
-      (candidate) =>
-        candidate && !copyFault(candidate, COPY_LIMITS.headline, checks.ledger),
-    ) ?? d.headline
-  );
-}
-
 /**
  * The directions with every field the claim check flagged rewritten by its
  * own suggestion, when the suggestion passes the deterministic checks, or
- * left off. A headline is never left off: it falls back to the brief's
- * title, the user's own words. Reasons are settled again after, so each
- * direction still shows at least two true ones.
+ * left off. A headline cannot be left off and code never writes one (the
+ * brief's internal title once stood in; round-8 code critic, break 3), so
+ * a flagged headline with no rewrite that holds is reported lost and its
+ * direction fails. Reasons are settled again after, so each direction
+ * still shows at least two true ones.
  */
 export function applyClaimCheck(
   directions: DirectionSpec[],
   flagged: readonly { id: string; statement: string; rewrite: string }[],
   checks: DirectionChecks,
   paintedScenes: (string | undefined)[],
-): { directions: DirectionSpec[]; rewritten: number; dropped: number } {
+): {
+  directions: DirectionSpec[];
+  rewritten: number;
+  dropped: number;
+  headlinesLost: number[];
+} {
+  const headlinesLost: number[] = [];
   const out = directions.map((d) => ({
     ...d,
     footerLines: [...d.footerLines],
@@ -504,7 +501,8 @@ export function applyClaimCheck(
     if (holds) rewritten += 1;
     else dropped += 1;
     if (field === "headline") {
-      d.headline = holds ? text : fallbackHeadline(d, checks);
+      if (holds) d.headline = text;
+      else headlinesLost.push(Number(index));
     } else if (field === "subheadline" || field === "cta") {
       if (holds) d[field] = text;
       else delete d[field];
@@ -534,7 +532,7 @@ export function applyClaimCheck(
       rationale: reasons,
     };
   });
-  return { directions: settled, rewritten, dropped };
+  return { directions: settled, rewritten, dropped, headlinesLost };
 }
 
 function closestPair(
@@ -734,15 +732,24 @@ export async function draftDirections({
     const requests = fitRequests(drafts, checks, offering);
     if (requests.length === 0) return drafts;
     fit.asked += requests.length;
-    modelCalls += 1;
-    try {
-      const { object } = await generateObject({
+    const askFits = () => {
+      modelCalls += 1;
+      return generateObject({
         model: getModel("strategy"),
         schema: fitResponseSchema,
         system,
         maxOutputTokens: 2000,
         experimental_repairText: repairFitText,
         prompt: buildFitPrompt(context, requests),
+      });
+    };
+    try {
+      /* Asked once more when the first call fails: a headline the model
+         could not deliver fails its direction, since code never writes
+         one (round-8 code critic, break 3). */
+      const { object } = await askFits().catch((err) => {
+        console.error("direction fit pass failed; asking once more", err);
+        return askFits();
       });
       const applied = applyFits(
         drafts,
@@ -816,6 +823,8 @@ export async function draftDirections({
       );
       const [refit] = await fitted([again]);
       const candidate = finalize(refit, lens);
+      const losesHeadline =
+        candidate.report.headlineLost && !reports[later].headlineLost;
       const trial = directions.map((d, i) =>
         i === later ? candidate.direction : d,
       );
@@ -823,7 +832,11 @@ export async function draftDirections({
       /* Kept only if it actually moved apart. A redraft that came back just
          as close is no better, and the original at least passed the gate of
          being the model's first answer to the full brief. */
-      if (retried && retried.overlap.max < worst.overlap.max) {
+      if (
+        retried &&
+        retried.overlap.max < worst.overlap.max &&
+        !losesHeadline
+      ) {
         directions[later] = candidate.direction;
         reports[later] = candidate.report;
         worst = retried;
@@ -853,6 +866,9 @@ export async function draftDirections({
     ),
   );
   directions.splice(0, directions.length, ...claimed.directions);
+  const headlineLost = directions.map(
+    (_, i) => reports[i].headlineLost || claimed.headlinesLost.includes(i),
+  );
   const claimCheck: ClaimCheckOutcome = {
     available: flagged !== null,
     flagged: flagged?.length ?? 0,
@@ -862,17 +878,15 @@ export async function draftDirections({
   };
 
   const read = await reading;
-  /* A pair that still repeats one headline, after the redraft and after
-     the claim check (whose fallback is the brief's title, which one of the
-     pair may already be), gets the user's own words for the later one
-     (round-6 eval: "Three shots. One flight." twice, and "Senior React
-     engineers" beside "We're Hiring Senior React Engineers"). */
+  /* A pair that still repeats one headline after the redraft and the claim
+     check gets a new one written for the later direction (round-6 eval:
+     "Three shots. One flight." twice, and "Senior React engineers" beside
+     "We're Hiring Senior React Engineers"). */
   let finalPair = closestPair(directions, existing, overlapOptions);
   let headlineRewritten = false;
   const headlinesBefore = directions.map((d) => d.headline);
   if (finalPair && isNearDuplicate(finalPair.overlap)) {
     const later = finalPair.later;
-    const offering = read.offering?.phrase ?? "";
     /* The later direction first; in a fresh pair the earlier one too, when
        only it can move (round-6 eval: "Latte Art Masterclass" beside
        "Learn Latte Art", both naming the event as they must). */
@@ -893,25 +907,13 @@ export async function draftDirections({
     const fitsHeadline = (candidate: string) =>
       Boolean(candidate) &&
       !copyFault(candidate, COPY_LIMITS.headline, checks.ledger);
-    search: for (const target of movable) {
+    for (const target of movable) {
       const sub = directions[target].subheadline ?? "";
-      /* The brief's own words first: its title, its name for the offering. */
-      for (const candidate of [
-        checks.title,
-        offering ? offering.charAt(0).toUpperCase() + offering.slice(1) : "",
-      ]) {
-        if (!fitsHeadline(candidate)) continue;
-        const trial = withHeadline(target, candidate, sub);
-        const retried = separates(trial);
-        if (retried) {
-          directions[target] = trial[target];
-          finalPair = retried;
-          break search;
-        }
-      }
-      /* Then a different idea, written for it and held to every rule a
-         headline is: a promoted sentence keeps the words the pair shares
-         and reads as copy moved up, not a headline (round-6 eval). */
+      /* A different idea, written for it by the model and held to every
+         rule a headline is. Code never draws its own words here: the
+         brief's internal title and the offering's name once stood in
+         (round-8 code critic, break 3). A promoted sentence keeps the
+         words the pair shares and reads as copy moved up (round-6 eval). */
       const others = [
         ...existing,
         ...directions.filter((_, i) => i !== target),
@@ -1218,6 +1220,7 @@ export async function draftDirections({
     layoutsForced,
     redrafted,
     headlineRewritten,
+    headlineLost,
     overlap: worst?.overlap ?? null,
     modelCalls,
     productSources: products.map((p) => p.from),

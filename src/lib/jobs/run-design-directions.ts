@@ -157,6 +157,18 @@ export class CopyDoesNotFitError extends Error {
   }
 }
 
+/** The model's headline for a direction could not be drawn, even after it
+ *  was asked again, and code never writes one in its place (round-8 code
+ *  critic, break 3). */
+export class HeadlineNotWrittenError extends Error {
+  constructor() {
+    super(
+      "We couldn't write a headline for this design that keeps to your brief. Regenerate it to try again, or add more detail to the brief.",
+    );
+    this.name = "HeadlineNotWrittenError";
+  }
+}
+
 interface RegenerationTarget {
   set: string;
   slot: number;
@@ -576,6 +588,7 @@ export async function generateDirectionsWork(
   let layoutsWereHeld = false;
   const refusals: string[] = [];
   let subjectFaulted = 0;
+  let headlinesLost = 0;
   let rendered = 0;
   let checked = 0;
   stage(
@@ -613,6 +626,7 @@ export async function generateDirectionsWork(
     let counted = false;
     const slot = target?.slot ?? i;
     try {
+      if (brief.headlineLost[i]) throw new HeadlineNotWrittenError();
       const mark = marks[i];
       const image = images[i];
       let assets: DirectionAssets = {
@@ -861,6 +875,7 @@ export async function generateDirectionsWork(
       console.error(`design direction ${row.id} failed`, err);
       if (err instanceof LayoutsHeldError) layoutsWereHeld = true;
       if (err instanceof SubjectFaultError) subjectFaulted += 1;
+      if (err instanceof HeadlineNotWrittenError) headlinesLost += 1;
       const refusal = renderRefusalMessage(err);
       if (refusal) refusals.push(refusal);
       await updateDesignGeneration(row.id, {
@@ -944,9 +959,11 @@ export async function generateDirectionsWork(
             ? new LayoutsHeldError().message
             : subjectFaulted === rows.length
               ? new SubjectFaultError().message
-              : refusals.length === rows.length
-                ? (refusals[0] as string)
-                : "Design generation failed. Please try again.",
+              : headlinesLost === rows.length
+                ? new HeadlineNotWrittenError().message
+                : refusals.length === rows.length
+                  ? (refusals[0] as string)
+                  : "Design generation failed. Please try again.",
     );
   }
 
@@ -999,6 +1016,7 @@ export async function generateDirectionsWork(
          delivered design, and what the plate check concluded per plate. */
       fitAsked: brief.fit.asked,
       fitFixed: brief.fit.fixed,
+      headlinesLost,
       copyFallbacks: brief.reports.reduce(
         (n, r) => n + r.copyFallbacks.length,
         0,

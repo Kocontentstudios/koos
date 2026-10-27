@@ -216,16 +216,38 @@ describe("draftDirections", () => {
   });
 
   /* Round-6 eval, cafe: the redraft came back with the same headline, and
-     the pair shipped as near-duplicates. */
-  it("gives a headline the redraft could not move the brief's title", async () => {
+     the pair shipped as near-duplicates. Round-8 code critic, break 3: the
+     brief's internal title was then drawn in its place; the new headline
+     is the model's. */
+  it("asks the model for a headline the redraft could not move, never the brief's title", async () => {
+    const first = draftOf();
+    const twin = contrastingDraft({ headline: first.headline });
+    generateObject
+      .mockResolvedValueOnce(answer(first, twin))
+      .mockResolvedValueOnce(answer(twin));
+    const result = await draftDirections(
+      input({ headlineRewriter: async () => ["Your table is waiting"] }),
+    );
+    expect(result.directions.map((d) => d.headline)).not.toContain(
+      "Croissant launch",
+    );
+    expect(result.directions.map((d) => d.headline)).toContain(
+      "Your table is waiting",
+    );
+    expect(result.headlineRewritten).toBe(true);
+    expect(result.overlap?.headline ?? 1).toBeLessThan(0.5);
+  });
+
+  it("never draws the brief's title when the model writes no new headline", async () => {
     const first = draftOf();
     const twin = contrastingDraft({ headline: first.headline });
     generateObject
       .mockResolvedValueOnce(answer(first, twin))
       .mockResolvedValueOnce(answer(twin));
     const result = await draftDirections(input());
-    expect(result.directions[1].headline).toBe("Croissant launch");
-    expect(result.overlap?.headline ?? 1).toBeLessThan(0.5);
+    expect(result.directions.map((d) => d.headline)).not.toContain(
+      "Croissant launch",
+    );
   });
 
   it("keeps the first draft when the redraft call fails", async () => {
@@ -292,19 +314,43 @@ describe("draftDirections", () => {
         });
       const result = await draftDirections(input());
       expect(result.fit).toEqual({ asked: 2, fixed: 0 });
-      expect(result.directions[0].headline).toBe("Croissant launch");
+      /* Round-8 code critic, break 3: no code-written headline. */
+      expect(result.directions[0].headline).toBe("");
+      expect(result.headlineLost).toEqual([true, false]);
       expect(result.directions[0].cta).toBeUndefined();
     });
 
-    it("settles the design as written when the fit call fails", async () => {
+    it("asks the fit pass once more when its call fails, and applies that answer", async () => {
       generateObject
         .mockResolvedValueOnce(answer(overlong, contrastingDraft()))
+        .mockRejectedValueOnce(new Error("throttled"))
+        .mockResolvedValueOnce({
+          object: {
+            fixes: [
+              { id: "0.headline", text: "Almond croissants for the commute" },
+            ],
+          },
+        });
+      const result = await draftDirections(input());
+      expect(fitPrompt(2)).toBe(fitPrompt(1));
+      expect(result.directions[0].headline).toBe(
+        "Almond croissants for the commute",
+      );
+      expect(result.headlineLost).toEqual([false, false]);
+    });
+
+    it("loses the headline, never draws code's, when the fit call fails twice", async () => {
+      generateObject
+        .mockResolvedValueOnce(answer(overlong, contrastingDraft()))
+        .mockRejectedValueOnce(new Error("throttled"))
         .mockRejectedValueOnce(new Error("throttled"));
       const result = await draftDirections(input());
       expect(result.directions).toHaveLength(2);
-      for (const direction of result.directions) {
-        expect(directionSpecSchema.safeParse(direction).success).toBe(true);
-      }
+      expect(result.directions[0].headline).toBe("");
+      expect(result.headlineLost).toEqual([true, false]);
+      expect(directionSpecSchema.safeParse(result.directions[1]).success).toBe(
+        true,
+      );
     });
 
     it("rewrites a reason that claims a position or invents a fact", async () => {
@@ -502,20 +548,49 @@ describe("an answer off the schema", () => {
   });
 });
 
-/* Round-4 live run: with no brief title, a refused headline fell back to
-   the concept's name ("Origin voice") and was drawn as the headline. */
-it("falls back from a refused headline to the product, never the concept title", async () => {
+/* Round-4 live run: a refused headline fell back to the concept's name
+   ("Origin voice"); round-8 code critic, break 3: then to the brief's title
+   or the product's name, both written by code. A refused headline with no
+   rewrite that holds is lost, and its direction fails. */
+it.each([
+  ["no brief title", ""],
+  ["a brief title", "Croissant launch"],
+])(
+  "loses a refused headline with %s, never drawing code's words",
+  async (_l, title) => {
+    generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
+    const result = await draftDirections(
+      input({
+        context: directionsContext({ title }),
+        claimChecker: async () => [
+          { id: "0.headline", statement: "x", rewrite: "Seven minutes away" },
+        ],
+      }),
+    );
+    expect(result.headlineLost).toEqual([true, false]);
+    expect([
+      "Almond croissants",
+      "Croissant launch",
+      result.directions[0].title,
+    ]).not.toContain(result.directions[0].headline);
+  },
+);
+
+it("keeps a refused headline's rewrite when it holds", async () => {
   generateObject.mockResolvedValue(answer(draftOf(), contrastingDraft()));
   const result = await draftDirections(
     input({
-      context: directionsContext({ title: "" }),
       claimChecker: async () => [
-        { id: "0.headline", statement: "x", rewrite: "Seven minutes away" },
+        {
+          id: "0.headline",
+          statement: "x",
+          rewrite: "Almond croissants, baked early",
+        },
       ],
     }),
   );
-  expect(result.directions[0].headline).toBe("Almond croissants");
-  expect(result.directions[0].headline).not.toBe(result.directions[0].title);
+  expect(result.headlineLost).toEqual([false, false]);
+  expect(result.directions[0].headline).toBe("Almond croissants, baked early");
 });
 
 it("never rewrites a headline into its sibling's", async () => {
