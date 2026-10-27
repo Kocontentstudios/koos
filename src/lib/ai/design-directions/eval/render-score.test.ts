@@ -359,3 +359,22 @@ describe("round 7 gates", () => {
     expect(failures).toContain("fact fragments");
   });
 });
+
+/* Round-7 live critic: a headline fact said again in the subheadline. */
+it("gates a subheadline that repeats the headline", () => {
+  const craft = craftOfDelivered(
+    [],
+    {
+      headline: "A Tray for ₦13,500",
+      subheadline: "Four slices for ₦13,500, this weekend only.",
+      cta: "Preorder",
+      footerLines: [],
+    },
+    "",
+  );
+  expect(craft.aboveRepeats).not.toEqual([]);
+  const totals = aggregateRender([okCase([direction({ craft5: craft })])]);
+  expect(renderFailures(totals).join()).toContain(
+    "subheadline repeats the headline or button",
+  );
+});

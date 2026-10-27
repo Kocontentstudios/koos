@@ -73,10 +73,11 @@ export function buildBriefReadPrompt({
 - price: a price with the unit or quantity it is for, kept together ("₦4,500 a slice", "NGN 34,000 for a set of four", "₦25,000 per person"); a discount ("20% off"); something free, with what it is ("Free registration", "first class free").
 - quantity: a count or limit ("only 15 made", "12 places", "set of four" when no price is attached, "three shots").
 - age: an age limit ("ages 13 to 17", "16+").
-- place: an address or named place, ending before any day or time that follows it ("9 Bourdillon Road, Ikoyi" from "9 Bourdillon Road, Thursday to Sunday"; "our Yaba bar").
+- place: an address or named place, ending before any day or time that follows it ("9 Bourdillon Road, Ikoyi" from "9 Bourdillon Road, Thursday to Sunday"; "our Yaba bar"), with the word that places it ("near Termini", "across Lekki and Ajah").
 - contact: one way to reach the business with its channel ("WhatsApp 0803 555 0142", "Call 08035550142", "@cake.ng on Instagram", "adirehouse.ng", an email). A phone number ends at its last digit: never include an hour, count or second number after it. Two numbers are two facts.
 - offer: what is included or given ("apron and starter to take home", "all milk and beans included", "first class free").
 - condition: a rule the customer must follow ("pre-orders close 12 February", "booking required", "ask the barista to wrap yours").
+- audience: who or what the offer is for, when the brief says so ("for WAEC and JAMB", "for new users only", "for SS1 to SS3 students"): give it as kind "condition".
 Not facts: the product or event's own name, the brand's name, how it is made, served or described ("served over ice", "handwoven"), adjectives and mood.`,
     `"offering": what the brief promotes. kind is "product" for a physical thing sold, "event" for something that happens at a time (class, workshop, panel, launch party), "service" for work done for the customer (a salon, a gym class pass, an app's transfers), "none" for a greeting or message with nothing on offer. phrase is the brief's shortest exact words naming it, whole ("strawberry mille-feuille", "cold brew", "jade organza overcoat", "teen sourdough baking class"), never one word of a longer name, never a channel, place, shop or price; "" for none.`,
     `"people": every real person the brief names, exactly as written ("Ada Obi"), or an empty list.`,

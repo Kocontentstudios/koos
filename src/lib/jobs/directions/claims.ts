@@ -1,5 +1,5 @@
 import { findPhoneNumbersInText } from "libphonenumber-js/max";
-import { contentStems } from "./text-overlap";
+import { contentStems, stem } from "./text-overlap";
 
 /**
  * Whether what a direction says is true, decided in code.
@@ -404,9 +404,22 @@ const CURRENCY_AFTER = /^\s*(naira|ngn|usd|kobo|dollars?|pounds?|euros?)\b/i;
 
 /* What a count counts: the next content words in the same phrase. "Made
    for two. Order by 12 Feb" counts nothing; "Two hearts" counts hearts. */
+/* Units of time are what a count counts ("Six days in Rome"), though the
+   word comparison treats them as stopwords; read past them, "Six days" was
+   taken for six of "Rome" and a correct rewrite refused (round-7 live
+   critic, travel). */
+const TIME_UNIT =
+  /^(?:days?|nights?|weeks?|months?|years?|hours?|hrs?|mins?|minutes?)$/i;
+
 function followingStems(text: string, from: number, count = 3): string[] {
   const phrase = text.slice(from, from + 60).split(/[.,;:!?—–()·|/]/)[0];
-  return [...contentStems(phrase)].slice(0, count);
+  const out: string[] = [];
+  for (const word of phrase.match(/[\p{L}\p{N}'’-]+/gu) ?? []) {
+    if (TIME_UNIT.test(word)) out.push(stem(word.toLowerCase()));
+    else out.push(...contentStems(word));
+    if (out.length >= count) break;
+  }
+  return [...new Set(out)].slice(0, count);
 }
 
 function nearCalendar(text: string, start: number, end: number): boolean {

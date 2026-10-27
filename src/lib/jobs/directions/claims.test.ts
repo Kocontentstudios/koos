@@ -1006,3 +1006,13 @@ it("never reads the number after a comma as what a count counts", () => {
   ]);
   expect(inventedFacts("Fits UK 8 to 14, ₦115,000.", coat)).toEqual([]);
 });
+
+/* Round-7 live critic, travel: "Six days" in a rewrite was read as six of
+   "Rome" and the rewrite refused, leaving facts off. */
+it("reads a spelled-out count of days as days", () => {
+  const rome = factLedger([
+    "Rome in 6 days: guided Colosseum and Vatican tours, 4-star hotel near Termini.",
+  ]);
+  expect(inventedFacts("Six days in Rome, near Termini.", rome)).toEqual([]);
+  expect(inventedFacts("Rome in six days", rome)).toEqual([]);
+});

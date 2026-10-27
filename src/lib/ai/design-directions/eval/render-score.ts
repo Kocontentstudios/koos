@@ -14,6 +14,7 @@
 
 import type { DesignElement } from "@/lib/design/document/schema";
 import {
+  aboveRepeats,
   type BriefFact,
   factStated,
   isFragment,
@@ -125,6 +126,9 @@ export interface DeliveredCraft {
   imageAgainstFrame?: boolean;
   /** Round 6: footer items that end mid-phrase ("fees for your"). */
   fragments?: string[];
+  /** Round 8: what the subheadline says again from the headline or the
+   *  button (aboveRepeats). */
+  aboveRepeats?: string[];
   /** Round 7: a button that is not an action ("First session free"). */
   buttonNotAction?: boolean;
   /** Round 6: price labels drawn in the footer as a bare number, without
@@ -197,6 +201,7 @@ export function craftOfDelivered(
   return {
     imageAgainstFrame,
     buttonNotAction: Boolean(copy.cta?.trim()) && !isAction(copy.cta ?? ""),
+    aboveRepeats: aboveRepeats(copy),
     fragments,
     pricesDetached,
     emptyImageRegion:
@@ -226,6 +231,9 @@ export interface RenderTotals {
   unjudged: number;
   /** Delivered buttons that are not an action. */
   buttonsNotActions: number;
+  /** Delivered directions whose subheadline repeats the headline or the
+   *  button. */
+  aboveRepeats: number;
   subjectKnownShare: number;
   copyOverSubject: number;
   lookTextOverSubjectShare: number;
@@ -351,6 +359,8 @@ export const RENDER_THRESHOLDS = {
    *  clean. */
   maxFailedDirections: 0,
   maxButtonsNotActions: 0,
+  /** Round 8: every fact once, above the footer as in it. */
+  maxAboveRepeats: 0,
   maxUnjudgedShare: 0.1,
   /** Bad photos refused, of those that must be. */
   minRefusals: 1,
@@ -384,6 +394,9 @@ export function aggregateRender(cases: RenderedCase[]): RenderTotals {
     unjudged: delivered.length - judged.length,
     buttonsNotActions: delivered.filter((d) => d.craft5?.buttonNotAction)
       .length,
+    aboveRepeats: delivered.filter(
+      (d) => (d.craft5?.aboveRepeats?.length ?? 0) > 0,
+    ).length,
     subjectKnownShare: share(known.length, delivered.length),
     copyOverSubject: known.filter((d) => d.overlaps > 0).length,
     lookTextOverSubjectShare: share(
@@ -606,6 +619,11 @@ export function renderFailures(
     "buttons that are not actions",
     t.buttonsNotActions,
     limits.maxButtonsNotActions,
+  );
+  over(
+    "subheadline repeats the headline or button",
+    t.aboveRepeats,
+    limits.maxAboveRepeats,
   );
   over(
     "unjudged directions",

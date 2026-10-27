@@ -149,3 +149,14 @@ describe("named people as facts, round 6", () => {
     expect(read.peopleFacts.map((f) => f.text)).toEqual(["Ada Obi"]);
   });
 });
+
+/* Round-7 live critic: "WAEC and JAMB" and "near Termini" were never
+   read, so coverage could not miss them. */
+it("asks for what an offer is for and the word that places it", () => {
+  const prompt = buildBriefReadPrompt({
+    briefText: "Tutoring for WAEC and JAMB.",
+    title: "",
+  });
+  expect(prompt).toContain('"for WAEC and JAMB"');
+  expect(prompt).toContain('"near Termini"');
+});

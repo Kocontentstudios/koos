@@ -1148,6 +1148,7 @@ console.log(
 );
 console.log(
   `round-6: delivered subject cut ${renderTotals.deliveredSubjectCut} (max ${rt.maxDeliveredSubjectCut}), refused for the subject ${renderTotals.subjectRefused}; KO laid out as text ${f2(renderTotals.textLedShare)} (max ${rt.maxTextLedShare}); named people on every direction ${f2(renderTotals.peopleNamedShare)} (min ${rt.minPeopleNamedShare}); person painted beside a named one ${renderTotals.personPainted} (max ${rt.maxPersonPainted}); judge footer repeats ${f2(renderTotals.judgeRepeatedShare)} (max ${rt.maxJudgeRepeatedShare}); fragments ${renderTotals.fragments} (max ${rt.maxFragments}); prices without unit ${renderTotals.pricesDetached} (max ${rt.maxPricesDetached}); picture against its card's edge ${renderTotals.imageAgainstFrame} (reported), of those with a clean layout to take ${renderTotals.imageAgainstFrameAvoidable} (max ${rt.maxImageAgainstFrameAvoidable})`,
+  `round-8: subheadline repeats the headline or button ${renderTotals.aboveRepeats} (max ${rt.maxAboveRepeats})`,
   `round-7: directions not delivered ${renderTotals.failedDirections} (max ${rt.maxFailedDirections}); buttons that are not actions ${renderTotals.buttonsNotActions} (max ${rt.maxButtonsNotActions}); unjudged directions ${renderTotals.unjudged} (max share ${rt.maxUnjudgedShare}, excluded from every judged share); fact coverage by the literal verifier, per direction ${f2(renderTotals.directionFactCoverage)}, per case ${f2(renderTotals.caseFactCoverage)}`,
 );
 console.log(
