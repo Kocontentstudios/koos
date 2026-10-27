@@ -326,15 +326,24 @@ const MEASURE =
 
 const EVERY_DAY = /\b(daily|every ?day|7 days a week|seven days a week)\b/i;
 
+/* Nouns that name a public place, never the brand's own venue: "Lekki toll
+   gate" or "Yaba market" narrowed to "Brew Lab, Lekki" sends the customer
+   to the wrong spot (round-8 code critic, P2 to P6). */
+const LANDMARK = contentStems(
+  "market toll gate bus stop park junction roundabout plaza mall estate station terminal garage bridge square street road avenue way close crescent lane drive expressway highway church mosque school university campus hospital bank stadium beach airport port jetty motor flyover underpass",
+);
+const OUR_VENUE =
+  /\b(?:[Oo]ur|[Mm]y)\s+(?:\p{Lu}[\p{L}'’.-]*\s+)+((?:\p{Ll}+\s*)+)/u;
+
 /**
- * A place named with a venue noun ("our Yaba bar", "our Ikoyi studio, 9
- * Bourdillon Road") is stated by its place name with either the brief's
- * venue noun or the brand's name, and never needs "our": "Yaba bar" and "Brew Lab, Yaba"
- * both say where the bar is; "in Surulere and Yaba" does not (round-8 eval,
- * cafe: "Brew Lab, Yaba" refused as stating nothing). Every number and
- * street name still has to appear. The venue noun is a lower-case word
- * after a capitalised one in the part before the first comma. Needs read
- * "?a|b+c": a, or b with c.
+ * The brand's own venue, "our Yaba bar" or "my Ikoyi studio, 9 Bourdillon
+ * Road", is stated by its place name with either the venue noun or the
+ * brand's name: "Yaba bar" and "Brew Lab, Yaba" both say where the bar is;
+ * "in Surulere and Yaba" does not (round-8 eval, cafe: "Brew Lab, Yaba"
+ * refused as stating nothing). The possessive is what makes the noun the
+ * brand's; without it, or with a landmark noun, the noun stays required.
+ * Every number and street name still has to appear. Needs read "?a|b+c":
+ * a, or b with c.
  */
 export function withVenueOrBrand(
   facts: readonly BriefFact[],
@@ -344,16 +353,13 @@ export function withVenueOrBrand(
   if (brandNeeds.length === 0) return [...facts];
   return facts.map((fact) => {
     if (fact.kind !== "place") return fact;
-    const words = fact.text.split(",")[0].trim().split(/\s+/);
-    const venues = new Set<string>();
-    let named = false;
-    for (const word of words) {
-      if (/^\p{Lu}/u.test(word)) named = true;
-      else if (named && /^\p{Ll}+$/u.test(word)) {
-        for (const s of contentStems(word)) venues.add(`^${s}`);
-      }
+    const owned = OUR_VENUE.exec(fact.text.split(",")[0]);
+    if (!owned) return fact;
+    const nouns = contentStems(owned[1]);
+    if (nouns.size === 0 || [...nouns].some((n) => LANDMARK.has(n))) {
+      return fact;
     }
-    if (venues.size === 0) return fact;
+    const venues = new Set([...nouns].map((n) => `^${n}`));
     return {
       ...fact,
       needs: fact.needs.map((need) =>
