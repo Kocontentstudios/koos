@@ -53,6 +53,31 @@ describe("copyProblems", () => {
   });
 });
 
+describe("copyProblems, round 8", () => {
+  it("asks the writer to state once a footer item the copy above says", () => {
+    expect(
+      copyProblems({
+        headline: "Twelve throws and cushions. One artisan each.",
+        footerLines: ["Twelve throws and cushions"],
+      }),
+    ).toContainEqual(
+      expect.stringMatching(/says again what the copy above says/),
+    );
+  });
+
+  it("asks the writer to fix a subheadline repeating the headline", () => {
+    expect(
+      copyProblems({
+        headline: "Your first 3 rides are free",
+        subheadline: "Your first 3 rides are free in Lagos.",
+        footerLines: [],
+      }),
+    ).toContainEqual(
+      expect.stringMatching(/repeats a number from the headline/),
+    );
+  });
+});
+
 describe("settleFacts", () => {
   it("takes a rewrite that states what was missing and fixes the fragment", async () => {
     const writer = vi.fn(async (_input: Parameters<FactWriter>[0]) => [

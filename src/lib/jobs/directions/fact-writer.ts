@@ -5,10 +5,11 @@ import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
 import {
   aboveRepeats,
   type BriefFact,
-  detailHeldElsewhere,
+  detailHeldAcross,
   type FactCopy,
   factStated,
   isFragment,
+  redundantFooterItems,
   timeOnPhoneLine,
 } from "./brief-facts";
 import type { FactLedger } from "./claims";
@@ -181,6 +182,20 @@ export function copyProblems(
       "the subheadline reads as a list; make it one or two sentences",
     );
   }
+  /* A footer item that says again, by meaning, what the copy above says,
+     and that code may not drop because it holds a fact in the brief's
+     words: the writer states the fact once (round-7 code critic: the
+     deterministic footer-repeat gate read 1 in each run). */
+  for (const item of redundantFooterItems({
+    headline: copy.headline ?? "",
+    subheadline: copy.subheadline,
+    cta: copy.cta,
+    footerLines: copy.footerLines,
+  })) {
+    problems.push(
+      `the footer item "${item}" says again what the copy above says; state it once`,
+    );
+  }
   for (const item of footerItemsOf(copy.footerLines)) {
     if (isFragment(item)) {
       problems.push(`the footer item "${item}" is a fragment; say what it is`);
@@ -230,7 +245,7 @@ export function rewriteFault(
   const keptItems = new Set(footerItemsOf(after.footerLines));
   for (const item of footerItemsOf(before.footerLines)) {
     if (keptItems.has(item) || isFragment(item)) continue;
-    if (!detailHeldElsewhere(item, after)) return `it loses "${item}"`;
+    if (!detailHeldAcross(item, after)) return `it loses "${item}"`;
   }
   /* A list stays a fault whether or not the draft had one: the rewrite
      was its chance to fix it (round-7 code critic, W6). */

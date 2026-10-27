@@ -1071,9 +1071,16 @@ function said(raw: string): Set<string> {
     },
   );
   for (const t of timesIn(text)) out.add(`@${t}`);
+  /* An amount with its currency is a price, never a count: "₦2,000 each"
+     does not repeat "2,000 happy customers" (round-6 P1, kept by the
+     meaning check too). */
+  for (const amount of moneyIn(text)) out.add(`$${amount}`);
   /* A clock time is said by its minutes, never by "12pm" as a word or 12
      as a count: "12–6pm" and "12pm to 6pm" say the same thing. */
-  const rest = text.replace(SHARED_SUFFIX, " ").replace(CLOCK, " ");
+  const rest = text
+    .replace(MONEY, " ")
+    .replace(SHARED_SUFFIX, " ")
+    .replace(CLOCK, " ");
   for (const s of contentStems(rest)) {
     if (!FILLER.has(s) && !isNumberWord(s)) out.add(s);
   }
@@ -1289,7 +1296,7 @@ export function redundantFooterItems(copy: CopyFields, product = ""): string[] {
         (s) =>
           above.has(s) ||
           UNIT_STEMS.has(s) ||
-          (s.startsWith("=") && money.has(s.slice(1))),
+          (s.startsWith("$") && money.has(s.slice(1))),
       );
     const isProduct = productAbove && isProductName(item, product);
     const repeatsSibling = items.some((other, j) => {
@@ -1388,17 +1395,28 @@ const PLACE_AFTER_TO =
 export function detailHeldElsewhere(item: string, copy: CopyFields): boolean {
   const detail = hardDetailOf(item);
   if (detail.size === 0) return true;
-  return copyParts(copy).some((part) => {
-    const theirs = hardDetailOf(part.text);
-    const stems = contentStems(part.text);
-    const lower = part.text.toLowerCase();
-    return [...detail].every(
-      (d) =>
-        theirs.has(d) ||
-        (d.startsWith("^") &&
-          (stems.has(d.slice(1)) || lower.includes(d.slice(1)))),
-    );
-  });
+  return copyParts(copy).some((part) =>
+    [...detail].every((d) => partHolds(part.text, d)),
+  );
+}
+
+function partHolds(text: string, d: string): boolean {
+  if (hardDetailOf(text).has(d)) return true;
+  if (!d.startsWith("^")) return false;
+  return (
+    contentStems(text).has(d.slice(1)) ||
+    text.toLowerCase().includes(d.slice(1))
+  );
+}
+
+/** Like detailHeldElsewhere, for a footer item a model's rewrite moved:
+ *  each of its details may land in a different place ("₦58,000 — 20
+ *  pieces" split into the subheadline and the footer, round-8 eval). */
+export function detailHeldAcross(item: string, copy: CopyFields): boolean {
+  const parts = copyParts(copy).map((p) => p.text);
+  return [...hardDetailOf(item)].every((d) =>
+    parts.some((text) => partHolds(text, d)),
+  );
 }
 
 export interface FactCoverage {
@@ -1585,9 +1603,10 @@ export function aboveRepeats(
       found.push(`the subheadline repeats the ${name}'s price`);
       continue;
     }
+    /* "one" and "two" are words more than counts ("for two", "One box"). */
     const numbers = numbersInPlace(field)
       .map((n) => n.value)
-      .filter((v) => v !== "1");
+      .filter((v) => v !== "1" && v !== "2");
     const subNumbers = new Set(numbersInPlace(sub).map((n) => n.value));
     if (numbers.some((v) => subNumbers.has(v))) {
       found.push(`the subheadline repeats a number from the ${name}`);

@@ -4,6 +4,7 @@ import {
   type BriefFact,
   type FactCopy,
   factStated,
+  redundantFooterItems,
   withoutRepeatingSubheadline,
 } from "./brief-facts";
 
@@ -157,5 +158,25 @@ describe("withoutRepeatingSubheadline", () => {
     expect(withoutRepeatingSubheadline(d, [tray]).subheadline).toBe(
       "₦13,500 for a tray of four, this weekend.",
     );
+  });
+});
+
+describe("the meaning check reads a price as a price", () => {
+  it("does not take '₦2,000 each' for '2,000 happy customers' said again", () => {
+    expect(
+      redundantFooterItems({
+        headline: "2,000 happy customers can't be wrong",
+        footerLines: ["₦2,000 each · WhatsApp 0803 555 0142"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("still finds a price said again", () => {
+    expect(
+      redundantFooterItems({
+        headline: "₦4,500 a slice",
+        footerLines: ["₦4,500 a slice"],
+      }),
+    ).toEqual(["₦4,500 a slice"]);
   });
 });
