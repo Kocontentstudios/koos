@@ -322,6 +322,81 @@ describe("settleFacts", () => {
   });
 });
 
+/* Round-7 code critic, W5 to W7. */
+describe("settleFacts guards what a rewrite removes", () => {
+  it("W5: refuses a rewrite that drops a reader-missed cut-off", async () => {
+    const withCutOff = {
+      ...direction,
+      footerLines: ["Pre-orders close Thursday 6pm"],
+    };
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline: "Join our new Ikoyi kitchen for ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [withCutOff],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0].footerLines).toContain(
+      "Pre-orders close Thursday 6pm",
+    );
+  });
+
+  it("W6: refuses a list subheadline even when the draft was one", async () => {
+    const listed = {
+      ...direction,
+      subheadline: "Ikoyi kitchen. Line cooks. Apply now.",
+    };
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline: "Ikoyi kitchen. Line cooks. ₦220,000 a month.",
+        footerLines: ["CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [listed],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0].subheadline).not.toBe(
+      "Ikoyi kitchen. Line cooks. ₦220,000 a month.",
+    );
+  });
+
+  it("W7: an empty answer keeps the subheadline", async () => {
+    const writer = vi.fn(async () => [
+      {
+        id: 0,
+        subheadline: "",
+        footerLines: ["₦220,000 a month", "CV to jobs@emberandoak.ng"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.directions[0].subheadline).toBe(direction.subheadline);
+  });
+});
+
 describe("writeFacts", () => {
   it("asks for the subheadline and footer only, with the literal rules", async () => {
     generateObject.mockResolvedValueOnce({

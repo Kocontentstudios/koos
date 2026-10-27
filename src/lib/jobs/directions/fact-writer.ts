@@ -4,6 +4,7 @@ import { getModel } from "@/lib/ai/provider";
 import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
 import {
   type BriefFact,
+  detailHeldElsewhere,
   type FactCopy,
   factStated,
   isFragment,
@@ -210,6 +211,27 @@ export function rewriteFault(
   if (lost.length > 0) {
     return `it loses ${lost.map((f) => `"${f.text}"`).join(", ")}`;
   }
+  /* What a customer acts on in a line the rewrite removed is said
+     elsewhere, as for any drop: a reader-missed "Pre-orders close Thursday
+     6pm" went with a rewrite that added the facts asked for (round-7 code
+     critic, W5). */
+  const kept = new Set(after.footerLines);
+  for (const line of before.footerLines) {
+    if (kept.has(line)) continue;
+    const fragmentsOnly = footerItemsOf([line]).every(isFragment);
+    if (!fragmentsOnly && !detailHeldElsewhere(line, after)) {
+      return `it loses "${line}"`;
+    }
+  }
+  /* A list stays a fault whether or not the draft had one: the rewrite
+     was its chance to fix it (round-7 code critic, W6). */
+  if (
+    after.subheadline &&
+    after.subheadline !== before.subheadline &&
+    readsAsList(after.subheadline)
+  ) {
+    return "the subheadline reads as a list; make it one or two sentences";
+  }
   /* No new problem, though one the rewrite left alone may stand: a footer
      that now carries the price is worth taking under a subheadline the
      model could not fix. */
@@ -306,7 +328,11 @@ export async function settleFacts<T extends FactCopy>({
         feedback.set(request.id, "no rewrite came back");
         continue;
       }
-      const subheadline = answer.subheadline.replace(/\s+/g, " ").trim();
+      /* An empty answer keeps the subheadline: the model was asked to
+         rewrite it, not to delete it (round-7 code critic, W7). */
+      const subheadline =
+        answer.subheadline.replace(/\s+/g, " ").trim() ||
+        (out[request.id].subheadline ?? "");
       const footerLines = answer.footerLines
         .map((l) => l.replace(/\s+/g, " ").trim())
         .filter(Boolean);

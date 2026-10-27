@@ -173,13 +173,23 @@ describe("footerLinesFor with the call to action", () => {
     ).toEqual(["Order by 8pm for next-day pickup"]);
   });
 
-  it("drops an item that is part of the call to action or contains it", () => {
+  it("drops an item that is part of the call to action", () => {
     expect(linesFor("Reserve your box today", ["Reserve your box"])).toEqual(
       [],
     );
+  });
+
+  /* Round-7 code critic, K18: "Free consultation when you book now" under
+     "Book now" was drawn as nothing, losing the brief's only offer. An
+     item with words of its own is the job's to drop, under the literal
+     verifier. */
+  it("keeps an item that carries the call to action among its own words", () => {
+    expect(
+      linesFor("Book now", ["Free consultation when you book now"]),
+    ).toEqual(["Free consultation when you book now"]);
     expect(
       linesFor("Book a table", ["Call us and book a table tonight"]),
-    ).toEqual([]);
+    ).toEqual(["Call us and book a table tonight"]);
   });
 
   it("does not treat a one-word overlap as a repeat", () => {

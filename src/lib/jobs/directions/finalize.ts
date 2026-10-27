@@ -14,6 +14,7 @@ import {
   productFromBrief,
   reasonHolds,
 } from "./claims";
+import { readsAsList } from "./footer-repeats";
 import {
   COPY_LIMITS,
   DIRECTION_REASONS_MAX,
@@ -532,16 +533,24 @@ function saysTheSame(a: string, b: string): boolean {
 
 type CopyField = "headline" | "subheadline" | "cta";
 
-/** Why a piece of copy cannot go on the design as written, or null. */
 /* The verbs a button starts with: what the customer does by tapping. */
 const ACTION_VERB =
-  /^(?:book|order|pre-?order|call|text|whatsapp|dm|message|chat|email|e-mail|contact|shop|buy|get|grab|reserve|join|register|sign|apply|send|submit|visit|come|walk|stop|try|claim|discover|explore|learn|start|enrol|enroll|save|see|view|watch|download|subscribe|follow|pick|collect|request|ask|find|meet|attend|taste|browse|read|rsvp|secure|donate|pay|upgrade|open|schedule|check|tap|click|enquire|inquire|talk|reach|hire|rent|treat|choose|pre-?book|plan|refer|share|vote|tell|take|bring|make|give|let|celebrate|enjoy|dine|eat|drink|sip|order|book)\b/i;
+  /^(?:book|order|pre-?order|call|text|whatsapp|dm|message|chat|email|e-mail|contact|shop|buy|get|grab|reserve|join|register|sign|apply|send|submit|visit|come|walk|stop|try|claim|discover|explore|learn|start|enrol|enroll|save|see|view|watch|download|subscribe|follow|pick|collect|request|ask|find|meet|attend|taste|browse|read|rsvp|secure|donate|pay|upgrade|open|schedule|check|tap|click|enquire|inquire|talk|reach|hire|rent|treat|choose|pre-?book|plan|refer|share|vote|tell|take|bring|make|give|let|celebrate|enjoy|dine|eat|drink|sip)\b/i;
+
+/* A verb followed straight by a number or a noun naming a thing is a
+   label, not an action: "Open 7 days a week", "Shop 12, Admiralty Mall",
+   "Book club Saturdays" (round-7 code critic). */
+const NOT_AN_ACTION = /^\S+\s+(?:\d|club\b|clubs\b|mall\b|plaza\b)/i;
 
 /** Whether a button label is an action: it starts with what the customer
- *  does ("Book a session"), not what they get ("First session free"). */
+ *  does ("Book a session"), not what they get ("First session free") or a
+ *  place or a schedule. */
 export function isAction(label: string): boolean {
-  return ACTION_VERB.test(label.trim().replace(/^[^\p{L}]+/u, ""));
+  const text = label.trim().replace(/^[^\p{L}]+/u, "");
+  return ACTION_VERB.test(text) && !NOT_AN_ACTION.test(text);
 }
+
+/** Why a piece of copy cannot go on the design as written, or null. */
 
 export function copyFault(
   text: string,
@@ -624,6 +633,19 @@ export function correctionHolds(
       return false;
     }
     if (fields.some(([text]) => text && foreignWords(text, sources).length)) {
+      return false;
+    }
+    /* A correction is held to the rules every other rewrite is: the
+       button an action, the subheadline never a list (round-7 code
+       critic, C1 and C2). */
+    if (after.cta && after.cta !== before.cta && !isAction(after.cta)) {
+      return false;
+    }
+    if (
+      after.subheadline &&
+      after.subheadline !== before.subheadline &&
+      readsAsList(after.subheadline)
+    ) {
       return false;
     }
     if (

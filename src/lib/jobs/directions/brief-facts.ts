@@ -1363,8 +1363,22 @@ function hardDetailOf(item: string): Set<string> {
   for (const place of placesIn(item)) {
     for (const stem of contentStems(place)) out.add(`^${stem}`);
   }
+  /* A handle, an email or a website is a contact with no digits, and a
+     place after "to" or "for" is where the offer reaches (round-7 code
+     critic, D1 to D4). */
+  for (const contact of item.match(CONTACT_LITERAL) ?? []) {
+    out.add(`^${contact.toLowerCase().replace(/^https?:\/\//, "")}`);
+  }
+  for (const m of item.matchAll(PLACE_AFTER_TO)) {
+    for (const stem of contentStems(m[1])) out.add(`^${stem}`);
+  }
   return out;
 }
+
+const CONTACT_LITERAL =
+  /[\w.+-]+@[\w-]+\.[\w.]+|@[\w.]{2,}|(?:https?:\/\/)?(?:[\w-]+\.)+(?:com|ng|co|org|net|io|shop|store|africa|uk|gh|ke|za)(?:\/[\w/.-]*)?/gi;
+const PLACE_AFTER_TO =
+  /\b(?:to|for)\s+((?:[A-Z][\p{L}'’-]+)(?:\s+(?:[A-Z][\p{L}'’-]+|\d+))*)/gu;
 
 /** Whether everything a customer acts on in `item` is in one other field
  *  or footer item of `copy` (which no longer holds `item`): "Pre-orders
@@ -1377,8 +1391,12 @@ export function detailHeldElsewhere(item: string, copy: CopyFields): boolean {
   return copyParts(copy).some((part) => {
     const theirs = hardDetailOf(part.text);
     const stems = contentStems(part.text);
+    const lower = part.text.toLowerCase();
     return [...detail].every(
-      (d) => theirs.has(d) || (d.startsWith("^") && stems.has(d.slice(1))),
+      (d) =>
+        theirs.has(d) ||
+        (d.startsWith("^") &&
+          (stems.has(d.slice(1)) || lower.includes(d.slice(1)))),
     );
   });
 }

@@ -75,32 +75,6 @@ function indexOfRun(haystack: string[], needle: string[]): number {
   return -1;
 }
 
-/* What a reader cannot get anywhere else: a number (phone, price, time,
-   date, street number), an address on the web or in mail, or a proper noun
-   past the first word (a place, an event). An item carrying one of these is
-   information, and information is never deleted to avoid repeating the
-   CTA. */
-const CALENDAR =
-  /^(?:mon|tue|wed|thu|fri|sat|sun)(?:day|s|sday|nesday|rsday|urday)?$|^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|tember|ober|ember)?$/i;
-
-function isFact(raw: string, index: number): boolean {
-  const token = raw.replace(EDGE_PUNCTUATION, "");
-  if (/\p{N}/u.test(token)) return true;
-  if (CALENDAR.test(token)) return true;
-  if (/[@/]/.test(token) || /\p{L}\.\p{L}/u.test(token)) return true;
-  return index > 0 && /^\p{Lu}/u.test(token);
-}
-
-function factsOf(item: string): string[] {
-  return item
-    .normalize("NFKC")
-    .replace(/(\d)\s+(am|pm)\b/gi, "$1$2")
-    .split(/\s+/)
-    .filter((raw, index) => raw && isFact(raw, index))
-    .map(normalToken)
-    .filter(Boolean);
-}
-
 /** Starts a line that lost its first item with a capital, unless it starts
  *  with an address ("hello@...", "crumbandco.ng") or a name written in mixed
  *  case ("iOS", "eBay") that must keep its case. */
@@ -161,8 +135,6 @@ function keptItem(raw: string, cta: string[]): string {
   const item = raw.trim();
   const tokens = tokensOf(item);
   if (tokens.length === 0) return "";
-  const facts = factsOf(item);
-
   if (cta.length > 0) {
     if (tokens.length === cta.length && indexOfRun(tokens, cta) === 0) {
       return "";
@@ -173,7 +145,11 @@ function keptItem(raw: string, cta: string[]): string {
        lost the deadline (round-7 live run). Code drops a repeat whole; it
        never rewrites one (Oluwaseyi's ruling, round 7). */
     if (at === 0) return item;
-    if (at > 0 && facts.length === 0) return "";
+    /* Only an item saying nothing the button does not is dropped here: an
+       item that carries the button's words among its own ("Free
+       consultation when you book now" under "Book now") may hold a brief
+       fact, and that drop is the job's, under the literal verifier
+       (round-7 code critic, K18). */
     if (tokens.length >= 2 && indexOfRun(cta, tokens) >= 0) return "";
   }
 

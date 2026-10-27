@@ -697,3 +697,27 @@ it("drops a button echo whose fact the button states", () => {
   );
   expect(directions[0].footerLines).toEqual([]);
 });
+
+/* Round-7 code critic, D1 to D4: contacts with no digits, and a place
+   after "to", were dropped as button echoes when the reader missed them. */
+describe("button echoes that carry a contact or a place", () => {
+  it.each([
+    ["D1", "DM @adabags to order", "DM to order"],
+    ["D2", "Email hello@adaevents.ng", "Email us"],
+    ["D3", "Shop online at adabags.ng", "Shop online"],
+    ["D4", "Order for delivery to Ikoyi", "Order for delivery"],
+  ])("%s keeps %s under %s", (_id, item, button) => {
+    const { directions } = dropButtonEchoes(
+      [
+        {
+          headline: "Ankara totes",
+          cta: button,
+          footerLines: [item],
+          footerStyle: "text" as const,
+        },
+      ],
+      [],
+    );
+    expect(directions[0].footerLines).toEqual([item]);
+  });
+});

@@ -14,6 +14,7 @@ import {
   finalizeDirection,
   foreignWords,
   groundingAnchors,
+  isAction,
   isGrounded,
   settleReasons,
 } from "./finalize";
@@ -752,4 +753,46 @@ describe("settleReasons top-ups hold too", () => {
       ).toBe(true);
     }
   });
+});
+
+/* Round-7 code critic, C1 and C2, and isAction's false positives. */
+describe("round-8 correction and button rules", () => {
+  const ledger = factLedger([
+    "JSS tutoring in Yaba on Saturdays. First session free. Book on 0803 555 0142.",
+  ]);
+  const holds = correctionHolds(ledger, []);
+  const before = {
+    headline: "Maths that clicks",
+    subheadline: "JSS tutoring in Yaba on Saturdays.",
+    cta: "Book a session",
+    footerLines: [],
+  };
+
+  it("C1: refuses a correction that makes the button a label", () => {
+    expect(holds(before, { ...before, cta: "First session free" })).toBe(false);
+  });
+
+  it("C2: refuses a correction that makes the subheadline a list", () => {
+    expect(
+      holds(before, {
+        ...before,
+        subheadline: "JSS tutoring. Yaba. Saturdays. First session free.",
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    "Open 7 days a week",
+    "Shop 12, Admiralty Mall",
+    "Book club Saturdays",
+  ])("%s is not an action", (label) => {
+    expect(isAction(label)).toBe(false);
+  });
+
+  it.each(["Book a session", "Shop now", "Open the app", "Order by 8pm"])(
+    "%s is an action",
+    (label) => {
+      expect(isAction(label)).toBe(true);
+    },
+  );
 });
