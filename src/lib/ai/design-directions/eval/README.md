@@ -396,13 +396,20 @@ Measured with the flag off, two runs per HEAD:
 | `caseFactCoverage` (min 1) | 1.00 / 1.00 | 0.97 / 0.96 |
 | `judgeRepeatedShare` (max 0.15, ruled trade-off) | 0.26 / 0.29 | 0.11 / 0.26 |
 
-`caseFactCoverage` misses `textile-launch-regenerate` in both 33090f8 runs
+`caseFactCoverage` missed `textile-launch-regenerate` in both 33090f8 runs
 on the case's product label, "aso-oke throws", a phrase the brief never
 writes ("the autumn aso-oke collection", "Twelve new throws and
-cushions"): it is met only when one line carries both words, and the job
-states the reader's phrase, "autumn aso-oke collection", on every
-direction. Run b also misses "our Yaba bar" on both cafe directions (the
-model wrote "Brew Lab, Yaba"; both rewrites refused).
+cushions"). The label was wrong, not strict (orchestrator ruling, round
+8c): a label must be a phrase the brief states. It is now "aso-oke
+collection", the brief's own phrase for the offering, and every direction
+from 653f975 to 33090f8 already stated "autumn aso-oke collection" (the
+reader's phrase, which the job verifies on every direction).
+`cases.test.ts` now holds every fact, product and person label to the
+brief word for word (case aside), so a label the brief does not write
+fails the gate tests. Offering phrases are the reader's accepted readings
+and are scored by `read-score.ts`, not held to this. Run b also missed
+"our Yaba bar" on both cafe directions (the model wrote "Brew Lab, Yaba";
+both rewrites refused).
 
 ### Grounding
 

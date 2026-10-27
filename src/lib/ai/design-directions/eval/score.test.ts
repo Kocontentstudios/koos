@@ -208,7 +208,7 @@ describe("the directions eval", () => {
       subheadline: "The autumn aso-oke collection, from 3 November",
       cta: "See the throws",
       backgroundPrompt: "folded rust and indigo cloth on linen",
-      productName: "aso-oke throws",
+      productName: "aso-oke collection",
       rationale: [
         "The headline names the rust and indigo colours",
         "The subheadline gives the 3 November launch",

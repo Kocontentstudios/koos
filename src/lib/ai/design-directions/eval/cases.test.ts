@@ -34,6 +34,24 @@ describe("every eval case's labels are the brief's own words", () => {
     }
   });
 
+  /* Round-8c orchestrator ruling: a label must be a phrase the brief
+     states. "aso-oke throws" was not, and failed the coverage gate on
+     copy that stated the brief's "autumn aso-oke collection". */
+  it.each(DIRECTIONS_EVAL_CASES.map((c) => [c.id, c] as const))(
+    "%s: every fact, product and person label is in the brief word for word",
+    (_id, evalCase) => {
+      const brief = evalCase.request.briefText.toLowerCase();
+      const labels = [
+        ...evalCase.facts.map((f) => f.text),
+        ...(evalCase.product ? [evalCase.product] : []),
+        ...(evalCase.people ?? []),
+      ];
+      for (const label of labels) {
+        expect(brief, label).toContain(label.toLowerCase());
+      }
+    },
+  );
+
   it("copies no critic's live brief: the round-6 cases are held out", () => {
     const ids = DIRECTIONS_EVAL_CASES.map((c) => c.id);
     for (const copied of [

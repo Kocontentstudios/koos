@@ -98,6 +98,10 @@ const LOOM: BrandSummary = {
   secondaryColor: "#F97316",
 };
 
+/* The product label is the brief's own phrase for the offering. Until round
+   8c it was "aso-oke throws", which the brief never writes ("the autumn
+   aso-oke collection", "Twelve new throws and cushions"), so coverage held
+   it to two words no line had to carry together. */
 /* From variant a's eval, where "12 Artisans" was written for a brief about
    twelve throws: the case that tests a count borrowed from another noun. */
 const LOOM_FACTS: LabelledFact[] = [
@@ -151,7 +155,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     imageSource: "ko",
     category: "product",
     request: LOOM_REQUEST,
-    product: "aso-oke throws",
+    product: "aso-oke collection",
     facts: LOOM_FACTS,
   },
   {
@@ -161,7 +165,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
     imageSource: "ko",
     category: "product",
     request: LOOM_REQUEST,
-    product: "aso-oke throws",
+    product: "aso-oke collection",
     facts: LOOM_FACTS,
     regenerate: {
       existing: [
