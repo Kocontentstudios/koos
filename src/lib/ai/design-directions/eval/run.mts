@@ -67,6 +67,7 @@ const {
   needsFor,
   phoneRegions,
   settleBriefFacts,
+  withVenueOrBrand,
 } = await import("../../../jobs/directions/brief-facts");
 type BriefFact = import("../../../jobs/directions/brief-facts").BriefFact;
 const { readBriefWithModel, settleBriefRead } = await import(
@@ -367,13 +368,17 @@ for (const caseAsWritten of cases) {
   /* The case's labelled facts, not the reader's: coverage is measured
      against what a person says the brief gives, so a fact the reader
      missed counts as missing from the design. */
-  const labelled = settleBriefFacts(
-    evalCase.facts
-      .filter((f) => !f.optional)
-      .map((f) => ({ kind: labelKind(f.text), text: f.text })),
-    r.briefText,
-    { region: phoneRegions(r.briefText, region) },
-  ).facts;
+  /* Held by the job's own verifier, brand included (withVenueOrBrand). */
+  const labelled = withVenueOrBrand(
+    settleBriefFacts(
+      evalCase.facts
+        .filter((f) => !f.optional)
+        .map((f) => ({ kind: labelKind(f.text), text: f.text })),
+      r.briefText,
+      { region: phoneRegions(r.briefText, region) },
+    ).facts,
+    evalCase.brand.name,
+  );
   /* The people the case names are facts each direction must state, as
      they are in the job (round-5 live critic: a speaker left off). */
   const people: BriefFact[] = (evalCase.people ?? []).map((name) => ({

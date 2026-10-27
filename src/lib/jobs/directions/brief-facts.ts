@@ -326,6 +326,43 @@ const MEASURE =
 
 const EVERY_DAY = /\b(daily|every ?day|7 days a week|seven days a week)\b/i;
 
+/**
+ * A place named with a venue noun ("our Yaba bar", "our Ikoyi studio, 9
+ * Bourdillon Road") is stated by its place name with either the brief's
+ * venue noun or the brand's name, and never needs "our": "Yaba bar" and "Brew Lab, Yaba"
+ * both say where the bar is; "in Surulere and Yaba" does not (round-8 eval,
+ * cafe: "Brew Lab, Yaba" refused as stating nothing). Every number and
+ * street name still has to appear. The venue noun is a lower-case word
+ * after a capitalised one in the part before the first comma. Needs read
+ * "?a|b+c": a, or b with c.
+ */
+export function withVenueOrBrand(
+  facts: readonly BriefFact[],
+  brand: string,
+): BriefFact[] {
+  const brandNeeds = [...contentStems(brand)].map((s) => `^${s}`);
+  if (brandNeeds.length === 0) return [...facts];
+  return facts.map((fact) => {
+    if (fact.kind !== "place") return fact;
+    const words = fact.text.split(",")[0].trim().split(/\s+/);
+    const venues = new Set<string>();
+    let named = false;
+    for (const word of words) {
+      if (/^\p{Lu}/u.test(word)) named = true;
+      else if (named && /^\p{Ll}+$/u.test(word)) {
+        for (const s of contentStems(word)) venues.add(`^${s}`);
+      }
+    }
+    if (venues.size === 0) return fact;
+    return {
+      ...fact,
+      needs: fact.needs.map((need) =>
+        venues.has(need) ? `?${need}|${brandNeeds.join("+")}` : need,
+      ),
+    };
+  });
+}
+
 /** What has to appear in a design for it to state `text` as a `kind`. */
 export function needsFor(
   kind: CoverKind,
@@ -980,6 +1017,12 @@ function needsHold(needs: readonly string[], text: string): boolean {
   const days = new Set(calendarNames(copy));
   const stems = contentStems(copy);
   return needs.every((need) => {
+    if (need.startsWith("?")) {
+      return need
+        .slice(1)
+        .split("|")
+        .some((alternative) => needsHold(alternative.split("+"), text));
+    }
     if (need.startsWith("=")) return numbers.has(need.slice(1));
     if (need.startsWith("@")) return times.has(need.slice(1));
     if (need.startsWith("~")) return days.has(need.slice(1));

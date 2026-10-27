@@ -19,6 +19,7 @@ import {
   type FactCoverage,
   factStated,
   withoutRepeatingSubheadline,
+  withVenueOrBrand,
 } from "./brief-facts";
 import {
   type BriefRead,
@@ -1047,7 +1048,10 @@ export async function draftDirections({
       productLook: hint.slice(0, DRAFT_LIMITS.productLook),
     };
   });
-  const coverFacts = coverFactsOf(read);
+  const coverFacts = withVenueOrBrand(
+    coverFactsOf(read),
+    context.brandSummary.name,
+  );
   const product = named.find((d) => d.productName)?.productName ?? "";
   const deduped = dropFooterRepeats(named, coverFacts, product);
   const coveredFooters = deduped.directions;

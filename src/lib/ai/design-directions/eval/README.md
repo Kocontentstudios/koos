@@ -408,8 +408,13 @@ reader's phrase, which the job verifies on every direction).
 brief word for word (case aside), so a label the brief does not write
 fails the gate tests. Offering phrases are the reader's accepted readings
 and are scored by `read-score.ts`, not held to this. Run b also missed
-"our Yaba bar" on both cafe directions (the model wrote "Brew Lab, Yaba";
-both rewrites refused).
+"our Yaba bar" on both cafe directions, which said "Brew Lab, Yaba" and
+"Brew Lab Yaba". From round 8c a place named with a venue noun is stated by
+its place name with the venue noun or the brand's name
+(`withVenueOrBrand`, used by the job and by the eval's labels alike): "Brew
+Lab, Yaba" and "Yaba bar" state it, "in Surulere and Yaba" does not, "our"
+never has to appear, and an address still needs its number and street
+name.
 
 ### Grounding
 
