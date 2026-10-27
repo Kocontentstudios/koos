@@ -739,6 +739,9 @@ describe("button echoes that carry a contact or a place", () => {
     ["D2", "Email hello@adaevents.ng", "Email us"],
     ["D3", "Shop online at adabags.ng", "Shop online"],
     ["D4", "Order for delivery to Ikoyi", "Order for delivery"],
+    /* Round-8 code critic, D10 and D12. */
+    ["D10", "Visit kemicakes.xyz", "Visit us"],
+    ["D10b", "Order at ada.shop", "Order now"],
   ])("%s keeps %s under %s", (_id, item, button) => {
     const { directions } = dropButtonEchoes(
       [

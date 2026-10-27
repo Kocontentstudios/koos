@@ -1492,8 +1492,10 @@ function hardDetailOf(item: string): Set<string> {
   return out;
 }
 
+/* Any top-level domain of letters: a fixed list left "kemicakes.xyz" with
+   no detail, so it was droppable (round-8 code critic, D10). */
 const CONTACT_LITERAL =
-  /[\w.+-]+@[\w-]+\.[\w.]+|@[\w.]{2,}|(?:https?:\/\/)?(?:[\w-]+\.)+(?:com|ng|co|org|net|io|shop|store|africa|uk|gh|ke|za)(?:\/[\w/.-]*)?/gi;
+  /[\w.+-]+@[\w-]+\.[\w.]+|@[\w.]{2,}|(?:https?:\/\/)?(?:[a-z\d][\w-]*\.)+[a-z]{2,24}\b(?:\/[\w/.-]*)?/gi;
 const PLACE_AFTER_TO =
   /\b(?:to|for)\s+((?:[A-Z][\p{L}'’-]+)(?:\s+(?:[A-Z][\p{L}'’-]+|\d+))*)/gu;
 
@@ -1513,10 +1515,16 @@ export function detailHeldElsewhere(item: string, copy: CopyFields): boolean {
 function partHolds(text: string, d: string): boolean {
   if (hardDetailOf(text).has(d)) return true;
   if (!d.startsWith("^")) return false;
-  return (
-    contentStems(text).has(d.slice(1)) ||
-    text.toLowerCase().includes(d.slice(1))
-  );
+  const wanted = d.slice(1);
+  /* A handle or address is held whole, never inside a longer one: "DM
+     @kemicakes" does not hold "DM @kemi" (round-8 code critic, D12). */
+  if (/[@.]/.test(wanted)) {
+    const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?<![\\w.@-])${escaped}(?![\\w-]|\\.\\w)`, "i").test(
+      text,
+    );
+  }
+  return contentStems(text).has(wanted) || text.toLowerCase().includes(wanted);
 }
 
 /** Like detailHeldElsewhere, for a footer item a model's rewrite moved:
