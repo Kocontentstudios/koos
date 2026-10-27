@@ -47,6 +47,7 @@ const { default: postgres } = await import("postgres");
 const { getPlateAdapter } = await import("@/lib/ai/image");
 const { resolveDesignContext } = await import("@/lib/design/context");
 const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
+const { koImageryEnabled } = await import("@/lib/design/ko-imagery-flag");
 const { getObjectBytes, uploadObject } = await import("@/lib/storage");
 const { designImageKeyFor } = await import("@/lib/uploads/design-image");
 const { normaliseLikeBrowser } = await import(
@@ -216,7 +217,9 @@ async function run(job: Job) {
   const brief = BRIEFS[job.brief];
   const image = job.photo
     ? { source: "upload" as const, key: await uploadPhoto(brandId, job.photo) }
-    : { source: "ko" as const };
+    : koImageryEnabled()
+      ? { source: "ko" as const }
+      : { source: "none" as const };
   const context = await resolveDesignContext({
     brandId,
     freeform: brief,

@@ -316,7 +316,7 @@ and milk included"), because dropping it would leave the fact stated
 nowhere literally. The code-side `footerRepeats` metric, which reads for
 meaning, counts the same items (1 direction in each round-7 run).
 
-The deterministic footer-repeat gate (`footerRepeats`) stays at 0.
+The deterministic footer-repeat gate (`footerRepeats`) is gated at 0; it read 1 in each round-7 run and is a failure, not part of the ruled trade-off.
 
 The flush-photo gate changes in the same round: `imageAgainstFrame` is
 reported, and only `imageAgainstFrameAvoidable` (a flush photo delivered
@@ -338,6 +338,17 @@ bare count or price ("Two", "₦18,000") as well as a phrase cut off. New gates:
 | `failedDirections` | Requested directions not delivered (a photo that fits one layout leaves its sibling laid out as text, never undelivered) | 0 |
 | `buttonsNotActions` | Buttons that are not an action ("First session free") | 0 |
 | `unjudged` | Delivered directions with fewer than two usable judge readings; left out of every judged share, never counted clean | share ≤ 0.1 |
+
+### Round 8: PR 1 is upload and text-led
+
+KO imagery is behind `FEATURE_KO_IMAGERY` (default off). With the flag off,
+every KO case runs text-led (`imageSource: "none"`), as the job makes a
+no-photo request, and PR 1 is gated on the upload and text-led cases; with
+the flag on, KO cases paint plates for the follow-up and are reported
+separately. New gate: `aboveRepeats`, a subheadline repeating the headline's
+or button's price, number or most of its words, at 0. A two-direction
+upload always delivers two: a slot whose photo fits no free layout, or only
+in its sibling's shape, is laid out as text.
 
 ### Grounding
 
