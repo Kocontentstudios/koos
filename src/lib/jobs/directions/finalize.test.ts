@@ -818,16 +818,58 @@ describe("round-8 correction and button rules", () => {
 
   it.each([
     "Open 7 days a week",
+    "Open 24/7",
+    "Open 9am to 6pm",
+    "Open 9-5",
     "Shop 12, Admiralty Mall",
+    "Shop 12 Admiralty Mall",
+    "Shop 12",
     "Book club Saturdays",
+    "0803 555 0142",
+    "+234 803 555 0142",
+    "Call 2",
   ])("%s is not an action", (label) => {
     expect(isAction(label)).toBe(false);
   });
 
-  it.each(["Book a session", "Shop now", "Open the app", "Order by 8pm"])(
-    "%s is an action",
-    (label) => {
-      expect(isAction(label)).toBe(true);
-    },
-  );
+  /* Round-8 code critic, break 4: any number after the verb read as a
+     label, so a phone button was refused and left off the design. */
+  it.each([
+    "Book a session",
+    "Shop now",
+    "Open the app",
+    "Order by 8pm",
+    "Call 0803 555 0142",
+    "WhatsApp 0803 555 0142",
+    "WhatsApp +234 803 555 0142",
+    "Call us on 0803 555 0142",
+    "Text 0803-555-0142",
+    "Book 1:1 coaching",
+    "Shop 3 new styles",
+    "Order 2 for ₦5,000",
+  ])("%s is an action", (label) => {
+    expect(isAction(label)).toBe(true);
+  });
+
+  it("draws a phone button the brief gives", () => {
+    const brief =
+      "Jollof trays for parties, ₦25,000 a tray. Call 0803 555 0142 to order.";
+    for (const cta of ["Call 0803 555 0142", "WhatsApp 0803 555 0142"]) {
+      const { direction, report } = finalizeDirection(
+        {
+          ...draft,
+          headline: "Party jollof, sorted",
+          subheadline: "Jollof trays for parties, ₦25,000 a tray.",
+          cta,
+        },
+        {
+          aspectRatio: "4:5",
+          checks: { ledger: factLedger([brief]), briefText: brief, title: "" },
+          fallbackTitle: "product",
+        },
+      );
+      expect(direction.cta).toBe(cta);
+      expect(report.copyFallbacks).toEqual([]);
+    }
+  });
 });

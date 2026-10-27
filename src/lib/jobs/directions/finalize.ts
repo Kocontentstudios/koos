@@ -537,17 +537,35 @@ type CopyField = "headline" | "subheadline" | "cta";
 const ACTION_VERB =
   /^(?:book|order|pre-?order|call|text|whatsapp|dm|message|chat|email|e-mail|contact|shop|buy|get|grab|reserve|join|register|sign|apply|send|submit|visit|come|walk|stop|try|claim|discover|explore|learn|start|enrol|enroll|save|see|view|watch|download|subscribe|follow|pick|collect|request|ask|find|meet|attend|taste|browse|read|rsvp|secure|donate|pay|upgrade|open|schedule|check|tap|click|enquire|inquire|talk|reach|hire|rent|treat|choose|pre-?book|plan|refer|share|vote|tell|take|bring|make|give|let|celebrate|enjoy|dine|eat|drink|sip)\b/i;
 
-/* A verb followed straight by a number or a noun naming a thing is a
-   label, not an action: "Open 7 days a week", "Shop 12, Admiralty Mall",
-   "Book club Saturdays" (round-7 code critic). */
-const NOT_AN_ACTION = /^\S+\s+(?:\d|club\b|clubs\b|mall\b|plaza\b)/i;
+/* A verb followed by a schedule, an address or a noun naming a place is a
+   label, not an action: "Open 7 days a week", "Open 24/7", "Shop 12,
+   Admiralty Mall", "Book club Saturdays" (round-7 code critic). Any number
+   after the verb was once a label, which refused "Call 0803 555 0142" and
+   "Shop 3 new styles" (round-8 code critic, break 4). */
+const NOT_AN_ACTION = new RegExp(
+  [
+    "^\\S+\\s+(?:club|clubs|mall|plaza)\\b",
+    "^\\S+\\s+\\d+\\s*(?:,|$|\\/\\s*7\\b|days?\\b|hours?\\b|hrs?\\b|am\\b|pm\\b|[:.]\\d{2}\\b|\\s*[-–]\\s*\\d|\\s+to\\s+\\d)",
+  ].join("|"),
+  "iu",
+);
+/* "Shop 12 Admiralty Mall": a number then a name. Case-sensitive, since
+   \p{Lu} under the i flag matches every letter. */
+const NUMBER_THEN_NAME = /^\S+\s+\d+\s+\p{Lu}/u;
+
+/* "Call 0803 555 0142", "WhatsApp +234 803 555 0142": the number is who to
+   reach, and the button is the action of reaching them. */
+const CONTACT_ACTION =
+  /^(?:call|text|whatsapp|dm|message|sms|ring|phone)\s+(?:(?:us\s+)?(?:on|at)\s+)?\+?\d[\d\s().-]{5,}\d$/i;
 
 /** Whether a button label is an action: it starts with what the customer
  *  does ("Book a session"), not what they get ("First session free") or a
  *  place or a schedule. */
 export function isAction(label: string): boolean {
   const text = label.trim().replace(/^[^\p{L}]+/u, "");
-  return ACTION_VERB.test(text) && !NOT_AN_ACTION.test(text);
+  if (!ACTION_VERB.test(text)) return false;
+  if (CONTACT_ACTION.test(text)) return true;
+  return !NOT_AN_ACTION.test(text) && !NUMBER_THEN_NAME.test(text);
 }
 
 /** Why a piece of copy cannot go on the design as written, or null. */
