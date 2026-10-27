@@ -4,7 +4,6 @@ import { getModel } from "@/lib/ai/provider";
 import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
 import {
   aboveRepeats,
-  aboveRepeatsBy,
   type BriefFact,
   detailHeldAcross,
   type FactCopy,
@@ -58,9 +57,6 @@ export interface FactWriteRequest {
   avoid?: string[];
   /** The headline stands in the way of a fact (headlineInTheWay). */
   headlineMayChange?: boolean;
-  /** The subheadline repeats the copy above it after every general ask:
-   *  it may come back empty when what it states is said elsewhere. */
-  subheadlineMayGo?: boolean;
 }
 
 export interface FactWrite {
@@ -111,7 +107,6 @@ export function buildFactWritePrompt({
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
       "- Never put a time or opening hours on the same footer line as a phone number.",
       "- No footer item repeats the headline, the subheadline, the button or another footer item, and the subheadline never says again a price, number, name or phrase the headline or button already says: leave that out of it.",
-      '- A design marked "subheadline may go" may return an empty subheadline when everything it states is then said in the headline, the button or the footer.',
       '- Use only what the brief says. Add no fact, claim or quality of your own, and no word of scarcity or urgency the brief does not use ("only", "just", "hurry", "last chance").',
     ].join("\n"),
     requests
@@ -140,7 +135,6 @@ export function buildFactWritePrompt({
             ? `  the other design's own words, not to use: ${r.avoid.map((w) => `"${w}"`).join(", ")}`
             : null,
           r.headlineMayChange ? "  headline may change" : null,
-          r.subheadlineMayGo ? "  subheadline may go" : null,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -307,57 +301,9 @@ function stillInTheWay(after: FactCopy, facts: readonly BriefFact[]) {
       !factStated(f, after) &&
       headlineInTheWay({ ...after, subheadline: undefined }, [f]),
   );
-  if (blocked) {
-    return `"${blocked.text}" is still not stated and saying it below would repeat the new headline; state it whole in the headline, or keep the headline off it`;
-  }
-  const words = aboveRepeatsBy(after).find(
-    (r) => r.field === "headline",
-  )?.words;
-  return words && words.length > 0
-    ? `the new headline and the subheadline both say ${quoted(words)}; keep those words in one of them only`
+  return blocked
+    ? `"${blocked.text}" is still not stated and saying it below would repeat the new headline; state it whole in the headline, or keep the headline off it`
     : "the subheadline still says what the new headline says; leave that out of the subheadline";
-}
-
-function quoted(words: readonly string[]): string {
-  return words.map((w) => `"${w}"`).join(", ");
-}
-
-/**
- * Each repeat between the subheadline and the copy above it, named with
- * the words both say and the field that should give them up. Round-8c
- * eval: told only "the subheadline says the headline again", the second
- * ask made the first one's mistake again (fintech, tutoring, recruitment),
- * and a product-name headline was moved instead of the subheadline
- * dropping the product's name (bakery, both runs).
- */
-export function repeatConflicts(
-  copy: Pick<FactCopy, "headline" | "subheadline" | "cta" | "footerLines">,
-  facts: readonly BriefFact[],
-): string[] {
-  const sub = copy.subheadline?.trim() ?? "";
-  return aboveRepeatsBy(copy).map(({ field, repeat, words }) => {
-    if (words.length === 0) {
-      return `${repeat}; give it something the ${field} does not say`;
-    }
-    if (field === "button") {
-      return `the button already says ${quoted(words)}; leave that out of the subheadline`;
-    }
-    if (!headlineInTheWay(copy, facts)) {
-      return `the headline already says ${quoted(words)}; leave ${
-        words.length > 1 ? "those words" : "that"
-      } out of the subheadline and give it only what the headline does not say`;
-    }
-    const stems = contentStems(words.join(" "));
-    const needing = facts.filter(
-      (f) =>
-        factStated(f, sub) &&
-        !factStated(f, copy.headline) &&
-        [...contentStems(f.text)].some((s) => stems.has(s)),
-    );
-    return `the subheadline says the headline's ${quoted(words)} again because it states ${
-      needing.length > 0 ? quoted(needing.map((f) => f.text)) : "a fact"
-    } whole; write the headline again without those words, or state that fact whole in the headline and leave it out below`;
-  });
 }
 
 /** Why a rewrite cannot be drawn, or null when it can. */
@@ -421,10 +367,7 @@ export function rewriteFault(
     (f) => !factStated(f, before) && factStated(f, after),
   );
   if (gained.length === 0 && has.length >= had.length) {
-    const standing = repeatConflicts(after, facts)[0];
-    return standing
-      ? `it states nothing more, and ${standing}`
-      : "it states nothing more";
+    return "it states nothing more";
   }
   return null;
 }
@@ -441,20 +384,8 @@ export interface FactSettlement<T> {
   refused: { direction: number; why: string }[];
   /** Headlines the model moved out of a fact's way (headlineInTheWay). */
   headlines: { direction: number; from: string; to: string }[];
-  /** Faults besides missing facts (copyProblems) still in the copy after
-   *  every ask, general and targeted: what is delivered when every
-   *  rewrite was refused. Code never writes copy to clear them. */
-  defectsLeft: { direction: number; problem: string }[];
   modelCalls: number;
 }
-
-/** Asks for everything a direction needs: missing facts and faults. */
-export const GENERAL_ASKS = 2;
-/** Further asks only for a direction whose copy still has a fault
- *  (copyProblems), each naming the conflict (repeatConflicts). Round-8c
- *  eval: all eight delivered repeats, fragments and footer echoes were
- *  left after the two general asks, and nothing asked again. */
-export const TARGETED_ASKS = 2;
 
 /** The rewrite without the footer items that say again what its copy
  *  above says. Code drops, never writes: the model put the fact above and
@@ -495,40 +426,6 @@ function rewriteParts<T extends FactCopy>(before: T, after: T): T[] {
     seen.add(key);
     return true;
   });
-}
-
-/** `copy` with every field the claim check flagged put back as it was in
- *  `before`, or null when nothing of the rewrite is left. A new headline
- *  only ever comes with the new subheadline it was written for. */
-function withoutFlagged<T extends FactCopy>(
-  before: T,
-  copy: T,
-  flaggedIds: readonly string[],
-  id: number,
-): T | null {
-  const flaggedIn = (field: string) =>
-    flaggedIds.some(
-      (f) => f === `${id}.${field}` || f.startsWith(`${id}.${field}.`),
-    );
-  let part: T = copy;
-  if (flaggedIn("headline") || flaggedIn("subheadline")) {
-    part = { ...part, headline: before.headline };
-  }
-  if (flaggedIn("subheadline")) {
-    const { subheadline: _new, ...rest } = part;
-    part = (
-      before.subheadline ? { ...rest, subheadline: before.subheadline } : rest
-    ) as T;
-  }
-  if (flaggedIn("footerLines")) {
-    part = {
-      ...part,
-      footerLines: before.footerLines,
-      footerStyle: before.footerStyle,
-    };
-  }
-  const key = copyKey(part);
-  return key === copyKey(before) || key === copyKey(copy) ? null : part;
 }
 
 function copyKey(copy: FactCopy): string {
@@ -597,23 +494,13 @@ export async function settleFacts<T extends FactCopy>({
   const refused: FactSettlement<T>["refused"] = [];
   const feedback = new Map<number, string>();
   let modelCalls = 0;
-  const needing = (targeted: boolean) =>
+  const needing = () =>
     out.flatMap((copy, id) => {
       const missing = facts.filter((f) => !factStated(f, copy));
       const problems = copyProblems(copy);
       if (missing.length === 0 && problems.length === 0) return [];
-      if (targeted && problems.length === 0) return [];
       const why = feedback.get(id);
       const avoid = wordsOfOthers(out, id);
-      const generic = new Set(
-        aboveRepeats(copy).map(
-          (repeat) => `${repeat}; give it something the headline does not say`,
-        ),
-      );
-      const named = [
-        ...problems.filter((p) => !generic.has(p)),
-        ...repeatConflicts(copy, facts),
-      ];
       return [
         {
           id,
@@ -621,17 +508,14 @@ export async function settleFacts<T extends FactCopy>({
           missing: missing.map((f) => f.text),
           keep: facts.filter((f) => factStated(f, copy)).map((f) => f.text),
           problems: why
-            ? [...named, `your last rewrite was refused: ${why}`]
-            : named,
+            ? [...problems, `your last rewrite was refused: ${why}`]
+            : problems,
           others: out
             .filter((_, j) => j !== id)
             .map((d) => d.subheadline ?? "")
             .filter(Boolean),
           ...(avoid.length > 0 ? { avoid } : {}),
           ...(headlineInTheWay(copy, facts) ? { headlineMayChange: true } : {}),
-          ...(targeted && aboveRepeats(copy).length > 0
-            ? { subheadlineMayGo: true }
-            : {}),
         },
       ];
     });
@@ -641,8 +525,8 @@ export async function settleFacts<T extends FactCopy>({
     keepsApart(setWith(id, copy))
       ? null
       : readsLikeTheOther(borrowed(copy, wordsOfOthers(out, id)));
-  for (let attempt = 0; attempt < GENERAL_ASKS + TARGETED_ASKS; attempt += 1) {
-    const requests = needing(attempt >= GENERAL_ASKS);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const requests = needing();
     if (requests.length === 0) break;
     modelCalls += 1;
     const written = (await writer({ requests, briefText, title })) ?? [];
@@ -661,7 +545,7 @@ export async function settleFacts<T extends FactCopy>({
          rewrite it, not to delete it (round-7 code critic, W7). */
       const subheadline =
         answer.subheadline.replace(/\s+/g, " ").trim() ||
-        (request.subheadlineMayGo ? "" : (before.subheadline ?? ""));
+        (before.subheadline ?? "");
       const headline =
         (request.headlineMayChange &&
           answer.headline?.replace(/\s+/g, " ").trim()) ||
@@ -744,30 +628,6 @@ export async function settleFacts<T extends FactCopy>({
                 .map((c) => `"${c.statement ?? "a claim"}"`)
                 .join(", ")}`
             : apartFault(id, copy);
-      /* The claim check reads field by field: what it did not flag was
-         checked and is taken without what it did, when that part holds on
-         its own (round-8c eval, storefront: a footer that fixed the bare
-         phone "0802 333 4567" went with a flagged subheadline, twice). */
-      const unflagged =
-        flagged !== null && claims.length > 0
-          ? withoutFlagged(
-              out[id],
-              copy,
-              claims.map((c) => c.id),
-              id,
-            )
-          : null;
-      if (
-        why &&
-        unflagged &&
-        (rewriteFault(out[id], unflagged, facts, ledger) ??
-          apartFault(id, unflagged)) === null
-      ) {
-        out[id] = unflagged;
-        feedback.set(id, why);
-        refused.push({ direction: id, why: `in part: ${why}` });
-        continue;
-      }
       if (why) {
         feedback.set(id, why);
         refused.push({ direction: id, why });
@@ -809,16 +669,5 @@ export async function settleFacts<T extends FactCopy>({
         ]
       : [],
   );
-  const defectsLeft = out.flatMap((copy, direction) =>
-    copyProblems(copy).map((problem) => ({ direction, problem })),
-  );
-  return {
-    directions: out,
-    added,
-    leftOff,
-    refused,
-    headlines,
-    defectsLeft,
-    modelCalls,
-  };
+  return { directions: out, added, leftOff, refused, headlines, modelCalls };
 }

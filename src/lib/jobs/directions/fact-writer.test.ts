@@ -8,14 +8,8 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 const { settleBriefFacts } = await import("./brief-facts");
 const { factLedger } = await import("./claims");
-const {
-  buildFactWritePrompt,
-  copyProblems,
-  GENERAL_ASKS,
-  settleFacts,
-  TARGETED_ASKS,
-  writeFacts,
-} = await import("./fact-writer");
+const { buildFactWritePrompt, copyProblems, settleFacts, writeFacts } =
+  await import("./fact-writer");
 
 /* Oluwaseyi's ruling, round 7: the model writes what a direction leaves
    out, code verifies it, and nothing is appended by code. */
@@ -210,10 +204,7 @@ describe("settleFacts", () => {
     ]);
   });
 
-  /* Round 8d: the flagged subheadline is never delivered, and the footer
-     the claim check passed, which fixes the fragment and states the
-     contact, is taken without it. */
-  it("refuses the field the claim check flags, and takes the rest", async () => {
+  it("refuses a rewrite the claim check flags", async () => {
     const writer = vi.fn(async () => [
       {
         id: 0,
@@ -233,14 +224,7 @@ describe("settleFacts", () => {
       briefText: brief,
       title: "",
     });
-    expect(out.directions[0]).toEqual({
-      ...direction,
-      footerLines: ["CV to jobs@emberandoak.ng"],
-    });
-    expect(out.refused).toContainEqual({
-      direction: 0,
-      why: expect.stringMatching(/^in part: the claim check found/),
-    });
+    expect(out.directions[0]).toEqual(direction);
   });
 
   /* Round-7 live run: whole rewrites refused for a list-like subheadline
@@ -291,12 +275,7 @@ describe("settleFacts", () => {
       keepsApart: () => false,
     });
     expect(out.directions[0]).toEqual(direction);
-    /* The fragment "Two" is still there after the general asks, so the
-       targeted asks follow (round 8d). */
-    expect(writer).toHaveBeenCalledTimes(GENERAL_ASKS + TARGETED_ASKS);
-    expect(out.defectsLeft).toEqual([
-      { direction: 0, problem: expect.stringMatching(/"Two" is a fragment/) },
-    ]);
+    expect(writer).toHaveBeenCalledTimes(2);
     expect(writer.mock.calls[1][0].requests[0].problems).toContainEqual(
       expect.stringMatching(/reads like the other design/),
     );

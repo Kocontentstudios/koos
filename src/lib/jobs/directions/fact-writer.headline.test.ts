@@ -54,28 +54,7 @@ describe("headlineInTheWay", () => {
     expect(headlineInTheWay(wanted, hiringFacts)).toBe(true);
   });
 
-  it("is true when the facts the subheadline states repeat the headline", () => {
-    expect(
-      headlineInTheWay(
-        {
-          headline: "Zero fees. 20 countries.",
-          subheadline: "Send money to 20 African countries.",
-          footerLines: [],
-        },
-        [
-          fact("quantity", "20 African countries", [
-            "=20",
-            "^african",
-            "^countri",
-          ]),
-        ],
-      ),
-    ).toBe(true);
-  });
-
-  /* Round 8d: with no fact needing the words, the repeat is the
-     subheadline's to drop, not the headline's to move. */
-  it("is false when the subheadline repeats the headline but no fact needs it to", () => {
+  it("is true when the subheadline already repeats the headline", () => {
     expect(
       headlineInTheWay(
         {
@@ -85,7 +64,7 @@ describe("headlineInTheWay", () => {
         },
         [],
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("is false for a headline on its own idea", () => {
@@ -221,40 +200,19 @@ describe("the fact writer moves a headline only out of a fact's way", () => {
     ).toMatch(/drops the headline's idea/);
   });
 
-  /* The new headline states the fact whole, so it is clear of the fact's
-     way; the subheadline saying it again is what is refused (round 8d). */
   it("refuses a new headline the subheadline still repeats", () => {
-    expect(
-      rewriteFault(
-        wanted,
-        {
-          ...wanted,
-          headline: "Two Senior React Engineers Wanted",
-          subheadline:
-            "Two senior React engineers, fully remote anywhere in Africa.",
-        },
-        hiringFacts,
-        factLedger([hiring]),
-      ),
-    ).toMatch(/says the headline again/);
-  });
-
-  it("names the words a new headline and the subheadline both still say", () => {
     expect(
       headlineFault(
         wanted,
         {
           ...wanted,
-          headline: "Remote React Engineers Wanted",
-          subheadline:
-            "Two senior React engineers, fully remote anywhere in Africa.",
+          headline: "Two Senior React Engineers Wanted",
+          subheadline: "Two senior React engineers, fully remote.",
         },
         hiringFacts,
         factLedger([hiring]),
       ),
-    ).toMatch(
-      /the new headline and the subheadline both say "remote", "react", "engineers"/,
-    );
+    ).toMatch(/still says what the new headline says/);
   });
 
   it("names the fact a new headline still stands in the way of", () => {
@@ -660,22 +618,20 @@ describe("a headline move never turns a question into a claim", () => {
   });
 
   it("records the refusal, and keeps the question", async () => {
-    /* The panel and the speaker below need "architect" and "heat", which
-       the question also says: the headline stands in their way. */
-    const inTheWay = {
-      ...asked,
-      headline: "Can architects beat the heat?",
-      subheadline:
-        "With architect Ada Obi, Building for Heat is at Landmark Centre on Friday 14 March.",
-    };
     const writer = vi.fn(async (_input: Parameters<FactWriter>[0]) => [
       {
         id: 0,
-        headline: "Architects who beat the heat",
-        subheadline: inTheWay.subheadline,
+        headline: "Design that beats the heat",
+        subheadline:
+          "Design and the heat, at Landmark Centre on Friday 14 March.",
         footerLines: asked.footerLines,
       },
     ]);
+    const inTheWay = {
+      ...asked,
+      subheadline:
+        "Design and the heat, at Landmark Centre on Friday 14 March.",
+    };
     expect(headlineInTheWay(inTheWay, facts)).toBe(true);
     const out = await settleFacts({
       directions: [inTheWay],
@@ -686,7 +642,7 @@ describe("a headline move never turns a question into a claim", () => {
       briefText: conferenceBrief,
       title: "Panel announcement",
     });
-    expect(out.directions[0].headline).toBe("Can architects beat the heat?");
+    expect(out.directions[0].headline).toBe("Can design beat the heat?");
     expect(out.refused).toContainEqual({
       direction: 0,
       why: expect.stringMatching(/only asked/),
