@@ -815,6 +815,9 @@ describe("an upload that fits one layout", () => {
     const { TEXT_LED_LAYOUTS } = await import("./directions/subject-layout");
     const textLed = ["row-1", "row-2"][withPhoto.indexOf(false)];
     expect(TEXT_LED_LAYOUTS).toContain(delivered(textLed)?.spec.layout);
+    expect(notified()).toContain(
+      "One direction was laid out with words only: your photo could only be shown the way the other direction already shows it. Regenerate it to try another layout, or upload a photo with more room around the subject.",
+    );
   });
 });
 

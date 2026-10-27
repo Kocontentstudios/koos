@@ -952,5 +952,13 @@ describe("a subject no layout can keep copy off", () => {
       expect(doc.elements.some((e) => e.type === "image")).toBe(false);
     }
     expect(recordUsageEvent.mock.calls[0][0].metadata.textLedUpload).toBe(2);
+    /* Round-8 code critic, J2: neither direction shows the photo, so the
+       bell may not say the other one does. */
+    const bell = createNotification.mock.calls.map(
+      ([input]) => (input as { payload: { message: string } }).payload.message,
+    );
+    expect(bell).toEqual([
+      "Both directions were laid out with words only: your photo couldn't be shown whole and clear of the words in any layout at this size. Try another size, or upload a photo with more room around the subject.",
+    ]);
   });
 });

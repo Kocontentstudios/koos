@@ -920,19 +920,23 @@ export async function generateDirectionsWork(
       cause: imageModelDown === textLed ? "unavailable" : "rejected",
     });
   }
-  /* An upload direction laid out as text because its photo fits only the
-     layout its sibling shows it in: counted and told, like a KO one (round-7
-     code critic: the two-directions path was untraced). */
+  /* An upload direction laid out as text: counted and told, like a KO one
+     (round-7 code critic: the two-directions path was untraced), with the
+     cause it has. The photo is either shown by the other direction, or by
+     none (round-8 code critic, J2). */
   const textLedUpload = rows.filter(
     (row, i) => upload && !images[i] && succeeded.includes(row.id),
   ).length;
+  const photoShown =
+    siblingPlace !== null ||
+    rows.some((row, i) => upload && images[i] && succeeded.includes(row.id));
   if (textLedUpload > 0) {
     await notifyImageLeftOff({
       userId,
       directions: textLedUpload,
       of: count,
       subject: "",
-      cause: "photo",
+      cause: photoShown ? "photo-taken" : "photo-fits-none",
     });
   }
   const leftOff = settled.find((s) => s.logoFree);

@@ -54,9 +54,12 @@ export async function notifyImageLeftOff({
   subject: string;
   /** "unavailable": the image model returned nothing usable, so no plate
    *  was judged. "rejected": plates were painted and turned down.
-   *  "photo": the client's photo fits only the layout its sibling shows it
-   *  in, so this direction is laid out as text (round 8). */
-  cause?: "rejected" | "unavailable" | "photo";
+   *  "photo-taken": the client's photo could be shown only as the other
+   *  direction already shows it. "photo-fits-none": no layout at this size
+   *  shows it whole and clear of the copy, and no direction shows it. Told
+   *  as one, two text-led directions were told a sibling held the photo
+   *  (round-8 code critic, J2). */
+  cause?: "rejected" | "unavailable" | "photo-taken" | "photo-fits-none";
 }) {
   const which =
     of === 1
@@ -64,10 +67,17 @@ export async function notifyImageLeftOff({
       : directions === of
         ? "Both directions were"
         : "One direction was";
-  if (cause === "photo") {
+  if (cause === "photo-taken") {
     await notifyAssetFault(
       userId,
-      `${which} laid out with words only: your photo fits only the layout the other direction shows it in. Regenerate it for another layout, or upload a photo with more room around the subject.`,
+      `${which} laid out with words only: your photo could only be shown the way the other direction already shows it. Regenerate it to try another layout, or upload a photo with more room around the subject.`,
+    );
+    return;
+  }
+  if (cause === "photo-fits-none") {
+    await notifyAssetFault(
+      userId,
+      `${which} laid out with words only: your photo couldn't be shown whole and clear of the words in any layout at this size. Try another size, or upload a photo with more room around the subject.`,
     );
     return;
   }
