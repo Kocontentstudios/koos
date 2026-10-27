@@ -384,17 +384,27 @@ The 653f975 runs failed `aboveRepeats` (1 in each), `peopleNamedShare`
   (masterclass-ko at 5011429: every rewrite of a no-subheadline direction
   came back at 145 to 155 characters).
 
+At ddf3e3b (round 8c) `aboveRepeats` read 4 and 2, every one "the
+subheadline says the headline again", mostly under a headline that is the
+offering's name (bakery-upload "Strawberry Mille-Feuille", valentine,
+tutoring, recruitment); none of the writer's refusals there came from a
+round-8c rule. Run b also read `footerRepeats` 1, `fragments` 1 and model
+spatial 0.14 (first-draft lane). Run a's `caseFactCoverage` miss is
+conference-ko "Free registration" on both directions ("Register Free" and
+"A free panel"), its rewrites refused by the claim check, a lost offering
+and a list.
+
 Measured with the flag off, two runs per HEAD:
 
-| Gate | 653f975 a / b | 33090f8 a / b |
-|---|---|---|
-| `aboveRepeats` (max 0) | 1 / 1 | 0 / 0 |
-| `peopleNamedShare` (min 1) | 0.75 / 1.00 | 1.00 / 1.00 |
-| `judgeMissingShare` (max 0.15) | 0.21 / 0.12 | 0.11 / 0.09 |
-| `finalNearDuplicates` (max 0) | 0 / 1 | 0 / 0 |
-| `judgeInventedShare` (max 0.15) | 0.15 / 0.06 | 0.17 / 0.12 |
-| `caseFactCoverage` (min 1) | 1.00 / 1.00 | 0.97 / 0.96 |
-| `judgeRepeatedShare` (max 0.15, ruled trade-off) | 0.26 / 0.29 | 0.11 / 0.26 |
+| Gate | 653f975 a / b | 33090f8 a / b | ddf3e3b a / b |
+|---|---|---|---|
+| `aboveRepeats` (max 0) | 1 / 1 | 0 / 0 | 4 / 2 |
+| `peopleNamedShare` (min 1) | 0.75 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| `judgeMissingShare` (max 0.15) | 0.21 / 0.12 | 0.11 / 0.09 | 0.09 / 0.11 |
+| `finalNearDuplicates` (max 0) | 0 / 1 | 0 / 0 | 0 / 0 |
+| `judgeInventedShare` (max 0.15) | 0.15 / 0.06 | 0.17 / 0.12 | 0.09 / 0.14 |
+| `caseFactCoverage` (min 1) | 1.00 / 1.00 | 0.97 / 0.96 | 0.99 / 1.00 |
+| `judgeRepeatedShare` (max 0.15, ruled trade-off) | 0.26 / 0.29 | 0.11 / 0.26 | 0.21 / 0.20 |
 
 `caseFactCoverage` missed `textile-launch-regenerate` in both 33090f8 runs
 on the case's product label, "aso-oke throws", a phrase the brief never
