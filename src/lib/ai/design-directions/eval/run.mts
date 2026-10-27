@@ -86,6 +86,7 @@ const {
   chooseLayout,
   isCleanAlternative,
   LAYOUT_CRAFT_FAILED,
+  SAME_SHAPE_AS_SIBLING,
   SUBJECT_FACE_ONLY,
 } = await import("../../../jobs/directions/subject-layout");
 const { directionGateRules, documentRenderer, layoutJudge } = await import(
@@ -99,6 +100,7 @@ const { guardRender } = await import("../../../jobs/design-gate");
 const { respecForLayout } = await import("../../../jobs/design-logo-settle");
 const { measureImage } = await import("../../../design/document/image-facts");
 const { cleanCutoutBytes } = await import("../../../images/cutout-edge");
+const { koImageryEnabled } = await import("../../../design/ko-imagery-flag");
 const { prepareDocumentFonts } = await import(
   "../../../design/document/rasterize"
 );
@@ -314,7 +316,18 @@ if (!only) {
 const scores = [];
 const outputs = [];
 const rendered: RenderedCase[] = [];
-for (const evalCase of cases) {
+/* KO imagery is behind FEATURE_KO_IMAGERY (round 8). Off, a KO case runs
+   text-led, as the job would make it with no photo, and gates PR 1; on,
+   it runs as KO for the follow-up. */
+const koImagery = koImageryEnabled();
+console.log(
+  `KO imagery ${koImagery ? "on: KO cases paint plates" : "off: KO cases run text-led (no photo)"}`,
+);
+for (const caseAsWritten of cases) {
+  const evalCase =
+    caseAsWritten.imageSource === "ko" && !koImagery
+      ? { ...caseAsWritten, imageSource: "none" as const }
+      : caseAsWritten;
   process.stdout.write(`${evalCase.id} … `);
   const started = Date.now();
   const r = evalCase.request;
@@ -480,7 +493,7 @@ for (const evalCase of cases) {
           lettering: null,
         };
       }
-    } else if (plateAdapter) {
+    } else if (evalCase.imageSource === "ko" && plateAdapter) {
       const setting = brandSetting(result.read.facts, [
         evalCase.brand.overview,
         evalCase.brand.businessType,
@@ -637,15 +650,21 @@ for (const evalCase of cases) {
       /* As the job does: a KO plate no free layout shows whole and clear is
          left off and the design laid out as text, and so is an upload whose
          sibling already shows it in the one layout that fits. */
-      const siblingShowsPhoto =
-        evalCase.imageSource === "upload" && i > 0 && firstPlace !== null;
+      const pairOnUpload =
+        evalCase.imageSource === "upload" &&
+        (result.directions.length > 1 || existing.length > 0);
+      const siblingShowsPhoto = pairOnUpload;
+      const subjectFault =
+        choice.fault === SUBJECT_COVERED ||
+        choice.faults.some(
+          (f) => f === SUBJECT_CROPPED || f === SUBJECT_FACE_ONLY,
+        );
+      const sameAsSibling =
+        pairOnUpload && choice.faults.includes(SAME_SHAPE_AS_SIBLING);
       const plateFaulted =
-        (evalCase.imageSource === "ko" || siblingShowsPhoto) &&
+        (evalCase.imageSource === "ko" || pairOnUpload) &&
         image !== null &&
-        (choice.fault === SUBJECT_COVERED ||
-          choice.faults.some(
-            (f) => f === SUBJECT_CROPPED || f === SUBJECT_FACE_ONLY,
-          ));
+        (subjectFault || sameAsSibling);
       if (plateFaulted) {
         const judged = choice.considered
           .map(

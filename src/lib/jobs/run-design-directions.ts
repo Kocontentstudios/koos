@@ -84,6 +84,7 @@ import {
   type LayoutChoice,
   LayoutsHeldError,
   type PhotoPlace,
+  SAME_SHAPE_AS_SIBLING,
   SUBJECT_FACE_ONLY,
   SUBJECT_UNKNOWN,
 } from "./directions/subject-layout";
@@ -659,11 +660,20 @@ export async function generateDirectionsWork(
              its sibling already shows it and the one layout that fits is
              taken (Oluwaseyi's ruling, round 7: a 16:9 portrait delivered
              one direction of two). */
-          const siblingShowsPhoto = upload && apartFrom !== null;
+          /* Round 8: deterministic for every slot of a two-direction
+             upload, the first included (round-7 live critic: slot 0 of a
+             16:9 portrait failed while its sibling took the one layout
+             that fits). And a second direction that would draw the photo
+             in the same shape as its sibling is laid out as text, so the
+             pair are two concepts, not one twice. */
+          const pairOnUpload =
+            Boolean(upload) && (rows.length > 1 || Boolean(target?.sibling));
+          const sameAsSibling =
+            Boolean(upload) && withImage.faults.includes(SAME_SHAPE_AS_SIBLING);
           if (
             !assets.image ||
-            !subjectFaulted ||
-            (upload && !siblingShowsPhoto)
+            (!subjectFaulted && !sameAsSibling) ||
+            (upload && !pairOnUpload)
           ) {
             return { ...withImage, plateLeftOff: false };
           }
@@ -703,7 +713,7 @@ export async function generateDirectionsWork(
         addFault(
           row.id,
           upload
-            ? "the photo fits only the layout the other direction shows it in, so this direction was laid out as text"
+            ? "the photo fits no free layout whole, or only in the shape the other direction shows it in, so this direction was laid out as text"
             : "no free layout showed the generated image whole and clear of the copy, so the design was laid out as text",
         );
       }

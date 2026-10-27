@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getModel } from "@/lib/ai/provider";
 import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
 import {
+  aboveRepeats,
   type BriefFact,
   detailHeldElsewhere,
   type FactCopy,
@@ -163,9 +164,18 @@ function footerItemsOf(lines: readonly string[]): string[] {
 /** What is wrong with a direction's subheadline and footer, besides the
  *  facts it leaves out, in words the model can act on. */
 export function copyProblems(
-  copy: Pick<FactCopy, "subheadline" | "footerLines">,
+  copy: Pick<FactCopy, "subheadline" | "footerLines"> &
+    Partial<Pick<FactCopy, "headline" | "cta">>,
 ): string[] {
   const problems: string[] = [];
+  /* Every fact once, above the footer too (round-7 live critic). */
+  for (const repeat of aboveRepeats({
+    headline: copy.headline ?? "",
+    subheadline: copy.subheadline,
+    cta: copy.cta,
+  })) {
+    problems.push(`${repeat}; give it something the headline does not say`);
+  }
   if (copy.subheadline && readsAsList(copy.subheadline)) {
     problems.push(
       "the subheadline reads as a list; make it one or two sentences",

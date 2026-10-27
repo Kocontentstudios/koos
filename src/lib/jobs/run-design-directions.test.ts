@@ -928,7 +928,10 @@ describe("a subject no layout can keep copy off", () => {
     forceCovered = true;
   });
 
-  it("fails each direction with the reason instead of shipping the overlap", async () => {
+  /* Round 8 (Oluwaseyi's ruling: two are always delivered): no layout
+     keeps the copy off the crowd, so both directions are laid out as text,
+     never shipping the overlap, and the user is told. */
+  it("lays both directions out as text instead of shipping the overlap", async () => {
     const bytes = await photo(600, 600);
     loadDesignImage.mockResolvedValue({
       bytes: Buffer.from(bytes),
@@ -942,17 +945,12 @@ describe("a subject no layout can keep copy off", () => {
       face: null,
       items: [],
     });
-    await expect(
-      run({ image: { source: "upload", key: UPLOAD_KEY } }),
-    ).rejects.toThrow(/could not be kept off the product in any layout/);
+    await run({ image: { source: "upload", key: UPLOAD_KEY } });
     for (const id of ["row-1", "row-2"]) {
-      expect(updatesFor(id).at(-1)).toMatchObject({
-        status: "failed",
-        error: expect.stringContaining("could not be kept off the product"),
-      });
+      const done = updatesFor(id).find((p) => p.status === "succeeded");
+      const doc = done?.document as { elements: { type: string }[] };
+      expect(doc.elements.some((e) => e.type === "image")).toBe(false);
     }
-    expect(rasterizeDocument).not.toHaveBeenCalledWith(
-      expect.objectContaining({ doc: expect.anything() }),
-    );
+    expect(recordUsageEvent.mock.calls[0][0].metadata.textLedUpload).toBe(2);
   });
 });

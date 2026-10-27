@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type BriefFact, type FactCopy, factStated } from "./brief-facts";
+import {
+  aboveRepeats,
+  type BriefFact,
+  type FactCopy,
+  factStated,
+} from "./brief-facts";
 
 /* The round-7 code critic's verifier probes (r7-verifier.log V1 to V3c,
    V10): a number with another meaning, and a price in another currency. */
@@ -98,5 +103,31 @@ describe("a price is compared with its currency", () => {
     expect(factStated(bare, copy({ subheadline: "Only 4,500 per box" }))).toBe(
       true,
     );
+  });
+});
+
+/* Round-7 live critic: a fact in the headline said again in the
+   subheadline, on five live directions. */
+describe("aboveRepeats", () => {
+  it.each([
+    ["A Tray for ₦13,500", "Four slices for ₦13,500, this weekend only."],
+    ["Your first 3 rides are free", "Your first 3 rides are free in Lagos."],
+    ["Maths & Physics at Home", "Home maths and physics tutoring in Yaba."],
+    [
+      "Learn croissant lamination",
+      "A croissant lamination weekend with Tunde Bakare.",
+    ],
+  ])("finds %s said again", (headline, subheadline) => {
+    expect(aboveRepeats({ headline, subheadline })).not.toEqual([]);
+  });
+
+  it("passes a subheadline that adds what the headline does not say", () => {
+    expect(
+      aboveRepeats({
+        headline: "A Tray for ₦13,500",
+        subheadline: "Strawberry cream slices, this weekend only.",
+        cta: "Preorder",
+      }),
+    ).toEqual([]);
   });
 });

@@ -15,7 +15,9 @@ export interface DirectionsEvalCase {
   id: string;
   brand: BrandSummary;
   hasLogo: boolean;
-  imageSource: "upload" | "ko";
+  /** "none" is a text-led case: a KO case runs as one while KO imagery is
+   *  off (FEATURE_KO_IMAGERY). */
+  imageSource: "upload" | "ko" | "none";
   category: DesignCategory;
   request: {
     title: string;

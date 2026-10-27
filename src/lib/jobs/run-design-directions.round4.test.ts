@@ -444,7 +444,10 @@ describe("round-3 job probes", () => {
   /* P3: only the head was kept clear; the headline lay across the tray and
      nothing was recorded. Round 6: a direction with copy on the subject is
      not delivered at all, and the user is told why. */
-  it("delivers nothing with only a person's face kept clear, and says why", async () => {
+  /* Round 8 (two are always delivered): only the head could be kept
+     clear, so neither direction draws the photo with copy across the tray;
+     both are laid out as text and the user is told. */
+  it("never delivers copy on the subject when only a face is kept clear", async () => {
     const whole = { x: 0.05, y: 0.05, w: 0.9, h: 0.9 };
     const face = { x: 0.42, y: 0.08, w: 0.16, h: 0.16 };
     coverWholeWider = 0.85;
@@ -454,24 +457,12 @@ describe("round-3 job probes", () => {
       face,
       items: ["woman", "tray of croissants"],
     });
-    await expect(
-      run({ image: { source: "upload", key: UPLOAD_KEY } }),
-    ).rejects.toThrow(/could not be shown whole, clear of the copy/);
+    await run({ image: { source: "upload", key: UPLOAD_KEY } });
     for (const id of ["row-1", "row-2"]) {
-      expect(delivered(id)).toBeUndefined();
-      expect(updatesFor(id)).toContainEqual(
-        expect.objectContaining({
-          status: "failed",
-          error: expect.stringMatching(/could not be shown whole/),
-        }),
-      );
+      const doc = delivered(id)?.document as { elements: { type: string }[] };
+      expect(doc.elements.some((e) => e.type === "image")).toBe(false);
     }
-    expect(uploadObject).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        contentType: "image/png",
-        key: expect.stringMatching(/^generated\/[^/]+\/[0-9a-f-]+\.png$/),
-      }),
-    );
+    expect(usage().textLedUpload).toBe(2);
   });
 
   /* P4a and P4b: the plate checked for nothing, or for "a strawberry". */

@@ -1561,3 +1561,45 @@ export function brandSetting(
   }
   return fromProfile ?? fromBrief ?? null;
 }
+
+/**
+ * What the subheadline says again from the headline or the button: one of
+ * the same prices or numbers, or most of the headline's own words. Round-7
+ * live critic: "A Tray for ₦13,500" over a subheadline giving ₦13,500
+ * again, "Your first 3 rides are free" repeated word for word, "Maths &
+ * Physics at Home" over "Home maths and physics tutoring". Every fact once.
+ */
+export function aboveRepeats(
+  copy: Pick<FactCopy, "headline" | "subheadline" | "cta">,
+): string[] {
+  const sub = copy.subheadline?.trim();
+  if (!sub) return [];
+  const found: string[] = [];
+  for (const [name, field] of [
+    ["headline", copy.headline],
+    ["button", copy.cta],
+  ] as const) {
+    if (!field?.trim()) continue;
+    const money = [...moneyOf(field)].filter((m) => moneyOf(sub).has(m));
+    if (money.length > 0) {
+      found.push(`the subheadline repeats the ${name}'s price`);
+      continue;
+    }
+    const numbers = numbersInPlace(field)
+      .map((n) => n.value)
+      .filter((v) => v !== "1");
+    const subNumbers = new Set(numbersInPlace(sub).map((n) => n.value));
+    if (numbers.some((v) => subNumbers.has(v))) {
+      found.push(`the subheadline repeats a number from the ${name}`);
+      continue;
+    }
+    if (name !== "headline") continue;
+    const words = [...contentStems(field)].filter((s) => !FILLER.has(s));
+    const subWords = contentStems(sub);
+    const shared = words.filter((w) => subWords.has(w)).length;
+    if (words.length >= 2 && shared * 3 >= words.length * 2) {
+      found.push("the subheadline says the headline again");
+    }
+  }
+  return found;
+}

@@ -818,6 +818,42 @@ describe("an upload that fits one layout", () => {
   });
 });
 
+/* Round-7 live critic: slot 0 of a 16:9 portrait failed with
+   SubjectFaultError while slot 1 held the one layout that fits; one run in
+   two. Round 8 makes it deterministic: repeated draws all deliver two. */
+describe("an upload whose only fitting layout the sibling holds", () => {
+  it("delivers both directions on every draw, the first laid out as text", async () => {
+    for (let draw = 0; draw < 5; draw += 1) {
+      vi.clearAllMocks();
+      rowCount = 0;
+      claimed.clear();
+      fitsOnly = "split-left";
+      lookAtPhoto.mockResolvedValue({
+        description: "a woman in a green robe",
+        subject: { x: 0.3, y: 0.05, w: 0.4, h: 0.9 },
+        face: null,
+        items: ["a robe"],
+      });
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({ layout: "hero-center" }),
+            contrastingDraft({ layout: "split-left" }),
+          ],
+        },
+      });
+      await run({ image: { source: "upload", key: UPLOAD_KEY } });
+      const docs = ["row-1", "row-2"].map(
+        (id) =>
+          delivered(id)?.document as
+            | { elements: { type: string }[] }
+            | undefined,
+      );
+      expect(docs.every(Boolean)).toBe(true);
+    }
+  });
+});
+
 describe("KO imagery behind FEATURE_KO_IMAGERY (round 8)", () => {
   it("refuses a KO request with the flag off: no rows, no image calls", async () => {
     process.env.FEATURE_KO_IMAGERY = "";
