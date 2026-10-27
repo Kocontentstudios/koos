@@ -9,27 +9,18 @@
  * critic, four rounds running: "the cut-out's grey shadow ends in a hard,
  * jagged edge on the cream ground").
  *
- * Three fixes, none on the product itself:
- *  - Shadow: the baked grey shadow becomes translucent black, so it
- *    darkens whatever ground it falls on instead of painting a grey patch.
- *  - Feather: the shadow and any pale, neutral pixel near the transparent
- *    region fade out over a short distance instead of stopping. Saturated
- *    pixels (the product) keep their edge.
+ * Fixes that never touch the product's own pixels:
+ *  - Shadow: a baked grey shadow becomes translucent black, feathered at
+ *    its edge, so it darkens whatever ground it falls on instead of
+ *    painting a grey patch. Only a region that can only be a cast shadow
+ *    is treated (plausibleShadow); a grey or silver product, or a white
+ *    one's shaded rim, is left as drawn (round-7 code critic, K19).
  *  - Decontaminate: a semi-transparent edge pixel takes the colour of the
  *    nearest solid pixel inside it, so no white from the sweep is left to
  *    glow on a dark ground.
  */
 
 const TRANSPARENT = 16;
-
-/* Neutral and pale: what a studio sweep or the shadow cast on it looks
-   like, and what a product rarely does at its edge. */
-function looksLikeSweep(r: number, g: number, b: number): boolean {
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return max - min <= 24 && lum >= 150;
-}
 
 /** Distance in pixels from each pixel to the nearest transparent one,
  *  by a two-pass chamfer (3 for a side step, 4 for a diagonal). */
@@ -118,30 +109,84 @@ export function cleanCutoutEdge(
     }
   }
 
-  const shadow = shadowRegion(pixels, width, height);
+  const shadow = plausibleShadow(
+    shadowRegion(pixels, width, height),
+    pixels,
+    width,
+    height,
+  );
+  if (!shadow) return;
   for (let i = 0; i < shadow.length; i += 1) {
     if (!shadow[i]) continue;
     const o = i * 4;
     const lum =
       0.2126 * pixels[o] + 0.7152 * pixels[o + 1] + 0.0722 * pixels[o + 2];
-    pixels[o + 3] = Math.round(pixels[o + 3] * ((255 - lum) / 255));
+    const alpha = pixels[o + 3] * ((255 - lum) / 255);
+    pixels[o + 3] = Math.round(
+      d[i] < feather ? alpha * smoothstep(d[i] / feather) : alpha,
+    );
     pixels[o] = 0;
     pixels[o + 1] = 0;
     pixels[o + 2] = 0;
   }
+}
 
-  for (let i = 0; i < d.length; i += 1) {
-    const a = pixels[i * 4 + 3];
-    if (original[i] < TRANSPARENT || d[i] >= feather) continue;
-    const o = i * 4;
-    if (
-      !shadow[i] &&
-      !looksLikeSweep(pixels[o], pixels[o + 1], pixels[o + 2])
-    ) {
+/* Shares that make a grey region a cast shadow and not the product: a
+   grey kettle, a silver phone or a white cake's shaded rim was repainted
+   as translucent black (round-7 code critic, K19). */
+const SHADOW_MAX_SHARE = 0.35;
+const SHADOW_LOW_SHARE = 0.55;
+
+/**
+ * The flooded region when it can only be a cast shadow, else null, and the
+ * image is left as drawn:
+ *  - it is at most a third of the visible pixels;
+ *  - it lies low, below the middle of what is visible, as a shadow cast
+ *    on the sweep does;
+ *  - what is left is not itself the same neutral grey (a grey product).
+ */
+function plausibleShadow(
+  region: Uint8Array,
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array | null {
+  let visible = 0;
+  let top = height;
+  let bottom = 0;
+  let inRegion = 0;
+  let regionY = 0;
+  const restLum: number[] = [];
+  let restNeutral = 0;
+  for (let i = 0; i < region.length; i += 1) {
+    if (pixels[i * 4 + 3] < TRANSPARENT) continue;
+    const y = Math.floor(i / width);
+    visible += 1;
+    if (y < top) top = y;
+    if (y > bottom) bottom = y;
+    if (region[i]) {
+      inRegion += 1;
+      regionY += y;
       continue;
     }
-    pixels[o + 3] = Math.round(a * smoothstep(d[i] / feather));
+    const o = i * 4;
+    const r = pixels[o];
+    const g = pixels[o + 1];
+    const b = pixels[o + 2];
+    restLum.push(0.2126 * r + 0.7152 * g + 0.0722 * b);
+    if (Math.max(r, g, b) - Math.min(r, g, b) <= 20) restNeutral += 1;
   }
+  if (inRegion === 0 || visible === 0) return null;
+  if (inRegion / visible > SHADOW_MAX_SHARE) return null;
+  const meanY = regionY / inRegion;
+  if (meanY < top + (bottom - top) * SHADOW_LOW_SHARE) return null;
+  restLum.sort((a, b) => a - b);
+  const median = restLum[Math.floor(restLum.length / 2)] ?? 255;
+  const greyProduct =
+    restNeutral / Math.max(1, restLum.length) > 0.6 &&
+    median >= 120 &&
+    median <= SHADOW_LUM_MAX;
+  return greyProduct ? null : region;
 }
 
 /* The baked shadow: neutral grey reached from the transparent region
