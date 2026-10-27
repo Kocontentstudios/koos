@@ -23,6 +23,8 @@ describe("a price's currency is read through its aliases", () => {
     ["C6", "R250 per person", "ZAR 250 per person"],
     ["C6 the other way", "ZAR 250 per person", "R250 per person"],
     ["rand as a word", "R250 per person", "250 rand per person"],
+    ["C7: thousands written with k", "₦4.5k a slice", "₦4,500 a slice"],
+    ["C1: naira as N", "₦4,500 a slice", "N4500 a slice"],
   ] as const)("%s", (_label, text, copy) => {
     expect(factStated(fact("price", text), copy)).toBe(true);
   });
