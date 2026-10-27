@@ -434,6 +434,67 @@ old copy. conference-ko at 33090f8 moved "Can design beat the heat?" to
 "Design that beats the heat", which the judge flagged as invented. Every
 refusal, whole or in part, is in `factCoverage.rewritesRefused`.
 
+### Round 8d: every repeat named, asked about again, recorded when it stays
+
+None of round 8c's regressions came from a round-8c rule (diagnosis:
+`/tmp/feat-033/u3-r6/critique-8d/diagnosis.md`). Every delivered repeat,
+fragment and footer echo was left after the fact writer's two asks, with
+nothing asking again. What changed:
+
+- A subheadline repeat puts the headline in the way only when the facts
+  the subheadline states, and the headline does not, together repeat it
+  (`headlineInTheWay`). A product-name headline that states its fact is
+  left alone, and the subheadline gives up the words (bakery, both runs:
+  the writer had been told the headline may change and moved it four
+  times, all refused).
+- Each repeat is named with the words both fields say and which field
+  gives them up (`aboveRepeatsBy(...).words`, `repeatConflicts`), in the
+  ask and in the refusal.
+- After the two general asks, a direction whose copy still has a fault
+  (`copyProblems`) gets up to two targeted asks (`TARGETED_ASKS`); a
+  repeating subheadline may then come back empty when what it states is
+  said elsewhere.
+- A claim-check flag refuses only the fields it flags (storefront: a
+  footer fixing a bare phone went with a flagged subheadline, twice).
+- What is still wrong after every ask is delivered as written and
+  recorded (`factCoverage.defectsLeft`, `factDefectsLeft` on the usage
+  row, `defects left after every ask` in the case log). Code writes no copy.
+
+`Register Free` does not state the offer "Free registration": an offer is
+held whole, and "register" is not "registration", so a rule allowing the
+same words reordered would not license it either. Unchanged.
+
+Measured with the flag off (gate table:
+`/tmp/feat-033/u3-r6/critique-8d/gate-table.md`):
+
+| Gate | 33090f8 a / b | ddf3e3b a / b | 0b49a61 a / b |
+|---|---|---|---|
+| `aboveRepeats` (max 0) | 0 / 0 | 4 / 2 | **4** / **1** |
+| `footerRepeats`, code (max 0) | 0 / 0 | 0 / 1 | 0 / 0 |
+| `fragments` (max 0) | 0 / 0 | 0 / 1 | 0 / 0 |
+| model spatial (max 0.1) | 0.06 / 0.09 | 0.06 / 0.14 | 0.09 / 0.10 |
+| `caseFactCoverage` (min 1) | 0.97 / 0.96 | 0.99 / 1.00 | **0.94** / 1.00 |
+| `judgeInventedShare` (max 0.15) | 0.17 / 0.12 | 0.09 / 0.14 | 0.06 / 0.09 |
+| `judgeMissingShare` (max 0.15) | 0.11 / 0.09 | 0.09 / 0.11 | 0.12 / 0.03 |
+| cases run | 18 / 18 | 18 / 18 | **17** / 18 |
+| `judgeRepeatedShare` (max 0.15, ruled trade-off) | 0.11 / 0.26 | 0.21 / 0.20 | 0.33 / 0.24 |
+
+Still failing at 0b49a61, and why:
+
+- `aboveRepeats` 3 of 5 (run a: textile-launch-ko, valentine, fintech) are
+  headlines that paraphrase a fact the subheadline must state whole; all
+  four asks moved the headline and were refused by standing rules (a move
+  keeps one of the old headline's words; no invented count, "Two
+  valentine"; no "Sweetest"). Each is in `defects left after every ask`.
+- `aboveRepeats` 2 of 5 (cafe-photo-upload d1, both runs) come after the
+  fact writer: the delivery gate's judge correction `weak-cta` adds the
+  button "Walk in from 8am" under a subheadline saying "from 8am", and
+  `correctionHolds` (finalize.ts) does not check `aboveRepeats`.
+- Run a `cases 17/18`: masterclass-ko's draft came back from the model as a
+  string twice (schema error). `caseFactCoverage` 0.94 falls with that
+  undelivered case and cafe "three shots for ₦6,000", stated on neither
+  direction.
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a
