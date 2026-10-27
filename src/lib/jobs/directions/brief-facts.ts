@@ -1186,19 +1186,27 @@ function moneyIn(text: string): Set<string> {
   return new Set([...moneyOf(text)].map((m) => m.split("|")[1]));
 }
 
-/* A number read with the words either side of it: "Ages 8+" is 8 beside
-   "ages" and "+", "8 seats" 8 beside "seats", "9-5" a range. The hour of
-   "8pm", a street number or a day of the month has other neighbours, and
-   never stands in for an age or a count (round-7 code critic, K17: "Doors
-   open 8pm" stated "Ages 8+"). */
+/* A number read with the words either side of it: "Ages 8+" is 8 with
+   "ages" on its left and the mark "+", "8 seats" 8 with "seats" on its
+   right, "9-5" a range. The hour of "8pm", a street number or a day of the
+   month has other neighbours, and never stands in for an age or a count
+   (round-7 code critic, K17: "Doors open 8pm" stated "Ages 8+"). The side
+   matters: "seats 8 days ahead" is 8 days, not 8 seats; and a mark is never
+   a neighbour, or "8+ flavours" states "Ages 8+" (round-8 code critic, N1
+   to N4). */
 interface NumberInPlace {
   value: string;
   /** The other end of a range ("9-5", "5 to 12"), or null. */
   rangeTo: string | null;
-  neighbours: Set<string>;
+  /** "+" or "%" written on the number, or null. */
+  mark: string | null;
+  left: string | null;
+  right: string | null;
 }
 
 const PLACE_TOKEN = /\d[\d,]*(?:\.\d+)?|[\p{L}]+|[+%]/gu;
+const MARK = /^[+%]$/;
+const AND_UP = /\b(\d+)\s+(?:and|or)\s+(?:up|over|above|older)\b/gi;
 const NOT_A_NEIGHBOUR = new Set([
   "a",
   "an",
@@ -1210,7 +1218,6 @@ const NOT_A_NEIGHBOUR = new Set([
 ]);
 
 function neighbourOf(token: string): string {
-  if (/^[+%]$/.test(token)) return token;
   const lower = token.toLowerCase();
   if (/^(?:am|pm)$/.test(lower)) return "@clock";
   const named = calendarNames(token);
@@ -1219,7 +1226,10 @@ function neighbourOf(token: string): string {
 }
 
 function numbersInPlace(text: string): NumberInPlace[] {
-  const tokens = [...meaningOf(text).matchAll(PLACE_TOKEN)].map((m) => ({
+  /* The gap between a range's ends is read from the same string as the
+     tokens: meaningOf moves every offset after a "&" or an "incl." */
+  const read = meaningOf(text).replace(AND_UP, "$1+");
+  const tokens = [...read.matchAll(PLACE_TOKEN)].map((m) => ({
     text: m[0],
     at: m.index ?? 0,
     end: (m.index ?? 0) + m[0].length,
@@ -1240,7 +1250,7 @@ function numbersInPlace(text: string): NumberInPlace[] {
     /* "9am–5pm" is the range "9-5" with its clock words. */
     const clock = /^(?:am|pm)$/i.test(tokens[i + 1]?.text ?? "") ? 1 : 0;
     const next = tokens[i + 1 + clock];
-    const gap = text.slice(
+    const gap = read.slice(
       tokens[i + clock].end,
       next?.at ?? tokens[i + clock].end,
     );
@@ -1255,39 +1265,70 @@ function numbersInPlace(text: string): NumberInPlace[] {
       rangeTo = asNumber(tokens[i + 2 + clock].text);
       last = i + 2 + clock;
     }
-    /* "8pm" is one token pair with no space: the clock word beside it. */
-    const neighbours = new Set<string>();
-    const look = (j: number, step: number) => {
+    const after = tokens[last + 1];
+    const mark =
+      after && MARK.test(after.text) && after.at === tokens[last].end
+        ? after.text
+        : null;
+    if (mark) last += 1;
+    const look = (j: number, step: number): string | null => {
       for (let k = j; k >= 0 && k < tokens.length; k += step) {
         const word = tokens[k].text.toLowerCase();
-        if (isNumber(word)) return;
-        if (NOT_A_NEIGHBOUR.has(word)) continue;
-        neighbours.add(neighbourOf(tokens[k].text));
-        return;
+        if (isNumber(word)) return null;
+        if (MARK.test(word) || NOT_A_NEIGHBOUR.has(word)) continue;
+        return neighbourOf(tokens[k].text);
       }
+      return null;
     };
-    look(i - 1, -1);
-    look(last + 1, 1);
-    out.push({ value, rangeTo, neighbours });
+    out.push({
+      value,
+      rangeTo,
+      mark,
+      left: look(i - 1, -1),
+      right: look(last + 1, 1),
+    });
     i = last;
   }
   return out;
 }
 
-/** Whether every number of `fact` is in `part` as the fact has it: the
- *  same range, or beside one of the same neighbouring words. */
+/* A month or weekday says which date whichever side it sits on: "5
+   December" is "December 5". */
+function calendarSide(n: NumberInPlace): string[] {
+  return [n.left, n.right].filter((w): w is string => !!w?.startsWith("~"));
+}
+
+/** Whether `theirs` is `mine` as the fact has it: the same value, range and
+ *  mark, and a word of the fact's on the same side. A fact number with no
+ *  word beside it ("18+ only") is held only where the copy's has none
+ *  either, so a mark never matches on its own. */
+function sameNumberInPlace(
+  mine: NumberInPlace,
+  theirs: NumberInPlace,
+): boolean {
+  if (
+    theirs.value !== mine.value ||
+    theirs.rangeTo !== mine.rangeTo ||
+    theirs.mark !== mine.mark
+  ) {
+    return false;
+  }
+  if (mine.left === null && mine.right === null) {
+    return (
+      mine.rangeTo !== null || (theirs.left === null && theirs.right === null)
+    );
+  }
+  if (mine.left !== null && mine.left === theirs.left) return true;
+  if (mine.right !== null && mine.right === theirs.right) return true;
+  const dates = calendarSide(theirs);
+  return calendarSide(mine).some((d) => dates.includes(d));
+}
+
+/** Whether every number of `fact` is in `part` as the fact has it. */
 function numbersHeldInPlace(fact: string, part: string): boolean {
   const theirs = numbersInPlace(part);
   return numbersInPlace(fact).every((mine) =>
-    theirs.some(
-      (t) =>
-        t.value === mine.value &&
-        t.rangeTo === mine.rangeTo &&
-        (mine.rangeTo !== null && mine.neighbours.size === 0
-          ? true
-          : [...mine.neighbours].some((n) => t.neighbours.has(n)) ||
-            (mine.neighbours.size === 0 && t.neighbours.size === 0)),
-    ),
+    theirs.some((t) => sameNumberInPlace(mine, t)),
   );
 }
 

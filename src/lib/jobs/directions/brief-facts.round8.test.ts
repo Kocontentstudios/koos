@@ -53,7 +53,7 @@ describe("a number fact keeps its own words around the number", () => {
 
   it.each([
     [fact("age", "Ages 8+", ["=8"]), "Ages 8 and up"],
-    [fact("age", "18+ only", ["=18"]), "Strictly 18+"],
+    [fact("age", "18+ only", ["=18"]), "18+ only, all weekend"],
     [fact("age", "ages 5-12", ["=5", "=12"]), "For ages 5 to 12"],
     [fact("time", "9-5", ["=9", "=5"]), "Open 9am–5pm"],
     [fact("quantity", "8 seats", ["=8", "^seat"]), "Only 8 seats left"],
