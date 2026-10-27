@@ -449,6 +449,57 @@ describe.runIf(ready)("directions job against the local database", () => {
     expect(new Set(stored.map((r) => r.spec.layout)).size).toBe(2);
   });
 
+  /* PR 1's default path: the flag off and no photo. Round-8 code critic:
+     the bug 0038 fixes (every 'none' row refused by 0037's CHECK) was
+     found by a live run, and no test inserted a 'none' row. */
+  it("writes two text-led rows with the flag off, image_source 'none'", async () => {
+    const [constraint] = await sql`select pg_get_constraintdef(oid) as def
+        from pg_constraint
+        where conname = 'design_generations_image_source_check'`;
+    expect(constraint?.def).toContain("'none'");
+    const flag = process.env.FEATURE_KO_IMAGERY;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      plateGenerate.mockClear();
+      generateObject.mockResolvedValueOnce({
+        object: {
+          directions: [
+            mods.draftOf({ layout: "hero-center" }),
+            mods.contrastingDraft({ layout: "quote-card" }),
+          ],
+        },
+      });
+      const outcome = await job({ image: { source: "none" } });
+      const ids = (outcome.result as { generationIds: string[] }).generationIds;
+      expect(ids).toHaveLength(2);
+      expect(plateGenerate).not.toHaveBeenCalled();
+      const rows = await sql`select status, image_source, source_image_key,
+            provider, model, document from design_generations
+          where id in ${sql(ids)}`;
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row).toMatchObject({
+          status: "succeeded",
+          image_source: "none",
+          source_image_key: null,
+          provider: "none",
+          model: "none",
+        });
+        const doc = mods.designDocumentSchema.parse(row.document);
+        expect(doc.elements.some((e) => e.type === "image")).toBe(false);
+      }
+      const [usage] = await sql`select metadata from usage_events
+          where brand_id = ${brandId} and kind = 'design_generated'
+            and metadata->>'imageSource' = 'none'`;
+      expect(usage.metadata).toMatchObject({
+        imageCalls: 0,
+        renderers: ["composite:none", "composite:none"],
+      });
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = flag;
+    }
+  }, 180_000);
+
   it("refuses a blank upload with the reason, writing nothing", async () => {
     const before = (await rowsFor()).length;
     const blank = `design-images/${brandId}/${randomUUID()}.png`;
