@@ -234,9 +234,9 @@ New request field `image: { source: "upload", key } | { source: "ko" }`. Its pre
     All 43 of the round-4 critic's raster size files (round 5): max 1.17 s and 233 MB. Where the time and memory went: with Huffman optimisation on, the accepted noise JPEG took 860 ms and peaked at 337 to 389 MB; without the size prediction it took 615 to 738 ms. **Budget:** one load stays under 2 s and 512 MB, with the costliest file found at 1.17 s and 233 MB. `load-budget.smoke.test.ts` gates it on the C1 file, the same noise with a subject, and a 2560 px RGBA cutout, each in a fresh process: peak RSS under 512 MB and CPU time under 2 s (CPU, not wall, because the suite saturates every core while it runs; round 4's 519 to 540 MB fails it). Repeated loads in one long-lived process still grow RSS through glibc heap fragmentation (the bench's palette noise reaches 394 MB after 6 loads); that is the allocator, not this loader, and sharp's own advice for long-lived glibc processes is jemalloc.
 - **Error contract:** every user-facing unusable-image message starts with `IMAGE_NOT_USABLE_PREFIX` ("This image can't be used"), exported from `src/lib/uploads/design-image-limits.ts`, which has no server imports. The UI detects the state by that constant, not by its own copy of the wording.
 
-### Schema (migration `0037_design_documents.sql`)
+### Schema (migrations `0037_design_documents.sql`, `0038_design_image_source_none.sql`)
 
-`design_generations` gets four new nullable columns: `document` (jsonb), `rationale` (jsonb), `image_source` (text: `upload` or `ko`) and `source_image_key` (text). Old rows keep `document = null` and render exactly as today.
+`design_generations` gets four new nullable columns: `document` (jsonb), `rationale` (jsonb), `image_source` (text: `upload`, `ko` or, from round 8, `none` for a text-led request with no image; 0038 widens 0037's CHECK, which rejected every `none` row) and `source_image_key` (text). Old rows keep `document = null` and render exactly as today.
 
 ### Client/server contract
 

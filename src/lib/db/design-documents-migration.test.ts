@@ -45,6 +45,41 @@ describe("0037_design_documents", () => {
       expect(column.notNull).toBe(false);
       expect(sql).toContain(`"${name}"`);
     }
-    expect(columns.imageSource.enumValues).toEqual(["upload", "ko"]);
+  });
+});
+
+const noneSql = readFileSync(
+  path.join(process.cwd(), "drizzle", "0038_design_image_source_none.sql"),
+  "utf8",
+);
+
+/* Round 8 added "none" to the schema's enum and not to 0037's CHECK, so
+   every no-image direction failed to insert. */
+describe("0038_design_image_source_none", () => {
+  const allowed = (text: string) =>
+    [
+      ...(/"image_source" IN \(([^)]*)\)/.exec(text)?.[1] ?? "").matchAll(
+        /'(\w+)'/g,
+      ),
+    ].map((m) => m[1]);
+
+  it("allows exactly the image sources the drizzle schema names", () => {
+    expect(allowed(noneSql)).toEqual(
+      getTableColumns(designGenerations).imageSource.enumValues,
+    );
+    expect(allowed(noneSql)).toEqual(["upload", "ko", "none"]);
+  });
+
+  it("replaces 0037's constraint by name, and only widens it", () => {
+    expect(noneSql).toMatch(
+      /DROP CONSTRAINT IF EXISTS "design_generations_image_source_check"/,
+    );
+    expect(noneSql).toMatch(
+      /ADD CONSTRAINT "design_generations_image_source_check"/,
+    );
+    expect(allowed(sql)).toEqual(["upload", "ko"]);
+    for (const value of allowed(sql)) {
+      expect(allowed(noneSql)).toContain(value);
+    }
   });
 });
