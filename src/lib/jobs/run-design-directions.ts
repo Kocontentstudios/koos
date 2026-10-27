@@ -1094,6 +1094,7 @@ export async function generateDirectionsWork(
       plates_failed: plateChecks.filter((c) => c.startsWith("failed")).length,
       text_led: textLed,
       text_led_upload: textLedUpload,
+      headlines_lost: headlinesLost,
       text_led_image_model_down: imageModelDown,
     },
   });
