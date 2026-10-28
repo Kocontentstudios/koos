@@ -61,7 +61,6 @@ const draft: DirectionDraft = {
 const options = {
   aspectRatio: "4:5" as const,
   checks,
-  fallbackTitle: "the product",
 };
 
 const run = (over: Partial<DirectionDraft> = {}) =>
@@ -173,25 +172,32 @@ describe("finalizeDirection", () => {
     });
   });
 
-  it.each([
-    ["Q1 promo push (internal)", "benefit or offer"],
-    ["", "benefit or offer"],
-    ["", ""],
-  ])(
-    "draws neither the title %j nor the lead %j as a headline",
-    (title, lead) => {
+  it.each(["Q1 promo push (internal)", ""])(
+    "never draws the brief's title %j as a headline",
+    (title) => {
       const { direction, report } = finalizeDirection(
         { ...draft, headline: "Loved by 500 Lagos commuters" },
-        {
-          aspectRatio: "4:5",
-          checks: { ...checks, title },
-          fallbackTitle: lead,
-        },
+        { aspectRatio: "4:5", checks: { ...checks, title } },
       );
       expect(direction.headline).toBe("");
       expect(report.headlineLost).toBe(true);
     },
   );
+
+  /* Round-9 code critic, LOW: a title with no clause that fits fell back
+     to the concept's playbook lead, which is code writing copy. */
+  it("leaves a title it cannot keep empty, never a playbook lead", () => {
+    const long =
+      "A slow and sensuous morning ritual for commuters who love pastry";
+    const { direction, report } = run({ title: long });
+    expect(direction.title).toBe("");
+    expect(report.copyFallbacks).toContainEqual({
+      field: "title",
+      from: long,
+      to: null,
+    });
+    expect(directionSpecSchema.safeParse(direction).success).toBe(true);
+  });
 
   it("keeps the model's headline when it can be drawn", () => {
     const { direction, report } = run({});
@@ -235,12 +241,12 @@ describe("finalizeDirection", () => {
     expect(tart.direction.productLook).toBe("");
   });
 
-  it("keeps a whole title or uses the concept's lead", () => {
+  it("keeps a whole title, or leaves it empty", () => {
     expect(run().direction.title).toBe("Morning bake story");
     expect(
       run({ title: "A very long concept name that goes on and on forever" })
         .direction.title,
-    ).toBe("The product");
+    ).toBe("");
   });
 });
 
@@ -398,7 +404,6 @@ describe("the two-reason floor", () => {
       const { direction } = finalizeDirection(meetup, {
         aspectRatio: "4:5",
         checks: meetupChecks,
-        fallbackTitle: "show the moment",
         paintedScene,
       });
       expect(direction.rationale.length).toBeGreaterThanOrEqual(2);
@@ -533,7 +538,7 @@ describe("copyFault on the model's own copy", () => {
   it("loses a cut headline rather than draw the brief's title", () => {
     const { direction, report } = finalizeDirection(
       { ...draft, headline: "Treat yourself to the" },
-      { aspectRatio: "4:5", checks, fallbackTitle: "show the product" },
+      { aspectRatio: "4:5", checks },
     );
     expect(direction.headline).toBe("");
     expect(report.headlineLost).toBe(true);
@@ -865,7 +870,6 @@ describe("round-8 correction and button rules", () => {
         {
           aspectRatio: "4:5",
           checks: { ledger: factLedger([brief]), briefText: brief, title: "" },
-          fallbackTitle: "product",
         },
       );
       expect(direction.cta).toBe(cta);
@@ -924,7 +928,6 @@ describe("round-9 button rules", () => {
         {
           aspectRatio: "4:5",
           checks: { ledger: factLedger([brief]), briefText: brief, title: "" },
-          fallbackTitle: "product",
         },
       );
       expect(direction.cta).toBe(cta);

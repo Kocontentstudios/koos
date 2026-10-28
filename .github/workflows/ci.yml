@@ -47,3 +47,50 @@ jobs:
       - name: Dependency audit
         run: pnpm audit --audit-level=high
         continue-on-error: true
+
+  # The directions job against a real Postgres with every migration applied
+  # (FEAT-033): `pnpm test` skips this file, since it needs a database.
+  # KOOS_INTEGRATION_REQUIRED makes an unreachable database a failure, never
+  # a skip.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: koos
+          POSTGRES_PASSWORD: koos
+          POSTGRES_DB: koos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U koos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DIRECT_URL: postgres://koos:koos@localhost:5432/koos
+      DATABASE_URL: postgres://koos:koos@localhost:5432/koos
+      KOOS_INTEGRATION_DATABASE_URL: postgres://koos:koos@localhost:5432/koos
+      KOOS_INTEGRATION_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Vendor render fonts
+        run: pnpm fonts
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      - name: Directions job integration test
+        run: pnpm vitest run src/lib/jobs/run-design-directions.integration.test.ts

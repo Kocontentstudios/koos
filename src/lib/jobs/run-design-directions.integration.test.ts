@@ -13,10 +13,13 @@ process.env.FEATURE_KO_IMAGERY = "1";
  * byte checks on the upload. Only the paid and remote edges are doubles: the
  * language model, the plate model and the bucket.
  *
- * Opt-in, so the gate lane stays free of a database: it runs only when
+ * Opt-in, so `pnpm test` stays free of a database: it runs only when
  * KOOS_INTEGRATION_DATABASE_URL names a database on this machine, never the
  * shared staging one .env points at, and skips itself when that database is
- * down or does not have migration 0037 yet.
+ * down or does not have migration 0037 yet. CI runs it in its own job
+ * (.github/workflows/ci.yml, "integration") against a fresh Postgres with
+ * every migration applied, and sets KOOS_INTEGRATION_REQUIRED=1 so a
+ * database it cannot reach fails the run instead of skipping it.
  *
  *   KOOS_INTEGRATION_DATABASE_URL=postgres://koos:koos@localhost:5434/koos \
  *     corepack pnpm vitest run src/lib/jobs/run-design-directions.integration.test.ts
@@ -115,6 +118,11 @@ async function localDatabaseReady(): Promise<boolean> {
 }
 
 const ready = await localDatabaseReady();
+if (!ready && process.env.KOOS_INTEGRATION_REQUIRED === "1") {
+  throw new Error(
+    "KOOS_INTEGRATION_REQUIRED=1, but KOOS_INTEGRATION_DATABASE_URL is not a migrated local database",
+  );
+}
 
 describe.runIf(ready)("directions job against the local database", () => {
   const sql = postgres(LOCAL_DB, { max: 1 });

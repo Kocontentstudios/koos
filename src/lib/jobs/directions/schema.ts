@@ -51,7 +51,8 @@ export const DRAFT_LIMITS = {
 } as const;
 
 const directionFields = {
-  title: z.string().min(1).max(DIRECTION_TITLE_MAX),
+  /** Empty when the model's name for it could not be kept (finalize.ts). */
+  title: z.string().max(DIRECTION_TITLE_MAX),
   rationale: z
     .array(z.string().min(1).max(DIRECTION_REASON_MAX))
     .min(DIRECTION_REASONS_MIN)

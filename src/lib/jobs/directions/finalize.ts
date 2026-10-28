@@ -807,7 +807,6 @@ export function finalizeDirection(
   {
     aspectRatio,
     checks,
-    fallbackTitle,
     image = "pending",
     paintedScene,
   }: {
@@ -815,8 +814,6 @@ export function finalizeDirection(
      *  whatever ratio the model wrote back. */
     aspectRatio: AspectRatio;
     checks: DirectionChecks;
-    /** The concept's lead, for a title that could not be kept. */
-    fallbackTitle: string;
     image?: ImageState;
     /** The scene a KO plate will be painted from. */
     paintedScene?: string;
@@ -857,10 +854,13 @@ export function finalizeDirection(
     .map((line) => fit("footer", line, COPY_LIMITS.footerLine))
     .filter((line): line is string => Boolean(line));
 
-  const title =
-    clampAtClause(draft.title, COPY_LIMITS.title) ??
-    clampAtClause(capitalise(fallbackTitle), COPY_LIMITS.title) ??
-    "Design direction";
+  /* The direction's name is the model's too: when no clause of it fits,
+     it is left empty, never a playbook lead or a word code chose (round-9
+     code critic). The design itself is unaffected. */
+  const title = clampAtClause(draft.title, COPY_LIMITS.title) ?? "";
+  if (!title) {
+    copyFallbacks.push({ field: "title", from: draft.title, to: null });
+  }
 
   const product = productFromBrief(
     draft.productName,

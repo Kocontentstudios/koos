@@ -22,7 +22,6 @@ const finalize = (d: DirectionDraft) =>
   finalizeDirection(d, {
     aspectRatio: "4:5",
     checks: checksFor(bakery),
-    fallbackTitle: d.title,
   }).direction;
 
 const good = (over: Partial<DirectionDraft> = {}) =>
@@ -220,7 +219,6 @@ describe("the directions eval", () => {
         finalizeDirection(draft, {
           aspectRatio: "4:5",
           checks: checksFor(rc),
-          fallbackTitle: "x",
         }).direction,
       ],
       redrafted: false,
@@ -237,7 +235,6 @@ describe("the directions eval", () => {
           ...finalizeDirection(draft, {
             aspectRatio: "4:5",
             checks: checksFor(rc),
-            fallbackTitle: "x",
           }).direction,
           layout: "split-left",
         },

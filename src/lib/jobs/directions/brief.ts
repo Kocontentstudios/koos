@@ -761,18 +761,18 @@ export async function draftDirections({
       fit.fixed += applied.fixed;
       return applied.drafts;
     } catch (err) {
-      /* The deterministic settling below still keeps every clause whole;
-         the user loses the rewrite, never the design. */
+      /* Settled as written: a field that does not fit is cut at a clause or
+         left off, and a headline that cannot be drawn as written fails its
+         direction (headlineLost), since code never writes one. */
       console.error("direction fit pass failed; settling as written", err);
       return drafts;
     }
   }
 
-  const finalize = (draft: DirectionDraft, lens: ConceptLens) =>
+  const finalize = (draft: DirectionDraft) =>
     finalizeDirection(draft, {
       aspectRatio: context.aspectRatio,
       checks,
-      fallbackTitle: lens.lead,
       paintedScene: imageSource === "ko" ? draft.backgroundPrompt : undefined,
     });
 
@@ -786,9 +786,7 @@ export async function draftDirections({
       }),
     lenses.length,
   );
-  const finalized = (await fitted(drafts)).map((draft, i) =>
-    finalize(draft, lenses[i]),
-  );
+  const finalized = (await fitted(drafts)).map(finalize);
   const directions = finalized.map((f) => f.direction);
   const reports = finalized.map((f) => f.report);
 
@@ -822,7 +820,7 @@ export async function draftDirections({
         1,
       );
       const [refit] = await fitted([again]);
-      const candidate = finalize(refit, lens);
+      const candidate = finalize(refit);
       const losesHeadline =
         candidate.report.headlineLost && !reports[later].headlineLost;
       const trial = directions.map((d, i) =>

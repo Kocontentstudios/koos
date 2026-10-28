@@ -201,7 +201,7 @@ function priorDirection(row: {
   const spec = row.spec as Partial<DesignSpec> | null;
   if (!spec?.headline || !spec.layout) return null;
   return {
-    title: readRationale(row.rationale)?.title ?? spec.headline,
+    title: readRationale(row.rationale)?.title || spec.headline,
     headline: spec.headline,
     subheadline: spec.subheadline,
     cta: spec.cta,
