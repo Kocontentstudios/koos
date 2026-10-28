@@ -577,3 +577,60 @@ const SENTENCE_END = /[.!?](?:\s+|$)|\s+·\s+|\s+[—–]\s+|;\s*/;
 export function sentencesOf(text: string): string[] {
   return text.split(SENTENCE_END).filter((part) => part.trim());
 }
+
+/** Where one sentence of a field stands: `text.slice(start, end)` is the
+ *  sentence with its end mark, and the next one starts after the spaces
+ *  that follow it. */
+export interface SentenceSpan {
+  start: number;
+  end: number;
+}
+
+/* Words a full stop shortens rather than ends: weekdays, months, street
+   and title abbreviations. "Crafts on Sun. 5 Dec." and "At St. Agnes
+   Hall" are one sentence each (round-19 code critic, finding 2). */
+const ABBREVIATED = new Set(
+  [
+    "mon tue tues wed thu thur thurs fri sat sun",
+    "jan feb mar apr jun jul aug sep sept oct nov dec",
+    "st rd ave blvd mt ft no nos vol pp",
+    "mr mrs ms dr prof sr jr rev hon",
+    "inc ltd co corp est approx vs etc eg ie",
+  ].flatMap((line) => line.split(" ")),
+);
+
+/* An end mark, with any closing quote or bracket it carries. */
+const END_MARKS = /[.!?…]+["'”’)\]]*/g;
+
+/**
+ * The sentences of a field, as spans of its own text, so a caller can
+ * leave one off and keep the others byte for byte: code never edits copy.
+ * A mark ends a sentence only before spaces and a capital, or at the
+ * field's end, so "9.30am", "adirehouse.ng" and "₦4.5k" stay whole, and a
+ * full stop after an abbreviation or an initial never ends one. A field
+ * this splits wrongly loses more than a sentence, never part of one: the
+ * spans always cover whole runs between real breaks.
+ */
+export function sentenceSpansOf(text: string): SentenceSpan[] {
+  const spans: SentenceSpan[] = [];
+  let start = text.length - text.trimStart().length;
+  for (const m of text.matchAll(END_MARKS)) {
+    const at = m.index ?? 0;
+    const end = at + m[0].length;
+    const rest = text.slice(end);
+    const next = /^\s+(?=\p{Lu})/u.exec(rest);
+    const last = rest.trim() === "";
+    if (!next && !last) continue;
+    if (m[0].startsWith(".") && m[0].length === 1) {
+      const before = /(\p{L}+)$/u.exec(text.slice(0, at))?.[1] ?? "";
+      if (before.length === 1 || ABBREVIATED.has(before.toLowerCase())) {
+        if (!last) continue;
+      }
+    }
+    if (end > start) spans.push({ start, end });
+    start = end + (next?.[0].length ?? rest.length);
+  }
+  const tail = text.slice(start).trimEnd();
+  if (tail) spans.push({ start, end: start + tail.length });
+  return spans;
+}

@@ -10,12 +10,14 @@ import {
   MONEY,
   NUMBER_WORDS,
   runsOf,
+  sentenceSpansOf,
   withoutEdgeMarks,
 } from "@/lib/design/copy-tokens";
-import { footerLinesFor } from "@/lib/design/render/footer";
+import { drawnFooterLines, footerLinesFor } from "@/lib/design/render/footer";
 import { calendarNames, looksCutOff } from "./claims";
 import {
   contradictedRun,
+  contradictedRunStarts,
   formIn,
   formTokensOf,
   meaningOf,
@@ -1103,6 +1105,12 @@ function statedIn(
   if (numbered) {
     const tokens = formTokensOf(part.text);
     const line = part.line === part.text ? tokens : formTokensOf(part.line);
+    /* Every run of a date counts, not the first clean one: "Open Saturday
+       5 December. Crafts on Sunday morning, 5 December." gives the date on
+       two days, and the fact writer's own fix shipped it as delivered
+       (round-19 code critic, finding 1). A footer line is one field, so
+       its other items count too. */
+    if (contradictedRun(numbered, line, line, design)) return false;
     return (
       numbered.forms.some((form) => formIn(form, tokens, line, design)) &&
       needsHold(numbered.alsoNeeds, part.text)
@@ -1240,12 +1248,6 @@ export interface DateSettled extends DateContradiction {
   action: "dropped" | "failed";
 }
 
-/* The sentences of a subheadline, each with its own end mark. */
-const sentencesIn = (text: string) =>
-  (text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text])
-    .map((t) => t.trim())
-    .filter(Boolean);
-
 /**
  * The direction without each sentence, footer line or button the fact
  * writer could not move off a wrong day ("Crafts on Sunday morning, 5
@@ -1265,13 +1267,16 @@ export function withoutContradictedDates<T extends FactCopy>(
   /* Each pass leaves off one sentence, line or button, so the fields
      bound the passes. */
   const passes =
-    2 + copy.footerLines.length + sentencesIn(copy.subheadline ?? "").length;
+    2 +
+    copy.footerLines.length +
+    sentenceSpansOf(copy.subheadline ?? "").length;
   for (let pass = 0; pass < passes; pass += 1) {
     const found = contradictedDates(facts, copy).find(
       (c) => c.field !== "headline",
     );
     if (!found) break;
-    const next = withoutField(copy, found);
+    const fact = facts.find((f) => f.text === found.fact);
+    const next = fact ? withoutField(copy, found, fact) : null;
     if (!next) {
       settled.push({ ...found, action: "failed" });
       break;
@@ -1286,40 +1291,72 @@ export function withoutContradictedDates<T extends FactCopy>(
   };
 }
 
-/* `copy` without the part of `found`'s field that gives the wrong day: the
-   sentence holding the run, the whole subheadline when no one sentence
-   does, the footer line, or the button. Null when the field cannot be
+/* `copy` without the part of `found`'s field that gives the wrong day:
+   the sentence where the first contradicted run stands, the whole
+   subheadline when no one sentence can be cut out cleanly, the raw footer
+   line behind the drawn one, or the button. Null when the field cannot be
    found as drawn. */
 function withoutField<T extends FactCopy>(
   copy: T,
   found: DateContradiction,
+  fact: BriefFact,
 ): T | null {
   if (found.field === "subheadline") {
-    const run = formTokensOf(found.run);
-    const sentences = sentencesIn(copy.subheadline ?? "");
-    const at = sentences.findIndex(
-      (sentence) => runsOf(formTokensOf(sentence), run).length > 0,
-    );
     const { subheadline: _sub, ...rest } = copy;
-    if (at < 0 || sentences.length < 2) return rest as T;
-    return {
-      ...copy,
-      subheadline: sentences.filter((_, i) => i !== at).join(" "),
-    };
+    const kept = withoutContradictedSentence(
+      copy.subheadline ?? "",
+      fact,
+      drawnFieldsOf(copyParts(copy)),
+    );
+    return kept === null ? (rest as T) : { ...copy, subheadline: kept };
   }
   if (found.field === "button") {
     const { cta: _cta, ...rest } = copy;
     return rest as T;
   }
-  const footerLines = copy.footerLines.filter(
-    (line) => line.trim() !== found.text.trim(),
+  const drawn = drawnFooterLines({ ...copy, footerStyle: "text" }).find(
+    (line) => line.text === found.text,
   );
-  if (footerLines.length === copy.footerLines.length) return null;
+  if (!drawn) return null;
+  const footerLines = copy.footerLines.filter((_, i) => i !== drawn.index);
   return {
     ...copy,
     footerLines,
     footerStyle: footerLines.length > 0 ? copy.footerStyle : "none",
   };
+}
+
+/* `text` without the sentence holding the first run of `fact` the design
+   contradicts, the others kept as slices of `text` with their own
+   separators; null when that sentence cannot be cut out cleanly (one
+   sentence, a run across a boundary, tokens that do not line up), and the
+   caller leaves off the whole field. Dropping more is allowed; editing is
+   not (round-19 code critic, finding 2: "Open 9.30am" was drawn "Open 9.
+   30am"). */
+function withoutContradictedSentence(
+  text: string,
+  fact: BriefFact,
+  design: readonly (readonly CopyToken[])[],
+): string | null {
+  const numbered = numberFactOf(fact);
+  const spans = sentenceSpansOf(text);
+  if (!numbered || spans.length < 2) return null;
+  const field = formTokensOf(text);
+  const first = contradictedRunStarts(numbered, field, design)[0];
+  if (first === undefined) return null;
+  const bounds = spans.map((s) => formTokensOf(text.slice(0, s.start)).length);
+  const lined = spans.every((s, k) => {
+    const own = formTokensOf(text.slice(s.start, s.end));
+    return own.every((t, j) => field[bounds[k] + j]?.key === t.key);
+  });
+  if (!lined) return null;
+  const k = bounds.findLastIndex((b) => b <= first);
+  const runEnd = first + 1;
+  const nextBound = bounds[k + 1] ?? field.length;
+  if (k < 0 || runEnd > nextBound) return null;
+  return k < spans.length - 1
+    ? text.slice(0, spans[k].start) + text.slice(spans[k + 1].start)
+    : text.slice(0, spans[k - 1].end) + text.slice(spans[k].end);
 }
 
 function fieldNameOf(copy: string | CopyFields, line: string): string {

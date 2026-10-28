@@ -40,12 +40,23 @@ export interface FooterSpec {
 export const MAX_FOOTER_LINES = 3;
 
 export function footerLinesFor(spec: FooterSpec): string[] {
+  return drawnFooterLines(spec).map((line) => line.text);
+}
+
+/** Each footer line as drawn, with the index of the raw line it was drawn
+ *  from, so a caller can leave off the raw line behind a drawn one whose
+ *  text the renderer changed ("Book now · crafts on Sunday" is drawn
+ *  "Crafts on Sunday" under a "Book now" button). */
+export function drawnFooterLines(
+  spec: FooterSpec,
+): { index: number; text: string }[] {
   const cta = itemTokensOf(spec.cta ?? "");
   const above = [spec.headline ?? "", spec.subheadline ?? ""].map(tokensOf);
   return (spec.footerLines ?? [])
-    .filter((line) => !repeatsCopyAbove(line, above))
-    .map((line) => footerLine(line.trim(), cta))
-    .filter(Boolean)
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => !repeatsCopyAbove(line, above))
+    .map(({ line, index }) => ({ index, text: footerLine(line.trim(), cta) }))
+    .filter(({ text }) => Boolean(text))
     .slice(0, MAX_FOOTER_LINES);
 }
 

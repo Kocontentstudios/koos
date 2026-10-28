@@ -1916,6 +1916,19 @@ const KNOWN_COUNTED = new Set(
     "module",
     "workshop",
     "film",
+    /* What the eval briefs count (eval/cases.ts), so a brief's own count
+       beside its time or date is not taken for a rival: "From 8am. Three
+       shots, one origin" (round-19 critic, T66). The gate test
+       fact-forms.counted.test.ts fails when a brief counts a noun this
+       list leaves out. */
+    "shot",
+    /* "single-origin" counts one origin, and copy says "one origin". */
+    "origin",
+    "throw",
+    "cushion",
+    "artisan",
+    "engineer",
+    "yard",
   ].map(nounKey),
 );
 const namesKnownCount = (t: CopyToken, nouns: readonly CopyToken[]) =>
@@ -2049,6 +2062,20 @@ function priceRival(
   return !boughtFor;
 }
 
+/* Whether the day number at `i`, in another clause than the date's run,
+   is a day a reader takes as the date's alternative: a word follows it
+   that names nothing it counts ("Friday 14 March, or 21 if it rains",
+   "Pre-orders close 12 February, 13 for corporate orders", "Launching 3
+   November — 10 in Abuja"). Round 16 took only a bare number there, and
+   the round-19 critic put the word after it. A count of a listed noun
+   ("5 December, 12 stalls"), a rate ("2 per table") and a number that is
+   another kind of value (an age, a share, a code, an address) stand. */
+function dayInWords(tokens: readonly CopyToken[], i: number): boolean {
+  if (tokens[i + 1]?.kind !== "word") return false;
+  if (isOtherValue(tokens, i) || word(tokens[i + 1], ...RATE)) return false;
+  return !namesKnownCount(tokens[i], nounsAfter(tokens, i).nouns);
+}
+
 /* What counts as another value of the fact's kind, anywhere in its field
    (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
    where a reader could still take the number for one, failing closed:
@@ -2063,8 +2090,9 @@ function priceRival(
      ("or 6 December", "or the 6th"), a bare one ("5 December, or 6"),
      and any in the run's own clause, which shares the run's month ("4
      and 5 December", "Apply between 1 and 30 November", "5 December or
-     6 if it rains"); a count in another clause stands ("5 December, 12
-     stalls");
+     6 if it rains"), and one in another clause that a word follows but
+     no listed noun names (dayInWords: "or 21 if it rains"); a count in
+     another clause stands ("5 December, 12 stalls");
    - a count: another count of what the fact counts (countRival). */
 function rivalAt(
   kind: string,
@@ -2089,7 +2117,8 @@ function rivalAt(
       const inClause = i >= run.clause[0] && i < run.clause[1];
       return (
         isDated(tokens, i) ||
-        (isDayNumber(t) && (isBare(tokens, i) || inClause))
+        (isDayNumber(t) &&
+          (isBare(tokens, i) || inClause || dayInWords(tokens, i)))
       );
     }
     case "quantity":
@@ -2184,6 +2213,31 @@ export function contradictedRun(
     }
   }
   return null;
+}
+
+/** Where in `field` each run of the date's forms starts that the design
+ *  contradicts, in order: every run, so a sentence giving the date on the
+ *  wrong day is found by where it stands, not by its words, which the
+ *  sentence giving the right day may share (round-19 code critic,
+ *  finding 5). */
+export function contradictedRunStarts(
+  fact: NumberFact,
+  field: readonly CopyToken[],
+  design: readonly (readonly CopyToken[])[] = [field],
+): number[] {
+  const { date } = fact;
+  if (!date || (date.weekdays.size === 0 && date.years.size === 0)) {
+    return [];
+  }
+  const starts = new Set<number>();
+  for (const form of fact.forms) {
+    for (const around of aroundEach(form, field, field, design)) {
+      if (!cutFromNumber(around) && contradicted(date, around)) {
+        starts.add(around.at);
+      }
+    }
+  }
+  return [...starts].sort((a, b) => a - b);
 }
 
 /** The text of a run of one of the fact's forms in `tokens` that would

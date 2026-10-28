@@ -2241,6 +2241,29 @@ describe("round-14 critic job probes", () => {
       );
     }));
 
+  /* Round-19 code critic, finding 1 (r19-writer.log): the writer's own
+     fix prepends the right day and keeps the wrong sentence. The rewrite
+     is refused, the wrong sentence is left off, and the job records it;
+     no design ships "Sunday morning, 5 December" as delivered. */
+  it("J30: a fix that states the date on the right day beside the wrong one ships neither the wrong day nor a silent delivery", () =>
+    christmasMarket({
+      subheadline:
+        "Open Saturday 5 December. Crafts on Sunday morning, 5 December.",
+      footerLines: ["Food on Sunday 6 December"],
+    }).then(() => {
+      for (const id of ["row-1", "row-2"]) {
+        expect(shownOf(id)).not.toMatch(/Sunday morning, 5 December/);
+      }
+      expect(usage().datesContradicted).toContainEqual(
+        expect.objectContaining({
+          direction: 0,
+          fact: "Saturday 5 December",
+          field: "subheadline",
+          action: "dropped",
+        }),
+      );
+    }));
+
   /* The headline is the idea: code never rewrites it, so a headline on
      the wrong day fails its direction and the sibling ships. */
   it("J30: a headline that gives the date on the wrong day fails its direction", async () => {
