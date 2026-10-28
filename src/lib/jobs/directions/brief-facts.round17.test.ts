@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type CoverKind, factStated, needsFor } from "./brief-facts";
+import {
+  type CoverKind,
+  contradictedDates,
+  factStated,
+  needsFor,
+  withoutContradictedDates,
+} from "./brief-facts";
 
 /*
  * Round-16 code critic, finding 1 (/tmp/feat-033/critique/
@@ -357,5 +363,118 @@ describe("round 17: a value of the fact's kind anywhere in its field refuses it"
   });
   it.each(STANDS)("%s: %s %j", (_id, kind, text, copy, stated) => {
     expect(factStated(fact(kind, text), copy)).toBe(stated);
+  });
+});
+
+/* Round-16 code critic, finding 4 (J30): a field the fact writer could
+   not move off the wrong day shipped. Code leaves off the sentence, the
+   footer line or the button, and fails the direction for a headline. It
+   never writes copy. */
+describe("withoutContradictedDates", () => {
+  const facts = [
+    fact("date", "Saturday 5 December"),
+    fact("date", "Sunday 6 December"),
+  ];
+
+  it("leaves off only the sentence that gives the wrong day", () => {
+    const out = withoutContradictedDates(
+      design(
+        "Christmas market",
+        "Crafts on Sunday morning, 5 December. Food on Sunday 6 December.",
+      ),
+      facts,
+    );
+    expect(out.direction.subheadline).toBe("Food on Sunday 6 December.");
+    expect(out.failed).toBe(false);
+    expect(out.settled).toEqual([
+      expect.objectContaining({
+        field: "subheadline",
+        run: "5 December",
+        action: "dropped",
+      }),
+    ]);
+    expect(contradictedDates(facts, out.direction)).toEqual([]);
+  });
+
+  it("leaves off a subheadline that is one sentence", () => {
+    const out = withoutContradictedDates(
+      design("Christmas market", "Crafts on Sunday, 5 December"),
+      facts,
+    );
+    expect(out.direction.subheadline).toBeUndefined();
+    expect(out.failed).toBe(false);
+  });
+
+  it("leaves off the footer line, keeping the others", () => {
+    const out = withoutContradictedDates(
+      design("Christmas market", "Crafts and food in Lekki.", [
+        "Sunday · 5 December",
+        "Lekki Phase 1",
+      ]),
+      facts,
+    );
+    expect(out.direction.footerLines).toEqual(["Lekki Phase 1"]);
+    expect(out.direction.subheadline).toBe("Crafts and food in Lekki.");
+  });
+
+  it("leaves off the button", () => {
+    const out = withoutContradictedDates(
+      design(
+        "Christmas market",
+        "Crafts and food.",
+        [],
+        "Come Sunday 5 December",
+      ),
+      facts,
+    );
+    expect(out.direction.cta).toBeUndefined();
+    expect(out.failed).toBe(false);
+  });
+
+  it("fails the direction when the headline gives the wrong day", () => {
+    const out = withoutContradictedDates(
+      design("Sunday market, 5 December", "Crafts and food."),
+      facts,
+    );
+    expect(out.failed).toBe(true);
+    expect(out.direction.headline).toBe("Sunday market, 5 December");
+    expect(out.settled).toEqual([
+      expect.objectContaining({ field: "headline", action: "failed" }),
+    ]);
+  });
+
+  it("leaves a design with no wrong day as it is", () => {
+    const copy = design("Christmas market", "Crafts on Saturday 5 December.", [
+      "Food on Sunday 6 December",
+    ]);
+    const out = withoutContradictedDates(copy, facts);
+    expect(out.direction).toBe(copy);
+    expect(out.settled).toEqual([]);
+  });
+});
+
+/* Two dated days in one field state neither, and the weekday-less run
+   inside "Saturday 5 December" was then read as a date beside Sunday: the
+   listed dates were dropped as contradictions. */
+describe("a listed date names its own day", () => {
+  const facts = [
+    fact("date", "Saturday 5 December"),
+    fact("date", "Sunday 6 December"),
+  ];
+  it.each([
+    "Saturday 5 December and Sunday 6 December",
+    "Sat 5 Dec and Sun 6 Dec",
+  ])("%j contradicts neither date", (subheadline) => {
+    expect(
+      contradictedDates(facts, design("Christmas market", subheadline)),
+    ).toEqual([]);
+  });
+  it("5 December after no weekday still contradicts Saturday beside Sunday", () => {
+    expect(
+      contradictedDates(
+        facts,
+        design("Christmas market", "5 December and Sunday 6 December"),
+      ),
+    ).toEqual([expect.objectContaining({ run: "5 December" })]);
   });
 });

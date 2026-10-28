@@ -190,8 +190,14 @@ Round 16 adds `datesContradicted`: each delivered field that gives a brief
 date beside another weekday or year ("Crafts on Sunday morning, 5 December"
 for "Saturday 5 December"), with its direction, fact, field and the date as
 written. The fact writer is asked to fix such a field and a rewrite that
-leaves it is refused; one that still ships is listed here and carries a
-quality fault.
+leaves it is refused.
+
+Round 17 adds each entry's `action`. What the writer could not fix is never
+drawn: the sentence, footer line or button that gives the wrong day is left
+off (`dropped`), and a headline that gives it fails its direction with
+`DateOnWrongDayError` (`failed`). `shipped` means a drawn design still gave
+the wrong day, which should not happen, and carries a quality fault. A fact
+the dropped part held is in `factsLeftOff` with that reason.
 
 ## Funnels
 

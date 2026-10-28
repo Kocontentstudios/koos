@@ -16,9 +16,11 @@ import {
   aboveRepeatsBy,
   type BriefFact,
   brandRegion,
+  type DateSettled,
   dropFooterRepeats,
   type FactCoverage,
   factStated,
+  withoutContradictedDates,
   withoutRepeatingSubheadline,
   withVenueOrBrand,
 } from "./brief-facts";
@@ -168,6 +170,12 @@ export interface DraftDirectionsResult {
   /** Per direction: its headline could not be drawn as the model wrote it,
    *  so it fails rather than ship one code wrote. */
   headlineLost: boolean[];
+  /** Per direction: its headline gives a brief date on another day, so it
+   *  fails rather than ship the wrong day (withoutContradictedDates). */
+  dateFailed: boolean[];
+  /** Each field that gave a brief date on another day after the fact
+   *  writer, and what code did: left it off, or failed the direction. */
+  datesContradicted: (DateSettled & { direction: number })[];
   /** Directions whose headline was refused and asked for once more. */
   headlineRecovery: HeadlineRecovery[];
   /** A near-duplicate was found and one direction was written again. */
@@ -1451,7 +1459,7 @@ export async function draftDirections({
   /* A drop shortens the copy the near-duplicate rule compares, so one that
      would make a pair that reads apart read as one is not made. */
   const apartBeforeDrops = !nearDuplicateSet(final.directions);
-  const drawnIn = final.directions.reduce(
+  const drawnBeforeDates = final.directions.reduce(
     (set, d, i) => {
       const trial = set.map((other, j) =>
         j === i ? withoutRepeatingSubheadline(d, coverFacts) : other,
@@ -1460,6 +1468,36 @@ export async function draftDirections({
     },
     [...final.directions],
   );
+  /* What the writer could not move off a wrong day is left off, a
+     sentence, footer line or button at a time; a headline that gives one
+     fails its direction (round-16 code critic, finding 4). A lost
+     direction ships nothing, so it is not settled. */
+  const dated = drawnBeforeDates.map((d, i) =>
+    headlineLost[i]
+      ? { direction: d, settled: [], failed: false }
+      : withoutContradictedDates(d, coverFacts),
+  );
+  const drawnIn = dated.map((d) => d.direction);
+  const datesContradicted = dated.flatMap(({ settled }, direction) =>
+    settled.map((c) => ({ direction, ...c })),
+  );
+  const dateFailed = dated.map((d) => d.failed);
+  /* A fact the dropped part held is left off with it, and says why. */
+  const leftOffForDate = (direction: number, fact: BriefFact) => {
+    const dropped = datesContradicted.find(
+      (c) => c.direction === direction && c.action === "dropped",
+    );
+    const lost =
+      factStated(fact, drawnBeforeDates[direction]) &&
+      !factStated(fact, drawnIn[direction]);
+    return dropped && lost
+      ? {
+          direction,
+          fact: fact.text,
+          reason: `left off with the ${dropped.field} "${dropped.text}", which gives "${dropped.run}" on another day than the brief's "${dropped.fact}"`,
+        }
+      : null;
+  };
   const factCoverage: FactCoverage = {
     facts: coverFacts.map((f) => f.text),
     stated: drawnIn.map((d) =>
@@ -1475,6 +1513,7 @@ export async function draftDirections({
         .filter((f) => !factStated(f, d))
         .map(
           (f) =>
+            leftOffForDate(i, f) ??
             written.leftOff.find(
               (l) => l.direction === i && l.fact === f.text,
             ) ?? {
@@ -1536,6 +1575,8 @@ export async function draftDirections({
     headlineRewritten,
     headlineLost,
     headlineRecovery,
+    dateFailed,
+    datesContradicted,
     overlap: worst?.overlap ?? null,
     modelCalls,
     productSources: products.map((p) => p.from),

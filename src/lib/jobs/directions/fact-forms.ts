@@ -450,7 +450,13 @@ function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
     readsAsYear(tokens, i) &&
     !years.has(tokens[i].value ?? 0);
   const end = at + run.length;
-  const saysDay = run.some((t) => weekdayOf(t) !== null);
+  /* "5 December" inside "Saturday 5 December" is the run that names its
+     day: read as the longer form, it is not a weekday-less date beside
+     another weekday (J30: two dated days in one field state neither, and
+     the shorter run was then taken for a contradiction). */
+  const ownDayBefore =
+    at > 0 && weekdays.has(readsAsWeekday(field[at - 1]) ?? "");
+  const saysDay = ownDayBefore || run.some((t) => weekdayOf(t) !== null);
   /* The forms leave a year out and dateGuard lets one follow, so the
      fact's own year right after the run is the date's: "Saturday 5
      December 2026" carries its year (round-12 code critic, D6). */
@@ -471,8 +477,11 @@ function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
   if (at < 0) {
     return field.some((t, i) => otherDay(t) || otherYear(field, i));
   }
-  const [from, to] = clauseAround(field, at, end);
-  const listed = saysDay ? listedWeekdays(field, at, end) : new Set<number>();
+  const start = ownDayBefore ? at - 1 : at;
+  const [from, to] = clauseAround(field, start, end);
+  const listed = saysDay
+    ? listedWeekdays(field, start, end)
+    : new Set<number>();
   for (let i = from; i < to; i += 1) {
     if ((otherDay(field[i]) && !listed.has(i)) || otherYear(field, i)) {
       return true;

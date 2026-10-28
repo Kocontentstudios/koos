@@ -1199,6 +1199,95 @@ export function contradictedDates(
   return found;
 }
 
+/** A date contradiction and what code did about it: the sentence, footer
+ *  line or button that gave it was left off, or the direction failed
+ *  because its headline gave it. */
+export interface DateSettled extends DateContradiction {
+  action: "dropped" | "failed";
+}
+
+/* The sentences of a subheadline, each with its own end mark. */
+const sentencesIn = (text: string) =>
+  (text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text])
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+/**
+ * The direction without each sentence, footer line or button the fact
+ * writer could not move off a wrong day ("Crafts on Sunday morning, 5
+ * December." for "Saturday 5 December"), and whether its headline gives
+ * one, which fails the direction. Code leaves off a whole sentence or
+ * field; it never writes or edits one (round-16 code critic, finding 4:
+ * J30 shipped the wrong day while code knew which sentence said it).
+ */
+export function withoutContradictedDates<T extends FactCopy>(
+  direction: T,
+  facts: readonly BriefFact[],
+): { direction: T; settled: DateSettled[]; failed: boolean } {
+  const settled: DateSettled[] = contradictedDates(facts, direction)
+    .filter((c) => c.field === "headline")
+    .map((c) => ({ ...c, action: "failed" }));
+  let copy = direction;
+  /* Each pass leaves off one sentence, line or button, so the fields
+     bound the passes. */
+  const passes =
+    2 + copy.footerLines.length + sentencesIn(copy.subheadline ?? "").length;
+  for (let pass = 0; pass < passes; pass += 1) {
+    const found = contradictedDates(facts, copy).find(
+      (c) => c.field !== "headline",
+    );
+    if (!found) break;
+    const next = withoutField(copy, found);
+    if (!next) {
+      settled.push({ ...found, action: "failed" });
+      break;
+    }
+    settled.push({ ...found, action: "dropped" });
+    copy = next;
+  }
+  return {
+    direction: copy,
+    settled,
+    failed: settled.some((c) => c.action === "failed"),
+  };
+}
+
+/* `copy` without the part of `found`'s field that gives the wrong day: the
+   sentence holding the run, the whole subheadline when no one sentence
+   does, the footer line, or the button. Null when the field cannot be
+   found as drawn. */
+function withoutField<T extends FactCopy>(
+  copy: T,
+  found: DateContradiction,
+): T | null {
+  if (found.field === "subheadline") {
+    const run = formTokensOf(found.run);
+    const sentences = sentencesIn(copy.subheadline ?? "");
+    const at = sentences.findIndex(
+      (sentence) => runsOf(formTokensOf(sentence), run).length > 0,
+    );
+    const { subheadline: _sub, ...rest } = copy;
+    if (at < 0 || sentences.length < 2) return rest as T;
+    return {
+      ...copy,
+      subheadline: sentences.filter((_, i) => i !== at).join(" "),
+    };
+  }
+  if (found.field === "button") {
+    const { cta: _cta, ...rest } = copy;
+    return rest as T;
+  }
+  const footerLines = copy.footerLines.filter(
+    (line) => line.trim() !== found.text.trim(),
+  );
+  if (footerLines.length === copy.footerLines.length) return null;
+  return {
+    ...copy,
+    footerLines,
+    footerStyle: footerLines.length > 0 ? copy.footerStyle : "none",
+  };
+}
+
 /** Every field a design draws, read as the forms read them: a footer line
  *  once, however many items it holds. */
 function drawnFieldsOf(parts: readonly CopyPart[]): CopyToken[][] {

@@ -224,7 +224,9 @@ vi.mock("@/lib/jobs/design-gate", async (importOriginal) => {
   };
 });
 
-const { generateDirectionsWork } = await import("./run-design-directions");
+const { DateOnWrongDayError, generateDirectionsWork } = await import(
+  "./run-design-directions"
+);
 const { footerLinesFor } = await import("@/lib/design/render/footer");
 const {
   BRAND_ID,
@@ -380,6 +382,8 @@ async function photo(width: number, height: number): Promise<Uint8Array> {
 const usage = () => recordUsageEvent.mock.calls[0]?.[0]?.metadata;
 const delivered = (id: string) =>
   updatesFor(id).find((p) => p.status === "succeeded");
+const failedRow = (id: string) =>
+  updatesFor(id).find((p) => p.status === "failed");
 
 beforeEach(() => {
   fitsOnly = null;
@@ -2183,49 +2187,119 @@ describe("round-14 critic job probes", () => {
     return asks;
   }
 
+  /* Two dated days in one field state neither (Oluwaseyi's ruling,
+     2026-10-28), so the fix gives each its own footer line. */
   it("J30: the fact writer is asked to fix the field that gives 5 December on Sunday, and its fix ships", () =>
     christmasMarket({
-      subheadline: "Crafts on Saturday 5 December. Food on Sunday 6 December.",
-      footerLines: [],
+      subheadline: "Crafts on the Saturday, food on the Sunday.",
+      footerLines: ["Saturday 5 December", "Sunday 6 December"],
     }).then((asks) => {
       expect(asks[0]).toContain(
         'the subheadline "Crafts on Sunday morning, 5 December. Food on Sunday 6 December." gives "5 December"',
       );
       expect(delivered("row-1")?.spec?.subheadline).toBe(
-        "Crafts on Saturday 5 December. Food on Sunday 6 December.",
+        "Crafts on the Saturday, food on the Sunday.",
       );
-      expect(delivered("row-2")?.spec?.subheadline).toBe(
-        "Saturday 5 December and Sunday 6 December",
-      );
-      expect(usage().factsLeftOff).toEqual([]);
+      expect(shownOf("row-1")).toContain("Saturday 5 December");
+      expect(
+        usage().factsLeftOff.filter(
+          (l: { direction: number }) => l.direction === 0,
+        ),
+      ).toEqual([]);
       expect(usage().datesContradicted).toEqual([]);
-      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
     }));
 
-  it("J30: a rewrite that states the date again beside the Sunday one is refused, and the fault is recorded", () =>
+  /* Round-16 code critic, finding 4: the writer could not fix the
+     sentence, and the design shipped the wrong day. Code leaves that
+     sentence off; it writes nothing in its place. */
+  it("J30: a sentence the writer could not move off the wrong day is left off, and no design ships the wrong day", () =>
     christmasMarket({
       subheadline:
         "Crafts on Sunday morning, 5 December. Food on Sunday 6 December.",
       footerLines: ["Open Saturday 5 December"],
     }).then(() => {
-      const shown = shownOf("row-1");
-      expect(shown).not.toMatch(/Saturday 5 December/);
+      for (const id of ["row-1", "row-2"]) {
+        expect(shownOf(id)).not.toMatch(/Sunday morning, 5 December/);
+      }
+      expect(delivered("row-1")?.spec?.subheadline).toBe(
+        "Food on Sunday 6 December.",
+      );
       expect(usage().datesContradicted).toEqual([
         expect.objectContaining({
           direction: 0,
           fact: "Saturday 5 December",
+          field: "subheadline",
           run: "5 December",
+          action: "dropped",
         }),
       ]);
-      expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
-      expect(usage().factsLeftOff).toEqual([
+      expect(usage().factsLeftOff).toContainEqual(
         expect.objectContaining({
           direction: 0,
           fact: "Saturday 5 December",
-          reason: expect.stringContaining('gives "5 December"'),
         }),
-      ]);
+      );
     }));
+
+  /* The headline is the idea: code never rewrites it, so a headline on
+     the wrong day fails its direction and the sibling ships. */
+  it("J30: a headline that gives the date on the wrong day fails its direction", async () => {
+    const { fakeFactWrite, isFactWriteCall } = await import(
+      "./directions/fixtures"
+    );
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) return fakeFactWrite(o);
+      return {
+        object: {
+          directions: [
+            draftOf({
+              headline: "Sunday market, 5 December",
+              subheadline: "Crafts on the Saturday, food on the Sunday.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Make it merry",
+              subheadline: "Crafts on Saturday 5 December.",
+              footerLines: ["Food on Sunday 6 December"],
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "date", text: "Saturday 5 December" },
+          { kind: "date", text: "Sunday 6 December" },
+        ],
+        { kind: "event", phrase: "Christmas market" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Christmas market on Saturday 5 December and Sunday 6 December. Crafts on the Saturday, food on the Sunday.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.factWriteThroughDouble = false;
+    }
+    expect(delivered("row-1")).toBeUndefined();
+    expect(failedRow("row-1")?.error).toBe(new DateOnWrongDayError().message);
+    expect(delivered("row-2")?.spec?.headline).toBe("Make it merry");
+    expect(usage().datesContradicted).toContainEqual(
+      expect.objectContaining({
+        direction: 0,
+        field: "headline",
+        run: "5 December",
+        action: "failed",
+      }),
+    );
+  });
 
   /* The claim check flags direction 1's headline and offers `rewrite`;
      neither design has a subheadline to promote. */

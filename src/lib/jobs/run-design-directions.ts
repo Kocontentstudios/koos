@@ -174,6 +174,19 @@ export class HeadlineNotWrittenError extends Error {
   }
 }
 
+/** The headline gives a brief date on another day ("Sunday market, 5
+ *  December" for "Saturday 5 December"). Code never rewrites a headline,
+ *  so the design is not delivered with the wrong day (round-16 code
+ *  critic, finding 4). */
+export class DateOnWrongDayError extends Error {
+  constructor() {
+    super(
+      "This design's headline gave a date from your brief on the wrong day, so we didn't deliver it. Regenerate it to try again.",
+    );
+    this.name = "DateOnWrongDayError";
+  }
+}
+
 interface RegenerationTarget {
   set: string;
   slot: number;
@@ -576,7 +589,12 @@ export async function generateDirectionsWork(
   });
   const factsByDirection: (number | null)[] = rows.map(() => null);
   const factsLost: { direction: number; fact: string; reason: string }[] = [];
-  const datesContradicted: (DateContradiction & { direction: number })[] = [];
+  /* Settled before drawing: what was left off, and what failed. A field
+     that still gives the wrong day once drawn is a fault, and "shipped". */
+  const datesContradicted: (DateContradiction & {
+    direction: number;
+    action: "dropped" | "failed" | "shipped";
+  })[] = [...brief.datesContradicted];
   const judgeVerdicts: string[] = [];
   const correctionsKept: string[] = [];
   const logoFaults: string[] = [];
@@ -637,6 +655,7 @@ export async function generateDirectionsWork(
     const slot = target?.slot ?? i;
     try {
       if (brief.headlineLost[i]) throw new HeadlineNotWrittenError();
+      if (brief.dateFailed[i]) throw new DateOnWrongDayError();
       const mark = marks[i];
       const image = images[i];
       let assets: DirectionAssets = {
@@ -808,15 +827,19 @@ export async function generateDirectionsWork(
         missing.length -
         unreadMissing.length;
       const lost = missing.length + unreadMissing.length;
-      /* A date the fact writer could not move off another day ships as
-         drawn, and is counted against the design (round-15 code critic,
-         finding 6). */
+      /* withoutContradictedDates left off every field that gave a date
+         on another day, so this finds only what the drawing changed; it
+         is counted against the design rather than trusted away. */
       const contradictions = contradictedDates(
         [...hardFacts, ...unreadFacts],
         drawnCopy,
       );
       for (const contradiction of contradictions) {
-        datesContradicted.push({ direction: i, ...contradiction });
+        datesContradicted.push({
+          direction: i,
+          ...contradiction,
+          action: "shipped",
+        });
         addFault(
           row.id,
           `gives "${contradiction.run}" on another day than the brief's "${contradiction.fact}"`,
