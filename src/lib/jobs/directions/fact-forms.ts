@@ -1475,7 +1475,9 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   passes: "pass",
 };
 function countNoun(t: CopyToken): string {
-  const w = t.key.slice(2);
+  return nounKey(t.key.slice(2));
+}
+function nounKey(w: string): string {
   const one =
     IRREGULAR_PLURALS[w] ??
     w
@@ -1596,9 +1598,13 @@ const isCode = (t: CopyToken | undefined) =>
   /^[A-Z]{1,4}$/.test(t.text) &&
   (t.text.length === 1 ? !/^[AI]$/.test(t.text) : !/[AEIOU]/.test(t.text)) &&
   !word(t, ...NOT_A_CODE);
-function isNumbered(tokens: readonly CopyToken[], i: number): boolean {
+function isNumbered(
+  tokens: readonly CopyToken[],
+  i: number,
+  codes = true,
+): boolean {
   const before = tokens[i - 1];
-  if (word(before, ...NUMBERED) || isCode(before)) return true;
+  if (word(before, ...NUMBERED) || (codes && isCode(before))) return true;
   /* "No. 5" */
   return before?.key === "." && word(tokens[i - 2], "no");
 }
@@ -1645,20 +1651,27 @@ const namesWhatItCounts = (t: CopyToken, one: boolean) =>
   t.key.slice(2) in IRREGULAR_PLURALS ||
   (/s$/.test(t.key) && !word(t, ...PLURAL_NOT_NOUN));
 
-/* An age: "18+", "Ages 7 to 12", "16 and over". */
-function isAgeAt(tokens: readonly CopyToken[], i: number): boolean {
+/* An age: "18+", "Ages 7 to 12", "16 and over". `ageWords` are the
+   words that make the number after them an age. */
+function isAgeAt(
+  tokens: readonly CopyToken[],
+  i: number,
+  ageWords: readonly string[] = AGE_WORDS,
+): boolean {
   const before = tokens[i - 1];
-  if (tokens[i + 1]?.key === "+" || word(before, ...AGE_WORDS)) return true;
+  if (tokens[i + 1]?.key === "+" || word(before, ...ageWords)) return true;
+  /* "Kids 4 and under free" bounds an age from above. */
   if (
     word(tokens[i + 1], "and") &&
-    AND_UP.some((up) => word(tokens[i + 2], up.split(" ")[1]))
+    (AND_UP.some((up) => word(tokens[i + 2], up.split(" ")[1])) ||
+      word(tokens[i + 2], "under", "below", "younger"))
   ) {
     return true;
   }
   return (
     (word(before, "to") || before?.key === "-") &&
     isNumber(tokens[i - 2]) &&
-    word(tokens[i - 3], ...AGE_WORDS)
+    word(tokens[i - 3], ...ageWords)
   );
 }
 
@@ -1679,42 +1692,37 @@ function countedNouns(run: readonly CopyToken[]): Set<string> {
 const countable = (t: CopyToken | undefined) =>
   isNumber(t) || t?.key === "w:one";
 
-/* Whether the number at `i` is another count of what the run counts:
-   - the same noun or one of its group after it ("10 seats or 12 spots",
-     "10 seats, 12 new seats");
-   - no noun after it ("10 seats or twelve", "Eight to 10 seats", "1 of 10
-     seats", "One in 10 seats");
-   - a count of groups of a number ("5 rows of 10 seats", "5 tables x 10
-     seats"), which multiplies the count.
-   Never a day (beside a month, or an ordinal not counting "of" the run:
-   "10th of 10 seats" is), a year, an age, a share, a phone group, a
-   number a word or code numbers ("Plot 5", "SS1"), or a number with its
-   own noun or rate ("one artisan", "90 minutes", "12 Ozumba Mbadiwe
-   Avenue", "2 per room"). */
-function countRival(
+/* A number that is some other kind of value whatever follows it, so it
+   is no count's or time's rival: a year, a day beside its month, a phone's
+   digit group, a share ("20%"), an age ("18+", "Ages 7 to 12"), a number
+   a place word or code numbers ("Plot 5", "SS1"), a street address. */
+function isOtherValue(
   tokens: readonly CopyToken[],
   i: number,
-  { counts, perUnit }: { counts: ReadonlySet<string>; perUnit: boolean },
+  ageWords: readonly string[] = AGE_WORDS,
+  codes = true,
 ): boolean {
   const t = tokens[i];
-  if (!countable(t)) return false;
-  if (t.ordinal) return word(tokens[i + 1], "of");
-  if (
+  return (
     isYear(t) ||
     monthOf(tokens[i - 1]) !== null ||
     monthOf(tokens[i + 1]) !== null ||
     isPhoneDigits(tokens, i) ||
     tokens[i + 1]?.key === "%" ||
-    isAgeAt(tokens, i) ||
-    isNumbered(tokens, i) ||
+    isAgeAt(tokens, i, ageWords) ||
+    isNumbered(tokens, i, codes) ||
     isAddress(tokens, i)
-  ) {
-    return false;
-  }
-  /* "10 seats per row, 5 rows": a count per something is multiplied by
-     any other count in its field. */
-  if (perUnit) return true;
-  if (word(tokens[i + 1], ...RATE)) return false;
+  );
+}
+
+/* The words after the number at `i` that may name what it counts: past
+   the words that only say how it is put ("12 more", "12 left"), up to
+   three, stopping at a word that attaches nothing ("or", "to", "per").
+   `next` is the token after them. */
+function nounsAfter(
+  tokens: readonly CopyToken[],
+  i: number,
+): { nouns: CopyToken[]; next: number } {
   let j = i + 1;
   while (word(tokens[j], ...COUNT_MODIFIERS)) j++;
   const nouns: CopyToken[] = [];
@@ -1726,21 +1734,331 @@ function countRival(
     nouns.push(tokens[j]);
     j++;
   }
-  const one = t.key === "w:one" || t.value === 1;
-  if (!nouns.some((n) => namesWhatItCounts(n, one))) return true;
+  return { nouns, next: j };
+}
+
+const namesItsNoun = (t: CopyToken, nouns: readonly CopyToken[]) =>
+  nouns.some((n) => namesWhatItCounts(n, t.key === "w:one" || t.value === 1));
+
+/* Words that offer two counts as one choice: "10 seats or 12 desks", "10
+   seats vs 12 desks", "10 seats / 12 desks". */
+const ALTERNATIVE = ["or", "vs", "versus", "/", "alternatively", "instead"];
+
+const isAlternative = (t: CopyToken | undefined) =>
+  t !== undefined && ALTERNATIVE.includes(t.key.replace(/^w:/, ""));
+const putsNothing = (t: CopyToken) =>
+  !isAlternative(t) && (t.kind === "mark" || word(t, ...COUNT_MODIFIERS));
+
+/* Whether two counts, one ending at `from` and one starting at `to`, are
+   offered as alternatives: the first word between them that says more
+   than how a count is put is an ALTERNATIVE, and no clause break follows
+   it ("10 seats or 12 desks", "12 desks / 10 seats", "12 cupcakes or
+   choose 6 cookies", "Get 6 cookies or go for 12 cupcakes", "6 cookies,
+   or a box of 12 cupcakes"; round-19 critics). */
+function offeredAsAlternative(
+  tokens: readonly CopyToken[],
+  from: number,
+  to: number,
+): boolean {
+  const between = tokens.slice(from, to);
+  const first = between.findIndex((t) => !putsNothing(t));
+  return (
+    first >= 0 &&
+    isAlternative(between[first]) &&
+    between.slice(first + 1).every((t) => !t.breaks)
+  );
+}
+
+/* Whether the number at `i` is another count of what the run counts:
+   - the same noun or one of its group after it ("10 seats or 12 spots",
+     "10 seats, 12 new seats");
+   - no noun after it ("10 seats or twelve", "Eight to 10 seats", "1 of 10
+     seats", "One in 10 seats");
+   - a count of groups of a number ("5 rows of 10 seats", "5 tables x 10
+     seats"), which multiplies the count;
+   - a count of another noun offered as the run's alternative
+     (offeredAsAlternative: "10 seats or 12 desks", "12 desks / 10 seats",
+     "12 cupcakes or choose 6 cookies"). "or" makes the two numbers two answers to one question, and
+     a noun outside every COUNT_GROUPS group cannot say whether desks are
+     the seats, so the rule fails closed. A list ("10 seats · 2 hours",
+     "10 seats, 1 instructor") and any other word between ("10 seats for
+     12 desks", "each woven by one artisan") leave the other count its own
+     noun.
+   Never a day (beside a month, or an ordinal not counting "of" the run:
+   "10th of 10 seats" is), nor an isOtherValue number, nor a number with
+   its own noun or rate anywhere else ("one artisan", "90 minutes", "2 per
+   room"). */
+function countRival(
+  tokens: readonly CopyToken[],
+  i: number,
+  {
+    counts,
+    perUnit,
+    start,
+    end,
+  }: {
+    counts: ReadonlySet<string>;
+    perUnit: boolean;
+    start: number;
+    end: number;
+  },
+): boolean {
+  const t = tokens[i];
+  if (!countable(t)) return false;
+  if (t.ordinal) return word(tokens[i + 1], "of");
+  if (isOtherValue(tokens, i)) return false;
+  /* "10 seats per row, 5 rows": a count per something is multiplied by
+     any other count in its field. */
+  if (perUnit) return true;
+  if (word(tokens[i + 1], ...RATE)) return false;
+  const { nouns, next } = nounsAfter(tokens, i);
+  if (!namesItsNoun(t, nouns)) return true;
   if (nouns.some((n) => counts.has(countNoun(n)))) return true;
-  const next = tokens[j];
-  return word(next, "x", "×") || (word(next, "of") && countable(tokens[j + 1]));
+  if (
+    (i >= end && offeredAsAlternative(tokens, end, i)) ||
+    (i < start && offeredAsAlternative(tokens, next, start))
+  ) {
+    return true;
+  }
+  return (
+    word(tokens[next], "x", "×") ||
+    (word(tokens[next], "of") && countable(tokens[next + 1]))
+  );
+}
+
+/* What a brief counts beside a time or a price, in nounKey's spelling
+   with the COUNT_GROUPS. Closed: a time's or a price's plain number is
+   exempt only when one of these, or a measure, follows it ("10 seats", "2
+   hours", "12 stalls", "for 20 pieces"). Round 19's first draft took any
+   word ending in "s", and the critics found hours and prices it passed:
+   "dancing 9 onwards", "after-party 11 kicks off", "rerun 8 Jos", "Party
+   pack for 30,000 serves 20". A noun not listed fails closed, and the
+   fact writer gives the time its own field. */
+const KNOWN_COUNTED = new Set(
+  [
+    ...COUNT_GROUPS.flat(),
+    "minute",
+    "min",
+    "hour",
+    "hr",
+    "day",
+    "week",
+    "month",
+    "year",
+    "night",
+    "evening",
+    "morning",
+    "weekend",
+    "stall",
+    "vendor",
+    "exhibitor",
+    "table",
+    "room",
+    "speaker",
+    "artist",
+    "act",
+    "band",
+    "performer",
+    "dj",
+    "course",
+    "dish",
+    "drink",
+    "meal",
+    "plate",
+    "portion",
+    "serving",
+    "slice",
+    "round",
+    "game",
+    "match",
+    "track",
+    "song",
+    "hit",
+    "stage",
+    "venue",
+    "city",
+    "state",
+    "country",
+    "location",
+    "branch",
+    "outlet",
+    "store",
+    "cake",
+    "cupcake",
+    "cookie",
+    "pastry",
+    "box",
+    "pack",
+    "bottle",
+    "tray",
+    "flavour",
+    "flavor",
+    "colour",
+    "color",
+    "size",
+    "design",
+    "style",
+    "winner",
+    "prize",
+    "coach",
+    "trainer",
+    "instructor",
+    "teacher",
+    "tutor",
+    "chef",
+    "stylist",
+    "mentor",
+    "team",
+    "friend",
+    "couple",
+    "family",
+    "step",
+    "module",
+    "workshop",
+    "film",
+  ].map(nounKey),
+);
+const namesKnownCount = (t: CopyToken, nouns: readonly CopyToken[]) =>
+  nouns.some(
+    (n) =>
+      namesWhatItCounts(n, t.key === "w:one" || t.value === 1) &&
+      (KNOWN_COUNTED.has(countNoun(n)) || MEASURE_WORD.test(n.text)),
+  );
+
+/* The words that make the number after them an age and never a time.
+   "Kids", "adults" and "children" also name who a session is for: "Kids
+   4, adults 7pm" gives two hours (round-19 critic). */
+const AGE_ONLY = ["ages", "aged", "age"];
+
+/* A day word after a plain number makes it an hour, not a count: "Doors
+   6 Fridays, 7pm Saturdays", "6 weekdays, 7pm weekends". */
+const namesWhen = (nouns: readonly CopyToken[]) => nouns.some(isDayWord);
+
+/* Words that join a number to the time after it as a range or a choice:
+   "6 or 7pm", "6 to 7pm", "Kids 6 till 7pm". */
+const HOUR_JOINS = [
+  "or",
+  "to",
+  "till",
+  "til",
+  "until",
+  "through",
+  "thru",
+  "and",
+];
+
+/* Whether the number at `i` reads as an hour beside the run's time:
+   joined to the run's start by HOUR_JOINS or a "-" or "/" between numbers
+   and nothing but marks. Whatever word numbers it then ("Kids 6 to 7pm",
+   "Gate 6 or 7pm"), the reader takes it for the other end or the other
+   choice; with only a comma ("Hall 2, 7pm") it stays a place. */
+function joinedAsHour(
+  tokens: readonly CopyToken[],
+  i: number,
+  start: number,
+): boolean {
+  if (i >= start || isAgeOrShare(tokens[i + 1])) return false;
+  const between = tokens.slice(i + 1, start);
+  return (
+    between.some((t) => word(t, ...HOUR_JOINS) || joinsNumbers(t)) &&
+    between.every((t) => t.kind === "mark" || word(t, ...HOUR_JOINS))
+  );
+}
+
+/* Whether the number at `i` is another time beside the run's: a clock
+   time, a plain number that could be an hour joined to the run as a range
+   or a choice (joinedAsHour), or one with no noun or unit attached ("7pm
+   or 8", "Doors 6, or 7pm", "7pm, starts 8", "7pm, 12 max"). Round 17
+   took every plain number up to 24, and the eval at cb9f951 refused
+   "Class runs 2pm to 5pm · 10 seats" (masterclass-ko): Oluwaseyi's
+   ruling is a value of the time's own kind, and "10 seats" is a count.
+   Never a count with its own noun ("10 seats", "2 hours"), a rate ("2 per
+   table"), an isOtherValue number, a day, a code, an amount. */
+function timeRival(
+  tokens: readonly CopyToken[],
+  i: number,
+  start: number,
+): boolean {
+  const t = tokens[i];
+  if (t.kind === "clock") return true;
+  /* "1930hrs" is 7:30pm, which the tokenizer reads as a number of hours
+     (round-19 critic). */
+  if (
+    isNumber(t) &&
+    /^([01]\d|2[0-3])[0-5]\d$/.test(t.text) &&
+    word(tokens[i + 1], "hours", "hrs", "hr", "h")
+  ) {
+    return true;
+  }
+  if (!isNumber(t) || t.ordinal || (t.value ?? 0) > 24) return false;
+  if (
+    isYear(t) ||
+    monthOf(tokens[i - 1]) !== null ||
+    monthOf(tokens[i + 1]) !== null ||
+    isPhoneDigits(tokens, i)
+  ) {
+    return false;
+  }
+  if (joinedAsHour(tokens, i, start)) return true;
+  /* A code before a number is no exemption here: "DJ 11" and "MC 10"
+     are hours in event copy (round-19 critic). */
+  if (isAgeOrShare(tokens[i + 1]) || isOtherValue(tokens, i, AGE_ONLY, false)) {
+    return false;
+  }
+  if (word(tokens[i + 1], ...RATE)) return false;
+  const { nouns } = nounsAfter(tokens, i);
+  return namesWhen(nouns) || !namesKnownCount(t, nouns);
+}
+
+/* Whether the number at `i` is another price beside the run's amount:
+   another amount, or a plain number of at least a tenth of it ("₦6,000 or
+   5,000", "₦4,500 or 6k", "Adults ₦6,000 · Kids 3,000", "Advance ₦6,000 ·
+   Gate 8,000", "₦6,000 regular, 4,500 students"), unless "for" makes it
+   what the price buys ("₦6,000 for 10 people", "₦100 for 20 pieces").
+   Only "for" exempts it: a tier names who pays or when, and a plural after
+   the number ("3,000 kids", "8,000 weekends") is a tier as often as a
+   count (round-19 critic, 13 fail-opens when any plural exempted it). A
+   year, a day beside its month, a phone group and a share are never an
+   amount. */
+function priceRival(
+  tokens: readonly CopyToken[],
+  i: number,
+  amount: number,
+): boolean {
+  const t = tokens[i];
+  if (t.kind === "money") return true;
+  if (!isNumber(t) || t.ordinal || amountAt(tokens, i) * 10 < amount) {
+    return false;
+  }
+  /* "2,000" is an amount with its thousands mark; a year has none
+     (round-19 critic: "₦6,000 · 2,000 deposit to book"). */
+  const year = isYear(t) && !t.text.includes(",");
+  if (
+    year ||
+    monthOf(tokens[i - 1]) !== null ||
+    monthOf(tokens[i + 1]) !== null ||
+    isPhoneDigits(tokens, i) ||
+    tokens[i + 1]?.key === "%" ||
+    isAddress(tokens, i)
+  ) {
+    return false;
+  }
+  const boughtFor =
+    word(tokens[i - 1], "for") &&
+    namesKnownCount(t, nounsAfter(tokens, i).nouns);
+  return !boughtFor;
 }
 
 /* What counts as another value of the fact's kind, anywhere in its field
    (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
    where a reader could still take the number for one, failing closed:
-   - a time: any other clock time, or a plain number that could be an
-     hour ("Six or 7pm", "7pm or 9", "Doors 6.30 or 7pm");
+   - a time: any other clock time, or a plain number a reader takes for
+     an hour (timeRival: "Six or 7pm", "7pm or 9", "Doors 6.30 or 7pm"),
+     never a number that counts something ("2pm to 5pm · 10 seats");
    - a price: any other amount, or a plain number of at least a tenth of
-     the run's ("4,500 or ₦6,000", "₦4,500 or 6k"), so "three shots for
-     ₦6,000" is not one;
+     the run's that "for" does not make what it buys (priceRival: "4,500
+     or ₦6,000", "₦4,500 or 6k"), so "three shots for ₦6,000" and
+     "₦6,000 for 10 people" are not one;
    - a date: any other day of the month a month or an ordinal dates
      ("or 6 December", "or the 6th"), a bare one ("5 December, or 6"),
      and any in the run's own clause, which shares the run's month ("4
@@ -1757,27 +2075,16 @@ function rivalAt(
     clause: readonly [number, number];
     counts: ReadonlySet<string>;
     perUnit: boolean;
+    start: number;
+    end: number;
   },
 ): boolean {
   const t = tokens[i];
-  const besideMonth =
-    monthOf(tokens[i - 1]) !== null || monthOf(tokens[i + 1]) !== null;
-  const plain =
-    isNumber(t) && !isYear(t) && !besideMonth && !isPhoneDigits(tokens, i);
   switch (kind) {
     case "time":
-      return (
-        t.kind === "clock" ||
-        (plain &&
-          !t.ordinal &&
-          (t.value ?? 0) <= 24 &&
-          !isAgeOrShare(tokens[i + 1]))
-      );
+      return timeRival(tokens, i, run.start);
     case "price":
-      return (
-        t.kind === "money" ||
-        (plain && !t.ordinal && amountAt(tokens, i) * 10 >= run.amount)
-      );
+      return priceRival(tokens, i, run.amount);
     case "date": {
       const inClause = i >= run.clause[0] && i < run.clause[1];
       return (
@@ -1837,7 +2144,14 @@ function rivalled(around: Around, kind: string | undefined): boolean {
     return tokens.some(
       (_, i) =>
         outside(i) &&
-        rivalAt(kind, tokens, i, { amount, clause, counts, perUnit }),
+        rivalAt(kind, tokens, i, {
+          amount,
+          clause,
+          counts,
+          perUnit,
+          start,
+          end,
+        }),
     );
   }
   if (!run.some(isNumeric)) return false;
