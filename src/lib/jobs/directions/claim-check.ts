@@ -74,6 +74,21 @@ function profileLines(brand: BrandSummary): string {
     .join("\n");
 }
 
+/* Every design's copy is read in one call, so a flagged headline's nearest
+   supported line is often its sibling's headline, and the check offers it
+   as the rewrite: at ba7a7ea all four refused headlines were rewritten as
+   the other design's headline, which applyClaimCheck refuses, and each
+   direction fell to recovery. Said here, before the fields are listed. */
+function separateDesigns(fields: ClaimCheckField[]): string | null {
+  const headlines = fields.filter((f) => /^\d+\.headline$/.test(f.id));
+  if (headlines.length < 2) return null;
+  return `The fields belong to ${headlines.length} separate designs, numbered by the first part of each id. Each design keeps its own idea, so a rewrite never uses another design's headline or says it again in other words: ${headlines
+    .map((f) => `design ${f.id.split(".")[0]}'s headline is "${f.text}"`)
+    .join(
+      ", ",
+    )}. When a headline is flagged, rewrite it from this design's own idea in words the brief supports, or return "" when nothing of it can stay.`;
+}
+
 export function buildClaimCheckPrompt({
   fields,
   briefText,
@@ -87,6 +102,7 @@ export function buildClaimCheckPrompt({
     `The brand profile:\n${profileLines(brand)}`,
     `Flag a field when it states, implies or promises anything the brief and profile do not: a product, ingredient or item they do not name; a temperature, freshness, texture or taste ("still warm", "fresh from the oven") they do not give; availability or scarcity ("gone by morning", "selling fast", "limited"); a time, day, date, price, discount, quantity, size, age or place they do not give, or one changed ("from" a price, "before" a time); a ranking, award, guarantee, delivery or free item; a person, speaker or credential, or a role, title or topic added to a person the brief names (a role the brief does not give them, or "on Building for Heat" when Building for Heat is the panel's name, not their topic); a method, process, origin or material the brief itself does not state in those terms ("hand-woven" or "woven by hand" for "woven by one artisan", "locally sourced", "organic", "natural"): a near-synonym is a different claim, and the profile's general description does not license it for this offer; a scale, reach or ambition the brief does not state ("Africa's payments future", "continent-wide", "for every business", "the future of"); an instruction that contradicts the brief ("just show up" when it says to book); a placeholder ("[LINK]", "TBC", "your name here"); any copy not written in English; a fact reworded so its scope or meaning changes ("first month free" for "zero transfer fees for your first month", "shared meals" for "all meals included", "one origin" for "single-origin", "on Building for Heat" when that is the panel's name, not its topic). A reason ("why this works") is also flagged when it says the design's copy holds something the copy listed for that direction does not hold.
 Do not flag: an invitation or tone ("Treat yourself", "Come say hello"), a restatement of what the brief says in other words, the brand's own name, or anything the brief itself says in the same words. Before flagging a word, look for it in the brief: a role, material, count or condition the brief gives ("with architect Ada Obi", "linen", "10 seats", "limited seats") is supported (round-7 eval: each of these was flagged on copy that quoted the brief).`,
+    separateDesigns(fields),
     `The fields, one per line as id | what it is | text:\n${fields
       .map((f) => `${f.id} | ${f.field} | ${f.text}`)
       .join("\n")}`,

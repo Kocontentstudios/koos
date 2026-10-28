@@ -232,6 +232,7 @@ const {
   draftOf,
   readAnswer,
 } = await import("./directions/fixtures");
+const { EVAL_A_BA7A7EA } = await import("./directions/fixtures.ba7a7ea");
 
 const UPLOAD_KEY = `design-images/${BRAND_ID}/2b1e0c8e-0b6a-4b0e-9a37-3a3c1f0a7d11.png`;
 const SET = "9c0e8f5a-3b2d-4c1e-8f7a-6d5c4b3a2f10";
@@ -1656,6 +1657,13 @@ describe("a refused headline is asked for once more before it is lost", () => {
             ],
             candidates: [SIBLING, "Weekend brunch starts here"],
             recovered: "Weekend brunch starts here",
+            refusals: [
+              {
+                headline: SIBLING,
+                rule: "already a headline",
+                why: "another design's headline, or one already refused",
+              },
+            ],
             ships: "Weekend brunch starts here",
           },
         ]);
@@ -1884,5 +1892,207 @@ describe("round-12 critic job probes", () => {
         why: "the headline model could not be reached",
       }),
     ]);
+  });
+});
+
+/* Round 14, eval run a at ba7a7ea: three directions lost and a fourth
+   recovered, each after the claim check offered the other design's
+   headline as its rewrite (critique-14/diagnosis.md). Every case replays
+   the logged drafts, brief read, claim-check flag and recovery candidates
+   through the job, on the PR 1 default path: the flag off and no photo. */
+describe("round 14: the lost headlines of eval run a at ba7a7ea", () => {
+  type LoggedCase = keyof typeof EVAL_A_BA7A7EA;
+
+  async function replay(
+    id: LoggedCase,
+    {
+      candidates,
+      drafts,
+      flagRecovered = false,
+    }: {
+      candidates?: readonly string[];
+      drafts?: (logged: Record<string, unknown>[]) => Record<string, unknown>[];
+      flagRecovered?: boolean;
+    } = {},
+  ) {
+    const { HEADLINE_RECOVERY_PROMPT_START } = await import(
+      "./directions/headline-rewrite"
+    );
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    const logged = EVAL_A_BA7A7EA[id];
+    const claimPrompts: string[] = [];
+    const recoveryPrompts: string[] = [];
+    readBrief.mockResolvedValue(
+      readAnswer(
+        logged.read.facts.map((f) => ({ ...f })),
+        { ...logged.read.offering },
+        [...logged.read.people],
+      ),
+    );
+    const loggedDrafts = structuredClone(logged.drafts) as unknown as Record<
+      string,
+      unknown
+    >[];
+    if ("atRecovery" in logged) {
+      loggedDrafts[1] = { ...loggedDrafts[1], ...logged.atRecovery };
+    }
+    const shown = drafts ? drafts(loggedDrafts) : loggedDrafts;
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      const prompt = o.prompt ?? "";
+      if (isClaimCheckCall(o)) {
+        claimPrompts.push(prompt);
+        if (claimPrompts.length === 1) {
+          return { object: { unsupported: [{ ...logged.headlineFlag }] } };
+        }
+        const ids = [...prompt.matchAll(/^(\d+\.headline\.\d+) \|/gm)].map(
+          (m) => m[1],
+        );
+        return {
+          object: {
+            unsupported: flagRecovered
+              ? ids.map((fieldId) => ({
+                  id: fieldId,
+                  statement: "Across Africa",
+                  rewrite: "",
+                }))
+              : [],
+          },
+        };
+      }
+      if (prompt.startsWith(HEADLINE_RECOVERY_PROMPT_START)) {
+        recoveryPrompts.push(prompt);
+        return {
+          object: { headlines: [...(candidates ?? logged.candidates)] },
+        };
+      }
+      return { object: { directions: structuredClone(shown) } };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await generateDirectionsWork(
+        {
+          context: directionsContext({
+            briefText: logged.briefText,
+            title: logged.title,
+            brandSummary: { ...logged.brandSummary },
+          }),
+          userId: "u1",
+          sessionId: "s1",
+          request: { image: { source: "none" } } as never,
+        },
+        runtime as never,
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    return { claimPrompts, recoveryPrompts, logged };
+  }
+  const recovery = () =>
+    usage().headlineRecovery as {
+      direction: number;
+      recovered: string | null;
+      why?: string;
+      refusals: { headline: string; rule: string; why: string }[];
+    }[];
+
+  it("tells the claim check each design's headline is its own, by name", async () => {
+    const { claimPrompts, logged } = await replay(
+      "storefront-reopening-upload",
+    );
+    expect(claimPrompts[0]).toContain(
+      "a rewrite never uses another design's headline",
+    );
+    expect(claimPrompts[0]).toContain(
+      `design 0's headline is "${logged.drafts[0].headline}"`,
+    );
+    expect(claimPrompts[0]).toContain(
+      `design 1's headline is "${logged.drafts[1].headline}"`,
+    );
+  });
+
+  it.each(["fashion-portrait-upload", "storefront-reopening-upload"] as const)(
+    "%s: names the check that refused each logged candidate",
+    async (id) => {
+      const { logged } = await replay(id);
+      const [outcome] = recovery();
+      expect(outcome.recovered).toBeNull();
+      expect(outcome.refusals.map((r) => r.headline)).toEqual([
+        ...logged.candidates,
+      ]);
+      for (const refusal of outcome.refusals) {
+        expect(refusal.rule).toBe("subheadline repeats it");
+        expect(refusal.why).toMatch(/^the subheadline (says|repeats)/);
+      }
+    },
+  );
+
+  it("recruitment-ko: names the repeat and the words the claim check found", async () => {
+    await replay("recruitment-ko", { flagRecovered: true });
+    const [outcome] = recovery();
+    expect(outcome.why).toMatch(/claim check flagged every headline/);
+    expect(outcome.refusals).toEqual([
+      {
+        headline: "Senior React Engineers, Remote in Africa",
+        rule: "subheadline repeats it",
+        why: "the subheadline says the headline again",
+      },
+      {
+        headline: "Remote React Roles Across Africa",
+        rule: "claim check",
+        why: 'found "Across Africa", which the brief does not say',
+      },
+      {
+        headline: "React Engineers Across Africa",
+        rule: "claim check",
+        why: 'found "Across Africa", which the brief does not say',
+      },
+    ]);
+  });
+
+  /* A subheadline that repeats the button's date repeats it whatever the
+     headline says: counted against the candidate, it refused every one. */
+  it("recruitment-ko: a candidate is not refused for the button's repeat", async () => {
+    await replay("recruitment-ko", {
+      drafts: ([first, second]) => [
+        first,
+        { ...second, cta: "Apply by 30 November" },
+      ],
+    });
+    const [outcome] = recovery();
+    expect(outcome.recovered).toBe("Remote React Roles Across Africa");
+    expect(delivered("row-2")?.spec?.headline).toBe(
+      "Remote React Roles Across Africa",
+    );
+    expect(usage().headlinesLost).toBe(0);
+  });
+
+  it("fashion-portrait-upload: asks for five and states the subheadline rule with its words", async () => {
+    const extra = ["Linen for the Harmattan", "Made for the dry wind"];
+    const { recoveryPrompts, logged } = await replay(
+      "fashion-portrait-upload",
+      {
+        candidates: [
+          ...EVAL_A_BA7A7EA["fashion-portrait-upload"].candidates,
+          ...extra,
+        ],
+      },
+    );
+    expect(recoveryPrompts[0]).toContain("Write 5 headlines");
+    expect(recoveryPrompts[0]).toMatch(
+      /The subheadline already uses these words: [^.]*harmattan[^.]*linen[^.]*dress/,
+    );
+    expect(recoveryPrompts[0]).toContain(
+      "A headline is refused when two of every three of its words are among them",
+    );
+    const [outcome] = recovery();
+    expect(outcome.refusals.map((r) => r.headline)).toEqual([
+      ...logged.candidates,
+      "Linen for the Harmattan",
+    ]);
+    expect(outcome.recovered).toBe("Made for the dry wind");
+    expect(usage().headlinesLost).toBe(0);
   });
 });

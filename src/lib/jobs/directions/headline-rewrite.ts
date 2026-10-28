@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel } from "@/lib/ai/provider";
+import { distinctiveWords } from "./text-overlap";
 
 /**
  * New headlines for one direction of a pair that still says one idea twice,
@@ -107,7 +108,18 @@ export type HeadlineRecoverer = (
 export const HEADLINE_RECOVERY_PROMPT_START =
   "You write the headline for one design of a small business's social media post. Its headline was refused";
 
+/* Five, not three: every candidate goes to the one claim check in a single
+   call, so more of them cost no extra call. At ba7a7ea two lost directions
+   had all three candidates refused because the subheadline repeated each,
+   and a fourth or fifth idea is the only other chance the one ask has. */
+export const RECOVERED_HEADLINES_ASKED = 5;
+
 export function buildHeadlineRecoveryPrompt(input: HeadlineRecoveryInput) {
+  /* Numbers are covered by the rule's own clause; listed, "₦38,000" reads
+     as "38, 000". */
+  const subheadlineWords = distinctiveWords(input.subheadline).filter(
+    (word) => !/^\d+$/.test(word),
+  );
   return [
     `${HEADLINE_RECOVERY_PROMPT_START}, and without one the design cannot be shown.`,
     `The brief: ${input.briefText}`,
@@ -121,19 +133,29 @@ export function buildHeadlineRecoveryPrompt(input: HeadlineRecoveryInput) {
     input.others.length > 0
       ? `The other design's headline, which this one must not repeat or echo: ${input.others.join(" / ")}`
       : null,
-    `Write three headlines for this design, best first, keeping its idea where the brief supports it. Each at most ${REWRITTEN_HEADLINE_MAX} characters, in English, a phrase rather than a sentence, saying nothing the subheadline or button already says. State only what the brief says: no product, price, time, date, place, number, person, quality, method, origin, scale or promise it does not give, and nothing the refusal names.`,
-    'Return "headlines": the three.',
+    /* The rule the job holds a headline to, stated as the job applies it
+       (aboveRepeatsBy): at ba7a7ea "Pre-order the Harmattan dress" over
+       "The Harmattan linen dress. ₦38,000. Pre-orders open 1 November." and
+       "The Shop Reopens This Saturday" over "Iya Basira Fabrics reopens
+       Saturday 6 December" were refused by it, as were seven more of nine. */
+    subheadlineWords.length > 0
+      ? `The subheadline already uses these words: ${subheadlineWords.join(", ")}. A headline is refused when two of every three of its words are among them, or when it gives a number, date, time or price the subheadline gives. Build each headline mostly from other words: the moment, the feeling, the use or the reason to come.`
+      : null,
+    `Write ${RECOVERED_HEADLINES_ASKED} headlines for this design, best first, each a different idea, keeping its idea where the brief supports it. Each at most ${REWRITTEN_HEADLINE_MAX} characters, in English, a phrase rather than a sentence, saying nothing the subheadline or button already says. State only what the brief says: no product, price, time, date, place, number, person, quality, method, origin, scale or promise it does not give, and nothing the refusal names.`,
+    `Return "headlines": the ${RECOVERED_HEADLINES_ASKED}.`,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
+/** Every headline the model wrote, trimmed: the job holds each to the
+ *  length limit with the other rules, so the trace names why each went. */
 export const recoverHeadline: HeadlineRecoverer = async (input) => {
   try {
     const { object } = await generateObject({
       model: getModel("strategy"),
       schema,
-      maxOutputTokens: 400,
+      maxOutputTokens: 600,
       prompt: buildHeadlineRecoveryPrompt(input),
     });
     const headlines = (object as { headlines?: unknown }).headlines;
@@ -141,7 +163,7 @@ export const recoverHeadline: HeadlineRecoverer = async (input) => {
     return headlines
       .filter((h): h is string => typeof h === "string")
       .map((h) => h.replace(/\s+/g, " ").trim())
-      .filter((h) => h.length > 0 && h.length <= REWRITTEN_HEADLINE_MAX);
+      .filter((h) => h.length > 0);
   } catch (err) {
     console.error("headline recovery unavailable; the direction fails", err);
     return null;

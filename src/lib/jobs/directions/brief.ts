@@ -13,7 +13,7 @@ import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import type { DesignContext } from "@/lib/design/context";
 import {
-  aboveRepeats,
+  aboveRepeatsBy,
   type BriefFact,
   brandRegion,
   dropFooterRepeats,
@@ -68,6 +68,7 @@ import {
 import {
   type HeadlineRecoverer,
   type HeadlineRewriter,
+  REWRITTEN_HEADLINE_MAX,
   recoverHeadline,
   rewriteHeadline,
 } from "./headline-rewrite";
@@ -591,10 +592,30 @@ export interface HeadlineRecovery {
   recovered: string | null;
   /** Why no candidate stood, when none did. */
   why?: string;
+  /** Each candidate that did not stand, with the check that refused it. */
+  refusals: RecoveryRefusal[];
   /** The headline the delivered design draws, set by the job once it is
    *  delivered: a later pass may still move a recovered headline, and
    *  null means the direction was not delivered. */
   ships?: string | null;
+}
+
+/** The check that refused a recovered headline (round 14: at ba7a7ea
+ *  three directions were lost with only "every headline it wrote broke a
+ *  rule" to show for nine candidates). */
+export type RecoveryRule =
+  | "length"
+  | "copy"
+  | "already a headline"
+  | "subheadline repeats it"
+  | "near-duplicate"
+  | "claim check"
+  | "claim check unreachable";
+
+export interface RecoveryRefusal {
+  headline: string;
+  rule: RecoveryRule;
+  why: string;
 }
 
 function closestPair(
@@ -957,6 +978,7 @@ export async function draftDirections({
         refused,
         candidates: asked ?? [],
         recovered: null,
+        refusals: [],
       };
       outcomes.push(outcome);
       if (asked === null) {
@@ -970,28 +992,61 @@ export async function draftDirections({
       const seen = new Set(
         [...others, ...everyRefused].map((h) => h.trim().toLowerCase()),
       );
-      const apart = asked.filter((candidate) => {
-        if (copyFault(candidate, COPY_LIMITS.headline, checks.ledger)) {
-          return false;
+      const refusalOf = (
+        candidate: string,
+      ): Omit<RecoveryRefusal, "headline"> | null => {
+        if (candidate.length > REWRITTEN_HEADLINE_MAX) {
+          return {
+            rule: "length",
+            why: `${candidate.length} characters, limit ${REWRITTEN_HEADLINE_MAX}`,
+          };
         }
-        if (seen.has(candidate.trim().toLowerCase())) return false;
-        /* A headline the subheadline or button repeats blocks the fact
-           writer from writing a missing fact below it (eval run a at
-           4931c2e: pottery-evening-ko's "One evening of wheel-throwing"
-           over "A wheel-throwing evening with Bisi Adeleke" left "₦25,000
-           a seat" off). */
-        const repeated = aboveRepeats({
+        const fault = copyFault(candidate, COPY_LIMITS.headline, checks.ledger);
+        if (fault) return { rule: "copy", why: fault };
+        if (seen.has(candidate.trim().toLowerCase())) {
+          return {
+            rule: "already a headline",
+            why: "another design's headline, or one already refused",
+          };
+        }
+        /* A headline the subheadline repeats blocks the fact writer from
+           writing a missing fact below it (eval run a at 4931c2e:
+           pottery-evening-ko's "One evening of wheel-throwing" over "A
+           wheel-throwing evening with Bisi Adeleke" left "₦25,000 a seat"
+           off). Only the candidate's own repeat counts: a subheadline that
+           repeats the button's number does so whatever the headline says,
+           and once refused every candidate. */
+        const repeat = aboveRepeatsBy({
           headline: candidate,
           subheadline: directions[i].subheadline,
           cta: directions[i].cta,
-        });
-        if (repeated.length > 0) return false;
-        const trial = directions
-          .map((d, j) => (j === i ? { ...d, headline: candidate } : d))
-          .filter((_, j) => !waiting.has(j));
-        const pair = closestPair(trial, existing, overlapOptions);
-        return !pair || !isNearDuplicate(pair.overlap);
-      });
+        }).find((r) => r.field === "headline");
+        if (repeat)
+          return { rule: "subheadline repeats it", why: repeat.repeat };
+        /* Only pairs the candidate is in: a pair of other designs that
+           is already close says nothing about this headline. */
+        const withCandidate = { ...directions[i], headline: candidate };
+        const nearest = [...existing, ...shipping]
+          .map((other) => ({
+            other,
+            overlap: directionOverlap(other, withCandidate, overlapOptions),
+          }))
+          .find(({ overlap }) => isNearDuplicate(overlap));
+        if (nearest) {
+          const { other, overlap } = nearest;
+          return {
+            rule: "near-duplicate",
+            why: `reads as "${other.headline}" (headline ${overlap.headline.toFixed(2)}, copy ${overlap.copy.toFixed(2)}, title ${overlap.title.toFixed(2)})`,
+          };
+        }
+        return null;
+      };
+      const apart: string[] = [];
+      for (const candidate of asked) {
+        const refusal = refusalOf(candidate);
+        if (refusal) outcome.refusals.push({ headline: candidate, ...refusal });
+        else apart.push(candidate);
+      }
       if (apart.length === 0) {
         outcome.why =
           "every headline it wrote broke a rule a headline is held to";
@@ -1010,22 +1065,36 @@ export async function draftDirections({
         brand: context.brandSummary,
       });
       /* Unchecked copy is not delivered in place of checked copy. */
-      const held =
-        flaggedAgain === null
-          ? undefined
-          : apart.find(
-              (_, k) =>
-                !flaggedAgain.some((f) => f.id === `${i}.headline.${k}`),
-            );
-      if (held) {
-        directions[i] = { ...directions[i], headline: held };
-        outcome.recovered = held;
-      } else {
-        outcome.why =
-          flaggedAgain === null
-            ? "the claim check could not be reached"
-            : "the claim check flagged every headline it wrote";
+      if (flaggedAgain === null) {
+        outcome.refusals.push(
+          ...apart.map((headline) => ({
+            headline,
+            rule: "claim check unreachable" as const,
+            why: "the claim check could not be reached",
+          })),
+        );
+        outcome.why = "the claim check could not be reached";
+        continue;
       }
+      const flagOf = (k: number) =>
+        flaggedAgain.find((f) => f.id === `${i}.headline.${k}`);
+      const heldAt = apart.findIndex((_, k) => !flagOf(k));
+      apart
+        .slice(0, heldAt === -1 ? apart.length : heldAt)
+        .forEach((headline, k) => {
+          outcome.refusals.push({
+            headline,
+            rule: "claim check",
+            why: `found "${flagOf(k)?.statement ?? ""}", which the brief does not say`,
+          });
+        });
+      if (heldAt === -1) {
+        outcome.why = "the claim check flagged every headline it wrote";
+        continue;
+      }
+      const held = apart[heldAt];
+      directions[i] = { ...directions[i], headline: held };
+      outcome.recovered = held;
     }
     return outcomes;
   }
