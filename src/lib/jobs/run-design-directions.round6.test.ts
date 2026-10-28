@@ -1217,3 +1217,152 @@ describe("round-9 critic job probes", () => {
       ]);
     }));
 });
+
+/* Round-10 code critic, job probes J7 and J9 to J11 (r10-job-probes.log,
+   r10-job-J11.log), on the PR 1 default path: the flag off and no photo.
+   Each was a design shipped without the brief's fact, or a fact counted
+   left off that the design carried, while the usage row said otherwise. */
+describe("round-10 critic job probes", () => {
+  async function flagOff(body: () => Promise<void>) {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await body();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  }
+
+  it("J7: 'Fun for all ages · 8+ flavours' is not the age, which is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer(
+          [
+            { kind: "day", text: "this Saturday" },
+            { kind: "age", text: "Ages 8+" },
+          ],
+          { kind: "event", phrase: "ice cream social" },
+        ),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Ice cream social",
+              subheadline: "This Saturday · Fun for all ages · 8+ flavours",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Scoops this Saturday",
+              subheadline:
+                "Our social is back for all ages / 8+ flavours to try",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Ice cream social this Saturday with 8+ flavours. Ages 8+.",
+        { image: { source: "none" } },
+      );
+      for (const id of ["row-1", "row-2"]) {
+        expect(drawnOf(id)).toMatch(/ages 8\+/i);
+      }
+      expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
+      expect(usage().factsLeftOff).toEqual([]);
+    }));
+
+  it("J9: 'Ages 21 and over' states '21 and over': nothing is written in again or counted left off", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "age", text: "21 and over" }], {
+          kind: "event",
+          phrase: "wine night",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Wine night",
+              subheadline: "Ages 21 and over. Friday from 7pm.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Uncork Friday",
+              subheadline: "Adults 18+ only? No: ages 21 and over.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief("Wine night this Friday from 7pm, 21 and over.", {
+        image: { source: "none" },
+      });
+      /* Row 1 states the age; the writer was sent anyway, added a "21 and
+         over" footer the renderer then hid, and the row was counted as
+         leaving the age off. Row 2's subheadline invents "18+", so its
+         facts are written in. */
+      expect(delivered("row-1")?.spec?.footerLines ?? []).toEqual([]);
+      expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
+    }));
+
+  it("J10: draws 'Shop 2 Floor Lamps' and 'Shop 10 Styles at the Mall'", () =>
+    flagOff(async () => {
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({ cta: "Shop 2 Floor Lamps" }),
+            contrastingDraft({ cta: "Shop 10 Styles at the Mall" }),
+          ],
+        },
+      });
+      /* The brief gives both counts, so only isAction can refuse the
+         buttons: with "New floor lamps in store this week." inventedFacts
+         refuses them first, for numbers the brief never states. */
+      await runBrief(
+        "New floor lamps in store this week: shop 2 floor lamps for the price of one, or 10 styles at the mall.",
+        { image: { source: "none" } },
+      );
+      expect(["row-1", "row-2"].map((id) => delivered(id)?.spec?.cta)).toEqual([
+        "Shop 2 Floor Lamps",
+        "Shop 10 Styles at the Mall",
+      ]);
+    }));
+
+  it("J11: 'Saturday 5 food trucks, 12 stalls, all December' is not the date, which is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "date", text: "Saturday 5 December" }], {
+          kind: "event",
+          phrase: "Christmas market",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Christmas market",
+              subheadline:
+                "This Saturday 5 food trucks and 12 stalls in December",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Gifts for everyone",
+              subheadline: "Saturday 5 food trucks, 12 stalls, all December",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Christmas market on Saturday 5 December. 12 stalls and 5 food trucks.",
+        { image: { source: "none" } },
+      );
+      for (const id of ["row-1", "row-2"]) {
+        expect(drawnOf(id)).toMatch(/Saturday 5 December/);
+      }
+      expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
+      expect(usage().factsLeftOff).toEqual([]);
+    }));
+});
