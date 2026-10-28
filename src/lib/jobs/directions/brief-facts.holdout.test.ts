@@ -609,6 +609,7 @@ export const HOLDOUT_FAIL_CLOSED: Record<string, string> = {
   H20: "a count's words in another order or split ('20 countries across Africa') are not its form",
   H40: "an amount and its count joined by a comma ('3 shots, ₦6,000') are not a price form",
   H92: "a day range followed by a place word ('12–14 December outside Ibadan') ends where no date may",
+  H7: "'from' is a start word every form keeps; '07:00 onwards' says the same in other words (round 13 review)",
 };
 
 describe("holdout: copy for the eval briefs, labelled before the round-12 fixes", () => {

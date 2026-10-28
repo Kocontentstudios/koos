@@ -1921,8 +1921,8 @@ const FACT_ROWS: FactRow[] = [
     "from 7pm",
     false,
     copy("Ends 7pm"),
-    true,
-    "form drops 'from': contract-legal but note",
+    false,
+    "'from' marks a start; 'Ends 7pm' is an end",
   ],
   [
     "r11 T9",
@@ -2368,8 +2368,17 @@ const FACT_ROWS: FactRow[] = [
     "from 7pm",
     false,
     copy("Last orders 7pm"),
+    false,
+    "'from' marks a start; 'Last orders 7pm' is an end",
+  ],
+  [
+    "r13 P6b",
+    "time",
+    "from 7pm",
+    false,
+    copy("Doors open from 7pm"),
     true,
-    "'from' is a filler (Oluwaseyi's ruling, round 13): 'from 7pm' says 7pm",
+    "the start word is kept",
   ],
   /* Round-12 code critic, break 3 (r12-attack.log D rows, holdout F68): a
      date's weekday and year are contradicted only in its own clause or by

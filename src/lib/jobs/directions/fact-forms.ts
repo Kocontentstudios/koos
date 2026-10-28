@@ -902,7 +902,7 @@ function daySpansOf(tokens: readonly CopyToken[]): string[] | null | undefined {
  * critic, break 1). A closed list of the words that ARE parts dropped
  * every word it did not name.
  */
-export const TIME_FILLERS = ["at", "from", "the", "a"];
+export const TIME_FILLERS = ["at", "the", "a"];
 
 /* The word that joins two times or two weekdays into a range ("9am to
    5pm", "Monday to Friday") is spelled by each of the range's forms. */

@@ -79,10 +79,11 @@ const MONTHS = [
 const SIZE_WORD =
   /^(?:ml|cl|l|litres?|liters?|kg|g|grams?|cm|mm|inch(?:es)?|oz)$/i;
 
-/* The only words of a time a form may drop. "at 7pm" and "from 7am" name
-   the time and nothing more, and an article names nothing. The set is
-   small on purpose: every word added here is one the verifier may lose. */
-const TIME_FILLERS_HERE = new Set(["w:at", "w:from", "w:the", "w:a"]);
+/* The only words of a time a form may drop. "at 7pm" names the time and
+   nothing more, and an article names nothing. "from" is not one: "from
+   7pm" is a start, and "Last orders 7pm" an end. The set is small on
+   purpose: every word added here is one the verifier may lose. */
+const TIME_FILLERS_HERE = new Set(["w:at", "w:the", "w:a"]);
 
 /* Between two times or two weekdays, each of these says "from one to the
    other", so a form may spell the fact's range with any of them. Read only
