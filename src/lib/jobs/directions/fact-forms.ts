@@ -681,9 +681,10 @@ function clockRanges(start: number, end: number): string[] {
   ]);
 }
 
-/* The words that say which days hours are for. A time with days keeps
-   them in every form: "9am-5pm" is not "9am-5pm weekdays" (round-11 code
-   critic, T15), nor "Sat 10am-2pm" "Mon-Fri 9am-5pm, Sat 10am-2pm" (T10). */
+/* The words that say which days hours are for, used only to write the
+   days before or after the hours ("9am-5pm weekdays" as "weekdays
+   9am-5pm"). Which words a form must keep is not read from this list:
+   every word of a time fact but a filler is a part (TIME_FILLERS). */
 const DAY_WORDS = [
   "weekday",
   "weekdays",
@@ -714,45 +715,57 @@ function daySpansOf(tokens: readonly CopyToken[]): string[] | null | undefined {
   const spelled = (to: string) =>
     span.map((t) => (TO.includes(t.key) ? to : t.text)).join(" ");
   if (span.some((t) => TO.includes(t.key))) return ["-", "to"].map(spelled);
-  const said = spelled("").toLowerCase();
-  return SAME_DAYS.find((same) => same.includes(said)) ?? [said];
+  if (span.length === 2 && afterEvery(span, 1)) {
+    return [spelled(""), pluralOf(span[1])];
+  }
+  return [spelled("")];
 }
 
-/* "every weekday" and "weekdays" name the same days. */
-function sameDayKeys(key: string): string[] {
-  const said = key.slice(2).replace(/s$/, "");
-  const group = SAME_DAYS.find((same) =>
-    same.some((s) => s.split(" ").pop()?.replace(/s$/, "") === said),
-  );
-  return group
-    ? group
-        .flatMap((s) => s.split(" ").filter((w) => w !== "every"))
-        .map((w) => `w:${w}`)
-    : [key];
-}
+/**
+ * The words of a time fact a form may leave out: "at 7pm" and "from 7am"
+ * say 7pm and 7am, and an article says nothing. Every other word is part
+ * of the fact, and every form carries it: "by 10am" is a deadline, "until
+ * 9pm" an end, "7pm till late" a night, "Tonight 8pm" one night, "Monthly,
+ * 7pm" and "first Sunday of the month" not every week (round-12 code
+ * critic, break 1). A closed list of the words that ARE parts dropped
+ * every word it did not name.
+ */
+export const TIME_FILLERS = ["at", "from", "the", "a"];
 
-/* Day words that name the same days. */
-const SAME_DAYS = [
-  ["every weekday", "weekdays"],
-  ["every weekend", "weekends"],
-  ["every day", "daily", "everyday"],
-];
+/* The word that joins two times or two weekdays into a range ("9am to
+   5pm", "Monday to Friday") is spelled by each of the range's forms. */
+const joinsRange = (tokens: readonly CopyToken[], i: number) =>
+  TO.includes(tokens[i].key) &&
+  ((isNumeric(tokens[i - 1]) && isNumeric(tokens[i + 1])) ||
+    (weekdayOf(tokens[i - 1]) !== null && weekdayOf(tokens[i + 1]) !== null));
 
-/* What leads a time in the fact ("from 7am", "at 4pm"), kept beside the
-   days: "every weekday from 8am". */
-const TIME_LEAD = ["from", "at", "by", "until", "till", "before", "after"];
+/* "every Saturday" is "Saturdays" and "every weekday" "weekdays": the one
+   other spelling a time's day words take. */
+const pluralOf = (t: CopyToken) => `${weekdayOf(t) ? nameOf(t.key) : t.text}s`;
+const pluralKey = (t: CopyToken) => `w:${pluralOf(t).toLowerCase()}`;
+const afterEvery = (tokens: readonly CopyToken[], i: number) =>
+  word(tokens[i - 1], "every") && tokens[i]?.kind === "word";
 
 /** The fact's hours as clock spellings, or null when they are not one
- *  time or one range. */
+ *  time or one range. `from` and `to` are the indexes of its first and
+ *  last number in `tokens`. */
 function hoursOf(tokens: readonly CopyToken[]): {
   spellings: string[];
   bare: string[];
+  from: number;
+  to: number;
 } | null {
   const numeric = tokens.filter(isNumeric);
   const clocks = numeric.filter((t) => t.kind === "clock");
+  const span = (spellings: string[], bare: string[] = []) => ({
+    spellings,
+    bare,
+    from: tokens.indexOf(numeric[0]),
+    to: tokens.indexOf(numeric[numeric.length - 1]),
+  });
   if (clocks.length > 0) {
     if (numeric.length === 1) {
-      return { spellings: [clock(clocks[0].value ?? 0)], bare: [] };
+      return span([clock(clocks[0].value ?? 0)]);
     }
     if (numeric.length !== 2) return null;
     const [start, end] = numeric;
@@ -769,7 +782,10 @@ function hoursOf(tokens: readonly CopyToken[]): {
           ? sharedSuffixStart(start.value ?? 0, end.value ?? 0)
           : null;
     if (startMinutes === null) return null;
-    return { spellings: clockRanges(startMinutes, end.value ?? 0), bare: [] };
+    return span(
+      clockRanges(startMinutes, end.value ?? 0),
+      bareHoursOf(startMinutes, end.value ?? 0),
+    );
   }
   if (numeric.length !== 2) return null;
   const [a, b] = numeric;
@@ -785,36 +801,80 @@ function hoursOf(tokens: readonly CopyToken[]): {
       if (start < end) spellings.push(...clockRanges(start, end));
     }
   }
-  return { spellings, bare: [`${a.text}-${b.text}`, `${a.text} to ${b.text}`] };
+  return span(spellings, [`${a.text}-${b.text}`, `${a.text} to ${b.text}`]);
 }
+
+/* "Open 9 to 5" states "9am to 5pm" when that is the only reading of 9 to
+   5 that runs forward (round-12 critic holdout, F53): the bare hours read
+   back to the fact's own hours and no other. On the hour only. */
+function bareHoursOf(start: number, end: number): string[] {
+  if (start % 60 !== 0 || end % 60 !== 0) return [];
+  const [a, b] = [start / 60, end / 60].map((h) => h % 12 || 12);
+  const readings: [number, number][] = [];
+  for (const startHalf of [0, 720]) {
+    for (const endHalf of [0, 720]) {
+      const s = (a % 12) * 60 + startHalf;
+      const e = (b % 12) * 60 + endHalf;
+      if (s < e) readings.push([s, e]);
+    }
+  }
+  const only =
+    readings.length === 1 && readings[0][0] === start && readings[0][1] === end;
+  return only ? [`${a}-${b}`, `${a} to ${b}`] : [];
+}
+
+/* What leads a time in the fact ("from 7am", "by 10am"), written before
+   each of its spellings; a lead that is not a filler is a part, so only
+   the forms that keep it stand. */
+const TIME_LEAD = ["from", "at", "by", "until", "till", "before", "after"];
 
 function timeForms(tokens: CopyToken[], own: string): FactForm[] | null {
   if (!tokens.some(isNumeric)) return null;
   const clocked = tokens.some((t) => t.kind === "clock");
   const forms = [form(own, clocked ? OPEN : bareHours)];
   const hours = hoursOf(tokens);
+  if (!hours) return forms;
+  forms.push(...inPlace(tokens, hours, clocked));
   const spans = daySpansOf(tokens);
-  if (!hours || spans === undefined) return forms;
+  if (spans === undefined) return forms;
+  const leads = tokens.filter((t) => word(t, ...TIME_LEAD)).map((t) => t.text);
+  const times = [
+    ...hours.spellings.map((s) => ({ s, guard: OPEN })),
+    ...hours.bare.map((s) => ({ s, guard: bareHours })),
+  ].flatMap(({ s, guard }) => [
+    { s, guard },
+    ...leads.map((lead) => ({ s: `${lead} ${s}`, guard })),
+  ]);
   if (spans === null) {
-    forms.push(...hours.spellings.map((s) => form(s)));
-    forms.push(...hours.bare.map((s) => form(s, bareHours)));
+    forms.push(...times.map(({ s, guard }) => form(s, guard)));
     return forms;
   }
-  const lead = tokens.find((t) => word(t, ...TIME_LEAD))?.text;
-  const times = [...hours.spellings, ...hours.bare].flatMap((s) =>
-    lead ? [s, `${lead} ${s}`] : [s],
-  );
   for (const days of spans) {
-    for (const time of times) {
+    for (const { s } of times) {
       for (const join of [" ", ", "]) {
-        forms.push(
-          form(`${days}${join}${time}`),
-          form(`${time}${join}${days}`),
-        );
+        forms.push(form(`${days}${join}${s}`), form(`${s}${join}${days}`));
       }
     }
   }
   return forms;
+}
+
+/* The fact's own words with its hours in each spelling, so a time with
+   words no generator writes ("first Sunday of the month, 4pm-6pm") is
+   still stated by "4-6pm" in their place. */
+function inPlace(
+  tokens: readonly CopyToken[],
+  hours: NonNullable<ReturnType<typeof hoursOf>>,
+  clocked: boolean,
+): FactForm[] {
+  const text = (ts: readonly CopyToken[]) => ts.map((t) => t.text).join(" ");
+  const before = text(tokens.slice(0, hours.from));
+  const after = text(tokens.slice(hours.to + 1));
+  const spelled = (s: string) => [before, s, after].filter(Boolean).join(" ");
+  return [
+    ...hours.spellings.map((s) => form(spelled(s), clocked ? OPEN : bareHours)),
+    ...hours.bare.map((s) => form(spelled(s), bareHours)),
+  ];
 }
 
 /* A place's number is held with the word it names: "Plot 5", "Phase 1",
@@ -839,11 +899,14 @@ const hourOfDay = (minutes: number) => Math.floor(minutes / 60) % 12;
 
 /**
  * Every number, time, amount and calendar name of `tokens` (a fact) that
- * each of its forms must hold. A time's number may be held as a clock
- * ("9-5" as "09:00-17:00") and a clock as its hour ("9-5pm"); "5/12"'s
- * month as the month's name. Left out, by rule: a single date's weekday
- * and year (contradicting either refuses it; see dateGuard), and the size
- * in a price's unit (round-6 live run).
+ * each of its forms must hold, and for a time every word but a filler
+ * (TIME_FILLERS) and the word joining its range. A time's number may be
+ * held as a clock ("9-5" as "09:00-17:00") and a clock as its hour
+ * ("9-5pm"); "5/12"'s month as the month's name. Left out, by rule: a
+ * date's weekdays and years once it names its month, for a single date or
+ * a range ("12-14 December" states "Friday 12 December to Sunday 14
+ * December"; contradicting one refuses it, see dateGuard), and the size in
+ * a price's unit (round-6 live run).
  */
 export function factPartsOf(
   kind: string,
@@ -890,10 +953,24 @@ export function factPartsOf(
       });
     } else if (weekdayOf(t) || monthOf(t)) {
       if (datedByMonth && weekdayOf(t)) return;
-      parts.push({ name: t.text, carriedBy: (c) => c.key === t.key });
-    } else if (kind === "time" && isDayWord(t) && !word(t, "every")) {
-      const same = sameDayKeys(t.key);
-      parts.push({ name: t.text, carriedBy: (c) => same.includes(c.key) });
+      const plural = kind === "time" && afterEvery(tokens, i) && pluralKey(t);
+      parts.push({
+        name: t.text,
+        carriedBy: (c) => c.key === t.key || c.key === plural,
+      });
+    } else if (
+      kind === "time" &&
+      t.kind === "word" &&
+      !word(t, ...TIME_FILLERS) &&
+      !joinsRange(tokens, i)
+    ) {
+      const plural = word(t, "every")
+        ? afterEvery(tokens, i + 1) && pluralKey(tokens[i + 1])
+        : afterEvery(tokens, i) && pluralKey(t);
+      parts.push({
+        name: t.text,
+        carriedBy: (c) => c.key === t.key || c.key === plural,
+      });
     }
   });
   return parts;
@@ -918,7 +995,16 @@ function wholeForms(
   own: FactForm,
 ): FactForm[] {
   const parts = factPartsOf(kind, tokens);
-  const whole = forms.filter((f) => partsMissing(parts, f).length === 0);
+  const seen = new Set<string>();
+  const guards: (Guard | null)[] = [];
+  const guardId = (g: Guard | null) =>
+    guards.includes(g) ? guards.indexOf(g) : guards.push(g) - 1;
+  const whole = forms.filter((f) => {
+    const key = `${f.tokens.map((t) => t.key).join(" ")}|${guardId(f.guard)}`;
+    if (seen.has(key) || partsMissing(parts, f).length > 0) return false;
+    seen.add(key);
+    return true;
+  });
   return whole.length > 0 ? whole : [own];
 }
 

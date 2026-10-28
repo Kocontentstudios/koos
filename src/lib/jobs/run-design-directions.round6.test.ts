@@ -1713,3 +1713,58 @@ describe("a refused headline is asked for once more before it is lost", () => {
       });
     }));
 });
+
+/* Round-12 code critic, job probes J20 to J22 (r12-job-probes.log), on the
+   PR 1 default path: the flag off and no photo. */
+describe("round-12 critic job probes", () => {
+  async function flagOff(body: () => Promise<void>) {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await body();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  }
+  const shownOf = (id: string) => {
+    const spec = delivered(id)?.spec;
+    if (!spec) return "";
+    return [spec.headline, spec.subheadline, spec.cta, ...footerLinesFor(spec)]
+      .filter(Boolean)
+      .join("\n");
+  };
+  const both = (re: RegExp) =>
+    ["row-1", "row-2"].map((id) => re.test(shownOf(id)));
+
+  it("J20: 'first Sunday of the month, 4pm-6pm' is not stated by 'Sunday 4pm-6pm', and is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer(
+          [{ kind: "time", text: "first Sunday of the month, 4pm-6pm" }],
+          { kind: "event", phrase: "book club" },
+        ),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Book club",
+              subheadline: "Sunday 4pm-6pm. Bring a book.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Read with us",
+              subheadline: "Join the book club, Sunday 4pm-6pm.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Book club on the first Sunday of the month, 4pm-6pm. Bring a book.",
+        { image: { source: "none" } },
+      );
+      expect(both(/first Sunday of the month/i)).toEqual([true, true]);
+      expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
+    }));
+});
