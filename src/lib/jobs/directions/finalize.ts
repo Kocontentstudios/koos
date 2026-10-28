@@ -533,6 +533,9 @@ function saysTheSame(a: string, b: string): boolean {
 
 type CopyField = "headline" | "subheadline" | "cta";
 
+/* A 24-hour time written as four digits: "0900", "2300". */
+const HHMM = "(?:[01]\\d|2[0-3])[0-5]\\d";
+
 /* The verbs a button starts with: what the customer does by tapping. */
 const ACTION_VERB =
   /^(?:book|order|pre-?order|call|text|whatsapp|dm|message|chat|email|e-mail|contact|shop|buy|get|grab|reserve|join|register|sign|apply|send|submit|visit|come|walk|stop|try|claim|discover|explore|learn|start|enrol|enroll|save|see|view|watch|download|subscribe|follow|pick|collect|request|ask|find|meet|attend|taste|browse|read|rsvp|secure|donate|pay|upgrade|open|schedule|check|tap|click|enquire|inquire|talk|reach|hire|rent|treat|choose|pre-?book|plan|refer|share|vote|tell|take|bring|make|give|let|celebrate|enjoy|dine|eat|drink|sip)\b/i;
@@ -541,21 +544,45 @@ const ACTION_VERB =
    label, not an action: "Open 7 days a week", "Open 24/7", "Shop 12,
    Admiralty Mall", "Book club Saturdays" (round-7 code critic). Any number
    after the verb was once a label, which refused "Call 0803 555 0142" and
-   "Shop 3 new styles" (round-8 code critic, break 4). */
+   "Shop 3 new styles" (round-8 code critic, break 4). A duration that says
+   when to act ("Shop 2 hrs before close") and "24/7" after any verb but
+   "Open" ("Order 24/7") are when, not what (round-9 code critic). */
+const WHEN = "(?!\\s+(?:before|after|ahead|early|prior)\\b)";
 const NOT_AN_ACTION = new RegExp(
   [
     "^\\S+\\s+(?:club|clubs|mall|plaza)\\b",
-    "^\\S+\\s+\\d+\\s*(?:,|$|\\/\\s*7\\b|days?\\b|hours?\\b|hrs?\\b|am\\b|pm\\b|[:.]\\d{2}\\b|\\s*[-–]\\s*\\d|\\s+to\\s+\\d)",
+    "^open\\s+24\\s*\\/\\s*7\\b",
+    `^\\S+\\s+\\d+\\s*(?:,|$|days?\\b${WHEN}|hours?\\b${WHEN}|hrs?\\b${WHEN}|am\\b|pm\\b|[:.]\\d{2}\\b|\\s*[-–]\\s*\\d|\\s+to\\s+\\d)`,
+    /* "0800 2300": a pair of 24-hour times is opening hours, not a
+       phone (round-10 code critic). */
+    `^\\S+\\s+${HHMM}\\s*(?:[-–]|to)?\\s*${HHMM}\\b`,
   ].join("|"),
   "iu",
 );
 /* "Shop 12 Admiralty Mall", "Shop 15 Lekki Phase 1": "Shop" is a place
-   word as well as a verb, and a shop number with an address noun after it
-   is an address. Read only for "Shop": a Title Case button ("Book 4 Seats",
-   "Join 500 Lagos runners") is an action, and refusing every number then a
-   capital deleted it (round-9 code critic, break 4). */
-const SHOP_ADDRESS =
-  /^shop\s+\d+\b.*\b(?:mall|plaza|market|road|rd|street|st|way|avenue|ave|close|crescent|lane|drive|estate|phase|complex|centre|center|house|tower|building|floor|block|arcade|square|wing)\b/i;
+   word as well as a verb, and a shop number followed by a capitalised name
+   and then an address noun is an address. The noun must close the name,
+   directly: read anywhere in the label, it made "Shop 2 Floor Lamps" and
+   "Shop 10 Styles at the Mall" addresses and deleted the button (round-10
+   code critic, break 5). Title Case alone never makes one ("Book 4
+   Seats"). */
+const ADDRESS_NOUN =
+  /^(?:mall|plaza|market|road|rd|street|st|way|avenue|ave|close|crescent|lane|drive|estate|phase|complex|centre|center|house|tower|building|floor|block|arcade|square|wing)[,.]?$/i;
+
+function isShopAddress(text: string): boolean {
+  const rest = /^shop\s+\d+,?\s+(.+)$/i.exec(text)?.[1];
+  if (!rest) return false;
+  const words = rest.split(/\s+/);
+  return words.some((noun, i) => {
+    if (i === 0 || !ADDRESS_NOUN.test(noun)) return false;
+    const named = words.slice(0, i).every((w) => /^\p{Lu}/u.test(w));
+    const after = words.slice(i + 1);
+    return (
+      named &&
+      (after.length === 0 || /[,.]$/.test(noun) || /^\d/.test(after[0]))
+    );
+  });
+}
 
 /* "Call 0803 555 0142", "WhatsApp 0803-555-0142 to book": the number is
    who to reach, and the button is the action of reaching them, whatever
@@ -563,8 +590,8 @@ const SHOP_ADDRESS =
    an hour range. */
 const CONTACT_ACTION =
   /^(?:call|text|whatsapp|dm|message|sms|ring|phone)\s+(?:(?:us\s+)?(?:on|at)\s+)?(\+?\d[\d\s().-]{5,}\d)(?:\s+\p{L}[\p{L}\s']*)?[.!]?$/iu;
-/* "0900-1700" is opening hours written as a 24-hour range. */
-const HOURS_RANGE = /^\d{4}\s*[-–]\s*\d{4}$/;
+/* "0900-1700" or "0800 2300" is opening hours written as a 24-hour range. */
+const HOURS_RANGE = new RegExp(`^${HHMM}\\s*(?:[-–]|to)?\\s*${HHMM}$`, "i");
 
 function isContactAction(text: string): boolean {
   const number = CONTACT_ACTION.exec(text)?.[1].trim();
@@ -582,7 +609,7 @@ export function isAction(label: string): boolean {
   const text = label.trim().replace(/^[^\p{L}]+/u, "");
   if (!ACTION_VERB.test(text)) return false;
   if (isContactAction(text)) return true;
-  return !NOT_AN_ACTION.test(text) && !SHOP_ADDRESS.test(text);
+  return !NOT_AN_ACTION.test(text) && !isShopAddress(text);
 }
 
 /** Why a piece of copy cannot go on the design as written, or null. */
