@@ -37,9 +37,17 @@ export type HeadlineRewriter = (
 
 /** Short enough to read as a headline, not a promoted sentence. */
 export const REWRITTEN_HEADLINE_MAX = 40;
+/* The rewrite asks for three; up to five were accepted when the schema
+   capped the array, and still are. */
+const REWRITTEN_HEADLINES_KEPT = 5;
 
+/* Lenient on purpose: a sixth headline or one over-long is the model's
+   answer, not an outage. Capped in the schema, either failed the whole call
+   and the direction was lost as "the headline model could not be reached"
+   (round-14 code critic, finding 4); the caller keeps the first few and
+   refuses an over-long one by name. */
 const schema = z.object({
-  headlines: z.array(z.string().max(120)).max(5),
+  headlines: z.array(z.string()),
 });
 
 export function buildHeadlineRewritePrompt(input: HeadlineRewriteInput) {
@@ -74,7 +82,8 @@ export const rewriteHeadline: HeadlineRewriter = async (input) => {
     return headlines
       .filter((h): h is string => typeof h === "string")
       .map((h) => h.replace(/\s+/g, " ").trim())
-      .filter((h) => h.length > 0 && h.length <= REWRITTEN_HEADLINE_MAX);
+      .filter((h) => h.length > 0 && h.length <= REWRITTEN_HEADLINE_MAX)
+      .slice(0, REWRITTEN_HEADLINES_KEPT);
   } catch (err) {
     console.error("headline rewrite unavailable; keeping the pair", err);
     return null;
@@ -148,8 +157,9 @@ export function buildHeadlineRecoveryPrompt(input: HeadlineRecoveryInput) {
     .join("\n\n");
 }
 
-/** Every headline the model wrote, trimmed: the job holds each to the
- *  length limit with the other rules, so the trace names why each went. */
+/** The first RECOVERED_HEADLINES_ASKED headlines the model wrote,
+ *  trimmed: the job holds each to the length limit with the other rules,
+ *  so the trace names why each went ("length"). */
 export const recoverHeadline: HeadlineRecoverer = async (input) => {
   try {
     const { object } = await generateObject({
@@ -163,7 +173,8 @@ export const recoverHeadline: HeadlineRecoverer = async (input) => {
     return headlines
       .filter((h): h is string => typeof h === "string")
       .map((h) => h.replace(/\s+/g, " ").trim())
-      .filter((h) => h.length > 0);
+      .filter((h) => h.length > 0)
+      .slice(0, RECOVERED_HEADLINES_ASKED);
   } catch (err) {
     console.error("headline recovery unavailable; the direction fails", err);
     return null;

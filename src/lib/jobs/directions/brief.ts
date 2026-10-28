@@ -88,6 +88,7 @@ import {
   directionOverlap,
   distinctiveWords,
   isNearDuplicate,
+  isNearDuplicateHeadline,
 } from "./text-overlap";
 
 /** Two full specs plus their rationale. The single-spec cap (4000) was set
@@ -469,6 +470,9 @@ export function applyClaimCheck(
   flagged: readonly { id: string; statement: string; rewrite: string }[],
   checks: DirectionChecks,
   paintedScenes: (string | undefined)[],
+  /** Stems both headlines may share, the brand's name, as the pair check
+   *  ignores them. */
+  ignore: ReadonlySet<string> = new Set(),
 ): {
   directions: DirectionSpec[];
   rewritten: number;
@@ -497,14 +501,16 @@ export function applyClaimCheck(
         : field === "footerLines"
           ? COPY_LIMITS.footerLine
           : ((COPY_LIMITS as Record<string, number>)[field] ?? 0);
-    /* A rewritten headline may not be its sibling's: the pair would read
-       as one design drawn twice (round-4 live run, fashion). */
+    /* A rewritten headline may not be its sibling's, nor the sibling's
+       with a full stop or one word changed: the pair would read as one
+       design drawn twice (round-4 live run, fashion; round-14 code critic,
+       J31 and J32). The pair check's own headline measure and threshold. */
     const sibling =
       field === "headline" &&
       out.some(
         (other, j) =>
           j !== Number(index) &&
-          other.headline.toLowerCase() === text.toLowerCase(),
+          isNearDuplicateHeadline(other.headline, text, ignore),
       );
     const holds =
       Boolean(text) &&
@@ -960,7 +966,15 @@ export async function draftDirections({
     for (const i of lost) {
       waiting.delete(i);
       const refused = refusedHeadlines[i].filter((r) => r.headline);
-      const shipping = directions.filter((_, j) => j !== i && !waiting.has(j));
+      /* A direction whose recovery already failed ships nothing, so its
+         refused headline is no headline to keep clear of (round-14 code
+         critic, finding 5). */
+      const failed = new Set(
+        outcomes.filter((o) => o.recovered === null).map((o) => o.direction),
+      );
+      const shipping = directions.filter(
+        (_, j) => j !== i && !waiting.has(j) && !failed.has(j),
+      );
       const others = [...existing, ...shipping]
         .map((d) => d.headline)
         .filter(Boolean);
@@ -1117,6 +1131,7 @@ export async function draftDirections({
     directions.map((d) =>
       imageSource === "ko" ? d.backgroundPrompt : undefined,
     ),
+    ignore,
   );
   directions.splice(0, directions.length, ...claimed.directions);
   const refusedHeadlines = directions.map((_, i) => [

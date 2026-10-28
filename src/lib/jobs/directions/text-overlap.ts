@@ -136,10 +136,7 @@ export function directionOverlap(
   },
 ): DirectionOverlap {
   const beyondBrief = new Set([...ignore, ...briefWords]);
-  const headline = jaccard(
-    contentStems(a.headline, ignore),
-    contentStems(b.headline, ignore),
-  );
+  const headline = headlineOverlap(a.headline, b.headline, ignore);
   const copy = jaccard(
     contentStems(copyOf(a), beyondBrief),
     contentStems(copyOf(b), beyondBrief),
@@ -166,6 +163,38 @@ export function directionOverlap(
     scene,
     max: Math.max(headline, copy, title, scene ?? 0),
   };
+}
+
+/** How much two headlines say the same words: the headline score of
+ *  directionOverlap. */
+export function headlineOverlap(
+  a: string,
+  b: string,
+  ignore: ReadonlySet<string> = new Set(),
+): number {
+  return jaccard(contentStems(a, ignore), contentStems(b, ignore));
+}
+
+/* Case, punctuation and spacing only: what is left when the stems of two
+   headlines are empty ("It's all for you") and so share nothing. */
+const plainWords = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/** Whether two headlines would read as one design drawn twice: the same
+ *  words once case and punctuation go, or a headline overlap at the pair
+ *  check's threshold. */
+export function isNearDuplicateHeadline(
+  a: string,
+  b: string,
+  ignore: ReadonlySet<string> = new Set(),
+): boolean {
+  return (
+    plainWords(a) === plainWords(b) ||
+    headlineOverlap(a, b, ignore) >= NEAR_DUPLICATE.headline
+  );
 }
 
 export function isNearDuplicate(overlap: DirectionOverlap): boolean {

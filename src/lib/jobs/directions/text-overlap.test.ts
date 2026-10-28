@@ -4,6 +4,7 @@ import {
   directionOverlap,
   distinctness,
   isNearDuplicate,
+  isNearDuplicateHeadline,
   jaccard,
   soundsLikeFiller,
   stem,
@@ -155,5 +156,42 @@ describe("filler", () => {
     expect(soundsLikeFiller("Leads with the almond croissant itself")).toBe(
       false,
     );
+  });
+});
+
+/* Round-14 code critic, break 3 (J31, J32): the claim check's rewrite of a
+   headline was refused only when it was the sibling's exactly. */
+describe("isNearDuplicateHeadline", () => {
+  const sibling = "Almond croissants for the commute";
+  it.each([
+    "Almond croissants for the commute.",
+    "ALMOND CROISSANTS FOR THE COMMUTE!",
+    "Almond croissants for your commute",
+    "Almond croissants, for the commute",
+  ])("%j reads as the sibling's", (rewrite) => {
+    expect(isNearDuplicateHeadline(sibling, rewrite)).toBe(true);
+  });
+
+  it("holds headlines with no content words to their plain words", () => {
+    expect(
+      isNearDuplicateHeadline("It's all for you", "It's all for you!"),
+    ).toBe(true);
+    expect(
+      isNearDuplicateHeadline("It's all for you", "All of it, yours"),
+    ).toBe(false);
+  });
+
+  it("leaves a different idea alone, and ignores the brand's name", () => {
+    expect(isNearDuplicateHeadline(sibling, "Your table is waiting")).toBe(
+      false,
+    );
+    const brand = new Set(["crumb", "co"]);
+    expect(
+      isNearDuplicateHeadline(
+        "Crumb & Co mornings",
+        "Crumb & Co weekends",
+        brand,
+      ),
+    ).toBe(false);
   });
 });

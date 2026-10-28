@@ -2096,3 +2096,221 @@ describe("round 14: the lost headlines of eval run a at ba7a7ea", () => {
     expect(usage().headlinesLost).toBe(0);
   });
 });
+
+/* Round-14 code critic, job probes J30 to J33 (r14-job-probes.log) and
+   J14's lost headline, on the PR 1 default path: the flag off and no
+   photo. */
+describe("round-14 critic job probes", () => {
+  async function flagOff(body: () => Promise<void>) {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await body();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  }
+  const shownOf = (id: string) => {
+    const spec = delivered(id)?.spec;
+    if (!spec) return "";
+    return [spec.headline, spec.subheadline, spec.cta, ...footerLinesFor(spec)]
+      .filter(Boolean)
+      .join("\n");
+  };
+  const headlines = () =>
+    ["row-1", "row-2"].map((id) => delivered(id)?.spec?.headline ?? null);
+
+  it("J30: 'Sunday morning, 5 December' never delivers 'Saturday 5 December', and a two-date list states both", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer(
+          [
+            { kind: "date", text: "Saturday 5 December" },
+            { kind: "date", text: "Sunday 6 December" },
+          ],
+          { kind: "event", phrase: "Christmas market" },
+        ),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Christmas market",
+              subheadline:
+                "Crafts on Sunday morning, 5 December. Food on Sunday 6 December.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Make it merry",
+              subheadline: "Saturday 5 December and Sunday 6 December",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Christmas market on Saturday 5 December and Sunday 6 December. Crafts on the Saturday, food on the Sunday.",
+        { image: { source: "none" } },
+      );
+      expect(shownOf("row-1")).toMatch(/Saturday 5 December/);
+      expect(delivered("row-2")?.spec?.subheadline).toBe(
+        "Saturday 5 December and Sunday 6 December",
+      );
+      expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
+    }));
+
+  /* The claim check flags direction 1's headline and offers `rewrite`;
+     neither design has a subheadline to promote. */
+  async function siblingRewrite(rewrite: string) {
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isClaimCheckCall(o)) {
+        const flagsOne = (o.prompt ?? "").includes("1.headline |");
+        return {
+          object: {
+            unsupported: flagsOne
+              ? [{ id: "1.headline", statement: "a promise", rewrite }]
+              : [],
+          },
+        };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({ subheadline: "" }),
+            contrastingDraft({ subheadline: "" }),
+          ],
+        },
+      };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+      errors.mockRestore();
+    }
+  }
+
+  it.each([
+    ["J31", "Almond croissants for the commute."],
+    ["J32", "Almond croissants for your commute"],
+  ])(
+    "%s: the claim check's rewrite %j of the sibling's headline is refused",
+    async (_id, rewrite) => {
+      await siblingRewrite(rewrite);
+      const [first, second] = headlines();
+      expect(first).toBe("Almond croissants for the commute");
+      expect(second).not.toBe(rewrite);
+      expect(usage().headlinesLost).toBe(1);
+      expect(usage().claimCheck.headlineRefusals).toEqual([
+        expect.objectContaining({
+          direction: 1,
+          rewrite,
+          why: "its rewrite is the other design's headline",
+        }),
+      ]);
+    },
+  );
+
+  it("J33: a direction whose recovery failed ships nothing, so the next recovery is not held to its headline", async () => {
+    const { HEADLINE_RECOVERY_PROMPT_START } = await import(
+      "./directions/headline-rewrite"
+    );
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    let claimCalls = 0;
+    const asks: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      const prompt = o.prompt ?? "";
+      if (isClaimCheckCall(o)) {
+        claimCalls += 1;
+        return {
+          object: {
+            unsupported:
+              claimCalls === 1
+                ? ["0", "1"].map((i) => ({
+                    id: `${i}.headline`,
+                    statement: "a promise",
+                    rewrite: "",
+                  }))
+                : [],
+          },
+        };
+      }
+      if (prompt.startsWith(HEADLINE_RECOVERY_PROMPT_START)) {
+        asks.push(prompt);
+        return {
+          object: {
+            headlines:
+              asks.length === 1 ? [] : ["Almond croissants for your commute"],
+          },
+        };
+      }
+      return { object: { directions: [draftOf(), contrastingDraft()] } };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+      errors.mockRestore();
+    }
+    expect(asks).toHaveLength(2);
+    expect(asks[1]).not.toContain("The other design's headline");
+    const recovery = usage().headlineRecovery;
+    expect(recovery[0]).toMatchObject({ direction: 0, recovered: null });
+    expect(recovery[1]).toMatchObject({
+      direction: 1,
+      recovered: "Almond croissants for your commute",
+      refusals: [],
+    });
+    expect(headlines()[0]).toBeNull();
+    expect(recovery[1].ships).toBe(headlines()[1]);
+  });
+
+  it("J14: 'Gifts under one roof' counts nothing, so its design is not lost", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "date", text: "Saturday 5 December" }], {
+          kind: "event",
+          phrase: "Christmas market",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Christmas market",
+              subheadline: "Saturday 5 December, from 5pm. 12 stalls.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Gifts under one roof",
+              subheadline: "12 stalls on Saturday 5 December, from 5pm.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Christmas market on Saturday 5 December from 5pm. 12 stalls.",
+        { image: { source: "none" } },
+      );
+      expect(headlines()).toEqual(["Christmas market", "Gifts under one roof"]);
+      expect(usage().headlinesLost).toBe(0);
+    }));
+});
