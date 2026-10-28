@@ -300,8 +300,7 @@ export const DIRECTIONS_EVAL_CASES: DirectionsEvalCase[] = [
         "We're hiring two senior React engineers, fully remote anywhere in Africa. Apply by 30 November.",
     },
     facts: [
-      { text: "two" },
-      { text: "two senior React engineers", optional: true },
+      { text: "two senior React engineers" },
       { text: "fully remote" },
       { text: "anywhere in Africa" },
       { text: "fully remote anywhere in Africa", optional: true },

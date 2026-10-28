@@ -415,6 +415,11 @@ cushions"). The label was wrong, not strict (orchestrator ruling, round
 collection", the brief's own phrase for the offering, and every direction
 from 653f975 to 33090f8 already stated "autumn aso-oke collection" (the
 reader's phrase, which the job verifies on every direction).
+Round 10 (orchestrator ruling): recruitment-ko's bare label "two" is
+replaced by the brief's phrase "two senior React engineers", now required.
+A number alone is not a fact a reader can check, and the round-9 verifier
+rightly refuses a bare number that has words beside it (the "8+ flavours"
+class). The new label still requires the count, beside the role.
 `cases.test.ts` now holds every fact, product and person label to the
 brief word for word (case aside), so a label the brief does not write
 fails the gate tests. Offering phrases are the reader's accepted readings
