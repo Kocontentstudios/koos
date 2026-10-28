@@ -208,13 +208,6 @@ const FAIL_CLOSED: Row[] = [
   ],
   ["G17", "quantity", "10 seats", design("Class", "1 of 10 seats left"), false],
   [
-    "H31",
-    "quantity",
-    "10 seats",
-    design("Throw your first pot", "", ["₦25,000 a seat · 18+ · 10 seats"]),
-    false,
-  ],
-  [
     "H41",
     "time",
     "4pm",
@@ -299,6 +292,13 @@ const STANDS: Row[] = [
     "quantity",
     "10 seats",
     design("Pottery", "", ["₦25,000 a seat · 10 seats"]),
+    true,
+  ],
+  [
+    "H31: a count beside an age (round 18)",
+    "quantity",
+    "10 seats",
+    design("Throw your first pot", "", ["₦25,000 a seat · 18+ · 10 seats"]),
     true,
   ],
   [

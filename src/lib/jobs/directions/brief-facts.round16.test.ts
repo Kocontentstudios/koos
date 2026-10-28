@@ -276,7 +276,9 @@ const RIVAL_ROWS: Row[] = [
     "quantity",
     "10 seats",
     design("Class", "10 seats in 2 rooms"),
-    false,
+    /* Round 18: a count of another noun or an age is not a count's
+       rival. */
+    true,
   ],
   ["B20", "quantity", "10 seats", design("Class", "Up to 10 seats"), true],
   [
@@ -291,14 +293,18 @@ const RIVAL_ROWS: Row[] = [
     "quantity",
     "20 African countries",
     design("Send money home", "1 app, 20 African countries"),
-    false,
+    /* Round 18: a count of another noun or an age is not a count's
+       rival. */
+    true,
   ],
   [
     "K45",
     "quantity",
     "10 seats",
     design("Pottery night", "10 seats, 18+"),
-    false,
+    /* Round 18: a count of another noun or an age is not a count's
+       rival. */
+    true,
   ],
   ["B35", "time", "4pm", design("Panel", "Panel at 4pm, doors 3pm"), false],
   [

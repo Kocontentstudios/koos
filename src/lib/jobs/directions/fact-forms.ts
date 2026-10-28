@@ -1421,6 +1421,318 @@ const SCALES: Record<string, number> = {
 const amountAt = (tokens: readonly CopyToken[], i: number) =>
   (tokens[i].value ?? 0) * (SCALES[tokens[i + 1]?.key ?? ""] ?? 1);
 
+/* A count's rival is another count of the same thing, or a number with
+   nothing attached that a reader would hang on the fact's noun. Round 17
+   took any bare number in the field, and the eval at 5003e9e refused
+   correct copy: "twelve new throws and cushions, each woven by one
+   artisan", "Only 20 pieces · 12 Ozumba Mbadiwe Avenue", "SS1 to SS3
+   students, two 90-minute sessions a week". A number that counts another
+   noun, a day, a year, an age, a share, a phone group or a code is not a
+   second answer to "how many".
+
+   Nouns in one group name one thing a brief counts, said several ways:
+   "10 seats or 12 spots" offers two counts of the places on offer, and so
+   do "10 seats for 12 guests" and "10 seats or 12 students" (round-16
+   attack, Q4): each answers how many can come. Kept small, so a count of
+   something else stands beside the fact; a noun in no group matches only
+   its own spelling, and "10 seats or 12 desks" fails open. The spec lists
+   that residual. */
+const COUNT_GROUPS = [
+  [
+    "seat",
+    "chair",
+    "bench",
+    "stool",
+    "spot",
+    "place",
+    "space",
+    "slot",
+    "ticket",
+    "pass",
+    "guest",
+    "person",
+    "attendee",
+    "participant",
+    "member",
+    "student",
+    "learner",
+    "child",
+    "kid",
+    "adult",
+  ],
+  ["piece", "item", "unit"],
+  ["session", "class", "lesson"],
+];
+const COUNT_GROUP = new Map(
+  COUNT_GROUPS.flatMap((group) => group.map((noun) => [noun, group[0]])),
+);
+const IRREGULAR_PLURALS: Record<string, string> = {
+  people: "person",
+  children: "child",
+  men: "man",
+  women: "woman",
+  classes: "class",
+  passes: "pass",
+};
+function countNoun(t: CopyToken): string {
+  const w = t.key.slice(2);
+  const one =
+    IRREGULAR_PLURALS[w] ??
+    w
+      .replace(/ies$/, "y")
+      .replace(/(ss|sh|ch|x)es$/, "$1")
+      .replace(/([^s])s$/, "$1");
+  return COUNT_GROUP.get(one) ?? one;
+}
+
+/* Words that say how a count is put, never what it counts: "12 more",
+   "12 new throws", "12 left", "12 max", "2 booked". */
+const COUNT_MODIFIERS = [
+  ...new Set([
+    ...COUNT_LEAD,
+    ...COUNT_TAIL,
+    ...LABEL_TAIL,
+    "more",
+    "new",
+    "extra",
+    "other",
+    "additional",
+    "further",
+    "tops",
+    "overall",
+    "altogether",
+    "min",
+    "minimum",
+    "booked",
+    "taken",
+    "sold",
+    "reserved",
+    "filled",
+    "gone",
+    "free",
+    "open",
+    "spare",
+  ]),
+];
+/* A word after a number that attaches no noun to it, so the number is
+   left to the noun a reader already has: "10 seats or 12", "Eight to 10
+   seats", "10 seats (12 on Sunday)", "One in 10 seats", "1 of 10 seats",
+   "5 x 10 seats". */
+const NO_NOUN = [
+  "or",
+  "and",
+  "nor",
+  "to",
+  "through",
+  "till",
+  "until",
+  "of",
+  "in",
+  "out",
+  "x",
+  "×",
+  "by",
+  "on",
+  "at",
+  "for",
+  "from",
+  "with",
+  "vs",
+  "versus",
+  "plus",
+  "than",
+  "if",
+  "but",
+  "the",
+  "then",
+  "is",
+  "are",
+  "was",
+  "were",
+];
+/* A rate gives the number its own unit: "2 per room", "2 a week". */
+const RATE = ["per", "a", "an", "each", "every"];
+/* A word that numbers what it names: "Plot 5", "Shop 12", "Room 3". */
+const NUMBERED = [
+  "plot",
+  "shop",
+  "block",
+  "no",
+  "number",
+  "room",
+  "suite",
+  "gate",
+  "stand",
+  "stall",
+  "flat",
+  "house",
+  "floor",
+  "level",
+  "hall",
+  "phase",
+  "zone",
+  "km",
+  "table",
+  "row",
+  "door",
+  "bus",
+  "line",
+  "unit",
+  "lane",
+  "road",
+  "street",
+  "avenue",
+  "close",
+  "estate",
+  "junction",
+];
+/* A capital code before a number: "SS1", "JSS3", "P5". A code is one
+   letter or has no vowel, so a word a headline in capitals puts before a
+   rival ("10 SEATS · MAX 12", "CAP 12") is not one; these are the
+   vowel-less words that are. */
+const NOT_A_CODE = ["x", "vs", "by", "my", "pls"];
+const isCode = (t: CopyToken | undefined) =>
+  t?.kind === "word" &&
+  /^[A-Z]{1,4}$/.test(t.text) &&
+  (t.text.length === 1 ? !/^[AI]$/.test(t.text) : !/[AEIOU]/.test(t.text)) &&
+  !word(t, ...NOT_A_CODE);
+function isNumbered(tokens: readonly CopyToken[], i: number): boolean {
+  const before = tokens[i - 1];
+  if (word(before, ...NUMBERED) || isCode(before)) return true;
+  /* "No. 5" */
+  return before?.key === "." && word(tokens[i - 2], "no");
+}
+
+/* A street address: "12 Ozumba Mbadiwe Avenue", "12 Herbert Macaulay
+   Way", the number followed by names in title case up to the street's
+   word. "10 seats or 12 at the market" is no address, and neither is one in
+   capitals ("12 AT THE MARKET"), which fails closed. */
+const STREET = [
+  "avenue",
+  "ave",
+  "street",
+  "st",
+  "road",
+  "rd",
+  "way",
+  "close",
+  "crescent",
+  "lane",
+  "drive",
+  "boulevard",
+  "estate",
+  "plaza",
+  "mall",
+  "market",
+  "junction",
+  "square",
+];
+function isAddress(tokens: readonly CopyToken[], i: number): boolean {
+  for (const t of tokens.slice(i + 1, i + 5)) {
+    if (t.kind !== "word" || !/^[A-Z][a-z]/.test(t.text)) return false;
+    if (word(t, ...STREET)) return true;
+  }
+  return false;
+}
+
+/* What a number after the first counts names itself in the plural ("20
+   pieces", "90 minutes", "2 rooms") or as a measure ("5kg"); any other
+   word after it ("12 total", "12 booked") leaves it to the fact's noun. */
+const PLURAL_NOT_NOUN = ["tops", "plus", "less", "yes", "this", "thus"];
+const namesWhatItCounts = (t: CopyToken, one: boolean) =>
+  one ||
+  MEASURE_WORD.test(t.text) ||
+  t.key.slice(2) in IRREGULAR_PLURALS ||
+  (/s$/.test(t.key) && !word(t, ...PLURAL_NOT_NOUN));
+
+/* An age: "18+", "Ages 7 to 12", "16 and over". */
+function isAgeAt(tokens: readonly CopyToken[], i: number): boolean {
+  const before = tokens[i - 1];
+  if (tokens[i + 1]?.key === "+" || word(before, ...AGE_WORDS)) return true;
+  if (
+    word(tokens[i + 1], "and") &&
+    AND_UP.some((up) => word(tokens[i + 2], up.split(" ")[1]))
+  ) {
+    return true;
+  }
+  return (
+    (word(before, "to") || before?.key === "-") &&
+    isNumber(tokens[i - 2]) &&
+    word(tokens[i - 3], ...AGE_WORDS)
+  );
+}
+
+/** The nouns a count's run counts, each in its group's one spelling. */
+function countedNouns(run: readonly CopyToken[]): Set<string> {
+  return new Set(
+    run
+      .filter(
+        (t) =>
+          t.kind === "word" &&
+          !word(t, ...COUNT_MODIFIERS, ...NO_NOUN, ...RATE) &&
+          t.key !== "w:one",
+      )
+      .map(countNoun),
+  );
+}
+
+const countable = (t: CopyToken | undefined) =>
+  isNumber(t) || t?.key === "w:one";
+
+/* Whether the number at `i` is another count of what the run counts:
+   - the same noun or one of its group after it ("10 seats or 12 spots",
+     "10 seats, 12 new seats");
+   - no noun after it ("10 seats or twelve", "Eight to 10 seats", "1 of 10
+     seats", "One in 10 seats");
+   - a count of groups of a number ("5 rows of 10 seats", "5 tables x 10
+     seats"), which multiplies the count.
+   Never a day (beside a month, or an ordinal not counting "of" the run:
+   "10th of 10 seats" is), a year, an age, a share, a phone group, a
+   number a word or code numbers ("Plot 5", "SS1"), or a number with its
+   own noun or rate ("one artisan", "90 minutes", "12 Ozumba Mbadiwe
+   Avenue", "2 per room"). */
+function countRival(
+  tokens: readonly CopyToken[],
+  i: number,
+  { counts, perUnit }: { counts: ReadonlySet<string>; perUnit: boolean },
+): boolean {
+  const t = tokens[i];
+  if (!countable(t)) return false;
+  if (t.ordinal) return word(tokens[i + 1], "of");
+  if (
+    isYear(t) ||
+    monthOf(tokens[i - 1]) !== null ||
+    monthOf(tokens[i + 1]) !== null ||
+    isPhoneDigits(tokens, i) ||
+    tokens[i + 1]?.key === "%" ||
+    isAgeAt(tokens, i) ||
+    isNumbered(tokens, i) ||
+    isAddress(tokens, i)
+  ) {
+    return false;
+  }
+  /* "10 seats per row, 5 rows": a count per something is multiplied by
+     any other count in its field. */
+  if (perUnit) return true;
+  if (word(tokens[i + 1], ...RATE)) return false;
+  let j = i + 1;
+  while (word(tokens[j], ...COUNT_MODIFIERS)) j++;
+  const nouns: CopyToken[] = [];
+  while (
+    nouns.length < 3 &&
+    tokens[j]?.kind === "word" &&
+    !word(tokens[j], ...NO_NOUN, ...RATE)
+  ) {
+    nouns.push(tokens[j]);
+    j++;
+  }
+  const one = t.key === "w:one" || t.value === 1;
+  if (!nouns.some((n) => namesWhatItCounts(n, one))) return true;
+  if (nouns.some((n) => counts.has(countNoun(n)))) return true;
+  const next = tokens[j];
+  return word(next, "x", "×") || (word(next, "of") && countable(tokens[j + 1]));
+}
+
 /* What counts as another value of the fact's kind, anywhere in its field
    (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
    where a reader could still take the number for one, failing closed:
@@ -1435,14 +1747,17 @@ const amountAt = (tokens: readonly CopyToken[], i: number) =>
      and 5 December", "Apply between 1 and 30 November", "5 December or
      6 if it rains"); a count in another clause stands ("5 December, 12
      stalls");
-   - a count: any other number that is not a year or beside a month,
-     whatever it counts ("5 rows of 10 seats", "10 seats or 12 spots",
-     "1 of 10 seats left", "10th of 10 seats"). */
+   - a count: another count of what the fact counts (countRival). */
 function rivalAt(
   kind: string,
   tokens: readonly CopyToken[],
   i: number,
-  run: { amount: number; clause: readonly [number, number] },
+  run: {
+    amount: number;
+    clause: readonly [number, number];
+    counts: ReadonlySet<string>;
+    perUnit: boolean;
+  },
 ): boolean {
   const t = tokens[i];
   const besideMonth =
@@ -1471,9 +1786,7 @@ function rivalAt(
       );
     }
     case "quantity":
-      /* "One in 10 seats": "one" is read as a number only before what it
-         counts, but here it is one. */
-      return plain || t.key === "w:one";
+      return countRival(tokens, i, run);
     default:
       return false;
   }
@@ -1517,8 +1830,14 @@ function rivalled(around: Around, kind: string | undefined): boolean {
       0,
       ...run.filter((t) => t.kind === "money").map((t) => t.value ?? 0),
     );
+    const counts = countedNouns(run);
+    let past = end;
+    while (word(tokens[past], ...COUNT_MODIFIERS)) past++;
+    const perUnit = word(tokens[past], ...RATE);
     return tokens.some(
-      (_, i) => outside(i) && rivalAt(kind, tokens, i, { amount, clause }),
+      (_, i) =>
+        outside(i) &&
+        rivalAt(kind, tokens, i, { amount, clause, counts, perUnit }),
     );
   }
   if (!run.some(isNumeric)) return false;
