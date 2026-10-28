@@ -326,24 +326,44 @@ const MEASURE =
 
 const EVERY_DAY = /\b(daily|every ?day|7 days a week|seven days a week)\b/i;
 
-/* Nouns that name a public place, never the brand's own venue: "Lekki toll
-   gate" or "Yaba market" narrowed to "Brew Lab, Lekki" sends the customer
-   to the wrong spot (round-8 code critic, P2 to P6). */
-const LANDMARK = contentStems(
-  "market toll gate bus stop park junction roundabout plaza mall estate station terminal garage bridge square street road avenue way close crescent lane drive expressway highway church mosque school university campus hospital bank stadium beach airport port jetty motor flyover underpass",
+/* The premises a business keeps for itself. An allow-list, not a list of
+   landmarks to refuse: every landmark noun left off a deny-list ("centre",
+   "cinema", "hotel lobby") let the brand's name narrow a public place to a
+   district, and no such list is ever complete (round-9 code critic, P7 to
+   P18). A noun not named here keeps the noun required. */
+const OWN_PREMISES: ReadonlySet<string> = new Set(
+  [
+    "bar",
+    "shop",
+    "store",
+    "studio",
+    "salon",
+    "cafe",
+    "café",
+    "kitchen",
+    "branch",
+    "stall",
+    "office",
+    "clinic",
+    "gym",
+  ].map(stem),
 );
-const OUR_VENUE =
-  /\b(?:[Oo]ur|[Mm]y)\s+(?:\p{Lu}[\p{L}'’.-]*\s+)+((?:\p{Ll}+\s*)+)/u;
+/* The whole fact, or its part before a comma, is exactly "our <Place>
+   <premises>": "our Yaba bar", "my new Lekki Phase 1 studio". Anything
+   after the noun ("at the cinema", "in the shopping complex") or a second
+   lower-case noun ("shopping centre", "hotel lobby") breaks the shape.
+   Case-sensitive: \p{Lu} under the i flag matches every letter. */
+const OWN_VENUE =
+  /^(?:[Aa]t\s+)?(?:[Oo]ur|[Mm]y)\s+(?:new\s+)?\p{Lu}[\p{L}'’.-]*(?:\s+(?:\p{Lu}[\p{L}'’.-]*|\d+))*\s+(\p{Ll}+)$/u;
 
 /**
  * The brand's own venue, "our Yaba bar" or "my Ikoyi studio, 9 Bourdillon
  * Road", is stated by its place name with either the venue noun or the
  * brand's name: "Yaba bar" and "Brew Lab, Yaba" both say where the bar is;
  * "in Surulere and Yaba" does not (round-8 eval, cafe: "Brew Lab, Yaba"
- * refused as stating nothing). The possessive is what makes the noun the
- * brand's; without it, or with a landmark noun, the noun stays required.
- * Every number and street name still has to appear. Needs read "?a|b+c":
- * a, or b with c.
+ * refused as stating nothing). Only the one premises noun after the place
+ * may give way to the brand's name; every other word, number and street
+ * name still has to appear. Needs read "?a|b+c": a, or b with c.
  */
 export function withVenueOrBrand(
   facts: readonly BriefFact[],
@@ -353,17 +373,14 @@ export function withVenueOrBrand(
   if (brandNeeds.length === 0) return [...facts];
   return facts.map((fact) => {
     if (fact.kind !== "place") return fact;
-    const owned = OUR_VENUE.exec(fact.text.split(",")[0]);
-    if (!owned) return fact;
-    const nouns = contentStems(owned[1]);
-    if (nouns.size === 0 || [...nouns].some((n) => LANDMARK.has(n))) {
-      return fact;
-    }
-    const venues = new Set([...nouns].map((n) => `^${n}`));
+    const owned = OWN_VENUE.exec(fact.text.split(",")[0].trim());
+    const premises = owned ? stem(owned[1]) : null;
+    if (!premises || !OWN_PREMISES.has(premises)) return fact;
+    const venue = `^${premises}`;
     return {
       ...fact,
       needs: fact.needs.map((need) =>
-        venues.has(need) ? `?${need}|${brandNeeds.join("+")}` : need,
+        need === venue ? `?${need}|${brandNeeds.join("+")}` : need,
       ),
     };
   });
