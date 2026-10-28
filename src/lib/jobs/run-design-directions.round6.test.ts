@@ -1661,6 +1661,26 @@ describe("a refused headline is asked for once more before it is lost", () => {
       },
     ));
 
+  /* Eval run a at 4931c2e, pottery-evening-ko: a recovered headline the
+     subheadline repeats kept the fact writer from writing the price in. */
+  it("refuses a new headline the subheadline repeats", () =>
+    withClaimDouble(
+      ["Slow brunch and good coffee", "Weekend brunch starts here"],
+      false,
+      async () => {
+        await runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        );
+        expect(delivered("row-2")?.spec?.headline).toBe(
+          "Weekend brunch starts here",
+        );
+        expect(recoveryPrompts[0]).toContain(
+          "saying nothing the subheadline or button already says",
+        );
+      },
+    ));
+
   it("fails the direction after one ask when nothing it writes stands", () =>
     withClaimDouble([SIBLING], false, async () => {
       await runBrief(

@@ -121,7 +121,7 @@ export function buildHeadlineRecoveryPrompt(input: HeadlineRecoveryInput) {
     input.others.length > 0
       ? `The other design's headline, which this one must not repeat or echo: ${input.others.join(" / ")}`
       : null,
-    `Write three headlines for this design, best first, keeping its idea where the brief supports it. Each at most ${REWRITTEN_HEADLINE_MAX} characters, in English, a phrase rather than a sentence. State only what the brief says: no product, price, time, date, place, number, person, quality, method, origin, scale or promise it does not give, and nothing the refusal names.`,
+    `Write three headlines for this design, best first, keeping its idea where the brief supports it. Each at most ${REWRITTEN_HEADLINE_MAX} characters, in English, a phrase rather than a sentence, saying nothing the subheadline or button already says. State only what the brief says: no product, price, time, date, place, number, person, quality, method, origin, scale or promise it does not give, and nothing the refusal names.`,
     'Return "headlines": the three.',
   ]
     .filter(Boolean)

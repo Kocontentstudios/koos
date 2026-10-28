@@ -13,6 +13,7 @@ import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import { getModel } from "@/lib/ai/provider";
 import type { DesignContext } from "@/lib/design/context";
 import {
+  aboveRepeats,
   type BriefFact,
   brandRegion,
   dropFooterRepeats,
@@ -948,6 +949,17 @@ export async function draftDirections({
           return false;
         }
         if (seen.has(candidate.trim().toLowerCase())) return false;
+        /* A headline the subheadline or button repeats blocks the fact
+           writer from writing a missing fact below it (eval run a at
+           4931c2e: pottery-evening-ko's "One evening of wheel-throwing"
+           over "A wheel-throwing evening with Bisi Adeleke" left "₦25,000
+           a seat" off). */
+        const repeated = aboveRepeats({
+          headline: candidate,
+          subheadline: directions[i].subheadline,
+          cta: directions[i].cta,
+        });
+        if (repeated.length > 0) return false;
         const trial = directions.map((d, j) =>
           j === i ? { ...d, headline: candidate } : d,
         );
