@@ -1253,6 +1253,9 @@ interface NumberInPlace {
   mark: string | null;
   left: string | null;
   right: string | null;
+  /** "Seats: 8": the word a colon puts in front of a number that has no
+   *  word of its own in its clause, or null. */
+  label: string | null;
 }
 
 /* A comma, colon, semicolon, full stop, "!" or "?" before a space or the
@@ -1274,11 +1277,15 @@ const NOT_A_NEIGHBOUR = new Set([
   "for",
   "only",
   "just",
+  "more",
 ]);
+/* "For kids aged 8+" says "Ages 8+". */
+const AGE_WORD = /^(?:age|ages|aged)$/;
 
 function neighbourOf(token: string): string {
   const lower = token.toLowerCase();
   if (/^(?:am|pm)$/.test(lower)) return "@clock";
+  if (AGE_WORD.test(lower)) return "age";
   const named = calendarNames(token);
   if (named.length > 0) return `~${named[0]}`;
   return stem(lower);
@@ -1393,12 +1400,18 @@ function numbersInPlace(text: string): NumberInPlace[] {
       if (left?.startsWith("~")) left = `!${left}`;
       if (right?.startsWith("~")) right = `!${right}`;
     }
+    const colon = before.stop === null ? null : tokens[before.stop];
+    const labelWord =
+      colon?.text === ":" && right === null
+        ? look((before.stop as number) - 1, -1).word
+        : null;
     out.push({
       value,
       rangeTo,
       mark,
       left,
       right,
+      label: labelWord === null ? null : neighbourOf(tokens[labelWord].text),
     });
     i = last;
   }
@@ -1412,9 +1425,10 @@ function calendarSide(n: NumberInPlace): string[] {
 }
 
 /** Whether `theirs` is `mine` as the fact has it: the same value, range and
- *  mark, and a word of the fact's on the same side. A fact number with no
- *  word beside it ("18+ only") is held only where the copy's has none
- *  either, so a mark never matches on its own. */
+ *  mark, and a word of the fact's on the same side, or as the label of a
+ *  number alone in its clause ("Seats: 8" for "8 seats"). A fact number
+ *  with no word beside it ("18+ only") is held only where the copy's has
+ *  none either, so a mark never matches on its own. */
 function sameNumberInPlace(
   mine: NumberInPlace,
   theirs: NumberInPlace,
@@ -1428,11 +1442,19 @@ function sameNumberInPlace(
   }
   if (mine.left === null && mine.right === null) {
     return (
-      mine.rangeTo !== null || (theirs.left === null && theirs.right === null)
+      mine.rangeTo !== null ||
+      (theirs.left === null && theirs.right === null && theirs.label === null)
     );
   }
   if (mine.left !== null && mine.left === theirs.left) return true;
   if (mine.right !== null && mine.right === theirs.right) return true;
+  if (
+    theirs.label !== null &&
+    theirs.left === null &&
+    (theirs.label === mine.left || theirs.label === mine.right)
+  ) {
+    return true;
+  }
   const dates = calendarSide(theirs);
   return calendarSide(mine).some((d) => dates.includes(d));
 }
@@ -1627,9 +1649,13 @@ function partHolds(text: string, d: string): boolean {
      @kemicakes" does not hold "DM @kemi" (round-8 code critic, D12). */
   if (/[@.]/.test(wanted)) {
     const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(?<![\\w.@-])${escaped}(?![\\w-]|\\.\\w)`, "i").test(
-      text,
-    );
+    /* "www.kemicakes.com" is the address "kemicakes.com" (round-9 code
+       critic, D13); "shop.kemicakes.com" is another one. */
+    const www = wanted.startsWith("@") ? "" : "|(?<![\\w.@-])www\\.";
+    return new RegExp(
+      `(?:(?<![\\w.@-])${www})${escaped}(?![\\w-]|\\.\\w)`,
+      "i",
+    ).test(text);
   }
   return contentStems(text).has(wanted) || text.toLowerCase().includes(wanted);
 }
