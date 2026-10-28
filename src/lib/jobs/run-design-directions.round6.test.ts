@@ -1159,4 +1159,41 @@ describe("round-9 critic job probes", () => {
       expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
       expect(usage().factsLeftOff).toEqual([]);
     }));
+
+  /* The second design has no comma, so the month sits beside the hour in
+     one clause (FP4): only the calendar rule refuses it. */
+  it("J5: 'Saturday 12 December, 5pm' is not the date, which is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "date", text: "Saturday 5 December" }], {
+          kind: "event",
+          phrase: "Christmas market",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Christmas market",
+              subheadline: "Saturday 12 December, 5pm.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Twelve stalls of gifts",
+              subheadline: "Join us Saturday 12 December 5pm till late.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Christmas market on Saturday 5 December from 5pm. 12 stalls.",
+        { image: { source: "none" } },
+      );
+      for (const id of ["row-1", "row-2"]) {
+        expect(drawnOf(id)).toMatch(/Saturday 5 December/);
+      }
+      expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
+      expect(usage().factsLeftOff).toEqual([]);
+    }));
 });

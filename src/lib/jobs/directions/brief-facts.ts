@@ -1056,14 +1056,30 @@ function needsHold(needs: readonly string[], text: string): boolean {
   });
 }
 
+const isSpan = (kind: CoverKind) => kind === "offer" || kind === "condition";
+
 function statedIn(fact: BriefFact, part: CopyPart): boolean {
   /* A time printed on a phone's line reads as the phone's hours (round-6
      live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
   if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
-  if (holdsWhole(fact.text, part.text)) return true;
+  /* Clock times are read as minutes past midnight (timesIn), whatever
+     their spelling; every other number keeps its place, even inside the
+     fact's own words: "December 5" is in "12 December 5 stalls", but its 5
+     is a count there. */
+  const clocked = fact.needs.some((n) => n.startsWith("@"));
+  const numericDate = fact.kind === "date" && /\d\/\d/.test(fact.text);
+  const placed =
+    fact.kind === "contact" ||
+    fact.kind === "price" ||
+    clocked ||
+    numericDate ||
+    numbersHeldInPlace(fact.text, part.text);
+  if (holdsWhole(fact.text, part.text) && (placed || isSpan(fact.kind))) {
+    return true;
+  }
   /* An offer or condition is its whole span: three words in four of "Free
      delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic). */
-  if (fact.kind === "offer" || fact.kind === "condition") return false;
+  if (isSpan(fact.kind)) return false;
   if (fact.kind === "price") {
     /* Currency, amount and unit together: a bare "2,000" is never the
        price, nor "₦18,000" without "per split unit" (round-6 critics), nor
@@ -1077,18 +1093,7 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
     if ([...amounts].some((amount) => !drawn.has(amount))) return false;
     return needsHold(fact.needs, part.text);
   }
-  /* Clock times are read as minutes past midnight (timesIn), whatever
-     their spelling; every other number keeps its place. */
-  const clocked = fact.needs.some((n) => n.startsWith("@"));
-  const numericDate = fact.kind === "date" && /\d\/\d/.test(fact.text);
-  if (
-    fact.kind !== "contact" &&
-    !clocked &&
-    !numericDate &&
-    !numbersHeldInPlace(fact.text, part.text)
-  ) {
-    return false;
-  }
+  if (!placed) return false;
   return needsHold(fact.needs, part.text);
 }
 
@@ -1239,7 +1244,7 @@ interface NumberInPlace {
 const CLAUSE_BREAK = /[,;:!?.](?=\s|$)|\s[-–—]\s|—/u;
 const IS_CLAUSE_BREAK = new RegExp(`^(?:${CLAUSE_BREAK.source})$`, "u");
 const PLACE_TOKEN = new RegExp(
-  `\\d+(?:,\\d{3})*(?:\\.\\d+)?|[\\p{L}]+|[+%]|${CLAUSE_BREAK.source}`,
+  `\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:(?:st|nd|rd|th)(?!\\p{L}))?|[\\p{L}]+|[+%]|${CLAUSE_BREAK.source}`,
   "gu",
 );
 const MARK = /^[+%]$/;
@@ -1281,7 +1286,9 @@ function placeTokensOf(read: string): PlaceToken[] {
 
 function asNumber(t: string): string | null {
   if (/^\d/.test(t)) {
-    return String(Number.parseFloat(t.replace(/,/g, "")));
+    return String(
+      Number.parseFloat(t.replace(/,/g, "").replace(/(?:st|nd|rd|th)$/, "")),
+    );
   }
   const lower = t.toLowerCase();
   return lower in NUMBER_WORDS ? String(NUMBER_WORDS[lower]) : null;
@@ -1348,10 +1355,27 @@ function numbersInPlace(text: string): NumberInPlace[] {
     };
     const before = look(i - 1, -1);
     const beyond = look(last + 1, 1);
-    const left =
+    let left =
       before.word === null ? null : neighbourOf(tokens[before.word].text);
-    const right =
+    let right =
       beyond.word === null ? null : neighbourOf(tokens[beyond.word].text);
+    /* A month already has its day when a number sits just before it: in
+       "12 December 5pm" the 5 is not the 5th (round-9 code critic, FP4). */
+    if (
+      left?.startsWith("~") &&
+      before.word !== null &&
+      isNumber(tokens[before.word - 1])
+    ) {
+      left = `!${left}`;
+    }
+    /* An hour or a marked number is never a day of the month, whatever
+       month sits beside it (round-9 code critic, FP3 to FP5: "Saturday 12
+       December, 5pm" stated "Saturday 5 December"). */
+    const notADay = left === "@clock" || right === "@clock" || mark !== null;
+    if (notADay) {
+      if (left?.startsWith("~")) left = `!${left}`;
+      if (right?.startsWith("~")) right = `!${right}`;
+    }
     out.push({
       value,
       rangeTo,
