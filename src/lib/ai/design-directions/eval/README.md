@@ -453,6 +453,28 @@ to look at, not noise to average. A lost direction also fails
 `countRight`, since one direction is delivered instead of two, so a run
 with a loss names both.
 
+The literal verifier read a number's words across a clause break, so
+"Fun for all ages, 8+ flavours" stated "Ages 8+" and "Saturday 12
+December, 5pm" stated "Saturday 5 December" (round-9 code critic, FP1 to
+FP5). It now reads a number's words within its clause, never takes an
+hour or a marked number for a day of the month, and lets the brand's name
+stand in only for an allow-listed premises noun. `caseFactCoverage` and
+`directionFactCoverage` use the same verifier, so they are stricter from
+this round; the spec lists the intended fail-closed cases.
+
+The job's integration test (`run-design-directions.integration.test.ts`)
+needs a database, so `pnpm test` skips it. CI runs it in the `integration`
+job of `.github/workflows/ci.yml`: a `postgres:17-alpine` service, every
+migration applied with `pnpm db:migrate`, then the file alone with
+`KOOS_INTEGRATION_DATABASE_URL` set and `KOOS_INTEGRATION_REQUIRED=1`,
+which turns an unreachable or unmigrated database into a failure instead
+of a skip. Locally:
+
+```
+KOOS_INTEGRATION_DATABASE_URL=postgres://koos:koos@localhost:5434/koos \
+  corepack pnpm vitest run src/lib/jobs/run-design-directions.integration.test.ts
+```
+
 ### Grounding
 
 `isGrounded` (finalize.ts) counts a reason as grounded when it names a
