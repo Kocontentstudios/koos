@@ -873,3 +873,62 @@ describe("round-8 correction and button rules", () => {
     }
   });
 });
+
+/* Round-9 code critic, break 4: a Title Case count and a hyphenated phone
+   with words after it were refused, and the button deleted. */
+describe("round-9 button rules", () => {
+  it.each([
+    "Book 4 Seats",
+    "Order 2 Trays",
+    "Order 12 Cupcakes",
+    "Get 2 Free",
+    "Shop 3 New Styles",
+    "Join 500 Lagos runners",
+    "Visit 12 Bourdillon Road",
+    "Call 0803-555-0142 to order",
+    "WhatsApp 0803-555-0142 to book",
+    "Call 0803-555-0142 Today",
+    "Call 0803.555.0142",
+    "Text +234 803-555-0142 now",
+  ])("%s is an action", (label) => {
+    expect(isAction(label)).toBe(true);
+  });
+
+  it.each([
+    "Book 4",
+    "Shop 15 Lekki Phase 1",
+    "Shop 12 Admiralty Mall",
+    "Shop 4 Balogun Market",
+    "Call 9-5 weekdays",
+    "Call 0900-1700 daily",
+    "Open 9am-5pm",
+  ])("%s is not an action", (label) => {
+    expect(isAction(label)).toBe(false);
+  });
+
+  it("draws a Title Case count and a hyphenated phone button", () => {
+    const brief =
+      "Party jollof trays, ₦25,000 a tray. Book 4 seats at our tasting. Order 2 trays for the office. Call 0803-555-0142 to order.";
+    for (const cta of [
+      "Book 4 Seats",
+      "Order 2 Trays",
+      "Call 0803-555-0142 to order",
+    ]) {
+      const { direction, report } = finalizeDirection(
+        {
+          ...draft,
+          headline: "Party jollof, sorted",
+          subheadline: "Jollof trays for parties, ₦25,000 a tray.",
+          cta,
+        },
+        {
+          aspectRatio: "4:5",
+          checks: { ledger: factLedger([brief]), briefText: brief, title: "" },
+          fallbackTitle: "product",
+        },
+      );
+      expect(direction.cta).toBe(cta);
+      expect(report.copyFallbacks).toEqual([]);
+    }
+  });
+});

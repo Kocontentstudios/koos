@@ -549,14 +549,31 @@ const NOT_AN_ACTION = new RegExp(
   ].join("|"),
   "iu",
 );
-/* "Shop 12 Admiralty Mall": a number then a name. Case-sensitive, since
-   \p{Lu} under the i flag matches every letter. */
-const NUMBER_THEN_NAME = /^\S+\s+\d+\s+\p{Lu}/u;
+/* "Shop 12 Admiralty Mall", "Shop 15 Lekki Phase 1": "Shop" is a place
+   word as well as a verb, and a shop number with an address noun after it
+   is an address. Read only for "Shop": a Title Case button ("Book 4 Seats",
+   "Join 500 Lagos runners") is an action, and refusing every number then a
+   capital deleted it (round-9 code critic, break 4). */
+const SHOP_ADDRESS =
+  /^shop\s+\d+\b.*\b(?:mall|plaza|market|road|rd|street|st|way|avenue|ave|close|crescent|lane|drive|estate|phase|complex|centre|center|house|tower|building|floor|block|arcade|square|wing)\b/i;
 
-/* "Call 0803 555 0142", "WhatsApp +234 803 555 0142": the number is who to
-   reach, and the button is the action of reaching them. */
+/* "Call 0803 555 0142", "WhatsApp 0803-555-0142 to book": the number is
+   who to reach, and the button is the action of reaching them, whatever
+   words follow. Read before the schedule test, which takes "0803-555" for
+   an hour range. */
 const CONTACT_ACTION =
-  /^(?:call|text|whatsapp|dm|message|sms|ring|phone)\s+(?:(?:us\s+)?(?:on|at)\s+)?\+?\d[\d\s().-]{5,}\d$/i;
+  /^(?:call|text|whatsapp|dm|message|sms|ring|phone)\s+(?:(?:us\s+)?(?:on|at)\s+)?(\+?\d[\d\s().-]{5,}\d)(?:\s+\p{L}[\p{L}\s']*)?[.!]?$/iu;
+/* "0900-1700" is opening hours written as a 24-hour range. */
+const HOURS_RANGE = /^\d{4}\s*[-–]\s*\d{4}$/;
+
+function isContactAction(text: string): boolean {
+  const number = CONTACT_ACTION.exec(text)?.[1].trim();
+  return (
+    number !== undefined &&
+    number.replace(/\D/g, "").length >= 7 &&
+    !HOURS_RANGE.test(number)
+  );
+}
 
 /** Whether a button label is an action: it starts with what the customer
  *  does ("Book a session"), not what they get ("First session free") or a
@@ -564,8 +581,8 @@ const CONTACT_ACTION =
 export function isAction(label: string): boolean {
   const text = label.trim().replace(/^[^\p{L}]+/u, "");
   if (!ACTION_VERB.test(text)) return false;
-  if (CONTACT_ACTION.test(text)) return true;
-  return !NOT_AN_ACTION.test(text) && !NUMBER_THEN_NAME.test(text);
+  if (isContactAction(text)) return true;
+  return !NOT_AN_ACTION.test(text) && !SHOP_ADDRESS.test(text);
 }
 
 /** Why a piece of copy cannot go on the design as written, or null. */

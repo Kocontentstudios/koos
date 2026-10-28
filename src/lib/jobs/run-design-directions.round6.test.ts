@@ -1196,4 +1196,24 @@ describe("round-9 critic job probes", () => {
       expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
       expect(usage().factsLeftOff).toEqual([]);
     }));
+
+  it("J6: draws a Title Case count and a hyphenated phone button", () =>
+    flagOff(async () => {
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({ cta: "Book 4 Seats" }),
+            contrastingDraft({ cta: "Call 0803-555-0142 to order" }),
+          ],
+        },
+      });
+      await runBrief(
+        "Almond croissant tasting for commuters. Book 4 seats per table. Call 0803-555-0142 to order.",
+        { image: { source: "none" } },
+      );
+      expect(["row-1", "row-2"].map((id) => delivered(id)?.spec?.cta)).toEqual([
+        "Book 4 Seats",
+        "Call 0803-555-0142 to order",
+      ]);
+    }));
 });
