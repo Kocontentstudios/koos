@@ -712,6 +712,9 @@ describe("headlines kept apart after the claim check", () => {
     );
     expect(result.directions[1].headline).toBe("Early starts in Lekki");
     expect(result.directions[1].subheadline).toBe("Apply on WhatsApp.");
+    /* A promoted sentence is a headline change, and the trace says so
+       (round-15 code critic, finding 4). */
+    expect(result.headlineRewritten).toBe(true);
   });
 });
 
@@ -775,7 +778,10 @@ describe("headlines kept apart by a different idea", () => {
     expect(result.directions.map((d) => d.headline)).not.toContain(
       "Still warm at 7am",
     );
-    expect(result.headlineRewritten).toBe(false);
+    /* The flagged rewrite is refused; the earlier direction's subheadline
+       moves up instead, and the trace says a headline changed. */
+    expect(result.directions[0].headline).toBe("Flaky pastry and cream");
+    expect(result.headlineRewritten).toBe(true);
   });
 
   it("never promotes a sentence that leaves the pair near-duplicates", async () => {
@@ -784,7 +790,9 @@ describe("headlines kept apart by a different idea", () => {
     for (const d of result.directions) {
       expect(d.headline).not.toBe("Order our strawberry mille-feuille ahead");
     }
-    expect(result.headlineRewritten).toBe(false);
+    expect(result.headlineRewritten).toBe(
+      result.directions[0].headline !== "Strawberry Mille-Feuille",
+    );
   });
 });
 
@@ -808,10 +816,12 @@ describe("buttons kept apart", () => {
     const result = await draftDirections(
       input({
         context: directionsContext({
-          briefText: "Promote our almond croissants.",
+          briefText:
+            "Promote our almond croissants for weekday mornings and weekends.",
         }),
       }),
     );
+    expect(result.headlineLost).toEqual([false, false]);
     expect(result.directions[0].cta).toBe("Reserve a tray");
     expect(result.directions[1].cta).toBeUndefined();
     expect(result.overlap?.copy ?? 1).toBeLessThan(0.45);

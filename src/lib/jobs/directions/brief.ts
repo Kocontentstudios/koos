@@ -1177,7 +1177,20 @@ export async function draftDirections({
      check gets a new one written for the later direction (round-6 eval:
      "Three shots. One flight." twice, and "Senior React engineers" beside
      "We're Hiring Senior React Engineers"). */
-  let finalPair = closestPair(directions, existing, overlapOptions);
+  /* A direction whose headline was lost ships nothing, so no pair is
+     held to the headline it was refused: the pass moved the one design
+     that ships away from its own valid headline for a sibling that never
+     did (round-15 code critic, finding 4, J40). */
+  const live = directions.map((_, i) => i).filter((i) => !headlineLost[i]);
+  const livePair = (set: readonly (typeof directions)[number][]) => {
+    const pair = closestPair(
+      live.map((i) => set[i]),
+      existing,
+      overlapOptions,
+    );
+    return pair ? { ...pair, later: live[pair.later] } : null;
+  };
+  let finalPair = livePair(directions);
   let headlineRewritten = false;
   const headlinesBefore = directions.map((d) => d.headline);
   if (finalPair && isNearDuplicate(finalPair.overlap)) {
@@ -1186,8 +1199,8 @@ export async function draftDirections({
        only it can move (round-6 eval: "Latte Art Masterclass" beside
        "Learn Latte Art", both naming the event as they must). */
     const movable =
-      existing.length === 0 && directions.length === 2
-        ? [later, 1 - later]
+      existing.length === 0 && live.length === 2
+        ? [later, live[0] === later ? live[1] : live[0]]
         : [later];
     const withHeadline = (target: number, headline: string, sub: string) =>
       directions.map((d, i) => {
@@ -1196,7 +1209,7 @@ export async function draftDirections({
         return { ...others, headline, ...(sub ? { subheadline: sub } : {}) };
       });
     const separates = (trial: typeof directions) => {
-      const retried = closestPair(trial, existing, overlapOptions);
+      const retried = livePair(trial);
       return retried && !isNearDuplicate(retried.overlap) ? retried : null;
     };
     const fitsHeadline = (candidate: string) =>
@@ -1211,7 +1224,7 @@ export async function draftDirections({
          words the pair shares and reads as copy moved up (round-6 eval). */
       const others = [
         ...existing,
-        ...directions.filter((_, i) => i !== target),
+        ...directions.filter((_, i) => i !== target && !headlineLost[i]),
       ].map((d) => d.headline);
       const otherStems = contentStems(others.join(" "), ignore);
       const avoid = (
@@ -1278,6 +1291,7 @@ export async function draftDirections({
         if (retried) {
           directions[target] = trial[target];
           finalPair = retried;
+          headlineRewritten = true;
           break;
         }
       }
@@ -1291,13 +1305,14 @@ export async function draftDirections({
     const label = directions[later].cta?.trim().toLowerCase();
     const shared =
       label &&
-      [...existing, ...directions.filter((_, i) => i !== later)].some(
-        (d) => d.cta?.trim().toLowerCase() === label,
-      );
+      [
+        ...existing,
+        ...directions.filter((_, i) => i !== later && !headlineLost[i]),
+      ].some((d) => d.cta?.trim().toLowerCase() === label);
     if (shared) {
       const { cta: _cta, ...withoutButton } = directions[later];
       const trial = directions.map((d, i) => (i === later ? withoutButton : d));
-      const retried = closestPair(trial, existing, overlapOptions);
+      const retried = livePair(trial);
       if (retried && !isNearDuplicate(retried.overlap)) {
         directions[later] = withoutButton;
         finalPair = retried;
@@ -1387,7 +1402,11 @@ export async function draftDirections({
     brand: context.brandSummary,
   });
   const nearDuplicateSet = (set: typeof coveredFooters) => {
-    const pair = closestPair(set, existing, overlapOptions);
+    const pair = closestPair(
+      live.map((i) => set[i]),
+      existing,
+      overlapOptions,
+    );
     return pair !== null && isNearDuplicate(pair.overlap);
   };
   const apartBeforeMerges = !nearDuplicateSet(coveredFooters);
@@ -1420,7 +1439,7 @@ export async function draftDirections({
       nearDuplicateSet(echoes.directions) || !nearDuplicateSet(set),
     wordsOfOthers: (set, id) =>
       distinctiveWords(
-        [...existing, ...set.filter((_, j) => j !== id)]
+        [...existing, ...set.filter((_, j) => j !== id && !headlineLost[j])]
           .flatMap((d) => [d.headline, d.subheadline, d.cta])
           .filter(Boolean)
           .join(" "),

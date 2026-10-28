@@ -186,6 +186,13 @@ condition its whole span, a time never counts on a phone's line, and the
 offering's own name is a fact every direction must state (so `briefFacts`
 counts it).
 
+Round 16 adds `datesContradicted`: each delivered field that gives a brief
+date beside another weekday or year ("Crafts on Sunday morning, 5 December"
+for "Saturday 5 December"), with its direction, fact, field and the date as
+written. The fact writer is asked to fix such a field and a rewrite that
+leaves it is refused; one that still ships is listed here and carries a
+quality fault.
+
 ## Funnels
 
 Both live on the **Activation funnels** dashboard in PostHog, already created:

@@ -5,6 +5,7 @@ import { MAX_FOOTER_LINES } from "@/lib/design/render/footer";
 import {
   aboveRepeats,
   type BriefFact,
+  contradictedDates,
   detailHeldAcross,
   type FactCopy,
   factStated,
@@ -231,6 +232,26 @@ export function copyProblems(
   return problems;
 }
 
+/** Each field that gives a brief date on another day, in words the
+ *  model can act on: the field is to be fixed, not the date stated again
+ *  beside it (round-15 code critic, finding 6). */
+export function dateProblems(
+  copy: Pick<FactCopy, "headline" | "subheadline" | "footerLines"> &
+    Partial<Pick<FactCopy, "cta">>,
+  facts: readonly BriefFact[],
+): string[] {
+  return contradictedDates(facts, copy).map(
+    ({ fact, field, text, run }) =>
+      `the ${field} "${text}" gives "${run}" with a weekday or year the brief does not give it; the brief says "${fact}", so rewrite that ${field} to say "${fact}" or to name no other day or year for it`,
+  );
+}
+
+/** What is wrong with a direction's copy, the brief's dates read against
+ *  every field included. */
+function allProblems(copy: FactCopy, facts: readonly BriefFact[]): string[] {
+  return [...copyProblems(copy), ...dateProblems(copy, facts)];
+}
+
 /** Why a new headline cannot replace the old, or null when it can: it
  *  may move only out of a fact's way, must clear the repeat it moved for,
  *  keep the old one's idea (one of its words or numbers) and hold to every
@@ -356,11 +377,15 @@ export function rewriteFault(
   ) {
     return "the subheadline reads as a list; make it one or two sentences";
   }
+  /* A date still given on another day stays a fault: stating it again
+     elsewhere ships two days for one date (round-15 code critic, J30). */
+  const contradiction = dateProblems(after, facts)[0];
+  if (contradiction) return contradiction;
   /* No new problem, though one the rewrite left alone may stand: a footer
      that now carries the price is worth taking under a subheadline the
      model could not fix. */
-  const had = copyProblems(before);
-  const has = copyProblems(after);
+  const had = allProblems(before, facts);
+  const has = allProblems(after, facts);
   const added = has.filter((p) => !had.includes(p));
   if (added.length > 0) return added[0];
   const gained = facts.filter(
@@ -497,7 +522,7 @@ export async function settleFacts<T extends FactCopy>({
   const needing = () =>
     out.flatMap((copy, id) => {
       const missing = facts.filter((f) => !factStated(f, copy));
-      const problems = copyProblems(copy);
+      const problems = allProblems(copy, facts);
       if (missing.length === 0 && problems.length === 0) return [];
       const why = feedback.get(id);
       const avoid = wordsOfOthers(out, id);

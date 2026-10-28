@@ -29,7 +29,9 @@ vi.mock("ai", async () => {
     generateObject: (o: unknown) =>
       isBriefReadCall(o)
         ? readBrief(o)
-        : isFactWriteCall(o)
+        : isFactWriteCall(o) &&
+            !(globalThis as { factWriteThroughDouble?: boolean })
+              .factWriteThroughDouble
           ? fakeFactWrite(o)
           : isClaimCheckCall(o) &&
               !(globalThis as { claimCheckThroughDouble?: boolean })
@@ -2119,18 +2121,27 @@ describe("round-14 critic job probes", () => {
   const headlines = () =>
     ["row-1", "row-2"].map((id) => delivered(id)?.spec?.headline ?? null);
 
-  it("J30: 'Sunday morning, 5 December' never delivers 'Saturday 5 December', and a two-date list states both", () =>
-    flagOff(async () => {
-      readBrief.mockResolvedValue(
-        readAnswer(
-          [
-            { kind: "date", text: "Saturday 5 December" },
-            { kind: "date", text: "Sunday 6 December" },
-          ],
-          { kind: "event", phrase: "Christmas market" },
-        ),
-      );
-      generateObject.mockResolvedValue({
+  /* J30: direction 0's subheadline gives 5 December on Sunday. `fix` is
+     what the fact writer (a double for the model) writes for it. */
+  async function christmasMarket(fix: {
+    subheadline: string;
+    footerLines: string[];
+  }) {
+    const { fakeFactWrite, isFactWriteCall } = await import(
+      "./directions/fixtures"
+    );
+    const asks: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) {
+        asks.push(o.prompt ?? "");
+        const { rewrites } = fakeFactWrite(o).object;
+        return {
+          object: {
+            rewrites: rewrites.map((r) => (r.id === 0 ? { id: 0, ...fix } : r)),
+          },
+        };
+      }
+      return {
         object: {
           directions: [
             draftOf({
@@ -2146,17 +2157,74 @@ describe("round-14 critic job probes", () => {
             }),
           ],
         },
-      });
-      await runBrief(
-        "Christmas market on Saturday 5 December and Sunday 6 December. Crafts on the Saturday, food on the Sunday.",
-        { image: { source: "none" } },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "date", text: "Saturday 5 December" },
+          { kind: "date", text: "Sunday 6 December" },
+        ],
+        { kind: "event", phrase: "Christmas market" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Christmas market on Saturday 5 December and Sunday 6 December. Crafts on the Saturday, food on the Sunday.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
       );
-      expect(shownOf("row-1")).toMatch(/Saturday 5 December/);
+    } finally {
+      g.factWriteThroughDouble = false;
+    }
+    return asks;
+  }
+
+  it("J30: the fact writer is asked to fix the field that gives 5 December on Sunday, and its fix ships", () =>
+    christmasMarket({
+      subheadline: "Crafts on Saturday 5 December. Food on Sunday 6 December.",
+      footerLines: [],
+    }).then((asks) => {
+      expect(asks[0]).toContain(
+        'the subheadline "Crafts on Sunday morning, 5 December. Food on Sunday 6 December." gives "5 December"',
+      );
+      expect(delivered("row-1")?.spec?.subheadline).toBe(
+        "Crafts on Saturday 5 December. Food on Sunday 6 December.",
+      );
       expect(delivered("row-2")?.spec?.subheadline).toBe(
         "Saturday 5 December and Sunday 6 December",
       );
       expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().datesContradicted).toEqual([]);
       expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
+    }));
+
+  it("J30: a rewrite that states the date again beside the Sunday one is refused, and the fault is recorded", () =>
+    christmasMarket({
+      subheadline:
+        "Crafts on Sunday morning, 5 December. Food on Sunday 6 December.",
+      footerLines: ["Open Saturday 5 December"],
+    }).then(() => {
+      const shown = shownOf("row-1");
+      expect(shown).not.toMatch(/Saturday 5 December/);
+      expect(usage().datesContradicted).toEqual([
+        expect.objectContaining({
+          direction: 0,
+          fact: "Saturday 5 December",
+          run: "5 December",
+        }),
+      ]);
+      expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
+      expect(usage().factsLeftOff).toEqual([
+        expect.objectContaining({
+          direction: 0,
+          fact: "Saturday 5 December",
+          reason: expect.stringContaining('gives "5 December"'),
+        }),
+      ]);
     }));
 
   /* The claim check flags direction 1's headline and offers `rewrite`;
@@ -2313,4 +2381,127 @@ describe("round-14 critic job probes", () => {
       expect(headlines()).toEqual(["Christmas market", "Gifts under one roof"]);
       expect(usage().headlinesLost).toBe(0);
     }));
+
+  /* Round-15 code critic, finding 4 (J40): direction 1's headline is
+     refused with no rewrite and its recovery fails, so it ships nothing.
+     Its refused headline near-duplicates direction 0's, which must not
+     move for it. */
+  it("J40: a lost direction's refused headline does not move the design that ships", async () => {
+    const { HEADLINE_RECOVERY_PROMPT_START } = await import(
+      "./directions/headline-rewrite"
+    );
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    const calls: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      const prompt = o.prompt ?? "";
+      if (isClaimCheckCall(o)) {
+        calls.push("claim");
+        const flagsOne = prompt.includes("1.headline |");
+        return {
+          object: {
+            unsupported: flagsOne
+              ? [{ id: "1.headline", statement: "a promise", rewrite: "" }]
+              : [],
+          },
+        };
+      }
+      if (prompt.startsWith(HEADLINE_RECOVERY_PROMPT_START)) {
+        calls.push("recover");
+        return { object: { headlines: [] } };
+      }
+      if (prompt.startsWith("You write headlines")) {
+        calls.push("rewrite");
+        return { object: { headlines: [] } };
+      }
+      calls.push("draft");
+      return {
+        object: {
+          directions: [
+            draftOf(),
+            contrastingDraft({
+              headline: "Almond croissants for your commute",
+              subheadline: "",
+            }),
+          ],
+        },
+      };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+      errors.mockRestore();
+    }
+    expect(headlines()).toEqual(["Almond croissants for the commute", null]);
+    expect(delivered("row-1")?.spec?.subheadline).toBe(
+      "Baked before sunrise in Lekki",
+    );
+    expect(calls).not.toContain("rewrite");
+    expect(usage().headlineRewritten).toBe(false);
+    expect(usage().headlinesLost).toBe(1);
+  });
+
+  /* Round-15 code critic, finding 5 (J43): two headlines of stop words
+     shared no content stem, so the claim check's rewrite "All for you"
+     shipped beside "It's all for you". */
+  it("J43: the claim check's rewrite 'All for you' beside 'It's all for you' is refused", async () => {
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isClaimCheckCall(o)) {
+        const flagsOne = (o.prompt ?? "").includes("1.headline |");
+        return {
+          object: {
+            unsupported: flagsOne
+              ? [
+                  {
+                    id: "1.headline",
+                    statement: "a promise",
+                    rewrite: "All for you",
+                  },
+                ]
+              : [],
+          },
+        };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({ headline: "It's all for you", subheadline: "" }),
+            contrastingDraft({ subheadline: "" }),
+          ],
+        },
+      };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+      errors.mockRestore();
+    }
+    expect(headlines()[0]).toBe("It's all for you");
+    expect(headlines()[1]).not.toBe("All for you");
+    expect(usage().claimCheck.headlineRefusals).toEqual([
+      expect.objectContaining({
+        direction: 1,
+        rewrite: "All for you",
+        why: "its rewrite is the other design's headline",
+      }),
+    ]);
+  });
 });

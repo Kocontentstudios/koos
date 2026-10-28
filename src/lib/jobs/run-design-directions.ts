@@ -50,7 +50,12 @@ import {
   notifyLogoLeftOff,
 } from "./design-notify";
 import { draftDirections, type PriorDirection } from "./directions/brief";
-import { brandSetting, factsMissing } from "./directions/brief-facts";
+import {
+  brandSetting,
+  contradictedDates,
+  type DateContradiction,
+  factsMissing,
+} from "./directions/brief-facts";
 import { checkClaims } from "./directions/claim-check";
 import type { ImageState } from "./directions/claims";
 import { planConcepts, regenerationConcept } from "./directions/concepts";
@@ -571,6 +576,7 @@ export async function generateDirectionsWork(
   });
   const factsByDirection: (number | null)[] = rows.map(() => null);
   const factsLost: { direction: number; fact: string; reason: string }[] = [];
+  const datesContradicted: (DateContradiction & { direction: number })[] = [];
   const judgeVerdicts: string[] = [];
   const correctionsKept: string[] = [];
   const logoFaults: string[] = [];
@@ -802,6 +808,20 @@ export async function generateDirectionsWork(
         missing.length -
         unreadMissing.length;
       const lost = missing.length + unreadMissing.length;
+      /* A date the fact writer could not move off another day ships as
+         drawn, and is counted against the design (round-15 code critic,
+         finding 6). */
+      const contradictions = contradictedDates(
+        [...hardFacts, ...unreadFacts],
+        drawnCopy,
+      );
+      for (const contradiction of contradictions) {
+        datesContradicted.push({ direction: i, ...contradiction });
+        addFault(
+          row.id,
+          `gives "${contradiction.run}" on another day than the brief's "${contradiction.fact}"`,
+        );
+      }
       if (lost > 0) {
         addFault(
           row.id,
@@ -1057,6 +1077,7 @@ export async function generateDirectionsWork(
       factsAdded: brief.factCoverage.added.length,
       factHeadlinesRewritten: brief.factCoverage.headlinesRewritten.length,
       factsLeftOff: factsLost,
+      datesContradicted,
       productSources: brief.productSources,
       /* Round-4 outcomes: what the claim check read, and how many times
          each plate was turned down. */

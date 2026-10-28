@@ -165,36 +165,47 @@ export function directionOverlap(
   };
 }
 
+/* Two headlines share an idea through at least this many content words.
+   One shared word ("Slow mornings" against "Slow down") is a word, not an
+   idea (round-15 code critic, finding 5). */
+const MIN_SHARED_STEMS = 2;
+
+/* Every word stemmed, stop words kept: what two headlines of stop words
+   ("It's all for you", "All for you") still share. */
+const allStems = (text: string, ignore: ReadonlySet<string>) =>
+  new Set(
+    (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+      .map(stem)
+      .filter((s) => !ignore.has(s)),
+  );
+
 /** How much two headlines say the same words: the headline score of
- *  directionOverlap. */
+ *  directionOverlap. Content words decide when each headline has two and
+ *  they share two; when either has fewer, the whole wording is compared,
+ *  stop words kept, so "All for you" meets "It's all for you" and "Bake
+ *  with us" stays apart from "Bake it yourself"; one shared content word
+ *  counts no further than the whole wording agrees. */
 export function headlineOverlap(
   a: string,
   b: string,
   ignore: ReadonlySet<string> = new Set(),
 ): number {
-  return jaccard(contentStems(a, ignore), contentStems(b, ignore));
+  const [sa, sb] = [contentStems(a, ignore), contentStems(b, ignore)];
+  const content = jaccard(sa, sb);
+  const whole = jaccard(allStems(a, ignore), allStems(b, ignore));
+  if (sa.size < MIN_SHARED_STEMS && sb.size < MIN_SHARED_STEMS) return whole;
+  const shared = [...sa].filter((s) => sb.has(s)).length;
+  return shared >= MIN_SHARED_STEMS ? content : Math.min(content, whole);
 }
 
-/* Case, punctuation and spacing only: what is left when the stems of two
-   headlines are empty ("It's all for you") and so share nothing. */
-const plainWords = (text: string) =>
-  text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-
-/** Whether two headlines would read as one design drawn twice: the same
- *  words once case and punctuation go, or a headline overlap at the pair
- *  check's threshold. */
+/** Whether two headlines would read as one design drawn twice: the
+ *  headline overlap at the pair check's threshold. */
 export function isNearDuplicateHeadline(
   a: string,
   b: string,
   ignore: ReadonlySet<string> = new Set(),
 ): boolean {
-  return (
-    plainWords(a) === plainWords(b) ||
-    headlineOverlap(a, b, ignore) >= NEAR_DUPLICATE.headline
-  );
+  return headlineOverlap(a, b, ignore) >= NEAR_DUPLICATE.headline;
 }
 
 export function isNearDuplicate(overlap: DirectionOverlap): boolean {

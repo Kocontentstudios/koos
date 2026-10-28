@@ -195,3 +195,37 @@ describe("isNearDuplicateHeadline", () => {
     ).toBe(false);
   });
 });
+
+/* Round-15 code critic, finding 5: two headlines of stop words shared
+   nothing ("All for you" beside "It's all for you" shipped), and one
+   shared content word refused two ideas ("Slow mornings", "Slow down"). */
+describe("isNearDuplicateHeadline on short headlines", () => {
+  it.each([
+    ["It's all for you", "All for you"],
+    ["Just for you", "Only for you"],
+    ["Hello, weekend", "Weekend"],
+    ["Latte art", "Latte art masterclass"],
+  ])("%j and %j read as one", (a, b) => {
+    expect(isNearDuplicateHeadline(a, b)).toBe(true);
+  });
+
+  it.each([
+    ["Slow mornings", "Slow down"],
+    ["Bake with us", "Bake it yourself"],
+    ["Fresh bread", "Fresh coffee"],
+    ["Your seat at the wheel", "Your evening at the wheel"],
+  ])("%j and %j stay apart", (a, b) => {
+    expect(isNearDuplicateHeadline(a, b)).toBe(false);
+  });
+
+  it("scores the pair check's headline the same way", () => {
+    const pair = (a: string, b: string) =>
+      directionOverlap(
+        { title: "", headline: a, backgroundPrompt: "" },
+        { title: "", headline: b, backgroundPrompt: "" },
+        { compareScenes: false },
+      ).headline;
+    expect(pair("It's all for you", "All for you")).toBeGreaterThanOrEqual(0.5);
+    expect(pair("Slow mornings", "Slow down")).toBeLessThan(0.5);
+  });
+});
