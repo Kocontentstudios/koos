@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clausesOf,
+  numberWordsOf,
   runsOf,
   sentencesOf,
   tokensOf,
@@ -161,5 +162,27 @@ describe("sentencesOf", () => {
   it("counts sentences, not commas", () => {
     expect(sentencesOf("Fresh, warm and ready, daily.")).toHaveLength(1);
     expect(sentencesOf("Fresh daily. Lekki · 7am")).toHaveLength(3);
+  });
+});
+
+/* Round-12 code critic: the verifier refused "One seat left" for "1 seat"
+   while claims.inventedFacts counted "one"; both now read number words
+   through numberWordsOf. */
+describe("number words, read once for the verifier and inventedFacts", () => {
+  it("reads 'one' where it counts, and as the units of a tens word", () => {
+    expect(keys("One seat left")[0]).toBe("n:1");
+    expect(keys("Twenty-one guests")[0]).toBe("n:21");
+    expect(keys("twenty one seats")[0]).toBe("n:21");
+    expect(keys("one hundred seats")[0]).toBe("n:100");
+    expect(keys("the one seat")).toContain("w:one");
+    expect(keys("one of us")[0]).toBe("w:one");
+  });
+
+  it("gives every number word with where it stands", () => {
+    const text = "Five hundred seats, one stage";
+    expect(numberWordsOf(text)).toEqual([
+      { value: 500, text: "Five hundred", start: 0, end: 12 },
+      { value: 1, text: "one", start: 20, end: 23 },
+    ]);
   });
 });

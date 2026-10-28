@@ -41,6 +41,18 @@ describe("inventedFacts", () => {
     ]);
   });
 
+  /* Round-12 code critic: the tokenizer and inventedFacts read number
+     words two ways ("one" here, "five hundred" as 5 and 100). */
+  it("reads number words as the verifier's tokenizer does", () => {
+    const venue = factLedger(["Room for five hundred guests and one stage."]);
+    expect(inventedFacts("Five hundred guests", venue)).toEqual([]);
+    expect(inventedFacts("Five hundred stalls", venue)).toEqual([
+      "Five hundred stall",
+    ]);
+    expect(inventedFacts("Twenty-one guests", venue)).toEqual(["Twenty-one"]);
+    expect(inventedFacts("The one guest we wait for", venue)).toEqual([]);
+  });
+
   it("accepts the brief's own count, price, time and day in any spelling", () => {
     expect(inventedFacts("12 new throws and cushions", textile)).toEqual([]);
     /* Round 6: "woven by one artisan" does not say by hand. */

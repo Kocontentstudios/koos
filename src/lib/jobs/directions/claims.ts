@@ -1,5 +1,5 @@
 import { findPhoneNumbersInText } from "libphonenumber-js/max";
-import { NUMBER_WORDS } from "@/lib/design/copy-tokens";
+import { NUMBER_WORDS, numberWordsOf } from "@/lib/design/copy-tokens";
 import { contentStems, stem } from "./text-overlap";
 
 /**
@@ -368,10 +368,6 @@ function currencyOf(symbol: string | undefined): string | null {
    then "115" as what fourteen counted (round-7 live run, fashion). */
 const NUMERIC =
   /([₦$£€]\s?|\bN(?=\d))?(\d(?:[\d,]*\d)?(?:\.\d+)?)(\s?k\b)?(\s?%|\s?(?:am|pm)\b|:\d{2})?/gi;
-const WORD_NUMBER = new RegExp(
-  `\\b(${Object.keys(NUMBER_WORDS).join("|")})\\b`,
-  "gi",
-);
 const CURRENCY_AFTER = /^\s*(naira|ngn|usd|kobo|dollars?|pounds?|euros?)\b/i;
 
 /* What a count counts: the next content words in the same phrase. "Made
@@ -406,11 +402,6 @@ function nearCalendar(text: string, start: number, end: number): boolean {
 function withClockColons(text: string): string {
   return text.replace(/\b(\d{1,2})\.(\d{2})(\s?(?:am|pm))\b/gi, "$1:$2$3");
 }
-
-/* "One slice is never enough" counts slices as surely as "two slices"
-   does; "the one", "any one" and "one of" count nothing. */
-const ONE_COUNT =
-  /(?<!\b(?:the|any|every|no|each|this|that|which|someone|anyone|no one)\s)\bone\s+(?!of\b|another\b|more\b|by\b|day\b|way\b|thing\b|and\b|or\b)([\p{L}-]{3,})/giu;
 
 /* A phone number is a contact, not a count: "0812 444 7781 · 2pm" read
    7781 as a number of something (round-4 eval). Masked with spaces so
@@ -488,30 +479,31 @@ function numberMentions(rawText: string): NumberMention[] {
       }
     }
   }
-  for (const match of text.matchAll(WORD_NUMBER)) {
-    const start = match.index ?? 0;
-    const end = start + match[0].length;
+  /* Number words are read as the verifier's tokenizer reads them, whole
+     ("five hundred" is 500, "twenty-one" 21) and "one" only where it
+     counts. */
+  for (const said of numberWordsOf(text)) {
+    const context = followingStems(text, said.end);
+    if (/^one$/i.test(said.text)) {
+      if (context.length === 0) continue;
+      mentions.push({
+        value: 1,
+        raw: said.text,
+        qualifier: null,
+        bare: false,
+        money: false,
+        context,
+        one: true,
+      });
+      continue;
+    }
     mentions.push({
-      value: NUMBER_WORDS[match[1].toLowerCase()],
-      raw: match[0],
+      value: said.value,
+      raw: said.text,
       qualifier: null,
-      bare: nearCalendar(text, start, end),
+      bare: nearCalendar(text, said.start, said.end),
       money: false,
-      context: followingStems(text, end),
-    });
-  }
-  for (const match of text.matchAll(ONE_COUNT)) {
-    const start = match.index ?? 0;
-    const counted = followingStems(text, start + 3);
-    if (counted.length === 0) continue;
-    mentions.push({
-      value: 1,
-      raw: "one",
-      qualifier: null,
-      bare: false,
-      money: false,
-      context: counted,
-      one: true,
+      context,
     });
   }
   return mentions;

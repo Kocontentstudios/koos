@@ -46,6 +46,36 @@ export const NUMBER_WORDS: Record<string, number> = {
   dozen: 12,
 };
 
+/* "one" is a count only before what it counts: "One seat left",
+   "twenty-one guests", "one hundred". "the one", "any one", "one of",
+   "one more" and "one day" count nothing. The tokenizer and
+   claims.inventedFacts read it by these lists alike (round-12 code critic:
+   the verifier refused "One seat left" for "1 seat" while inventedFacts
+   counted "one" in "Gifts under one roof"). */
+export const ONE_NOT_AFTER = [
+  "the",
+  "any",
+  "every",
+  "no",
+  "each",
+  "this",
+  "that",
+  "which",
+  "someone",
+  "anyone",
+];
+export const ONE_NOT_BEFORE = [
+  "of",
+  "another",
+  "more",
+  "by",
+  "day",
+  "way",
+  "thing",
+  "and",
+  "or",
+];
+
 /** Each weekday's spellings, its full name first. */
 export const WEEKDAY_NAMES = [
   ["monday", "mon"],
@@ -64,6 +94,14 @@ export function isWeekdayName(t: CopyToken | undefined): boolean {
 }
 
 export type CopyTokenKind = "word" | "number" | "clock" | "money" | "mark";
+
+/** A number written in words, where it stands in the text. */
+export interface NumberWord {
+  value: number;
+  text: string;
+  start: number;
+  end: number;
+}
 
 export interface CopyToken {
   kind: CopyTokenKind;
@@ -159,8 +197,32 @@ function at(re: RegExp, text: string, i: number): RegExpExecArray | null {
   return re.exec(text);
 }
 
+interface Placed {
+  token: CopyToken;
+  start: number;
+  end: number;
+}
+
 /** `text` as tokens, in order. */
 export function tokensOf(text: string): CopyToken[] {
+  return markBreaks(readTokens(text).map((p) => p.token));
+}
+
+/** Every number written in words in `text` ("one", "twenty-five", "five
+ *  hundred"), read whole as tokensOf reads it, with where it stands. */
+export function numberWordsOf(text: string): NumberWord[] {
+  return readTokens(text)
+    .filter(({ token }) => isNumberWord(token))
+    .map(({ token, start, end }) => ({
+      value: token.value ?? 0,
+      text: token.text,
+      start,
+      end,
+    }));
+}
+
+function readTokens(text: string): Placed[] {
+  const placed: Placed[] = [];
   const source = (text ?? "").normalize("NFC");
   const amounts = new Map<number, { end: number; amount: Amount }>();
   for (const m of source.matchAll(MONEY)) {
@@ -169,7 +231,6 @@ export function tokensOf(text: string): CopyToken[] {
       amounts.set(m.index, { end: m.index + m[0].length, amount });
     }
   }
-  const tokens: CopyToken[] = [];
   let i = 0;
   while (i < source.length) {
     const space = at(SPACE, source, i);
@@ -179,11 +240,15 @@ export function tokensOf(text: string): CopyToken[] {
     }
     const money = amounts.get(i);
     if (money) {
-      tokens.push({
-        kind: "money",
-        key: `m:${money.amount.currency}|${money.amount.value}`,
-        text: source.slice(i, money.end).trim(),
-        value: money.amount.value,
+      placed.push({
+        token: {
+          kind: "money",
+          key: `m:${money.amount.currency}|${money.amount.value}`,
+          text: source.slice(i, money.end).trim(),
+          value: money.amount.value,
+        },
+        start: i,
+        end: money.end,
       });
       i = money.end;
       continue;
@@ -191,11 +256,15 @@ export function tokensOf(text: string): CopyToken[] {
     const clock = /[\dnm]/i.test(source[i]) ? at(CLOCK, source, i) : null;
     if (clock && (i === 0 || !/[\p{L}\d]/u.test(source[i - 1]))) {
       const minutes = clockMinutes(clock);
-      tokens.push({
-        kind: "clock",
-        key: `c:${minutes}`,
-        text: clock[0],
-        value: minutes,
+      placed.push({
+        token: {
+          kind: "clock",
+          key: `c:${minutes}`,
+          text: clock[0],
+          value: minutes,
+        },
+        start: i,
+        end: i + clock[0].length,
       });
       i += clock[0].length;
       continue;
@@ -205,12 +274,16 @@ export function tokensOf(text: string): CopyToken[] {
       const value = Number.parseFloat(
         `${number[1].replace(/,/g, "")}${number[2] ? `.${number[2]}` : ""}`,
       );
-      tokens.push({
-        kind: "number",
-        key: `n:${value}`,
-        text: number[0],
-        value,
-        ordinal: Boolean(number[3]),
+      placed.push({
+        token: {
+          kind: "number",
+          key: `n:${value}`,
+          text: number[0],
+          value,
+          ordinal: Boolean(number[3]),
+        },
+        start: i,
+        end: i + number[0].length,
       });
       i += number[0].length;
       continue;
@@ -219,29 +292,69 @@ export function tokensOf(text: string): CopyToken[] {
     if (word) {
       const lower = word[0].toLowerCase().replace(/’/g, "'");
       const counted = NUMBER_WORDS[lower];
-      tokens.push(
-        counted === undefined
-          ? { kind: "word", key: `w:${lower}`, text: word[0] }
-          : {
-              kind: "number",
-              key: `n:${counted}`,
-              text: word[0],
-              value: counted,
-            },
-      );
+      placed.push({
+        token:
+          counted === undefined
+            ? { kind: "word", key: `w:${lower}`, text: word[0] }
+            : {
+                kind: "number",
+                key: `n:${counted}`,
+                text: word[0],
+                value: counted,
+              },
+        start: i,
+        end: i + word[0].length,
+      });
       i += word[0].length;
       continue;
     }
     const char = String.fromCodePoint(source.codePointAt(i) as number);
+    const end = i + char.length;
     if (char === "&") {
-      tokens.push({ kind: "word", key: "w:and", text: char });
+      placed.push({
+        token: { kind: "word", key: "w:and", text: char },
+        start: i,
+        end,
+      });
     } else {
       const mark = DASHES.test(char) ? "-" : char === "’" ? "'" : char;
-      tokens.push({ kind: "mark", key: mark, text: char });
+      placed.push({
+        token: { kind: "mark", key: mark, text: char },
+        start: i,
+        end,
+      });
     }
     i += char.length;
   }
-  return markBreaks(withNumberWordsFolded(tokens));
+  return withNumberWordsFolded(withOneRead(placed));
+}
+
+const isWordKey = (p: Placed | undefined, ...words: string[]) =>
+  p?.token.kind === "word" && words.includes(p.token.key.slice(2));
+
+/* "one" as a number where it counts (ONE_NOT_AFTER, ONE_NOT_BEFORE), and
+   always as the units of "twenty-one". */
+function withOneRead(placed: Placed[]): Placed[] {
+  return placed.map((p, i) => {
+    if (p.token.key !== "w:one") return p;
+    const before = placed[i - 1];
+    const tens =
+      isTens(before?.token) ||
+      (before?.token.key === "-" && isTens(placed[i - 2]?.token));
+    const next = placed[i + 1];
+    const countsNext =
+      (next?.token.kind === "word" &&
+        next.token.text.length >= 3 &&
+        !isWordKey(next, ...ONE_NOT_BEFORE)) ||
+      multiplierOf(next?.token) !== undefined;
+    if (!tens && (!countsNext || isWordKey(before, ...ONE_NOT_AFTER))) {
+      return p;
+    }
+    return {
+      ...p,
+      token: { kind: "number", key: "n:1", text: p.token.text, value: 1 },
+    };
+  });
 }
 
 const MULTIPLIERS: Record<string, number> = {
@@ -264,12 +377,13 @@ const isUnit = (t: CopyToken | undefined) =>
    2,000,000. Read word by word, "five hundred seats" held the run "hundred
    seats", which stated "100 seats" (round-11 code critic, W5 to W10). A
    multiplier with no number before it is one of it ("a dozen"). */
-function withNumberWordsFolded(tokens: CopyToken[]): CopyToken[] {
-  const out: CopyToken[] = [];
+function withNumberWordsFolded(placed: Placed[]): Placed[] {
+  const tokens = placed.map((p) => p.token);
+  const out: Placed[] = [];
   for (let i = 0; i < tokens.length; i += 1) {
     const first = tokens[i];
     if (first.kind !== "number" || first.ordinal) {
-      out.push(first);
+      out.push(placed[i]);
       continue;
     }
     let total = 0;
@@ -319,19 +433,23 @@ function withNumberWordsFolded(tokens: CopyToken[]): CopyToken[] {
       break;
     }
     if (end === i) {
-      out.push(first);
+      out.push(placed[i]);
       continue;
     }
     const value = total + current;
     out.push({
-      kind: "number",
-      key: `n:${value}`,
-      text: tokens
-        .slice(i, end + 1)
-        .map((t) => t.text)
-        .join(" ")
-        .replace(/ - /g, "-"),
-      value,
+      token: {
+        kind: "number",
+        key: `n:${value}`,
+        text: tokens
+          .slice(i, end + 1)
+          .map((t) => t.text)
+          .join(" ")
+          .replace(/ - /g, "-"),
+        value,
+      },
+      start: placed[i].start,
+      end: placed[end].end,
     });
     i = end;
   }
