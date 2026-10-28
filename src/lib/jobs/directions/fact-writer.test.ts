@@ -6,11 +6,12 @@ const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
-const { settleBriefFacts } = await import("./brief-facts");
+const { needsFor, settleBriefFacts } = await import("./brief-facts");
 const { factLedger } = await import("./claims");
 const {
   buildFactWritePrompt,
   copyProblems,
+  productProblems,
   rewriteFault,
   settleFacts,
   writeFacts,
@@ -345,7 +346,15 @@ describe("settleFacts", () => {
     expect(prompt).toContain(
       "Give each time, price, date and count a field of its own",
     );
-    expect(prompt).toContain('"10 seats · 18+" states no count');
+    /* Round 18: a count's rival counts the same thing, so the writer is
+       not told to part a count from an age or an address. */
+    expect(prompt).toContain(
+      '"5 rows of 10 seats", "10 seats, or 12" state no count',
+    );
+    expect(prompt).toContain(
+      '"10 seats · 18+", "Only 20 pieces · 12 Ozumba Mbadiwe Avenue"',
+    );
+    expect(prompt).not.toContain('"10 seats · 18+" states no count');
   });
 
   it("asks nothing of a direction that is complete", async () => {
@@ -691,5 +700,66 @@ describe("a fact whose words stand beside a rival value", () => {
       title: "",
     });
     expect(out.leftOff).toEqual([]);
+  });
+});
+
+/* Round-17 eval at 0d661d4, bakery: a rewrite taken in part moved the
+   product's name out of the subheadline and left it alone on a footer
+   line, and the direction shipped with its product in small print. */
+describe("a product named only in the footer", () => {
+  const bakeryBrief =
+    "Strawberry mille-feuille, ₦4,500 a slice, from Monday. Order ahead for pickup from 7am.";
+  const bakeryFacts = [
+    "price:₦4,500 a slice",
+    "product:strawberry mille-feuille",
+  ].map((spec) => {
+    const [kind, text] = spec.split(":") as ["price" | "product", string];
+    return { kind, text, needs: needsFor(kind, text) };
+  });
+  const bakeryLedger = factLedger([bakeryBrief]);
+  const named = {
+    headline: "Meet the Mille-Feuille",
+    subheadline: "Strawberry mille-feuille, ₦4,500 a slice.",
+    cta: "Order ahead",
+    footerLines: ["@crumbandco.ng"],
+    footerStyle: "text" as const,
+  };
+
+  it("is a problem the writer is asked to fix", () => {
+    expect(
+      productProblems(
+        {
+          ...named,
+          subheadline: "Order ahead from Monday. ₦4,500 a slice.",
+          footerLines: ["Strawberry mille-feuille", "@crumbandco.ng"],
+        },
+        bakeryFacts,
+      ),
+    ).toEqual([
+      'the footer item "Strawberry mille-feuille" is only the product\'s name; name "strawberry mille-feuille" in the headline or subheadline and leave it out of the footer',
+    ]);
+  });
+
+  it("is no problem when the copy above names it too", () => {
+    expect(
+      productProblems(
+        { ...named, footerLines: ["Strawberry mille-feuille"] },
+        bakeryFacts,
+      ),
+    ).toEqual([]);
+  });
+
+  it("refuses a rewrite that moves the product's name into the footer", () => {
+    const fault = rewriteFault(
+      named,
+      {
+        ...named,
+        subheadline: "Order ahead for pickup from Monday. ₦4,500 a slice.",
+        footerLines: ["Strawberry mille-feuille", "@crumbandco.ng"],
+      },
+      bakeryFacts,
+      bakeryLedger,
+    );
+    expect(fault).toMatch(/is only the product's name/);
   });
 });

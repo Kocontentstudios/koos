@@ -11,6 +11,7 @@ import {
   factStated,
   headlineInTheWay,
   isFragment,
+  isProductName,
   redundantFooterItems,
   rivalledFacts,
   timeOnPhoneLine,
@@ -108,7 +109,7 @@ export function buildFactWritePrompt({
       `- The footer is at most ${MAX_FOOTER_LINES} lines of at most 60 characters; items on one line are joined by " · ".`,
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
       "- Never put a time or opening hours on the same footer line as a phone number.",
-      '- Give each time, price, date and count a field of its own (the headline, the subheadline, the button, or one footer line). Two of a kind in one field read as a choice and state neither ("Doors 3pm, panel 4pm", "₦4,500 a slice, ₦30,000 the cake"); a range written whole ("6pm to 9pm") is one value. A count shares its field with no other number ("10 seats · 18+" states no count), and a time with no other small number ("three shots, from 8am" states no time); a price or a date beside either is fine ("Thursday 20 November · 6pm to 9pm", "₦25,000 a seat · 10 seats").',
+      '- Give each time, price, date and count a field of its own (the headline, the subheadline, the button, or one footer line). Two of a kind in one field read as a choice and state neither ("Doors 3pm, panel 4pm", "₦4,500 a slice, ₦30,000 the cake"); a range written whole ("6pm to 9pm") is one value. A count shares its field with no other count of what it counts and no bare number ("10 seats or 12 spots", "5 rows of 10 seats", "10 seats, or 12" state no count), but a number that counts something else, an age or an address beside it is fine ("10 seats · 18+", "Only 20 pieces · 12 Ozumba Mbadiwe Avenue"); a time shares its field with no other small number ("three shots, from 8am" states no time); a price or a date beside either is fine ("Thursday 20 November · 6pm to 9pm", "₦25,000 a seat · 10 seats").',
       "- No footer item repeats the headline, the subheadline, the button or another footer item, and the subheadline never says again a price, number, name or phrase the headline or button already says: leave that out of it.",
       '- Use only what the brief says. Add no fact, claim or quality of your own, and no word of scarcity or urgency the brief does not use ("only", "just", "hurry", "last chance").',
     ].join("\n"),
@@ -285,6 +286,27 @@ export function rivalProblems(
     );
 }
 
+/** Each footer item that is only the product's name while no field above
+ *  names it: the design names its product only in small print (round-17
+ *  eval at 0d661d4, bakery: a rewrite taken in part moved "Strawberry
+ *  mille-feuille" out of the subheadline and into the footer). */
+export function productProblems(
+  copy: FactCopy,
+  facts: readonly BriefFact[],
+): string[] {
+  const above = { ...copy, footerLines: [] };
+  return facts
+    .filter((f) => f.kind === "product" && !factStated(f, above))
+    .flatMap((f) =>
+      footerItemsOf(copy.footerLines)
+        .filter((item) => isProductName(item, f.text))
+        .map(
+          (item) =>
+            `the footer item "${item}" is only the product's name; name "${f.text}" in the headline or subheadline and leave it out of the footer`,
+        ),
+    );
+}
+
 /** What is wrong with a direction's copy that the writer may fix, the
  *  brief's dates and rival values read against every field it may
  *  change. */
@@ -297,6 +319,7 @@ function allProblems(
     ...copyProblems(copy),
     ...dateProblems(copy, facts, writable),
     ...rivalProblems(copy, facts, writable),
+    ...productProblems(copy, facts),
   ];
 }
 

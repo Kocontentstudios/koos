@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildDirectionsSystemPrompt } from "@/lib/ai/prompts/design-directions";
 import { type CoverKind, factStated, needsFor } from "./brief-facts";
 
 /*
@@ -182,5 +183,17 @@ describe("round 18 leaves the other kinds field-wide", () => {
     ["date", "5 December", "5 December, or 6"],
   ] as const)("%s %s in %j", (kind, text, sub) => {
     expect(factStated(fact(kind, text), design(sub))).toBe(false);
+  });
+});
+
+/* Round 17 told the drafting model a count shares its field with no other
+   number; the model is held to the narrower rule now. */
+describe("the drafting prompt states the narrowed count rule", () => {
+  const prompt = buildDirectionsSystemPrompt({ name: "Lagos Loom" }, false);
+  it("names what a count may stand beside", () => {
+    expect(prompt).toContain(
+      '"10 seats · 18+", "Only 20 pieces · 12 Ozumba Mbadiwe Avenue"',
+    );
+    expect(prompt).not.toContain('"10 seats · 18+" states no count');
   });
 });
