@@ -1108,3 +1108,55 @@ describe("round-8 critic job probes", () => {
     }
   });
 });
+
+/* Round-9 code critic, job probes J4 to J6 (r9-job-probes.log), on the
+   PR 1 default path: the flag off and no photo. */
+describe("round-9 critic job probes", () => {
+  async function flagOff(body: () => Promise<void>) {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await body();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  }
+
+  it("J4: 'Fun for all ages, 8+ flavours' is not the age, which is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer(
+          [
+            { kind: "day", text: "this Saturday" },
+            { kind: "age", text: "Ages 8+" },
+          ],
+          { kind: "event", phrase: "ice cream social" },
+        ),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Ice cream social",
+              subheadline: "This Saturday. Fun for all ages, 8+ flavours.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Scoops this Saturday",
+              subheadline:
+                "Our social is back for all ages: 8+ flavours to try.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Ice cream social this Saturday with 8+ flavours. Ages 8+.",
+        { image: { source: "none" } },
+      );
+      for (const id of ["row-1", "row-2"]) {
+        expect(drawnOf(id)).toMatch(/ages 8\+/i);
+      }
+      expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
+      expect(usage().factsLeftOff).toEqual([]);
+    }));
+});

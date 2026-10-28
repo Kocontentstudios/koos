@@ -33,7 +33,9 @@ export const MAX_FOOTER_LINES = 3;
 
 export function footerLinesFor(spec: FooterSpec): string[] {
   const cta = tokensOf(spec.cta ?? "");
-  const above = [spec.headline ?? "", spec.subheadline ?? ""].map(tokensOf);
+  const above = [spec.headline ?? "", spec.subheadline ?? ""].map(
+    clauseTokensOf,
+  );
   return (spec.footerLines ?? [])
     .filter((line) => !repeatsCopyAbove(line, above))
     .map((line) => footerLine(line.trim(), cta))
@@ -47,7 +49,8 @@ export function footerLinesFor(spec: FooterSpec): string[] {
    into items; "Shop 12, Admiralty Mall" splits too, harmlessly, because an
    item is only ever removed whole. */
 const SEPARATOR = /(\s*[·•|]\s*|\s+[–—/-]\s+|,\s+)/;
-const EDGE_PUNCTUATION = /^[^\p{L}\p{N}@#₦$€£%]+|[^\p{L}\p{N}%]+$/gu;
+/* A trailing "+" is kept: "8+" is an age and up, "8" an exact count. */
+const EDGE_PUNCTUATION = /^[^\p{L}\p{N}@#₦$€£%]+|[^\p{L}\p{N}%+]+$/gu;
 
 /** A token compared as a whole: lower case, edge punctuation off, times
  *  written one way ("7 am", "7:00am" and "7am" are the same fact). */
@@ -66,6 +69,24 @@ function tokensOf(text: string): string[] {
     .split(/\s+/)
     .map(normalToken)
     .filter(Boolean);
+}
+
+/* Where a clause ends: a comma, colon, semicolon, full stop, "!" or "?"
+   before a space or the end, a dash between spaces, or an em dash. */
+const CLAUSE_BREAK = /[,;:!?.](?=\s|$)|\s[-–—]\s|—/u;
+/* Stands between two clauses' tokens; no word normalises to it. */
+const CLAUSE_END = "\u0000";
+
+/** The tokens of each clause, with CLAUSE_END between clauses: "Ages 8+"
+ *  is not word for word in "Fun for all ages, 8+ flavours" (round-9 code
+ *  critic, J4: the age the fact writer wrote in was dropped as a repeat). */
+function clauseTokensOf(text: string): string[] {
+  return text
+    .split(new RegExp(`${CLAUSE_BREAK.source}|${SEPARATOR.source}`, "u"))
+    .filter((clause): clause is string => clause !== undefined)
+    .map(tokensOf)
+    .filter((tokens) => tokens.length > 0)
+    .flatMap((tokens, i) => (i === 0 ? tokens : [CLAUSE_END, ...tokens]));
 }
 
 function indexOfRun(haystack: string[], needle: string[]): number {
@@ -110,7 +131,7 @@ function capitalized(line: string): string {
  */
 /** The whole line appears word for word in the headline or subheadline. */
 function repeatsCopyAbove(line: string, above: string[][]): boolean {
-  const tokens = tokensOf(line.replace(new RegExp(SEPARATOR, "g"), " "));
+  const tokens = clauseTokensOf(line);
   return (
     tokens.length > 0 && above.some((copy) => indexOfRun(copy, tokens) >= 0)
   );

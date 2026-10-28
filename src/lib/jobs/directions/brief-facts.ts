@@ -1010,11 +1010,13 @@ function copyParts(copy: string | CopyFields): CopyPart[] {
 }
 
 /* Words compared as words: case, punctuation and the "&"/"incl." ways of
-   writing them aside. */
+   writing them aside, but never a clause break, or "Fun for all ages, 8+
+   flavours" holds "Ages 8+" whole (round-9 code critic, FP1). */
 function wordsOf(text: string): string {
   return meaningOf(text)
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}₦$£€%@+]+/gu, " ")
+    .replace(new RegExp(CLAUSE_BREAK.source, "gu"), " | ")
+    .replace(/[^\p{L}\p{N}₦$£€%@+|]+/gu, " ")
     .trim();
 }
 
@@ -1219,7 +1221,8 @@ function moneyIn(text: string): Set<string> {
    (round-7 code critic, K17: "Doors open 8pm" stated "Ages 8+"). The side
    matters: "seats 8 days ahead" is 8 days, not 8 seats; and a mark is never
    a neighbour, or "8+ flavours" states "Ages 8+" (round-8 code critic, N1
-   to N4). */
+   to N4). A neighbour is in the number's own clause: "Fun for all ages, 8+
+   flavours" is a count of flavours (round-9 code critic, FP1 and FP2). */
 interface NumberInPlace {
   value: string;
   /** The other end of a range ("9-5", "5 to 12"), or null. */
@@ -1230,7 +1233,15 @@ interface NumberInPlace {
   right: string | null;
 }
 
-const PLACE_TOKEN = /\d[\d,]*(?:\.\d+)?|[\p{L}]+|[+%]/gu;
+/* A comma, colon, semicolon, full stop, "!" or "?" before a space or the
+   end, a dash set between spaces, or an em dash: where one clause ends.
+   "4,500", "7:00", "2.5" and "9-5" are inside a number, never a break. */
+const CLAUSE_BREAK = /[,;:!?.](?=\s|$)|\s[-–—]\s|—/u;
+const IS_CLAUSE_BREAK = new RegExp(`^(?:${CLAUSE_BREAK.source})$`, "u");
+const PLACE_TOKEN = new RegExp(
+  `\\d+(?:,\\d{3})*(?:\\.\\d+)?|[\\p{L}]+|[+%]|${CLAUSE_BREAK.source}`,
+  "gu",
+);
 const MARK = /^[+%]$/;
 const AND_UP = /\b(\d+)\s+(?:and|or)\s+(?:up|over|above|older)\b/gi;
 const NOT_A_NEIGHBOUR = new Set([
@@ -1251,25 +1262,44 @@ function neighbourOf(token: string): string {
   return stem(lower);
 }
 
+interface PlaceToken {
+  text: string;
+  at: number;
+  end: number;
+  /** Ends a clause. */
+  stop: boolean;
+}
+
+function placeTokensOf(read: string): PlaceToken[] {
+  return [...read.matchAll(PLACE_TOKEN)].map((m) => ({
+    text: m[0].trim() || m[0],
+    at: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length,
+    stop: IS_CLAUSE_BREAK.test(m[0]),
+  }));
+}
+
+function asNumber(t: string): string | null {
+  if (/^\d/.test(t)) {
+    return String(Number.parseFloat(t.replace(/,/g, "")));
+  }
+  const lower = t.toLowerCase();
+  return lower in NUMBER_WORDS ? String(NUMBER_WORDS[lower]) : null;
+}
+
+const isDash = (t: PlaceToken | undefined) =>
+  Boolean(t?.stop && /[-–—]/.test(t.text));
+
 function numbersInPlace(text: string): NumberInPlace[] {
   /* The gap between a range's ends is read from the same string as the
      tokens: meaningOf moves every offset after a "&" or an "incl." */
   const read = meaningOf(text).replace(AND_UP, "$1+");
-  const tokens = [...read.matchAll(PLACE_TOKEN)].map((m) => ({
-    text: m[0],
-    at: m.index ?? 0,
-    end: (m.index ?? 0) + m[0].length,
-  }));
+  const tokens = placeTokensOf(read);
+  const isNumber = (t: PlaceToken | undefined) =>
+    Boolean(t && !t.stop && asNumber(t.text) !== null);
   const out: NumberInPlace[] = [];
-  const asNumber = (t: string): string | null =>
-    /^\d/.test(t)
-      ? String(Number.parseFloat(t.replace(/,/g, "")))
-      : t.toLowerCase() in NUMBER_WORDS
-        ? String(NUMBER_WORDS[t.toLowerCase()])
-        : null;
-  const isNumber = (t: string) => asNumber(t) !== null;
   for (let i = 0; i < tokens.length; i += 1) {
-    if (!isNumber(tokens[i].text)) continue;
+    if (!isNumber(tokens[i])) continue;
     const value = asNumber(tokens[i].text) as string;
     let rangeTo: string | null = null;
     let last = i;
@@ -1280,13 +1310,16 @@ function numbersInPlace(text: string): NumberInPlace[] {
       tokens[i + clock].end,
       next?.at ?? tokens[i + clock].end,
     );
-    if (next && isNumber(next.text) && /^\s?[-–—]\s?$/.test(gap)) {
+    if (isNumber(next) && /^\s?[-–—]\s?$/.test(gap)) {
       rangeTo = asNumber(next.text);
       last = i + 1 + clock;
+    } else if (isDash(next) && isNumber(tokens[i + 2 + clock])) {
+      /* "5 – 12": a dash between two numbers is a range, not a break. */
+      rangeTo = asNumber(tokens[i + 2 + clock].text);
+      last = i + 2 + clock;
     } else if (
       next?.text.toLowerCase() === "to" &&
-      tokens[i + 2 + clock] &&
-      isNumber(tokens[i + 2 + clock].text)
+      isNumber(tokens[i + 2 + clock])
     ) {
       rangeTo = asNumber(tokens[i + 2 + clock].text);
       last = i + 2 + clock;
@@ -1297,21 +1330,34 @@ function numbersInPlace(text: string): NumberInPlace[] {
         ? after.text
         : null;
     if (mark) last += 1;
-    const look = (j: number, step: number): string | null => {
+    /* The first word on one side, within the clause; and where the clause
+       ended, if it did before any word. */
+    const look = (
+      j: number,
+      step: number,
+    ): { word: number | null; stop: number | null } => {
       for (let k = j; k >= 0 && k < tokens.length; k += step) {
-        const word = tokens[k].text.toLowerCase();
-        if (isNumber(word)) return null;
+        const token = tokens[k];
+        if (token.stop) return { word: null, stop: k };
+        const word = token.text.toLowerCase();
+        if (isNumber(token)) return { word: null, stop: null };
         if (MARK.test(word) || NOT_A_NEIGHBOUR.has(word)) continue;
-        return neighbourOf(tokens[k].text);
+        return { word: k, stop: null };
       }
-      return null;
+      return { word: null, stop: null };
     };
+    const before = look(i - 1, -1);
+    const beyond = look(last + 1, 1);
+    const left =
+      before.word === null ? null : neighbourOf(tokens[before.word].text);
+    const right =
+      beyond.word === null ? null : neighbourOf(tokens[beyond.word].text);
     out.push({
       value,
       rangeTo,
       mark,
-      left: look(i - 1, -1),
-      right: look(last + 1, 1),
+      left,
+      right,
     });
     i = last;
   }
@@ -1358,6 +1404,24 @@ function numbersHeldInPlace(fact: string, part: string): boolean {
   );
 }
 
+/* An item's ages and counts, each beside its own words in one of `texts`:
+   "Ages 8+" under "Fun for all ages, 8+ flavours" says what the copy above
+   does not, and was refused as a repeat when the fact writer wrote it in
+   (round-9 code critic, J4). Phones, money and clock times are compared by
+   value in said(), so they are left out here. */
+function countsPlacedIn(item: string, texts: readonly string[]): boolean {
+  const countsOnly = (text: string) =>
+    meaningOf(text)
+      .replace(new RegExp(PHONE_LIKE.source, "g"), " ")
+      .replace(MONEY, " ")
+      .replace(SHARED_SUFFIX, " ")
+      .replace(CLOCK, " ");
+  const theirs = texts.flatMap((text) => numbersInPlace(countsOnly(text)));
+  return numbersInPlace(countsOnly(item)).every((mine) =>
+    theirs.some((t) => sameNumberInPlace(mine, t)),
+  );
+}
+
 /** Whether a footer item is just the product's name: every word of the
  *  name, at most one more ("Handmade stoneware cups" for "stoneware
  *  cups"), and no number. */
@@ -1383,9 +1447,10 @@ export function isProductName(item: string, product: string): boolean {
  * in the footer, and two printed the address twice.
  */
 export function redundantFooterItems(copy: CopyFields, product = ""): string[] {
-  const aboveText = [copy.headline, copy.subheadline, copy.cta]
-    .filter(Boolean)
-    .join(" ");
+  const aboveFields = [copy.headline, copy.subheadline, copy.cta].filter(
+    (t): t is string => Boolean(t),
+  );
+  const aboveText = aboveFields.join(" ");
   const above = said(aboveText);
   const moneyAbove = moneyIn(aboveText);
   const productSaid = said(product);
@@ -1397,7 +1462,8 @@ export function redundantFooterItems(copy: CopyFields, product = ""): string[] {
   items.forEach((item, i) => {
     const mine = said(item);
     if (mine.size === 0) return;
-    const repeatsAbove = within(mine, above);
+    const repeatsAbove =
+      within(mine, above) && countsPlacedIn(item, aboveFields);
     const money = moneyIn(item);
     const pricedAbove =
       money.size > 0 &&

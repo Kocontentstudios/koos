@@ -370,3 +370,28 @@ describe("footerLinesFor against the copy above it", () => {
     ]);
   });
 });
+
+/* Round-9 code critic, J4: "Ages 8+", written in by the fact writer, was
+   dropped as a repeat of "Fun for all ages, 8+ flavours", whose "ages" is
+   another clause's word. */
+describe("footerLinesFor reads the copy above clause by clause", () => {
+  const linesFor = (subheadline: string, line: string) =>
+    footerLinesFor({ footerStyle: "text", subheadline, footerLines: [line] });
+
+  it.each([
+    ["This Saturday. Fun for all ages, 8+ flavours.", "Ages 8+"],
+    ["Our social is back for all ages: 8+ flavours to try.", "Ages 8+"],
+    ["Scoops for all ages - 8+ flavours", "Ages 8+"],
+    ["Ages 8 and over welcome", "Ages 8+"],
+  ])("under %j keeps %j", (subheadline, line) => {
+    expect(linesFor(subheadline, line)).toEqual([line]);
+  });
+
+  it.each([
+    ["Ice cream social for ages 8+, this Saturday.", "Ages 8+"],
+    ["Ice cream social, this Saturday, 7pm.", "Saturday, 7pm"],
+    ["Ice cream social, this Saturday, 7pm.", "Saturday · 7pm"],
+  ])("under %j drops %j", (subheadline, line) => {
+    expect(linesFor(subheadline, line)).toEqual([]);
+  });
+});
