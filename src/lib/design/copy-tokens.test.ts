@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clausesOf,
+  joinedInWords,
   numberWordsOf,
   runsOf,
   sentencesOf,
@@ -184,5 +185,53 @@ describe("number words, read once for the verifier and inventedFacts", () => {
       { value: 500, text: "Five hundred", start: 0, end: 12 },
       { value: 1, text: "one", start: 20, end: 23 },
     ]);
+  });
+});
+
+/* Round-14 code critic, finding 6: "Gifts under one roof" read "one" as a
+   count of roofs, and J14's design was lost to inventedFacts. */
+describe("'one' in a set phrase counts nothing", () => {
+  it.each([
+    "Gifts under one roof",
+    "Everything in one place",
+    "All-in-one gift box",
+    "all in one gift box",
+    "Your one-stop gift shop",
+    "One of a kind gifts",
+    "One day only",
+  ])("%j holds no number", (text) => {
+    expect(numberWordsOf(text)).toEqual([]);
+  });
+
+  it("still counts where 'one' counts", () => {
+    expect(keys("One seat left")[0]).toBe("n:1");
+    expect(keys("One night only")[0]).toBe("n:1");
+    expect(keys("one roof garden, one stage")).toContain("n:1");
+  });
+});
+
+/* Round-14 code critic, break 2: "to", "till", "until", "through" and
+   "and" join two numbers as "-" does; "in" joins two plain numbers into a
+   ratio. */
+describe("joinedInWords", () => {
+  const sideOf = (text: string) => tokensOf(text);
+  it.each([
+    ["to 5pm", true],
+    ["till 7pm", true],
+    ["until 9pm", true],
+    ["through 9pm", true],
+    ["and 10 seats", true],
+    ["to the market", false],
+    ["and Sunday", false],
+  ])("a number then %j: %s", (text, joined) => {
+    expect(joinedInWords(tokensOf("9")[0], sideOf(text))).toBe(joined);
+  });
+
+  it("reads 'in' between plain numbers only", () => {
+    expect(joinedInWords(tokensOf("1")[0], sideOf("in 10"))).toBe(true);
+    expect(joinedInWords(tokensOf("7pm")[0], sideOf("in 2 venues"))).toBe(
+      false,
+    );
+    expect(joinedInWords(tokensOf("1")[0], sideOf("of 10"))).toBe(false);
   });
 });

@@ -76,6 +76,23 @@ export const ONE_NOT_BEFORE = [
   "or",
 ];
 
+/* Set phrases in which "one" counts nothing, read word by word with any
+   dash between left out ("all-in-one"). "Gifts under one roof" read
+   "one" as a count of roofs, so inventedFacts refused it and J14's design
+   was lost (round-12 and round-14 code critic, finding 6). A closed list
+   rather than "one before a noun that is not a count noun": "roof" and
+   "place" are count nouns, so that rule would not free them, and an open
+   noun list would stop "one" counting what a brief does give ("one
+   seat"). Each entry names where "one" stands in it. */
+export const ONE_IDIOMS: readonly (readonly string[])[] = [
+  ["under", "one", "roof"],
+  ["in", "one", "place"],
+  ["all", "in", "one"],
+  ["one", "stop"],
+  ["one", "of", "a", "kind"],
+  ["one", "day", "only"],
+];
+
 /** Each weekday's spellings, its full name first. */
 export const WEEKDAY_NAMES = [
   ["monday", "mon"],
@@ -332,11 +349,35 @@ function readTokens(text: string): Placed[] {
 const isWordKey = (p: Placed | undefined, ...words: string[]) =>
   p?.token.kind === "word" && words.includes(p.token.key.slice(2));
 
-/* "one" as a number where it counts (ONE_NOT_AFTER, ONE_NOT_BEFORE), and
-   always as the units of "twenty-one". */
+/* Whether the "one" at `i` stands in one of ONE_IDIOMS. */
+function inOneIdiom(placed: readonly Placed[], i: number): boolean {
+  const words = (from: number, step: number, count: number): string[] => {
+    const out: string[] = [];
+    for (let j = from; out.length < count && j >= 0 && j < placed.length; ) {
+      const t = placed[j].token;
+      if (t.key !== "-") {
+        if (t.kind !== "word") break;
+        out.push(t.key.slice(2));
+      }
+      j += step;
+    }
+    return out;
+  };
+  return ONE_IDIOMS.some((idiom) => {
+    const at = idiom.indexOf("one");
+    const before = idiom.slice(0, at).reverse();
+    const after = idiom.slice(at + 1);
+    const read = (side: readonly string[], step: number) =>
+      words(i + step, step, side.length).join(" ") === side.join(" ");
+    return read(before, -1) && read(after, 1);
+  });
+}
+
+/* "one" as a number where it counts (ONE_NOT_AFTER, ONE_NOT_BEFORE,
+   ONE_IDIOMS), and always as the units of "twenty-one". */
 function withOneRead(placed: Placed[]): Placed[] {
   return placed.map((p, i) => {
-    if (p.token.key !== "w:one") return p;
+    if (p.token.key !== "w:one" || inOneIdiom(placed, i)) return p;
     const before = placed[i - 1];
     const tens =
       isTens(before?.token) ||
@@ -464,6 +505,31 @@ export const isNumeric = (t: CopyToken | undefined) =>
  *  "5-12" and "₦4,500-₦6,000", the "/" of "24/7" and "1/20". */
 export const joinsNumbers = (t: CopyToken | undefined) =>
   t?.kind === "mark" && !t.breaks && (t.key === "-" || t.key === "/");
+
+/* The words that join two numbers into one span, as "-" does: "9am to
+   5pm", "1 to 5 December", "2 and 10 seats". A number at either end of one
+   is not a value on its own (round-14 code critic, break 2). */
+const RANGE_WORDS = ["to", "till", "until", "through", "thru", "and"];
+/* The word that makes two plain numbers one ratio: "1 in 10 seats" counts
+   one seat of every ten. Clock times and amounts are left out ("7pm in 2
+   venues" names two things), and so is "of": "1 of 10 seats left" still
+   says there are ten (round-12 code critic, G17). */
+const RATIO_WORD = "in";
+
+/** Whether a word joins `number` to another number beside it: `side`
+ *  holds the tokens on one side of `number`, nearest first. */
+export function joinedInWords(
+  number: CopyToken | undefined,
+  side: readonly CopyToken[],
+): boolean {
+  const [join, other] = side;
+  if (join?.kind !== "word") return false;
+  const said = join.key.slice(2);
+  if (RANGE_WORDS.includes(said)) return isNumeric(other);
+  return (
+    said === RATIO_WORD && number?.kind === "number" && other?.kind === "number"
+  );
+}
 
 function markBreaks(tokens: CopyToken[]): CopyToken[] {
   return tokens.map((t, i) => {

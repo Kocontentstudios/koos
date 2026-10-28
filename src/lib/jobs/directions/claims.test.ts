@@ -1028,3 +1028,24 @@ it("reads a spelled-out count of days as days", () => {
   expect(inventedFacts("Six days in Rome, near Termini.", rome)).toEqual([]);
   expect(inventedFacts("Rome in six days", rome)).toEqual([]);
 });
+
+/* Round-14 code critic, finding 6: inventedFacts reads "one" as the
+   tokenizer does, and neither counts it in a set phrase (ONE_IDIOMS). */
+describe("inventedFacts, 'one' in a set phrase", () => {
+  const market = factLedger([
+    "Christmas market on Saturday 5 December from 5pm. 12 stalls.",
+    "Christmas market",
+  ]);
+  it.each([
+    "Gifts under one roof",
+    "Everything in one place",
+    "All-in-one gift box",
+    "Your one-stop gift shop",
+  ])("%j invents nothing", (headline) => {
+    expect(inventedFacts(headline, market)).toEqual([]);
+  });
+
+  it("still flags 'one' counting what the brief never names", () => {
+    expect(inventedFacts("One night only", market)).toContain("One");
+  });
+});

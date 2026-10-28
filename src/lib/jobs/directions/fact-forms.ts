@@ -2,6 +2,7 @@ import {
   type CopyToken,
   endsClause,
   isNumeric,
+  joinedInWords,
   joinsNumbers,
   runsOf,
   tokensOf,
@@ -46,6 +47,8 @@ interface Around {
   afterThat: CopyToken | undefined;
   /** Every token after the run, in its item. */
   following: readonly CopyToken[];
+  /** Every token before the run, in its item, nearest first. */
+  preceding: readonly CopyToken[];
   /** The whole field the run stands in: a footer item's whole line. */
   field: readonly CopyToken[];
   /** Where the run starts in `field`, or -1 when it cannot be placed. */
@@ -317,13 +320,19 @@ interface DateFact {
 }
 
 /* A weekday as a reader takes one: its full name in any case, or a short
-   one with its capital ("Sun", "SAT"). "Fun in the sun" names no day
-   (round-12 code critic, D2). */
+   one with its capital ("Sun", "SAT"), and either possessive or plural
+   ("Sunday's market", "Sundays"). "Fun in the sun" names no day (round-12
+   code critic, D2); "Sunday's market, 5 December" names Sunday (round-14
+   code critic, DS8). */
 function readsAsWeekday(t: CopyToken | undefined): string | null {
+  if (t?.kind !== "word") return null;
   const day = weekdayOf(t);
-  if (!day || !t) return null;
-  const full = day.slice(3) === t.text.toLowerCase();
-  return full || /^\p{Lu}/u.test(t.text) ? day : null;
+  if (day) {
+    const full = day.slice(3) === t.text.toLowerCase();
+    return full || /^\p{Lu}/u.test(t.text) ? day : null;
+  }
+  const base = t.text.toLowerCase().replace(/(?:['’]s|s)$/, "");
+  return WEEKDAY_NAMES.some((d) => d[0] === base) ? `w:~${base}` : null;
 }
 
 /* What may follow a year: a clause's end, a number or time, or one of
@@ -354,19 +363,77 @@ function clauseAround(
   return [start, stop];
 }
 
+/* The nearest clause before tokens[at] and after tokens[stop], skipping
+   the empty ones between marks: "Sunday!! 5 December" puts an empty
+   clause between the weekday and the date, which is no distance to a
+   reader. */
+function clauseBefore(
+  tokens: readonly CopyToken[],
+  at: number,
+): [number, number] | null {
+  let i = at - 1;
+  while (i >= 0 && tokens[i].breaks) i -= 1;
+  return i < 0 ? null : clauseAround(tokens, i, i + 1);
+}
+function clauseAfter(
+  tokens: readonly CopyToken[],
+  stop: number,
+): [number, number] | null {
+  let i = stop;
+  while (i < tokens.length && tokens[i].breaks) i += 1;
+  return i >= tokens.length ? null : clauseAround(tokens, i, i + 1);
+}
+
+/* What a date in a list may hold besides its weekday: "Saturday 5 and
+   Sunday 6 December", "Friday the 4th of December". */
+const isDatePart = (t: CopyToken | undefined) =>
+  isDayNumber(t) || monthOf(t) !== null || isYear(t) || word(t, "the", "of");
+
+/* The weekday of another date joined to the run by "and": in "Saturday 5
+   December and Sunday 6 December" Sunday is 6 December's, so it does not
+   contradict 5 December's Saturday (round-14 code critic, J30). Only a
+   weekday that starts the other date and stands right beside the "and" is
+   taken: anything looser could be the run's own. */
+function listedWeekdays(
+  field: readonly CopyToken[],
+  at: number,
+  end: number,
+): Set<number> {
+  const listed = new Set<number>();
+  const and = (t: CopyToken | undefined) => word(t, "and");
+  let next = end;
+  if (and(field[next])) {
+    next += 1;
+    if (word(field[next], "on")) next += 1;
+    if (readsAsWeekday(field[next]) && isDatePart(field[next + 1])) {
+      listed.add(next);
+    }
+  }
+  if (and(field[at - 1])) {
+    let i = at - 2;
+    while (i >= 0 && isDatePart(field[i])) i -= 1;
+    if (i < at - 2 && readsAsWeekday(field[i])) listed.add(i);
+  }
+  return listed;
+}
+
 /* A date's weekday and year may be left out, never contradicted. Another
-   weekday or year in the date's own clause refuses it. So does one right
-   beside a date that leaves it out, across a mark: the last word of the
-   clause before ("Sunday · 5 December", "open Sunday, 1 November"), or a
-   clause after that is the weekday alone or starts with the year ("5
-   December, Sunday", "5 December, 2025"); round-11 code critic, DM9 to
-   DM21, and the round-12 holdout, H47. A weekday or year further off
-   belongs to its own clause: "Preview Friday 4 December, launch Saturday 5
-   December" states both dates, "Serving Lagos since 2015 · Saturday 5
-   December 2026" its date, and "Friday 14 March · Saturday workshops" its
-   date (round-12 code critic, D6 to D9 and F68). A date given with no
-   weekday stands beside any: "Friday 1 November" states "1 November" (eval
-   a at 5d49a60, fashion and masterclass). */
+   weekday or year in the date's own clause refuses it, unless it is
+   another listed date's own ("Saturday 5 December and Sunday 6 December",
+   listedWeekdays). A date that leaves its weekday or year out is also
+   refused by any other one in the clause before or after it: "Sunday
+   morning, 5 December", "5 December. See you Sunday!", "Sunday's market,
+   5 December", "5 December, 2025". Round 13 took only the edge word of
+   the clause before and a clause after that was the weekday alone, and
+   so passed those three (round-14 code critic, DS1 to DS13): a wrong
+   "stated" ships a wrong day while the job reports it delivered, a wrong
+   "not stated" costs a fact-writer rewrite, so the wider rule is the one
+   kept. A date that carries its weekday ("Friday 14 March · Saturday
+   workshops") and a weekday two clauses off ("Preview Friday 4 December,
+   launch Saturday 5 December") still stand (round-12 code critic, D6 to
+   D9 and F68). A date given with no weekday stands beside any: "Friday 1
+   November" states "1 November" (eval a at 5d49a60, fashion and
+   masterclass). */
 function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
   const { run, field, at } = around;
   const otherDay = (i: number) => {
@@ -375,39 +442,32 @@ function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
   };
   const otherYear = (i: number) =>
     years.size > 0 && readsAsYear(field, i) && !years.has(field[i].value ?? 0);
-  const other = (i: number) => otherDay(i) || otherYear(i);
-  const indexes = (from: number, to: number) =>
+  const indexes = ([from, to]: [number, number]) =>
     Array.from({ length: Math.max(0, to - from) }, (_, k) => from + k);
   /* A run that cannot be placed in its field is read against all of it,
      as before: refusing more, never less. */
-  if (at < 0) return indexes(0, field.length).some(other);
+  if (at < 0) {
+    return indexes([0, field.length]).some((i) => otherDay(i) || otherYear(i));
+  }
   const end = at + run.length;
-  const [start, stop] = clauseAround(field, at, end);
-  if (indexes(start, stop).some(other)) return true;
+  const clause = clauseAround(field, at, end);
   const saysDay = run.some((t) => weekdayOf(t) !== null);
-  const saysYear = run.some(isYear);
+  /* The forms leave a year out and dateGuard lets one follow, so the
+     fact's own year right after the run is the date's: "Saturday 5
+     December 2026" carries its year (round-12 code critic, D6). */
+  const yearAt = field[end]?.key === "/" ? end + 1 : end;
+  const ownYearAfter =
+    readsAsYear(field, yearAt) && years.has(field[yearAt].value ?? 0);
+  const saysYear = run.some(isYear) || ownYearAfter;
+  const listed = saysDay ? listedWeekdays(field, at, end) : new Set<number>();
+  const inClause = (i: number) =>
+    (otherDay(i) && !listed.has(i)) || otherYear(i);
+  if (indexes(clause).some(inClause)) return true;
   const beside = (i: number) =>
     (!saysDay && otherDay(i)) || (!saysYear && otherYear(i));
-  const words = ([from, to]: [number, number]) =>
-    indexes(from, to).filter((i) => field[i].kind !== "mark");
-  /* "Sunday, the 5th of December": "the" before the run still leaves the
-     weekday beside it (round-11 code critic, DM21). */
-  let lead = start;
-  while (lead < at && word(field[lead], "the", "on")) lead += 1;
-  if (lead === at && start > 0) {
-    const before = words(clauseAround(field, start - 1, start - 1));
-    if (before.length > 0 && beside(before[before.length - 1])) return true;
-  }
-  if (stop === end && stop < field.length) {
-    const after = words(clauseAround(field, stop + 1, stop + 1));
-    const first = after[0];
-    if (first !== undefined && !saysYear && otherYear(first)) return true;
-    const dayAlone = after.every((i, k) => k === 0 || field[i].kind !== "word");
-    if (first !== undefined && !saysDay && otherDay(first) && dayAlone) {
-      return true;
-    }
-  }
-  return false;
+  return [clauseBefore(field, clause[0]), clauseAfter(field, clause[1])].some(
+    (near) => near !== null && indexes(near).some(beside),
+  );
 }
 
 function dateGuard(fact: DateFact, tail: readonly string[]): Guard {
@@ -1263,19 +1323,46 @@ function makeNumberFact(fact: {
 
 /* A run that starts or ends on a number may not continue a longer one:
    "1/20 stalls" and "1 200 guests" do not hold "20 stalls" or "200
-   guests" (round-11 code critic, O4 to O7), nor "9am-5pm" "5pm". A year
-   after a date's day ("December 5 2026") ends it. */
-function cutFromNumber({ run, before, after, afterThat }: Around): boolean {
+   guests" (round-11 code critic, O4 to O7), nor "9am-5pm" "5pm". A range
+   or ratio in words is one as surely: "Open 9am to 5pm" does not state
+   "5pm", "Runs 1 to 5 December" not "5 December", "Between 2 and 10
+   seats" and "1 in 10 seats" not "10 seats" (round-14 code critic, break
+   2). A year after a date's day ("December 5 2026", "December 5/2026")
+   ends it. */
+function cutFromNumber({
+  run,
+  before,
+  after,
+  afterThat,
+  following,
+  preceding,
+}: Around): boolean {
   const first = run[0];
   const last = run[run.length - 1];
-  if (isNumeric(first) && (isNumeric(before) || joinsNumbers(before))) {
+  if (
+    isNumeric(first) &&
+    (isNumeric(before) ||
+      joinsNumbers(before) ||
+      (joinedInWords(first, preceding) && !listsSpans(run, before)))
+  ) {
     return true;
   }
   return (
     isNumeric(last) &&
     ((isNumeric(after) && !isYear(after)) ||
-      (joinsNumbers(after) && !isYear(afterThat)))
+      (joinsNumbers(after) && !isYear(afterThat)) ||
+      (joinedInWords(last, following) && !listsSpans(run, after)))
   );
+}
+
+/* "and" beside a run that is itself a span lists another one: "Ages 5-12
+   and 13-17" states "Ages 5-12" (round-11 code critic, O13). */
+function listsSpans(run: readonly CopyToken[], join: CopyToken | undefined) {
+  const spans = run.some(
+    (t, k) =>
+      isNumeric(run[k - 1]) && isNumeric(run[k + 1]) && TO.includes(t.key),
+  );
+  return spans && word(join, "and");
 }
 
 /** Whether `form` runs whole in `tokens` (read by formTokensOf), its guard
@@ -1296,6 +1383,7 @@ export function formIn(
       after: tokens[end],
       afterThat: tokens[end + 1],
       following: tokens.slice(end),
+      preceding: tokens.slice(0, i).reverse(),
       field,
       at: offset < 0 ? -1 : offset + i,
     };
