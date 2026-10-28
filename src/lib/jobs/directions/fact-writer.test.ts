@@ -628,3 +628,68 @@ describe("a refused rewrite is traced with the model's text", () => {
     });
   });
 });
+
+/* Round-17 eval, textile store: two prices in one sentence state neither,
+   and the writer, told only "must state ₦6,500 a yard", returned the
+   sentence unchanged. It is told which value stands in the way. */
+describe("a fact whose words stand beside a rival value", () => {
+  const store =
+    "We're back at Shop 12, Balogun Market. Ankara from ₦6,500 a yard, lace bundles ₦38,000 for 5 yards.";
+  const storeFacts = settleBriefFacts(
+    [
+      { kind: "price", text: "₦6,500 a yard" },
+      { kind: "price", text: "₦38,000 for 5 yards" },
+    ],
+    store,
+    { region: "NG" },
+  ).facts;
+  const copy = {
+    headline: "We're back",
+    subheadline:
+      "Ankara from ₦6,500 a yard and lace bundles at ₦38,000 for 5 yards.",
+    footerLines: [],
+    footerStyle: "none" as const,
+  };
+
+  it("names the field and asks for a field of the fact's own", async () => {
+    const writer = vi.fn<FactWriter>(async () => []);
+    await settleFacts({
+      directions: [copy],
+      facts: storeFacts,
+      ledger: factLedger([store]),
+      writer,
+      claimCheck: passing,
+      briefText: store,
+      title: "",
+    });
+    const [request] = writer.mock.calls[0][0].requests;
+    expect(request.problems).toContainEqual(
+      expect.stringContaining(
+        'gives "₦6,500 a yard" beside another value of its kind',
+      ),
+    );
+    expect(request.problems).toContainEqual(
+      expect.stringContaining('give "₦38,000 for 5 yards" a field'),
+    );
+  });
+
+  it("takes a rewrite that gives each price its own field", async () => {
+    const writer = vi.fn<FactWriter>(async () => [
+      {
+        id: 0,
+        subheadline: "Ankara from ₦6,500 a yard.",
+        footerLines: ["Lace bundles ₦38,000 for 5 yards"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [copy],
+      facts: storeFacts,
+      ledger: factLedger([store]),
+      writer,
+      claimCheck: passing,
+      briefText: store,
+      title: "",
+    });
+    expect(out.leftOff).toEqual([]);
+  });
+});

@@ -1553,6 +1553,31 @@ export function contradictedRun(
   return null;
 }
 
+/** The text of a run of one of the fact's forms in `tokens` that would
+ *  state it but for another value of its kind in the field (rivalled), or
+ *  null. The fact writer is told which value stands in the way, since the
+ *  fact's own words are already there (round-17 eval, textile store: both
+ *  prices left one sentence and both were left off). */
+export function rivalledRun(
+  fact: NumberFact,
+  tokens: readonly CopyToken[],
+  field: readonly CopyToken[] = tokens,
+  design: readonly (readonly CopyToken[])[] = [field],
+): string | null {
+  for (const form of fact.forms) {
+    for (const around of aroundEach(form, tokens, field, design)) {
+      if (
+        !cutFromNumber(around) &&
+        (!form.guard || form.guard(around)) &&
+        rivalled(around, form.kind)
+      ) {
+        return around.run.map((t) => t.text).join(" ");
+      }
+    }
+  }
+  return null;
+}
+
 /* Every run of `form` in `tokens`, with what stands around it. */
 function aroundEach(
   form: FactForm,

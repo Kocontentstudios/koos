@@ -12,6 +12,7 @@ import {
   headlineInTheWay,
   isFragment,
   redundantFooterItems,
+  rivalledFacts,
   timeOnPhoneLine,
   withoutItem,
 } from "./brief-facts";
@@ -261,14 +262,42 @@ export function dateProblems(
     );
 }
 
+/** Each field the writer may change that holds a brief fact's words
+ *  beside another value of its kind, so states neither: the model sees
+ *  the fact's words already there and, untold, writes them again in the
+ *  same place (round-17 eval, textile store). */
+export function rivalProblems(
+  copy: Pick<FactCopy, "headline" | "subheadline" | "footerLines"> &
+    Partial<Pick<FactCopy, "cta">>,
+  facts: readonly BriefFact[],
+  { headline = false }: { headline?: boolean } = {},
+): string[] {
+  return rivalledFacts(facts, copy)
+    .filter(
+      ({ field }) =>
+        field === "subheadline" ||
+        field === "footer line" ||
+        (headline && field === "headline"),
+    )
+    .map(
+      ({ fact, field, text, run }) =>
+        `the ${field} "${text}" gives "${run}" beside another value of its kind, which reads as a choice and states neither; give "${fact}" a field or footer line of its own`,
+    );
+}
+
 /** What is wrong with a direction's copy that the writer may fix, the
- *  brief's dates read against every field it may change. */
+ *  brief's dates and rival values read against every field it may
+ *  change. */
 function allProblems(
   copy: FactCopy,
   facts: readonly BriefFact[],
   writable: { headline?: boolean } = {},
 ): string[] {
-  return [...copyProblems(copy), ...dateProblems(copy, facts, writable)];
+  return [
+    ...copyProblems(copy),
+    ...dateProblems(copy, facts, writable),
+    ...rivalProblems(copy, facts, writable),
+  ];
 }
 
 /** Why a new headline cannot replace the old, or null when it can: it

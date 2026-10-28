@@ -20,6 +20,7 @@ import {
   formTokensOf,
   meaningOf,
   numberFactOf,
+  rivalledRun,
 } from "./fact-forms";
 import { contentStems, stem } from "./text-overlap";
 
@@ -1164,16 +1165,7 @@ export function contradictedDates(
 ): DateContradiction[] {
   const parts = copyParts(copy);
   const design = drawnFieldsOf(parts);
-  const fieldOf = (line: string) =>
-    typeof copy === "string"
-      ? "copy"
-      : line === copy.headline
-        ? "headline"
-        : line === copy.subheadline
-          ? "subheadline"
-          : line === copy.cta
-            ? "button"
-            : "footer line";
+  const fieldOf = (line: string) => fieldNameOf(copy, line);
   const found: DateContradiction[] = [];
   for (const fact of facts) {
     if (fact.kind !== "date") continue;
@@ -1193,6 +1185,48 @@ export function contradictedDates(
       );
       if (run && !seen) {
         found.push({ fact: fact.text, field, text: part.line, run });
+      }
+    }
+  }
+  return found;
+}
+
+/** A brief fact whose own words a field holds beside another value of
+ *  its kind, so the field states neither (Oluwaseyi's ruling,
+ *  2026-10-28). */
+export interface RivalledFact {
+  fact: string;
+  field: string;
+  text: string;
+  run: string;
+}
+
+/** Each field that holds a brief fact's words but does not state it
+ *  because another value of its kind stands in the same field. */
+export function rivalledFacts(
+  facts: readonly BriefFact[],
+  copy: CopyFields,
+): RivalledFact[] {
+  const parts = copyParts(copy);
+  const design = drawnFieldsOf(parts);
+  const found: RivalledFact[] = [];
+  for (const fact of facts) {
+    const numbered = numberFactOf(fact);
+    if (!numbered || factStated(fact, copy)) continue;
+    for (const part of parts) {
+      const run = rivalledRun(
+        numbered,
+        formTokensOf(part.text),
+        formTokensOf(part.line),
+        design,
+      );
+      if (run && !found.some((f) => f.fact === fact.text)) {
+        found.push({
+          fact: fact.text,
+          field: fieldNameOf(copy, part.line),
+          text: part.line,
+          run,
+        });
       }
     }
   }
@@ -1286,6 +1320,14 @@ function withoutField<T extends FactCopy>(
     footerLines,
     footerStyle: footerLines.length > 0 ? copy.footerStyle : "none",
   };
+}
+
+function fieldNameOf(copy: string | CopyFields, line: string): string {
+  if (typeof copy === "string") return "copy";
+  if (line === copy.headline) return "headline";
+  if (line === copy.subheadline) return "subheadline";
+  if (line === copy.cta) return "button";
+  return "footer line";
 }
 
 /** Every field a design draws, read as the forms read them: a footer line
