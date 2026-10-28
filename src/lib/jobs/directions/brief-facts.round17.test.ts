@@ -296,6 +296,20 @@ const STANDS: Row[] = [
     true,
   ],
   [
+    "K15: a price on a phone's line",
+    "price",
+    "₦2,000 each",
+    design("Chin chin", "", ["₦2,000 each · WhatsApp 0803 555 0142"]),
+    true,
+  ],
+  [
+    "a count beside a phone",
+    "quantity",
+    "10 seats",
+    design("Class", "", ["10 seats · Call 08035550142"]),
+    true,
+  ],
+  [
     "the same value again",
     "time",
     "6pm",

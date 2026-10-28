@@ -1374,6 +1374,13 @@ const isBare = (tokens: readonly CopyToken[], i: number) =>
 const isAgeOrShare = (t: CopyToken | undefined) =>
   t?.key === "+" || t?.key === "%";
 
+/* A phone's digit groups ("0803 555 0142", "08035550142") are one
+   contact, not values: a price or count on a phone's line stands. */
+const isPhoneDigits = (tokens: readonly CopyToken[], i: number) =>
+  /^0\d/.test(tokens[i].text) ||
+  isNumber(tokens[i - 1]) ||
+  isNumber(tokens[i + 1]);
+
 /* "6k" is six thousand: the tokenizer reads a scale only after a
    currency. */
 const SCALES: Record<string, number> = {
@@ -1408,7 +1415,8 @@ function rivalAt(
   const t = tokens[i];
   const besideMonth =
     monthOf(tokens[i - 1]) !== null || monthOf(tokens[i + 1]) !== null;
-  const plain = isNumber(t) && !isYear(t) && !besideMonth;
+  const plain =
+    isNumber(t) && !isYear(t) && !besideMonth && !isPhoneDigits(tokens, i);
   switch (kind) {
     case "time":
       return (
