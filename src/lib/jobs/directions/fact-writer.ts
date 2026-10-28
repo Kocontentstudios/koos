@@ -107,6 +107,7 @@ export function buildFactWritePrompt({
       `- The footer is at most ${MAX_FOOTER_LINES} lines of at most 60 characters; items on one line are joined by " · ".`,
       '- Every footer item says what it is ("Call 0803 555 0142", "Open 9am to 4pm"); none is a bare number, time or word.',
       "- Never put a time or opening hours on the same footer line as a phone number.",
+      '- Give each time, price, date and count a field of its own (the headline, the subheadline, the button, or one footer line). Two of a kind in one field read as a choice and state neither ("Doors 3pm, panel 4pm", "₦4,500 a slice, ₦30,000 the cake"); a range written whole ("6pm to 9pm") is one value. A count shares its field with no other number ("10 seats · 18+" states no count), and a time with no other small number ("three shots, from 8am" states no time); a price or a date beside either is fine ("Thursday 20 November · 6pm to 9pm", "₦25,000 a seat · 10 seats").',
       "- No footer item repeats the headline, the subheadline, the button or another footer item, and the subheadline never says again a price, number, name or phrase the headline or button already says: leave that out of it.",
       '- Use only what the brief says. Add no fact, claim or quality of your own, and no word of scarcity or urgency the brief does not use ("only", "just", "hurry", "last chance").',
     ].join("\n"),

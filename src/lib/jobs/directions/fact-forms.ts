@@ -1352,88 +1352,88 @@ function cutFromNumber({ run, before, after, afterThat }: Around): boolean {
   );
 }
 
-/* "One in 10 seats": "one" counts here, though the tokenizer reads it as
-   a number only before what it counts. */
-const isCount = (t: CopyToken | undefined) => isNumber(t) || t?.key === "w:one";
-
-/* What a count counts: the word after its number ("10 seats"), or the
-   label before it ("Seats: 10"). */
-function countNoun(run: readonly CopyToken[]): string | null {
-  const n = run.findIndex(isCount);
-  const after = run[n + 1];
-  if (after?.kind === "word") return after.key;
-  return run.find((t) => t.kind === "word")?.key ?? null;
+/* A number a month or an ordinal makes a calendar day: "5 December",
+   "Dec 6", "the 6th". */
+function isDated(tokens: readonly CopyToken[], i: number): boolean {
+  const t = tokens[i];
+  return (
+    isDayNumber(t) &&
+    (Boolean(t.ordinal) ||
+      monthOf(tokens[i - 1]) !== null ||
+      monthOf(tokens[i + 1]) !== null)
+  );
 }
 
-/* After a date, a number is another day only before a month, a break or
-   as an ordinal: "5 December or 6", "5 December, 12 stalls" counts
-   stalls. */
-const dayAfter = (n: CopyToken | undefined, next: CopyToken | undefined) =>
-  isDayNumber(n) &&
-  (Boolean(n?.ordinal) || endsClause(next) || monthOf(next) !== null);
+/* A number nothing after it gives a meaning: it ends the field or its
+   clause ("or 6", "4, 5 December"). */
+const isBare = (tokens: readonly CopyToken[], i: number) =>
+  isNumber(tokens[i]) && endsClause(tokens[i + 1]);
 
-/* Whether `n`, across `join` from the run on `side`, is another value of
-   the fact's kind: another clock time beside a time, another amount
-   beside a price, another day beside a date, another count of the same
-   thing beside a count. `next` follows `n`. */
-function rivalAcross(
-  kind: string | undefined,
-  run: readonly CopyToken[],
-  [join, n, next]: readonly CopyToken[],
-  side: "before" | "after",
+/* A "+" or "%" makes a number an age or a share ("18+", "10%"), which no
+   time is read as. */
+const isAgeOrShare = (t: CopyToken | undefined) =>
+  t?.key === "+" || t?.key === "%";
+
+/* "6k" is six thousand: the tokenizer reads a scale only after a
+   currency. */
+const SCALES: Record<string, number> = {
+  "w:k": 1_000,
+  "w:m": 1_000_000,
+  "w:million": 1_000_000,
+};
+const amountAt = (tokens: readonly CopyToken[], i: number) =>
+  (tokens[i].value ?? 0) * (SCALES[tokens[i + 1]?.key ?? ""] ?? 1);
+
+/* What counts as another value of the fact's kind, anywhere in its field
+   (Oluwaseyi's ruling, 2026-10-28), read broadly so that an unlisted
+   noun, joiner or mark can only refuse copy:
+   - a time: any other clock time, or a plain number that could be an
+     hour ("Six or 7pm", "7pm or 9", "Doors 6.30 or 7pm");
+   - a price: any other amount, or a plain number of at least a tenth of
+     the run's ("4,500 or ₦6,000", "₦4,500 or 6k"), so "three shots for
+     ₦6,000" is not one;
+   - a date: any other day of the month a month or an ordinal dates
+     ("or 6 December", "or the 6th"), a bare one ("5 December, or 6"),
+     and one before the run in its clause, which takes the run's month
+     ("4 and 5 December", "Apply between 1 and 30 November");
+   - a count: any other number that is not a year or beside a month,
+     whatever it counts ("5 rows of 10 seats", "10 seats or 12 spots",
+     "1 of 10 seats left", "10th of 10 seats"). */
+function rivalAt(
+  kind: string,
+  tokens: readonly CopyToken[],
+  i: number,
+  run: { amount: number; clause: readonly [number, number]; start: number },
 ): boolean {
-  const acrossWord = join.kind === "word";
-  const bare = isNumber(n) && !isYear(n);
+  const t = tokens[i];
+  const besideMonth =
+    monthOf(tokens[i - 1]) !== null || monthOf(tokens[i + 1]) !== null;
+  const plain = isNumber(t) && !isYear(t) && !besideMonth;
   switch (kind) {
     case "time":
-      return n?.kind === "clock" || (bare && acrossWord);
-    case "price":
-      return n?.kind === "money" || (bare && acrossWord);
-    case "date":
-      return side === "before" ? isDayNumber(n) : dayAfter(n, next);
-    case "quantity":
-      /* Before the run a number takes the run's noun ("8 or 10 seats");
-         after it, when it names that noun or none ("10 seats vs 20
-         seats", "10 seats or 12"). "10 seats in 2 rooms" counts rooms. */
       return (
-        isCount(n) &&
-        (side === "before" ||
-          next?.key === countNoun(run) ||
-          (acrossWord && next?.kind !== "word"))
+        t.kind === "clock" ||
+        (plain &&
+          !t.ordinal &&
+          (t.value ?? 0) <= 24 &&
+          !isAgeOrShare(tokens[i + 1]))
       );
-    default:
-      return isNumeric(n) && acrossWord;
-  }
-}
-
-/* Whether the run's clause holds, outside the run, another value of the
-   fact's kind: a second clock time or amount anywhere, another day before
-   the date (which may share its month) or after it as dayAfter reads one,
-   another count of the same thing. `before` and `after` are the clause's
-   tokens on each side of the run, in reading order. */
-function rivalInClause(
-  kind: string | undefined,
-  run: readonly CopyToken[],
-  before: readonly CopyToken[],
-  after: readonly CopyToken[],
-): boolean {
-  const either = [...before, ...after];
-  switch (kind) {
-    case "time":
-      return either.some((t) => t.kind === "clock");
     case "price":
-      return either.some((t) => t.kind === "money");
-    case "date":
       return (
-        before.some(isDayNumber) ||
-        after.some((t, i) => dayAfter(t, after[i + 1]))
+        t.kind === "money" ||
+        (plain && !t.ordinal && amountAt(tokens, i) * 10 >= run.amount)
       );
-    case "quantity": {
-      const noun = countNoun(run);
-      const counts = (side: readonly CopyToken[]) =>
-        side.some((t, i) => isCount(t) && side[i + 1]?.key === noun);
-      return noun !== null && (counts(before) || counts(after));
+    case "date": {
+      const inClauseBefore = i < run.start && i >= run.clause[0];
+      return (
+        isDated(tokens, i) ||
+        (isDayNumber(t) && (isBare(tokens, i) || inClauseBefore))
+      );
     }
+    case "quantity":
+      /* "One in 10 seats": "one" is read as a number only before what it
+         counts, but here it is one. */
+      return plain || t.key === "w:one";
     default:
       return false;
   }
@@ -1441,20 +1441,26 @@ function rivalInClause(
 
 const RIVAL_KINDS = ["time", "price", "date", "quantity"];
 
+/* What a value is compared by: "one" is 1, and an ordinal ("10th of 10
+   seats") is a position, not the count. */
+const valueKey = (t: CopyToken) =>
+  `${t.key === "w:one" ? "n:1" : t.key}${t.ordinal ? "th" : ""}`;
+
 /**
- * Whether another value of the fact's own kind stands beside the run, so
- * the run is one end of a range or one choice of several: "9am til 5pm",
- * "9am ~ 5pm", "Doors 6pm or 7pm", "₦4,500 or ₦6,000", "4, 5 December",
- * "One in 10 seats", "10 seats vs 20 seats". Beside is across one word or
- * mark (right next to it is cutFromNumber's), and for a run of one value
- * anywhere in its clause. Rounds 14 and 15 listed the words that join two
- * numbers ("to", "and", "in"), and every word or mark not listed ("til",
- * "or", "vs", "~", "→", "…") passed the single value (round-15 code
- * critic, finding 2). A refused run costs a fact-writer rewrite; a passed
- * one ships "5pm" for "9am til 5pm" while the job counts the time
- * delivered. A run that is itself a span lists another beside "and"
- * ("Ages 5-12 and 13-17", "2pm-5pm and 6pm-9pm"). Other kinds keep the
- * old reach: a number across one word from the run's numeric edge.
+ * Whether the run's field holds another value of the fact's own kind, so
+ * the run may be one end of a range or one choice of several: "6am, or
+ * 7am", "₦6,000 (or ₦5,000)", "5 December, or 6", "16 places, or 20".
+ * Field-wide, by Oluwaseyi's ruling of 2026-10-28: the field is the
+ * headline, the subheadline, the button or one drawn footer line. Rounds
+ * 14 to 16 looked one word or mark past the run, then one clause, and
+ * each critic put the rival one step further ("6am, or 7am", round-16
+ * code critic, finding 1). A value the run itself holds is the fact's
+ * own: the other end of its range, or the same value said again. Correct
+ * copy with two values of a kind in one field ("Doors 3pm, panel 4pm")
+ * is refused, and the fact writer gives each its own field.
+ *
+ * Kinds without a rival rule (an age, a place) are refused by any other
+ * number in their own clause: "18+ or 21+".
  */
 function rivalled(around: Around, kind: string | undefined): boolean {
   const { run, field, at, preceding, following } = around;
@@ -1462,42 +1468,24 @@ function rivalled(around: Around, kind: string | undefined): boolean {
     at >= 0 ? field : [...[...preceding].reverse(), ...run, ...following];
   const start = at >= 0 ? at : preceding.length;
   const end = start + run.length;
-  const behind = tokens.slice(0, start).reverse();
-  const ahead = tokens.slice(end);
-  const typed = RIVAL_KINDS.includes(kind ?? "");
-  const across = (side: readonly CopyToken[], name: "before" | "after") => {
-    const edge = name === "before" ? run[0] : run[run.length - 1];
-    if (!side[0] || isNumeric(side[0]) || listsSpans(run, side[0])) {
-      return false;
-    }
-    if (!typed && !isNumeric(edge)) return false;
-    /* A date led by its weekday starts there: in "Saturday 5 and Sunday 6
-       December" the 5 is Saturday's (round-14 L3). */
-    if (kind === "date" && weekdayOf(edge) !== null) return false;
-    return rivalAcross(kind, run, side, name);
-  };
-  if (across(behind, "before") || across(ahead, "after")) return true;
-  if (!typed || run.filter(isNumeric).length !== 1) return false;
-  /* A date that carries its own weekday names its own day in a list:
-     "Saturday 5 December and Sunday 6 December". */
-  if (kind === "date" && run.some((t) => weekdayOf(t) !== null)) return false;
-  const [from, to] = clauseAround(tokens, start, end);
-  return rivalInClause(
-    kind,
-    run,
-    tokens.slice(from, start),
-    tokens.slice(end, to),
-  );
-}
-
-/* "and" beside a run that is itself a span lists another one: "Ages 5-12
-   and 13-17" states "Ages 5-12" (round-11 code critic, O13). */
-function listsSpans(run: readonly CopyToken[], join: CopyToken | undefined) {
-  const spans = run.some(
-    (t, k) =>
-      isNumeric(run[k - 1]) && isNumeric(run[k + 1]) && TO.includes(t.key),
-  );
-  return spans && word(join, "and");
+  const own = new Set(run.filter(isNumeric).map(valueKey));
+  const outside = (i: number) =>
+    (i < start || i >= end) && !own.has(valueKey(tokens[i]));
+  const clause = clauseAround(tokens, start, end);
+  if (kind && RIVAL_KINDS.includes(kind)) {
+    const amount = Math.max(
+      0,
+      ...run.filter((t) => t.kind === "money").map((t) => t.value ?? 0),
+    );
+    return tokens.some(
+      (_, i) =>
+        outside(i) && rivalAt(kind, tokens, i, { amount, clause, start }),
+    );
+  }
+  if (!run.some(isNumeric)) return false;
+  return tokens
+    .slice(...clause)
+    .some((t, k) => isNumeric(t) && outside(clause[0] + k));
 }
 
 /** The text of a run of one of the date's forms in `tokens` that the

@@ -326,6 +326,23 @@ describe("settleFacts", () => {
     );
   });
 
+  /* The verifier refuses a value with another of its kind in its field
+     (Oluwaseyi's ruling, 2026-10-28), so the writer is told the rule it
+     is held to. */
+  it("tells the model to give each time, price, date and count its own field", () => {
+    const prompt = buildFactWritePrompt({
+      requests: [
+        { id: 0, copy: direction, missing: ["x"], keep: [], problems: [] },
+      ],
+      briefText: brief,
+      title: "",
+    });
+    expect(prompt).toContain(
+      "Give each time, price, date and count a field of its own",
+    );
+    expect(prompt).toContain('"10 seats · 18+" states no count');
+  });
+
   it("asks nothing of a direction that is complete", async () => {
     const writer = vi.fn();
     const complete = {

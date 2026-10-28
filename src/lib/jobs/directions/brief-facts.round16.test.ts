@@ -123,20 +123,22 @@ const DATE_ROWS: Row[] = [
     design("Brunch", "Open 5 December", [], "Book for Sunday"),
     false,
   ],
-  /* What must still stand: a run that carries its own weekday. */
+  /* These stood in round 16 because each date carries its own weekday;
+     two dated days in one field are now refused (Oluwaseyi's ruling,
+     2026-10-28, field-wide rivals). */
   [
     "A14",
     "date",
     "Saturday 5 December",
     design("Brunch", "Saturday 5 December and Sunday 6 December"),
-    true,
+    false,
   ],
   [
     "A15",
     "date",
     "Sunday 6 December",
     design("Brunch", "Saturday 5 December and Sunday 6 December"),
-    true,
+    false,
   ],
   [
     "A21",
@@ -157,7 +159,7 @@ const DATE_ROWS: Row[] = [
     "date",
     "Saturday 5 December",
     design("Brunch", "Saturday 5 December and on Sunday 6 December"),
-    true,
+    false,
   ],
   [
     "own weekday elsewhere",
@@ -265,9 +267,17 @@ const RIVAL_ROWS: Row[] = [
     design("Class", "8 ~ 10 seats"),
     false,
   ],
-  /* What must still stand. */
-  ["B18", "quantity", "10 seats", design("Class", "1 out of 10 seats"), true],
-  ["B19", "quantity", "10 seats", design("Class", "10 seats in 2 rooms"), true],
+  /* Every row below stood in round 16. Those now false are refused by
+     Oluwaseyi's ruling of 2026-10-28 (any other value of the kind in the
+     field, whatever joins it); those still true have no such value. */
+  ["B18", "quantity", "10 seats", design("Class", "1 out of 10 seats"), false],
+  [
+    "B19",
+    "quantity",
+    "10 seats",
+    design("Class", "10 seats in 2 rooms"),
+    false,
+  ],
   ["B20", "quantity", "10 seats", design("Class", "Up to 10 seats"), true],
   [
     "B21",
@@ -281,22 +291,22 @@ const RIVAL_ROWS: Row[] = [
     "quantity",
     "20 African countries",
     design("Send money home", "1 app, 20 African countries"),
-    true,
+    false,
   ],
   [
     "K45",
     "quantity",
     "10 seats",
     design("Pottery night", "10 seats, 18+"),
-    true,
+    false,
   ],
-  ["B35", "time", "4pm", design("Panel", "Panel at 4pm, doors 3pm"), true],
+  ["B35", "time", "4pm", design("Panel", "Panel at 4pm, doors 3pm"), false],
   [
     "K18",
     "time",
     "4pm",
     design("Building for Heat", "Doors 3pm, panel 4pm"),
-    true,
+    false,
   ],
   ["B36", "time", "4pm", design("Panel", "Panel 4pm and drinks after"), true],
   [
@@ -304,14 +314,14 @@ const RIVAL_ROWS: Row[] = [
     "time",
     "9am to 5pm",
     design("Open", "Open 9am to 5pm and 6pm to 9pm"),
-    true,
+    false,
   ],
   [
     "K3",
     "price",
     "₦4,500 a slice",
     design("Mille-feuille", "₦4,500 a slice, or ₦30,000 the whole cake"),
-    true,
+    false,
   ],
   [
     "K26",
