@@ -218,6 +218,32 @@ describe("isNearDuplicateHeadline on short headlines", () => {
     expect(isNearDuplicateHeadline(a, b)).toBe(false);
   });
 
+  /* Round-16 code critic, finding 2: two headlines whose only content
+     word is the same scored their whole wording, 0.25, and read apart. */
+  it.each([
+    ["We're hiring", "Now hiring"],
+    ["Hiring now", "We're hiring!"],
+    ["Our croissants", "Croissants for you"],
+    ["Open again", "We're open"],
+    ["Coffee, your way", "Your coffee"],
+  ])("%j and %j share their only content word and read as one", (a, b) => {
+    expect(isNearDuplicateHeadline(a, b)).toBe(true);
+  });
+
+  it.each([
+    ["Made for you", "Baked for you"],
+    ["Bread for you", "Cake for you"],
+    ["Make it merry", "Merry and bright"],
+  ])("%j and %j differ in their content word and stay apart", (a, b) => {
+    expect(isNearDuplicateHeadline(a, b)).toBe(false);
+  });
+
+  it("keeps a headline that only adds a word to the other a near-duplicate", () => {
+    expect(isNearDuplicateHeadline("All for you", "All for you, always")).toBe(
+      true,
+    );
+  });
+
   it("scores the pair check's headline the same way", () => {
     const pair = (a: string, b: string) =>
       directionOverlap(
@@ -227,5 +253,7 @@ describe("isNearDuplicateHeadline on short headlines", () => {
       ).headline;
     expect(pair("It's all for you", "All for you")).toBeGreaterThanOrEqual(0.5);
     expect(pair("Slow mornings", "Slow down")).toBeLessThan(0.5);
+    expect(pair("We're hiring", "Now hiring")).toBeGreaterThanOrEqual(0.5);
+    expect(pair("Made for you", "Baked for you")).toBeLessThan(0.5);
   });
 });

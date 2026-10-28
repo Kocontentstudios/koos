@@ -179,12 +179,32 @@ const allStems = (text: string, ignore: ReadonlySet<string>) =>
       .filter((s) => !ignore.has(s)),
   );
 
+/* "We're" and "It's" are a stop word and its verb, not a content word
+   ("We're hiring" against "Now hiring"). */
+const withoutContractions = (text: string) =>
+  text.replace(/['’](?:re|s|ll|ve|d|m)\b/gi, "");
+
+const wordCount = (text: string) =>
+  text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+
+const contains = (outer: ReadonlySet<string>, inner: ReadonlySet<string>) =>
+  [...inner].every((s) => outer.has(s));
+
 /** How much two headlines say the same words: the headline score of
- *  directionOverlap. Content words decide when each headline has two and
- *  they share two; when either has fewer, the whole wording is compared,
- *  stop words kept, so "All for you" meets "It's all for you" and "Bake
- *  with us" stays apart from "Bake it yourself"; one shared content word
- *  counts no further than the whole wording agrees. */
+ *  directionOverlap.
+ *  - Two content words shared: content words decide.
+ *  - None shared: two headlines of stop words, or one that only adds
+ *    words to the other ("All for you, always"), are compared whole,
+ *    stop words kept ("All for you" meets "It's all for you"); otherwise
+ *    a different content word is a different idea ("Made for you"
+ *    against "Baked for you").
+ *  - One shared, and it is each headline's only content word: the same
+ *    idea when the shorter is two words or fewer, the word and one other
+ *    ("We're hiring" against "Now hiring", "Our croissants" against
+ *    "Croissants for you"), round-16 code critic, finding 2. Longer
+ *    headlines say more around it ("Bake with us" against "Bake it
+ *    yourself"), and one shared content word counts no further than the
+ *    whole wording agrees ("Slow mornings" against "Slow down"). */
 export function headlineOverlap(
   a: string,
   b: string,
@@ -192,10 +212,22 @@ export function headlineOverlap(
 ): number {
   const [sa, sb] = [contentStems(a, ignore), contentStems(b, ignore)];
   const content = jaccard(sa, sb);
-  const whole = jaccard(allStems(a, ignore), allStems(b, ignore));
-  if (sa.size < MIN_SHARED_STEMS && sb.size < MIN_SHARED_STEMS) return whole;
+  const [wa, wb] = [allStems(a, ignore), allStems(b, ignore)];
+  const whole = jaccard(wa, wb);
   const shared = [...sa].filter((s) => sb.has(s)).length;
-  return shared >= MIN_SHARED_STEMS ? content : Math.min(content, whole);
+  if (shared >= MIN_SHARED_STEMS) return content;
+  if (shared === 0) {
+    const stopWordsOnly = sa.size === 0 && sb.size === 0;
+    return stopWordsOnly || contains(wa, wb) || contains(wb, wa)
+      ? whole
+      : content;
+  }
+  const [ca, cb] = [a, b].map((h) =>
+    contentStems(withoutContractions(h), ignore),
+  );
+  const sameOnlyWord = ca.size === 1 && cb.size === 1;
+  if (sameOnlyWord && Math.min(wordCount(a), wordCount(b)) <= 2) return 1;
+  return Math.min(content, whole);
 }
 
 /** Whether two headlines would read as one design drawn twice: the
