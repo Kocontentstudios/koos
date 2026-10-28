@@ -11,7 +11,6 @@ import {
   factStated,
   headlineInTheWay,
   isFragment,
-  isProductName,
   redundantFooterItems,
   rivalledFacts,
   timeOnPhoneLine,
@@ -286,25 +285,27 @@ export function rivalProblems(
     );
 }
 
-/** Each footer item that is only the product's name while no field above
- *  names it: the design names its product only in small print (round-17
- *  eval at 0d661d4, bakery: a rewrite taken in part moved "Strawberry
- *  mille-feuille" out of the subheadline and into the footer). */
-export function productProblems(
-  copy: FactCopy,
+/** Why a rewrite moved the product's name off the copy above into the
+ *  footer, or null: the design then names its product only in small print
+ *  (round-17 eval at 0d661d4, bakery: a rewrite taken in part moved
+ *  "Strawberry mille-feuille" out of the subheadline onto a footer line of
+ *  its own). A product the draft never named above may still be written
+ *  into the footer: named there beats not named. */
+export function productMovedDown(
+  before: FactCopy,
+  after: FactCopy,
   facts: readonly BriefFact[],
-): string[] {
-  const above = { ...copy, footerLines: [] };
-  return facts
-    .filter((f) => f.kind === "product" && !factStated(f, above))
-    .flatMap((f) =>
-      footerItemsOf(copy.footerLines)
-        .filter((item) => isProductName(item, f.text))
-        .map(
-          (item) =>
-            `the footer item "${item}" is only the product's name; name "${f.text}" in the headline or subheadline and leave it out of the footer`,
-        ),
-    );
+): string | null {
+  const above = (copy: FactCopy) => ({ ...copy, footerLines: [] });
+  const moved = facts.find(
+    (f) =>
+      f.kind === "product" &&
+      factStated(f, above(before)) &&
+      !factStated(f, above(after)),
+  );
+  return moved
+    ? `it moves "${moved.text}" out of the headline and subheadline; keep the product named above the footer`
+    : null;
 }
 
 /** What is wrong with a direction's copy that the writer may fix, the
@@ -319,7 +320,6 @@ function allProblems(
     ...copyProblems(copy),
     ...dateProblems(copy, facts, writable),
     ...rivalProblems(copy, facts, writable),
-    ...productProblems(copy, facts),
   ];
 }
 
@@ -422,6 +422,8 @@ export function rewriteFault(
     const fault = copyFault(line, COPY_LIMITS.footerLine, ledger);
     if (fault) return `footer line "${line}": ${fault}`;
   }
+  const movedDown = productMovedDown(before, after, facts);
+  if (movedDown) return movedDown;
   const lost = facts.filter(
     (f) => factStated(f, before) && !factStated(f, after),
   );

@@ -11,7 +11,7 @@ const { factLedger } = await import("./claims");
 const {
   buildFactWritePrompt,
   copyProblems,
-  productProblems,
+  productMovedDown,
   rewriteFault,
   settleFacts,
   writeFacts,
@@ -725,28 +725,21 @@ describe("a product named only in the footer", () => {
     footerStyle: "text" as const,
   };
 
-  it("is a problem the writer is asked to fix", () => {
+  it("may still be written into the footer when no field above named it", () => {
+    const unnamed = {
+      ...named,
+      subheadline: "Order ahead from Monday. ₦4,500 a slice.",
+    };
     expect(
-      productProblems(
+      productMovedDown(
+        unnamed,
         {
-          ...named,
-          subheadline: "Order ahead from Monday. ₦4,500 a slice.",
+          ...unnamed,
           footerLines: ["Strawberry mille-feuille", "@crumbandco.ng"],
         },
         bakeryFacts,
       ),
-    ).toEqual([
-      'the footer item "Strawberry mille-feuille" is only the product\'s name; name "strawberry mille-feuille" in the headline or subheadline and leave it out of the footer',
-    ]);
-  });
-
-  it("is no problem when the copy above names it too", () => {
-    expect(
-      productProblems(
-        { ...named, footerLines: ["Strawberry mille-feuille"] },
-        bakeryFacts,
-      ),
-    ).toEqual([]);
+    ).toBeNull();
   });
 
   it("refuses a rewrite that moves the product's name into the footer", () => {
@@ -760,6 +753,8 @@ describe("a product named only in the footer", () => {
       bakeryFacts,
       bakeryLedger,
     );
-    expect(fault).toMatch(/is only the product's name/);
+    expect(fault).toMatch(
+      /moves "strawberry mille-feuille" out of the headline/,
+    );
   });
 });
