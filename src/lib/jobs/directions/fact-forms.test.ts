@@ -226,3 +226,40 @@ describe("the repeat checks read clauses as the verifier does", () => {
     ).toEqual(dropped);
   });
 });
+
+/* Eval run a at 5d49a60, replayed through both verifiers
+   (critique-11/verdict-diffs.txt): delivered copy the forms first read
+   wrong. A date with no weekday was refused beside any weekday, and an
+   amountless price was read by its words anywhere. */
+describe("delivered copy from eval run a", () => {
+  it.each([
+    ["date", "1 November", "Pre-orders open Friday 1 November. ₦38,000.", true],
+    ["date", "9 November", "Join us on Sunday 9 November, 2pm to 5pm.", true],
+    ["date", "9 November", "Come pour on Sunday, 9 November from 2pm.", true],
+    ["price", "first class is free", "Your first HIIT class is free.", false],
+    ["price", "first session is free", "First session is free", true],
+    [
+      "quantity",
+      "Two 90-minute sessions a week",
+      "Maths and physics tutoring at home, with two 90-minute sessions a week.",
+      true,
+    ],
+    ["age", "18+", "Adults 18+ · Just 10 seats", true],
+    /* Recorded fail-closed: an amount and its unit in different sentences,
+       and a list joined by a comma for the brief's "and". */
+    [
+      "price",
+      "three shots for ₦6,000",
+      "Three shots. One origin. ₦6,000.",
+      false,
+    ],
+    [
+      "quantity",
+      "six pastries and a handwritten card",
+      "Six pastries, a handwritten card, ₦25,000.",
+      false,
+    ],
+  ] as const)("%s %j in %j: %s", (kind, text, copy, stated) => {
+    expect(factStated(fact(kind, text), field(copy))).toBe(stated);
+  });
+});

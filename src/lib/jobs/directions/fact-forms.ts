@@ -247,9 +247,11 @@ function dateGuard(weekday: string | null): Guard {
        is the other number's. */
     const joined = before?.kind === "mark" && !before.breaks;
     if (isNumber(before) || before?.kind === "clock" || joined) return false;
+    /* A fact with no weekday is stated beside any: "Friday 1 November"
+       states "1 November" (eval a at 5d49a60, fashion and masterclass). */
     const otherDay = (t: CopyToken | undefined) => {
       const day = weekdayOf(t);
-      return day !== null && day !== weekday;
+      return weekday !== null && day !== null && day !== weekday;
     };
     if (otherDay(before) || (before?.key === "," && otherDay(beforeThat))) {
       return false;

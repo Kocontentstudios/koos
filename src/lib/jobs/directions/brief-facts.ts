@@ -1075,9 +1075,6 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
   /* A time printed on a phone's line reads as the phone's hours (round-6
      live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
   if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
-  /* An offer or condition is its whole span: three words in four of "Free
-     delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic). */
-  if (isSpan(fact.kind)) return holdsWhole(fact.text, part.text);
   const numbered = numberFactOf(fact);
   if (numbered) {
     const tokens = formTokensOf(part.text);
@@ -1087,6 +1084,13 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
       numbered.days.every((d) => days.has(d)) &&
       needsHold(numbered.alsoNeeds, part.text)
     );
+  }
+  /* An offer or condition is its whole span: three words in four of "Free
+     delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic).
+     So is a price with no amount ("first session is free"): its words
+     scattered are not its terms. */
+  if (isSpan(fact.kind) || fact.kind === "price") {
+    return holdsWhole(fact.text, part.text);
   }
   return holdsWhole(fact.text, part.text) || needsHold(fact.needs, part.text);
 }
