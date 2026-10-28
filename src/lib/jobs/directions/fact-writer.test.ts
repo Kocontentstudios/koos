@@ -596,3 +596,35 @@ describe("a wrong day in a field the writer may not change", () => {
     expect(asksHeadline).toBe(request.headlineMayChange === true);
   });
 });
+
+/* Round-16 code critic, finding 7: a refused rewrite was logged by its
+   reason alone, so a refusal could not be checked against the text. */
+describe("a refused rewrite is traced with the model's text", () => {
+  it("keeps what the model wrote beside why it was refused", async () => {
+    const writer = vi.fn<FactWriter>(async () => [
+      {
+        id: 0,
+        subheadline: "Cook over real fire in Ikoyi.",
+        footerLines: ["Two"],
+      },
+    ]);
+    const out = await settleFacts({
+      directions: [direction],
+      facts,
+      ledger,
+      writer,
+      claimCheck: passing,
+      briefText: brief,
+      title: "",
+    });
+    expect(out.refused[0]).toEqual({
+      direction: 0,
+      why: expect.any(String),
+      rewrite: {
+        headline: "Cook over real fire",
+        subheadline: "Cook over real fire in Ikoyi.",
+        footerLines: ["Two"],
+      },
+    });
+  });
+});

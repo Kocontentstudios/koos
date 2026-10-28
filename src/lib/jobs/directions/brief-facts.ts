@@ -1584,7 +1584,16 @@ export interface FactCoverage {
   headlinesRewritten: { direction: number; from: string; to: string }[];
   /** Every fact-writer rewrite refused, and why, including those that only
    *  fixed a repeat and so leave no fact off. */
-  rewritesRefused: { direction: number; why: string }[];
+  rewritesRefused: {
+    direction: number;
+    why: string;
+    /** The model's rewrite as written. */
+    rewrite?: {
+      headline: string;
+      subheadline?: string;
+      footerLines: string[];
+    };
+  }[];
 }
 
 /**

@@ -478,3 +478,21 @@ describe("a listed date names its own day", () => {
     ).toEqual([expect.objectContaining({ run: "5 December" })]);
   });
 });
+
+/* Round-16 code critic, W28: "Su 5 December" stated "Saturday 5
+   December". A two-letter weekday counts with its capital and a day of
+   the month after it. */
+describe("a two-letter weekday before a date", () => {
+  const saturday = fact("date", "Saturday 5 December");
+  it.each([
+    ["Su 5 December", false],
+    ["Su. 5 Dec", false],
+    ["Sa 5 December", true],
+    ["su 5 December", true],
+    ["Market, 5 December · Su", true],
+  ] as const)("%j states it: %s", (subheadline, stated) => {
+    expect(factStated(saturday, design("Christmas market", subheadline))).toBe(
+      stated,
+    );
+  });
+});

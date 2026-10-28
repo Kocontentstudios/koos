@@ -643,9 +643,14 @@ describe("a headline move never turns a question into a claim", () => {
       title: "Panel announcement",
     });
     expect(out.directions[0].headline).toBe("Can design beat the heat?");
-    expect(out.refused).toContainEqual({
-      direction: 0,
-      why: expect.stringMatching(/only asked/),
-    });
+    expect(out.refused).toContainEqual(
+      expect.objectContaining({
+        direction: 0,
+        why: expect.stringMatching(/only asked/),
+        rewrite: expect.objectContaining({
+          headline: "Design that beats the heat",
+        }),
+      }),
+    );
   });
 });

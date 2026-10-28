@@ -321,6 +321,8 @@ if (!only) {
 
 const scores = [];
 const outputs = [];
+/* Every field the fact writer left on a wrong day, and what code did. */
+const datesContradicted: { caseId: string; action: string }[] = [];
 const rendered: RenderedCase[] = [];
 /* KO imagery is behind FEATURE_KO_IMAGERY (round 8). Off, a KO case runs
    text-led, as the job would make it with no photo, and gates PR 1; on,
@@ -627,6 +629,32 @@ for (const caseAsWritten of cases) {
         console.log(`\n   [${i}] HEADLINE LOST: not delivered, not scored`);
         continue;
       }
+      /* The job fails a direction whose headline gives a brief date on
+         another day (DateOnWrongDayError): not delivered, so it counts. */
+      if (result.dateFailed[i]) {
+        console.log(`\n   [${i}] HEADLINE ON THE WRONG DAY: not delivered`);
+        caseRecord.directions.push({
+          caseId: evalCase.id,
+          index: i,
+          layout: direction.layout,
+          subjectKnown: false,
+          factsTotal: facts.length,
+          plateLettering: null,
+          textLed: null,
+          personPainted: null,
+          subjectRefused: false,
+          failed: "the headline gives a brief date on another day",
+          overlaps: 0,
+          visibleShare: null,
+          edgeShare: null,
+          lookTextOverSubject: null,
+          lookSubjectCut: null,
+          factsStated: 0,
+          judgeUnsupported: [],
+          judgeMissing: [],
+        });
+        continue;
+      }
       let image = imagery[i];
       let imageFacts = image ? await measureImage(image.asset) : null;
       /* As the job does: a cut-out's edge is cleaned before it is drawn. */
@@ -652,7 +680,9 @@ for (const caseAsWritten of cases) {
       const held = [
         ...taken,
         ...result.directions
-          .filter((_, j) => j > i && !result.headlineLost[j])
+          .filter(
+            (_, j) => j > i && !result.headlineLost[j] && !result.dateFailed[j],
+          )
           .map((d) => d.layout),
       ];
       const relayout = (
@@ -1069,6 +1099,14 @@ for (const caseAsWritten of cases) {
         `   headline recovery ${JSON.stringify(result.headlineRecovery)}`,
       );
     }
+    if (result.datesContradicted.length > 0) {
+      console.log(
+        `   dates on another day ${JSON.stringify(result.datesContradicted)}`,
+      );
+    }
+    for (const { action } of result.datesContradicted) {
+      datesContradicted.push({ caseId: evalCase.id, action });
+    }
     if (result.factCoverage.rewritesRefused.length > 0) {
       console.log(
         `   rewrites refused ${JSON.stringify(result.factCoverage.rewritesRefused)}`,
@@ -1163,6 +1201,9 @@ const rt = RENDER_THRESHOLDS;
 console.log("\n--- rendered ---");
 console.log(
   `directions ${renderTotals.directions} (failed ${renderTotals.failedDirections}); subject known ${f2(renderTotals.subjectKnownShare)}`,
+);
+console.log(
+  `dates on another day after the fact writer ${datesContradicted.length}: left off ${datesContradicted.filter((d) => d.action === "dropped").length}, direction failed ${datesContradicted.filter((d) => d.action === "failed").length}`,
 );
 console.log(
   `copy over subject ${renderTotals.copyOverSubject} (max ${rt.maxCopyOverSubject}); look: text over subject ${f2(renderTotals.lookTextOverSubjectShare)} (max ${rt.maxLookTextOverSubjectShare})`,

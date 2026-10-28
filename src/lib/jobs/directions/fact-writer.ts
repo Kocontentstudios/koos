@@ -417,6 +417,23 @@ export function rewriteFault(
   return null;
 }
 
+/** A fact-writer rewrite that was not taken, whole or in part, with the
+ *  model's own text, so a refusal can be audited against what was written
+ *  (round-16 code critic, finding 7: pottery's "it loses '6pm to 9pm'"
+ *  could not be checked). */
+export interface RefusedRewrite {
+  direction: number;
+  why: string;
+  /** What the model wrote; absent when nothing came back. */
+  rewrite?: Pick<FactCopy, "headline" | "subheadline" | "footerLines">;
+}
+
+const asWritten = (copy: FactCopy): RefusedRewrite["rewrite"] => ({
+  headline: copy.headline,
+  ...(copy.subheadline ? { subheadline: copy.subheadline } : {}),
+  footerLines: copy.footerLines,
+});
+
 export interface FactSettlement<T> {
   directions: T[];
   /** Facts the model wrote in that the direction had left out. */
@@ -426,7 +443,7 @@ export interface FactSettlement<T> {
   /** Rewrites refused, whole or in part ("in part: ..."), and why; their
    *  reasons reach factsLeftOff, and all of them
    *  factCoverage.rewritesRefused. */
-  refused: { direction: number; why: string }[];
+  refused: RefusedRewrite[];
   /** Headlines the model moved out of a fact's way (headlineInTheWay). */
   headlines: { direction: number; from: string; to: string }[];
   modelCalls: number;
@@ -518,6 +535,7 @@ export async function settleFacts<T extends FactCopy>({
   title,
   keepsApart = () => true,
   wordsOfOthers = () => [],
+  ships = () => true,
 }: {
   directions: T[];
   facts: readonly BriefFact[];
@@ -534,6 +552,10 @@ export async function settleFacts<T extends FactCopy>({
   /** The words the other designs of the set say beyond the brief, which a
    *  rewrite of direction `id` should not borrow. */
   wordsOfOthers?: (directions: T[], id: number) => string[];
+  /** False for a direction that will not be delivered (its headline was
+   *  lost): no rewrite is asked for it, and its copy is no other's to
+   *  keep apart from (round-16 code critic, finding 5). */
+  ships?: (id: number) => boolean;
 }): Promise<FactSettlement<T>> {
   const out = [...directions];
   const refused: FactSettlement<T>["refused"] = [];
@@ -541,6 +563,7 @@ export async function settleFacts<T extends FactCopy>({
   let modelCalls = 0;
   const needing = () =>
     out.flatMap((copy, id) => {
+      if (!ships(id)) return [];
       const missing = facts.filter((f) => !factStated(f, copy));
       const headlineMayChange = headlineInTheWay(copy, facts);
       const problems = allProblems(copy, facts, {
@@ -559,7 +582,7 @@ export async function settleFacts<T extends FactCopy>({
             ? [...problems, `your last rewrite was refused: ${why}`]
             : problems,
           others: out
-            .filter((_, j) => j !== id)
+            .filter((_, j) => j !== id && ships(j))
             .map((d) => d.subheadline ?? "")
             .filter(Boolean),
           ...(avoid.length > 0 ? { avoid } : {}),
@@ -581,7 +604,12 @@ export async function settleFacts<T extends FactCopy>({
     /* `partly`: why the whole rewrite was not taken, when only part was;
        the next ask says so (round-8 eval, pottery: three facts went
        unasked-for after a partial take cleared the reason). */
-    const candidates: { id: number; copy: T; partly: string | null }[] = [];
+    const candidates: {
+      id: number;
+      copy: T;
+      partly: string | null;
+      written: T;
+    }[] = [];
     for (const request of requests) {
       const answer = written.find((w) => w.id === request.id);
       if (!answer) {
@@ -624,10 +652,15 @@ export async function settleFacts<T extends FactCopy>({
       if (!taken) {
         const why = fault ?? "it states nothing more";
         feedback.set(request.id, why);
-        refused.push({ direction: request.id, why });
+        refused.push({ direction: request.id, why, rewrite: asWritten(after) });
         continue;
       }
-      candidates.push({ id: request.id, copy: taken, partly: fault });
+      candidates.push({
+        id: request.id,
+        copy: taken,
+        partly: fault,
+        written: after,
+      });
     }
     if (candidates.length === 0) continue;
     const fields = candidates.flatMap(({ id, copy }) => [
@@ -662,7 +695,7 @@ export async function settleFacts<T extends FactCopy>({
     ]);
     modelCalls += fields.length > 0 ? 1 : 0;
     const flagged = fields.length > 0 ? await claimCheck(fields) : [];
-    for (const { id, copy, partly } of candidates) {
+    for (const { id, copy, partly, written: whole } of candidates) {
       const claims = (flagged ?? []).filter((f) => f.id.startsWith(`${id}.`));
       /* Each rewrite was held apart from the set as it stood; two taken in
          one round must also hold apart from each other (round-8 eval,
@@ -678,13 +711,17 @@ export async function settleFacts<T extends FactCopy>({
             : apartFault(id, copy);
       if (why) {
         feedback.set(id, why);
-        refused.push({ direction: id, why });
+        refused.push({ direction: id, why, rewrite: asWritten(whole) });
         continue;
       }
       out[id] = copy;
       if (partly) {
         feedback.set(id, partly);
-        refused.push({ direction: id, why: `in part: ${partly}` });
+        refused.push({
+          direction: id,
+          why: `in part: ${partly}`,
+          rewrite: asWritten(whole),
+        });
       } else feedback.delete(id);
     }
   }

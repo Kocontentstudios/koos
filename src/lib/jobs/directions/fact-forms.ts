@@ -362,6 +362,27 @@ function readsAsWeekday(t: CopyToken | undefined): string | null {
   return WEEKDAY_NAMES.some((d) => d[0] === base) ? `w:~${base}` : null;
 }
 
+/* A two-letter weekday ("Su 5 December", "Sa. 5 Dec") is one only with
+   its capital and a day of the month after it: "We 3 are open" is not
+   Wednesday, "Su" alone is nothing (round-16 code critic, W28). */
+const TWO_LETTER_DAYS = new Map(
+  WEEKDAY_NAMES.map((d) => [d[0].slice(0, 2), `w:~${d[0]}`]),
+);
+function readsAsWeekdayAt(
+  tokens: readonly CopyToken[],
+  i: number,
+): string | null {
+  const t = tokens[i];
+  const day = readsAsWeekday(t);
+  if (day || t?.kind !== "word" || !/^\p{Lu}\p{Ll}$/u.test(t.text)) {
+    return day;
+  }
+  const next = tokens[i + 1]?.key === "." ? tokens[i + 2] : tokens[i + 1];
+  return isDayNumber(next)
+    ? (TWO_LETTER_DAYS.get(t.text.toLowerCase()) ?? null)
+    : null;
+}
+
 /* What may follow a year: a clause's end, a number or time, or one of
    these. "2,000 builders" and "2025 recap" are a count and a name, not
    years (round-12 code critic, D7). */
@@ -441,8 +462,8 @@ function listedWeekdays(
    masterclass). */
 function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
   const { run, field, at, design } = around;
-  const otherDay = (t: CopyToken | undefined) => {
-    const day = readsAsWeekday(t);
+  const otherDay = (tokens: readonly CopyToken[], i: number) => {
+    const day = readsAsWeekdayAt(tokens, i);
     return Boolean(day && weekdays.size > 0 && !weekdays.has(day));
   };
   const otherYear = (tokens: readonly CopyToken[], i: number) =>
@@ -470,12 +491,12 @@ function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
     test: (tokens: readonly CopyToken[], i: number) => boolean,
   ) =>
     [field, ...design].some((tokens) => tokens.some((_, i) => test(tokens, i)));
-  if (!saysDay && anywhere((tokens, i) => otherDay(tokens[i]))) return true;
+  if (!saysDay && anywhere(otherDay)) return true;
   if (!saysYear && anywhere(otherYear)) return true;
   /* A run that cannot be placed in its field is read against all of it,
      as before: refusing more, never less. */
   if (at < 0) {
-    return field.some((t, i) => otherDay(t) || otherYear(field, i));
+    return field.some((_, i) => otherDay(field, i) || otherYear(field, i));
   }
   const start = ownDayBefore ? at - 1 : at;
   const [from, to] = clauseAround(field, start, end);
@@ -483,7 +504,7 @@ function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
     ? listedWeekdays(field, start, end)
     : new Set<number>();
   for (let i = from; i < to; i += 1) {
-    if ((otherDay(field[i]) && !listed.has(i)) || otherYear(field, i)) {
+    if ((otherDay(field, i) && !listed.has(i)) || otherYear(field, i)) {
       return true;
     }
   }

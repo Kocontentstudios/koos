@@ -1377,8 +1377,15 @@ export async function draftDirections({
   const coveredFooters = deduped.directions;
   /* Repeats in other words are marked by a model and dropped by code only
      when no stated fact goes with them (footer-repeats.ts). */
-  const hasFooter = coveredFooters.some((d) => d.footerLines.length > 0);
-  const firstMarks = hasFooter ? await footerRepeatChecker(coveredFooters) : [];
+  /* A lost direction ships nothing, so its footer is not sent to the
+     model (round-16 code critic, finding 5). Indices stay the set's. */
+  const shippingFooters = coveredFooters.map((d, i) =>
+    headlineLost[i] ? { ...d, footerLines: [] } : d,
+  );
+  const hasFooter = shippingFooters.some((d) => d.footerLines.length > 0);
+  const firstMarks = hasFooter
+    ? await footerRepeatChecker(shippingFooters)
+    : [];
   if (hasFooter) modelCalls += 1;
   /* Every marked item that carries a fact gets a merge attempt: a second,
      targeted ask for the ones the first answer gave no rewrite. */
@@ -1386,7 +1393,7 @@ export async function draftDirections({
     ? marksNeedingRewrite(coveredFooters, firstMarks, coverFacts)
     : [];
   const rewrites =
-    needing.length > 0 ? await footerRewriter(coveredFooters, needing) : [];
+    needing.length > 0 ? await footerRewriter(shippingFooters, needing) : [];
   if (needing.length > 0) modelCalls += 1;
   const repeatMarks =
     firstMarks?.map((mark) => {
@@ -1443,6 +1450,7 @@ export async function draftDirections({
       }),
     briefText: checks.briefText,
     title: checks.title,
+    ships: (id) => !headlineLost[id],
     keepsApart: (set) =>
       nearDuplicateSet(echoes.directions) || !nearDuplicateSet(set),
     wordsOfOthers: (set, id) =>

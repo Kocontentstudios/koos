@@ -1100,6 +1100,9 @@ export async function generateDirectionsWork(
       factsAdded: brief.factCoverage.added.length,
       factHeadlinesRewritten: brief.factCoverage.headlinesRewritten.length,
       factsLeftOff: factsLost,
+      /* Each refused fact-writer rewrite with the model's text, so a
+         refusal can be read against what was written. */
+      factRewritesRefused: brief.factCoverage.rewritesRefused,
       datesContradicted,
       productSources: brief.productSources,
       /* Round-4 outcomes: what the claim check read, and how many times

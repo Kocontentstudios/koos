@@ -2523,6 +2523,100 @@ describe("round-14 critic job probes", () => {
     expect(usage().headlinesLost).toBe(1);
   });
 
+  /* Round-16 code critic, finding 5: a lost direction still went through
+     the fact writer and the footer passes, paying for a design that never
+     ships. */
+  it("J40: a lost direction is not sent to the fact writer or the footer passes", async () => {
+    const { HEADLINE_RECOVERY_PROMPT_START } = await import(
+      "./directions/headline-rewrite"
+    );
+    const { fakeFactWrite, isClaimCheckCall, isFactWriteCall } = await import(
+      "./directions/fixtures"
+    );
+    const factAsks: string[] = [];
+    const footerAsks: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      const prompt = o.prompt ?? "";
+      if (isClaimCheckCall(o)) {
+        const flagsOne = prompt.includes("1.headline |");
+        return {
+          object: {
+            unsupported: flagsOne
+              ? [{ id: "1.headline", statement: "a promise", rewrite: "" }]
+              : [],
+          },
+        };
+      }
+      if (isFactWriteCall(o)) {
+        factAsks.push(prompt);
+        return fakeFactWrite(o);
+      }
+      if (prompt.startsWith("You edit social media designs. For each")) {
+        footerAsks.push(prompt);
+        return { object: { repeats: [] } };
+      }
+      if (
+        prompt.startsWith(HEADLINE_RECOVERY_PROMPT_START) ||
+        prompt.startsWith("You write headlines")
+      ) {
+        return { object: { headlines: [] } };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({
+              footerLines: ["WhatsApp 0803 555 0142"],
+              footerStyle: "text",
+            }),
+            contrastingDraft({
+              headline: "Your table is waiting",
+              subheadline: "Slow tables for the weekend crowd.",
+              footerLines: ["Weekend brunch tables"],
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer([{ kind: "price", text: "₦2,500 each" }], {
+        kind: "product",
+        phrase: "almond croissants",
+      }),
+    );
+    const g = globalThis as {
+      claimCheckThroughDouble?: boolean;
+      factWriteThroughDouble?: boolean;
+    };
+    g.claimCheckThroughDouble = true;
+    g.factWriteThroughDouble = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Promote our almond croissants to commuters before work, ₦2,500 each. WhatsApp 0803 555 0142. Brunch on weekends.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+      g.factWriteThroughDouble = false;
+      errors.mockRestore();
+    }
+    expect(usage().headlinesLost).toBe(1);
+    expect(factAsks.length).toBeGreaterThan(0);
+    for (const ask of factAsks) {
+      expect(ask).toContain("Design 0:");
+      expect(ask).not.toContain("Design 1:");
+      expect(ask).not.toContain("Slow tables for the weekend crowd.");
+    }
+    expect(footerAsks.length).toBeGreaterThan(0);
+    for (const ask of footerAsks) {
+      expect(ask).toContain("footer item 0.0: WhatsApp 0803 555 0142");
+      expect(ask).not.toContain("Weekend brunch tables");
+    }
+  });
+
   /* Round-15 code critic, finding 5 (J43): two headlines of stop words
      shared no content stem, so the claim check's rewrite "All for you"
      shipped beside "It's all for you". */

@@ -790,9 +790,11 @@ describe("headlines kept apart by a different idea", () => {
     for (const d of result.directions) {
       expect(d.headline).not.toBe("Order our strawberry mille-feuille ahead");
     }
-    expect(result.headlineRewritten).toBe(
-      result.directions[0].headline !== "Strawberry Mille-Feuille",
-    );
+    /* The earlier direction's own first sentence moves up instead, and
+       the trace says a headline changed. */
+    expect(result.directions[0].headline).toBe("Flaky pastry and cream");
+    expect(result.directions[0].subheadline).toBe("₦4,500 a slice.");
+    expect(result.headlineRewritten).toBe(true);
   });
 });
 
