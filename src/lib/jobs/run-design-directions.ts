@@ -592,6 +592,7 @@ export async function generateDirectionsWork(
   const refusals: string[] = [];
   let subjectFaulted = 0;
   let headlinesLost = 0;
+  const shippedHeadlines: (string | null)[] = brief.directions.map(() => null);
   let rendered = 0;
   let checked = 0;
   stage(
@@ -865,6 +866,7 @@ export async function generateDirectionsWork(
         ),
       });
       succeeded.push(row.id);
+      shippedHeadlines[i] = drawnSpec.headline ?? null;
       if (result.brandFontFault && !prepared.fault) {
         brandFontFaults.push(result.brandFontFault);
       }
@@ -1030,7 +1032,10 @@ export async function generateDirectionsWork(
       fitFixed: brief.fit.fixed,
       headlinesLost,
       /* Round 12: headlines refused, asked for once more, and what stood. */
-      headlineRecovery: brief.headlineRecovery,
+      headlineRecovery: brief.headlineRecovery.map((r) => ({
+        ...r,
+        ships: shippedHeadlines[r.direction] ?? null,
+      })),
       copyFallbacks: brief.reports.reduce(
         (n, r) => n + r.copyFallbacks.length,
         0,

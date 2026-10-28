@@ -591,6 +591,10 @@ export interface HeadlineRecovery {
   recovered: string | null;
   /** Why no candidate stood, when none did. */
   why?: string;
+  /** The headline the delivered design draws, set by the job once it is
+   *  delivered: a later pass may still move a recovered headline, and
+   *  null means the direction was not delivered. */
+  ships?: string | null;
 }
 
 function closestPair(
@@ -908,11 +912,11 @@ export async function draftDirections({
    * that direction's headline, told what was refused and why, and to keep
    * clear of the other design's headline (round 12: at a958ac0 the claim
    * check's rewrite of conference-ko's "Can African cities beat the heat?"
-   * could not stand, and the case shipped one design). One ask per lost
-   * direction and one claim check over every answer; a candidate stands
-   * only if it fits, states nothing the brief does not, repeats no other
-   * headline, keeps the pair apart and passes the claim check. Code never
-   * writes the headline: with none standing, the direction fails.
+   * could not stand, and the case shipped one design). One ask and at
+   * most one claim check per lost direction; a candidate stands only if it
+   * fits, states nothing the brief does not, repeats no other headline,
+   * keeps the pair apart and passes the claim check. Code never writes the
+   * headline: with none standing, the direction fails.
    */
   async function recoverRefusedHeadlines({
     lost,
@@ -922,29 +926,51 @@ export async function draftDirections({
     refusedHeadlines: { headline: string; why: string }[][];
   }): Promise<HeadlineRecovery[]> {
     const outcomes: HeadlineRecovery[] = [];
-    const standing = new Map<number, string[]>();
+    /* Directions are recovered one after another, each against the
+       headlines that will ship: a lost direction still waiting has none,
+       and one already recovered has its new one. Checked in one batch,
+       two lost directions each kept clear of the other's refused headline
+       and both shipped "Weekend brunch starts here" (round-12 code critic,
+       J21c). */
+    const waiting = new Set(lost);
+    const everyRefused = lost.flatMap((j) =>
+      refusedHeadlines[j].map((r) => r.headline),
+    );
     for (const i of lost) {
+      waiting.delete(i);
       const refused = refusedHeadlines[i].filter((r) => r.headline);
-      const others = [
-        ...existing.map((d) => d.headline),
-        ...directions.filter((_, j) => j !== i).map((d) => d.headline),
-      ].filter(Boolean);
+      const shipping = directions.filter((_, j) => j !== i && !waiting.has(j));
+      const others = [...existing, ...shipping]
+        .map((d) => d.headline)
+        .filter(Boolean);
       modelCalls += 1;
-      const candidates =
-        (await headlineRecoverer({
-          refused,
-          subheadline: directions[i].subheadline,
-          cta: directions[i].cta,
-          others,
-          briefText: checks.briefText,
-          title: checks.title,
-        })) ?? [];
+      const asked = await headlineRecoverer({
+        refused,
+        subheadline: directions[i].subheadline,
+        cta: directions[i].cta,
+        others,
+        briefText: checks.briefText,
+        title: checks.title,
+      });
+      const outcome: HeadlineRecovery = {
+        direction: i,
+        refused,
+        candidates: asked ?? [],
+        recovered: null,
+      };
+      outcomes.push(outcome);
+      if (asked === null) {
+        outcome.why = "the headline model could not be reached";
+        continue;
+      }
+      if (asked.length === 0) {
+        outcome.why = "the model wrote no headline";
+        continue;
+      }
       const seen = new Set(
-        [...others, ...refused.map((r) => r.headline)].map((h) =>
-          h.trim().toLowerCase(),
-        ),
+        [...others, ...everyRefused].map((h) => h.trim().toLowerCase()),
       );
-      const apart = candidates.filter((candidate) => {
+      const apart = asked.filter((candidate) => {
         if (copyFault(candidate, COPY_LIMITS.headline, checks.ledger)) {
           return false;
         }
@@ -960,61 +986,39 @@ export async function draftDirections({
           cta: directions[i].cta,
         });
         if (repeated.length > 0) return false;
-        const trial = directions.map((d, j) =>
-          j === i ? { ...d, headline: candidate } : d,
-        );
+        const trial = directions
+          .map((d, j) => (j === i ? { ...d, headline: candidate } : d))
+          .filter((_, j) => !waiting.has(j));
         const pair = closestPair(trial, existing, overlapOptions);
         return !pair || !isNearDuplicate(pair.overlap);
       });
-      standing.set(i, apart);
-      outcomes.push({
-        direction: i,
-        refused,
-        candidates,
-        recovered: null,
-        ...(candidates.length === 0
-          ? { why: "the model wrote no headline" }
-          : apart.length === 0
-            ? {
-                why: "every headline it wrote broke a rule a headline is held to",
-              }
-            : {}),
+      if (apart.length === 0) {
+        outcome.why =
+          "every headline it wrote broke a rule a headline is held to";
+        continue;
+      }
+      modelCalls += 1;
+      const flaggedAgain = await claimChecker({
+        fields: apart.map((text, k) => ({
+          id: `${i}.headline.${k}`,
+          field: FIELD_NAMES.headline,
+          text,
+          limit: COPY_LIMITS.headline,
+        })),
+        briefText: checks.briefText,
+        title: checks.title,
+        brand: context.brandSummary,
       });
-    }
-    const fields = [...standing].flatMap(([i, apart]) =>
-      apart.map((text, k) => ({
-        id: `${i}.headline.${k}`,
-        field: FIELD_NAMES.headline,
-        text,
-        limit: COPY_LIMITS.headline,
-      })),
-    );
-    if (fields.length === 0) return outcomes;
-    modelCalls += 1;
-    const flaggedAgain = await claimChecker({
-      fields,
-      briefText: checks.briefText,
-      title: checks.title,
-      brand: context.brandSummary,
-    });
-    for (const outcome of outcomes) {
-      const apart = standing.get(outcome.direction) ?? [];
-      if (apart.length === 0) continue;
       /* Unchecked copy is not delivered in place of checked copy. */
       const held =
         flaggedAgain === null
           ? undefined
           : apart.find(
               (_, k) =>
-                !flaggedAgain.some(
-                  (f) => f.id === `${outcome.direction}.headline.${k}`,
-                ),
+                !flaggedAgain.some((f) => f.id === `${i}.headline.${k}`),
             );
       if (held) {
-        directions[outcome.direction] = {
-          ...directions[outcome.direction],
-          headline: held,
-        };
+        directions[i] = { ...directions[i], headline: held };
         outcome.recovered = held;
       } else {
         outcome.why =

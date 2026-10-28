@@ -1656,6 +1656,7 @@ describe("a refused headline is asked for once more before it is lost", () => {
             ],
             candidates: [SIBLING, "Weekend brunch starts here"],
             recovered: "Weekend brunch starts here",
+            ships: "Weekend brunch starts here",
           },
         ]);
       },
@@ -1767,4 +1768,121 @@ describe("round-12 critic job probes", () => {
       expect(usage().factsLeftOff).toEqual([]);
       expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
     }));
+
+  /* Both headlines flagged by the claim check with no rewrite, and every
+     recovery ask answered by `recover`. */
+  async function bothLost(
+    recover: () => unknown,
+    { lost = ["0", "1"], noSub = false } = {},
+  ) {
+    const { HEADLINE_RECOVERY_PROMPT_START } = await import(
+      "./directions/headline-rewrite"
+    );
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    let claimCalls = 0;
+    const prompts: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      const prompt = o.prompt ?? "";
+      if (isClaimCheckCall(o)) {
+        claimCalls += 1;
+        return {
+          object: {
+            unsupported:
+              claimCalls === 1
+                ? lost.map((i) => ({
+                    id: `${i}.headline`,
+                    statement: "a promise",
+                    rewrite: "",
+                  }))
+                : [],
+          },
+        };
+      }
+      if (prompt.startsWith(HEADLINE_RECOVERY_PROMPT_START)) {
+        prompts.push(prompt);
+        return recover();
+      }
+      const drafts = [draftOf(), contrastingDraft()];
+      return {
+        object: {
+          directions: noSub
+            ? drafts.map((d) => ({ ...d, subheadline: "" }))
+            : drafts,
+        },
+      };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    try {
+      await flagOff(() =>
+        runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        ).then(() => undefined),
+      );
+    } finally {
+      g.claimCheckThroughDouble = false;
+    }
+    return { prompts, claimCalls };
+  }
+  const headlines = () =>
+    ["row-1", "row-2"].map((id) => delivered(id)?.spec?.headline ?? null);
+
+  it("J21b: two lost directions never both recover one headline, and the record names what ships", async () => {
+    const { prompts } = await bothLost(() => ({
+      object: { headlines: ["Weekend brunch starts here"] },
+    }));
+    const [first, second] = headlines();
+    expect(first).toBe("Weekend brunch starts here");
+    expect(second).not.toBe(first);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("Weekend brunch starts here");
+    const recovery = usage().headlineRecovery;
+    expect(
+      recovery.map((r: { recovered: string | null }) => r.recovered),
+    ).toEqual(["Weekend brunch starts here", null]);
+    expect(recovery.map((r: { ships: string | null }) => r.ships)).toEqual(
+      headlines(),
+    );
+  });
+
+  it("J21c: with no subheadline to promote, the pair still never ships one headline", async () => {
+    await bothLost(
+      () => ({ object: { headlines: ["Weekend brunch starts here"] } }),
+      { noSub: true },
+    );
+    const [first, second] = headlines();
+    expect(first).toBe("Weekend brunch starts here");
+    expect(second).not.toBe(first);
+    expect(usage().headlinesLost).toBe(1);
+    expect(usage().headlineRecovery[1]).toMatchObject({
+      direction: 1,
+      recovered: null,
+      ships: null,
+      why: expect.stringMatching(/broke a rule/),
+    });
+  });
+
+  it("J22: a recovery call that throws is recorded as an outage, not as the model's answer", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await bothLost(
+        () => {
+          throw new Error("upstream 529");
+        },
+        { lost: ["1"] },
+      );
+    } finally {
+      errors.mockRestore();
+    }
+    expect(usage().headlinesLost).toBe(1);
+    expect(usage().headlineRecovery).toEqual([
+      expect.objectContaining({
+        direction: 1,
+        candidates: [],
+        recovered: null,
+        why: "the headline model could not be reached",
+      }),
+    ]);
+  });
 });
