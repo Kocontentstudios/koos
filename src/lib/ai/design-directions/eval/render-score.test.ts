@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { needsFor } from "@/lib/jobs/directions/brief-facts";
 import {
   aggregateRender,
   craftOfDelivered,
@@ -241,6 +242,34 @@ describe("craftOfDelivered (round-4 live critic's craft defects)", () => {
     );
     expect(craft.footerRepeats).toContain("Pickup from 7am");
     expect(craft.productInFooter).toBe(true);
+  });
+
+  /* The check built a price fact with no words and asked factStated, which
+     never states one, so the gate could not fire (round 11). */
+  it("finds a price's amount in the footer when the price is stated nowhere", () => {
+    const price = {
+      kind: "price" as const,
+      text: "₦4,500 a slice",
+      needs: needsFor("price", "₦4,500 a slice"),
+    };
+    const detached = craftOfDelivered(
+      [],
+      { headline: "Mille-feuille Mondays", footerLines: ["₦4,500 · Lekki"] },
+      "",
+      [price],
+    );
+    expect(detached.pricesDetached).toEqual(["₦4,500 a slice"]);
+    const whole = craftOfDelivered(
+      [],
+      {
+        headline: "Mille-feuille Mondays",
+        subheadline: "₦4,500 a slice, from Monday.",
+        footerLines: ["₦4,500 · Lekki"],
+      },
+      "",
+      [price],
+    );
+    expect(whole.pricesDetached).toEqual([]);
   });
 
   it("finds a picture over the stat card's border unless the edge is redrawn", () => {

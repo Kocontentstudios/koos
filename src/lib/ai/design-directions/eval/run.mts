@@ -114,8 +114,13 @@ const { normaliseLikeBrowser } = await import("./normalise");
 const { DIRECTIONS_EVAL_CASES, DIRECTIONS_EVAL_THRESHOLDS } = await import(
   "./cases"
 );
-const { aggregateDirections, directionsFailures, scoreDirectionsCase } =
-  await import("./score");
+const {
+  aggregateDirections,
+  directionsFailures,
+  plateLines,
+  scoreDirectionsCase,
+} = await import("./score");
+type PlateResult = import("./score").PlateResult;
 const {
   aggregateRender,
   craftOfDelivered,
@@ -483,7 +488,10 @@ for (const caseAsWritten of cases) {
       scene?: boolean;
     } | null;
     const imagery: Imagery[] = result.directions.map(() => null);
-    const plates = [];
+    const plates: PlateResult[] = [];
+    let paintedByDirection: (PlateResult | null)[] = result.directions.map(
+      () => null,
+    );
     if (upload) {
       const measured = await measureImage(upload);
       const look = measured?.cutout ? null : await lookAtPhoto(upload.bytes);
@@ -576,6 +584,7 @@ for (const caseAsWritten of cases) {
           };
         }),
       );
+      paintedByDirection = painted;
       plates.push(
         ...painted.filter(
           (plate): plate is NonNullable<typeof plate> =>
@@ -1039,12 +1048,8 @@ for (const caseAsWritten of cases) {
           `      ~ ${fallback.field}: "${fallback.from}" -> ${fallback.to === null ? "left off" : `"${fallback.to}"`}`,
         );
       }
-      const plate = plates[i];
-      if (plate) {
-        console.log(
-          `      plate: ${plate.check} (${plate.imageCalls} call${plate.imageCalls === 1 ? "" : "s"}), eval sees "${plate.subject}" -> ${plate.showsProduct}`,
-        );
-      }
+      const plateLine = plateLines(paintedByDirection)[i];
+      if (plateLine) console.log(`      ${plateLine}`);
     }
     if (result.footerRepeats.outcomes.length > 0) {
       console.log(

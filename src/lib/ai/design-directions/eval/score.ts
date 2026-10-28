@@ -54,6 +54,20 @@ export interface PlateResult {
   subject: string;
 }
 
+/** Each direction's plate log line, by the direction's own index: a
+ *  direction with a lost headline paints no plate, and the scored list,
+ *  shorter by it, gave direction 1 direction 0's line (round-10 code
+ *  critic). Null where nothing was painted. */
+export function plateLines(
+  painted: readonly (PlateResult | null)[],
+): (string | null)[] {
+  return painted.map((plate) =>
+    plate
+      ? `plate: ${plate.check} (${plate.imageCalls} call${plate.imageCalls === 1 ? "" : "s"}), eval sees "${plate.subject}" -> ${plate.showsProduct}`
+      : null,
+  );
+}
+
 export interface DirectionsCaseScore {
   id: string;
   expected: number;

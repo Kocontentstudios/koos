@@ -19,6 +19,7 @@ import {
   factStated,
   isFragment,
   isProductName,
+  numbersIn,
   redundantFooterItems,
 } from "@/lib/jobs/directions/brief-facts";
 import { isAction } from "@/lib/jobs/directions/finalize";
@@ -189,12 +190,19 @@ export function craftOfDelivered(
   const pricesDetached = prices
     .filter((fact) => fact.kind === "price")
     .filter((fact) => {
-      const numbers = fact.needs.filter((n) => n.startsWith("="));
+      /* The amount in a footer item while the price, unit and all, is
+         stated nowhere. Read by value, not through factStated: a fact with
+         no words of its own was never stated, so this check could not
+         fire (found rebuilding the verifier, round 11). */
+      const numbers = fact.needs
+        .filter((n) => n.startsWith("="))
+        .map((n) => n.slice(1));
       if (numbers.length === 0) return false;
-      const bare = { kind: fact.kind, text: "", needs: numbers };
       return (
-        footerItems.some((item) => factStated(bare, item)) &&
-        !factStated(fact, copy)
+        footerItems.some((item) => {
+          const shown = numbersIn(item);
+          return numbers.every((n) => shown.has(n));
+        }) && !factStated(fact, copy)
       );
     })
     .map((fact) => fact.text);

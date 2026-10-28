@@ -467,6 +467,20 @@ stand in only for an allow-listed premises noun. `caseFactCoverage` and
 `directionFactCoverage` use the same verifier, so they are stricter from
 this round; the spec lists the intended fail-closed cases.
 
+Round 11 replaces that neighbour reading (Oluwaseyi's ruling, 2026-10-28).
+A fact that holds a number (an age, date, count, price, time or a place's
+number) is stated only when one of the surface forms code generates from
+it ("18+", "ages 18+", "18 and over"; "Saturday 5 December", "Sat 5 Dec",
+"December 5") is a contiguous run of tokens in one field. Only spaces join
+tokens; every other character is a token, so an unseen separator or noun
+can only refuse correct copy, never pass wrong copy. The renderer's footer
+repeat check and the fact writer's (`redundantFooterItems`) read copy with
+the same tokenizer (`src/lib/design/copy-tokens.ts`). The coverage gates
+are therefore exact from this round: a refused phrasing counts as left off
+until the fact writer writes the fact in. `pricesDetached` now reads the
+amount by value; through `factStated` it built a fact with no words, which
+is never stated, so before this round the gate could not fire.
+
 The job's integration test (`run-design-directions.integration.test.ts`)
 needs a database, so `pnpm test` skips it. CI runs it in the `integration`
 job of `.github/workflows/ci.yml`: a `postgres:17-alpine` service, every

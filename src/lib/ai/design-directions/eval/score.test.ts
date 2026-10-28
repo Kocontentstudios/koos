@@ -8,6 +8,7 @@ import {
   checksFor,
   directionsFailures,
   type PlateResult,
+  plateLines,
   scoreDirectionsCase,
 } from "./score";
 
@@ -292,5 +293,23 @@ describe("model invented is reported, not gated", () => {
         0,
       ).join(" "),
     ).toMatch(/invented/);
+  });
+});
+
+describe("plateLines", () => {
+  /* Round-10 code critic: with direction 0's headline lost, the plate list
+     was filtered and read by direction index, so direction 1's log line
+     showed nothing and later ones another direction's plate. */
+  it("logs each plate against its own direction when an earlier one painted none", () => {
+    const plate = {
+      check: "scene" as const,
+      imageCalls: 2,
+      showsProduct: null,
+      subject: "a market street",
+    };
+    expect(plateLines([null, plate])).toEqual([
+      null,
+      'plate: scene (2 calls), eval sees "a market street" -> null',
+    ]);
   });
 });
