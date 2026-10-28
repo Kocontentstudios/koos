@@ -26,9 +26,10 @@ import {
  * December" of "5, 12 and 19 December") stated the whole fact wherever
  * that part stood (round-11 code critic, break 1). A fact no generator can
  * write whole keeps its own words as its one form. Two parts may be left
- * out, because they name the day the rest already names: a single date's
- * weekday and its year. Neither may then be contradicted anywhere in the
- * field ("Sunday · 5 December", "5 December 2025").
+ * out, because they name the day the rest already names: a date's
+ * weekdays and years once it names its month. Neither may then be
+ * contradicted in the date's clause or by a clause beside it that is only a
+ * weekday or a year ("Sunday · 5 December", "5 December 2025").
  *
  * A weekday or month is matched in any of its spellings ("Saturday",
  * "Sat", "Sat."), a number in digits or words ("8", "eight", "5th"), a
@@ -43,8 +44,12 @@ interface Around {
   beforeThat: CopyToken | undefined;
   after: CopyToken | undefined;
   afterThat: CopyToken | undefined;
+  /** Every token after the run, in its item. */
+  following: readonly CopyToken[];
   /** The whole field the run stands in: a footer item's whole line. */
   field: readonly CopyToken[];
+  /** Where the run starts in `field`, or -1 when it cannot be placed. */
+  at: number;
 }
 
 /** Whether the tokens around a run let it stand as the fact. */
@@ -176,7 +181,9 @@ const alone: Guard = (around) =>
 /* What may follow an age: a clause's end, or a word from this closed list,
    none of which can be what a number counts. "18+ to choose from" and
    "all ages 8+ flavours" are counts (round-11 code critic, A1 to A5), so
-   "to" stands only before a verb an age is for. */
+   "to" stands only before a verb an age is for, and one that cannot take
+   what a number counts: "18+ to take home" counts things to take
+   (round-12 code critic, G6). */
 const AGE_TAIL = [
   "only",
   "welcome",
@@ -186,10 +193,8 @@ const AGE_TAIL = [
   "this",
   "every",
   "event",
-  "events",
   "party",
   "night",
-  "nights",
   "entry",
   "admission",
 ];
@@ -199,27 +204,45 @@ const AGE_VERBS = [
   "join",
   "register",
   "apply",
-  "book",
-  "buy",
-  "drink",
-  "play",
   "participate",
   "sign",
-  "take",
 ];
-const ageEnds: Guard = ({ after, afterThat }) =>
+/* A plural noun after a number can be what it counts: "Just 18+ nights
+   left" is eighteen nights (round-12 code critic, G1). After "for" it is
+   who the nights are for: "For 18+ nights only" (round-11, A6). */
+const AGE_PLURALS = ["nights", "events"];
+
+/* "and" then another age band ("Ages 5-12 and 13-17", "5+ and 12+"),
+   ending where an age ends; "18+ and 2 days to go" counts days (round-12
+   code critic, G4 and G5). */
+function andAnotherBand(following: readonly CopyToken[]): boolean {
+  const [and, n, mark, m] = following;
+  if (!word(and, "and") || !isNumber(n)) return false;
+  if (mark?.key === "+") return ageTailAt(following, 3);
+  const ranged =
+    (mark?.key === "-" || word(mark, "to")) && isNumber(m) && m !== undefined;
+  return ranged && ageTailAt(following, 4);
+}
+const ageTailAt = (following: readonly CopyToken[], i: number) =>
+  endsClause(following[i]) || word(following[i], ...AGE_TAIL);
+
+const ageEnds: Guard = ({ before, after, afterThat, following }) =>
   endsClause(after) ||
   word(after, ...AGE_TAIL) ||
+  (word(after, ...AGE_PLURALS) && word(before, "for")) ||
   (word(after, "to") && word(afterThat, ...AGE_VERBS)) ||
-  /* "Ages 5-12 and 13-17": another age band, never a count's noun. */
-  (word(after, "and") && isNumber(afterThat));
+  andAnotherBand(following);
 /* A bare age ("18+", "21 and over") also needs what comes before to make
    it an age: a clause's start or a word that introduces one ("Must be 18+
    to enter", "Strictly 18+"). "Over 18+ flavours" is a count (round-8 and
    round-10 code critic, N2 and B7). */
 const AGE_LEAD = ["be", "strictly", "only", "for", "just"];
 const bareAge: Guard = (around) =>
-  (startsClause(around) || word(around.before, ...AGE_LEAD)) && ageEnds(around);
+  (startsClause(around) ||
+    word(around.before, ...AGE_LEAD) ||
+    /* "Open to 16 and over" (round-12 critic holdout, F39). */
+    (word(around.before, "to") && word(around.beforeThat, "open"))) &&
+  ageEnds(around);
 
 /* The words that name an age: a form led by one is an age, before a clause
    end or a word from the age's closed list. */
@@ -266,11 +289,14 @@ function ageForms(tokens: CopyToken[], own: string): FactForm[] | null {
   const n = first.t.text;
   const ups = [`${n}+`, ...AND_UP.map((p) => `${n} ${p}`)];
   for (const up of ups) forms.push(...led(up));
-  if (!anchored) {
-    forms.push(form(`${n}+ only`), form(`${n} and over only`));
-    for (const up of [...ups, `${n} or over`, `${n} or older`]) {
-      forms.push(form(up, bareAge));
-    }
+  forms.push(form(`${n}+ only`), form(`${n} and over only`));
+  const spelledOut = [...ups.slice(1), `${n} or over`, `${n} or older`];
+  /* An age with its word ("ages 16 and up") is said whole by "16+ only"
+     or "16 and over", which are ages wherever bareAge stands them (round-12
+     critic holdout, F38 and F39). A bare "16+" is not: "all ages · 8+"
+     may count flavours (round-11 code critic, U rows). */
+  for (const up of anchored ? spelledOut : [ups[0], ...spelledOut]) {
+    forms.push(form(up, bareAge));
   }
   return forms;
 }
@@ -290,23 +316,104 @@ interface DateFact {
   years: ReadonlySet<number>;
 }
 
-/* A date's weekday and year may be left out, never contradicted: any
-   other weekday or year anywhere in the field refuses it ("Sunday · 5
-   December", "5 December, Sunday" and "5 December 2025" for "Saturday 5
-   December 2026"; round-11 code critic, DM9 to DM21). A date given with
-   no weekday stands beside any: "Friday 1 November" states "1 November"
-   (eval a at 5d49a60, fashion and masterclass). */
-function contradicted({ weekdays, years }: DateFact, field: Around["field"]) {
-  return field.some((t) => {
-    const day = weekdayOf(t);
-    if (day && weekdays.size > 0 && !weekdays.has(day)) return true;
-    return isYear(t) && years.size > 0 && !years.has(t.value ?? 0);
-  });
+/* A weekday as a reader takes one: its full name in any case, or a short
+   one with its capital ("Sun", "SAT"). "Fun in the sun" names no day
+   (round-12 code critic, D2). */
+function readsAsWeekday(t: CopyToken | undefined): string | null {
+  const day = weekdayOf(t);
+  if (!day || !t) return null;
+  const full = day.slice(3) === t.text.toLowerCase();
+  return full || /^\p{Lu}/u.test(t.text) ? day : null;
+}
+
+/* What may follow a year: a clause's end, a number or time, or one of
+   these. "2,000 builders" and "2025 recap" are a count and a name, not
+   years (round-12 code critic, D7). */
+const YEAR_TAIL = ["at", "from", "till", "until", "to", "onwards", "and"];
+
+/* A year as a reader takes one: four digits with no comma, from 1900 to
+   2100, not followed by a word that could be what it counts or names. */
+function readsAsYear(tokens: readonly CopyToken[], i: number): boolean {
+  const t = tokens[i];
+  if (!isYear(t) || !/^\d{4}$/.test(t.text)) return false;
+  const next = tokens[i + 1];
+  return next?.kind !== "word" || word(next, ...YEAR_TAIL);
+}
+
+/* The bounds of the clause holding tokens[from, to): from the breaking
+   mark before it to the one after it. */
+function clauseAround(
+  tokens: readonly CopyToken[],
+  from: number,
+  to: number,
+): [number, number] {
+  let start = from;
+  while (start > 0 && !tokens[start - 1].breaks) start -= 1;
+  let stop = to;
+  while (stop < tokens.length && !tokens[stop].breaks) stop += 1;
+  return [start, stop];
+}
+
+/* A date's weekday and year may be left out, never contradicted. Another
+   weekday or year in the date's own clause refuses it. So does one right
+   beside a date that leaves it out, across a mark: the last word of the
+   clause before ("Sunday · 5 December", "open Sunday, 1 November"), or a
+   clause after that is the weekday alone or starts with the year ("5
+   December, Sunday", "5 December, 2025"); round-11 code critic, DM9 to
+   DM21, and the round-12 holdout, H47. A weekday or year further off
+   belongs to its own clause: "Preview Friday 4 December, launch Saturday 5
+   December" states both dates, "Serving Lagos since 2015 · Saturday 5
+   December 2026" its date, and "Friday 14 March · Saturday workshops" its
+   date (round-12 code critic, D6 to D9 and F68). A date given with no
+   weekday stands beside any: "Friday 1 November" states "1 November" (eval
+   a at 5d49a60, fashion and masterclass). */
+function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
+  const { run, field, at } = around;
+  const otherDay = (i: number) => {
+    const day = readsAsWeekday(field[i]);
+    return Boolean(day && weekdays.size > 0 && !weekdays.has(day));
+  };
+  const otherYear = (i: number) =>
+    years.size > 0 && readsAsYear(field, i) && !years.has(field[i].value ?? 0);
+  const other = (i: number) => otherDay(i) || otherYear(i);
+  const indexes = (from: number, to: number) =>
+    Array.from({ length: Math.max(0, to - from) }, (_, k) => from + k);
+  /* A run that cannot be placed in its field is read against all of it,
+     as before: refusing more, never less. */
+  if (at < 0) return indexes(0, field.length).some(other);
+  const end = at + run.length;
+  const [start, stop] = clauseAround(field, at, end);
+  if (indexes(start, stop).some(other)) return true;
+  const saysDay = run.some((t) => weekdayOf(t) !== null);
+  const saysYear = run.some(isYear);
+  const beside = (i: number) =>
+    (!saysDay && otherDay(i)) || (!saysYear && otherYear(i));
+  const words = ([from, to]: [number, number]) =>
+    indexes(from, to).filter((i) => field[i].kind !== "mark");
+  /* "Sunday, the 5th of December": "the" before the run still leaves the
+     weekday beside it (round-11 code critic, DM21). */
+  let lead = start;
+  while (lead < at && word(field[lead], "the", "on")) lead += 1;
+  if (lead === at && start > 0) {
+    const before = words(clauseAround(field, start - 1, start - 1));
+    if (before.length > 0 && beside(before[before.length - 1])) return true;
+  }
+  if (stop === end && stop < field.length) {
+    const after = words(clauseAround(field, stop + 1, stop + 1));
+    const first = after[0];
+    if (first !== undefined && !saysYear && otherYear(first)) return true;
+    const dayAlone = after.every((i, k) => k === 0 || field[i].kind !== "word");
+    if (first !== undefined && !saysDay && otherDay(first) && dayAlone) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function dateGuard(fact: DateFact, tail: readonly string[]): Guard {
-  return ({ run, before, after, afterThat, field }) => {
-    if (contradicted(fact, field)) return false;
+  return (around) => {
+    const { run, before, after, afterThat } = around;
+    if (contradicted(fact, around)) return false;
     /* "12 5 December", "12/5 December": a number before it makes the
        month the other number's. */
     if (isNumber(before) || before?.kind === "clock") return false;
@@ -325,14 +432,13 @@ function dateGuard(fact: DateFact, tail: readonly string[]): Guard {
    wherever it stands, unless the field contradicts it. */
 const uncontradicted =
   (fact: DateFact): Guard =>
-  ({ field }) =>
-    !contradicted(fact, field);
+  (around) =>
+    !contradicted(fact, around);
 
 const ordinalDay =
   (fact: DateFact): Guard =>
   (around) =>
-    !contradicted(fact, around.field) &&
-    Boolean(around.run.find(isNumber)?.ordinal);
+    !contradicted(fact, around) && Boolean(around.run.find(isNumber)?.ordinal);
 
 interface DateEnd {
   weekday: string | null;
@@ -525,7 +631,52 @@ const labelled: Guard = ({ after }) =>
    holdout, H96). Read whole, "8 spots to grab" is refused with it, and
    the fact writer writes it in; any other word may follow a count ("50
    guests max", "Two senior React engineers wanted"). */
-const counted: Guard = ({ after }) => !word(after, "to");
+const notToDo: Guard = ({ after }) => !word(after, "to");
+
+/* What may stand before a count: a clause's start or a word from this
+   closed list, none of which changes how many. "Over 10 seats sold" is
+   more than ten (round-12 code critic, G15), and so are "nearly", "about",
+   "at least" and every word not named here, which the fact writer then
+   writes in. "to" stays for "Send money to 20 African countries" and "Up
+   to 16 places"; the spec records "close to 10 seats" as its residual. */
+const COUNT_BEFORE = [
+  /* "a dozen cupcakes": the article of a number word. */
+  "a",
+  "only",
+  "just",
+  "the",
+  "all",
+  "our",
+  "your",
+  "these",
+  "those",
+  "its",
+  "their",
+  "top",
+  "with",
+  "of",
+  "for",
+  "to",
+  "and",
+  "in",
+  "across",
+  "has",
+  "have",
+  "hiring",
+  "win",
+  "book",
+  "reserve",
+  "grab",
+  "claim",
+  "meet",
+  "join",
+  "featuring",
+  "offering",
+  "including",
+];
+const counted: Guard = (around) =>
+  (startsClause(around) || word(around.before, ...COUNT_BEFORE)) &&
+  notToDo(around);
 
 function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   const hasWord = (ts: CopyToken[]) => ts.some((t) => t.kind === "word");
@@ -554,6 +705,18 @@ function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
 /* "a", "per", "each" and "/" say the same thing between an amount and its
    unit: "₦4,500 a slice" is "₦4,500 per slice" and "₦4,500/slice". */
 const PER = ["a", "an", "per", "each", "/"];
+/* What "a person", "a month" and the like are also written as, after the
+   amount: "₦120,000 pp", "₦45,000 monthly" (round-12 critic holdout, F59
+   and F63). Each says the one unit and nothing else. */
+const SAME_UNIT: Record<string, string[]> = {
+  person: ["pp", "per head", "a head"],
+  head: ["pp", "per person", "a person"],
+  day: ["daily"],
+  week: ["weekly"],
+  month: ["monthly"],
+  year: ["yearly", "annually"],
+};
+
 /* A size the price is for ("a 1-litre bottle", "150ml tasters") is detail,
    not the unit: "₦15,500 bottle & 2 glasses" states "a 1-litre bottle and
    two glasses for ₦15,500" (round-6 live run). */
@@ -621,15 +784,24 @@ function amountForms(tokens: CopyToken[], own: string): FactForm[] {
       for (const per of PER) {
         forms.push(form([pre, amount, per, unit].filter(Boolean).join(" ")));
       }
+      if (!pre) {
+        /* "A slice for ₦4,500" (round-12 critic holdout, F2). */
+        for (const a of ["a", "an", "one", "per"]) {
+          forms.push(form(`${a} ${unit} for ${amount}`));
+        }
+      }
+      for (const same of SAME_UNIT[unit.toLowerCase()] ?? []) {
+        forms.push(form([pre, amount, same].filter(Boolean).join(" ")));
+      }
     }
   } else if (forUnit(tokens, m) !== null) {
     /* "three tasters for ₦6,000" is "₦6,000 for three tasters". */
     for (const u of unitsOf(forUnit(tokens, m) as string)) {
-      forms.push(
-        form(`${u} for ${amount}`),
-        form(`${amount} for ${u}`),
-        form(`${amount} ${u}`),
-      );
+      forms.push(form(`${u} for ${amount}`), form(`${amount} for ${u}`));
+      /* "₦15,500 bottle and two glasses" without "for", only when a word
+         comes first: "₦4,500 2" is an amount beside some other number
+         (round-12 code critic, P10). */
+      if (/^\p{L}/u.test(u)) forms.push(form(`${amount} ${u}`));
     }
   } else if (post.length === 1 && word(post[0], "each", "apiece")) {
     for (const each of ["each", "apiece"]) {
@@ -1114,6 +1286,7 @@ export function formIn(
   tokens: readonly CopyToken[],
   field: readonly CopyToken[] = tokens,
 ): boolean {
+  const offset = field === tokens ? 0 : (runsOf(field, tokens)[0] ?? -1);
   return runsOf(tokens, form.tokens).some((i) => {
     const end = i + form.tokens.length;
     const around: Around = {
@@ -1122,7 +1295,9 @@ export function formIn(
       beforeThat: tokens[i - 2],
       after: tokens[end],
       afterThat: tokens[end + 1],
+      following: tokens.slice(end),
       field,
+      at: offset < 0 ? -1 : offset + i,
     };
     if (cutFromNumber(around)) return false;
     return !form.guard || form.guard(around);
