@@ -50,6 +50,12 @@ const FAIL_CLOSED: Record<string, string> = {
     "a number at either end of a range in words is not a value on its own, so 'Open 9am to 5pm' does not state '9am', as '9am-5pm' does not",
   "r11 W16":
     "a count right after another number ('hundred 10 finalists') may continue it, as '1 200 guests' does, so it is refused",
+  "r11 M9":
+    "a price's clause holds another amount ('₦4,500 a slice of ₦9,000 cake'), so it may be one choice of two; any second amount in the clause refuses it (round 16)",
+  "r11 M10":
+    "a price's clause holds another amount ('Was ₦5,000 now ₦3,000'); any second amount in the clause refuses it (round 16)",
+  "r12 G17":
+    "a number one word before a count ('1 of 10 seats left') takes the count's noun, as '8 or 10 seats' does; no word list tells 'of' from 'or' (round 16)",
 };
 
 type FactRow = [

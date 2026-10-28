@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   clausesOf,
-  joinedInWords,
   numberWordsOf,
   runsOf,
   sentencesOf,
@@ -207,31 +206,5 @@ describe("'one' in a set phrase counts nothing", () => {
     expect(keys("One seat left")[0]).toBe("n:1");
     expect(keys("One night only")[0]).toBe("n:1");
     expect(keys("one roof garden, one stage")).toContain("n:1");
-  });
-});
-
-/* Round-14 code critic, break 2: "to", "till", "until", "through" and
-   "and" join two numbers as "-" does; "in" joins two plain numbers into a
-   ratio. */
-describe("joinedInWords", () => {
-  const sideOf = (text: string) => tokensOf(text);
-  it.each([
-    ["to 5pm", true],
-    ["till 7pm", true],
-    ["until 9pm", true],
-    ["through 9pm", true],
-    ["and 10 seats", true],
-    ["to the market", false],
-    ["and Sunday", false],
-  ])("a number then %j: %s", (text, joined) => {
-    expect(joinedInWords(tokensOf("9")[0], sideOf(text))).toBe(joined);
-  });
-
-  it("reads 'in' between plain numbers only", () => {
-    expect(joinedInWords(tokensOf("1")[0], sideOf("in 10"))).toBe(true);
-    expect(joinedInWords(tokensOf("7pm")[0], sideOf("in 2 venues"))).toBe(
-      false,
-    );
-    expect(joinedInWords(tokensOf("1")[0], sideOf("of 10"))).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import {
 } from "libphonenumber-js/max";
 import {
   amountOf,
+  type CopyToken,
   clausesOf,
   tokensOf as copyTokensOf,
   MONEY,
@@ -13,7 +14,13 @@ import {
 } from "@/lib/design/copy-tokens";
 import { footerLinesFor } from "@/lib/design/render/footer";
 import { calendarNames, looksCutOff } from "./claims";
-import { formIn, formTokensOf, meaningOf, numberFactOf } from "./fact-forms";
+import {
+  contradictedRun,
+  formIn,
+  formTokensOf,
+  meaningOf,
+  numberFactOf,
+} from "./fact-forms";
 import { contentStems, stem } from "./text-overlap";
 
 /**
@@ -1083,7 +1090,11 @@ function needsHold(needs: readonly string[], text: string): boolean {
 
 const isSpan = (kind: CoverKind) => kind === "offer" || kind === "condition";
 
-function statedIn(fact: BriefFact, part: CopyPart): boolean {
+function statedIn(
+  fact: BriefFact,
+  part: CopyPart,
+  design: readonly (readonly CopyToken[])[],
+): boolean {
   /* A time printed on a phone's line reads as the phone's hours (round-6
      live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
   if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
@@ -1092,7 +1103,7 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
     const tokens = formTokensOf(part.text);
     const line = part.line === part.text ? tokens : formTokensOf(part.line);
     return (
-      numbered.forms.some((form) => formIn(form, tokens, line)) &&
+      numbered.forms.some((form) => formIn(form, tokens, line, design)) &&
       needsHold(numbered.alsoNeeds, part.text)
     );
   }
@@ -1122,7 +1133,76 @@ export function factStated(
   fact: BriefFact,
   copy: string | CopyFields,
 ): boolean {
-  return copyParts(copy).some((part) => statedIn(fact, part));
+  const parts = copyParts(copy);
+  const design = drawnFieldsOf(parts);
+  return parts.some((part) => statedIn(fact, part, design));
+}
+
+export interface DateContradiction {
+  /** The brief's date, in its words. */
+  fact: string;
+  /** Where the design gives it on another day: "headline", "subheadline",
+   *  "button" or "footer line". */
+  field: string;
+  /** The field's text. */
+  text: string;
+  /** The date as the field writes it ("5 December"). */
+  run: string;
+}
+
+/**
+ * Each field that gives a brief date beside another weekday or year, so
+ * the reader takes it for another day ("Crafts on Sunday morning, 5
+ * December" for "Saturday 5 December"). The verifier refuses that field;
+ * stating the date again elsewhere would leave the design with two days
+ * for one date (round-15 code critic, finding 6, J30). The fact writer is
+ * asked to fix the field, and code never edits it.
+ */
+export function contradictedDates(
+  facts: readonly BriefFact[],
+  copy: string | CopyFields,
+): DateContradiction[] {
+  const parts = copyParts(copy);
+  const design = drawnFieldsOf(parts);
+  const fieldOf = (line: string) =>
+    typeof copy === "string"
+      ? "copy"
+      : line === copy.headline
+        ? "headline"
+        : line === copy.subheadline
+          ? "subheadline"
+          : line === copy.cta
+            ? "button"
+            : "footer line";
+  const found: DateContradiction[] = [];
+  for (const fact of facts) {
+    if (fact.kind !== "date") continue;
+    const numbered = numberFactOf(fact);
+    if (!numbered) continue;
+    for (const part of parts) {
+      if (statedIn(fact, part, design)) continue;
+      const run = contradictedRun(
+        numbered,
+        formTokensOf(part.text),
+        formTokensOf(part.line),
+        design,
+      );
+      const field = fieldOf(part.line);
+      const seen = found.some(
+        (f) => f.fact === fact.text && f.text === part.line,
+      );
+      if (run && !seen) {
+        found.push({ fact: fact.text, field, text: part.line, run });
+      }
+    }
+  }
+  return found;
+}
+
+/** Every field a design draws, read as the forms read them: a footer line
+ *  once, however many items it holds. */
+function drawnFieldsOf(parts: readonly CopyPart[]): CopyToken[][] {
+  return [...new Set(parts.map((part) => part.line))].map(formTokensOf);
 }
 
 /** The facts of `facts` that `copy` does not state. */

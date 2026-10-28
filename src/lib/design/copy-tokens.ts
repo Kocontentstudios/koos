@@ -506,31 +506,6 @@ export const isNumeric = (t: CopyToken | undefined) =>
 export const joinsNumbers = (t: CopyToken | undefined) =>
   t?.kind === "mark" && !t.breaks && (t.key === "-" || t.key === "/");
 
-/* The words that join two numbers into one span, as "-" does: "9am to
-   5pm", "1 to 5 December", "2 and 10 seats". A number at either end of one
-   is not a value on its own (round-14 code critic, break 2). */
-const RANGE_WORDS = ["to", "till", "until", "through", "thru", "and"];
-/* The word that makes two plain numbers one ratio: "1 in 10 seats" counts
-   one seat of every ten. Clock times and amounts are left out ("7pm in 2
-   venues" names two things), and so is "of": "1 of 10 seats left" still
-   says there are ten (round-12 code critic, G17). */
-const RATIO_WORD = "in";
-
-/** Whether a word joins `number` to another number beside it: `side`
- *  holds the tokens on one side of `number`, nearest first. */
-export function joinedInWords(
-  number: CopyToken | undefined,
-  side: readonly CopyToken[],
-): boolean {
-  const [join, other] = side;
-  if (join?.kind !== "word") return false;
-  const said = join.key.slice(2);
-  if (RANGE_WORDS.includes(said)) return isNumeric(other);
-  return (
-    said === RATIO_WORD && number?.kind === "number" && other?.kind === "number"
-  );
-}
-
 function markBreaks(tokens: CopyToken[]): CopyToken[] {
   return tokens.map((t, i) => {
     if (t.kind !== "mark") return t;

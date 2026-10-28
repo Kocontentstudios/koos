@@ -2,7 +2,6 @@ import {
   type CopyToken,
   endsClause,
   isNumeric,
-  joinedInWords,
   joinsNumbers,
   runsOf,
   tokensOf,
@@ -53,6 +52,8 @@ interface Around {
   field: readonly CopyToken[];
   /** Where the run starts in `field`, or -1 when it cannot be placed. */
   at: number;
+  /** Every field the design draws, `field` among them. */
+  design: readonly (readonly CopyToken[])[];
 }
 
 /** Whether the tokens around a run let it stand as the fact. */
@@ -63,12 +64,17 @@ export interface FactForm {
   text: string;
   tokens: CopyToken[];
   guard: Guard | null;
+  /** The fact's kind, which says what another number beside it is
+   *  (rivalled). */
+  kind?: string;
 }
 
 export interface NumberFact {
   forms: FactForm[];
   /** What else the field must say: a place's street and area words. */
   alsoNeeds: string[];
+  /** A date's weekdays and years, which no field may contradict. */
+  date?: DateFact;
 }
 
 const OPEN = null;
@@ -247,6 +253,26 @@ const bareAge: Guard = (around) =>
     (word(around.before, "to") && word(around.beforeThat, "open"))) &&
   ageEnds(around);
 
+/* "18+ only" is an age after a clause's start or a word from this closed
+   list. After any other word it may be a minimum of something else:
+   "Groups of 18+ only", "Sizes 18+ only", "Tables of 16 and over only"
+   (round-15 code critic, finding 3). */
+const ONLY_AGE_LEAD = [
+  "is",
+  "are",
+  "be",
+  "for",
+  "ages",
+  "aged",
+  "adults",
+  "strictly",
+  "event",
+  "class",
+  "session",
+];
+const onlyAge: Guard = (around) =>
+  startsClause(around) || word(around.before, ...ONLY_AGE_LEAD);
+
 /* The words that name an age: a form led by one is an age, before a clause
    end or a word from the age's closed list. */
 const AGE_WORDS = ["ages", "aged", "age", "adults", "kids", "children"];
@@ -292,7 +318,7 @@ function ageForms(tokens: CopyToken[], own: string): FactForm[] | null {
   const n = first.t.text;
   const ups = [`${n}+`, ...AND_UP.map((p) => `${n} ${p}`)];
   for (const up of ups) forms.push(...led(up));
-  forms.push(form(`${n}+ only`), form(`${n} and over only`));
+  forms.push(form(`${n}+ only`, onlyAge), form(`${n} and over only`, onlyAge));
   const spelledOut = [...ups.slice(1), `${n} or over`, `${n} or older`];
   /* An age with its word ("ages 16 and up") is said whole by "16+ only"
      or "16 and over", which are ages wherever bareAge stands them (round-12
@@ -323,7 +349,8 @@ interface DateFact {
    one with its capital ("Sun", "SAT"), and either possessive or plural
    ("Sunday's market", "Sundays"). "Fun in the sun" names no day (round-12
    code critic, D2); "Sunday's market, 5 December" names Sunday (round-14
-   code critic, DS8). */
+   code critic, DS8). The tokenizer ends a word before a trailing
+   apostrophe, so "Sundays' brunch" reads "Sundays" (round-15, A13). */
 function readsAsWeekday(t: CopyToken | undefined): string | null {
   if (t?.kind !== "word") return null;
   const day = weekdayOf(t);
@@ -363,27 +390,6 @@ function clauseAround(
   return [start, stop];
 }
 
-/* The nearest clause before tokens[at] and after tokens[stop], skipping
-   the empty ones between marks: "Sunday!! 5 December" puts an empty
-   clause between the weekday and the date, which is no distance to a
-   reader. */
-function clauseBefore(
-  tokens: readonly CopyToken[],
-  at: number,
-): [number, number] | null {
-  let i = at - 1;
-  while (i >= 0 && tokens[i].breaks) i -= 1;
-  return i < 0 ? null : clauseAround(tokens, i, i + 1);
-}
-function clauseAfter(
-  tokens: readonly CopyToken[],
-  stop: number,
-): [number, number] | null {
-  let i = stop;
-  while (i < tokens.length && tokens[i].breaks) i += 1;
-  return i >= tokens.length ? null : clauseAround(tokens, i, i + 1);
-}
-
 /* What a date in a list may hold besides its weekday: "Saturday 5 and
    Sunday 6 December", "Friday the 4th of December". */
 const isDatePart = (t: CopyToken | undefined) =>
@@ -417,57 +423,62 @@ function listedWeekdays(
   return listed;
 }
 
-/* A date's weekday and year may be left out, never contradicted. Another
-   weekday or year in the date's own clause refuses it, unless it is
-   another listed date's own ("Saturday 5 December and Sunday 6 December",
-   listedWeekdays). A date that leaves its weekday or year out is also
-   refused by any other one in the clause before or after it: "Sunday
-   morning, 5 December", "5 December. See you Sunday!", "Sunday's market,
-   5 December", "5 December, 2025". Round 13 took only the edge word of
-   the clause before and a clause after that was the weekday alone, and
-   so passed those three (round-14 code critic, DS1 to DS13): a wrong
-   "stated" ships a wrong day while the job reports it delivered, a wrong
-   "not stated" costs a fact-writer rewrite, so the wider rule is the one
-   kept. A date that carries its weekday ("Friday 14 March · Saturday
-   workshops") and a weekday two clauses off ("Preview Friday 4 December,
-   launch Saturday 5 December") still stand (round-12 code critic, D6 to
-   D9 and F68). A date given with no weekday stands beside any: "Friday 1
+/* A date's weekday and year may be left out, never contradicted. A run
+   that carries its weekday is read against its own clause: another weekday
+   there refuses it, unless it is another listed date's own ("Saturday 5
+   December and Sunday 6 December", listedWeekdays), so a weekday two
+   clauses off still stands ("Friday 14 March · Saturday workshops",
+   round-12 code critic, D6 to D9 and F68). A run that leaves its weekday
+   out is refused by any other weekday anywhere on the design: rounds 13
+   to 15 scoped that to a clause, then to the clauses beside it, and each
+   critic found the next weekday one clause further off ("Sunday, 10am, 5
+   December") or in another field (headline "Sunday brunch" over a footer
+   "5 December"), round-15 code critic, finding 1. A wrong "stated" ships
+   the wrong day while the job reports it delivered; a wrong "not stated"
+   costs a fact-writer rewrite, which writes the weekday in. A year works
+   the same way. A date given with no weekday stands beside any: "Friday 1
    November" states "1 November" (eval a at 5d49a60, fashion and
    masterclass). */
 function contradicted({ weekdays, years }: DateFact, around: Around): boolean {
-  const { run, field, at } = around;
-  const otherDay = (i: number) => {
-    const day = readsAsWeekday(field[i]);
+  const { run, field, at, design } = around;
+  const otherDay = (t: CopyToken | undefined) => {
+    const day = readsAsWeekday(t);
     return Boolean(day && weekdays.size > 0 && !weekdays.has(day));
   };
-  const otherYear = (i: number) =>
-    years.size > 0 && readsAsYear(field, i) && !years.has(field[i].value ?? 0);
-  const indexes = ([from, to]: [number, number]) =>
-    Array.from({ length: Math.max(0, to - from) }, (_, k) => from + k);
-  /* A run that cannot be placed in its field is read against all of it,
-     as before: refusing more, never less. */
-  if (at < 0) {
-    return indexes([0, field.length]).some((i) => otherDay(i) || otherYear(i));
-  }
+  const otherYear = (tokens: readonly CopyToken[], i: number) =>
+    years.size > 0 &&
+    readsAsYear(tokens, i) &&
+    !years.has(tokens[i].value ?? 0);
   const end = at + run.length;
-  const clause = clauseAround(field, at, end);
   const saysDay = run.some((t) => weekdayOf(t) !== null);
   /* The forms leave a year out and dateGuard lets one follow, so the
      fact's own year right after the run is the date's: "Saturday 5
      December 2026" carries its year (round-12 code critic, D6). */
   const yearAt = field[end]?.key === "/" ? end + 1 : end;
   const ownYearAfter =
-    readsAsYear(field, yearAt) && years.has(field[yearAt].value ?? 0);
+    at >= 0 &&
+    readsAsYear(field, yearAt) &&
+    years.has(field[yearAt].value ?? 0);
   const saysYear = run.some(isYear) || ownYearAfter;
+  const anywhere = (
+    test: (tokens: readonly CopyToken[], i: number) => boolean,
+  ) =>
+    [field, ...design].some((tokens) => tokens.some((_, i) => test(tokens, i)));
+  if (!saysDay && anywhere((tokens, i) => otherDay(tokens[i]))) return true;
+  if (!saysYear && anywhere(otherYear)) return true;
+  /* A run that cannot be placed in its field is read against all of it,
+     as before: refusing more, never less. */
+  if (at < 0) {
+    return field.some((t, i) => otherDay(t) || otherYear(field, i));
+  }
+  const [from, to] = clauseAround(field, at, end);
   const listed = saysDay ? listedWeekdays(field, at, end) : new Set<number>();
-  const inClause = (i: number) =>
-    (otherDay(i) && !listed.has(i)) || otherYear(i);
-  if (indexes(clause).some(inClause)) return true;
-  const beside = (i: number) =>
-    (!saysDay && otherDay(i)) || (!saysYear && otherYear(i));
-  return [clauseBefore(field, clause[0]), clauseAfter(field, clause[1])].some(
-    (near) => near !== null && indexes(near).some(beside),
-  );
+  for (let i = from; i < to; i += 1) {
+    if ((otherDay(field[i]) && !listed.has(i)) || otherYear(field, i)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function dateGuard(fact: DateFact, tail: readonly string[]): Guard {
@@ -1277,7 +1288,9 @@ function makeNumberFact(fact: {
   const tokens = formTokensOf(own);
   if (!hasNumber(tokens)) return null;
   const whole = (forms: FactForm[] | null, ownGuard: Guard | null = OPEN) =>
-    wholeForms(fact.kind, tokens, forms ?? [], form(own, ownGuard));
+    wholeForms(fact.kind, tokens, forms ?? [], form(own, ownGuard)).map(
+      (f) => ({ ...f, kind: fact.kind }),
+    );
   const plain = { alsoNeeds: [] as string[] };
   switch (fact.kind) {
     case "age": {
@@ -1298,6 +1311,7 @@ function makeNumberFact(fact: {
             : dateGuard(dated, DAY_FIRST_TAIL),
         ),
         ...plain,
+        date: dated,
       };
     }
     case "quantity":
@@ -1323,35 +1337,156 @@ function makeNumberFact(fact: {
 
 /* A run that starts or ends on a number may not continue a longer one:
    "1/20 stalls" and "1 200 guests" do not hold "20 stalls" or "200
-   guests" (round-11 code critic, O4 to O7), nor "9am-5pm" "5pm". A range
-   or ratio in words is one as surely: "Open 9am to 5pm" does not state
-   "5pm", "Runs 1 to 5 December" not "5 December", "Between 2 and 10
-   seats" and "1 in 10 seats" not "10 seats" (round-14 code critic, break
-   2). A year after a date's day ("December 5 2026", "December 5/2026")
-   ends it. */
-function cutFromNumber({
-  run,
-  before,
-  after,
-  afterThat,
-  following,
-  preceding,
-}: Around): boolean {
+   guests" (round-11 code critic, O4 to O7), nor "9am-5pm" "5pm". A year
+   after a date's day ("December 5 2026", "December 5/2026") ends it. */
+function cutFromNumber({ run, before, after, afterThat }: Around): boolean {
   const first = run[0];
   const last = run[run.length - 1];
-  if (
-    isNumeric(first) &&
-    (isNumeric(before) ||
-      joinsNumbers(before) ||
-      (joinedInWords(first, preceding) && !listsSpans(run, before)))
-  ) {
+  if (isNumeric(first) && (isNumeric(before) || joinsNumbers(before))) {
     return true;
   }
   return (
     isNumeric(last) &&
     ((isNumeric(after) && !isYear(after)) ||
-      (joinsNumbers(after) && !isYear(afterThat)) ||
-      (joinedInWords(last, following) && !listsSpans(run, after)))
+      (joinsNumbers(after) && !isYear(afterThat)))
+  );
+}
+
+/* "One in 10 seats": "one" counts here, though the tokenizer reads it as
+   a number only before what it counts. */
+const isCount = (t: CopyToken | undefined) => isNumber(t) || t?.key === "w:one";
+
+/* What a count counts: the word after its number ("10 seats"), or the
+   label before it ("Seats: 10"). */
+function countNoun(run: readonly CopyToken[]): string | null {
+  const n = run.findIndex(isCount);
+  const after = run[n + 1];
+  if (after?.kind === "word") return after.key;
+  return run.find((t) => t.kind === "word")?.key ?? null;
+}
+
+/* After a date, a number is another day only before a month, a break or
+   as an ordinal: "5 December or 6", "5 December, 12 stalls" counts
+   stalls. */
+const dayAfter = (n: CopyToken | undefined, next: CopyToken | undefined) =>
+  isDayNumber(n) &&
+  (Boolean(n?.ordinal) || endsClause(next) || monthOf(next) !== null);
+
+/* Whether `n`, across `join` from the run on `side`, is another value of
+   the fact's kind: another clock time beside a time, another amount
+   beside a price, another day beside a date, another count of the same
+   thing beside a count. `next` follows `n`. */
+function rivalAcross(
+  kind: string | undefined,
+  run: readonly CopyToken[],
+  [join, n, next]: readonly CopyToken[],
+  side: "before" | "after",
+): boolean {
+  const acrossWord = join.kind === "word";
+  const bare = isNumber(n) && !isYear(n);
+  switch (kind) {
+    case "time":
+      return n?.kind === "clock" || (bare && acrossWord);
+    case "price":
+      return n?.kind === "money" || (bare && acrossWord);
+    case "date":
+      return side === "before" ? isDayNumber(n) : dayAfter(n, next);
+    case "quantity":
+      /* Before the run a number takes the run's noun ("8 or 10 seats");
+         after it, when it names that noun or none ("10 seats vs 20
+         seats", "10 seats or 12"). "10 seats in 2 rooms" counts rooms. */
+      return (
+        isCount(n) &&
+        (side === "before" ||
+          next?.key === countNoun(run) ||
+          (acrossWord && next?.kind !== "word"))
+      );
+    default:
+      return isNumeric(n) && acrossWord;
+  }
+}
+
+/* Whether the run's clause holds, outside the run, another value of the
+   fact's kind: a second clock time or amount anywhere, another day before
+   the date (which may share its month) or after it as dayAfter reads one,
+   another count of the same thing. `before` and `after` are the clause's
+   tokens on each side of the run, in reading order. */
+function rivalInClause(
+  kind: string | undefined,
+  run: readonly CopyToken[],
+  before: readonly CopyToken[],
+  after: readonly CopyToken[],
+): boolean {
+  const either = [...before, ...after];
+  switch (kind) {
+    case "time":
+      return either.some((t) => t.kind === "clock");
+    case "price":
+      return either.some((t) => t.kind === "money");
+    case "date":
+      return (
+        before.some(isDayNumber) ||
+        after.some((t, i) => dayAfter(t, after[i + 1]))
+      );
+    case "quantity": {
+      const noun = countNoun(run);
+      const counts = (side: readonly CopyToken[]) =>
+        side.some((t, i) => isCount(t) && side[i + 1]?.key === noun);
+      return noun !== null && (counts(before) || counts(after));
+    }
+    default:
+      return false;
+  }
+}
+
+const RIVAL_KINDS = ["time", "price", "date", "quantity"];
+
+/**
+ * Whether another value of the fact's own kind stands beside the run, so
+ * the run is one end of a range or one choice of several: "9am til 5pm",
+ * "9am ~ 5pm", "Doors 6pm or 7pm", "₦4,500 or ₦6,000", "4, 5 December",
+ * "One in 10 seats", "10 seats vs 20 seats". Beside is across one word or
+ * mark (right next to it is cutFromNumber's), and for a run of one value
+ * anywhere in its clause. Rounds 14 and 15 listed the words that join two
+ * numbers ("to", "and", "in"), and every word or mark not listed ("til",
+ * "or", "vs", "~", "→", "…") passed the single value (round-15 code
+ * critic, finding 2). A refused run costs a fact-writer rewrite; a passed
+ * one ships "5pm" for "9am til 5pm" while the job counts the time
+ * delivered. A run that is itself a span lists another beside "and"
+ * ("Ages 5-12 and 13-17", "2pm-5pm and 6pm-9pm"). Other kinds keep the
+ * old reach: a number across one word from the run's numeric edge.
+ */
+function rivalled(around: Around, kind: string | undefined): boolean {
+  const { run, field, at, preceding, following } = around;
+  const tokens =
+    at >= 0 ? field : [...[...preceding].reverse(), ...run, ...following];
+  const start = at >= 0 ? at : preceding.length;
+  const end = start + run.length;
+  const behind = tokens.slice(0, start).reverse();
+  const ahead = tokens.slice(end);
+  const typed = RIVAL_KINDS.includes(kind ?? "");
+  const across = (side: readonly CopyToken[], name: "before" | "after") => {
+    const edge = name === "before" ? run[0] : run[run.length - 1];
+    if (!side[0] || isNumeric(side[0]) || listsSpans(run, side[0])) {
+      return false;
+    }
+    if (!typed && !isNumeric(edge)) return false;
+    /* A date led by its weekday starts there: in "Saturday 5 and Sunday 6
+       December" the 5 is Saturday's (round-14 L3). */
+    if (kind === "date" && weekdayOf(edge) !== null) return false;
+    return rivalAcross(kind, run, side, name);
+  };
+  if (across(behind, "before") || across(ahead, "after")) return true;
+  if (!typed || run.filter(isNumeric).length !== 1) return false;
+  /* A date that carries its own weekday names its own day in a list:
+     "Saturday 5 December and Sunday 6 December". */
+  if (kind === "date" && run.some((t) => weekdayOf(t) !== null)) return false;
+  const [from, to] = clauseAround(tokens, start, end);
+  return rivalInClause(
+    kind,
+    run,
+    tokens.slice(from, start),
+    tokens.slice(end, to),
   );
 }
 
@@ -1365,18 +1500,43 @@ function listsSpans(run: readonly CopyToken[], join: CopyToken | undefined) {
   return spans && word(join, "and");
 }
 
-/** Whether `form` runs whole in `tokens` (read by formTokensOf), its guard
- *  satisfied. `field` is the whole field `tokens` stand in, when `tokens`
- *  are one item of it (a footer line's item). */
-export function formIn(
-  form: FactForm,
+/** The text of a run of one of the date's forms in `tokens` that the
+ *  design contradicts with another weekday or year ("5 December" in
+ *  "Sunday, 10am, 5 December" for "Saturday 5 December"), or null. The
+ *  verifier refuses such a run; this names it, so the fact writer is asked
+ *  to fix the field rather than state the date again beside it (round-15
+ *  code critic, finding 6). */
+export function contradictedRun(
+  fact: NumberFact,
   tokens: readonly CopyToken[],
   field: readonly CopyToken[] = tokens,
-): boolean {
+  design: readonly (readonly CopyToken[])[] = [field],
+): string | null {
+  const { date } = fact;
+  if (!date || (date.weekdays.size === 0 && date.years.size === 0)) {
+    return null;
+  }
+  for (const form of fact.forms) {
+    for (const around of aroundEach(form, tokens, field, design)) {
+      if (!cutFromNumber(around) && contradicted(date, around)) {
+        return around.run.map((t) => t.text).join(" ");
+      }
+    }
+  }
+  return null;
+}
+
+/* Every run of `form` in `tokens`, with what stands around it. */
+function aroundEach(
+  form: FactForm,
+  tokens: readonly CopyToken[],
+  field: readonly CopyToken[],
+  design: readonly (readonly CopyToken[])[],
+): Around[] {
   const offset = field === tokens ? 0 : (runsOf(field, tokens)[0] ?? -1);
-  return runsOf(tokens, form.tokens).some((i) => {
+  return runsOf(tokens, form.tokens).map((i) => {
     const end = i + form.tokens.length;
-    const around: Around = {
+    return {
       run: tokens.slice(i, end),
       before: tokens[i - 1],
       beforeThat: tokens[i - 2],
@@ -1386,19 +1546,41 @@ export function formIn(
       preceding: tokens.slice(0, i).reverse(),
       field,
       at: offset < 0 ? -1 : offset + i,
+      design,
     };
-    if (cutFromNumber(around)) return false;
-    return !form.guard || form.guard(around);
   });
+}
+
+/** Whether `form` runs whole in `tokens` (read by formTokensOf), its guard
+ *  satisfied. `field` is the whole field `tokens` stand in, when `tokens`
+ *  are one item of it (a footer line's item); `design` is every field the
+ *  design draws. */
+export function formIn(
+  form: FactForm,
+  tokens: readonly CopyToken[],
+  field: readonly CopyToken[] = tokens,
+  design: readonly (readonly CopyToken[])[] = [field],
+): boolean {
+  return aroundEach(form, tokens, field, design).some(
+    (around) =>
+      !cutFromNumber(around) &&
+      !rivalled(around, form.kind) &&
+      (!form.guard || form.guard(around)),
+  );
 }
 
 /* "20-min" and "20-minute" are one duration, "2 hrs" and "2 hours" one
    length (round-5 live critic: a free call drawn twice in one footer). */
 export function meaningOf(text: string): string {
-  return text
-    .replace(/\b(\d+)\s*-?\s*(?:mins?|minutes?)\b/gi, "$1 minutes")
-    .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours")
-    .replace(/\bpick[\s-]+up\b/gi, "pickup")
-    .replace(/\s&\s/g, " and ")
-    .replace(/\bincl\.?(?=\s|$)/gi, "included");
+  return (
+    text
+      .replace(/\b(\d+)\s*-?\s*(?:mins?|minutes?)\b/gi, "$1 minutes")
+      .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours")
+      .replace(/\bpick[\s-]+up\b/gi, "pickup")
+      .replace(/\s&\s/g, " and ")
+      /* "'til" is "til": its apostrophe is not a break between two times
+       (round-15 code critic, B5). */
+      .replace(/(^|\s)['’](til|till)\b/gi, "$1$2")
+      .replace(/\bincl\.?(?=\s|$)/gi, "included")
+  );
 }
