@@ -1064,6 +1064,11 @@ for (const caseAsWritten of cases) {
         `   facts added ${JSON.stringify(result.factCoverage.added)} left off ${JSON.stringify(result.factCoverage.leftOff)}`,
       );
     }
+    if (result.headlineRecovery.length > 0) {
+      console.log(
+        `   headline recovery ${JSON.stringify(result.headlineRecovery)}`,
+      );
+    }
     if (result.factCoverage.rewritesRefused.length > 0) {
       console.log(
         `   rewrites refused ${JSON.stringify(result.factCoverage.rewritesRefused)}`,

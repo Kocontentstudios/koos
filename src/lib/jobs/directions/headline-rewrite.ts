@@ -79,3 +79,71 @@ export const rewriteHeadline: HeadlineRewriter = async (input) => {
     return null;
   }
 };
+
+/**
+ * One more headline for a direction whose headline was refused, before the
+ * direction is declared lost (round-12: at a958ac0 conference-ko's second
+ * direction lost "Can African cities beat the heat?" to the claim check,
+ * whose rewrite was refused, and the case shipped one design). The model is
+ * told what was refused and why, and to keep clear of the other design's
+ * headline. Code never writes the headline: what comes back is held to
+ * every rule a headline is, and to the claim check, by the caller.
+ */
+export interface HeadlineRecoveryInput {
+  /** Each headline refused for this design, and why. */
+  refused: { headline: string; why: string }[];
+  subheadline?: string;
+  cta?: string;
+  /** The other designs' headlines, which the new one must not repeat. */
+  others: string[];
+  briefText: string;
+  title: string;
+}
+
+export type HeadlineRecoverer = (
+  input: HeadlineRecoveryInput,
+) => Promise<string[] | null>;
+
+export const HEADLINE_RECOVERY_PROMPT_START =
+  "You write the headline for one design of a small business's social media post. Its headline was refused";
+
+export function buildHeadlineRecoveryPrompt(input: HeadlineRecoveryInput) {
+  return [
+    `${HEADLINE_RECOVERY_PROMPT_START}, and without one the design cannot be shown.`,
+    `The brief: ${input.briefText}`,
+    input.title ? `Its title: ${input.title}` : null,
+    `Refused:\n${input.refused
+      .map((r) => `  "${r.headline}": ${r.why}`)
+      .join("\n")}`,
+    `This design's other copy, which stays as it is:${
+      input.subheadline ? `\n  subheadline: ${input.subheadline}` : ""
+    }${input.cta ? `\n  button: ${input.cta}` : ""}`,
+    input.others.length > 0
+      ? `The other design's headline, which this one must not repeat or echo: ${input.others.join(" / ")}`
+      : null,
+    `Write three headlines for this design, best first, keeping its idea where the brief supports it. Each at most ${REWRITTEN_HEADLINE_MAX} characters, in English, a phrase rather than a sentence. State only what the brief says: no product, price, time, date, place, number, person, quality, method, origin, scale or promise it does not give, and nothing the refusal names.`,
+    'Return "headlines": the three.',
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export const recoverHeadline: HeadlineRecoverer = async (input) => {
+  try {
+    const { object } = await generateObject({
+      model: getModel("strategy"),
+      schema,
+      maxOutputTokens: 400,
+      prompt: buildHeadlineRecoveryPrompt(input),
+    });
+    const headlines = (object as { headlines?: unknown }).headlines;
+    if (!Array.isArray(headlines)) return null;
+    return headlines
+      .filter((h): h is string => typeof h === "string")
+      .map((h) => h.replace(/\s+/g, " ").trim())
+      .filter((h) => h.length > 0 && h.length <= REWRITTEN_HEADLINE_MAX);
+  } catch (err) {
+    console.error("headline recovery unavailable; the direction fails", err);
+    return null;
+  }
+};

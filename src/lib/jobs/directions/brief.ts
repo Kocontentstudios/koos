@@ -64,7 +64,12 @@ import {
   readsAsList,
   settleMarkedRepeats,
 } from "./footer-repeats";
-import { type HeadlineRewriter, rewriteHeadline } from "./headline-rewrite";
+import {
+  type HeadlineRecoverer,
+  type HeadlineRewriter,
+  recoverHeadline,
+  rewriteHeadline,
+} from "./headline-rewrite";
 import { forceDistinctLayouts } from "./layouts";
 import { repairDirectionsFor, repairFitText } from "./repair";
 import {
@@ -117,6 +122,9 @@ export interface DraftDirectionsInput {
   /** New headlines on another idea, for a pair nothing on the page can
    *  separate (headline-rewrite.ts). */
   headlineRewriter?: HeadlineRewriter;
+  /** One more headline for a direction whose headline was refused, before
+   *  it is declared lost (headline-rewrite.ts). */
+  headlineRecoverer?: HeadlineRecoverer;
   /** Writes what a direction leaves out into its copy (fact-writer.ts). */
   factWriter?: FactWriter;
 }
@@ -131,6 +139,8 @@ export interface ClaimCheckOutcome {
   /** Flagged fields left off (or a headline set to the brief's title). */
   dropped: number;
   statements: string[];
+  /** Headlines it flagged whose rewrite could not stand, and why. */
+  headlineRefusals: HeadlineRefusal[];
 }
 
 export interface DraftDirectionsResult {
@@ -155,6 +165,8 @@ export interface DraftDirectionsResult {
   /** Per direction: its headline could not be drawn as the model wrote it,
    *  so it fails rather than ship one code wrote. */
   headlineLost: boolean[];
+  /** Directions whose headline was refused and asked for once more. */
+  headlineRecovery: HeadlineRecovery[];
   /** A near-duplicate was found and one direction was written again. */
   redrafted: boolean;
   /** The closest pair after any redraft, new against new and new against
@@ -390,7 +402,7 @@ const FIELD_NAMES: Record<string, string> = {
   rationale: "reason (why this works)",
 };
 
-function claimFields(directions: DirectionSpec[]): ClaimCheckField[] {
+export function claimFields(directions: DirectionSpec[]): ClaimCheckField[] {
   return directions.flatMap((d, i) => {
     const out: ClaimCheckField[] = d.headline
       ? [
@@ -460,8 +472,10 @@ export function applyClaimCheck(
   rewritten: number;
   dropped: number;
   headlinesLost: number[];
+  headlineRefusals: HeadlineRefusal[];
 } {
   const headlinesLost: number[] = [];
+  const headlineRefusals: HeadlineRefusal[] = [];
   const out = directions.map((d) => ({
     ...d,
     footerLines: [...d.footerLines],
@@ -502,7 +516,21 @@ export function applyClaimCheck(
     else dropped += 1;
     if (field === "headline") {
       if (holds) d.headline = text;
-      else headlinesLost.push(Number(index));
+      else {
+        headlinesLost.push(Number(index));
+        const fault = text ? copyFault(text, limit, checks.ledger) : null;
+        headlineRefusals.push({
+          direction: Number(index),
+          headline: d.headline,
+          statement: claim.statement,
+          rewrite: text,
+          why: !text
+            ? "the claim check offered no rewrite"
+            : sibling
+              ? "its rewrite is the other design's headline"
+              : `its rewrite ${fault ?? "did not hold"}`,
+        });
+      }
     } else if (field === "subheadline" || field === "cta") {
       if (holds) d[field] = text;
       else delete d[field];
@@ -532,7 +560,36 @@ export function applyClaimCheck(
       rationale: reasons,
     };
   });
-  return { directions: settled, rewritten, dropped, headlinesLost };
+  return {
+    directions: settled,
+    rewritten,
+    dropped,
+    headlinesLost,
+    headlineRefusals,
+  };
+}
+
+/** A headline the claim check flagged whose rewrite could not stand. */
+export interface HeadlineRefusal {
+  direction: number;
+  headline: string;
+  /** The words the check found the brief does not say. */
+  statement: string;
+  rewrite: string;
+  /** Why the rewrite could not stand. */
+  why: string;
+}
+
+/** What became of a direction whose headline was refused. */
+export interface HeadlineRecovery {
+  direction: number;
+  refused: { headline: string; why: string }[];
+  /** What the model wrote when asked once more. */
+  candidates: string[];
+  /** The headline that passed every check, or null: the direction fails. */
+  recovered: string | null;
+  /** Why no candidate stood, when none did. */
+  why?: string;
 }
 
 function closestPair(
@@ -605,6 +662,7 @@ export async function draftDirections({
   footerRepeatChecker = checkFooterRepeats,
   footerRewriter = askFooterRewrites,
   headlineRewriter = rewriteHeadline,
+  headlineRecoverer = recoverHeadline,
   factWriter = writeFacts,
 }: DraftDirectionsInput): Promise<DraftDirectionsResult> {
   const hasLogo = Boolean(context.brand?.logoUrl);
@@ -844,6 +902,118 @@ export async function draftDirections({
       console.error("direction redraft failed; keeping the first draft", err);
     }
   }
+  /**
+   * Before a headline is declared lost, the model is asked once more for
+   * that direction's headline, told what was refused and why, and to keep
+   * clear of the other design's headline (round 12: at a958ac0 the claim
+   * check's rewrite of conference-ko's "Can African cities beat the heat?"
+   * could not stand, and the case shipped one design). One ask per lost
+   * direction and one claim check over every answer; a candidate stands
+   * only if it fits, states nothing the brief does not, repeats no other
+   * headline, keeps the pair apart and passes the claim check. Code never
+   * writes the headline: with none standing, the direction fails.
+   */
+  async function recoverRefusedHeadlines({
+    lost,
+    refusedHeadlines,
+  }: {
+    lost: number[];
+    refusedHeadlines: { headline: string; why: string }[][];
+  }): Promise<HeadlineRecovery[]> {
+    const outcomes: HeadlineRecovery[] = [];
+    const standing = new Map<number, string[]>();
+    for (const i of lost) {
+      const refused = refusedHeadlines[i].filter((r) => r.headline);
+      const others = [
+        ...existing.map((d) => d.headline),
+        ...directions.filter((_, j) => j !== i).map((d) => d.headline),
+      ].filter(Boolean);
+      modelCalls += 1;
+      const candidates =
+        (await headlineRecoverer({
+          refused,
+          subheadline: directions[i].subheadline,
+          cta: directions[i].cta,
+          others,
+          briefText: checks.briefText,
+          title: checks.title,
+        })) ?? [];
+      const seen = new Set(
+        [...others, ...refused.map((r) => r.headline)].map((h) =>
+          h.trim().toLowerCase(),
+        ),
+      );
+      const apart = candidates.filter((candidate) => {
+        if (copyFault(candidate, COPY_LIMITS.headline, checks.ledger)) {
+          return false;
+        }
+        if (seen.has(candidate.trim().toLowerCase())) return false;
+        const trial = directions.map((d, j) =>
+          j === i ? { ...d, headline: candidate } : d,
+        );
+        const pair = closestPair(trial, existing, overlapOptions);
+        return !pair || !isNearDuplicate(pair.overlap);
+      });
+      standing.set(i, apart);
+      outcomes.push({
+        direction: i,
+        refused,
+        candidates,
+        recovered: null,
+        ...(candidates.length === 0
+          ? { why: "the model wrote no headline" }
+          : apart.length === 0
+            ? {
+                why: "every headline it wrote broke a rule a headline is held to",
+              }
+            : {}),
+      });
+    }
+    const fields = [...standing].flatMap(([i, apart]) =>
+      apart.map((text, k) => ({
+        id: `${i}.headline.${k}`,
+        field: FIELD_NAMES.headline,
+        text,
+        limit: COPY_LIMITS.headline,
+      })),
+    );
+    if (fields.length === 0) return outcomes;
+    modelCalls += 1;
+    const flaggedAgain = await claimChecker({
+      fields,
+      briefText: checks.briefText,
+      title: checks.title,
+      brand: context.brandSummary,
+    });
+    for (const outcome of outcomes) {
+      const apart = standing.get(outcome.direction) ?? [];
+      if (apart.length === 0) continue;
+      /* Unchecked copy is not delivered in place of checked copy. */
+      const held =
+        flaggedAgain === null
+          ? undefined
+          : apart.find(
+              (_, k) =>
+                !flaggedAgain.some(
+                  (f) => f.id === `${outcome.direction}.headline.${k}`,
+                ),
+            );
+      if (held) {
+        directions[outcome.direction] = {
+          ...directions[outcome.direction],
+          headline: held,
+        };
+        outcome.recovered = held;
+      } else {
+        outcome.why =
+          flaggedAgain === null
+            ? "the claim check could not be reached"
+            : "the claim check flagged every headline it wrote";
+      }
+    }
+    return outcomes;
+  }
+
   const fields = claimFields(directions);
   const flagged =
     fields.length > 0
@@ -864,8 +1034,34 @@ export async function draftDirections({
     ),
   );
   directions.splice(0, directions.length, ...claimed.directions);
+  const refusedHeadlines = directions.map((_, i) => [
+    ...reports[i].copyFallbacks
+      .filter((f) => f.field === "headline" && f.to === null)
+      .map((f) => ({
+        headline: f.from,
+        why:
+          copyFault(f.from, COPY_LIMITS.headline, checks.ledger) ??
+          "it could not be drawn",
+      })),
+    ...claimed.headlineRefusals
+      .filter((r) => r.direction === i)
+      .map((r) => ({
+        headline: r.headline,
+        why: `the claim check found "${r.statement}", which the brief does not say, and ${r.why}`,
+      })),
+  ]);
+  const headlineRecovery = await recoverRefusedHeadlines({
+    lost: directions
+      .map((_, i) => i)
+      .filter(
+        (i) => reports[i].headlineLost || claimed.headlinesLost.includes(i),
+      ),
+    refusedHeadlines,
+  });
   const headlineLost = directions.map(
-    (_, i) => reports[i].headlineLost || claimed.headlinesLost.includes(i),
+    (_, i) =>
+      (reports[i].headlineLost || claimed.headlinesLost.includes(i)) &&
+      !headlineRecovery.some((r) => r.direction === i && r.recovered),
   );
   const claimCheck: ClaimCheckOutcome = {
     available: flagged !== null,
@@ -873,6 +1069,7 @@ export async function draftDirections({
     rewritten: claimed.rewritten,
     dropped: claimed.dropped,
     statements: (flagged ?? []).map((f) => f.statement),
+    headlineRefusals: claimed.headlineRefusals,
   };
 
   const read = await reading;
@@ -1219,6 +1416,7 @@ export async function draftDirections({
     redrafted,
     headlineRewritten,
     headlineLost,
+    headlineRecovery,
     overlap: worst?.overlap ?? null,
     modelCalls,
     productSources: products.map((p) => p.from),

@@ -2599,6 +2599,23 @@ describe("acceptance: the renderer and the fact writer read repeats as the verif
     expect(wrong).toEqual([]);
   });
 
+  /* The verifier reads the footer the renderer draws: a footer whose style
+     is "none", or a fourth line, is on no design (round-11 code critic,
+     J13: a fact was counted from a line the renderer did not draw). */
+  it("states nothing from a footer the renderer does not draw", () => {
+    const age = fact("age", "Ages 8+");
+    const design = (footerStyle: "text" | "none", footerLines: string[]) => ({
+      ...copy("Ice cream social"),
+      footerLines,
+      footerStyle,
+    });
+    expect(factStated(age, design("text", ["Ages 8+"]))).toBe(true);
+    expect(factStated(age, design("none", ["Ages 8+"]))).toBe(false);
+    expect(
+      factStated(age, design("text", ["Lekki", "Ajah", "Ikoyi", "Ages 8+"])),
+    ).toBe(false);
+  });
+
   it.each(REDUNDANT_ROWS)("%s", (_id, design, dropped) => {
     expect(redundantFooterItems(design)).toEqual(dropped);
   });

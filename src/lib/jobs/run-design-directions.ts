@@ -1029,6 +1029,8 @@ export async function generateDirectionsWork(
       fitAsked: brief.fit.asked,
       fitFixed: brief.fit.fixed,
       headlinesLost,
+      /* Round 12: headlines refused, asked for once more, and what stood. */
+      headlineRecovery: brief.headlineRecovery,
       copyFallbacks: brief.reports.reduce(
         (n, r) => n + r.copyFallbacks.length,
         0,
@@ -1103,6 +1105,8 @@ export async function generateDirectionsWork(
       text_led: textLed,
       text_led_upload: textLedUpload,
       headlines_lost: headlinesLost,
+      headlines_recovered: brief.headlineRecovery.filter((r) => r.recovered)
+        .length,
       text_led_image_model_down: imageModelDown,
     },
   });

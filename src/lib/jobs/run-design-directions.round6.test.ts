@@ -1560,3 +1560,136 @@ describe("round-11 critic job probes", () => {
       expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
     }));
 });
+
+/* Round 12, the lost headline in eval run a at a958ac0: conference-ko's
+   claim check flagged "Can African cities beat the heat?" and rewrote it as
+   the other design's headline, which the sibling rule refused, so the case
+   shipped one design (critique-12/lost-headline-trace.log, three of three
+   calls). Before a headline is declared lost the model is asked once more,
+   told what was refused and why; what it writes is held to every rule. */
+describe("a refused headline is asked for once more before it is lost", () => {
+  const SIBLING = "Almond croissants for the commute";
+  const REFUSED = "Your table is waiting";
+  let claimCalls = 0;
+  let recoveryPrompts: string[] = [];
+
+  async function withClaimDouble(
+    recovered: string[],
+    flagSecond: boolean,
+    body: () => Promise<void>,
+  ) {
+    const { HEADLINE_RECOVERY_PROMPT_START } = await import(
+      "./directions/headline-rewrite"
+    );
+    const { isClaimCheckCall } = await import("./directions/fixtures");
+    claimCalls = 0;
+    recoveryPrompts = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      const prompt = o.prompt ?? "";
+      if (isClaimCheckCall(o)) {
+        claimCalls += 1;
+        if (claimCalls === 1) {
+          return {
+            object: {
+              unsupported: [
+                { id: "1.headline", statement: REFUSED, rewrite: SIBLING },
+              ],
+            },
+          };
+        }
+        return {
+          object: {
+            unsupported:
+              flagSecond && claimCalls === 2
+                ? recovered.map((_, k) => ({
+                    id: `1.headline.${k}`,
+                    statement: "a promise",
+                    rewrite: "",
+                  }))
+                : [],
+          },
+        };
+      }
+      if (prompt.startsWith(HEADLINE_RECOVERY_PROMPT_START)) {
+        recoveryPrompts.push(prompt);
+        return { object: { headlines: recovered } };
+      }
+      return { object: { directions: [draftOf(), contrastingDraft()] } };
+    });
+    const g = globalThis as { claimCheckThroughDouble?: boolean };
+    g.claimCheckThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await body();
+    } finally {
+      g.claimCheckThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  }
+
+  it("delivers the model's new headline when the claim check refused the first", () =>
+    withClaimDouble(
+      [SIBLING, "Weekend brunch starts here"],
+      false,
+      async () => {
+        await runBrief(
+          "Promote our almond croissants to commuters before work. Brunch on weekends.",
+          { image: { source: "none" } },
+        );
+        expect(recoveryPrompts).toHaveLength(1);
+        expect(recoveryPrompts[0]).toContain(`"${REFUSED}"`);
+        expect(recoveryPrompts[0]).toContain("the other design's headline");
+        expect(recoveryPrompts[0]).toContain(SIBLING);
+        expect(delivered("row-1")?.spec?.headline).toBe(SIBLING);
+        expect(delivered("row-2")?.spec?.headline).toBe(
+          "Weekend brunch starts here",
+        );
+        expect(usage().headlinesLost).toBe(0);
+        expect(usage().headlineRecovery).toEqual([
+          {
+            direction: 1,
+            refused: [
+              {
+                headline: REFUSED,
+                why: expect.stringMatching(/other design's headline/),
+              },
+            ],
+            candidates: [SIBLING, "Weekend brunch starts here"],
+            recovered: "Weekend brunch starts here",
+          },
+        ]);
+      },
+    ));
+
+  it("fails the direction after one ask when nothing it writes stands", () =>
+    withClaimDouble([SIBLING], false, async () => {
+      await runBrief(
+        "Promote our almond croissants to commuters before work. Brunch on weekends.",
+        { image: { source: "none" } },
+      );
+      expect(recoveryPrompts).toHaveLength(1);
+      expect(delivered("row-1")?.spec?.headline).toBe(SIBLING);
+      expect(delivered("row-2")).toBeUndefined();
+      expect(usage().headlinesLost).toBe(1);
+      expect(usage().headlineRecovery[0]).toMatchObject({
+        direction: 1,
+        recovered: null,
+        why: expect.stringMatching(/broke a rule/),
+      });
+    }));
+
+  it("never delivers a new headline the claim check flags", () =>
+    withClaimDouble(["Weekend brunch starts here"], true, async () => {
+      await runBrief(
+        "Promote our almond croissants to commuters before work. Brunch on weekends.",
+        { image: { source: "none" } },
+      );
+      expect(recoveryPrompts).toHaveLength(1);
+      expect(delivered("row-2")).toBeUndefined();
+      expect(usage().headlinesLost).toBe(1);
+      expect(usage().headlineRecovery[0]).toMatchObject({
+        recovered: null,
+        why: expect.stringMatching(/flagged every headline/),
+      });
+    }));
+});
