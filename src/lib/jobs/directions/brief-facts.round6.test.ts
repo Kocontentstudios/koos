@@ -415,7 +415,13 @@ describe("a price stated without the size it is for", () => {
 
   it("is stated with the count and the things, without the size", () => {
     expect(
-      factStated(fact(), copy({ footerLines: ["₦15,500 bottle & 2 glasses"] })),
+      factStated(
+        fact(),
+        copy({
+          footerLines: ["₦15,500 bottle & 2 glasses"],
+          footerStyle: "text",
+        }),
+      ),
     ).toBe(true);
   });
 
@@ -479,7 +485,10 @@ describe("an inclusion is stated only whole", () => {
     expect(
       factStated(
         fact(),
-        copy({ footerLines: ["Shared room & all meals incl."] }),
+        copy({
+          footerLines: ["Shared room & all meals incl."],
+          footerStyle: "text",
+        }),
       ),
     ).toBe(true);
   });

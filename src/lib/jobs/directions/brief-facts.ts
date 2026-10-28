@@ -11,6 +11,7 @@ import {
   runsOf,
   withoutEdgeMarks,
 } from "@/lib/design/copy-tokens";
+import { footerLinesFor } from "@/lib/design/render/footer";
 import { calendarNames, looksCutOff } from "./claims";
 import { formIn, formTokensOf, meaningOf, numberFactOf } from "./fact-forms";
 import { contentStems, stem } from "./text-overlap";
@@ -1017,11 +1018,22 @@ function copyParts(copy: string | CopyFields): CopyPart[] {
   if (typeof copy === "string") {
     return copy.split("\n").flatMap((line) => itemsOf(line.trim()));
   }
+  /* The footer as the renderer draws it: a line it hides as a repeat, or
+     a fourth line, states nothing on the design (round-11 code critic,
+     J13: a hidden "Ages: 8+" was counted as the age). */
+  const unstyled = "footerStyle" in copy && copy.footerStyle === "none";
+  const drawnFooter = footerLinesFor({
+    footerStyle: "text",
+    headline: copy.headline,
+    subheadline: copy.subheadline,
+    cta: copy.cta,
+    footerLines: copy.footerLines,
+  });
   return [
     ...[copy.headline, copy.subheadline, copy.cta]
       .filter((t): t is string => Boolean(t))
       .map((text) => ({ text, line: text })),
-    ...copy.footerLines.flatMap(itemsOf),
+    ...(unstyled ? [] : drawnFooter).flatMap(itemsOf),
   ];
 }
 
@@ -1078,10 +1090,9 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
   const numbered = numberFactOf(fact);
   if (numbered) {
     const tokens = formTokensOf(part.text);
-    const days = new Set(calendarNames(part.text));
+    const line = part.line === part.text ? tokens : formTokensOf(part.line);
     return (
-      numbered.forms.some((form) => formIn(form, tokens)) &&
-      numbered.days.every((d) => days.has(d)) &&
+      numbered.forms.some((form) => formIn(form, tokens, line)) &&
       needsHold(numbered.alsoNeeds, part.text)
     );
   }
@@ -1200,9 +1211,7 @@ function countsHeldWhole(item: string, above: readonly string[]): boolean {
   return clausesOf(factTokens(item))
     .filter((clause) => clause.some((t) => t.kind === "number"))
     .every((clause) =>
-      aboveTokens.some(
-        (tokens) => runsOf(tokens, clause, { breaksAlike: true }).length > 0,
-      ),
+      aboveTokens.some((tokens) => runsOf(tokens, clause).length > 0),
     );
 }
 

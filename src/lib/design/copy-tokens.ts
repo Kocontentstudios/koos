@@ -46,6 +46,23 @@ export const NUMBER_WORDS: Record<string, number> = {
   dozen: 12,
 };
 
+/** Each weekday's spellings, its full name first. */
+export const WEEKDAY_NAMES = [
+  ["monday", "mon"],
+  ["tuesday", "tue", "tues"],
+  ["wednesday", "wed"],
+  ["thursday", "thu", "thur", "thurs"],
+  ["friday", "fri"],
+  ["saturday", "sat"],
+  ["sunday", "sun"],
+];
+const WEEKDAY_WORDS = new Set(WEEKDAY_NAMES.flat());
+
+/** Whether `t` names a weekday, in any of its spellings. */
+export function isWeekdayName(t: CopyToken | undefined): boolean {
+  return t?.kind === "word" && WEEKDAY_WORDS.has(t.key.slice(2));
+}
+
 export type CopyTokenKind = "word" | "number" | "clock" | "money" | "mark";
 
 export interface CopyToken {
@@ -60,7 +77,7 @@ export interface CopyToken {
   /** A number's value, a clock's minutes or an amount's value. */
   value?: number;
   /** A mark that ends a clause: every mark but "+", "%" and a "-" or "/"
-   *  between two numbers ("5-12", "24/7"). */
+   *  between two numbers, times or amounts ("5-12", "24/7"). */
   breaks?: boolean;
 }
 
@@ -123,9 +140,11 @@ const CLOCK =
 const NUMBER =
   /(\d{1,3}(?:,\d{3})+(?!\d)|\d+)(?:\.(\d+))?(?:(st|nd|rd|th)(?![\p{L}]))?/uy;
 const WORD = /[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*/uy;
-/* Spaces join tokens; a line break is a break like any other mark (round-10
-   code critic, S6: "Fun for all ages\n8+ flavours" in one field). */
-const SPACE = /[^\S\n\r\u2028\u2029]+/uy;
+/* Only the spaces a renderer draws join tokens. A line break is a break
+   like any other mark (round-10 code critic, S6: "Fun for all ages\n8+
+   flavours" in one field), and so are \v, \f, U+FEFF and U+1680, which
+   JS counts as \s but no design draws as a space (round-11, U8 to U14). */
+const SPACE = /[ \t\u00a0\u2000-\u200a\u202f\u205f\u3000]+/uy;
 const DASHES = /[-‐‑‒–—―−]/u;
 
 function clockMinutes(m: RegExpExecArray): number {
@@ -222,11 +241,111 @@ export function tokensOf(text: string): CopyToken[] {
     }
     i += char.length;
   }
-  return markBreaks(tokens);
+  return markBreaks(withNumberWordsFolded(tokens));
 }
 
-const isNumeric = (t: CopyToken | undefined) =>
-  t?.kind === "number" || t?.kind === "clock";
+const MULTIPLIERS: Record<string, number> = {
+  hundred: 100,
+  dozen: 12,
+  thousand: 1000,
+  million: 1000000,
+};
+const multiplierOf = (t: CopyToken | undefined) =>
+  t?.kind === "number" ? MULTIPLIERS[t.text.toLowerCase()] : undefined;
+const isNumberWord = (t: CopyToken | undefined) =>
+  t?.kind === "number" && /^\p{L}/u.test(t.text);
+const isTens = (t: CopyToken | undefined) =>
+  isNumberWord(t) && (t?.value ?? 0) >= 20 && (t?.value ?? 0) % 10 === 0;
+const isUnit = (t: CopyToken | undefined) =>
+  isNumberWord(t) && (t?.value ?? 0) < 10;
+
+/* A number written in words is one value, read whole: "five hundred
+   seats" is 500 seats, "two dozen" 24, "twenty-five" 25, "2 million"
+   2,000,000. Read word by word, "five hundred seats" held the run "hundred
+   seats", which stated "100 seats" (round-11 code critic, W5 to W10). A
+   multiplier with no number before it is one of it ("a dozen"). */
+function withNumberWordsFolded(tokens: CopyToken[]): CopyToken[] {
+  const out: CopyToken[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const first = tokens[i];
+    if (first.kind !== "number" || first.ordinal) {
+      out.push(first);
+      continue;
+    }
+    let total = 0;
+    let current = multiplierOf(first) ?? first.value ?? 0;
+    let last = first;
+    let end = i;
+    for (;;) {
+      const next = tokens[end + 1];
+      const mult = multiplierOf(next);
+      if (mult && next && !next.ordinal) {
+        if (mult >= 1000) {
+          total += (current || 1) * mult;
+          current = 0;
+        } else {
+          current = (current || 1) * mult;
+        }
+        last = next;
+        end += 1;
+        continue;
+      }
+      /* "twenty-five", "twenty five", "five hundred fifty", "five hundred
+         and fifty" */
+      const afterJoin = tokens[end + 2];
+      const joined =
+        (next?.key === "-" && isTens(last) && isUnit(afterJoin)) ||
+        (next?.key === "w:and" &&
+          multiplierOf(last) !== undefined &&
+          isNumberWord(afterJoin) &&
+          multiplierOf(afterJoin) === undefined);
+      if (joined && afterJoin && !afterJoin.ordinal) {
+        current += afterJoin.value ?? 0;
+        last = afterJoin;
+        end += 2;
+        continue;
+      }
+      const follows =
+        isNumberWord(next) &&
+        !next?.ordinal &&
+        multiplierOf(next) === undefined &&
+        ((isTens(last) && isUnit(next)) || multiplierOf(last) !== undefined);
+      if (follows && next) {
+        current += next.value ?? 0;
+        last = next;
+        end += 1;
+        continue;
+      }
+      break;
+    }
+    if (end === i) {
+      out.push(first);
+      continue;
+    }
+    const value = total + current;
+    out.push({
+      kind: "number",
+      key: `n:${value}`,
+      text: tokens
+        .slice(i, end + 1)
+        .map((t) => t.text)
+        .join(" ")
+        .replace(/ - /g, "-"),
+      value,
+    });
+    i = end;
+  }
+  return out;
+}
+
+/** A number, a clock time or an amount. */
+export const isNumeric = (t: CopyToken | undefined) =>
+  t?.kind === "number" || t?.kind === "clock" || t?.kind === "money";
+
+/** Whether `t` joins the numbers on either side into one: the "-" of
+ *  "5-12" and "₦4,500-₦6,000", the "/" of "24/7" and "1/20". */
+export const joinsNumbers = (t: CopyToken | undefined) =>
+  t?.kind === "mark" && !t.breaks && (t.key === "-" || t.key === "/");
 
 function markBreaks(tokens: CopyToken[]): CopyToken[] {
   return tokens.map((t, i) => {
@@ -255,28 +374,17 @@ export function clausesOf(tokens: readonly CopyToken[]): CopyToken[][] {
   return clauses.filter((c) => c.length > 0);
 }
 
-export interface RunOptions {
-  /** Every breaking mark compares equal to every other: "Saturday · 7pm"
-   *  says what "Saturday, 7pm" says. For repeat checks only; a fact's
-   *  forms name their own marks. */
-  breaksAlike?: boolean;
-}
-
-function same(a: CopyToken, b: CopyToken, options: RunOptions): boolean {
-  if (options.breaksAlike && a.breaks && b.breaks) return true;
-  return a.key === b.key;
-}
-
-/** Every index of `haystack` where `needle` starts as a contiguous run. */
+/** Every index of `haystack` where `needle` starts as a contiguous run,
+ *  each token, marks included, compared by its key. No two marks compare
+ *  equal: "Ages: 8+" is not "ages · 8+" (round-11 code critic, J13). */
 export function runsOf(
   haystack: readonly CopyToken[],
   needle: readonly CopyToken[],
-  options: RunOptions = {},
 ): number[] {
   const found: number[] = [];
   if (needle.length === 0) return found;
   for (let i = 0; i + needle.length <= haystack.length; i += 1) {
-    if (needle.every((t, j) => same(haystack[i + j], t, options))) {
+    if (needle.every((t, j) => haystack[i + j].key === t.key)) {
       found.push(i);
     }
   }

@@ -182,7 +182,10 @@ describe("forms against neighbouring inputs", () => {
     ["price", "₦4,500 a slice", "₦45,000 a slice", false],
     ["price", "₦3,000", "₦3,000", true],
     ["price", "₦3,000", "Save ₦3,000", false],
-    ["time", "9-5", "Ages 9-5", true],
+    ["time", "9-5", "Ages 9-5", false],
+    ["time", "9-5", "Sizes 9-5", false],
+    ["time", "9-5", "Open 9-5", true],
+    ["time", "9-5", "Mon-Fri 9-5", true],
     ["time", "9-5", "9-5 December", false],
     ["time", "9-5", "12 9-5", false],
     ["time", "9am–5pm", "9am to 5pm", true],
@@ -206,8 +209,9 @@ describe("the repeat checks read clauses as the verifier does", () => {
     ["Ages 8+", "Fun for all ages\n8+ flavours", true],
     ["Ages 8+", "Fun for all ages (8+ flavours)", true],
     ["Ages 8+", "Fun for all ages… 8+ flavours", true],
-    ["Ages 8+", "Ages 8+ welcome", false],
-    ["5 December", "Saturday 5 December", false],
+    ["Ages 8+", "Ages 8+ welcome", true],
+    ["5 December", "Saturday 5 December", true],
+    ["5 December", "Shop with us. 5 December", false],
   ])("footer %j under %j kept: %s", (line, subheadline, kept) => {
     expect(
       footerLinesFor({ footerStyle: "text", subheadline, footerLines: [line] })

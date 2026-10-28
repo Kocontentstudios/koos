@@ -273,10 +273,24 @@ describe("footerLinesFor against the copy above it", () => {
     ).toEqual(["12 Admiralty Way, Lekki"]);
     expect(
       linesFor({
-        headline: "Open 7am to 6pm",
+        headline: "7am to 6pm. Fresh every morning",
         footerLines: ["7am to 6pm", "Closed Sundays · 7am to 6pm"],
       }),
     ).toEqual(["Closed Sundays · 7am to 6pm"]);
+  });
+
+  /* Round-11 code critic, J13: a line is hidden only when it is a whole
+     clause above with no other number or weekday in its field, the one
+     place the verifier provably reads it as the line does. Part of a
+     clause stays: a repeat costs a line, and the job drops it first when
+     every fact survives (redundantFooterItems, droppedSafely). */
+  it("keeps a line that is only part of a clause above", () => {
+    expect(
+      linesFor({
+        headline: "Open 7am to 6pm",
+        footerLines: ["7am to 6pm"],
+      }),
+    ).toEqual(["7am to 6pm"]);
   });
 
   /* Round 3 dropped an item when its facts all appeared above, ignoring
@@ -387,10 +401,28 @@ describe("footerLinesFor reads the copy above clause by clause", () => {
     expect(linesFor(subheadline, line)).toEqual([line]);
   });
 
+  /* Round-11 code critic, F1 to F6: any break once stood for any other,
+     and part of a clause was hidden. Now only a whole clause, its marks
+     its own, in a field with no other number or weekday. */
   it.each([
     ["Ice cream social for ages 8+, this Saturday.", "Ages 8+"],
     ["Ice cream social, this Saturday, 7pm.", "Saturday, 7pm"],
     ["Ice cream social, this Saturday, 7pm.", "Saturday · 7pm"],
+    ["Fun for all ages · 8+ flavours", "Ages: 8+"],
+    ["Book your seats · 8 courses", "Seats: 8"],
+    ["This Saturday · 5 December stalls", "Saturday, 5 December"],
+    ["All ages, 8+ flavours", "Ages: 8+"],
+    ["Top picks — 5 December deals", "Top picks, 5 December"],
+    ["Kids under 5 may attend.", "5 May"],
+    ["Ice cream social. Ages 8+. Saturday only", "Ages 8+"],
+  ])("under %j keeps %j", (subheadline, line) => {
+    expect(linesFor(subheadline, line)).toEqual([line]);
+  });
+
+  it.each([
+    ["Ice cream social. Ages 8+.", "Ages 8+"],
+    ["Ice cream social · this Saturday, 7pm", "This Saturday, 7pm"],
+    ["Free registration. Limited seats", "Limited seats"],
   ])("under %j drops %j", (subheadline, line) => {
     expect(linesFor(subheadline, line)).toEqual([]);
   });

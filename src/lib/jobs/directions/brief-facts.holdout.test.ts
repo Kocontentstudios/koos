@@ -100,7 +100,13 @@ export const HOLDOUT_ROWS: HoldoutRow[] = [
     false,
   ],
   /* valentine-box-upload */
-  ["H14", "price", "₦25,000", copy("Sweet note for two", "", "Order for ₦25,000"), true],
+  [
+    "H14",
+    "price",
+    "₦25,000",
+    copy("Sweet note for two", "", "Order for ₦25,000"),
+    true,
+  ],
   [
     "H15",
     "price",
@@ -331,8 +337,20 @@ export const HOLDOUT_ROWS: HoldoutRow[] = [
     true,
   ],
   ["H58", "quantity", "10 seats", copy("Latte art", "Only 10 seats."), true],
-  ["H59", "quantity", "10 seats", copy("Latte art", "100 seats sold out"), false],
-  ["H60", "quantity", "10 seats", copy("Latte art", "", "", ["Seats: 10"]), true],
+  [
+    "H59",
+    "quantity",
+    "10 seats",
+    copy("Latte art", "100 seats sold out"),
+    false,
+  ],
+  [
+    "H60",
+    "quantity",
+    "10 seats",
+    copy("Latte art", "", "", ["Seats: 10"]),
+    true,
+  ],
   /* workshop-blank-upload */
   [
     "H61",
@@ -489,7 +507,10 @@ export const HOLDOUT_ROWS: HoldoutRow[] = [
     "H83",
     "place",
     "14 Bode Thomas Street",
-    copy("Wheel-throwing evening", "Clay Room, 14 Bode Thomas Street, Surulere"),
+    copy(
+      "Wheel-throwing evening",
+      "Clay Room, 14 Bode Thomas Street, Surulere",
+    ),
     true,
   ],
   [
@@ -584,7 +605,11 @@ export const HOLDOUT_ROWS: HoldoutRow[] = [
 
 /** True rows the contract refuses on purpose: the fact writer writes the
  *  fact in its own form. Each costs at most two asks. */
-export const HOLDOUT_FAIL_CLOSED: Record<string, string> = {};
+export const HOLDOUT_FAIL_CLOSED: Record<string, string> = {
+  H20: "a count's words in another order or split ('20 countries across Africa') are not its form",
+  H40: "an amount and its count joined by a comma ('3 shots, ₦6,000') are not a price form",
+  H92: "a day range followed by a place word ('12–14 December outside Ibadan') ends where no date may",
+};
 
 describe("holdout: copy for the eval briefs, labelled before the round-12 fixes", () => {
   it.each(HOLDOUT_ROWS)("%s: %s %j", (id, kind, text, design, stated) => {

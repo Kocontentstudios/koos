@@ -1,5 +1,7 @@
 import {
   type CopyToken,
+  isNumeric,
+  isWeekdayName,
   runsOf,
   tokensOf,
   withoutEdgeMarks,
@@ -98,16 +100,55 @@ function capitalized(line: string): string {
  * Tokens are compared whole, so "ORDER-NOW.ng" is a domain, not the CTA, and
  * a one-word CTA never removes part of a longer item ("Shop" keeps "Shop 12").
  */
-/** The whole line appears word for word in the headline or subheadline,
- *  its punctuation included: "Ages 8+" is not in "Fun for all ages · 8+
- *  flavours" (round-9 and round-10 code critic, J4 and F2), while "Saturday
- *  · 7pm" is in "this Saturday, 7pm", one break mark standing for any. */
+/**
+ * The line is a whole clause of the headline or subheadline, token for
+ * token, its marks included, and the rest of that field holds no number,
+ * time, amount or weekday.
+ *
+ * A line is hidden only when the copy above states everything it does, by
+ * the verifier's rule (factStated, fact-forms.ts). That rule reads a form's
+ * neighbours (what ends a clause, what may follow an age or a date) and,
+ * for a date, every weekday and year in the field, and for a time any
+ * phone number on its line. A run that is a whole clause has the same
+ * neighbours above as on its own line, and a field with no other number or
+ * weekday cannot contradict it, so every fact the line states is stated
+ * above (brief-facts.acceptance.test.ts proves it on every fact and line
+ * of the sets). Any break once stood for any other here, and the renderer
+ * hid "Ages: 8+" as a repeat of "all ages · 8+ flavours", which states no
+ * age (round-11 code critic, J13). A repeat kept costs a line; a fact
+ * hidden costs the client a customer.
+ */
 function repeatsCopyAbove(line: string, above: CopyToken[][]): boolean {
   const tokens = itemTokensOf(line);
-  return (
-    tokens.length > 0 &&
-    above.some((copy) => runsOf(copy, tokens, { breaksAlike: true }).length > 0)
+  if (tokens.length === 0) return false;
+  return above.some((copy) =>
+    runsOf(copy, tokens).some((i) => {
+      if (!sameCase(copy.slice(i), tokens)) return false;
+      const end = i + tokens.length;
+      return (
+        boundsClause(copy[i - 1]) &&
+        boundsClause(copy[end]) &&
+        ![...copy.slice(0, i), ...copy.slice(end)].some(
+          (t) => isNumeric(t) || isWeekdayName(t),
+        )
+      );
+    }),
   );
+}
+
+/* "may" is a month only with its capital (fact-forms.ts), so "5 May" is
+   not a repeat of "5 may". */
+function sameCase(run: CopyToken[], line: CopyToken[]): boolean {
+  return line.every(
+    (t, j) =>
+      t.key !== "w:may" || (t.text === "may") === (run[j].text === "may"),
+  );
+}
+
+/* A field's edge, or a mark that ends a clause and labels nothing: "Age:
+   18+" is a label, so a colon never bounds a hidden line. */
+function boundsClause(t: CopyToken | undefined): boolean {
+  return t === undefined || (t.breaks === true && t.key !== ":");
 }
 
 function footerLine(line: string, cta: CopyToken[]): string {

@@ -88,15 +88,59 @@ describe("runsOf", () => {
     ).toEqual([]);
   });
 
-  it("lets one breaking mark stand for another when asked", () => {
-    expect(
-      runsOf(tokensOf("this Saturday, 7pm."), tokensOf("Saturday · 7pm"), {
-        breaksAlike: true,
-      }),
-    ).toEqual([1]);
-    expect(
-      runsOf(tokensOf("ages 8+"), tokensOf("ages · 8+"), { breaksAlike: true }),
-    ).toEqual([]);
+  /* Round-11 code critic, J13 and F1 to F6: the renderer let any break
+     stand for any other, so "Ages: 8+" was hidden as a repeat of "all ages
+     · 8+ flavours" while the verifier, whose forms name their own marks,
+     counted it as the age. One rule now, and no mark stands for another. */
+  it.each([
+    ["Ages: 8+", "Fun for all ages · 8+ flavours"],
+    ["Seats: 8", "Book your seats · 8 courses"],
+    ["Saturday, 5 December", "This Saturday · 5 December stalls"],
+    ["Top picks, 5 December", "Top picks — 5 December deals"],
+  ])("never reads %j inside %j", (line, above) => {
+    expect(runsOf(tokensOf(above), tokensOf(line))).toEqual([]);
+  });
+});
+
+describe("tokensOf, what joins and what does not", () => {
+  /* Round-11 code critic, U8, U13 and U14: \v, \f and U+FEFF joined
+     tokens as if they were spaces. */
+  it.each(["\v", "\f", "\ufeff", "\u1680"])(
+    "reads %j as a break, not a space",
+    (char) => {
+      expect(clausesOf(tokensOf(`all ages${char}8+ flavours`))).toHaveLength(2);
+    },
+  );
+
+  it.each([" ", "\t", "\u00a0", "\u2009", "\u202f", "\u3000"])(
+    "reads %j as a space",
+    (char) => {
+      expect(keys(`ages${char}8+`)).toEqual(keys("ages 8+"));
+    },
+  );
+
+  /* Round-11 code critic, W5 to W10: a multiplier made a second token, so
+     "five hundred seats" held the run "hundred seats", 100 seats. */
+  it.each([
+    ["five hundred seats", "500 seats"],
+    ["five thousand guests", "5000 guests"],
+    ["two dozen cupcakes", "24 cupcakes"],
+    ["a dozen cupcakes", "a 12 cupcakes"],
+    ["2 million users", "2000000 users"],
+    ["3 hundred seats", "300 seats"],
+    ["twenty-five guests", "25 guests"],
+    ["twenty five guests", "25 guests"],
+    ["five hundred and fifty seats", "550 seats"],
+    ["two thousand five hundred guests", "2500 guests"],
+  ])("reads %j as one number, %j", (words, digits) => {
+    expect(keys(words)).toEqual(keys(digits));
+  });
+
+  it("never folds two numbers that are not one value", () => {
+    expect(keys("Two 90-minute sessions")).toEqual(
+      keys("2 90-minute sessions"),
+    );
+    expect(keys("five six")).toEqual(["n:5", "n:6"]);
   });
 });
 

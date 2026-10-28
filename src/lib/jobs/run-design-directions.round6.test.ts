@@ -223,6 +223,7 @@ vi.mock("@/lib/jobs/design-gate", async (importOriginal) => {
 });
 
 const { generateDirectionsWork } = await import("./run-design-directions");
+const { footerLinesFor } = await import("@/lib/design/render/footer");
 const {
   BRAND_ID,
   contrastingDraft,
@@ -1364,5 +1365,198 @@ describe("round-10 critic job probes", () => {
       }
       expect(usage().factsAdded).toBeGreaterThanOrEqual(2);
       expect(usage().factsLeftOff).toEqual([]);
+    }));
+});
+
+/* Round-11 code critic, job probes J12 to J16 (r11-job-probes.log), on the
+   PR 1 default path: the flag off and no photo. J12, J15 and J16 shipped a
+   design with one part of a fact and counted the whole fact delivered; J13
+   hid a footer age the verifier had counted; J14 is the field's other
+   weekday. */
+describe("round-11 critic job probes", () => {
+  async function flagOff(body: () => Promise<void>) {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await body();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  }
+  const shownOf = (id: string) => {
+    const spec = delivered(id)?.spec;
+    if (!spec) return "";
+    return [spec.headline, spec.subheadline, spec.cta, ...footerLinesFor(spec)]
+      .filter(Boolean)
+      .join("\n");
+  };
+  const both = (re: RegExp) =>
+    ["row-1", "row-2"].map((id) => re.test(shownOf(id)));
+
+  it("J12: '5, 12 and 19 December' is not stated by '5 December' alone, and is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "date", text: "5, 12 and 19 December" }], {
+          kind: "event",
+          phrase: "pottery class",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Pottery class",
+              subheadline: "Starts Saturday 5 December. Book your wheel.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Get your hands muddy",
+              subheadline: "First class December 5, beginners welcome.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Beginner pottery class on 5, 12 and 19 December. Book your wheel.",
+        { image: { source: "none" } },
+      );
+      expect(both(/5, 12 and 19 December/)).toEqual([true, true]);
+      expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
+    }));
+
+  it("J13: a footer 'Ages: 8+' under 'all ages · 8+ flavours' is drawn, not hidden as a repeat", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer(
+          [
+            { kind: "day", text: "this Saturday" },
+            { kind: "age", text: "Ages 8+" },
+          ],
+          { kind: "event", phrase: "ice cream social" },
+        ),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Ice cream social",
+              subheadline: "This Saturday. Fun for all ages · 8+ flavours",
+              footerStyle: "text",
+              footerLines: ["Ages: 8+"],
+            }),
+            contrastingDraft({
+              headline: "Scoops this Saturday",
+              subheadline: "This Saturday, all ages, 8+ flavours to try",
+              footerStyle: "text",
+              footerLines: ["Ages: 8+"],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Ice cream social this Saturday with 8+ flavours. Ages 8+.",
+        { image: { source: "none" } },
+      );
+      expect(both(/ages:? 8\+/i)).toEqual([true, true]);
+      expect(usage().factsLeftOff).toEqual([]);
+    }));
+
+  it("J14: 'Sunday · 5 December' never stands for 'Saturday 5 December'", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "date", text: "Saturday 5 December" }], {
+          kind: "event",
+          phrase: "Christmas market",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Christmas market",
+              subheadline: "Sunday · 5 December · from 5pm",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Gifts for everyone",
+              subheadline: "5 December, Sunday. 12 stalls.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Christmas market on Saturday 5 December from 5pm. 12 stalls.",
+        { image: { source: "none" } },
+      );
+      expect(both(/sunday/i)).toEqual([false, false]);
+      expect(both(/Saturday 5 December/)).toEqual([true, true]);
+    }));
+
+  it("J15: 'Mon-Fri 9am-5pm, Sat 10am-2pm' is not stated by 'Sat 10am-2pm', and is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "time", text: "Mon-Fri 9am-5pm, Sat 10am-2pm" }], {
+          kind: "service",
+          phrase: "tailoring",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Bespoke tailoring",
+              subheadline: "Walk in Sat 10am-2pm for a fitting.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Suits that fit",
+              subheadline: "Saturday fittings 10am-2pm.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Bespoke tailoring in Yaba. Open Mon-Fri 9am-5pm, Sat 10am-2pm.",
+        { image: { source: "none" } },
+      );
+      expect(both(/Mon-Fri 9am-5pm/)).toEqual([true, true]);
+      expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
+    }));
+
+  it("J16: 'ages 5-12 and 13-17' is not stated by 'Ages 5-12', and is written in", () =>
+    flagOff(async () => {
+      readBrief.mockResolvedValue(
+        readAnswer([{ kind: "age", text: "ages 5-12 and 13-17" }], {
+          kind: "event",
+          phrase: "coding camp",
+        }),
+      );
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({
+              headline: "Coding camp",
+              subheadline: "For ages 5-12. Build your first game.",
+              footerLines: [],
+            }),
+            contrastingDraft({
+              headline: "Build your first game",
+              subheadline: "Ages 5-12, this December.",
+              footerLines: [],
+            }),
+          ],
+        },
+      });
+      await runBrief(
+        "Holiday coding camp for ages 5-12 and 13-17 this December.",
+        { image: { source: "none" } },
+      );
+      expect(both(/13-17/)).toEqual([true, true]);
+      expect(usage().factsLeftOff).toEqual([]);
+      expect(usage().briefFactsDelivered).toBe(usage().briefFacts);
     }));
 });
