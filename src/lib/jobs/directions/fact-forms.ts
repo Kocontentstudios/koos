@@ -1422,8 +1422,8 @@ const amountAt = (tokens: readonly CopyToken[], i: number) =>
   (tokens[i].value ?? 0) * (SCALES[tokens[i + 1]?.key ?? ""] ?? 1);
 
 /* What counts as another value of the fact's kind, anywhere in its field
-   (Oluwaseyi's ruling, 2026-10-28), read broadly so that an unlisted
-   noun, joiner or mark can only refuse copy:
+   (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
+   where a reader could still take the number for one, failing closed:
    - a time: any other clock time, or a plain number that could be an
      hour ("Six or 7pm", "7pm or 9", "Doors 6.30 or 7pm");
    - a price: any other amount, or a plain number of at least a tenth of
@@ -1431,8 +1431,10 @@ const amountAt = (tokens: readonly CopyToken[], i: number) =>
      ₦6,000" is not one;
    - a date: any other day of the month a month or an ordinal dates
      ("or 6 December", "or the 6th"), a bare one ("5 December, or 6"),
-     and one before the run in its clause, which takes the run's month
-     ("4 and 5 December", "Apply between 1 and 30 November");
+     and any in the run's own clause, which shares the run's month ("4
+     and 5 December", "Apply between 1 and 30 November", "5 December or
+     6 if it rains"); a count in another clause stands ("5 December, 12
+     stalls");
    - a count: any other number that is not a year or beside a month,
      whatever it counts ("5 rows of 10 seats", "10 seats or 12 spots",
      "1 of 10 seats left", "10th of 10 seats"). */
@@ -1440,7 +1442,7 @@ function rivalAt(
   kind: string,
   tokens: readonly CopyToken[],
   i: number,
-  run: { amount: number; clause: readonly [number, number]; start: number },
+  run: { amount: number; clause: readonly [number, number] },
 ): boolean {
   const t = tokens[i];
   const besideMonth =
@@ -1462,10 +1464,10 @@ function rivalAt(
         (plain && !t.ordinal && amountAt(tokens, i) * 10 >= run.amount)
       );
     case "date": {
-      const inClauseBefore = i < run.start && i >= run.clause[0];
+      const inClause = i >= run.clause[0] && i < run.clause[1];
       return (
         isDated(tokens, i) ||
-        (isDayNumber(t) && (isBare(tokens, i) || inClauseBefore))
+        (isDayNumber(t) && (isBare(tokens, i) || inClause))
       );
     }
     case "quantity":
@@ -1516,8 +1518,7 @@ function rivalled(around: Around, kind: string | undefined): boolean {
       ...run.filter((t) => t.kind === "money").map((t) => t.value ?? 0),
     );
     return tokens.some(
-      (_, i) =>
-        outside(i) && rivalAt(kind, tokens, i, { amount, clause, start }),
+      (_, i) => outside(i) && rivalAt(kind, tokens, i, { amount, clause }),
     );
   }
   if (!run.some(isNumeric)) return false;

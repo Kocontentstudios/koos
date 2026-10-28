@@ -172,6 +172,13 @@ const UNTYPED_RIVALS: Row[] = [
     design("Christmas market", "5 December '25"),
     false,
   ],
+  [
+    "a day after the date in its clause",
+    "date",
+    "5 December",
+    design("Market", "5 December or 6 if it rains"),
+    false,
+  ],
 ];
 
 /* Correct copy the ruling refuses, on the spec's fail-closed list: two
@@ -229,6 +236,13 @@ const FAIL_CLOSED: Row[] = [
     "date",
     "Saturday 5 December",
     design("Christmas market", "Saturday 5 December and Sunday 6 December"),
+    false,
+  ],
+  [
+    "a count in the date's clause",
+    "date",
+    "5 December",
+    design("Market", "5 December with 12 stalls"),
     false,
   ],
 ];
