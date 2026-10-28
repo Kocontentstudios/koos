@@ -738,4 +738,7 @@ export const DIRECTIONS_EVAL_THRESHOLDS = {
   minPlateShowsProduct: 0.8,
   /** Delivered plates showing something else: what round 1 shipped. */
   maxWrongProductPlates: 0,
+  /** Directions failed because no headline the model wrote could be drawn:
+   *  the client gets one design instead of two (round-9 code critic). */
+  maxHeadlinesLost: 0,
 } as const;

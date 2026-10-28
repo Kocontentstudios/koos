@@ -66,6 +66,7 @@ Deterministically, in `score.ts`, except the plate look.
 | delivered | `productNamed` | Product cases where every direction named the brief's product | 1.0 |
 | plates | `plateShowsProduct` | KO plates on product cases that the eval's own look says show the product; a plate drawn flat after two misses counts as not showing it | ≥ 0.8 |
 | plates | `wrongProductPlates` | Delivered plates showing something else: what round 1 shipped | 0 |
+| delivered | `headlinesLost` | Directions the job fails because no headline the model wrote could be drawn (`headlineLost`); left out of rendering and every other score | 0 |
 
 Thresholds were written before the first round-2 run and are frozen in
 `cases.ts` (`DIRECTIONS_EVAL_THRESHOLDS`).
@@ -435,6 +436,22 @@ content word of it is in the brief, the brand profile or the rest of the
 old copy. conference-ko at 33090f8 moved "Can design beat the heat?" to
 "Design that beats the heat", which the judge flagged as invented. Every
 refusal, whole or in part, is in `factCoverage.rewritesRefused`.
+
+### Round 10: lost headlines are counted, never scored
+
+From round 9 code never draws a headline: a direction whose headline the
+fit pass could not make drawable fails in the job with
+`HeadlineNotWrittenError`, and the client gets one design instead of two.
+`draftDirections` reports it per direction (`headlineLost`). The eval now
+does what the job does: such a direction is not painted, laid out, drawn or
+judged, its layout is not held against its sibling, and `score.ts` leaves
+it out of every delivered score. It is counted per case
+(`headlinesLost`) and gated at **0**. The bound is 0 because a lost
+headline is a design the client paid for and did not get, and the fit pass
+is asked twice before it happens; any loss in an eval run is a regression
+to look at, not noise to average. A lost direction also fails
+`countRight`, since one direction is delivered instead of two, so a run
+with a loss names both.
 
 ### Grounding
 

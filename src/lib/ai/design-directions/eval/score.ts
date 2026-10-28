@@ -96,6 +96,10 @@ export interface DirectionsCaseScore {
   modelCalls: number;
   fitAsked: number;
   fitFixed: number;
+  /** Directions the job would fail because their headline could not be
+   *  drawn as the model wrote it (headlineLost). They are left out of
+   *  every other score, as they are never delivered. */
+  headlinesLost: number;
   /** For a case whose brief names a product: whether every delivered
    *  direction named it. */
   productNamed: boolean | null;
@@ -175,10 +179,13 @@ export function scoreDirectionsCase(
     headlineRewritten?: boolean;
     modelCalls: number;
     fit?: { asked: number; fixed: number };
+    headlineLost?: boolean[];
   },
   plates: PlateResult[] = [],
 ): DirectionsCaseScore {
-  const { directions, drafts } = result;
+  const { drafts } = result;
+  const lost = result.headlineLost ?? [];
+  const directions = result.directions.filter((_, i) => !lost[i]);
   const checks = checksFor(testCase);
   const existing = testCase.regenerate?.existing ?? [];
   const expected = existing.length > 0 ? 1 : 2;
@@ -299,6 +306,7 @@ export function scoreDirectionsCase(
     modelCalls: result.modelCalls,
     fitAsked: result.fit?.asked ?? 0,
     fitFixed: result.fit?.fixed ?? 0,
+    headlinesLost: result.directions.length - directions.length,
     productNamed: product
       ? directions.length > 0 && directions.every((d) => Boolean(d.productName))
       : null,
@@ -335,6 +343,7 @@ export interface DirectionsTotals {
   modelCalls: number;
   fitAsked: number;
   fitFixed: number;
+  headlinesLost: number;
   productNamed: number;
   plates: number;
   /** Delivered plates the eval's own look says show the product, over
@@ -420,6 +429,7 @@ export function aggregateDirections(
     modelCalls: sum(scores, (s) => s.modelCalls),
     fitAsked: sum(scores, (s) => s.fitAsked),
     fitFixed: sum(scores, (s) => s.fitFixed),
+    headlinesLost: sum(scores, (s) => s.headlinesLost),
     productNamed: share(productCases.map((s) => s.productNamed === true)),
     plates: plates.length,
     plateShowsProduct: share(plates.map((p) => p.showsProduct === true)),
@@ -482,6 +492,10 @@ export function directionsFailures(
     "near-duplicates",
   );
   need(totals.productNamed >= t.minProductNamed, "product named");
+  need(
+    totals.headlinesLost <= t.maxHeadlinesLost,
+    `headlines lost ${totals.headlinesLost}`,
+  );
   if (totals.plates > 0) {
     need(
       totals.plateShowsProduct >= t.minPlateShowsProduct,

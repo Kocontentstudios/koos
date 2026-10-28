@@ -505,6 +505,7 @@ for (const caseAsWritten of cases) {
       ]);
       const painted = await Promise.all(
         result.directions.map(async (direction, i) => {
+          if (result.headlineLost[i]) return null;
           const plate = await paintCheckedPlate({
             adapter: plateAdapter,
             spec: designSpecOf(direction),
@@ -575,7 +576,12 @@ for (const caseAsWritten of cases) {
           };
         }),
       );
-      plates.push(...painted.filter(() => Boolean(evalCase.product)));
+      plates.push(
+        ...painted.filter(
+          (plate): plate is NonNullable<typeof plate> =>
+            plate !== null && Boolean(evalCase.product),
+        ),
+      );
     }
 
     /* Each direction laid out and drawn as the job does, in order, each
@@ -606,6 +612,12 @@ for (const caseAsWritten of cases) {
       .filter(Boolean)
       .join(" ");
     for (const [i, direction] of result.directions.entries()) {
+      /* The job fails a direction whose headline was lost
+         (HeadlineNotWrittenError); it is counted, never drawn or judged. */
+      if (result.headlineLost[i]) {
+        console.log(`\n   [${i}] HEADLINE LOST: not delivered, not scored`);
+        continue;
+      }
       let image = imagery[i];
       let imageFacts = image ? await measureImage(image.asset) : null;
       /* As the job does: a cut-out's edge is cleaned before it is drawn. */
@@ -630,7 +642,9 @@ for (const caseAsWritten of cases) {
       };
       const held = [
         ...taken,
-        ...result.directions.slice(i + 1).map((d) => d.layout),
+        ...result.directions
+          .filter((_, j) => j > i && !result.headlineLost[j])
+          .map((d) => d.layout),
       ];
       const relayout = (
         s: ReturnType<typeof designSpecOf>,
@@ -1125,6 +1139,9 @@ console.log(
 );
 console.log(
   `fit pass: ${totals.fitFixed}/${totals.fitAsked} fields fixed; model calls ${totals.modelCalls}`,
+);
+console.log(
+  `headlines lost ${totals.headlinesLost} (max ${t.maxHeadlinesLost}): directions the job fails, left out of every other score`,
 );
 console.log(
   `product named ${f2(totals.productNamed)} (min ${t.minProductNamed})`,

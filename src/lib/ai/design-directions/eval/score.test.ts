@@ -248,6 +248,31 @@ describe("the directions eval", () => {
     expect(onSibling.layoutsDiffer).toBe(false);
   });
 
+  /* Round-9 code critic, finding 6: the job fails a direction whose
+     headline was lost, and the eval rendered and scored it anyway. */
+  it("leaves a lost headline's direction out of every score and gates the count", () => {
+    const drafts = [
+      good(),
+      other({ headline: "Loved by 500 Lagos commuters" }),
+    ];
+    const directions = drafts.map(finalize);
+    const score = scoreDirectionsCase(bakery as NonNullable<typeof bakery>, {
+      drafts,
+      directions: [directions[0], { ...directions[1], headline: "" }],
+      headlineLost: [false, true],
+      redrafted: false,
+      modelCalls: 1,
+    });
+    expect(score.headlinesLost).toBe(1);
+    expect(score.delivered).toBe(1);
+    expect(score.headlines).toEqual([directions[0].headline]);
+    expect(score.withinLimits).toBe(true);
+    expect(failuresOf(score)).toContain("headlines lost 1");
+    expect(failuresOf(scored([good(), other()]))).not.toContain(
+      "headlines lost 0",
+    );
+  });
+
   it("fails a run that lost a case to an error", () => {
     expect(failuresOf(scored([good(), other()]), 9)).toContain("cases 1/9");
   });
