@@ -8,8 +8,13 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 const { settleBriefFacts } = await import("./brief-facts");
 const { factLedger } = await import("./claims");
-const { buildFactWritePrompt, copyProblems, settleFacts, writeFacts } =
-  await import("./fact-writer");
+const {
+  buildFactWritePrompt,
+  copyProblems,
+  rewriteFault,
+  settleFacts,
+  writeFacts,
+} = await import("./fact-writer");
 
 /* Oluwaseyi's ruling, round 7: the model writes what a direction leaves
    out, code verifies it, and nothing is appended by code. */
@@ -485,5 +490,109 @@ describe("writeFacts", () => {
         title: "",
       }),
     ).toBeNull();
+  });
+});
+
+/* Round-16 code critic, finding 3 (r16-cascade.mts): a wrong day in the
+   headline, which the writer may not change, refused every rewrite of the
+   other fields and told the writer to rewrite the headline. */
+describe("a wrong day in a field the writer may not change", () => {
+  const market =
+    "Christmas market on Saturday 5 December at Lekki, closed on Sunday. Entry ₦2,000.";
+  const marketFacts = settleBriefFacts(
+    [
+      { kind: "date", text: "Saturday 5 December" },
+      { kind: "price", text: "₦2,000" },
+    ],
+    market,
+    { region: "NG" },
+  ).facts;
+  const marketLedger = factLedger([market]);
+  const before = {
+    headline: "Sunday market, 5 December",
+    subheadline: "Crafts, food and music in Lekki.",
+    footerLines: [],
+    footerStyle: "none" as const,
+  };
+
+  it("does not refuse a rewrite that adds the price and the right day below", () => {
+    const fault = rewriteFault(
+      before,
+      {
+        ...before,
+        subheadline: "Crafts, food and music in Lekki. Entry ₦2,000.",
+        footerLines: ["Saturday 5 December"],
+        footerStyle: "text",
+      },
+      marketFacts,
+      marketLedger,
+    );
+    expect(fault).toBeNull();
+  });
+
+  it("does not refuse a rewrite that adds only the price", () => {
+    const fault = rewriteFault(
+      before,
+      {
+        ...before,
+        subheadline: "Crafts, food and music in Lekki. Entry ₦2,000.",
+      },
+      marketFacts,
+      marketLedger,
+    );
+    expect(fault).toBeNull();
+  });
+
+  it("still refuses a rewrite that puts the wrong day in a field it may change", () => {
+    const fault = rewriteFault(
+      before,
+      {
+        ...before,
+        subheadline: "Crafts on Sunday, 5 December. Entry ₦2,000.",
+      },
+      marketFacts,
+      marketLedger,
+    );
+    expect(fault).toMatch(/the subheadline .* gives "5 December"/);
+  });
+
+  it("never asks the writer to rewrite the button for it", async () => {
+    const writer = vi.fn<FactWriter>(async () => []);
+    await settleFacts({
+      directions: [
+        {
+          ...before,
+          headline: "Christmas market",
+          cta: "Book for Sunday 5 December",
+        },
+      ],
+      facts: marketFacts,
+      ledger: marketLedger,
+      writer,
+      claimCheck: passing,
+      briefText: market,
+      title: "",
+    });
+    const [request] = writer.mock.calls[0][0].requests;
+    expect(request.problems.join(" ")).not.toMatch(/button/);
+    expect(request.missing).toContain("Saturday 5 December");
+  });
+
+  it("asks for the headline only when the headline may change", async () => {
+    const writer = vi.fn<FactWriter>(async () => []);
+    await settleFacts({
+      directions: [before],
+      facts: marketFacts,
+      ledger: marketLedger,
+      writer,
+      claimCheck: passing,
+      briefText: market,
+      title: "",
+    });
+    const [request] = writer.mock.calls[0][0].requests;
+    const asksHeadline = request.problems.some((p) =>
+      p.startsWith('the headline "Sunday market, 5 December"'),
+    );
+    expect(asksHeadline).toBe(request.headlineMayChange === true);
   });
 });

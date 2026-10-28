@@ -233,24 +233,42 @@ export function copyProblems(
   return problems;
 }
 
-/** Each field that gives a brief date on another day, in words the
- *  model can act on: the field is to be fixed, not the date stated again
- *  beside it (round-15 code critic, finding 6). */
+/** Each field the writer may change that gives a brief date on another
+ *  day, in words the model can act on: the field is to be fixed, not the
+ *  date stated again beside it (round-15 code critic, finding 6). The
+ *  button never changes here, and the headline only when it may
+ *  (`headline`); a contradiction there is not the writer's to fix, so it
+ *  is neither asked for nor held against a rewrite of the other fields
+ *  (round-16 code critic, finding 3). The direction settles it after the
+ *  writer: the headline's fails, the button is left off
+ *  (withoutContradictedDates). */
 export function dateProblems(
   copy: Pick<FactCopy, "headline" | "subheadline" | "footerLines"> &
     Partial<Pick<FactCopy, "cta">>,
   facts: readonly BriefFact[],
+  { headline = false }: { headline?: boolean } = {},
 ): string[] {
-  return contradictedDates(facts, copy).map(
-    ({ fact, field, text, run }) =>
-      `the ${field} "${text}" gives "${run}" with a weekday or year the brief does not give it; the brief says "${fact}", so rewrite that ${field} to say "${fact}" or to name no other day or year for it`,
-  );
+  return contradictedDates(facts, copy)
+    .filter(
+      ({ field }) =>
+        field === "subheadline" ||
+        field === "footer line" ||
+        (headline && field === "headline"),
+    )
+    .map(
+      ({ fact, field, text, run }) =>
+        `the ${field} "${text}" gives "${run}" with a weekday or year the brief does not give it; the brief says "${fact}", so rewrite that ${field} to say "${fact}" or to name no other day or year for it`,
+    );
 }
 
-/** What is wrong with a direction's copy, the brief's dates read against
- *  every field included. */
-function allProblems(copy: FactCopy, facts: readonly BriefFact[]): string[] {
-  return [...copyProblems(copy), ...dateProblems(copy, facts)];
+/** What is wrong with a direction's copy that the writer may fix, the
+ *  brief's dates read against every field it may change. */
+function allProblems(
+  copy: FactCopy,
+  facts: readonly BriefFact[],
+  writable: { headline?: boolean } = {},
+): string[] {
+  return [...copyProblems(copy), ...dateProblems(copy, facts, writable)];
 }
 
 /** Why a new headline cannot replace the old, or null when it can: it
@@ -380,7 +398,8 @@ export function rewriteFault(
   }
   /* A date still given on another day stays a fault: stating it again
      elsewhere ships two days for one date (round-15 code critic, J30). */
-  const contradiction = dateProblems(after, facts)[0];
+  const headline = after.headline !== before.headline;
+  const contradiction = dateProblems(after, facts, { headline })[0];
   if (contradiction) return contradiction;
   /* No new problem, though one the rewrite left alone may stand: a footer
      that now carries the price is worth taking under a subheadline the
@@ -523,7 +542,10 @@ export async function settleFacts<T extends FactCopy>({
   const needing = () =>
     out.flatMap((copy, id) => {
       const missing = facts.filter((f) => !factStated(f, copy));
-      const problems = allProblems(copy, facts);
+      const headlineMayChange = headlineInTheWay(copy, facts);
+      const problems = allProblems(copy, facts, {
+        headline: headlineMayChange,
+      });
       if (missing.length === 0 && problems.length === 0) return [];
       const why = feedback.get(id);
       const avoid = wordsOfOthers(out, id);
@@ -541,7 +563,7 @@ export async function settleFacts<T extends FactCopy>({
             .map((d) => d.subheadline ?? "")
             .filter(Boolean),
           ...(avoid.length > 0 ? { avoid } : {}),
-          ...(headlineInTheWay(copy, facts) ? { headlineMayChange: true } : {}),
+          ...(headlineMayChange ? { headlineMayChange: true } : {}),
         },
       ];
     });
