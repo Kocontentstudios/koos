@@ -1,3 +1,9 @@
+import {
+  type CopyToken,
+  runsOf,
+  tokensOf,
+  withoutEdgeMarks,
+} from "@/lib/design/copy-tokens";
 import type { LogoCorner } from "@/lib/design/logo-placement";
 
 /**
@@ -32,10 +38,8 @@ export interface FooterSpec {
 export const MAX_FOOTER_LINES = 3;
 
 export function footerLinesFor(spec: FooterSpec): string[] {
-  const cta = tokensOf(spec.cta ?? "");
-  const above = [spec.headline ?? "", spec.subheadline ?? ""].map(
-    clauseTokensOf,
-  );
+  const cta = itemTokensOf(spec.cta ?? "");
+  const above = [spec.headline ?? "", spec.subheadline ?? ""].map(tokensOf);
   return (spec.footerLines ?? [])
     .filter((line) => !repeatsCopyAbove(line, above))
     .map((line) => footerLine(line.trim(), cta))
@@ -49,51 +53,16 @@ export function footerLinesFor(spec: FooterSpec): string[] {
    into items; "Shop 12, Admiralty Mall" splits too, harmlessly, because an
    item is only ever removed whole. */
 const SEPARATOR = /(\s*[·•|]\s*|\s+[–—/-]\s+|,\s+)/;
-/* A trailing "+" is kept: "8+" is an age and up, "8" an exact count. */
-const EDGE_PUNCTUATION = /^[^\p{L}\p{N}@#₦$€£%]+|[^\p{L}\p{N}%+]+$/gu;
 
-/** A token compared as a whole: lower case, edge punctuation off, times
- *  written one way ("7 am", "7:00am" and "7am" are the same fact). */
-function normalToken(token: string): string {
-  return token
-    .normalize("NFKC")
-    .toLocaleLowerCase()
-    .replace(EDGE_PUNCTUATION, "")
-    .replace(/^(\d{1,2}):00(am|pm)$/, "$1$2");
+/** An item read as the literal verifier reads copy (copy-tokens.ts): case
+ *  aside, times written one way ("7 am", "7:00am" and "7am" are one
+ *  token), and the punctuation at its edges off. */
+function itemTokensOf(text: string): CopyToken[] {
+  return withoutEdgeMarks(tokensOf(text));
 }
 
-function tokensOf(text: string): string[] {
-  return text
-    .normalize("NFKC")
-    .replace(/(\d)\s+(am|pm)\b/gi, "$1$2")
-    .split(/\s+/)
-    .map(normalToken)
-    .filter(Boolean);
-}
-
-/* Where a clause ends: a comma, colon, semicolon, full stop, "!" or "?"
-   before a space or the end, a dash between spaces, or an em dash. */
-const CLAUSE_BREAK = /[,;:!?.](?=\s|$)|\s[-–—]\s|—/u;
-/* Stands between two clauses' tokens; no word normalises to it. */
-const CLAUSE_END = "\u0000";
-
-/** The tokens of each clause, with CLAUSE_END between clauses: "Ages 8+"
- *  is not word for word in "Fun for all ages, 8+ flavours" (round-9 code
- *  critic, J4: the age the fact writer wrote in was dropped as a repeat). */
-function clauseTokensOf(text: string): string[] {
-  return text
-    .split(new RegExp(`${CLAUSE_BREAK.source}|${SEPARATOR.source}`, "u"))
-    .filter((clause): clause is string => clause !== undefined)
-    .map(tokensOf)
-    .filter((tokens) => tokens.length > 0)
-    .flatMap((tokens, i) => (i === 0 ? tokens : [CLAUSE_END, ...tokens]));
-}
-
-function indexOfRun(haystack: string[], needle: string[]): number {
-  for (let i = 0; i + needle.length <= haystack.length; i += 1) {
-    if (needle.every((word, j) => haystack[i + j] === word)) return i;
-  }
-  return -1;
+function startsWith(tokens: CopyToken[], run: CopyToken[]): boolean {
+  return runsOf(tokens, run)[0] === 0;
 }
 
 /** Starts a line that lost its first item with a capital, unless it starts
@@ -129,15 +98,19 @@ function capitalized(line: string): string {
  * Tokens are compared whole, so "ORDER-NOW.ng" is a domain, not the CTA, and
  * a one-word CTA never removes part of a longer item ("Shop" keeps "Shop 12").
  */
-/** The whole line appears word for word in the headline or subheadline. */
-function repeatsCopyAbove(line: string, above: string[][]): boolean {
-  const tokens = clauseTokensOf(line);
+/** The whole line appears word for word in the headline or subheadline,
+ *  its punctuation included: "Ages 8+" is not in "Fun for all ages · 8+
+ *  flavours" (round-9 and round-10 code critic, J4 and F2), while "Saturday
+ *  · 7pm" is in "this Saturday, 7pm", one break mark standing for any. */
+function repeatsCopyAbove(line: string, above: CopyToken[][]): boolean {
+  const tokens = itemTokensOf(line);
   return (
-    tokens.length > 0 && above.some((copy) => indexOfRun(copy, tokens) >= 0)
+    tokens.length > 0 &&
+    above.some((copy) => runsOf(copy, tokens, { breaksAlike: true }).length > 0)
   );
 }
 
-function footerLine(line: string, cta: string[]): string {
+function footerLine(line: string, cta: CopyToken[]): string {
   const parts = line.split(SEPARATOR);
   const kept: string[] = [];
   let lost = false;
@@ -152,15 +125,15 @@ function footerLine(line: string, cta: string[]): string {
   return lost ? capitalized(rebuilt) : rebuilt;
 }
 
-function keptItem(raw: string, cta: string[]): string {
+function keptItem(raw: string, cta: CopyToken[]): string {
   const item = raw.trim();
-  const tokens = tokensOf(item);
+  const tokens = itemTokensOf(item);
   if (tokens.length === 0) return "";
   if (cta.length > 0) {
-    if (tokens.length === cta.length && indexOfRun(tokens, cta) === 0) {
+    if (tokens.length === cta.length && startsWith(tokens, cta)) {
       return "";
     }
-    const at = cta.length >= 2 ? indexOfRun(tokens, cta) : -1;
+    const at = cta.length >= 2 ? (runsOf(tokens, cta)[0] ?? -1) : -1;
     /* An item led by the call to action is kept whole: cutting the CTA
        off "Order by 8pm for next-day pickup" drew "Next-day pickup" and
        lost the deadline (round-7 live run). Code drops a repeat whole; it
@@ -171,7 +144,7 @@ function keptItem(raw: string, cta: string[]): string {
        consultation when you book now" under "Book now") may hold a brief
        fact, and that drop is the job's, under the literal verifier
        (round-7 code critic, K18). */
-    if (tokens.length >= 2 && indexOfRun(cta, tokens) >= 0) return "";
+    if (tokens.length >= 2 && runsOf(cta, tokens).length > 0) return "";
   }
 
   return item;

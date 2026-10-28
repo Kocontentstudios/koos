@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel } from "@/lib/ai/provider";
+import { sentencesOf } from "@/lib/design/copy-tokens";
 import {
   aboveRepeats,
   type BriefFact,
@@ -204,10 +205,8 @@ const LIMITS = { headline: 70, subheadline: 140 } as const;
 
 /* Round-6 eval, event slot 1: three merges made a 130-character
    subheadline of three clauses, a footer read aloud in the wrong place. */
-const CLAUSE_BREAK = /[.!?](?:\s+|$)|\s+·\s+|\s+[—–]\s+|;\s*/;
-
 export function readsAsList(text: string): boolean {
-  return text.split(CLAUSE_BREAK).filter((part) => part.trim()).length > 2;
+  return sentencesOf(text).length > 2;
 }
 
 function withoutItem<T extends FactCopy>(copy: T, item: string): T {

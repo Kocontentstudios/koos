@@ -2,7 +2,17 @@ import {
   type CountryCode,
   findPhoneNumbersInText,
 } from "libphonenumber-js/max";
-import { calendarNames, looksCutOff, NUMBER_WORDS } from "./claims";
+import {
+  amountOf,
+  clausesOf,
+  tokensOf as copyTokensOf,
+  MONEY,
+  NUMBER_WORDS,
+  runsOf,
+  withoutEdgeMarks,
+} from "@/lib/design/copy-tokens";
+import { calendarNames, looksCutOff } from "./claims";
+import { formIn, formTokensOf, meaningOf, numberFactOf } from "./fact-forms";
 import { contentStems, stem } from "./text-overlap";
 
 /**
@@ -63,7 +73,7 @@ const WORD_NUMBER = new RegExp(
 
 /** Every number in `text`, as values: "₦4,500", "4500", "4.5k" and
  *  "twelve" all count. */
-function numbersIn(text: string): Set<string> {
+export function numbersIn(text: string): Set<string> {
   const values = new Set<string>();
   for (const m of text.matchAll(/(\d[\d,]*(?:\.\d+)?)(\s?k\b)?/gi)) {
     let value = Number.parseFloat(m[1].replace(/,/g, ""));
@@ -970,17 +980,6 @@ function phoneStated(variants: string[], copy: string): boolean {
   });
 }
 
-/* "20-min" and "20-minute" are one duration, "2 hrs" and "2 hours" one
-   length (round-5 live critic: a free call drawn twice in one footer). */
-function meaningOf(text: string): string {
-  return text
-    .replace(/\b(\d+)\s*-?\s*(?:mins?|minutes?)\b/gi, "$1 minutes")
-    .replace(/\b(\d+)\s*-?\s*(?:hrs?|hours?)\b/gi, "$1 hours")
-    .replace(/\bpick[\s-]+up\b/gi, "pickup")
-    .replace(/\s&\s/g, " and ")
-    .replace(/\bincl\.?(?=\s|$)/gi, "included");
-}
-
 /** The copy a direction draws, as one string to look for facts in. */
 export interface FactCopy {
   headline: string;
@@ -1026,23 +1025,20 @@ function copyParts(copy: string | CopyFields): CopyPart[] {
   ];
 }
 
-/* Words compared as words: case, punctuation and the "&"/"incl." ways of
-   writing them aside, but never a clause break, or "Fun for all ages, 8+
-   flavours" holds "Ages 8+" whole (round-9 code critic, FP1). */
-function wordsOf(text: string): string {
-  return meaningOf(text)
-    .toLowerCase()
-    .replace(new RegExp(CLAUSE_BREAK.source, "gu"), " | ")
-    .replace(/[^\p{L}\p{N}₦$£€%@+|]+/gu, " ")
-    .trim();
+/** A copy's tokens as the verifier reads them: "2 hrs" is "2 hours". */
+function factTokens(text: string) {
+  return copyTokensOf(meaningOf(text));
 }
 
-/** Whether `part` holds `phrase` whole, as words. A leading article is
- *  not part of the fact: "First session is free" states "the first
- *  session is free" (round-7 eval, tutoring and retreat). */
+/** Whether `part` holds `phrase` whole: its tokens, marks included, as one
+ *  run. A leading article is not part of the fact: "First session is free"
+ *  states "the first session is free" (round-7 eval, tutoring and retreat). */
 function holdsWhole(phrase: string, part: string): boolean {
-  const wanted = wordsOf(phrase).replace(/^(?:the|a|an) /, "");
-  return wanted.length > 0 && ` ${wordsOf(part)} `.includes(` ${wanted} `);
+  let wanted = withoutEdgeMarks(factTokens(phrase));
+  if (wanted.length > 1 && /^w:(?:the|a|an)$/.test(wanted[0].key)) {
+    wanted = wanted.slice(1);
+  }
+  return wanted.length > 0 && runsOf(factTokens(part), wanted).length > 0;
 }
 
 function needsHold(needs: readonly string[], text: string): boolean {
@@ -1079,39 +1075,20 @@ function statedIn(fact: BriefFact, part: CopyPart): boolean {
   /* A time printed on a phone's line reads as the phone's hours (round-6
      live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
   if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
-  /* Clock times are read as minutes past midnight (timesIn), whatever
-     their spelling; every other number keeps its place, even inside the
-     fact's own words: "December 5" is in "12 December 5 stalls", but its 5
-     is a count there. */
-  const clocked = fact.needs.some((n) => n.startsWith("@"));
-  const numericDate = fact.kind === "date" && /\d\/\d/.test(fact.text);
-  const placed =
-    fact.kind === "contact" ||
-    fact.kind === "price" ||
-    clocked ||
-    numericDate ||
-    numbersHeldInPlace(fact.text, part.text);
-  if (holdsWhole(fact.text, part.text) && (placed || isSpan(fact.kind))) {
-    return true;
-  }
   /* An offer or condition is its whole span: three words in four of "Free
      delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic). */
-  if (isSpan(fact.kind)) return false;
-  if (fact.kind === "price") {
-    /* Currency, amount and unit together: a bare "2,000" is never the
-       price, nor "₦18,000" without "per split unit" (round-6 critics), nor
-       "₦20" for "$20" (round-7 code critic). A price whose currency code
-       cannot read is held only whole. */
-    const amounts = moneyOf(fact.text);
-    if (amounts.size === 0 || [...amounts].some((m) => m.startsWith("?|"))) {
-      return false;
-    }
-    const drawn = moneyOf(part.text);
-    if ([...amounts].some((amount) => !drawn.has(amount))) return false;
-    return needsHold(fact.needs, part.text);
+  if (isSpan(fact.kind)) return holdsWhole(fact.text, part.text);
+  const numbered = numberFactOf(fact);
+  if (numbered) {
+    const tokens = formTokensOf(part.text);
+    const days = new Set(calendarNames(part.text));
+    return (
+      numbered.forms.some((form) => formIn(form, tokens)) &&
+      numbered.days.every((d) => days.has(d)) &&
+      needsHold(numbered.alsoNeeds, part.text)
+    );
   }
-  if (!placed) return false;
-  return needsHold(fact.needs, part.text);
+  return holdsWhole(fact.text, part.text) || needsHold(fact.needs, part.text);
 }
 
 /**
@@ -1185,49 +1162,21 @@ const UNIT_STEMS = contentStems(
     .join(" "),
 );
 
-/* An amount with its currency: "₦4,500", "N4500", "NGN 4,500", "4,500
-   naira", "$20", "GH₵50", "GHS 50", "KSh 300", "R250", "ZAR 250". Round-7
-   code critic: only ₦, $, £ and € were read, so a Ghana price was "stated"
-   by any count, and "$20" by "₦20". */
-const CURRENCY_BEFORE: [RegExp, string][] = [
-  [/^(?:₦|N|NGN)$/i, "ngn"],
-  [/^(?:\$|USD|US\$)$/i, "usd"],
-  [/^(?:£|GBP)$/i, "gbp"],
-  [/^(?:€|EUR)$/i, "eur"],
-  [/^(?:GH₵|GH¢|GHS|GH₵\.|₵)$/i, "ghs"],
-  [/^(?:KSh|KES|Ksh\.?)$/i, "kes"],
-  [/^(?:R|ZAR)$/, "zar"],
-];
-const CURRENCY_AFTER: [RegExp, string][] = [
-  [/^(?:naira|ngn)$/i, "ngn"],
-  [/^(?:cedis?|ghs)$/i, "ghs"],
-  [/^(?:shillings?|kes)$/i, "kes"],
-  [/^(?:rand|zar)$/i, "zar"],
-  [/^(?:dollars?|usd)$/i, "usd"],
-];
-const MONEY =
-  /(?<![\p{L}\d])(₦|GH₵|GH¢|₵|\$|£|€|US\$|(?:NGN|USD|GBP|EUR|GHS|KES|KSh\.?|ZAR)(?=\s?\d)|N(?=\d)|R(?=\d))\s?(\d[\d,]*(?:\.\d+)?)(\s?k\b)?|(\d[\d,]*(?:\.\d+)?)\s?(naira|ngn|cedis?|ghs|shillings?|kes|rand|zar|dollars?|usd)\b/giu;
-
-/** `text` with each amount's currency taken off, its number kept. */
+/** `text` with each amount's currency taken off, its value kept: "₦2.5m"
+ *  is 2500000. */
 function withoutCurrency(text: string): string {
-  return text.replace(
-    MONEY,
-    (_all, _sign, before: string | undefined, k: string | undefined, after) =>
-      ` ${before ?? after}${k ?? ""} `,
-  );
+  return text.replace(MONEY, (...m) => {
+    const amount = amountOf(m as unknown as RegExpMatchArray);
+    return amount ? ` ${amount.value} ` : " ";
+  });
 }
 
 /** "currency|value" for every amount `text` states with a currency. */
 function moneyOf(text: string): Set<string> {
   const found = new Set<string>();
   for (const m of text.matchAll(MONEY)) {
-    let value = Number.parseFloat((m[2] ?? m[4] ?? "").replace(/,/g, ""));
-    if (!Number.isFinite(value)) continue;
-    if (m[3]) value *= 1000;
-    const sign = m[1] ?? m[5] ?? "";
-    const table = m[1] ? CURRENCY_BEFORE : CURRENCY_AFTER;
-    const currency = table.find(([re]) => re.test(sign.trim()))?.[1] ?? "?";
-    found.add(`${currency}|${value}`);
+    const amount = amountOf(m);
+    if (amount) found.add(`${amount.currency}|${amount.value}`);
   }
   return found;
 }
@@ -1236,253 +1185,21 @@ function moneyIn(text: string): Set<string> {
   return new Set([...moneyOf(text)].map((m) => m.split("|")[1]));
 }
 
-/* A number read with the words either side of it: "Ages 8+" is 8 with
-   "ages" on its left and the mark "+", "8 seats" 8 with "seats" on its
-   right, "9-5" a range. The hour of "8pm", a street number or a day of the
-   month has other neighbours, and never stands in for an age or a count
-   (round-7 code critic, K17: "Doors open 8pm" stated "Ages 8+"). The side
-   matters: "seats 8 days ahead" is 8 days, not 8 seats; and a mark is never
-   a neighbour, or "8+ flavours" states "Ages 8+" (round-8 code critic, N1
-   to N4). A neighbour is in the number's own clause: "Fun for all ages, 8+
-   flavours" is a count of flavours (round-9 code critic, FP1 and FP2). */
-interface NumberInPlace {
-  value: string;
-  /** The other end of a range ("9-5", "5 to 12"), or null. */
-  rangeTo: string | null;
-  /** "+" or "%" written on the number, or null. */
-  mark: string | null;
-  left: string | null;
-  right: string | null;
-  /** "Seats: 8": the word a colon puts in front of a number that has no
-   *  word of its own in its clause, or null. */
-  label: string | null;
-}
-
-/* A comma, colon, semicolon, full stop, "!" or "?" before a space or the
-   end, a dash set between spaces, or an em dash: where one clause ends.
-   "4,500", "7:00", "2.5" and "9-5" are inside a number, never a break. */
-const CLAUSE_BREAK = /[,;:!?.](?=\s|$)|\s[-–—]\s|—/u;
-const IS_CLAUSE_BREAK = new RegExp(`^(?:${CLAUSE_BREAK.source})$`, "u");
-const PLACE_TOKEN = new RegExp(
-  `\\d+(?:,\\d{3})*(?:\\.\\d+)?(?:(?:st|nd|rd|th)(?!\\p{L}))?|[\\p{L}]+|[+%]|${CLAUSE_BREAK.source}`,
-  "gu",
-);
-const MARK = /^[+%]$/;
-const AND_UP = /\b(\d+)\s+(?:and|or)\s+(?:up|over|above|older)\b/gi;
-const NOT_A_NEIGHBOUR = new Set([
-  "a",
-  "an",
-  "the",
-  "of",
-  "for",
-  "only",
-  "just",
-  "more",
-]);
-/* "For kids aged 8+" says "Ages 8+". */
-const AGE_WORD = /^(?:age|ages|aged)$/;
-
-function neighbourOf(token: string): string {
-  const lower = token.toLowerCase();
-  if (/^(?:am|pm)$/.test(lower)) return "@clock";
-  if (AGE_WORD.test(lower)) return "age";
-  const named = calendarNames(token);
-  if (named.length > 0) return `~${named[0]}`;
-  return stem(lower);
-}
-
-interface PlaceToken {
-  text: string;
-  at: number;
-  end: number;
-  /** Ends a clause. */
-  stop: boolean;
-}
-
-function placeTokensOf(read: string): PlaceToken[] {
-  return [...read.matchAll(PLACE_TOKEN)].map((m) => ({
-    text: m[0].trim() || m[0],
-    at: m.index ?? 0,
-    end: (m.index ?? 0) + m[0].length,
-    stop: IS_CLAUSE_BREAK.test(m[0]),
-  }));
-}
-
-function asNumber(t: string): string | null {
-  if (/^\d/.test(t)) {
-    return String(
-      Number.parseFloat(t.replace(/,/g, "").replace(/(?:st|nd|rd|th)$/, "")),
+/* An item's counts, each in a clause the copy above says whole: "Ages 8+"
+   under "Fun for all ages · 8+ flavours" says what the copy above does
+   not, and was refused as a repeat when the fact writer wrote it in
+   (round-9 and round-10 code critic, J4 and R1). Phones, money and clock
+   times are compared by value in said(), so only a clause holding a plain
+   number is read here. */
+function countsHeldWhole(item: string, above: readonly string[]): boolean {
+  const aboveTokens = above.map(factTokens);
+  return clausesOf(factTokens(item))
+    .filter((clause) => clause.some((t) => t.kind === "number"))
+    .every((clause) =>
+      aboveTokens.some(
+        (tokens) => runsOf(tokens, clause, { breaksAlike: true }).length > 0,
+      ),
     );
-  }
-  const lower = t.toLowerCase();
-  return lower in NUMBER_WORDS ? String(NUMBER_WORDS[lower]) : null;
-}
-
-const isDash = (t: PlaceToken | undefined) =>
-  Boolean(t?.stop && /[-–—]/.test(t.text));
-
-function numbersInPlace(text: string): NumberInPlace[] {
-  /* The gap between a range's ends is read from the same string as the
-     tokens: meaningOf moves every offset after a "&" or an "incl." */
-  const read = meaningOf(text).replace(AND_UP, "$1+");
-  const tokens = placeTokensOf(read);
-  const isNumber = (t: PlaceToken | undefined) =>
-    Boolean(t && !t.stop && asNumber(t.text) !== null);
-  const out: NumberInPlace[] = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    if (!isNumber(tokens[i])) continue;
-    const value = asNumber(tokens[i].text) as string;
-    let rangeTo: string | null = null;
-    let last = i;
-    /* "9am–5pm" is the range "9-5" with its clock words. */
-    const clock = /^(?:am|pm)$/i.test(tokens[i + 1]?.text ?? "") ? 1 : 0;
-    const next = tokens[i + 1 + clock];
-    const gap = read.slice(
-      tokens[i + clock].end,
-      next?.at ?? tokens[i + clock].end,
-    );
-    if (isNumber(next) && /^\s?[-–—]\s?$/.test(gap)) {
-      rangeTo = asNumber(next.text);
-      last = i + 1 + clock;
-    } else if (isDash(next) && isNumber(tokens[i + 2 + clock])) {
-      /* "5 – 12": a dash between two numbers is a range, not a break. */
-      rangeTo = asNumber(tokens[i + 2 + clock].text);
-      last = i + 2 + clock;
-    } else if (
-      next?.text.toLowerCase() === "to" &&
-      isNumber(tokens[i + 2 + clock])
-    ) {
-      rangeTo = asNumber(tokens[i + 2 + clock].text);
-      last = i + 2 + clock;
-    }
-    const after = tokens[last + 1];
-    const mark =
-      after && MARK.test(after.text) && after.at === tokens[last].end
-        ? after.text
-        : null;
-    if (mark) last += 1;
-    /* The first word on one side, within the clause; and where the clause
-       ended, if it did before any word. */
-    const look = (
-      j: number,
-      step: number,
-    ): { word: number | null; stop: number | null } => {
-      for (let k = j; k >= 0 && k < tokens.length; k += step) {
-        const token = tokens[k];
-        if (token.stop) return { word: null, stop: k };
-        const word = token.text.toLowerCase();
-        if (isNumber(token)) return { word: null, stop: null };
-        if (MARK.test(word) || NOT_A_NEIGHBOUR.has(word)) continue;
-        return { word: k, stop: null };
-      }
-      return { word: null, stop: null };
-    };
-    const before = look(i - 1, -1);
-    const beyond = look(last + 1, 1);
-    let left =
-      before.word === null ? null : neighbourOf(tokens[before.word].text);
-    let right =
-      beyond.word === null ? null : neighbourOf(tokens[beyond.word].text);
-    /* A month already has its day when a number sits just before it: in
-       "12 December 5pm" the 5 is not the 5th (round-9 code critic, FP4). */
-    if (
-      left?.startsWith("~") &&
-      before.word !== null &&
-      isNumber(tokens[before.word - 1])
-    ) {
-      left = `!${left}`;
-    }
-    /* An hour or a marked number is never a day of the month, whatever
-       month sits beside it (round-9 code critic, FP3 to FP5: "Saturday 12
-       December, 5pm" stated "Saturday 5 December"). */
-    const notADay = left === "@clock" || right === "@clock" || mark !== null;
-    if (notADay) {
-      if (left?.startsWith("~")) left = `!${left}`;
-      if (right?.startsWith("~")) right = `!${right}`;
-    }
-    const colon = before.stop === null ? null : tokens[before.stop];
-    const labelWord =
-      colon?.text === ":" && right === null
-        ? look((before.stop as number) - 1, -1).word
-        : null;
-    out.push({
-      value,
-      rangeTo,
-      mark,
-      left,
-      right,
-      label: labelWord === null ? null : neighbourOf(tokens[labelWord].text),
-    });
-    i = last;
-  }
-  return out;
-}
-
-/* A month or weekday says which date whichever side it sits on: "5
-   December" is "December 5". */
-function calendarSide(n: NumberInPlace): string[] {
-  return [n.left, n.right].filter((w): w is string => !!w?.startsWith("~"));
-}
-
-/** Whether `theirs` is `mine` as the fact has it: the same value, range and
- *  mark, and a word of the fact's on the same side, or as the label of a
- *  number alone in its clause ("Seats: 8" for "8 seats"). A fact number
- *  with no word beside it ("18+ only") is held only where the copy's has
- *  none either, so a mark never matches on its own. */
-function sameNumberInPlace(
-  mine: NumberInPlace,
-  theirs: NumberInPlace,
-): boolean {
-  if (
-    theirs.value !== mine.value ||
-    theirs.rangeTo !== mine.rangeTo ||
-    theirs.mark !== mine.mark
-  ) {
-    return false;
-  }
-  if (mine.left === null && mine.right === null) {
-    return (
-      mine.rangeTo !== null ||
-      (theirs.left === null && theirs.right === null && theirs.label === null)
-    );
-  }
-  if (mine.left !== null && mine.left === theirs.left) return true;
-  if (mine.right !== null && mine.right === theirs.right) return true;
-  if (
-    theirs.label !== null &&
-    theirs.left === null &&
-    (theirs.label === mine.left || theirs.label === mine.right)
-  ) {
-    return true;
-  }
-  const dates = calendarSide(theirs);
-  return calendarSide(mine).some((d) => dates.includes(d));
-}
-
-/** Whether every number of `fact` is in `part` as the fact has it. */
-function numbersHeldInPlace(fact: string, part: string): boolean {
-  const theirs = numbersInPlace(part);
-  return numbersInPlace(fact).every((mine) =>
-    theirs.some((t) => sameNumberInPlace(mine, t)),
-  );
-}
-
-/* An item's ages and counts, each beside its own words in one of `texts`:
-   "Ages 8+" under "Fun for all ages, 8+ flavours" says what the copy above
-   does not, and was refused as a repeat when the fact writer wrote it in
-   (round-9 code critic, J4). Phones, money and clock times are compared by
-   value in said(), so they are left out here. */
-function countsPlacedIn(item: string, texts: readonly string[]): boolean {
-  const countsOnly = (text: string) =>
-    meaningOf(text)
-      .replace(new RegExp(PHONE_LIKE.source, "g"), " ")
-      .replace(MONEY, " ")
-      .replace(SHARED_SUFFIX, " ")
-      .replace(CLOCK, " ");
-  const theirs = texts.flatMap((text) => numbersInPlace(countsOnly(text)));
-  return numbersInPlace(countsOnly(item)).every((mine) =>
-    theirs.some((t) => sameNumberInPlace(mine, t)),
-  );
 }
 
 /** Whether a footer item is just the product's name: every word of the
@@ -1526,7 +1243,7 @@ export function redundantFooterItems(copy: CopyFields, product = ""): string[] {
     const mine = said(item);
     if (mine.size === 0) return;
     const repeatsAbove =
-      within(mine, above) && countsPlacedIn(item, aboveFields);
+      within(mine, above) && countsHeldWhole(item, aboveFields);
     const money = moneyIn(item);
     const pricedAbove =
       money.size > 0 &&
@@ -1849,6 +1566,14 @@ export function aboveRepeats(
   return aboveRepeatsBy(copy).map((r) => r.repeat);
 }
 
+/** The counts and clock times `text` says, by value: an amount is
+ *  compared with its currency instead. */
+function countsAndTimesOf(text: string): string[] {
+  return factTokens(text)
+    .filter((t) => t.kind === "number" || t.kind === "clock")
+    .map((t) => t.key);
+}
+
 /** aboveRepeats, with the field the subheadline repeats. */
 export function aboveRepeatsBy(
   copy: Pick<FactCopy, "headline" | "subheadline" | "cta">,
@@ -1870,11 +1595,11 @@ export function aboveRepeatsBy(
       continue;
     }
     /* "one" and "two" are words more than counts ("for two", "One box"). */
-    const numbers = numbersInPlace(field)
-      .map((n) => n.value)
-      .filter((v) => v !== "1" && v !== "2");
-    const subNumbers = new Set(numbersInPlace(sub).map((n) => n.value));
-    if (numbers.some((v) => subNumbers.has(v))) {
+    const numbers = countsAndTimesOf(field).filter(
+      (k) => k !== "n:1" && k !== "n:2",
+    );
+    const subNumbers = new Set(countsAndTimesOf(sub));
+    if (numbers.some((k) => subNumbers.has(k))) {
       found.push({
         field: name,
         repeat: `the subheadline repeats a number from the ${name}`,

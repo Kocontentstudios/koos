@@ -45,7 +45,7 @@ describe("a number is compared on the same side of the same words", () => {
       "a mark is never a neighbour on its own",
       "age",
       "18+ only",
-      "Strictly 18+",
+      "Strictly 18+ cocktails",
     ],
     ["an exact age is not an age and up", "age", "Ages 8+", "Ages 8 welcome"],
     ["an age and up is not an exact count", "quantity", "8 seats", "8+ seats"],
@@ -70,6 +70,12 @@ describe("a number is compared on the same side of the same words", () => {
     ["'and up' is the mark", "age", "Ages 8+", "Ages 8 and up"],
     ["'and up' in the fact", "age", "ages 16 and up", "Ages 16+"],
     ["an age with nothing beside it", "age", "18+ only", "18+ only"],
+    [
+      "a bare age standing alone (round-9 FN2)",
+      "age",
+      "18+ only",
+      "Strictly 18+",
+    ],
   ] as const)("%s", (_label, kind, text, copy) => {
     expect(factStated(fact(kind, text), copy)).toBe(true);
   });
