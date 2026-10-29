@@ -282,7 +282,28 @@ const photoSchema = z.object({
     .describe(
       "A tight box around the head of every person visible anywhere in the photograph, whether or not they are the main subject. Empty when no person appears.",
     ),
+  anyPerson: z
+    .boolean()
+    .optional()
+    .describe(
+      "True if any person appears at all, even in part: a face in profile or turned away, a head, a body, a figure in the background or far off. Hands or arms alone do not count.",
+    ),
 });
+
+/* The second, narrower ask when the look saw people and boxed no head. */
+const headsSchema = z.object({
+  heads: z
+    .array(boxSchema)
+    .describe(
+      "A tight box around the head of every person visible anywhere in the photograph, even in part, at the edge or behind something. Empty only when no person's head is visible at all.",
+    ),
+});
+
+/* What the look's own words say about people, for an answer that leaves
+   anyPerson out. Words for a role a person holds in a scene, never ones
+   with another common sense ("model", "head", "face"). */
+const PEOPLE_WORDS =
+  /\b(?:person|people|persons|man|men|woman|women|boy|boys|girl|girls|child|children|kid|kids|baby|babies|barista|baristas|chef|chefs|baker|bakers|waiter|waiters|waitress|cashier|customer|customers|guest|guests|staff|worker|workers|crowd|couple|family|shopper|shoppers|student|students|vendor|vendors|figure|figures)\b/i;
 
 export interface PhotoLook {
   description: string;
@@ -296,6 +317,12 @@ export interface PhotoLook {
    *  the espresso machine was cut at the frame's edge). */
   heads: SubjectBox[];
   items: string[];
+  /** The look says people are in the photo: anyPerson, a person as the
+   *  main subject, or a person among what it lists. */
+  peopleVisible: boolean;
+  /** People were seen and no head boxed, so the look was asked once more
+   *  for heads alone (round-10 live verdict, CB2). */
+  headsAskedAgain: boolean;
 }
 
 /**
@@ -313,7 +340,7 @@ export async function lookAtPhoto(
     const answer = await askVision({
       schema: photoSchema,
       system:
-        "You look at a client's photograph so a designer can lay text around its subject. Say plainly what the main subject is, box it tightly, box a person's head and shoulders, box every person's head, and list what is visible. Judge only what is visible.",
+        "You look at a client's photograph so a designer can lay text around its subject. Say plainly what the main subject is, box it tightly, box a person's head and shoulders, say whether any person appears at all, box every person's head, and list what is visible. Judge only what is visible.",
       text: "Box the main subject: the product if there is one, otherwise what the photograph is of. Then list what is visible.",
       image,
       maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
@@ -323,17 +350,55 @@ export async function lookAtPhoto(
     const items = Array.isArray(answer?.visibleItems)
       ? answer.visibleItems.filter((i): i is string => typeof i === "string")
       : [];
+    const description = [answer?.mainSubject ?? "", ...items].join(", ");
+    const peopleVisible =
+      answer?.anyPerson === true ||
+      answer?.isPerson === true ||
+      PEOPLE_WORDS.test(description);
+    let heads = boxesFrom(answer?.heads);
+    const headsAskedAgain = peopleVisible && heads.length === 0;
+    if (headsAskedAgain) heads = await askForHeads(image, timeoutMs);
     return {
-      description: [answer?.mainSubject ?? "", ...items].join(", "),
+      description,
       subject: subjectBoxFrom(answer?.subjectBox ?? null),
       face: answer?.isPerson ? subjectBoxFrom(answer.faceBox ?? null) : null,
-      heads: (Array.isArray(answer?.heads) ? answer.heads : [])
-        .map((box) => subjectBoxFrom(box ?? null))
-        .filter((box): box is SubjectBox => box !== null),
+      heads,
       items,
+      peopleVisible,
+      headsAskedAgain,
     };
   } catch (err) {
     console.error("photo subject unavailable", err);
     return null;
+  }
+}
+
+function boxesFrom(boxes: unknown): SubjectBox[] {
+  return (Array.isArray(boxes) ? boxes : [])
+    .map((box) => subjectBoxFrom(box ?? null))
+    .filter((box): box is SubjectBox => box !== null);
+}
+
+/** Every person's head, asked for alone. Empty when the model boxes none
+ *  or cannot answer: the caller then treats the heads as unknown. */
+async function askForHeads(
+  image: { bytes: Uint8Array; mediaType: string },
+  timeoutMs: number,
+): Promise<SubjectBox[]> {
+  try {
+    const answer = await askVision({
+      schema: headsSchema,
+      system:
+        "You box people's heads in a client's photograph so a crop never cuts one. Judge only what is visible.",
+      text: "Box the head of every person in this photograph, including people at its edges, partly hidden, or in the background.",
+      image,
+      maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
+      timeoutMs,
+      label: "photo heads",
+    });
+    return boxesFrom(answer?.heads);
+  } catch (err) {
+    console.error("photo heads unavailable", err);
+    return [];
   }
 }

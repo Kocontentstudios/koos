@@ -2,11 +2,13 @@ import type { AssetRef, ImageElement } from "../schema";
 import {
   coverPlacement,
   grown,
+  headsUnknown,
   intersection,
   SUBJECT_GAP,
   SUBJECT_MIN_SHARE,
   type SubjectBox,
   subjectOnCanvas,
+  wholePlacement,
 } from "../subject";
 import {
   type Context,
@@ -212,10 +214,14 @@ export function framedImage(
             minWidthShare: options.minInsetWidth ?? 0,
           })
         : null);
+    /* A fallback is drawn only with a fault, but a fault is no licence to
+       cut a head: with heads unknown it shows the photo whole. */
+    const fallback = headsUnknown(ctx.heads ?? [])
+      ? uncropped(frame)
+      : (coverPlacement(facts, ctx.subject, frame, avoid, 0) ??
+        centredOn(ctx.subject, frame));
     const placement = balancedInset(
-      exact ??
-        coverPlacement(facts, ctx.subject, frame, avoid, 0) ??
-        centredOn(ctx.subject, frame),
+      exact ?? fallback,
       frame,
       avoid,
       options.align,
@@ -236,10 +242,17 @@ export function framedImage(
   }
 
   return framed(
-    { frame, fit: "cover", zoom: 1, focusX: 0.5, focusY: 0.5 },
+    headsUnknown(ctx.heads ?? [])
+      ? uncropped(frame)
+      : { frame, fit: "cover", zoom: 1, focusX: 0.5, focusY: 0.5 },
     null,
     true,
   );
+}
+
+/** The whole photo in `frame`, cropped nowhere. */
+function uncropped(frame: Rect): ImagePlacement {
+  return { frame, fit: "contain", zoom: 1, focusX: 0.5, focusY: 0.5 };
 }
 
 /** Corner radius of a photograph inset in its region, as a share of the
@@ -326,12 +339,21 @@ function insetCoverPlacement(
   );
   let best: ImagePlacement | null = null;
   for (const room of rooms) {
-    const placement = largestInsetIn(
-      room,
-      (frame) => coverPlacement(image, subject, frame, avoid, minEdge, heads),
-      align === "start" ? "start" : "centre",
-      (minWidthShare * region.width) / Math.max(1, room.width),
-    );
+    /* With heads unknown no crop is safe, and no stepped frame has the
+       photo's own shape: the whole photo as a print is the one placement
+       left (HEADS_UNKNOWN). */
+    const placement = headsUnknown(heads)
+      ? wholePrint(image, subject, room, avoid, minEdge, {
+          align,
+          minWidth: minWidthShare * region.width,
+        })
+      : largestInsetIn(
+          room,
+          (frame) =>
+            coverPlacement(image, subject, frame, avoid, minEdge, heads),
+          align === "start" ? "start" : "centre",
+          (minWidthShare * region.width) / Math.max(1, room.width),
+        );
     if (
       placement &&
       (!best ||
@@ -464,6 +486,30 @@ function largestInsetIn(
     }
   }
   return null;
+}
+
+/** The whole photo as a print in the largest frame of its own shape in
+ *  `room`, lined up as an inset print is, or null when that frame is
+ *  narrower than `minWidth` or the subject in it breaks the rule. */
+function wholePrint(
+  image: { width: number; height: number },
+  subject: SubjectBox,
+  room: Rect,
+  avoid: Rect[],
+  minEdge: number,
+  { align, minWidth }: { align?: InsetAlign; minWidth: number },
+): ImagePlacement | null {
+  const aspect = image.width / image.height;
+  const width = Math.min(room.width, room.height * aspect);
+  if (width < minWidth - 0.5) return null;
+  const height = width / aspect;
+  const frame = rect(
+    room.x + (align === "start" ? 0 : (room.width - width) / 2),
+    room.y + (room.height - height) / 2,
+    width,
+    height,
+  );
+  return wholePlacement(image, subject, frame, avoid, minEdge);
 }
 
 /** Cover at zoom 1 with the subject as near the middle as the photo allows,

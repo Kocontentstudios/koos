@@ -3827,3 +3827,109 @@ describe("round 25: a day keeps its bound", () => {
     expect(usage().factsLeftOff.filter(day)).toEqual([]);
   });
 });
+
+/* Round-10 live verdict, CB2: the builder's final cafe run got a look with
+   two people and no head boxes (usage row 2026-10-29 16:14:41 UTC,
+   photoHeads []), so nothing kept a head whole and split-left's crop
+   sliced the barista's face, with subjectFaults [null, null]. A look of
+   people with no heads, asked again, is heads unknown: no delivered
+   design crops the photo, and each carries the fault. */
+describe("round 25: heads unknown never ships a crop", () => {
+  it("cafe 16:14 look: banner-bottom and split-left draw the photo whole or not at all, and say why", async () => {
+    const { drawnImageRect } = await import(
+      "@/lib/design/document/builders/ground"
+    );
+    const { HEADS_UNKNOWN_FAULT } = await import("./run-design-directions");
+    const size = { width: 1400, height: 1000 };
+    const bar = await photo(size.width, size.height);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(bar),
+      contentType: "image/png",
+      ...size,
+    });
+    lookAtPhoto.mockResolvedValue({
+      description: "an espresso bar, a barista, cups",
+      subject: { x: 0.16, y: 0.26, w: 0.68, h: 0.58 },
+      face: null,
+      heads: [],
+      items: ["an espresso machine", "a barista", "cups"],
+      peopleVisible: true,
+      headsAskedAgain: true,
+    });
+    const cafe = { aspectRatio: "1:1" as const, footerStyle: "text" as const };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...cafe,
+            layout: "banner-bottom",
+            headline: "The Cold Brew Flight",
+            subheadline: "Three 150ml tasters for ₦6,000.",
+            cta: "Order at the bar",
+            footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+          }),
+          contrastingDraft({
+            ...cafe,
+            layout: "split-left",
+            headline: "Taste It Side by Side",
+            subheadline: "A cold brew flight, poured at the bar.",
+            cta: "Come taste it",
+            footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Our cold brew flight is on: three 150ml tasters for ₦6,000. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    let drawnWithPhoto = 0;
+    for (const id of ["row-1", "row-2"]) {
+      const doc = delivered(id)?.document as
+        | { elements: Record<string, unknown>[] }
+        | undefined;
+      const image = doc?.elements.find((e) => e.type === "image") as
+        | {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            fit: "cover" | "contain";
+            crop: { zoom: number; focusX: number; focusY: number };
+          }
+        | undefined;
+      if (!image) continue;
+      drawnWithPhoto += 1;
+      const frame = {
+        x: image.x,
+        y: image.y,
+        width: image.width,
+        height: image.height,
+      };
+      const drawn = drawnImageRect(size, {
+        frame,
+        fit: image.fit,
+        ...image.crop,
+      });
+      /* The whole photo inside its frame: no edge of the frame runs
+         through it. */
+      expect(drawn.x, id).toBeGreaterThanOrEqual(frame.x - 0.5);
+      expect(drawn.y, id).toBeGreaterThanOrEqual(frame.y - 0.5);
+      expect(drawn.x + drawn.width, id).toBeLessThanOrEqual(
+        frame.x + frame.width + 0.5,
+      );
+      expect(drawn.y + drawn.height, id).toBeLessThanOrEqual(
+        frame.y + frame.height + 0.5,
+      );
+    }
+    expect(drawnWithPhoto).toBeGreaterThan(0);
+    expect(usage().headsUnknown).toBe(true);
+    expect(usage().headsAskedAgain).toBe(true);
+    expect(usage().photoHeads).toEqual([]);
+    for (const fault of usage().subjectFaults) {
+      expect(fault).not.toBeNull();
+    }
+    expect(usage().subjectFaults).toContain(HEADS_UNKNOWN_FAULT);
+    expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
+  });
+});

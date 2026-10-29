@@ -415,6 +415,48 @@ function openPart(frame: Rect, band: Rect, side: BandSide): Rect {
   }
 }
 
+/** The heads of a photo with people in it whose look boxed none, asked
+ *  twice. Round-10 live verdict, CB2: the look returned no heads for the
+ *  cafe's two people, cutsAHead had nothing to keep whole, and the crop
+ *  sliced the barista's face. Unknown is not none: a head may be anywhere
+ *  in the photo, so the whole photo is the head box. Every guard then
+ *  holds as written: a frame edge through the photo cuts it (no crop), and
+ *  no band or copy lies on it. */
+export const HEADS_UNKNOWN: readonly SubjectBox[] = Object.freeze([
+  Object.freeze({ x: 0, y: 0, w: 1, h: 1 }),
+]);
+
+/** Whether `heads` says only that a head may be anywhere in the photo. */
+export function headsUnknown(heads: readonly SubjectBox[]): boolean {
+  return heads.some((h) => h.x <= 0 && h.y <= 0 && h.w >= 1 && h.h >= 1);
+}
+
+/**
+ * The whole photo in `frame`, cropped nowhere (contain), when its subject
+ * is then clear of every `keepOut` and at least `minEdge`. For heads
+ * unknown, where no crop is safe: null when the whole photo cannot keep
+ * the rule there.
+ */
+export function wholePlacement(
+  image: { width: number; height: number },
+  subject: SubjectBox,
+  frame: Rect,
+  keepOut: Rect[],
+  minEdge: number,
+): ImagePlacement | null {
+  const placement: ImagePlacement = {
+    frame,
+    fit: "contain",
+    zoom: 1,
+    focusX: 0.5,
+    focusY: 0.5,
+  };
+  const box = subjectOnCanvas(image, subject, placement);
+  if (Math.max(box.width, box.height) < minEdge) return null;
+  if (keepOut.some((zone) => intersection(box, zone))) return null;
+  return placement;
+}
+
 /** A head the frame's edge runs through: neither whole inside the frame
  *  nor wholly outside it. */
 export function cutsAHead(

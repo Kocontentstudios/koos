@@ -21,6 +21,7 @@ import {
 import { measureImage } from "@/lib/design/document/image-facts";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import {
+  HEADS_UNKNOWN,
   measureSubject,
   SUBJECT_COVERED,
   SUBJECT_CROPPED,
@@ -147,6 +148,9 @@ export class SubjectFaultError extends Error {
 
 /** Faults of a chosen layout or a delivered document that are faults of
  *  the subject itself: what the client pays for, cut or covered. */
+export const HEADS_UNKNOWN_FAULT =
+  "the photo shows people but no head could be boxed in it, even when asked again, so it was never cropped: drawn whole or left off";
+
 const SUBJECT_FAULTS: readonly string[] = [
   SUBJECT_CROPPED,
   SUBJECT_FACE_ONLY,
@@ -533,15 +537,28 @@ export async function generateDirectionsWork(
   /* The client's photo's people: a crop keeps each head whole or leaves it
      out, whatever the main subject is. */
   let photoHeads: SubjectBox[] = [];
+  /* People in the photo and no head boxed, even when asked again, is not
+     "no heads" (round-10 live verdict, CB2: the cafe crop sliced the
+     barista's face). Every crop and band is then refused, the photo drawn
+     whole or left off, and the direction carries a fault. */
+  let headsUnknown = false;
   if (upload && images[0]) {
     const measured = await facts.get(images[0]);
-    if (!measured?.cutout) photoHeads = photoLook?.heads ?? [];
+    if (!measured?.cutout) {
+      photoHeads = photoLook?.heads ?? [];
+      headsUnknown =
+        Boolean(photoLook?.peopleVisible) && photoHeads.length === 0;
+    }
     /* A cut-out's subject is its visible pixels, which are exact; the look
        is only for a photograph, where the whole subject comes first and a
-       person's head and shoulders second. */
+       person's head and shoulders second. With heads unknown and no
+       subject boxed, the subject is the whole photo. */
     const boxes = measured?.cutout
       ? [subjectFromAlpha(measured)]
-      : [photoLook?.subject ?? null, photoLook?.face ?? null];
+      : [
+          photoLook?.subject ?? (headsUnknown ? HEADS_UNKNOWN[0] : null),
+          photoLook?.face ?? null,
+        ];
     for (let i = 0; i < settled.length; i += 1) subjectBoxes[i] = boxes;
     /* Drawn on a coloured ground, a cut-out's baked shadow and white fringe
        show; its edge is feathered and decontaminated first (cutout-edge). */
@@ -575,6 +592,9 @@ export async function generateDirectionsWork(
   const faultsByRow = new Map<string, string[]>();
   const addFault = (id: string, fault: string) =>
     faultsByRow.set(id, [...(faultsByRow.get(id) ?? []), fault]);
+  if (headsUnknown) {
+    for (const row of rows) addFault(row.id, HEADS_UNKNOWN_FAULT);
+  }
   plateChecks.forEach((check, i) => {
     if (check === "failed") {
       addFault(
@@ -731,7 +751,8 @@ export async function generateDirectionsWork(
       let assets: DirectionAssets = {
         image,
         imageFacts: image ? await facts.get(image) : null,
-        heads: image && upload ? photoHeads : [],
+        heads:
+          image && upload ? (headsUnknown ? HEADS_UNKNOWN : photoHeads) : [],
         logo: mark?.placed
           ? { placed: mark.placed, loaded: mark.loaded }
           : null,
@@ -1225,6 +1246,11 @@ export async function generateDirectionsWork(
          could not be traced without the look it was laid out on. */
       subjectBoxes,
       photoHeads,
+      /* Round 25 (CB2): the look saw people, asked again for heads, and
+         whether any were boxed in the end. */
+      photosPeopleVisible: Boolean(photoLook?.peopleVisible),
+      headsAskedAgain: Boolean(photoLook?.headsAskedAgain),
+      headsUnknown,
       layoutsConsidered: layoutChoices.map(
         (choice) =>
           choice?.considered.map((c) => ({
@@ -1239,7 +1265,13 @@ export async function generateDirectionsWork(
       layoutsRelaid: layoutChoices.filter(
         (choice, i) => choice && choice.spec.layout !== settled[i].spec.layout,
       ).length,
-      subjectFaults: layoutChoices.map((choice) => choice?.fault ?? null),
+      /* A direction laid out on a photo whose heads are unknown carries
+         that fault where a crop's faults are read. */
+      subjectFaults: layoutChoices.map(
+        (choice) =>
+          choice?.fault ??
+          (choice && headsUnknown ? HEADS_UNKNOWN_FAULT : null),
+      ),
       briefFacts: hardFacts.length + unreadFacts.length,
       briefFactsDelivered: factsDelivered,
       briefFactsByDirection: factsByDirection,
