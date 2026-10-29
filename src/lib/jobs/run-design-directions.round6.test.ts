@@ -3219,3 +3219,171 @@ describe("round 22: two directions never ship one footer", () => {
     expect(usage().footerLinesShared).toEqual({ dropped: 0, shipped: 2 });
   });
 });
+
+/* Round-22 live run, cafe: the second direction listed both prices as
+   "Flight ₦6,000 · Bottle ₦15,500"; each was read as the other's rival,
+   every rewrite listing both was refused, and the direction failed
+   unnamed (OfferingNotNamedError). A price list of different items is not
+   a choice (round 23). */
+describe("round 23: a cafe price list ships both directions", () => {
+  const CAFE =
+    "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.";
+
+  it("cafe: both directions ship, each stating both prices", async () => {
+    const { isFactWriteCall } = await import("./directions/fixtures");
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) {
+        /* The round-22 writer's own first rewrite for design 0, refused
+           then for a rival, and the name the targeted ask wants for 1. */
+        return {
+          object: {
+            rewrites: [
+              {
+                id: 0,
+                subheadline:
+                  "Try three 150ml tasters for ₦6,000, or go for a 1-litre bottle and two glasses for ₦15,500.",
+                footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+              },
+              {
+                id: 1,
+                subheadline: "Our cold brew flight, poured at the bar.",
+                footerLines: [
+                  "Three tasters ₦6,000 · Bottle and two glasses ₦15,500",
+                  "Weekdays 8am to 6pm · 9 Akinola Street, Yaba",
+                ],
+              },
+            ],
+          },
+        };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({
+              layout: "hero-center",
+              headline: "The Cold Brew Flight",
+              subheadline: "Weekdays at the bar in Yaba.",
+              cta: "Ask for oat milk",
+              footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+              footerStyle: "text",
+            }),
+            contrastingDraft({
+              layout: "stat-highlight",
+              headline: "Taste It Your Way",
+              subheadline: "Poured at the bar.",
+              cta: "Ask for oat milk",
+              footerLines: [
+                "Flight ₦6,000 · Bottle ₦15,500",
+                "Weekdays 8am to 6pm · 9 Akinola Street, Yaba",
+              ],
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "price", text: "three 150ml tasters for ₦6,000" },
+          {
+            kind: "price",
+            text: "a 1-litre bottle and two glasses for ₦15,500",
+          },
+          { kind: "time", text: "8am to 6pm" },
+          { kind: "place", text: "9 Akinola Street, Yaba" },
+        ],
+        { kind: "product", phrase: "cold brew flight" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await runBrief(CAFE, { image: { source: "none" } });
+    } finally {
+      g.factWriteThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    expect(failedRow("row-1")).toBeUndefined();
+    expect(failedRow("row-2")).toBeUndefined();
+    expect(drawnOf("row-1")).toContain("tasters for ₦6,000, or go for");
+    expect(delivered("row-2")?.spec?.footerLines?.[0]).toBe(
+      "Three tasters ₦6,000 · Bottle and two glasses ₦15,500",
+    );
+    const prices = (l: { fact: string }) => /₦/.test(l.fact);
+    expect(usage().factsLeftOff.filter(prices)).toEqual([]);
+    expect(usage().offeringsLost).toBe(0);
+  });
+});
+
+/* Round 22 drops a footer line the other design draws word for word when
+   its facts are stated elsewhere on the design; that path had only a unit
+   test (orchestrator, round 23). The address line here is not an echo the
+   repeat pass drops: the subheadline gives the street and area apart. */
+describe("round 23: a shared footer line goes where its facts are elsewhere", () => {
+  const FASHION =
+    "The Ire wrap dress in sage silk with pearl buttons, ₦78,000, sizes 8 to 16, only 15 made. Fittings at 3 Raymond Njoku Street, Ikoyi, Tuesday to Saturday, 11am to 6pm.";
+
+  it("fashion: drops the shared line whose facts the copy holds elsewhere, and keeps the rest", async () => {
+    const { isFactWriteCall } = await import("./directions/fixtures");
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) return { object: { rewrites: [] } };
+      return {
+        object: {
+          directions: [
+            draftOf({
+              layout: "split-left",
+              headline: "The Ire Wrap Dress",
+              subheadline: "Sage silk, pearl buttons, ₦78,000.",
+              cta: "Book a Fitting",
+              footerLines: [
+                "Ikoyi fittings, 11am to 6pm",
+                "3 Raymond Njoku Street · Tuesday to Saturday",
+              ],
+              footerStyle: "text",
+            }),
+            contrastingDraft({
+              layout: "hero-center",
+              headline: "One Dress, Every Room",
+              subheadline:
+                "Try the Ire wrap dress at ₦78,000: fittings at 3 Raymond Njoku Street, Ikoyi.",
+              cta: "Reserve Your Size",
+              footerLines: [
+                "Ikoyi fittings, 11am to 6pm",
+                "Open Tuesday to Saturday, 11am to 6pm",
+              ],
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "price", text: "₦78,000" },
+          { kind: "place", text: "3 Raymond Njoku Street, Ikoyi" },
+          { kind: "time", text: "11am to 6pm" },
+        ],
+        { kind: "product", phrase: "Ire wrap dress" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await runBrief(FASHION, { image: { source: "none" } });
+    } finally {
+      g.factWriteThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    expect(delivered("row-1")?.spec?.footerLines?.[0]).toBe(
+      "Ikoyi fittings, 11am to 6pm",
+    );
+    expect(delivered("row-2")?.spec?.footerLines).toEqual([
+      "Open Tuesday to Saturday, 11am to 6pm",
+    ]);
+    expect(usage().footerLinesShared).toEqual({ dropped: 1, shipped: 0 });
+  });
+});

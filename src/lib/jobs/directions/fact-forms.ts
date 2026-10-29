@@ -67,6 +67,15 @@ export interface FactForm {
   /** The fact's kind, which says what another number beside it is
    *  (rivalled). */
   kind?: string;
+  /** For a price: what it buys, and the brief's other prices with what
+   *  each buys, so a price list is not read as a choice (pricedApart). */
+  priced?: PricedItems;
+}
+
+/** A price's own item words and the brief's other priced items. */
+export interface PricedItems {
+  own: ReadonlySet<string>;
+  others: readonly { amount: string; words: ReadonlySet<string> }[];
 }
 
 export interface NumberFact {
@@ -903,6 +912,10 @@ function amountForms(tokens: CopyToken[], own: string): FactForm[] {
          comes first: "₦4,500 2" is an amount beside some other number
          (round-12 code critic, P10). */
       if (/^\p{L}/u.test(u)) forms.push(form(`${amount} ${u}`));
+      /* "Bottle and two glasses ₦15,500", the price list's own order
+         (round 23, cafe): only when a word comes last, for the same
+         reason. */
+      if (/\p{L}$/u.test(u)) forms.push(form(`${u} ${amount}`));
     }
   } else if (post.length === 1 && word(post[0], "each", "apiece")) {
     for (const each of ["each", "apiece"]) {
@@ -1292,8 +1305,9 @@ export function numberFactOf(fact: {
   kind: string;
   text: string;
   needs: readonly string[];
+  pricedBeside?: readonly string[];
 }): NumberFact | null {
-  const key = `${fact.kind}\u0000${fact.text}\u0000${fact.needs.join("\u0001")}`;
+  const key = `${fact.kind}\u0000${fact.text}\u0000${fact.needs.join("\u0001")}\u0000${(fact.pricedBeside ?? []).join("\u0001")}`;
   const cached = FACT_CACHE.get(key);
   if (cached !== undefined) return cached;
   if (FACT_CACHE.size >= FACT_CACHE_SIZE) FACT_CACHE.clear();
@@ -1311,6 +1325,7 @@ function makeNumberFact(fact: {
   kind: string;
   text: string;
   needs: readonly string[];
+  pricedBeside?: readonly string[];
 }): NumberFact | null {
   const own = withoutEdgeMarks(tokensOf(meaningOf(fact.text)))
     .map((t) => t.text)
@@ -1348,8 +1363,16 @@ function makeNumberFact(fact: {
     }
     case "quantity":
       return { forms: whole(quantityForms(tokens, own), counted), ...plain };
-    case "price":
-      return { forms: whole(priceForms(tokens, own), notTakenOff), ...plain };
+    case "price": {
+      const priced = pricedItems(own, fact.pricedBeside ?? []);
+      return {
+        forms: whole(priceForms(tokens, own), notTakenOff).map((f) => ({
+          ...f,
+          priced,
+        })),
+        ...plain,
+      };
+    }
     case "time":
       return { forms: whole(timeForms(tokens, own)), ...plain };
     case "place": {
@@ -1480,13 +1503,17 @@ function countNoun(t: CopyToken): string {
   return nounKey(t.key.slice(2));
 }
 function nounKey(w: string): string {
-  const one =
+  const one = singularOf(w);
+  return COUNT_GROUP.get(one) ?? one;
+}
+function singularOf(w: string): string {
+  return (
     IRREGULAR_PLURALS[w] ??
     w
       .replace(/ies$/, "y")
       .replace(/(ss|sh|ch|x)es$/, "$1")
-      .replace(/([^s])s$/, "$1");
-  return COUNT_GROUP.get(one) ?? one;
+      .replace(/([^s])s$/, "$1")
+  );
 }
 
 /* Words that say how a count is put, never what it counts: "12 more",
@@ -2078,6 +2105,124 @@ function dayInWords(tokens: readonly CopyToken[], i: number): boolean {
   return !namesKnownCount(tokens[i], nounsAfter(tokens, i).nouns);
 }
 
+/* Words of a price that say how it is put, never what it buys: "₦4,500
+   a slice", "₦18,000 each", "from ₦6,500". */
+const NOT_AN_ITEM = [
+  "for",
+  "a",
+  "an",
+  "per",
+  "the",
+  "of",
+  "and",
+  "or",
+  "with",
+  "plus",
+  "each",
+  "apiece",
+  "from",
+  "only",
+  "just",
+  "at",
+  "to",
+  "by",
+  "in",
+  "on",
+  "now",
+  "was",
+  "is",
+  "naira",
+  "ngn",
+  ...DISCOUNT,
+];
+
+/* The words between an amount and the item it buys: "for", an article,
+   a count ("two glasses") and a size ("1-litre bottle"). */
+const BINDS_ITEM = ["for", "a", "an", "per", "the", "of"];
+
+/** The item words of a price fact's text, singular: "tasters" of "three
+ *  150ml tasters for ₦6,000", "bottle" and "glass" of "a 1-litre bottle
+ *  and two glasses for ₦15,500". Plural folding only: the count groups
+ *  would make "adults" and "kids" one item. */
+function itemWordsOf(text: string): Set<string> {
+  return new Set(
+    formTokensOf(text)
+      .filter(
+        (t) =>
+          t.kind === "word" &&
+          !word(t, ...NOT_AN_ITEM) &&
+          !MEASURE_WORD.test(t.text),
+      )
+      .map((t) => singularOf(t.key.slice(2))),
+  );
+}
+
+/** The brief's priced items around one price: its own item words, and
+ *  each other price's amount with the item words only that price has. */
+function pricedItems(own: string, beside: readonly string[]): PricedItems {
+  const ownWords = itemWordsOf(own);
+  const others = beside.flatMap((text) => {
+    const amount = formTokensOf(text).find((t) => t.kind === "money");
+    const words = new Set(
+      [...itemWordsOf(text)].filter((w) => !ownWords.has(w)),
+    );
+    return amount && words.size > 0 ? [{ amount: amount.key, words }] : [];
+  });
+  return { own: ownWords, others };
+}
+
+/** Whether the amount at `i` is bound to one of `words`: the item word
+ *  stands directly before or after it, across only what binds an item to
+ *  its price ("Bottle ₦15,500", "₦15,500 bottle", "bottle and two
+ *  glasses for ₦15,500", "₦15,500 for a 1-litre bottle"). */
+function boundToItem(
+  tokens: readonly CopyToken[],
+  i: number,
+  words: ReadonlySet<string>,
+): boolean {
+  return [-1, 1].some((step) => {
+    for (let j = i + step, k = 0; k < 6 && tokens[j]; j += step, k += 1) {
+      const t = tokens[j];
+      if (t.kind === "number" || (t.kind === "mark" && t.key === "-")) {
+        continue;
+      }
+      if (t.kind !== "word") return false;
+      if (word(t, ...BINDS_ITEM) || MEASURE_WORD.test(t.text)) continue;
+      return words.has(singularOf(t.key.slice(2)));
+    }
+    return false;
+  });
+}
+
+/* Whether the amount at `i` is another brief price bound to its own,
+   different item in another clause, while the run's own amount is bound
+   to the fact's item: a price list ("Flight ₦6,000 · Bottle ₦15,500"),
+   not a choice. The orchestrator applying Oluwaseyi's "of its kind"
+   ruling of 2026-10-28 to prices, as round 18 did to counts: two items'
+   prices are not two values of one price (round 23, cafe: the footer
+   "Flight ₦6,000 · Bottle ₦15,500" refused every rewrite, and the
+   direction failed unnamed). Still rivals: an amount the brief does not
+   give that item ("₦6,000 or ₦5,000"), a plain number ("₦6,000 ·
+   5,000"), a tier the brief does not price ("Adults ₦6,000 · Kids
+   ₦3,000" with no kids' price), an amount bound to no item or to the
+   fact's own ("₦9,500 each, or ₦34,000"), and one in the run's own
+   clause ("tasters ₦6,000 or bottle ₦15,500"). */
+function pricedApart(
+  tokens: readonly CopyToken[],
+  i: number,
+  run: { start: number; end: number; clause: readonly [number, number] },
+  priced: PricedItems | undefined,
+): boolean {
+  const t = tokens[i];
+  if (!priced || t.kind !== "money") return false;
+  if (i >= run.clause[0] && i < run.clause[1]) return false;
+  const other = priced.others.find((o) => o.amount === t.key);
+  if (!other || !boundToItem(tokens, i, other.words)) return false;
+  const runTokens = tokens.slice(run.start, run.end);
+  const ownAmount = runTokens.findIndex((r) => r.kind === "money");
+  return ownAmount >= 0 && boundToItem(runTokens, ownAmount, priced.own);
+}
+
 /* What counts as another value of the fact's kind, anywhere in its field
    (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
    where a reader could still take the number for one, failing closed:
@@ -2153,7 +2298,10 @@ const valueKey = (t: CopyToken) =>
  * Kinds without a rival rule (an age, a place) are refused by any other
  * number in their own clause: "18+ or 21+".
  */
-function rivalled(around: Around, kind: string | undefined): boolean {
+function rivalled(
+  around: Around,
+  { kind, priced }: Pick<FactForm, "kind" | "priced">,
+): boolean {
   const { run, field, at, preceding, following } = around;
   const tokens =
     at >= 0 ? field : [...[...preceding].reverse(), ...run, ...following];
@@ -2182,7 +2330,8 @@ function rivalled(around: Around, kind: string | undefined): boolean {
           perUnit,
           start,
           end,
-        }),
+        }) &&
+        !pricedApart(tokens, i, { start, end, clause }, priced),
     );
   }
   if (!run.some(isNumeric)) return false;
@@ -2258,7 +2407,7 @@ export function rivalledRun(
       if (
         !cutFromNumber(around) &&
         (!form.guard || form.guard(around)) &&
-        rivalled(around, form.kind)
+        rivalled(around, form)
       ) {
         return around.run.map((t) => t.text).join(" ");
       }
@@ -2305,7 +2454,7 @@ export function formIn(
   return aroundEach(form, tokens, field, design).some(
     (around) =>
       !cutFromNumber(around) &&
-      !rivalled(around, form.kind) &&
+      !rivalled(around, form) &&
       (!form.guard || form.guard(around)),
   );
 }

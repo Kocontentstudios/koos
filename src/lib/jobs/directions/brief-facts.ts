@@ -74,6 +74,10 @@ export interface BriefFact {
   text: string;
   /** What has to appear for the fact to count as stated. */
   needs: string[];
+  /** For a price with an amount: the brief's other prices with an amount,
+   *  in their words, so a list of them is not read as a choice
+   *  (fact-forms, pricedApart). */
+  pricedBeside?: string[];
 }
 
 /** A fact as the reader returned it, before it is held to the brief. */
@@ -1054,11 +1058,31 @@ export function settleBriefFacts(
      are a fact anyway (a phone a digit out, beside the backstop's). */
   const keptText = drawnTextOf(kept.map((f) => f.text));
   return {
-    facts: kept.map(({ start: _s, end: _e, ...fact }) => fact),
+    facts: withPricesBeside(
+      kept.map(({ start: _s, end: _e, ...fact }) => fact),
+    ),
     dropped,
     unread: unread.filter((fact) => !factStated(fact, keptText)),
     phonesAdded,
   };
+}
+
+const hasAmount = (fact: BriefFact) =>
+  fact.kind === "price" && moneyOf(fact.text).size > 0;
+
+/** Each price with an amount, told the brief's other such prices: a
+ *  design may list them side by side ("Flight ₦6,000 · Bottle ₦15,500"). */
+export function withPricesBeside(facts: BriefFact[]): BriefFact[] {
+  const priced = facts.filter(hasAmount);
+  if (priced.length < 2) return facts;
+  return facts.map((fact) =>
+    hasAmount(fact)
+      ? {
+          ...fact,
+          pricedBeside: priced.filter((f) => f !== fact).map((f) => f.text),
+        }
+      : fact,
+  );
 }
 
 function drawnTextOf(lines: string[]): string {
