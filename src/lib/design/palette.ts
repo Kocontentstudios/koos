@@ -30,13 +30,17 @@ export const MIN_CONTRAST_RATIO = 4.5;
    implementation lives in validation/hex.ts, which the form path also uses. */
 export { normalizeHex };
 
-export function relativeLuminance(hex: string): number {
-  const value = normalizeHex(hex) ?? NEUTRAL_DARK;
-  const channels = [1, 3, 5].map((i) => {
-    const c = Number.parseInt(value.slice(i, i + 2), 16) / 255;
+/** WCAG relative luminance of 0-255 sRGB channels. */
+export function rgbLuminance(r: number, g: number, b: number): number {
+  const linear = (channel: number) => {
+    const c = Math.min(255, Math.max(0, channel)) / 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+export function relativeLuminance(hex: string): number {
+  return rgbLuminance(...hexChannels(hex));
 }
 
 export function contrastRatio(a: string, b: string): number {
@@ -51,7 +55,8 @@ export interface ReadablePair {
   background: string;
 }
 
-function channels(hex: string): [number, number, number] {
+/** The 0-255 red, green and blue of a hex colour. */
+export function hexChannels(hex: string): [number, number, number] {
   const value = normalizeHex(hex) ?? NEUTRAL_DARK;
   return [1, 3, 5].map((i) => Number.parseInt(value.slice(i, i + 2), 16)) as [
     number,
@@ -60,9 +65,10 @@ function channels(hex: string): [number, number, number] {
   ];
 }
 
-function mixToward(hex: string, target: string, amount: number): string {
-  const from = channels(hex);
-  const to = channels(target);
+/** `hex` moved `amount` (0..1) of the way toward `target`, per channel. */
+export function mixToward(hex: string, target: string, amount: number): string {
+  const from = hexChannels(hex);
+  const to = hexChannels(target);
   const hexPair = (n: number) =>
     Math.round(n).toString(16).padStart(2, "0").toUpperCase();
   return `#${from.map((c, i) => hexPair(c + (to[i] - c) * amount)).join("")}`;

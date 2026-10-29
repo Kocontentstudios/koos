@@ -172,7 +172,16 @@ async function renderingRoutes() {
   return rendering.sort();
 }
 
-const includes = nextConfig.outputFileTracingIncludes ?? {};
+/* The render worker (satori-pool.ts) is started from a file path, so it is
+   force-included beside the fonts; the font checks below look past it. */
+const RENDER_WORKER = "./src/lib/design/render/satori-worker.cjs";
+const allIncludes = nextConfig.outputFileTracingIncludes ?? {};
+const includes = Object.fromEntries(
+  Object.entries(allIncludes).map(([route, globs]) => [
+    route,
+    globs.filter((glob) => glob !== RENDER_WORKER),
+  ]),
+);
 
 /* Two known gaps, left open deliberately because closing them costs more than
    the drift they permit, and neither is reachable in this repo today:
@@ -214,6 +223,15 @@ describe("the vendored font directory", () => {
     const globs = Object.values(includes).flat();
     expect(globs.length).toBeGreaterThan(0);
     for (const glob of globs) expect(path.basename(glob)).toBe("*.ttf");
+  });
+});
+
+describe("the render worker", () => {
+  it("ships with every route that renders", async () => {
+    await readFile(path.join(REPO, RENDER_WORKER));
+    for (const route of await renderingRoutes()) {
+      expect(allIncludes[route], route).toContain(RENDER_WORKER);
+    }
   });
 });
 

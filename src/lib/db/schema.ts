@@ -685,6 +685,15 @@ export const designGenerations = pgTable(
     height: integer("height"),
     status: designGenerationStatusEnum("status").notNull().default("pending"),
     error: text("error"),
+    /** The editable layer document (src/lib/design/document/schema.ts). Null
+     *  on rows from before FEAT-033, which render as they always have. */
+    document: jsonb("document"),
+    /** A direction's name and "why this works" list: { title, reasons }, plus
+     *  the set and slot that pair it with its sibling for regeneration. */
+    rationale: jsonb("rationale"),
+    imageSource: text("image_source", { enum: ["upload", "ko", "none"] }),
+    /** The user's upload this design was built around, when it was. */
+    sourceImageKey: text("source_image_key"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [

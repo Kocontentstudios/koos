@@ -90,6 +90,8 @@ stable for the lifetime of one login) where available.
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
+| `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`/`none`; `none` is a text-led job with no image, PR 1's default while `FEATURE_KO_IMAGERY` is off), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering, counted from the rejections themselves, so a rejected plate whose retry got no answer still counts), `plates_failed` (plates turned down twice, for the wrong product or scene, painted lettering, or a face beside a person the brief names), `text_led` (KO directions delivered with no image, laid out as text and announced to the user in the bell: either no plate passed the check, or the image model returned nothing that could be drawn), `text_led_image_model_down` (of those, the directions whose image model returned nothing at all, so no plate was judged; the bell then says the image service was unavailable rather than that its plates were wrong), `text_led_upload` (upload directions delivered with no image, laid out as text because the client's photo fits no layout whole at this size; announced in the bell. From round 21 a photo the sibling already shows is drawn again in another layout, never dropped for it), `headlines_lost` (directions failed because the model's headline could not be drawn even after the fit pass was asked again; code never draws a headline of its own), `offerings_lost` (directions failed because they never name what the brief offers, even after the fact writer was asked for it once more; code never writes it in) |
+| `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
 
 The two `design_request_start_*` events answer whether design requests actually
 want to begin from the calendar: compare the `calendar` share of
@@ -107,7 +109,107 @@ regenerate is not a new choice and fires nothing. Split the funnel by
 a KO-imagery run end in a download. A PNG download fires on the click that
 opens it; a JPG fires only once the browser has finished converting it.
 
-The pre-existing `usage_events` DB table keeps recording independently.
+`design_directions_generated` is the middle step of the FEAT-033 funnel,
+image choice → directions delivered → download. It fires server-side from
+`src/lib/jobs/run-design-directions.ts` after the job's one usage row is
+written, so it counts deliveries, never attempts: an unusable upload or a job
+where nothing rendered fires nothing. `image_calls` is the cost outcome the
+feature names: always 0 when `source = upload`, one per direction when
+`source = ko`, plus one for each plate the product check rejected (it is
+painted once more; `plates_rejected` counts these). The same job also fires
+`design_generated`, so the quality-gate
+series on that event does not read as a drop to zero when the entry points
+switch from variants to directions.
+
+The pre-existing `usage_events` DB table keeps recording independently. A
+directions job writes one `design_generated` usage row (one quota unit) whose
+metadata carries `renderers` (`composite:upload` per direction on an upload,
+`composite:<plate adapter>` on KO imagery) and `imageCalls`, so the cost
+outcome is visible in Postgres even where PostHog is not configured. The same
+row records the FEAT-033 round-2 quality outcomes: `plateChecks` (per plate:
+`passed`, `passed-on-retry`, `failed` for the wrong product twice,
+`failed-lettering` for made-up writing twice, or `unchecked`),
+`fitAsked` and `fitFixed` (copy and reasons the model was asked to rewrite
+because they ran over their limit, invented a fact, read as cut off or
+claimed a position, light, colour or type, and how many rewrites passed),
+`copyFallbacks` (copy that still could not be drawn as written and fell back
+or was left off) and `reasonsDropped` (reasons not shown because they were
+not true of the delivered design). Round 3 adds `qualityFaults` as delivered
+directions with a fault (as on the event), `subjectKnown` (per direction:
+whether the layout knew where the product or person was), `layoutsRelaid`
+(directions moved to another layout to keep copy off the subject),
+`subjectFaults` (per direction: null, the cropped fault, or the covered fault
+that failed it), `briefFacts` and `briefFactsDelivered` (the brief's hard
+facts and how many at least one delivered direction states), `factsAdded`
+(footer lines drawn in for facts a direction left out), `factsLeftOff` (facts
+a direction still does not state, with the reason) and `productSources`
+(where each plate's product name came from: `model`, `sibling`, `brief` or
+`none`).
+
+Round 4 measures facts per direction, because the spec promises every fact on
+every direction: `briefFactsDelivered` is now the count the worst delivered
+direction states, read off its drawn document, `briefFactsByDirection` lists
+each direction's (null for one that failed), and `factsLeftOff` lists every
+fact missing from a delivered design with its reason (the footer had no room,
+the fact was longer than a line, or "not on the design as delivered"). A
+direction missing a fact carries a quality fault. `subjectFaults` also records
+`SUBJECT_FACE_ONLY` (only a person's face was kept clear) and the soft craft
+faults (a headline that does not lead the footer, a cut-out's pale rim on a
+dark ground). `claimCheck` records the claim check's reading: `available`,
+`flagged`, `rewritten`, `dropped` and the `statements` it flagged.
+`platesRejected` lists per plate how many times the check turned it down.
+
+Round 5 reads the brief with a model (`src/lib/jobs/directions/brief-read.ts`)
+and holds the reading to the brief in code. `briefRead` records `available`
+(false when the reader could not be reached, so no facts were covered),
+`offering` (`product`, `event`, `service` or null), `people` (how many real
+people the brief names) and `dropped` (what the reader returned that was not
+the brief's own words, not a valid phone number, or the product itself, with
+the reason). `briefFacts` counts the settled facts. `plateChecks` gains
+`failed-people`. `footerRepeatsDropped` counts footer items dropped because
+the copy above or another item already said them. `textLed` counts KO
+directions laid out as text because no plate passed, and `subjectUnknown`
+counts directions with an image whose subject could not be found (the look
+was unavailable, or found only a face), each also a quality fault.
+`productSources` gains `read` (the reader's phrase).
+
+Round 6 adds plate check values and outcomes. `plateChecks` gains `scene` (an
+event or service plate drawn as an object-free backdrop, with no subject to
+keep copy off) and `unavailable` (the image model returned nothing drawable;
+the design is laid out as text and the bell says the image service was down,
+counted as `textLedImageModelDown` on the row and `text_led_image_model_down`
+on the event). `briefRead.unread` lists facts the reader returned in words
+that are not the brief's (never drawn, checked against each design and
+recorded as left off when missing), and `briefRead.phonesAdded` the phone
+numbers in the brief the reader did not return, each kept with the brief's
+own lead word ("WhatsApp 0803 555 0142", "Opay 8035550142").
+`footerParaphrases` records the model's footer-repeat reading: `available`,
+and per marked item its `outcomes` (`dropped`, `kept` with the reason, or
+`merged` with the field rewritten, `from` and `to`; button echoes appear as
+`repeats: "the button's action"`).
+
+Round 7 (Oluwaseyi's ruling: model writes, code verifies). Code no longer
+writes copy: `factsAdded` now counts facts the model wrote into a direction
+that had left them out, each checked by the literal verifier and the claim
+check (fail-closed), and `factsLeftOff` reasons say when the model's rewrite
+was refused and why. Whether a design states a fact is literal and in one
+place: a price is its currency, amount and unit together, an offer or
+condition its whole span, a time never counts on a phone's line, and the
+offering's own name is a fact every direction must state (so `briefFacts`
+counts it).
+
+Round 16 adds `datesContradicted`: each delivered field that gives a brief
+date beside another weekday or year ("Crafts on Sunday morning, 5 December"
+for "Saturday 5 December"), with its direction, fact, field and the date as
+written. The fact writer is asked to fix such a field and a rewrite that
+leaves it is refused.
+
+Round 17 adds each entry's `action`. What the writer could not fix is never
+drawn: the sentence, footer line or button that gives the wrong day is left
+off (`dropped`), and a headline that gives it fails its direction with
+`DateOnWrongDayError` (`failed`). `shipped` means a drawn design still gave
+the wrong day, which should not happen, and carries a quality fault. A fact
+the dropped part held is in `factsLeftOff` with that reason.
 
 ## Funnels
 

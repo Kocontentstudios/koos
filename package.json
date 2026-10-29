@@ -28,12 +28,14 @@
     "eval:design-benchmark": "tsx src/lib/ai/design-spec/eval/benchmark.mts",
     "eval:design-brief": "tsx src/lib/ai/design-brief/eval/run.mts",
     "eval:design-judge": "tsx src/lib/ai/design-judge/eval/run.mts",
+    "eval:design-directions": "tsx src/lib/ai/design-directions/eval/run.mts",
     "eval:onboarding": "tsx src/lib/ai/onboarding/eval/run.mts",
     "eval:scanned-pdf": "tsx src/lib/ai/onboarding/eval/run-scanned.mts",
     "eval:strategy": "tsx src/lib/ai/strategy/eval/run.mts",
     "bench:reencode": "tsx scripts/bench-reencode.mts",
     "eval:subject-check": "tsx scripts/eval-subject-check.mts",
-    "eval:subject-parity": "tsx scripts/eval-subject-parity.mts"
+    "eval:subject-parity": "tsx scripts/eval-subject-parity.mts",
+    "bench:document-cost": "tsx scripts/bench-document-cost.mts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "4.0.198",
@@ -56,6 +58,7 @@
     "drizzle-orm": "^0.45.4",
     "fflate": "^0.8.3",
     "jszip": "^3.10.2",
+    "libphonenumber-js": "^1.13.15",
     "lucide-react": "^1.57.0",
     "mammoth": "^1.13.0",
     "next": "16.4.1",

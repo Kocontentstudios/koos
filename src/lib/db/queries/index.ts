@@ -968,7 +968,14 @@ export async function updateDesignGeneration(
   data: Partial<
     Pick<
       typeof designGenerations.$inferInsert,
-      "imageKey" | "status" | "error" | "width" | "height" | "spec"
+      | "imageKey"
+      | "status"
+      | "error"
+      | "width"
+      | "height"
+      | "spec"
+      | "document"
+      | "rationale"
     >
   >,
 ) {
@@ -1015,6 +1022,106 @@ export async function listDesignGenerationsForBrand(
     .where(and(...filters))
     .orderBy(desc(designGenerations.createdAt))
     .limit(opts.limit ?? 50);
+}
+
+/**
+ * Every row of one set of directions, newest first. A set is the pair one job
+ * produced plus any regenerated replacements, keyed by the id stored in
+ * `rationale.set`; the brand filter keeps a guessed set id from reaching
+ * another brand's rows.
+ *
+ * Unbounded on purpose: a cap counted pending and failed rows too, so once one
+ * slot had been regenerated often enough the live sibling fell off the end
+ * and a regenerate could land on its layout. Only the columns a regenerate
+ * reads are selected, so a long set never drags its documents along.
+ */
+export async function listDirectionSet(brandId: string, setId: string) {
+  return db
+    .select({
+      id: designGenerations.id,
+      status: designGenerations.status,
+      spec: designGenerations.spec,
+      rationale: designGenerations.rationale,
+      createdAt: designGenerations.createdAt,
+    })
+    .from(designGenerations)
+    .where(
+      and(
+        eq(designGenerations.brandId, brandId),
+        sql`${designGenerations.rationale}->>'set' = ${setId}`,
+      ),
+    )
+    .orderBy(desc(designGenerations.createdAt));
+}
+
+/** A row of a direction set as claimDirectionLayout reads it. */
+export type DirectionSetRow = Awaited<
+  ReturnType<typeof listDirectionSet>
+>[number];
+
+/**
+ * Claims a layout already chosen for one direction, if it is still free.
+ *
+ * Choosing builds candidate documents, which takes hundreds of milliseconds;
+ * holding a transaction (and, with one connection per process, every other
+ * query of the process) across that was the round-3 design. Now the job
+ * chooses first with no lock, and this short transaction re-reads the set
+ * under a transaction-scoped advisory lock and writes the layout only when
+ * `isFree` still holds for what is committed. False means another job took
+ * it in the meantime and the job chooses again (layout-claim.ts). Two
+ * regenerates on the two slots of a pair can therefore never land on the
+ * same layout (round-2 code critic).
+ */
+export async function claimDirectionLayout({
+  brandId,
+  setId,
+  rowId,
+  spec,
+  isFree,
+  database = db,
+}: {
+  brandId: string;
+  setId: string;
+  rowId: string;
+  spec: typeof designGenerations.$inferInsert.spec;
+  isFree: (rows: DirectionSetRow[]) => boolean;
+  /** One process holds one connection (client.ts), so it can never race
+   *  itself; the test passes a second connection to show the lock holds
+   *  across instances, which is where production races. */
+  database?: typeof db;
+}): Promise<boolean> {
+  return database.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`direction-set:${setId}`}, 0))`,
+    );
+    const rows = await tx
+      .select({
+        id: designGenerations.id,
+        status: designGenerations.status,
+        spec: designGenerations.spec,
+        rationale: designGenerations.rationale,
+        createdAt: designGenerations.createdAt,
+      })
+      .from(designGenerations)
+      .where(
+        and(
+          eq(designGenerations.brandId, brandId),
+          sql`${designGenerations.rationale}->>'set' = ${setId}`,
+        ),
+      )
+      .orderBy(desc(designGenerations.createdAt));
+    if (!isFree(rows)) return false;
+    await tx
+      .update(designGenerations)
+      .set({ spec })
+      .where(
+        and(
+          eq(designGenerations.id, rowId),
+          eq(designGenerations.brandId, brandId),
+        ),
+      );
+    return true;
+  });
 }
 
 /** Successful design generations charged to a workspace since `since`.

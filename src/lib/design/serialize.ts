@@ -1,4 +1,5 @@
 import type { designGenerations } from "@/lib/db/schema";
+import { readRationale } from "@/lib/design/direction-rationale";
 import type { DesignSpec } from "@/lib/design/spec";
 import { getSignedReadUrl, publicUrl } from "@/lib/storage";
 
@@ -19,9 +20,10 @@ export interface SerializedGeneration {
   calendarItemId: string | null;
   headline: string | null;
   createdAt: string;
-  /** Null on a legacy row, which renders the way it always has. */
+  /** A direction's name and "why this works" list; null on variant rows. */
   direction: { title: string; reasons: string[] } | null;
-  imageSource: "upload" | "ko" | null;
+  imageSource: "upload" | "ko" | "none" | null;
+  /** Whether a layer document exists to edit. Old rows have none. */
   editable: boolean;
 }
 
@@ -35,6 +37,15 @@ async function resolveUrl(key: string | null): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/* Only the two fields the card shows. The set and slot that pair a
+   direction with its sibling are the server's business. */
+function directionOf(value: unknown): SerializedGeneration["direction"] {
+  const rationale = readRationale(value);
+  return rationale
+    ? { title: rationale.title, reasons: rationale.reasons }
+    : null;
 }
 
 export async function serializeGeneration(
@@ -56,8 +67,8 @@ export async function serializeGeneration(
     calendarItemId: row.calendarItemId,
     headline: spec?.headline ?? null,
     createdAt: row.createdAt.toISOString(),
-    direction: null,
-    imageSource: null,
-    editable: false,
+    direction: directionOf(row.rationale),
+    imageSource: row.imageSource ?? null,
+    editable: row.document !== null && row.document !== undefined,
   };
 }

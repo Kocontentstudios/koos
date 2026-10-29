@@ -19,6 +19,10 @@ vi.mock("@/lib/storage", () => ({
   storageKeyFrom: vi.fn(),
 }));
 
+import {
+  EmojiBudgetError,
+  RenderTimeoutError,
+} from "@/lib/design/render/satori-pool";
 import { renderVariant } from "@/lib/jobs/run-design-generation";
 
 /** A real PNG header, so the size comes from the file rather than a stub. */
@@ -139,5 +143,52 @@ describe("renderVariant native sizing", () => {
     );
 
     expect(result).toMatchObject({ width: 1344, height: 756 });
+  });
+
+  /* The logo retry exists for a mark satori cannot decode. A render that ran
+     out of time would only hold a pool worker for the whole limit again and
+     then be blamed on the logo. */
+  it("does not retry a render stopped at its time limit", async () => {
+    renderCompositeDesign.mockRejectedValue(new RenderTimeoutError(20_000));
+
+    await expect(
+      renderVariant(
+        {
+          renderer: "composite",
+          adapter: {
+            id: "bedrock-stability",
+            generate: vi.fn().mockRejectedValue(new Error("plate down")),
+          },
+        } as never,
+        spec,
+        context,
+        { bytes: png(10, 10), contentType: "image/png" } as never,
+        [],
+      ),
+    ).rejects.toBeInstanceOf(RenderTimeoutError);
+    expect(renderCompositeDesign).toHaveBeenCalledTimes(1);
+  });
+
+  /* Copy with more emoji than a render may fetch is not the logo's doing;
+     retrying without it spent a second refused render. */
+  it("does not retry a render refused for its emoji", async () => {
+    renderCompositeDesign.mockRejectedValue(new EmojiBudgetError(24));
+
+    await expect(
+      renderVariant(
+        {
+          renderer: "composite",
+          adapter: {
+            id: "bedrock-stability",
+            generate: vi.fn().mockRejectedValue(new Error("plate down")),
+          },
+        } as never,
+        spec,
+        context,
+        { bytes: png(10, 10), contentType: "image/png" } as never,
+        [],
+      ),
+    ).rejects.toBeInstanceOf(EmojiBudgetError);
+    expect(renderCompositeDesign).toHaveBeenCalledTimes(1);
   });
 });

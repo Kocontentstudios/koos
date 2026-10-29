@@ -1,0 +1,274 @@
+{
+  "caps": {
+    "schema": {
+      "background": {
+        "maxLength": 64
+      },
+      "button.color": {
+        "maxLength": 64
+      },
+      "button.fill": {
+        "maxLength": 512
+      },
+      "button.fontSize": {
+        "maximum": 640,
+        "exclusiveMinimum": 0
+      },
+      "button.height": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "button.id": {
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "button.label": {
+        "maxLength": 100
+      },
+      "button.name": {
+        "maxLength": 80
+      },
+      "button.opacity": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "button.radius": {
+        "minimum": 0,
+        "maximum": 1920
+      },
+      "button.rotation": {
+        "minimum": -360,
+        "maximum": 360
+      },
+      "button.width": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "button.x": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "button.y": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "elements": {
+        "maxItems": 18
+      },
+      "image.asset.key": {
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "image.crop.focusX": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "image.crop.focusY": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "image.crop.zoom": {
+        "minimum": 1,
+        "maximum": 10
+      },
+      "image.height": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "image.id": {
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "image.name": {
+        "maxLength": 80
+      },
+      "image.opacity": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "image.radius": {
+        "minimum": 0,
+        "maximum": 1920
+      },
+      "image.rotation": {
+        "minimum": -360,
+        "maximum": 360
+      },
+      "image.width": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "image.x": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "image.y": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "logo.asset.key": {
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "logo.backing": {
+        "maxLength": 64
+      },
+      "logo.height": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "logo.id": {
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "logo.name": {
+        "maxLength": 80
+      },
+      "logo.opacity": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "logo.rotation": {
+        "minimum": -360,
+        "maximum": 360
+      },
+      "logo.width": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "logo.x": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "logo.y": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "shape.borderColor": {
+        "maxLength": 64
+      },
+      "shape.borderWidth": {
+        "minimum": 0,
+        "maximum": 1920
+      },
+      "shape.fill": {
+        "maxLength": 512
+      },
+      "shape.height": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "shape.id": {
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "shape.name": {
+        "maxLength": 80
+      },
+      "shape.opacity": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "shape.radius": {
+        "minimum": 0,
+        "maximum": 1920
+      },
+      "shape.rotation": {
+        "minimum": -360,
+        "maximum": 360
+      },
+      "shape.width": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "shape.x": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "shape.y": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "text.color": {
+        "maxLength": 64
+      },
+      "text.fontSize": {
+        "maximum": 640,
+        "exclusiveMinimum": 0
+      },
+      "text.height": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "text.id": {
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "text.letterSpacing": {
+        "minimum": -0.5,
+        "maximum": 2
+      },
+      "text.lineHeight": {
+        "minimum": 0.5,
+        "maximum": 4
+      },
+      "text.name": {
+        "maxLength": 80
+      },
+      "text.opacity": {
+        "minimum": 0,
+        "maximum": 1
+      },
+      "text.rotation": {
+        "minimum": -360,
+        "maximum": 360
+      },
+      "text.text": {
+        "maxLength": 400
+      },
+      "text.width": {
+        "maximum": 3840,
+        "exclusiveMinimum": 0
+      },
+      "text.x": {
+        "minimum": -3840,
+        "maximum": 3840
+      },
+      "text.y": {
+        "minimum": -3840,
+        "maximum": 3840
+      }
+    },
+    "limits": {
+      "elements": 18,
+      "byType": {
+        "image": 2,
+        "shape": 5,
+        "text": 8,
+        "button": 2,
+        "logo": 2
+      },
+      "byRole": {
+        "headline": 2,
+        "subheadline": 2,
+        "cta": 2,
+        "footer": 3,
+        "body": 3
+      },
+      "gradients": 2,
+      "textCodePoints": 600
+    },
+    "maxGradientStops": 5,
+    "maxEmojiPerText": 24,
+    "maxEmojiPerDocument": 24,
+    "maxAssetEdge": 4096
+  },
+  "measured": {
+    "capsDigest": "bdf82c3b26eddd1c45389207d832742a8f8bee33b8b0e8f0a7daf2929cbd119b",
+    "date": "2026-10-24",
+    "boundMs": 3000,
+    "aloneMs": 2367,
+    "pairMs": 2662,
+    "workers": 2
+  }
+}

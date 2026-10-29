@@ -4,14 +4,28 @@ import { isAspectRatio } from "@/lib/ai/image/types";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
-import { checkBrandAccess, createGenerationJob } from "@/lib/db/queries";
+import {
+  checkBrandAccess,
+  createGenerationJob,
+  getDesignGenerationById,
+} from "@/lib/db/queries";
 import { type AttachmentRef, isAttachmentType } from "@/lib/design/attachments";
 import { DesignContextError, resolveDesignContext } from "@/lib/design/context";
+import { readRationale } from "@/lib/design/direction-rationale";
+import {
+  KoImageryDisabledError,
+  koImageryEnabled,
+} from "@/lib/design/ko-imagery-flag";
 import { checkDesignQuota, quotaExceeded } from "@/lib/design/quota";
+import type { DirectionsImage } from "@/lib/jobs/run-design-directions";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
 import { executeGenerationJob } from "@/lib/jobs/run-generation";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isStorageConfigured } from "@/lib/storage";
+import {
+  DesignImageError,
+  isDesignImageKeyFor,
+} from "@/lib/uploads/design-image";
 import { isUuid } from "@/lib/validation/uuid";
 
 // Headroom for the post-response generation work kicked off via after().
@@ -42,6 +56,23 @@ function parseAttachments(value: unknown): AttachmentRef[] | null {
 }
 
 /**
+ * The image choice that selects the two-directions path. Undefined when the
+ * caller sent none (every caller before FEAT-033), null when it is malformed.
+ * Which brand the key belongs to is checked once the brand row is known.
+ */
+function parseImage(value: unknown): DirectionsImage | undefined | null {
+  if (value == null) return undefined;
+  if (typeof value !== "object") return null;
+  const { source, key } = value as Record<string, unknown>;
+  if (source === "ko") return { source: "ko" };
+  if (source === "none") return { source: "none" };
+  if (source === "upload" && typeof key === "string" && key.length <= 512) {
+    return { source: "upload", key };
+  }
+  return null;
+}
+
+/**
  * Turns brand + brief/calendar/free-form context into rendered design variants
  * as an async job: returns 202 + jobId immediately; the client polls
  * /api/jobs/[id] and picks a variant to download or send to the design team.
@@ -68,6 +99,8 @@ export async function POST(req: Request) {
     attachments?: unknown;
     freeform?: string | null;
     aspectRatio?: string | null;
+    image?: unknown;
+    regenerateOf?: unknown;
   };
   try {
     body = await req.json();
@@ -109,14 +142,81 @@ export async function POST(req: Request) {
   if (aspectRatio != null && !isAspectRatio(aspectRatio)) {
     return Response.json({ error: "Invalid aspectRatio" }, { status: 400 });
   }
+  const image = parseImage(body.image);
+  if (image === null) {
+    return Response.json({ error: "Invalid image" }, { status: 400 });
+  }
+  const { regenerateOf } = body;
+  if (regenerateOf != null) {
+    if (typeof regenerateOf !== "string" || !isUuid(regenerateOf)) {
+      return Response.json({ error: "Invalid regenerateOf" }, { status: 400 });
+    }
+    /* A direction is regenerated with the same image choice it was made
+       with; without one there is no directions path to take. */
+    if (!image) {
+      return Response.json(
+        { error: "regenerateOf requires an image choice" },
+        { status: 400 },
+      );
+    }
+  }
 
   const access = await checkBrandAccess(dbUser.id, brandId, "manage_content");
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
   }
 
-  // Fail before creating a job rather than leaving a job row that can only fail.
-  if (resolveDesignProviders().length === 0) {
+  /* Checked against the brand row, never the request string: a key under
+     another brand's prefix, or one this app never minted, is refused here so
+     the job never reads it. The job re-reads and judges the real bytes. The
+     message is the loader's own, so it carries IMAGE_NOT_USABLE_PREFIX and
+     the UI shows its choose-another-image state. */
+  if (
+    image?.source === "upload" &&
+    !isDesignImageKeyFor(image.key, access.brand.id)
+  ) {
+    return Response.json(
+      { error: new DesignImageError("foreign_key").message },
+      { status: 400 },
+    );
+  }
+
+  if (typeof regenerateOf === "string") {
+    /* One answer for "no such design" and "another brand's design", so the
+       id cannot be used to probe what exists. */
+    const previous = await getDesignGenerationById(regenerateOf);
+    if (!previous || previous.brandId !== access.brand.id) {
+      return Response.json({ error: "Design not found" }, { status: 404 });
+    }
+    /* A variant row has no set and no slot, so there is no pair to swap the
+       new direction into; the job would have to invent one. */
+    if (!readRationale(previous.rationale)?.set) {
+      return Response.json(
+        { error: "Only a design direction can be regenerated." },
+        { status: 400 },
+      );
+    }
+  }
+
+  /* Fail before creating a job rather than leaving a job row that can only
+     fail. An uploaded image needs no image model, so only the other paths
+     need a provider. */
+  /* KO imagery is behind FEATURE_KO_IMAGERY (round 8): refused before any
+     job, row or model call. */
+  if (image?.source === "ko" && !koImageryEnabled()) {
+    return Response.json(
+      {
+        error: new KoImageryDisabledError().message,
+        code: "ko_imagery_disabled",
+      },
+      { status: 403 },
+    );
+  }
+  if (
+    image?.source !== "upload" &&
+    image?.source !== "none" &&
+    resolveDesignProviders().length === 0
+  ) {
     return Response.json(
       { error: "Image generation is not configured." },
       { status: 503 },
@@ -157,13 +257,30 @@ export async function POST(req: Request) {
       briefId: briefId ?? null,
       calendarItemId: calendarItemId ?? null,
       attachments,
+      ...(image ? { image, regenerateOf: regenerateOf ?? null } : {}),
     },
   });
 
   const sessionId = await getAnalyticsSessionId();
   after(() =>
     executeGenerationJob(job.id, (runtime) =>
-      generateDesignWork({ context, userId: dbUser.id, sessionId }, runtime),
+      generateDesignWork(
+        {
+          context,
+          userId: dbUser.id,
+          sessionId,
+          ...(image
+            ? {
+                directions: {
+                  image,
+                  regenerateOf:
+                    typeof regenerateOf === "string" ? regenerateOf : null,
+                },
+              }
+            : {}),
+        },
+        runtime,
+      ),
     ),
   );
 
