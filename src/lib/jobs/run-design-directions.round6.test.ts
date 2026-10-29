@@ -2696,3 +2696,125 @@ describe("round-14 critic job probes", () => {
     ]);
   });
 });
+
+/* Round 21, round-8 live critic finding 2 (HIGH): cafe s1 shipped "Three
+   tasters. ₦6,000." with no "cold brew" anywhere, the name recorded in
+   factsLeftOff. The fact writer gets one ask aimed at the name; a design
+   still without it fails, and its sibling ships. */
+describe("round 21: every delivered design names the offering", () => {
+  const CAFE =
+    "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.";
+
+  /* `named` is what the writer does on the ask aimed at the name: write
+     it into the subheadline, or answer as it did before. */
+  async function cafe(named: boolean) {
+    const { isFactWriteCall } = await import("./directions/fixtures");
+    const asks: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) {
+        const prompt = o.prompt ?? "";
+        asks.push(prompt);
+        const targeted = prompt.includes(
+          "the design never says what it offers",
+        );
+        return {
+          object: {
+            rewrites: [
+              {
+                id: 1,
+                subheadline:
+                  targeted && named
+                    ? "Our cold brew flight: three 150ml tasters for ₦6,000."
+                    : "Weekdays 8am to 6pm at the bar.",
+                footerLines: ["9 Akinola Street, Yaba"],
+              },
+            ],
+          },
+        };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({
+              layout: "banner-bottom",
+              headline: "The Cold Brew Flight",
+              subheadline: "Three 150ml tasters for ₦6,000.",
+              cta: "Ask for oat milk",
+              footerLines: ["9 Akinola Street, Yaba"],
+              footerStyle: "text",
+            }),
+            contrastingDraft({
+              layout: "split-left",
+              headline: "Taste three ways",
+              subheadline: "Three 150ml tasters for ₦6,000.",
+              cta: "Ask for oat milk",
+              footerLines: ["9 Akinola Street, Yaba"],
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "price", text: "three 150ml tasters for ₦6,000" },
+          { kind: "place", text: "9 Akinola Street, Yaba" },
+        ],
+        { kind: "product", phrase: "cold brew flight" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await runBrief(CAFE, { image: { source: "none" } });
+    } finally {
+      g.factWriteThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    return asks;
+  }
+
+  it("cafe s1: a design that never names cold brew fails after one targeted ask; its sibling ships", async () => {
+    const { OfferingNotNamedError } = await import("./run-design-directions");
+    const asks = await cafe(false);
+    const targeted = asks.filter((a) =>
+      a.includes(
+        'the design never says what it offers: name "cold brew flight"',
+      ),
+    );
+    expect(targeted).toHaveLength(1);
+    expect(targeted[0]).toContain("Design 1:");
+    expect(targeted[0]).not.toContain("Design 0:");
+    expect(delivered("row-2")).toBeUndefined();
+    expect(failedRow("row-2")?.error).toBe(
+      new OfferingNotNamedError("cold brew flight").message,
+    );
+    expect(delivered("row-1")?.spec?.headline).toBe("The Cold Brew Flight");
+    expect(usage().offeringsLost).toBe(1);
+    expect(usage().offeringRecovery).toEqual([
+      expect.objectContaining({
+        direction: 1,
+        offering: "cold brew flight",
+        named: false,
+      }),
+    ]);
+  });
+
+  it("a targeted ask that names it ships the design, named by the model", async () => {
+    await cafe(true);
+    expect(delivered("row-2")?.spec?.subheadline).toBe(
+      "Our cold brew flight: three 150ml tasters for ₦6,000.",
+    );
+    expect(usage().offeringsLost).toBe(0);
+    expect(usage().offeringRecovery).toEqual([
+      expect.objectContaining({ direction: 1, named: true, why: null }),
+    ]);
+    expect(
+      usage().factsLeftOff.filter(
+        (l: { fact: string }) => l.fact === "cold brew flight",
+      ),
+    ).toEqual([]);
+  });
+});

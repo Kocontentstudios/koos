@@ -45,7 +45,13 @@ import {
   spatialClaim,
 } from "./claims";
 import type { ConceptLens } from "./concepts";
-import { type FactWriter, settleFacts, writeFacts } from "./fact-writer";
+import {
+  type FactSettlement,
+  type FactWriter,
+  offeringFocus,
+  settleFacts,
+  writeFacts,
+} from "./fact-writer";
 import {
   copyFault,
   correctionCheck,
@@ -173,6 +179,13 @@ export interface DraftDirectionsResult {
   /** Per direction: its headline gives a brief date on another day, so it
    *  fails rather than ship the wrong day (withoutContradictedDates). */
   dateFailed: boolean[];
+  /** Per direction: it does not name what the brief offers, even after
+   *  the fact writer's targeted ask, so it fails rather than ship a design
+   *  that does not say what it sells (round-8 live critic, cafe s1). */
+  offeringLost: boolean[];
+  /** Directions the writer left without the offering's name, asked once
+   *  more for it, and what stood. */
+  offeringRecovery: OfferingRecovery[];
   /** Each field that gave a brief date on another day after the fact
    *  writer, and what code did: left it off, or failed the direction. */
   datesContradicted: (DateSettled & { direction: number })[];
@@ -198,6 +211,39 @@ export interface DraftDirectionsResult {
   /** Footer items a model marked as repeating the copy above in other
    *  words, and whether code dropped each. */
   footerRepeats: { available: boolean; outcomes: FooterRepeatOutcome[] };
+}
+
+export interface OfferingRecovery {
+  direction: number;
+  offering: string;
+  /** The targeted ask named it, and it is still named as drawn. */
+  named: boolean;
+  /** Why it is still not named, when it is not. */
+  why: string | null;
+}
+
+/** The first settlement, with the directions a targeted second ask was
+ *  for taken from it: what they gained, what they still leave off and
+ *  why, every refusal of either. */
+export function mergedSettlements<T>(
+  first: FactSettlement<T>,
+  second: FactSettlement<T>,
+  asked: readonly number[],
+): FactSettlement<T> {
+  const fromAsk = (d: { direction: number }) => asked.includes(d.direction);
+  return {
+    directions: first.directions.map((d, i) =>
+      asked.includes(i) ? second.directions[i] : d,
+    ),
+    added: [...first.added, ...second.added.filter(fromAsk)],
+    leftOff: [
+      ...first.leftOff.filter((l) => !fromAsk(l)),
+      ...second.leftOff.filter(fromAsk),
+    ],
+    refused: [...first.refused, ...second.refused],
+    headlines: [...first.headlines, ...second.headlines.filter(fromAsk)],
+    modelCalls: first.modelCalls + second.modelCalls,
+  };
 }
 
 /** The fit pass's answer: the rewritten text for each field it was asked
@@ -1436,12 +1482,11 @@ export async function draftDirections({
   /* Model writes, code verifies (Oluwaseyi's ruling, round 7): what a
      direction leaves out is written in by the model and checked here,
      never appended by code (fact-writer.ts). */
-  const written = await settleFacts({
-    directions: echoes.directions,
+  const writing = {
     facts: coverFacts,
     ledger: checks.ledger,
     writer: factWriter,
-    claimCheck: (fields) =>
+    claimCheck: (fields: Parameters<typeof claimChecker>[0]["fields"]) =>
       claimChecker({
         fields,
         briefText: checks.briefText,
@@ -1450,10 +1495,10 @@ export async function draftDirections({
       }),
     briefText: checks.briefText,
     title: checks.title,
-    ships: (id) => !headlineLost[id],
-    keepsApart: (set) =>
+    ships: (id: number) => !headlineLost[id],
+    keepsApart: (set: typeof echoes.directions) =>
       nearDuplicateSet(echoes.directions) || !nearDuplicateSet(set),
-    wordsOfOthers: (set, id) =>
+    wordsOfOthers: (set: typeof echoes.directions, id: number) =>
       distinctiveWords(
         [...existing, ...set.filter((_, j) => j !== id && !headlineLost[j])]
           .flatMap((d) => [d.headline, d.subheadline, d.cta])
@@ -1461,8 +1506,50 @@ export async function draftDirections({
           .join(" "),
         new Set([...ignore, ...briefWords, ...contentStems(set[id].cta)]),
       ),
+  };
+  const firstWrite = await settleFacts({
+    ...writing,
+    directions: echoes.directions,
   });
-  modelCalls += written.modelCalls;
+  modelCalls += firstWrite.modelCalls;
+  /* A design that never names what the brief offers does not say what it
+     sells (round-8 live critic, cafe s1: "Three tasters. ₦6,000." and no
+     "cold brew"). The writer gets one ask aimed at the name; code never
+     writes it, and a direction still without it fails (offeringLost). */
+  const offeringFact = read.offering
+    ? coverFacts.find(
+        (f) => f.kind === "product" && f.text === read.offering?.phrase,
+      )
+    : undefined;
+  const unnamedAfterWriter = offeringFact
+    ? firstWrite.directions
+        .map((_, i) => i)
+        .filter(
+          (i) =>
+            !headlineLost[i] &&
+            !factStated(offeringFact, firstWrite.directions[i]),
+        )
+    : [];
+  const offeringAsk =
+    offeringFact && unnamedAfterWriter.length > 0
+      ? await settleFacts({
+          ...writing,
+          directions: firstWrite.directions,
+          attempts: 1,
+          asks: (id) => unnamedAfterWriter.includes(id),
+          focus: (id) =>
+            offeringFocus(
+              offeringFact,
+              firstWrite.leftOff.find(
+                (l) => l.direction === id && l.fact === offeringFact.text,
+              )?.reason,
+            ),
+        })
+      : null;
+  if (offeringAsk) modelCalls += offeringAsk.modelCalls;
+  const written = offeringAsk
+    ? mergedSettlements(firstWrite, offeringAsk, unnamedAfterWriter)
+    : firstWrite;
   const final = dropFooterRepeats(written.directions, coverFacts, product);
   /* A drop shortens the copy the near-duplicate rule compares, so one that
      would make a pair that reads apart read as one is not made. */
@@ -1490,6 +1577,25 @@ export async function draftDirections({
     settled.map((c) => ({ direction, ...c })),
   );
   const dateFailed = dated.map((d) => d.failed);
+  const offeringLost = drawnIn.map(
+    (d, i) =>
+      Boolean(offeringFact) &&
+      !headlineLost[i] &&
+      !dateFailed[i] &&
+      !factStated(offeringFact as BriefFact, d),
+  );
+  const offeringRecovery: OfferingRecovery[] = unnamedAfterWriter.map(
+    (direction) => ({
+      direction,
+      offering: offeringFact?.text ?? "",
+      named: !offeringLost[direction],
+      why: offeringLost[direction]
+        ? (offeringAsk?.leftOff.find(
+            (l) => l.direction === direction && l.fact === offeringFact?.text,
+          )?.reason ?? "not on the design once its copy was settled")
+        : null,
+    }),
+  );
   /* A fact the dropped part held is left off with it, and says why. */
   const leftOffForDate = (direction: number, fact: BriefFact) => {
     const dropped = datesContradicted.find(
@@ -1584,6 +1690,8 @@ export async function draftDirections({
     headlineLost,
     headlineRecovery,
     dateFailed,
+    offeringLost,
+    offeringRecovery,
     datesContradicted,
     overlap: worst?.overlap ?? null,
     modelCalls,

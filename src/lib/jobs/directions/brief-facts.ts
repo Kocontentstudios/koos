@@ -1862,6 +1862,12 @@ function countsAndTimesOf(text: string): string[] {
     .map((t) => t.key);
 }
 
+function clockTimesOf(text: string): string[] {
+  return factTokens(text)
+    .filter((t) => t.kind === "clock")
+    .map((t) => t.key);
+}
+
 /** aboveRepeats, with the field the subheadline repeats. */
 export function aboveRepeatsBy(
   copy: Pick<FactCopy, "headline" | "subheadline" | "cta">,
@@ -1909,8 +1915,37 @@ export function aboveRepeatsBy(
 }
 
 /**
+ * Footer items that give again a price or clock time the headline gives.
+ * redundantFooterItems leaves them: the item holds a fact the headline
+ * states only in part ("Three 150ml tasters for ₦6,000" under "Three
+ * tasters. ₦6,000."), so dropping it would lose the fact, and code never
+ * rewrites a headline (round-8 live critic, cafe s1: ₦6,000 shown twice).
+ * The fact writer is told, and may move the headline off the value.
+ */
+export function headlineFooterRepeats(
+  copy: Pick<FactCopy, "headline" | "footerLines">,
+): string[] {
+  const headline = copy.headline?.trim();
+  if (!headline) return [];
+  /* Prices and clock times only: a bare number in a headline is as often
+     a date's day as a count, and a footer that gives the right day under
+     a headline on the wrong one is the fix, not a repeat. */
+  const money = moneyOf(headline);
+  const times = new Set(clockTimesOf(headline));
+  if (money.size === 0 && times.size === 0) return [];
+  return copy.footerLines
+    .flatMap((line) => line.split(FOOTER_JOIN).map((item) => item.trim()))
+    .filter(
+      (item) =>
+        [...moneyOf(item)].some((m) => money.has(m)) ||
+        clockTimesOf(item).some((k) => times.has(k)),
+    );
+}
+
+/**
  * The headline stands in the way of a fact: the subheadline repeats it
- * now, or stating a fact the copy leaves out, whole, would repeat it.
+ * now, a footer item gives its value again (headlineFooterRepeats), or
+ * stating a fact the copy leaves out, whole, would repeat it.
  * Round-8 eval: "Senior React Engineers Wanted" over a brief needing "two
  * senior React engineers", "₦6,000 buys you one espresso flight" over
  * "three shots for ₦6,000". The only case in which the fact writer may
@@ -1925,6 +1960,7 @@ export function headlineInTheWay(
       (r) => r.field === "headline",
     );
   if (copy.subheadline && repeatsHeadline(copy.subheadline)) return true;
+  if (headlineFooterRepeats(copy).length > 0) return true;
   return facts.some(
     (fact) => !factStated(fact, copy) && repeatsHeadline(fact.text),
   );

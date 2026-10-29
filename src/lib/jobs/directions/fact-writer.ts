@@ -9,6 +9,7 @@ import {
   detailHeldAcross,
   type FactCopy,
   factStated,
+  headlineFooterRepeats,
   headlineInTheWay,
   isFragment,
   redundantFooterItems,
@@ -100,7 +101,7 @@ export function buildFactWritePrompt({
     [
       "Rules:",
       '- Never change the button. Leave the headline as it is, unless the design says "headline may change".',
-      `- A design whose headline may change has a headline that already says part of a fact, so stating the fact below would repeat it. Return a "headline" for it only if that is so: the same idea in other words that either states the whole fact itself or no longer says any of it, keeping at least one of the headline's own words, at most ${COPY_TARGETS.headline.chars} characters, and not the other design's headline. A headline that asks stays a question; one that hedges stays hedged. Then the subheadline says nothing the new headline says.`,
+      `- A design whose headline may change has a headline that already says part of a fact, so stating the fact below would repeat it (or a footer item already gives the headline's price or number again). Return a "headline" for it only if that is so: the same idea in other words that either states the whole fact itself or no longer says any of it, keeping at least one of the headline's own words, at most ${COPY_TARGETS.headline.chars} characters, and not the other design's headline. A headline that asks stays a question; one that hedges stays hedged. Then the subheadline says nothing the new headline says.`,
       '- State every fact listed under "must state", in the brief\'s words or with every part of it in one place: a price with its currency, amount and unit together ("₦18,000 per split unit", never "₦18,000" alone), and with the word the brief puts before it ("from ₦18,000 each", "starting at", "up to", "only", "just": "₦18,000 each" alone is another price); a count with its noun ("two senior React engineers", never "Two"); an offer, condition or requirement word for word as the brief writes it ("Free delivery to Lekki, Ajah and Ikoyi", "You need at least 2 years in a busy kitchen").',
       '- Keep every fact listed under "keep".',
       `- Put a fact in the subheadline when it reads naturally there, else in the footer. The subheadline is at most two sentences, about ${COPY_TARGETS.subheadline.chars} characters and never over ${COPY_LIMITS.subheadline}; never string clauses together with dashes, semicolons or full stops into a list. What does not fit that goes in the footer.`,
@@ -219,6 +220,14 @@ export function copyProblems(
       `the footer item "${item}" says again what the copy above says; state it once`,
     );
   }
+  for (const item of headlineFooterRepeats({
+    headline: copy.headline ?? "",
+    footerLines: copy.footerLines,
+  })) {
+    problems.push(
+      `the footer item "${item}" gives again a value the headline gives; state it once`,
+    );
+  }
   for (const item of footerItemsOf(copy.footerLines)) {
     if (isFragment(item)) {
       problems.push(`the footer item "${item}" is a fragment; say what it is`);
@@ -323,6 +332,19 @@ function allProblems(
   ];
 }
 
+/** The targeted ask for a direction that never names what the brief
+ *  offers (round-8 live critic, cafe s1: "Three tasters. ₦6,000." sold an
+ *  unnamed drink). The name goes above the footer, where it is read. */
+export function offeringFocus(
+  offering: BriefFact,
+  lastRefusal?: string,
+): string[] {
+  return [
+    `the design never says what it offers: name "${offering.text}", in the brief's words, in the subheadline (or the headline, if it may change), and keep every fact it states`,
+    ...(lastRefusal ? [`the last rewrite was refused: ${lastRefusal}`] : []),
+  ];
+}
+
 /** Why a new headline cannot replace the old, or null when it can: it
  *  may move only out of a fact's way, must clear the repeat it moved for,
  *  keep the old one's idea (one of its words or numbers) and hold to every
@@ -393,8 +415,12 @@ function stillInTheWay(after: FactCopy, facts: readonly BriefFact[]) {
       !factStated(f, after) &&
       headlineInTheWay({ ...after, subheadline: undefined }, [f]),
   );
-  return blocked
-    ? `"${blocked.text}" is still not stated and saying it below would repeat the new headline; state it whole in the headline, or keep the headline off it`
+  if (blocked) {
+    return `"${blocked.text}" is still not stated and saying it below would repeat the new headline; state it whole in the headline, or keep the headline off it`;
+  }
+  const footerRepeat = headlineFooterRepeats(after)[0];
+  return footerRepeat
+    ? `the footer item "${footerRepeat}" still gives a value the new headline gives; keep the headline off it, or state it once`
     : "the subheadline still says what the new headline says; leave that out of the subheadline";
 }
 
@@ -590,6 +616,9 @@ export async function settleFacts<T extends FactCopy>({
   keepsApart = () => true,
   wordsOfOthers = () => [],
   ships = () => true,
+  attempts = 2,
+  asks = () => true,
+  focus = () => [],
 }: {
   directions: T[];
   facts: readonly BriefFact[];
@@ -610,6 +639,12 @@ export async function settleFacts<T extends FactCopy>({
    *  lost): no rewrite is asked for it, and its copy is no other's to
    *  keep apart from (round-16 code critic, finding 5). */
   ships?: (id: number) => boolean;
+  /** How many times the writer is asked. */
+  attempts?: number;
+  /** False for a shipping direction this call leaves as it is. */
+  asks?: (id: number) => boolean;
+  /** What a targeted ask puts first among the problems of direction `id`. */
+  focus?: (id: number) => string[];
 }): Promise<FactSettlement<T>> {
   const out = [...directions];
   const refused: FactSettlement<T>["refused"] = [];
@@ -617,7 +652,7 @@ export async function settleFacts<T extends FactCopy>({
   let modelCalls = 0;
   const needing = () =>
     out.flatMap((copy, id) => {
-      if (!ships(id)) return [];
+      if (!ships(id) || !asks(id)) return [];
       const missing = facts.filter((f) => !factStated(f, copy));
       const headlineMayChange = headlineInTheWay(copy, facts);
       const problems = allProblems(copy, facts, {
@@ -626,6 +661,7 @@ export async function settleFacts<T extends FactCopy>({
       if (missing.length === 0 && problems.length === 0) return [];
       const why = feedback.get(id);
       const avoid = wordsOfOthers(out, id);
+      const focused = [...focus(id), ...problems];
       return [
         {
           id,
@@ -633,8 +669,8 @@ export async function settleFacts<T extends FactCopy>({
           missing: missing.map((f) => f.text),
           keep: facts.filter((f) => factStated(f, copy)).map((f) => f.text),
           problems: why
-            ? [...problems, `your last rewrite was refused: ${why}`]
-            : problems,
+            ? [...focused, `your last rewrite was refused: ${why}`]
+            : focused,
           others: out
             .filter((_, j) => j !== id && ships(j))
             .map((d) => d.subheadline ?? "")
@@ -650,7 +686,7 @@ export async function settleFacts<T extends FactCopy>({
     keepsApart(setWith(id, copy))
       ? null
       : readsLikeTheOther(borrowed(copy, wordsOfOthers(out, id)));
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const requests = needing();
     if (requests.length === 0) break;
     modelCalls += 1;

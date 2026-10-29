@@ -54,6 +54,7 @@ import {
   brandSetting,
   contradictedDates,
   type DateContradiction,
+  factStated,
   factsMissing,
 } from "./directions/brief-facts";
 import { checkClaims } from "./directions/claim-check";
@@ -184,6 +185,19 @@ export class DateOnWrongDayError extends Error {
       "This design's headline gave a date from your brief on the wrong day, so we didn't deliver it. Regenerate it to try again.",
     );
     this.name = "DateOnWrongDayError";
+  }
+}
+
+/** The design never names what the brief offers, even after the fact
+ *  writer was asked for it once more, and code never writes it in
+ *  (round-8 live critic, cafe s1: "Three tasters. ₦6,000." sold an
+ *  unnamed drink). */
+export class OfferingNotNamedError extends Error {
+  constructor(offering: string) {
+    super(
+      `This design didn't say what you're offering (${offering}), so we didn't deliver it. Regenerate it to try again.`,
+    );
+    this.name = "OfferingNotNamedError";
   }
 }
 
@@ -575,6 +589,12 @@ export async function generateDirectionsWork(
      what was drawn is measured against what was promised: the brief's
      facts and the people it names. */
   const hardFacts = brief.coverFacts;
+  /* What the brief offers, by its name: every direction delivered names
+     it (offeringLost, OfferingNotNamedError). */
+  const offering = brief.read.offering?.phrase ?? "";
+  const offeringFact = offering
+    ? hardFacts.find((f) => f.kind === "product" && f.text === offering)
+    : undefined;
   /* What the reader saw in words not the brief's. Never drawn in, but a
      design that does not state one has lost it, and says so. */
   const unreadFacts = brief.read.unread;
@@ -616,6 +636,7 @@ export async function generateDirectionsWork(
   const refusals: string[] = [];
   let subjectFaulted = 0;
   let headlinesLost = 0;
+  let offeringsLost = 0;
   const shippedHeadlines: (string | null)[] = brief.directions.map(() => null);
   let rendered = 0;
   let checked = 0;
@@ -656,6 +677,7 @@ export async function generateDirectionsWork(
     try {
       if (brief.headlineLost[i]) throw new HeadlineNotWrittenError();
       if (brief.dateFailed[i]) throw new DateOnWrongDayError();
+      if (brief.offeringLost[i]) throw new OfferingNotNamedError(offering);
       const mark = marks[i];
       const image = images[i];
       let assets: DirectionAssets = {
@@ -805,6 +827,15 @@ export async function generateDirectionsWork(
         throw new SubjectFaultError();
       }
       if (result.subjectFault) addFault(row.id, result.subjectFault);
+      /* The copy as drawn, read off the document: the builders drop a footer
+         line that repeats the copy above it, and a reason about that line
+         would describe nothing (round-3 live critic). */
+      const drawnCopy = drawnCopyOf(result.document.elements);
+      /* The renderer drops footer lines; a drawing that lost the offering's
+         name is refused like a copy that never had it. */
+      if (offeringFact && !factStated(offeringFact, drawnCopy)) {
+        throw new OfferingNotNamedError(offering);
+      }
       const key = `${STORAGE_PREFIXES.generated}/${brandId}/${randomUUID()}.png`;
       await storeDelivered(key, result.bytes);
       /* The reasons were written before the image was painted and before the
@@ -815,10 +846,6 @@ export async function generateDirectionsWork(
       const drawnSpec = result.logoUnplaced
         ? { ...result.spec, logoPlacement: "none" as const }
         : result.spec;
-      /* The copy as drawn, read off the document: the builders drop a footer
-         line that repeats the copy above it, and a reason about that line
-         would describe nothing (round-3 live critic). */
-      const drawnCopy = drawnCopyOf(result.document.elements);
       const missing = factsMissing(hardFacts, drawnCopy);
       const unreadMissing = factsMissing(unreadFacts, drawnCopy);
       factsByDirection[i] =
@@ -924,6 +951,7 @@ export async function generateDirectionsWork(
       if (err instanceof LayoutsHeldError) layoutsWereHeld = true;
       if (err instanceof SubjectFaultError) subjectFaulted += 1;
       if (err instanceof HeadlineNotWrittenError) headlinesLost += 1;
+      if (err instanceof OfferingNotNamedError) offeringsLost += 1;
       const refusal = renderRefusalMessage(err);
       if (refusal) refusals.push(refusal);
       await updateDesignGeneration(row.id, {
@@ -1020,9 +1048,11 @@ export async function generateDirectionsWork(
               ? new SubjectFaultError().message
               : headlinesLost === rows.length
                 ? new HeadlineNotWrittenError().message
-                : refusals.length === rows.length
-                  ? (refusals[0] as string)
-                  : "Design generation failed. Please try again.",
+                : offeringsLost === rows.length
+                  ? new OfferingNotNamedError(offering).message
+                  : refusals.length === rows.length
+                    ? (refusals[0] as string)
+                    : "Design generation failed. Please try again.",
     );
   }
 
@@ -1074,6 +1104,10 @@ export async function generateDirectionsWork(
       fitAsked: brief.fit.asked,
       fitFixed: brief.fit.fixed,
       headlinesLost,
+      /* Round 21: directions that did not name the offering, asked once
+         more for it, what stood, and how many failed for it. */
+      offeringRecovery: brief.offeringRecovery,
+      offeringsLost,
       /* Round 12: headlines refused, asked for once more, and what stood. */
       headlineRecovery: brief.headlineRecovery.map((r) => ({
         ...r,
@@ -1157,6 +1191,7 @@ export async function generateDirectionsWork(
       text_led: textLed,
       text_led_upload: textLedUpload,
       headlines_lost: headlinesLost,
+      offerings_lost: offeringsLost,
       headlines_recovered: brief.headlineRecovery.filter((r) => r.recovered)
         .length,
       text_led_image_model_down: imageModelDown,

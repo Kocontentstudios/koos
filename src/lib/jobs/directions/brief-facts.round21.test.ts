@@ -128,3 +128,82 @@ describe("finding 1: a price keeps the qualifier the brief puts before it", () =
     expect(factStated(fact, out.directions[0])).toBe(true);
   });
 });
+
+/*
+ * Finding 4e: cafe s1 drew "₦6,000" in the headline and again as the
+ * footer's "Three 150ml tasters for ₦6,000". The footer-repeat drop left
+ * it because the item is not redundant: "150ml" and "for" are not above,
+ * and the headline states the fact only in part, so dropping the item
+ * would lose it (droppedSafely). Code never rewrites a headline, so the
+ * fact writer is told and the headline may move off the price.
+ */
+describe("finding 4e: a price in the headline and again in the footer", () => {
+  const CAFE =
+    "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.";
+  const cafeFacts = settleBriefFacts(
+    [
+      { kind: "price", text: "three 150ml tasters for ₦6,000" },
+      { kind: "price", text: "a 1-litre bottle and two glasses for ₦15,500" },
+    ],
+    CAFE,
+    {},
+  ).facts;
+  const s1 = {
+    headline: "Three tasters. ₦6,000.",
+    subheadline:
+      "A 1-litre bottle and two glasses for ₦15,500, weekdays at the bar.",
+    cta: "Ask for oat milk",
+    footerLines: [
+      "Three 150ml tasters for ₦6,000",
+      "Weekdays 8am to 6pm",
+      "9 Akinola Street, Yaba",
+    ],
+    footerStyle: "text" as const,
+  };
+
+  it("names the footer item and lets the headline move off the price", async () => {
+    const { headlineFooterRepeats, headlineInTheWay } = await import(
+      "./brief-facts"
+    );
+    const { copyProblems } = await import("./fact-writer");
+    expect(headlineFooterRepeats(s1)).toEqual([
+      "Three 150ml tasters for ₦6,000",
+    ]);
+    expect(headlineInTheWay(s1, cafeFacts)).toBe(true);
+    expect(copyProblems(s1)).toContainEqual(
+      'the footer item "Three 150ml tasters for ₦6,000" gives again a value the headline gives; state it once',
+    );
+  });
+
+  it("takes the writer's headline that no longer gives the price", async () => {
+    const out = await settleFacts({
+      directions: [s1],
+      facts: cafeFacts,
+      ledger: factLedger([CAFE]),
+      writer: async ({ requests }) =>
+        requests.map((r) => ({
+          id: r.id,
+          ...(r.headlineMayChange
+            ? { headline: "Three tasters, one flight" }
+            : {}),
+          subheadline: s1.subheadline,
+          footerLines: s1.footerLines,
+        })),
+      claimCheck: async () => [],
+      briefText: CAFE,
+      title: "",
+    });
+    expect(out.directions[0].headline).toBe("Three tasters, one flight");
+    expect(out.leftOff).toEqual([]);
+  });
+
+  it("a date's day in the headline is not a repeat of the right date below", async () => {
+    const { headlineFooterRepeats } = await import("./brief-facts");
+    expect(
+      headlineFooterRepeats({
+        headline: "Sunday market, 5 December",
+        footerLines: ["Saturday 5 December"],
+      }),
+    ).toEqual([]);
+  });
+});
