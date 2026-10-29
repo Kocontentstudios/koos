@@ -276,6 +276,12 @@ const photoSchema = z.object({
     .describe(
       "Every distinct thing visible, a few words each: the subject, props, food, drinks, people, setting.",
     ),
+  heads: z
+    .array(boxSchema)
+    .optional()
+    .describe(
+      "A tight box around the head of every person visible anywhere in the photograph, whether or not they are the main subject. Empty when no person appears.",
+    ),
 });
 
 export interface PhotoLook {
@@ -285,6 +291,10 @@ export interface PhotoLook {
   /** A person's head and shoulders: the part copy may never cover when the
    *  whole person leaves no room for it. */
   face: SubjectBox | null;
+  /** Every person's head, the main subject's or not: a crop keeps each
+   *  whole or leaves it out (round-8 live critic, cafe: the barista beside
+   *  the espresso machine was cut at the frame's edge). */
+  heads: SubjectBox[];
   items: string[];
 }
 
@@ -303,7 +313,7 @@ export async function lookAtPhoto(
     const answer = await askVision({
       schema: photoSchema,
       system:
-        "You look at a client's photograph so a designer can lay text around its subject. Say plainly what the main subject is, box it tightly, box a person's head and shoulders, and list what is visible. Judge only what is visible.",
+        "You look at a client's photograph so a designer can lay text around its subject. Say plainly what the main subject is, box it tightly, box a person's head and shoulders, box every person's head, and list what is visible. Judge only what is visible.",
       text: "Box the main subject: the product if there is one, otherwise what the photograph is of. Then list what is visible.",
       image,
       maxOutputTokens: PLATE_CHECK_MAX_OUTPUT_TOKENS,
@@ -317,6 +327,9 @@ export async function lookAtPhoto(
       description: [answer?.mainSubject ?? "", ...items].join(", "),
       subject: subjectBoxFrom(answer?.subjectBox ?? null),
       face: answer?.isPerson ? subjectBoxFrom(answer.faceBox ?? null) : null,
+      heads: (Array.isArray(answer?.heads) ? answer.heads : [])
+        .map((box) => subjectBoxFrom(box ?? null))
+        .filter((box): box is SubjectBox => box !== null),
       items,
     };
   } catch (err) {

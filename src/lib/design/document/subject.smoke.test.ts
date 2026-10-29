@@ -188,12 +188,15 @@ describe("an inset picture lines up with its copy", () => {
 
   it.each(RATIOS)("hero-center %s: on the canvas axis", async (ratio) => {
     for (const subject of subjects) {
-      const { document, image, isInset } = await inset(
+      const { document, image, headline, isInset } = await inset(
         "hero-center",
         ratio,
         subject,
       );
       if (!isInset || image.fit === "contain") continue;
+      /* Round 21: a photo set beside the copy is on the left margin, not
+         the axis; the axis rule is the band's. */
+      if (image.x + image.width <= headline.x) continue;
       expect(
         Math.abs(image.x + image.width / 2 - document.width / 2),
         `${ratio} ${JSON.stringify(subject)}`,

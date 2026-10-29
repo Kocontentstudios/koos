@@ -83,6 +83,11 @@ export interface DocumentFromSpecInput {
    *  without one is laid out as before, with nothing to keep clear. A box
    *  out of range or too small throws SubjectBoxFault. */
   subject?: SubjectBox | null;
+  /** Every person's head in the image, as shares of it. A crop keeps each
+   *  one whole or leaves it out, never cut at the frame's edge (round-8
+   *  live critic, cafe: a crop that kept the machine whole cut the
+   *  barista's head). */
+  heads?: readonly SubjectBox[];
 }
 
 export interface DocumentBuild {
@@ -159,12 +164,13 @@ export async function documentFromSpec({
   logo,
   measurer,
   subject = null,
+  heads = [],
 }: DocumentFromSpecInput): Promise<DocumentBuild> {
   const refused = specTextFault(rawSpec);
   if (refused) throw new DocumentTextFault(refused, refused.field);
   const spec = normalizedCopy(rawSpec);
   const subjectBox = image ? resolveSubject(subject, imageFacts) : null;
-  const input = { palette, canvas, image, imageFacts, logo, measurer };
+  const input = { palette, canvas, image, imageFacts, logo, measurer, heads };
   const first = await buildLeading(spec, subjectBox, input);
   /* The logo's corner is the one arrangement every layout shares. When the
      subject sits under it, the mirrored corner is tried before the fault
@@ -233,6 +239,7 @@ async function buildWith(
     imageFacts,
     logo,
     measurer,
+    heads = [],
   }: Omit<DocumentFromSpecInput, "spec" | "subject">,
   smallFooter: boolean,
 ): Promise<DocumentBuild> {
@@ -260,6 +267,7 @@ async function buildWith(
     image,
     imageFacts: image ? (imageFacts ?? null) : null,
     subject,
+    heads: image ? heads : [],
     logo,
     logoBox: box ? rect(box.left, box.top, box.width, box.height) : null,
     measurer,

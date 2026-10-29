@@ -302,6 +302,25 @@ describe("lookAtPhoto", () => {
     expect(look?.face?.y).toBeCloseTo(0.03);
   });
 
+  /* Round 21: the cafe's barista was no main subject and had no box, so
+     the crop that kept the machine whole cut her head. */
+  it("boxes every person's head, the main subject's or not", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        mainSubject: "an espresso machine",
+        subjectBox: { left: 29, top: 36, right: 80, bottom: 92 },
+        isPerson: false,
+        faceBox: null,
+        visibleItems: ["an espresso machine", "a barista"],
+        heads: [{ left: 82, top: 38, right: 96, bottom: 56 }, null],
+      },
+    });
+    const look = await lookAtPhoto(plate);
+    expect(look?.face).toBeNull();
+    expect(look?.heads).toHaveLength(1);
+    expect(look?.heads[0].x).toBeCloseTo(0.8);
+  });
+
   it("is null when the model cannot answer", async () => {
     generateObject.mockRejectedValue(new Error("throttled"));
     expect(await lookAtPhoto(plate)).toBeNull();

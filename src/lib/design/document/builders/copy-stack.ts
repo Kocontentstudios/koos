@@ -2,11 +2,12 @@ import {
   balancedWidth,
   type FittedText,
   fitText,
-  hasLoneShortWord,
+  hasLoneWord,
   inkOverhang,
   lineBox,
   sizeRange,
   type TextLook,
+  widthWithoutLoneWord,
   widthWithoutOrphan,
   wrapSlack,
   wrapWidth,
@@ -402,23 +403,25 @@ async function stackAt(
     if (!headline.fits) headline = await fitHeadline(reservedFor(sub), all);
   }
   if (!headline) throw new Error("No headline was fitted");
-  /* A short word alone on a line before the last reads as a broken
-     headline; a smaller step on the ladder sets it beside its neighbour. */
+  /* A word alone on a line before the last reads as a broken headline; a
+     smaller step on the ladder that sets it beside its neighbour is taken,
+     and only one that does: stepping down for a word no size can pair
+     only shrinks the type (round-8 live critic, storefront). */
   if (headline.fits && !headline.breaksWords) {
-    for (const size of ladder.filter((s) => s < (headline?.fontSize ?? 0))) {
-      if (
-        !(await hasLoneShortWord(
-          measurer,
-          spec.headline,
-          looks.headline(headline.fontSize, textAlign),
-          zone.width,
-        ))
-      ) {
+    const lone = (size: number) =>
+      hasLoneWord(
+        measurer,
+        spec.headline,
+        looks.headline(size, textAlign),
+        zone.width,
+      );
+    if (await lone(headline.fontSize)) {
+      for (const size of ladder.filter((s) => s < (headline?.fontSize ?? 0))) {
+        if (await lone(size)) continue;
+        const smaller = await fitHeadline(reservedFor(sub), [size]);
+        if (smaller.fits && !smaller.breaksWords) headline = smaller;
         break;
       }
-      const smaller = await fitHeadline(reservedFor(sub), [size]);
-      if (!smaller.fits || smaller.breaksWords) break;
-      headline = smaller;
     }
   }
   const headlineLook = looks.headline(headline.fontSize, textAlign);
@@ -431,11 +434,23 @@ async function stackAt(
       zone.width,
       headline,
     );
+    /* Balancing narrows the run as far as its line count allows, which
+       can set a word alone the full width paired. */
+    const paired =
+      (await widthWithoutLoneWord(
+        measurer,
+        spec.headline,
+        headlineLook,
+        balanced,
+        headline,
+        zone.width,
+      )) ?? balanced;
+    if (paired !== balanced) headlineWidth = paired;
     const unorphaned = await widthWithoutOrphan(
       measurer,
       spec.headline,
       headlineLook,
-      balanced,
+      paired,
       headline,
       {
         maxHeight: zone.height - reservedFor(sub),

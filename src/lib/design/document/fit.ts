@@ -441,6 +441,26 @@ export async function widthWithoutOrphan(
   return null;
 }
 
+/** The lines greedy wrapping sets `text` in at `width`, word by word. */
+async function greedyLines(
+  measurer: TextMeasurer,
+  words: readonly string[],
+  look: TextLook,
+  width: number,
+): Promise<string[][]> {
+  const lines: string[][] = [[]];
+  for (const word of words) {
+    const line = lines[lines.length - 1];
+    const trial = [...line, word].join(" ");
+    if (line.length > 0 && (await measurer.lineWidth(trial, look)) > width) {
+      lines.push([word]);
+    } else {
+      line.push(word);
+    }
+  }
+  return lines;
+}
+
 /**
  * Whether greedy wrapping at `width` sets a short word on a line of its own
  * before the last ("Rome / Is / Waiting / for You"). A box too narrow for
@@ -453,21 +473,53 @@ export async function hasLoneShortWord(
   look: TextLook,
   width: number,
 ): Promise<boolean> {
+  return hasLoneWord(measurer, text, look, width, 3);
+}
+
+/**
+ * Whether greedy wrapping at `width` sets any word on a line of its own
+ * before the last, or one of at most `maxLetters` letters. "We're Back —
+ * Reopen With Us This Saturday" ran to five lines with "This" alone
+ * (round-8 live critic, storefront); a four-letter word was not short
+ * enough to be caught.
+ */
+export async function hasLoneWord(
+  measurer: TextMeasurer,
+  text: string,
+  look: TextLook,
+  width: number,
+  maxLetters = Number.POSITIVE_INFINITY,
+): Promise<boolean> {
   const words = breakableWords(text);
   if (words.length < 3) return false;
-  const lines: string[][] = [[]];
-  for (const word of words) {
-    const line = lines[lines.length - 1];
-    const trial = [...line, word].join(" ");
-    if (line.length > 0 && (await measurer.lineWidth(trial, look)) > width) {
-      lines.push([word]);
-    } else {
-      line.push(word);
-    }
-  }
+  const lines = await greedyLines(measurer, words, look, width);
   return lines
     .slice(0, -1)
     .some(
-      (line) => line.length === 1 && line[0].replace(/\W/g, "").length <= 3,
+      (line) =>
+        line.length === 1 && line[0].replace(/\W/g, "").length <= maxLetters,
     );
+}
+
+/**
+ * A width between `drawn` and `box` at which the run keeps its lines and
+ * sets no word alone before its last line, when balancing narrowed it into
+ * one the full width did not have; null when there is none or no need.
+ */
+export async function widthWithoutLoneWord(
+  measurer: TextMeasurer,
+  text: string,
+  look: TextLook,
+  drawn: number,
+  fitted: Pick<FittedText, "height">,
+  box: number,
+): Promise<number | null> {
+  if (!(await hasLoneWord(measurer, text, look, drawn))) return null;
+  if (await hasLoneWord(measurer, text, look, box)) return null;
+  const step = Math.max(2, Math.round(look.fontSize / 4));
+  for (let width = drawn + step; width <= Math.floor(box); width += step) {
+    if ((await measurer.height(text, look, width)) !== fitted.height) continue;
+    if (!(await hasLoneWord(measurer, text, look, width))) return width;
+  }
+  return Math.floor(box);
 }

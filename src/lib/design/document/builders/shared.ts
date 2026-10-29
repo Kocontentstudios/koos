@@ -3,6 +3,7 @@ import type { DesignElement } from "../schema";
 import { type Context, mostReadableOn, NEAR_BLACK, px, WHITE } from "./context";
 import type { CopyColors } from "./copy-stack";
 import type { Footer } from "./footer";
+import { contrastOn, hexToRgb, type Rgb } from "./ground";
 
 /** The share of the canvas, from the top, a cut-out keeps for itself in the
  *  centred layouts; the copy is fitted below it. Fitting the copy first and
@@ -25,23 +26,54 @@ export function copyBottom(ctx: Context, foot: Footer | null): number {
 /** Copy colours on the flat brand background. */
 export function flatColors(ctx: Context): CopyColors {
   const { palette } = ctx;
+  const button = buttonOn(ctx, [hexToRgb(palette.background)]);
   return {
     headline: palette.foreground,
     body: palette.foreground,
-    ctaFill: palette.accent,
-    ctaLabel: ctaLabelOn(ctx),
+    ctaFill: button.fill,
+    ctaLabel: button.label,
     accent: palette.accent,
   };
 }
 
-export function ctaLabelOn(ctx: Context): string {
+/** WCAG 1.4.11: a control's boundary needs 3:1 against what it sits on. */
+export const BUTTON_CONTRAST = 3;
+
+/**
+ * The button's fill and label on `ground` (every pixel the button may sit
+ * on). The accent while it clears BUTTON_CONTRAST against all of it; else
+ * the brand's foreground, then its background, then white or near-black,
+ * the first that does, or whichever comes closest. A brown pill on a blue
+ * field (1.11:1) read as a label with no button (round-8 live critic,
+ * fashion text card). The label is then whichever colour reads best on
+ * the fill.
+ */
+export function buttonOn(
+  ctx: Context,
+  ground: Rgb[],
+): { fill: string; label: string } {
   const { palette } = ctx;
-  return mostReadableOn(palette.accent, [
-    palette.background,
+  const least = (fill: string) =>
+    Math.min(...ground.map((pixel) => contrastOn(fill, pixel)));
+  const candidates = [
+    palette.accent,
     palette.foreground,
+    palette.background,
     WHITE,
     NEAR_BLACK,
-  ]);
+  ];
+  const fill =
+    candidates.find((c) => least(c) >= BUTTON_CONTRAST) ??
+    candidates.reduce((best, c) => (least(c) > least(best) ? c : best));
+  return {
+    fill,
+    label: mostReadableOn(fill, [
+      palette.background,
+      palette.foreground,
+      WHITE,
+      NEAR_BLACK,
+    ]),
+  };
 }
 
 /** Plain footer text on a flat `ground`: whichever brand or neutral colour

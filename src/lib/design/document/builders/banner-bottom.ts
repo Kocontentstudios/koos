@@ -31,6 +31,12 @@ import { accentField, copyBottom, flatColors, footerColorOn } from "./shared";
    below the type scale: at the schema's longest copy the flex band runs a
    few pixels short, and a slightly shorter image beats smaller type. */
 const BANNER_OVERFLOW = 0.62;
+/* The banner is a band across the top; a print narrower than this share
+   of it reads as a thumbnail floating in the ground (round-8 live critic,
+   storefront: a 450 px facade in a 1080 px band). A photo whose subject
+   needs a narrower frame is reported cropped here and drawn in a layout
+   it fills. */
+const BANNER_MIN_PRINT_WIDTH = 0.75;
 export async function bannerBottom(ctx: Context): Promise<Built> {
   const { width, height, margin, palette } = ctx;
   const foot = await footer(ctx, {
@@ -97,6 +103,7 @@ export async function bannerBottom(ctx: Context): Promise<Built> {
     insets: { top: margin, bottom: 0, sides: margin },
     inset: true,
     align: "start",
+    minInsetWidth: BANNER_MIN_PRINT_WIDTH,
   });
   if (framed && !framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
   const elements: DesignElement[] = [

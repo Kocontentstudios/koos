@@ -32,7 +32,13 @@ import {
 } from "./image";
 import { HEADLINE_OVER_FOOTER, HIERARCHY, SIZES } from "./looks";
 import { copyBlocks, gradedVeil, scrimElement, veiledFaces } from "./scrim";
-import { CUTOUT_SHARES, copyBottom, flatColors, footerColorOn } from "./shared";
+import {
+  buttonOn,
+  CUTOUT_SHARES,
+  copyBottom,
+  flatColors,
+  footerColorOn,
+} from "./shared";
 
 /**
  * A card holding the copy: quote-card and stat-highlight.
@@ -67,6 +73,12 @@ interface CardFrame {
   region: Rect;
   foot: Footer | null;
 }
+
+/* A photo print narrower than this share of the card is a thumbnail on it
+   (round-8 live critic, storefront: a tall facade shrunk to fit above the
+   copy); the card then reports the subject cropped and a layout the photo
+   fills is taken. A cut-out is contained, never narrowed. */
+const CARD_MIN_PRINT_WIDTH = 0.75;
 
 export async function card(
   ctx: Context,
@@ -125,8 +137,11 @@ function cardColors(
   text: string,
 ): CopyColors {
   const accent = accentOn(ctx, face, text);
+  const button = buttonOn(ctx, face);
   return {
     ...flatColors(ctx),
+    ctaFill: button.fill,
+    ctaLabel: button.label,
     headline: variant === "stat" ? accent : text,
     body: text,
     accent,
@@ -240,6 +255,7 @@ async function subjectAboveCopy(
       insets: { top: pad, bottom: 0, sides: pad },
       keepOut: copyKeepOut(copy),
       inset: true,
+      minInsetWidth: CARD_MIN_PRINT_WIDTH,
     });
   const bled = frameFrom(region.y);
   /* A photo narrower than the card is a print laid on it, and one touching

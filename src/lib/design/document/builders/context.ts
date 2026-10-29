@@ -50,6 +50,8 @@ export interface Context {
    *  cut-out's visible pixels. Null when nothing is known about it, and
    *  then no layout can keep copy off it. */
   subject: SubjectBox | null;
+  /** People's heads in image space, each kept whole or out of a crop. */
+  heads?: readonly SubjectBox[];
   logoBox: Rect | null;
   logo: DocumentLogoInput | null;
   measurer: TextMeasurer;

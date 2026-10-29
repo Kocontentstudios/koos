@@ -186,6 +186,7 @@ export function coverPlacement(
   frame: Rect,
   keepOut: Rect[],
   minEdge: number,
+  heads: readonly SubjectBox[] = [],
 ): ImagePlacement | null {
   const centreX = frame.x + frame.width / 2;
   const centreY = frame.y + frame.height / 2;
@@ -223,6 +224,7 @@ export function coverPlacement(
         const box = subjectOnCanvas(image, subject, placement);
         if (!within(box, frame)) continue;
         if (keepOut.some((zone) => intersection(box, zone))) continue;
+        if (cutsAHead(image, heads, placement)) continue;
         const distance = Math.hypot(
           box.x + box.width / 2 - centreX,
           box.y + box.height / 2 - centreY,
@@ -233,6 +235,22 @@ export function coverPlacement(
     if (best) return best.placement;
   }
   return null;
+}
+
+/** A head the frame's edge runs through: neither whole inside the frame
+ *  nor wholly outside it. */
+export function cutsAHead(
+  image: { width: number; height: number },
+  heads: readonly SubjectBox[],
+  placement: ImagePlacement,
+): boolean {
+  return heads.some((head) => {
+    const box = subjectOnCanvas(image, head, placement);
+    return (
+      !within(box, placement.frame) &&
+      intersection(box, placement.frame) !== null
+    );
+  });
 }
 
 /** What may never sit on the subject: copy, buttons, the logo, and shapes

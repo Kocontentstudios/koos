@@ -109,6 +109,17 @@ export function framedImage(
      *  edge, for copy set flush left. Without it, centred in whatever room
      *  the logo leaves, which floated the photo off both. */
     align?: InsetAlign;
+    /** Grounds of their own the region runs up to, a footer bar above
+     *  all: an inset print keeps the same gutter from them as from the
+     *  canvas edge, or its rounded corners sit flush on the band (round-8
+     *  live critic, fashion split-left). */
+    against?: Rect[];
+    /** The least share of the region's width an inset may narrow to. A
+     *  band meant to be filled edge to edge drew a tall photo as a small
+     *  print with 350 px of ground beside it (round-8 live critic,
+     *  storefront banner-bottom); below this the layout reports the
+     *  subject cropped, and the chooser takes another. */
+    minInsetWidth?: number;
   } = {},
 ): Framed | null {
   if (!ctx.image) return null;
@@ -180,15 +191,25 @@ export function framedImage(
   if (facts && ctx.subject) {
     const minEdge = minSubjectEdge(ctx);
     const exact =
-      coverPlacement(facts, ctx.subject, frame, avoid, minEdge) ??
+      coverPlacement(
+        facts,
+        ctx.subject,
+        frame,
+        avoid,
+        minEdge,
+        ctx.heads ?? [],
+      ) ??
       (options.inset
         ? insetCoverPlacement(facts, ctx.subject, frame, avoid, minEdge, {
+            heads: ctx.heads ?? [],
             canvas: rect(0, 0, ctx.width, ctx.height),
             /* Flush-left copy starts at the margin; a picture lined up
                with it starts there too. */
             gutter: px(options.align === "start" ? ctx.margin : ctx.margin / 2),
             logo: ctx.logoBox ? grown(ctx.logoBox, gap) : null,
             align: options.align,
+            against: options.against ?? [],
+            minWidthShare: options.minInsetWidth ?? 0,
           })
         : null);
     const placement = balancedInset(
@@ -254,24 +275,46 @@ function insetCoverPlacement(
     gutter,
     logo,
     align,
+    against,
+    minWidthShare,
+    heads,
   }: {
+    heads: readonly SubjectBox[];
     canvas: Rect;
     gutter: number;
     logo: Rect | null;
     align?: InsetAlign;
+    against: Rect[];
+    minWidthShare: number;
   },
 ): ImagePlacement | null {
   const onEdge = (a: number, b: number) => Math.abs(a - b) < 0.5;
-  const left = region.x + (onEdge(region.x, canvas.x) ? gutter : 0);
-  const top = region.y + (onEdge(region.y, canvas.y) ? gutter : 0);
-  const right =
+  const regionRight = region.x + region.width;
+  const regionBottom = region.y + region.height;
+  const touches = (side: (r: Rect) => number, at: number) =>
+    against.some((r) => onEdge(side(r), at));
+  const left =
     region.x +
-    region.width -
-    (onEdge(region.x + region.width, canvas.x + canvas.width) ? gutter : 0);
-  const bottom =
+    (onEdge(region.x, canvas.x) || touches((r) => r.x + r.width, region.x)
+      ? gutter
+      : 0);
+  const top =
     region.y +
-    region.height -
-    (onEdge(region.y + region.height, canvas.y + canvas.height) ? gutter : 0);
+    (onEdge(region.y, canvas.y) || touches((r) => r.y + r.height, region.y)
+      ? gutter
+      : 0);
+  const right =
+    regionRight -
+    (onEdge(regionRight, canvas.x + canvas.width) ||
+    touches((r) => r.x, regionRight)
+      ? gutter
+      : 0);
+  const bottom =
+    regionBottom -
+    (onEdge(regionBottom, canvas.y + canvas.height) ||
+    touches((r) => r.y, regionBottom)
+      ? gutter
+      : 0);
   const whole = rect(left, top, right - left, bottom - top);
   if (whole.width <= 0 || whole.height <= 0) return null;
   const rooms = alignedRooms(
@@ -285,8 +328,9 @@ function insetCoverPlacement(
   for (const room of rooms) {
     const placement = largestInsetIn(
       room,
-      (frame) => coverPlacement(image, subject, frame, avoid, minEdge),
+      (frame) => coverPlacement(image, subject, frame, avoid, minEdge, heads),
       align === "start" ? "start" : "centre",
+      (minWidthShare * region.width) / Math.max(1, room.width),
     );
     if (
       placement &&
@@ -301,6 +345,44 @@ function insetCoverPlacement(
 }
 
 export type InsetAlign = "axis" | "start";
+
+/**
+ * An inset print narrower than its side moved onto the canvas margin on
+ * `edge`, so the copy beside it can take the room it frees (round-8 live
+ * critic, fashion split-left: a 16:9 portrait centred in its half left
+ * 350 px of bare ground between copy and photo). Only the frame moves: a
+ * cover crop depends on its frame's size, never its place. A move that
+ * would meet the logo is not made.
+ */
+export function onMargin(
+  ctx: Context,
+  framed: Framed,
+  side: Rect,
+  edge: "left" | "right",
+): Framed {
+  const frame = framed.element;
+  const gutter = px(ctx.margin / 2);
+  if (frame.width >= side.width - gutter) return framed;
+  const x =
+    edge === "right" ? px(ctx.width - gutter - frame.width) : px(gutter);
+  if (edge === "right" ? x <= frame.x : x >= frame.x) return framed;
+  const moved = { ...frame, x };
+  if (ctx.logoBox && intersection(moved, grown(ctx.logoBox, subjectGap(ctx)))) {
+    return framed;
+  }
+  const dx = x - frame.x;
+  return {
+    ...framed,
+    element: moved,
+    placement: {
+      ...framed.placement,
+      frame: { ...framed.placement.frame, x: framed.placement.frame.x + dx },
+    },
+    subject: framed.subject
+      ? { ...framed.subject, x: framed.subject.x + dx }
+      : null,
+  };
+}
 
 /**
  * Rooms cut down to what an aligned picture can use. On the axis: each
@@ -360,6 +442,7 @@ function largestInsetIn(
   room: Rect,
   place: (frame: Rect) => ImagePlacement | null,
   anchor: "centre" | "start",
+  minWidthShare = 0,
 ): ImagePlacement | null {
   for (const share of INSET_STEPS) {
     const narrower = rect(
@@ -374,7 +457,8 @@ function largestInsetIn(
       room.width,
       room.height * share,
     );
-    for (const frame of [narrower, shorter]) {
+    const frames = share >= minWidthShare ? [narrower, shorter] : [shorter];
+    for (const frame of frames) {
       const placement = place(frame);
       if (placement) return placement;
     }

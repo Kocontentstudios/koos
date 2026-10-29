@@ -23,6 +23,7 @@ import {
   framedImage,
   isCutout,
   minSubjectHeight,
+  onMargin,
   subjectGap,
 } from "./image";
 import { HERO_OVER_PHOTO } from "./looks";
@@ -79,6 +80,8 @@ export async function heroCenter(ctx: Context): Promise<Built> {
   }
   const banded = await band(ctx, foot, true);
   if (banded) return banded;
+  const aside = await beside(ctx, true);
+  if (aside) return aside;
   ctx.subjectFaults.add(SUBJECT_COVERED);
   return settle(ctx, await fullBleed(ctx, foot, "end"));
 }
@@ -235,11 +238,60 @@ async function band(
     keepOut: keepOutOf(copy, foot),
     inset: true,
     align: "axis",
+    minInsetWidth: BAND_MIN_PRINT_WIDTH,
   });
   if (!framed || (strict && !framed.clean)) return null;
   if (!framed.clean) ctx.subjectFaults.add(SUBJECT_CROPPED);
   commitFaults(ctx, stack);
   return finish(ctx, foot, [framed.element, ...copy]);
+}
+
+/* A photo band narrower than this share of the canvas is a thumbnail over
+   the copy (round-8 live critic, storefront); the photo is then set beside
+   the copy instead. A cut-out is contained, never narrowed, and is not
+   held to it. */
+const BAND_MIN_PRINT_WIDTH = 0.75;
+
+/* The share of the canvas the photo takes when it stands beside the copy. */
+const BESIDE_SHARE = 0.46;
+
+/**
+ * The photo on the left, the copy centred on the ground to its right: for
+ * a subject that no full bleed or band shows whole and clear, a portrait
+ * on 16:9 above all (round-8 live critic, fashion: the second direction
+ * dropped the dress for a text card). Mirror of split-left, so a pair that
+ * shows one photo in both still reads as two compositions (Oluwaseyi's
+ * ruling, 2026-10-28). A print narrower than its half sits on the left
+ * margin and the copy takes the room it frees. With `strict`, null unless
+ * the subject is placed clean.
+ */
+async function beside(ctx: Context, strict: boolean): Promise<Built | null> {
+  const { width, height, margin, palette } = ctx;
+  const panel = px(width * BESIDE_SHARE);
+  const foot = await footer(ctx, {
+    band: { x: panel + margin, width: width - panel - margin * 2 },
+    align: "center",
+    color: footerColorOn(ctx, palette.background),
+  });
+  const bar = foot && ctx.spec.footerStyle === "bar" ? foot : null;
+  const region = rect(0, 0, panel, bar ? bar.top : height);
+  const placed = framedImage(ctx, region, {
+    inset: true,
+    against: bar ? [rect(0, bar.top, width, height - bar.top)] : [],
+  });
+  if (!placed || (strict && !placed.clean)) return null;
+  const framed = onMargin(ctx, placed, region, "left");
+  const copyLeft =
+    Math.min(panel, framed.element.x + framed.element.width) + margin;
+  const zone = rect(
+    copyLeft,
+    margin,
+    width - copyLeft - margin,
+    copyBottom(ctx, foot) - margin,
+  );
+  const stack = await stackIn(ctx, zone, "center");
+  commitFaults(ctx, stack);
+  return finish(ctx, foot, [framed.element, ...(await placeStack(stack))]);
 }
 
 /* Over an image the copy anchors low or high and the subject keeps the rest

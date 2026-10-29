@@ -66,6 +66,8 @@ export interface DirectionAssets {
   /** Where the subject is in the image, from the plate check or the photo
    *  look. A cut-out's comes from its alpha when this is absent. */
   subject?: SubjectBox | null;
+  /** People's heads in the image: each kept whole in a crop or left out. */
+  heads?: readonly SubjectBox[];
 }
 
 /** The subject box the builders keep clear: the one given, else a
@@ -122,6 +124,7 @@ export function documentRenderer(
       image: assets.image?.ref ?? null,
       imageFacts: assets.imageFacts ?? null,
       subject: assets.subject ?? null,
+      heads: assets.heads ?? [],
       logo: logo
         ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
         : null,
@@ -225,6 +228,7 @@ export function layoutJudge(
       image: assets.image?.ref ?? null,
       imageFacts: assets.imageFacts ?? null,
       subject,
+      heads: assets.heads ?? [],
       logo: logo
         ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
         : null,
