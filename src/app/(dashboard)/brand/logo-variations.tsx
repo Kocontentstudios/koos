@@ -287,7 +287,7 @@ export function LogoVariations({
         <Button
           type="button"
           onClick={handleAdd}
-          disabled={!uploadedUrl || uploading || pending}
+          disabled={!uploadedUrl || uploading}
           loading={pending}
           loadingText="Saving…"
         >

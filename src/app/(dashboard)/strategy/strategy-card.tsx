@@ -29,19 +29,16 @@ interface StrategyCardProps {
   error?: string | null;
 }
 
-/** The card's controls need a boundary and a focus ring that actually clear
- * WCAG 1.4.11's 3:1; the secondary variant's border and the --accent-glow ring
- * are both far below it, and this is the first surface carrying three
- * sequential controls, so focus order has to be visible here.
+/** The card's controls need a boundary that actually clears WCAG 1.4.11's
+ * 3:1; the secondary variant's border is far below it. (Focus needs nothing
+ * extra: Button's own --ring outline clears 3:1 on every surface.)
  *
  * The border is an INLINE STYLE, not a `border-[…]` class: globals.css sets
  * `* { border-color: var(--border) }` outside any layer, and unlayered CSS
  * beats @layer utilities, so every border utility on a button silently loses.
  * Inline wins regardless. Assert the computed value, never the class name. */
 const CARD_BORDER = { borderColor: "var(--border-control)" } as const;
-const CARD_FOCUS =
-  "focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-1)]";
-const CARD_ACTION = `h-11 sm:h-9 ${CARD_FOCUS}`;
+const CARD_ACTION = "h-11 sm:h-9";
 
 /**
  * The campaign a chat produced, pinned into that chat. Driven by the stored
@@ -79,12 +76,12 @@ export function StrategyCard({
       className="relative w-full rounded-xl border bg-surface-1 p-4 sm:max-w-[480px]"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-glow)] text-primary">
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-glow)] text-primary-text">
           <Target size={16} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary">
+            <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary-text">
               Campaign Strategy
             </span>
             {saved ? (
@@ -184,7 +181,7 @@ export function StrategyCard({
             hidden status below instead. */}
         <Button
           size="lg"
-          className={`h-11 sm:h-9 ${CARD_FOCUS}`}
+          className={CARD_ACTION}
           onClick={saved ? onGenerateCalendar : () => onSave(campaign.id)}
           loading={saved ? generatingCalendar : saving}
           disabled={busy}

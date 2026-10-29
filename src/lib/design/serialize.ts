@@ -19,6 +19,10 @@ export interface SerializedGeneration {
   calendarItemId: string | null;
   headline: string | null;
   createdAt: string;
+  /** Null on a legacy row, which renders the way it always has. */
+  direction: { title: string; reasons: string[] } | null;
+  imageSource: "upload" | "ko" | null;
+  editable: boolean;
 }
 
 /** Signed URLs are minted per request rather than stored, so a gallery link
@@ -52,5 +56,8 @@ export async function serializeGeneration(
     calendarItemId: row.calendarItemId,
     headline: spec?.headline ?? null,
     createdAt: row.createdAt.toISOString(),
+    direction: null,
+    imageSource: null,
+    editable: false,
   };
 }

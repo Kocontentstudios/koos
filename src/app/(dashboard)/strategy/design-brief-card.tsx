@@ -40,12 +40,12 @@ export function DesignBriefCard({ brief, onOpen }: DesignBriefCardProps) {
       aria-label={`Open design brief: ${brief.title}`}
       className="flex w-full max-w-[480px] items-start gap-3 rounded-xl border border-[var(--border-accent)] bg-surface-1 px-4 py-3 text-left transition-colors hover:bg-[var(--hover)]"
     >
-      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-glow)] text-primary">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-glow)] text-primary-text">
         <FileText size={16} />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
+          <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary-text">
             Design Brief
           </span>
           {brief.ticketId && (

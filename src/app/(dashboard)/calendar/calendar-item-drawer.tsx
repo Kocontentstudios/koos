@@ -372,7 +372,7 @@ export function CalendarItemDrawer({
                     }
                     disabled={isPending}
                     aria-label="Status"
-                    className="w-[200px] cursor-pointer rounded-lg border border-[var(--border)] bg-surface-1 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)] disabled:opacity-60"
+                    className="w-[200px] cursor-pointer rounded-lg border border-[var(--border)] bg-surface-1 px-3.5 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:focus-outline disabled:opacity-60"
                   >
                     {STATUS_OPTIONS.map((s) => (
                       <option key={s} value={s}>
@@ -418,8 +418,10 @@ export function CalendarItemDrawer({
                         it hid the feature on most items. */}
                     <GenerateDesignButton
                       brandId={brandId}
+                      entry="calendar"
                       calendarItemId={item.id}
                       label="Generate with AI"
+                      size="lg"
                       ticketContext={{
                         calendarItemId: item.id,
                         designType: item.designType ?? item.contentType,

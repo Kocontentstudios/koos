@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import { can } from "@/lib/auth/workspace-access";
@@ -24,9 +24,9 @@ export default async function NoBrandsPage() {
         You don&apos;t have access to any brands in this workspace. A workspace
         admin can assign you to one, and it will show up here.
       </p>
-      <Button render={<Link href="/team" />} variant="secondary">
+      <Link href="/team" className={buttonVariants({ variant: "secondary" })}>
         View team
-      </Button>
+      </Link>
     </div>
   );
 }

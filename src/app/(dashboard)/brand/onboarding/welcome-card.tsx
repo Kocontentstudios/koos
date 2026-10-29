@@ -52,7 +52,7 @@ export function WelcomeCard({ onboardingHref }: { onboardingHref: string }) {
         <div className="mb-2 flex items-center justify-center gap-2.5">
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#0a6d9e] text-sm font-bold text-white"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-fill text-sm font-bold text-primary-foreground"
           >
             KO
           </span>

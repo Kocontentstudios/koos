@@ -362,7 +362,7 @@ export function AnnotationCanvas({
               onChange={(e) => updateNote(mark.id, e.target.value)}
               onFocus={() => setActiveMarkId(mark.id)}
               placeholder={`Note for mark ${index + 1}`}
-              className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-transparent px-2 py-1 text-[13px] text-foreground outline-none focus-visible:border-[var(--border-accent)]"
+              className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-transparent px-2 py-1 text-[13px] text-foreground outline-none focus-visible:focus-outline"
             />
             <Button
               type="button"

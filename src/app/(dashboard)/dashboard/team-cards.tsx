@@ -7,18 +7,19 @@ export function InviteTeamCard() {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-gradient-to-r from-primary/10 to-[#7c5cff]/10 p-5">
       <div className="flex items-start gap-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary-text">
           <Users size={20} />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold">Invite Your Team</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
+          {/* Muted text falls to 4.07:1 on this brand wash; secondary holds. */}
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
             Bring teammates into this workspace to manage brands, campaigns, and
             design requests together.
           </p>
           <Link
             href="/team"
-            className="mt-3 inline-block rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground"
+            className="mt-3 inline-block rounded-lg bg-primary-fill px-4 py-2 text-xs font-medium text-primary-foreground"
           >
             Invite Team
           </Link>
@@ -49,11 +50,13 @@ export function TeamOverviewCard({
         </div>
         {/* Avatar stack (overlapping circles), per the prototype */}
         <div className="flex -space-x-2">
+          {/* White initials need 4.5:1 at both stops: the old #e8a0b0 end
+              was 2.08:1. */}
           {names.slice(0, 4).map((n) => (
             <div
               key={n}
               title={n}
-              className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--border)] bg-gradient-to-br from-[#e8a0b0] to-[#7c5cff] text-[10px] font-semibold text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--border)] bg-gradient-to-br from-[#b4436c] to-[#7e22ce] text-[10px] font-semibold text-white"
             >
               {n
                 .split(" ")
@@ -67,7 +70,7 @@ export function TeamOverviewCard({
       </div>
       <Link
         href="/team"
-        className="mt-3 inline-block text-xs font-medium text-primary hover:underline"
+        className="mt-3 inline-block text-xs font-medium text-primary-text hover:underline"
       >
         Manage team →
       </Link>

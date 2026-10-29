@@ -90,7 +90,7 @@ function PanelBody({
   return (
     <>
       <div className="py-3">
-        <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary">
+        <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary-text">
           Strategy
         </span>
         <h4 className="mt-2 text-[16px] font-semibold text-foreground">

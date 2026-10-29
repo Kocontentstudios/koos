@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { acceptInviteAction } from "../actions";
 
 export function AcceptForm({
@@ -18,15 +18,14 @@ export function AcceptForm({
       className="flex flex-col gap-2"
     >
       <input type="hidden" name="token" value={token} />
-      <button
+      <Button
         type="submit"
-        disabled={pending}
-        aria-busy={pending}
-        className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        loading={pending}
+        loadingText="Joining…"
+        className="h-auto rounded-lg px-4 py-2.5 text-sm font-medium"
       >
-        {pending ? <Spinner /> : null}
-        {pending ? "Joining…" : `Join ${workspaceName}`}
-      </button>
+        Join {workspaceName}
+      </Button>
     </form>
   );
 }

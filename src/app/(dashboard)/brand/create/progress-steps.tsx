@@ -31,8 +31,8 @@ export function ProgressSteps({
               className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-semibold transition-colors",
                 isCompleted &&
-                  "border-primary bg-primary text-primary-foreground",
-                isActive && "border-primary bg-surface-1 text-primary",
+                  "border-primary-fill bg-primary-fill text-primary-foreground",
+                isActive && "border-primary bg-surface-1 text-primary-text",
                 !isCompleted &&
                   !isActive &&
                   "border-[var(--text-muted)] text-[var(--text-muted)]",
@@ -43,7 +43,7 @@ export function ProgressSteps({
             <span
               className={cn(
                 "hidden text-[12px] font-medium whitespace-nowrap transition-colors sm:inline",
-                isActive && "text-primary",
+                isActive && "text-primary-text",
                 isCompleted && "text-[var(--text-secondary)]",
                 !isCompleted && !isActive && "text-[var(--text-muted)]",
               )}
@@ -65,9 +65,13 @@ export function ProgressSteps({
                 onClick={() => onSelect(index)}
                 aria-label={`Go to step ${index + 1}: ${label}`}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg p-0.5 transition-opacity",
+                  "flex items-center gap-2 rounded-lg p-0.5",
                   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-                  !isActive && "cursor-pointer hover:opacity-80",
+                  /* Hover underlines the label rather than fading the step:
+                     opacity-80 put the muted label at 4.11:1 dark and 3.42:1
+                     light. */
+                  !isActive &&
+                    "cursor-pointer [&:hover>span]:underline [&:hover>span]:underline-offset-4",
                 )}
               >
                 {content}

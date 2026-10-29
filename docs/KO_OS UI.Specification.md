@@ -576,7 +576,7 @@ Items appear in this exact order. Each item: height 44px, padding 0 16px, icon 2
 | :---- | :---- | :---- | :---- |
 | Hamburger / Toggle | Left | Collapse sidebar icon | Open drawer icon |
 | Page Title | Center-Left | 22px/600/\#FFFFFF | 18px/600/\#FFFFFF (centered) |
-| Brand Name | Below title | 13px/\#6F8599 — Shows active brand name | Hidden (space constraint) |
+| Brand Name | Below title | 13px/\#7C90A3 — Shows active brand name | Hidden (space constraint) |
 | Profile Avatar | Right | 36px circle, \#00204F bg, initials or icon | Same |
 | Notification Bell | Right of avatar | 20px icon, \#A7B6C7, red dot for unread | Same |
 
@@ -626,11 +626,11 @@ Full viewport height (100vh). Two-column split:
 
 66.   a) Login button (left, outline): transparent bg, \#FFFFFF text, 1px solid rgba(19,139,200,0.4) border. Height: 48px. Padding: 0 24px. Border-radius: 10px. Hover: bg rgba(19,139,200,0.08), border rgba(19,139,200,0.6).
 
-67.   b) Start Creating button (right, filled): \#138BC8 bg, \#FFFFFF text. Height: 48px. Padding: 0 28px. Border-radius: 10px. Hover: \#0F7EB8.
+67.   b) Start Creating button (right, filled): Primary Fill \#1075A8 bg, \#FFFFFF text. Height: 48px. Padding: 0 28px. Border-radius: 10px. Hover: \#0F6B9A (Primary Fill Hover).
 
 68. Spacer: pushes footer to bottom.
 
-69. Footer: Privacy Policy link (13px/\#6F8599). Hover: \#FFFFFF \+ underline.
+69. Footer: Privacy Policy link (13px/\#7C90A3). Hover: \#FFFFFF \+ underline.
 
 ### **Right Column — Looping Visual**
 
@@ -698,11 +698,11 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 82. Spacer: 16px.
 
-83. Password field: same style as email. Label: Password. Placeholder: Enter your password. Right side of input: eye icon button (show/hide toggle). Icon: 20px, \#6F8599, hover \#FFFFFF.
+83. Password field: same style as email. Label: Password. Placeholder: Enter your password. Right side of input: eye icon button (show/hide toggle). Icon: 20px, \#7C90A3, hover \#FFFFFF.
 
 84. Spacer: 8px.
 
-85. Forgot password link: 13px/\#138BC8. Hover: underline. (Functionality: post-MVP, can show Coming Soon toast).
+85. Forgot password link: 13px/Primary Text (`--primary-text`). Hover: underline. (Functionality: post-MVP, can show Coming Soon toast).
 
 86. Spacer: 24px.
 
@@ -710,11 +710,11 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 88. Spacer: 20px.
 
-89. Divider: horizontal line (rgba(255,255,255,0.06)) with or text centered (12px/\#6F8599).
+89. Divider: horizontal line (rgba(255,255,255,0.06)) with or text centered (12px/\#7C90A3).
 
 90. Spacer: 20px.
 
-91. Secondary link: Need an account? Create one. 14px/\#138BC8. Click switches card to Register mode.
+91. Secondary link: Need an account? Create one. 14px/Primary Text (`--primary-text`). Click switches card to Register mode.
 
 92. Spacer: 16px.
 
@@ -744,7 +744,7 @@ Same layout as Login, differences:
 
 ### **Loading & Error States**
 
-* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is disabled and carries `aria-busy`. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
+* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is not disabled: it keeps its resting fill at full opacity (Primary Fill, white label, 5.08:1), carries `aria-busy` and `data-loading`, and swallows clicks, including the synthetic click an Enter key sends to a form's submit button. Loading means "I am working"; disabled means "wait". A disabled fill under a Saving… label measured 1.87:1 dark and 2.04:1 light until 2026-10-22. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
 * Network error: banner appears below the card. Background \#1A3A4A, border-left 3px \#D47575, text \#A7B6C7, padding 12px 16px.
 
@@ -770,7 +770,7 @@ The app shell wraps all authenticated pages. It provides consistent navigation, 
 
 * Height: 56px. Background: transparent (content scrolls behind) OR \#000D20 with bottom border 1px solid rgba(255,255,255,0.06) if page is scrolled.
 
-* Left section: Sidebar collapse toggle (icon button, 40px, ghost) \+ page title (22px/600/\#FFFFFF) \+ brand name below (13px/\#6F8599, e.g., using: Killa Skincare).
+* Left section: Sidebar collapse toggle (icon button, 40px, ghost) \+ page title (22px/600/\#FFFFFF) \+ brand name below (13px/\#7C90A3, e.g., using: Killa Skincare).
 
 * Right section: Notification bell (20px icon, \#A7B6C7, red dot 8px for unread) \+ avatar button (36px circle, \#00204F bg, white initials, 13px/600).
 
@@ -820,7 +820,7 @@ Capture everything KO needs to know about the user's brand. This is the foundati
 
 * Subtitle: Tell us about your business. This helps our AI build better strategies and our designers create on-brand assets. (14px/400/\#A7B6C7).
 
-* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: \#138BC8 text \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#6F8599 muted text.
+* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: Primary Text (`--primary-text`) \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#7C90A3 muted text.
 
 * Form area: single column, max-width 640px, centered.
 
@@ -865,7 +865,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Default state: dashed border 2px rgba(255,255,255,0.12), border-radius 10px, background \#00162E, padding 32px, text centered.
 
-* Content: Upload icon (24px, \#6F8599) \+ primary text Click to upload or drag and drop (14px/\#A7B6C7) \+ subtext PNG, SVG, or JPG up to 5MB (12px/\#6F8599).
+* Content: Upload icon (24px, \#7C90A3) \+ primary text Click to upload or drag and drop (14px/\#A7B6C7) \+ subtext PNG, SVG, or JPG up to 5MB (12px/\#7C90A3).
 
 * Hover state: dashed border rgba(19,139,200,0.6), background rgba(19,139,200,0.04), cursor pointer.
 
@@ -903,9 +903,9 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Required fields (Step 1): validated on blur. Empty \= red border \+ inline error.
 
-* Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#6F8599.
+* Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#7C90A3.
 
-* Enabled Next button: bg \#138BC8, text \#FFFFFF.
+* Enabled Next button: bg Primary Fill \#1075A8, text \#FFFFFF.
 
 * Final Save button (Step 3): same disabled/enabled logic based on Step 1 completion.
 
@@ -937,7 +937,7 @@ The primary workspace where users chat with the AI to create content strategies.
 
 * When user first lands here, the chat area shows a welcome screen:
 
-* Centered content: KO icon (48px, \#6F8599 at 30% opacity).
+* Centered content: KO icon (48px, \#7C90A3 at 30% opacity).
 
 * Title: What are you working on? (24px/600/\#FFFFFF).
 
@@ -964,7 +964,7 @@ The primary workspace where users chat with the AI to create content strategies.
 | Padding | 14px 18px | 14px 18px |
 | Font | 14px/400/160% | 14px/400/160% |
 | Avatar | KO icon (24px, blue circle, left of bubble) | None (or user initials) |
-| Timestamp | 12px/\#6F8599, below bubble | 12px/\#6F8599, below bubble |
+| Timestamp | 12px/\#7C90A3, below bubble | 12px/\#7C90A3, below bubble |
 
 ### **AI Strategy Output Display**
 
@@ -972,11 +972,11 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Strategy card: background Surface 1 (\#00162E), border 1px solid rgba(19,139,200,0.3), border-radius 12px, padding 20px. Left border: 3px solid \#138BC8.
 
-* Card header: STRATEGY badge (11px/500/\#138BC8, bg rgba(19,139,200,0.15), pill) \+ campaign name (18px/600/\#FFFFFF).
+* Card header: STRATEGY badge (11px/500/Primary Text (`--primary-text`), bg rgba(19,139,200,0.15), pill) \+ campaign name (18px/600/\#FFFFFF).
 
 * Sections stacked vertically, each with:
 
-*   Section label: 12px/500/\#6F8599, uppercase, letter-spacing 0.5px.
+*   Section label: 12px/500/\#7C90A3, uppercase, letter-spacing 0.5px.
 
 *   Section value: 14px/400/\#FFFFFF.
 
@@ -990,11 +990,11 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Container: Surface 1 (\#00162E), border 1px solid rgba(255,255,255,0.06), border-radius 12px, padding 10px 14px.
 
-* Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#6F8599. Placeholder: Ask KO about your campaign...
+* Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#7C90A3. Placeholder: Ask KO about your campaign...
 
-* Send button: 36px circle, bg \#138BC8, white paper plane icon (18px). Disabled when textarea empty (bg \#1A3A4A). Hover when enabled: \#0F7EB8.
+* Send button: 36px circle, bg Primary Fill \#1075A8, white paper plane icon (18px). Disabled when textarea empty (bg \#1A3A4A). Hover when enabled: \#0F6B9A (Primary Fill Hover).
 
-* Focus state: container border rgba(19,139,200,0.6), glow 0 0 0 3px rgba(19,139,200,0.15).
+* Focus state: 2px solid `--ring` outline around the container while the text area has keyboard focus (`has-[textarea:focus-visible]:focus-outline`); the text area itself draws none.
 
 ### **AI Loading State**
 
@@ -1058,11 +1058,11 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 5-6 rows depending on the month.
 
-* Grid header: day names (Mon, Tue, Wed...) in 12px/500/\#6F8599, centered.
+* Grid header: day names (Mon, Tue, Wed...) in 12px/500/\#7C90A3, centered.
 
 * Day cell: minimum height 100px. Background: transparent. Border: 1px solid rgba(255,255,255,0.04).
 
-* Day number: 13px/400, top-left of cell, padding 6px. Current day: \#138BC8 \+ bold. Other days: \#A7B6C7. Other month days (padding): \#6F8599 at 50% opacity.
+* Day number: 13px/400, top-left of cell, padding 6px. Current day: 12px/600 white in a 22px Primary Fill \#1075A8 circle. Other days: Text Primary. Other month days (padding): Text Muted at full opacity. Padding days are still drill-in targets, so their numbers are held to 4.5:1; the old 40% opacity put them at 3.76:1 dark and 2.50:1 light.
 
 * Items in cell: small cards stacked vertically, max 2 visible (+ N more indicator if overflow).
 
@@ -1072,7 +1072,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Design indicator: small blue dot (4px, \#138BC8) on right edge of mini card.
 
-* Overflow: \+2 more (11px/\#6F8599, italic). Clicking opens Day view for that date.
+* Overflow: \+2 more (11px/\#7C90A3, italic). Clicking opens Day view for that date.
 
 * Hover on cell: bg rgba(255,255,255,0.02).
 
@@ -1084,7 +1084,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 1 row. Each column \= one day.
 
-* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#6F8599. Date 18px/600/\#FFFFFF. Current day: date in \#138BC8.
+* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#7C90A3. Date 18px/600/\#FFFFFF. Current day: date in Primary Text (`--primary-text`).
 
 * Column: items stacked vertically. Gap: 8px between items.
 
@@ -1092,7 +1092,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Card content:
 
-*   Time: 11px/\#6F8599 (e.g., 9:00 AM).
+*   Time: 11px/\#7C90A3 (e.g., 9:00 AM).
 
 *   Platform: 11px/\#A7B6C7 (e.g., Instagram).
 
@@ -1128,7 +1128,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grouped by date: date header (14px/600/\#FFFFFF, sticky at top when scrolling).
 
-* Each item: horizontal row. Time (11px/\#6F8599) \+ Platform (11px/\#A7B6C7) \+ Title (13px/\#FFFFFF) \+ Design status badge.
+* Each item: horizontal row. Time (11px/\#7C90A3) \+ Platform (11px/\#A7B6C7) \+ Title (13px/\#FFFFFF) \+ Design status badge.
 
 * Row hover: bg rgba(255,255,255,0.02). Click: opens Calendar Item Detail drawer.
 
@@ -1160,7 +1160,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Slides up from bottom. Full width. Max-height: 90vh. Border-radius: 16px 16px 0 0\.
 
-* Drag handle: 40px x 4px rounded bar, \#6F8599, centered at top.
+* Drag handle: 40px x 4px rounded bar, \#7C90A3, centered at top.
 
 * Animation: slide up 12px \+ fade, 320ms.
 
@@ -1178,25 +1178,25 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Title: 20px/600/\#FFFFFF. E.g., 5 Ingredients That Make Us Different.
 
-* Date & Time row: Calendar icon (14px, \#6F8599) \+ Monday, June 16, 2026 at 9:00 AM (13px/\#A7B6C7).
+* Date & Time row: Calendar icon (14px, \#7C90A3) \+ Monday, June 16, 2026 at 9:00 AM (13px/\#A7B6C7).
 
 * Divider: 1px solid rgba(255,255,255,0.06), margin 16px 0\.
 
 * Caption / Brief section:
 
-*   Label: CAPTION BRIEF (12px/500/\#6F8599, uppercase).
+*   Label: CAPTION BRIEF (12px/500/\#7C90A3, uppercase).
 
 *   Content: 14px/400/\#FFFFFF. E.g., Slide 1: Hook — Did you know the average skincare product has 25 ingredients? We use 5\. Here is why each one matters. Slide 2-5: One ingredient per slide with a short benefit description. End slide: CTA to shop the kit.
 
-*   If text is long: show max 6 lines with Expand button (13px/\#138BC8) to reveal full text.
+*   If text is long: show max 6 lines with Expand button (13px/Primary Text (`--primary-text`)) to reveal full text.
 
 * Divider.
 
 * Design section:
 
-*   Label: DESIGN ASSET (12px/500/\#6F8599, uppercase).
+*   Label: DESIGN ASSET (12px/500/\#7C90A3, uppercase).
 
-*   If design NOT required: text No design needed for this item. (13px/\#6F8599).
+*   If design NOT required: text No design needed for this item. (13px/\#7C90A3).
 
 *   If design required, no ticket yet:
 
@@ -1210,7 +1210,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 *     Status badge: Design Submitted (11px/\#D4A954, bg rgba(212,169,84,0.15)).
 
-*     Ticket ID: \#DT-00123 (13px/\#6F8599).
+*     Ticket ID: \#DT-00123 (13px/\#7C90A3).
 
 *     Due date: Expected by Wednesday, June 18 (13px/\#A7B6C7).
 
@@ -1224,13 +1224,13 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 *     Download button: secondary, outline, full width. Text: Download All (ZIP).
 
-*     View Full Size link: ghost, 13px/\#138BC8. Opens lightbox gallery.
+*     View Full Size link: ghost, 13px/Primary Text (`--primary-text`). Opens lightbox gallery.
 
 * Divider.
 
 * Status section:
 
-*   Label: STATUS (12px/500/\#6F8599, uppercase).
+*   Label: STATUS (12px/500/\#7C90A3, uppercase).
 
 *   Dropdown: Draft (default), In Progress, Ready, Published.
 
@@ -1272,7 +1272,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Slides up from bottom, full width, max-height 90vh. Border-radius: 16px 16px 0 0\.
 
-* Drag handle: 40x4px rounded bar, \#6F8599, centered. Swipe down to close.
+* Drag handle: 40x4px rounded bar, \#7C90A3, centered. Swipe down to close.
 
 ### **Modal Header**
 
@@ -1296,11 +1296,11 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Divider \+ label: YOUR BRAND ASSETS (14px/600/\#FFFFFF).
 
-* Logo preview: 64px thumbnail of uploaded logo \+ filename. If no logo: dashed box with Upload a logo in your Brand Settings link (\#138BC8).
+* Logo preview: 64px thumbnail of uploaded logo \+ filename. If no logo: dashed box with Upload a logo in your Brand Settings link (Primary Text (`--primary-text`)).
 
 * Brand colors: row of color swatches (24px circles) \+ hex values. Primary, Secondary, Additional.
 
-* Edit brand assets link: 13px/\#138BC8, ghost. Routes to /brand.
+* Edit brand assets link: 13px/Primary Text (`--primary-text`), ghost. Routes to /brand.
 
 * Divider \+ label: EXTRA NOTES (14px/600/\#FFFFFF).
 
@@ -1334,7 +1334,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Ticket summary card:
 
-*   Ticket ID: \#DT-00124 (13px/\#6F8599).
+*   Ticket ID: \#DT-00124 (13px/\#7C90A3).
 
 *   Design type: Instagram Carousel — 5 slides (13px/\#FFFFFF).
 
@@ -1350,7 +1350,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 | :---- | :---- | :---- | :---- |
 | Submitted | \#D4A954 (Gold) | Ticket received by KO design team | Wait for assignment |
 | Assigned | \#85B7EB (Blue) | A designer has been assigned | Wait for delivery |
-| In Progress | \#138BC8 (KO Blue) | Designer is actively working | Wait for delivery |
+| In Progress | Primary Text (`--primary-text`) on a 16% tint of itself (KO Blue) | Designer is actively working | Wait for delivery |
 | Ready for Review | \#97C459 (Green) | Design is complete, awaiting approval | Review and approve/request revision |
 | Delivered | \#97C459 (Green) | Design approved and delivered | Download assets, mark as ready |
 | Revision Requested | \#D4A954 (Gold) | User asked for changes | Wait for revised delivery |
@@ -1367,13 +1367,13 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Card content:
 
-*   Row 1: Ticket ID (\#DT-00124, 12px/\#6F8599) \+ Status badge (right-aligned) \+ Date submitted.
+*   Row 1: Ticket ID (\#DT-00124, 12px/\#7C90A3) \+ Status badge (right-aligned) \+ Date submitted.
 
 *   Row 2: Design type (14px/500/\#FFFFFF) \+ Campaign name (13px/\#A7B6C7).
 
 *   Row 3: Content item title (13px/\#A7B6C7).
 
-*   Row 4: Due date (12px/\#6F8599) \+ thumbnail preview (if delivered, 48px).
+*   Row 4: Due date (12px/\#7C90A3) \+ thumbnail preview (if delivered, 48px).
 
 * Card hover: Surface 2 bg, accent border. Click: opens ticket detail.
 
@@ -1387,7 +1387,7 @@ Provide a legal baseline accessible from within the product.
 
 * Page title: Privacy Policy (32px/700/\#FFFFFF).
 
-* Last updated: \[Date\] (13px/\#6F8599).
+* Last updated: \[Date\] (13px/\#7C90A3).
 
 * Content: standard sections (Information We Collect, How We Use It, Data Sharing, Your Rights, Contact).
 
@@ -1405,7 +1405,7 @@ Interim paywall until payments are integrated. A new workspace sees this page in
 
 ### **Layout**
 
-* Standalone top bar (no sidebar): KO mark (48px, 15px radius, primary) + KO OS / Brand Brain, context line Your brand. Your workspace. (hidden below 768px), theme toggle, Sign out (ghost; icon only below 640px).
+* Standalone top bar (no sidebar): KO mark (48px, 15px radius, Primary Fill) + KO OS / Brand Brain, context line Your brand. Your workspace. (hidden below 768px), theme toggle, Sign out (ghost; icon only below 640px).
 
 * Eyebrow: lock icon + ACCOUNT ACCESS · PENDING APPROVAL (14px/600, uppercase, --nav-text).
 
@@ -1431,7 +1431,7 @@ Interim paywall until payments are integrated. A new workspace sees this page in
 
 KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disciplined (repeatable components, strict spacing scale, consistent hierarchy). Modern and human (high contrast where it matters, readable type, subtle motion).
 
-* KO Blue (\#138BC8) is the single action colour for CTAs and active states. Do not use it as decoration.
+* KO Blue (\#138BC8) is the single action colour for CTAs and active states. Do not use it as decoration. Under a label it is drawn as Primary Fill, and as text as Primary Text (9.2).
 
 * Hover states deepen colour, never brighten.
 
@@ -1452,30 +1452,105 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 
 | Token | Value | Usage |
 | :---- | :---- | :---- |
-| Primary | \#138BC8 | Primary CTAs, active states, key highlights, focus indicators |
-| Hover | \#0F7EB8 | Hover state for primary actions — deeper |
-| Active | \#0C5F8A | Pressed/clicked state |
-| Disabled | \#1A3A4A | Disabled buttons, inactive elements |
-| Accent Glow | rgba(19,139,200,0.15) | Focus rings, active card highlights, glow effects |
+| Primary (`--primary`) | \#138BC8 | The brand blue as an accent: focus ring, borders, active-nav bar, dots, progress bars, chart marks, icon tints. Never a fill behind text and never text itself (see below) |
+| Primary Fill (`--primary-fill`) | \#1075A8 | Every fill that carries a label: primary buttons, the KO mark (sidebar, onboarding welcome, auth), the KO chat avatar, today's date, completed steps, filled badges, the light-mode brand-profile band. The workspace initial avatar and the landing founder avatar start a gradient on it; the far stop is darkened until white clears 4.5:1 at both stops and every point between (\#6E4AFF and \#9733F5, worst 5.05:1) |
+| Primary Fill Hover (`--primary-fill-hover`) | \#0F6B9A | Hover state of a primary fill — deeper |
+| Primary Fill Active (`--primary-fill-active`) | \#0C5F8A | Pressed/clicked state |
+| Primary Foreground (`--primary-foreground`) | \#FFFFFF | The label on any primary fill |
+| Disabled (`--primary-disabled`) | \#1A3A4A | Disabled buttons, inactive elements |
+| Disabled Foreground (`--primary-disabled-foreground`) | \#7C90A3 dark, \#A7B6C7 light | The label on a disabled primary button |
+| Accent Glow | rgba(19,139,200,0.15) | Background tints only: icon tiles, chips, selected fills, hover glow. Never a focus indicator (1.2:1 against the surfaces) |
+| Ring (`--ring`) | \#138BC8 (= Primary) | The focus indicator, both themes. Drawn as a 2px solid outline by `focus-outline`; see 12.2. Never at partial alpha |
+
+* The fill tokens are the same in both themes: they are measured against the white label they carry, not against the page. Same hue as Primary, lightness only.
+
+* Destructive Fill (`--destructive-fill`, \#B23528; hover `--destructive-fill-hover`, \#9C2E23) is the fill of a confirm button for a destructive action (Remove Member, Delete Workspace), the same in both themes: white on it is 6.12:1, on the hover 7.42:1. `--status-error-fg` is text, never a fill: the dark value under white was 3.05:1.
+
+* Secondary (`--secondary`, \#A7B6C7, the secondary badge) carries `--background` as its label in dark mode and `--foreground` in light mode (8.64:1): the light page colour on it was 1.82:1.
+
+* Why Primary is split: one value cannot serve both jobs. White on \#138BC8 is 3.78:1, so a fill has to be darker; but as text on the dark surfaces a darker blue loses contrast, so text has to be lighter. Primary keeps the brand value for everything that is not text and not under text.
+
+* Two checks hold this, and neither is enough alone.
+
+  * **The source gate** (`src/app/primary-token-usage.test.ts`, part of `pnpm test`, which CI (`.github/workflows/ci.yml`) runs on every pull request; its `check` job is a required status check on `dev` and `main` (rulesets protect-dev and protect-main), so a red result blocks the merge) runs `src/lib/theme/primary-usage.ts` over every `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts` and `.css` file in `src/`. It reads string literals in `className`, inline `style` objects and CSS rules. In those, any colour in the brand family (hue 192-215, saturation 0.4 or more, lightness 0.2-0.65) written as a token, a Tailwind theme name (`bg-ring`, `bg-sidebar-ring`), a hex, an `rgb()`, an `hsl()` or an `oklch()` may sit behind a label only as one of the three fill tokens, and the label is measured against it. A `from-` / `via-` / `to-` gradient stop under a label is measured at both stops and every point between. As text only Primary Text, its hover and `--status-progress-fg` may appear. A brand tint under half alpha is measured with each label colour over every surface token. The retired `--primary-hover` / `--primary-active` and their values (\#0F7EB8, \#0A6D9E) are rejected anywhere in `src/`. It also rejects:
+    * **a fade over a labelled fill**: opacity, a filter or a blend mode on the fill or on any element that wraps it, written as a class, an arbitrary property, an inline `style` value (a number, a string, or a value that is not a literal, which may be anything), or a class name any stylesheet in `src/` fades. The shared `Button` and `buttonVariants()` count as painting the fill in every variant `button.tsx`'s `cva` paints it in (read from the file, so a new fill variant is covered the day it is written), and when the variant is not a literal.
+    * **a loading-only paint**: a `data-loading:` or `aria-busy:` colour, fade, filter or shadow utility, or a `[data-loading]` / `[aria-busy]` CSS rule that paints. Loading keeps the resting fill and label (12.1), so there is nothing for such a style to do but break that.
+    * **text inside a data-URI SVG**, in markup or CSS: an image of text, which no check can measure.
+  * **What the source gate cannot see.** A ground held in a const, a lookup map, a `cva` variant or a prop; an interpolated class name; an `[background:]` arbitrary property or a `bg-[linear-gradient()]`; `color-mix()`; Tailwind palette blues (`bg-sky-600`); SVG shape fills; `before:` boxes and generated content; inset box-shadow fills; local custom properties; CSS nesting, `@apply`, `:is()` and unrelated class names; HTML strings; and any state a stylesheet or a script applies (`group-hover`, `peer-checked`, `:has()`, `:target`, a menu a click reveals). On rounds 2 and 3's 92-pattern evasion corpus it catches 38. It is a cheap first line, not the guarantee.
+  * **Gate time.** The colour, lane and RSC gate files (`theme-contrast`, `primary-token-usage`, `contrast-lane-coverage`, `function-props`, `e2e/contrast/server-log` and `widths` tests) run in the node environment and take about 2.1-2.6 s together (Vitest duration, two workers, measured 2026-10-24; 4.7 s before they left jsdom). That is over the 2 s budget. About 1 s of it is the usage scan walking every file in `src/`, which is kept whole: a narrower walk is how round 2's gate missed fills in `.jsx` and `.mts` files.
+  * **RSC function props** (`src/lib/rsc/function-props.ts`, gate). It flags a function passed from a Server Component to a Client Component or a DOM element only when the function is defined in the same module. A function imported from another module (`<Button onClick={trackClick}>` with `trackClick` from `src/lib`) passes it; the rendered check is the guard for those, failing the route on the missing sentinel and on the server's "Event handlers cannot be passed" line.
+  * **The rendered check** (`e2e/contrast/`, `.github/workflows/contrast.yml`; how to run it and read it: `e2e/README.md`) is **advisory, not a merge gate**. Run it before shipping any colour or component-state change: by hand with `corepack pnpm e2e:contrast`, or from GitHub Actions (Rendered contrast, Run workflow). It also runs weekly on the default branch. A full run takes about 2.4 hours on one worker (every route, both themes, every width); one route takes minutes: `E2E_ROUTES=brand corepack pnpm e2e:contrast`, or the `routes` input of the workflow. It is no pull request check, because a run that long, and that can go red on dev-server noise unrelated to the change, would hold every merge; the source gate above is the blocking half. A red run is read, not trusted blindly: its evidence names the pass, state, element and ratio. It renders every page in `src/app` in both themes: `e2e/contrast/routes.ts` lists them, and the gate (`src/app/contrast-lane-coverage.test.ts`) fails when a `page.tsx` is neither listed nor named with a reason (today none is excluded). For each route and theme:
+    * **It first proves the page rendered**: the route's own heading (or, where a phone hides the only heading, its main button) is visible, no error boundary is on the page, the browser logged no error, and the dev server logged none while the route rendered nor during the whole run. A route that crashes into "Something went wrong" fails before anything is measured.
+    * **At 1440 px** it measures every visible text run, field value, placeholder, generated `::before` / `::after` text and list marker against the pixels painted behind it, through the main scroller and every inner scroller, with closed `<details>` opened, and selected text where the page styles `::selection`. Text under a translucent scrim is measured through it.
+    * **Every target, in every state, with no cap**; a target it cannot measure fails the route. Each control under hover, press and keyboard focus (a visually hidden skip link included); each element a `:hover` rule restyles (a card, a `group-hover` child); each disclosure open; each plain button clicked, one per kind (buttons alike in tag, role, classes and label, digits aside), with every request but a read refused so nothing it does reaches the seeded data; each checkbox and switch checked; each shared `Button` in its loading state; each element a `:target` rule restyles. In each state it measures the target and everything the state added or changed: a tooltip in a portal, a revealed menu.
+    * **At rest at one width in every band** that the breakpoints written in `src/` make (Tailwind's, arbitrary `min-[]` / `max-[]` ones and CSS media queries; today 390, 601, 640, 768, 901, 1024, 1025 and 1280 px), so an element shown only at some widths is on screen in some pass. The 1280 pass runs with reduced motion; the 390 pass also opens every disclosure. A new breakpoint adds a pass.
+    * **Timers and animations**: every `setTimeout` due in the next five minutes is run as soon as the page has loaded, so content that appears after a delay is measured as shown, and finite animations are run to their end.
+    * Text the page scrolls under a fixed bar is measured where it is clear of the bar: an opaque layer, frosted glass (`backdrop-filter`) and a fixed bar's shadow are left out of a word's box. A plain translucent layer over text (a scrim, a glow) is measured through.
+    * axe-core's `color-contrast` rule runs alongside, and the login button is measured in its real loading state with its request held open.
+    * With the 92 flag patterns of rounds 2 and 3 injected into `/dashboard` and `/team`, the lane fails on 89 of them and the source gate on 38; together they catch all 92. The three the lane leaves to the gate are the image of text and two state-only variants that never render on those pages (`data-[state=on]:`, `aria-[current=page]:`); the frame fails the lane as unreadable.
+  * **What neither check can see, and why.**
+    * **A raster image of text** (a PNG, a canvas). Its pixels are a picture, not a text run: telling text in an image from a photo or a logo would need OCR, which neither a scan nor this probe can do reliably. WCAG 1.4.5 already asks for real text, and the gate rejects the one form source can show, text in a data-URI SVG. Logos are exempt from 1.4.3.
+    * **A frame's document** (an `iframe`, an email preview in `srcDoc`). The probe reads one document. Instead of passing what it cannot read, the lane fails on any visible `iframe`, `embed` or `object`; `src/` renders none.
+    * **A state that appears only after the server accepted a write** (a "sent" confirmation after an invite goes out). The lane refuses writes while it clicks, because the seeded data is shared by every route measured in parallel and a click may delete, approve or send. What a refused write shows (an error message) is measured.
+    * **A second level of disclosure** (a menu inside an open menu, a panel toggled inside a dialog). A cost choice: the probe opens each disclosure from the page as it loaded, one level deep, because each deeper level multiplies the states and reloads. A reviewer opens nested menus by hand.
+    * **Hover and focus below 1440 px.** A cost choice, not a limit of the probe: a laptop between 1024 and 1439 px hovers with a mouse, and a `max-[1400px]:hover:` style is reached there and never at 1440. The states pass runs once, at 1440, because every state costs a measurement and every click a reload; the narrower passes measure at rest, and the phone pass opens disclosures. A reviewer hovers and focuses any style written under a `max-` or below-`xl` breakpoint by hand.
+    * **The second and later buttons of one kind.** A cost choice: buttons alike in tag, role, classes and label are clicked once, because each click that changes the page costs a reload. Nothing guarantees the others open the same thing; "Slot 2" can open different content from "Slot 1". A reviewer clicks each button of a set whose buttons lead to different content.
+    * **States and paints neither check reaches.** Round 4's critic injected each of these into the app, saw it render below AA, and saw both checks pass it (case ids from that corpus). Neither check is extended to them; a reviewer checks the named thing by hand, in both themes, with devtools' contrast readout:
+      * **A `mask-image` fade on text** (w02). The probe takes the text colour from the computed style unless opacity, a filter or a blend mode changes it; a mask is not in that list, so text faded by a mask is measured at full strength. Check: any text under `mask-image` / `-webkit-mask`.
+      * **A file input's button text** (`file:` / `::file-selector-button`, w03). The probe measures text runs, field values and placeholders; the browser's own button inside a file input is none of those. Check: every `file:` text and ground.
+      * **A container-query band** (`@container`, `@min-[440px]:`, w08). The width passes come from viewport breakpoints; a container query depends on the box's width, which no viewport pass is chosen to hit. Also, `widths.ts` reads `@min-[N]:` as a viewport breakpoint and adds a pass at N that does not reach the container band. Check: every `@container` variant at the box widths that turn it on.
+      * **`:active` on an element that is not a control** (w09). The probe presses controls only; a card or row with an `active:` style is hovered at most. Check: press and hold any `active:` non-control.
+      * **`prefers-color-scheme` with the OS in dark and the app in light** (w10). The lane sets the browser's colour scheme to match the app theme, so a `@media (prefers-color-scheme: dark)` rule in an app themed by `data-theme` is never rendered against the opposite theme. Check: any `prefers-color-scheme` rule, with the OS and the app theme set opposite.
+      * **`::first-letter`** (w14). The probe reads the element's computed colour, and a first-letter colour is a different one on part of the run. Check: every `::first-letter` / `first-letter:` style.
+      * **A date input's own text** (`::-webkit-datetime-edit`, w15). The edit fields are the browser's shadow parts, not text the probe can read. Check: every styled date, time and month input.
+      * **`:user-invalid`** (`user-invalid:`, `peer-user-invalid:`, w16). It applies only after the user has edited the field, and the probe types nothing. Check: type an invalid value and leave the field.
+      * **Validation that appears after typing** (w17). The same: React state reached through input, not through a click. Check: every inline validation message, triggered.
+      * **A tooltip opened by script on a non-control** (`onMouseEnter`, no `:hover` rule, w18). The probe hovers controls and elements a `:hover` rule restyles; a script listener on a plain element is neither. Check: hover every element with a mouse listener.
+      * **A drag-over state** (a drop zone, w19). The probe does not drag. Check: drag a file over every drop zone.
+      * **A delayed tooltip** (a hover timer, 700 ms in the case found, w22). After a hover the probe waits for 300 ms without a change; a tooltip that opens later is not yet on screen. Check: hover and wait past the delay.
+    * **Content behind a timer longer than five minutes, or behind `setInterval`**, and **the browser's own selection highlight** where the page sets no `::selection` (the system's colours, not the page's). Intervals keep real time because faking them sent a 30-second poll into a loop.
+
+### **Primary as Text**
+
+| Token | Dark | Light | Usage |
+| :---- | :---- | :---- | :---- |
+| Primary Text (`--primary-text`, `text-primary-text`) | \#30ADEC | \#0D5E87 | Links, eyebrows, active labels, brand-blue icons on a tint, the In Progress ticket badge, the light landing hero headline (with its hover as the second stop) |
+| Primary Text Hover (`--primary-text-hover`) | \#45B4ED | \#0C577E | Hover on a primary-text link. Moves away from the ground in each theme, so hover never costs contrast |
+
+* Both clear 4.5:1 on every surface token in their theme and on every brand tint `src/` paints (rgba(19,139,200,0.06–0.2), `bg-primary/15`, Accent Glow) over every one of those surfaces, Surface Container Highest included. Round 1 (\#1FA6EA / \#0E6490) measured only over Base and Surface 1-2 and fell to 4.30:1 / 4.24:1 on a 20% tint over Surface Container Highest; both values are lightness-only moves in the same hue. Measured values are in 12.1.
+
+* Transactional email cannot read CSS variables, so `EMAIL_BRAND` in `src/lib/email-templates.ts` inlines the light values (\#0D5E87 links, \#1075A8 buttons). The gate test holds them equal to the tokens.
 
 ### **Text Colors**
 
-| Token | Value | Usage |
-| :---- | :---- | :---- |
-| Text Primary | \#FFFFFF | Headings, primary content, button text on primary bg |
-| Text Secondary | \#A7B6C7 | Body copy, descriptions, secondary labels, inactive nav items |
-| Text Muted | \#6F8599 | Placeholders, timestamps, helper text, meta info |
+| Token | Dark | Light | Usage |
+| :---- | :---- | :---- | :---- |
+| Text Primary | \#FFFFFF | \#0F172A | Headings, primary content, button text on primary bg |
+| Text Secondary | \#A7B6C7 | \#475569 | Body copy, descriptions, secondary labels, inactive nav items |
+| Text Muted | \#7C90A3 | \#58687B | Placeholders (at full opacity), timestamps, helper text, meta info |
+
+* Every text token clears 4.5:1 on every surface token in its theme, including popovers and dialogs (`--surface-2`). Text Muted was \#6F8599 (dark, 4.35:1 on `--surface-2`) and \#7C8DA1 (light, 3.40:1 on a white dialog) until 2026-10-21; both were lightness-only moves in the same hue. Measured values are in 12.1.
 
 ### **Status Colors**
 
-| Status | Background | Text | Usage |
-| :---- | :---- | :---- | :---- |
-| Draft | rgba(255,255,255,0.06) | \#A7B6C7 | Unpublished, not started |
-| In Progress | rgba(19,139,200,0.15) | \#85B7EB | Working on it |
-| Ready | rgba(99,153,34,0.18) | \#97C459 | Content/design ready |
-| Published | rgba(19,139,200,0.15) | \#85B7EB | Live/posted |
-| Pending | rgba(212,169,84,0.15) | \#D4A954 | Waiting for designer |
-| Error | rgba(212,117,117,0.08) | \#D47575 | Something went wrong |
+| Status | Background (dark / light) | Text dark | Text light | Usage |
+| :---- | :---- | :---- | :---- | :---- |
+| Draft | rgba(255,255,255,0.06) / rgba(15,23,42,0.05) | \#A7B6C7 | \#475569 | Unpublished, not started |
+| In Progress | rgba(19,139,200,0.15) | \#85B7EB | \#175C89 | Working on it |
+| Ready | rgba(99,153,34,0.18) | \#97C459 | \#3F660C | Content/design ready |
+| Published | rgba(19,139,200,0.15) | \#85B7EB | \#175C89 | Live/posted |
+| Pending | rgba(212,169,84,0.15) | \#D4A954 | \#8B5506 | Waiting for designer |
+| Error | rgba(212,117,117,0.08) | \#D57A7A | \#B23528 | Something went wrong |
+
+* Tokens: `--status-{draft,progress,ready,pending,error}-{bg,fg}` in `globals.css`. The light text values are the dark ones darkened, same hue, until each clears 4.5:1 over its own tint on every light surface; the tints are shared. A pill can sit on the page or on a card, so `theme-contrast.test.ts` holds every status pair to 4.5:1 over its tint on every surface token in both themes, and each fg as bare text too.
+
+* Every pill, weakest surface: light Ready, Pending and Error 4.63:1 over \#E2E8F0 (5.57, 5.55 and 5.65:1 on a white card; 4.97, 4.96 and 5.01:1 on the page); Draft 5.59:1. Dark Error 4.61:1 over \#002550, the weakest dark pair; Ready 6.01, Pending 5.44, Draft 6.25:1.
+
+* Until 2026-10-22 light Ready was \#4D7C0F, Pending \#A16207 and Error \#C0392B (3.43, 3.69 and 4.12:1 at their worst; 3.68, 3.95 and 4.45:1 on the page), and dark Error was \#D47575 (4.42:1 over \#002550). The design-ticket badge drew its fg on a 16% `color-mix` of itself; it now uses the same tint tokens (`TICKET_STATUS_TONE` in `ticket-status-badge.tsx`).
+
+* The semantic hues (`--success`, `--warning`, `--error`) are also text: the checklist's done state, the Pro Tip heading, inline field errors. In light mode they take the light status values (\#3F660C, \#8B5506, \#B23528; worst 5.46, 5.01 and 4.96:1). The dark values were 1.79, 1.93 and 2.81:1 on the light page (\#EDF1F7).
+
+* In Progress and Published (`--status-progress-fg`) are held to 4.5:1 over their tint on every surface token by `theme-contrast.test.ts`: 6.51:1 dark over Surface 2, 6.02:1 light over a white card, worst 4.96:1 light over \#E2E8F0. The light value was \#1F7AB5 until 2026-10-21, which measured 3.91:1 on a white card (the FEAT-033 source pill) and 3.22:1 over \#E2E8F0.
 
 ### **Borders, Dividers & Effects**
 
@@ -1545,16 +1620,26 @@ Scale: 4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 / 64 / 80 / 96 (px).
 
 Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (desktop). Transition: 160ms.
 
+Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visible` only (`focus-visible:focus-outline` in `src/components/ui/button.tsx`). The offset gap shows the surface behind the button, so the outline is measured against that surface, not the fill. The Focus rows below list only what changes besides the outline.
+
 ### **Primary (Filled)**
 
-| State | Background | Text | Border | Shadow/Glow |
-| :---- | :---- | :---- | :---- | :---- |
-| Default | \#138BC8 | \#FFFFFF | none | none |
-| Hover | \#0F7EB8 | \#FFFFFF | none | 0 4px 12px rgba(19,139,200,0.2) |
-| Active | \#0C5F8A | \#FFFFFF | none | none (translateY \+1px) |
-| Disabled | \#1A3A4A | \#6F8599 | none | none |
-| Focus | \#138BC8 | \#FFFFFF | none | 0 0 0 3px rgba(19,139,200,0.15) |
-| Loading | \#138BC8 | \#FFFFFF | none | Inline spinner \+ present-participle label (Saving…) |
+| State | Background | Text | Contrast | Border | Shadow/Glow |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| Default | \#1075A8 (`--primary-fill`) | \#FFFFFF | 5.08:1 | none | none |
+| Hover | \#0F6B9A (`--primary-fill-hover`) | \#FFFFFF | 5.85:1 | none | 0 4px 12px rgba(19,139,200,0.2) |
+| Active | \#0C5F8A (`--primary-fill-active`) | \#FFFFFF | 6.95:1 | none | none (translateY \+1px) |
+| Disabled | \#1A3A4A | \#7C90A3 dark, \#A7B6C7 light (`--primary-disabled-foreground`) | 3.65:1 dark, 5.81:1 light, at full opacity | none | none |
+| Focus | \#1075A8 | \#FFFFFF | 5.08:1 | none | 2px solid `--ring` outline, 2px offset |
+| Loading | \#1075A8, and the hover and active fills under the pointer | \#FFFFFF | 5.08:1 (5.85 / 6.95:1 hovered / pressed) | none | Inline spinner \+ present-participle label (Saving…), `aria-busy`, clicks swallowed, not disabled |
+
+* Same values in both themes. Classes: `bg-primary-fill text-primary-foreground hover:bg-primary-fill-hover active:bg-primary-fill-active` (the `default` variant of `src/components/ui/button.tsx`). A hand-rolled primary button (auth forms, chat send) uses the same four classes, never `bg-primary` and never `hover:opacity-*`, which lightens the fill under the label. That holds for any ancestor too: the auth KO mark's link had `hover:opacity-90` and put white at 4.26:1; it now hovers through `group-hover:bg-primary-fill-hover` on the mark.
+
+* Nothing that carries text recedes by opacity. The landing hero's side cards were at 0.7 group opacity, which put the white avatar initials at 3.00:1 and the blue badge at 3.21:1 in light mode; they now recede by their surface (Surface 1 mixed 55% into Base) with every label at full colour.
+
+* Disabled text is exempt from WCAG AA; the floor here is 3:1 so it stays legible. It was \#7C90A3 in both themes until 2026-10-21, which was 2.11:1 on the dark navy fill in light mode. The primary variant paints disabled with its own tokens and no opacity, so the ratios above are what renders; the other variants still fade to 50% when disabled.
+
+* Link variant: `text-primary-text`, underline on hover.
 
 ### **Secondary (Outline)**
 
@@ -1592,11 +1677,11 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 | State | Background | Text | Border | Notes |
 | :---- | :---- | :---- | :---- | :---- |
-| Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#6F8599 |
+| Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#7C90A3 |
 | Hover | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.1) | Slightly stronger border |
-| Focus | \#00162E | \#FFFFFF | 1px solid rgba(19,139,200,0.6) | Glow: 0 0 0 3px rgba(19,139,200,0.15) |
+| Focus | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | 2px solid `--ring` outline, 2px offset. A focus border colour never paints: `* { border-color }` in globals.css is unlayered and beats every utility |
 | Error | \#00162E | \#FFFFFF | 1px solid \#8B4040 | Error text: 12px/\#D47575 below |
-| Disabled | \#001224 | \#6F8599 | 1px solid rgba(255,255,255,0.04) | No interaction |
+| Disabled | \#001224 | \#7C90A3 | 1px solid rgba(255,255,255,0.04) | No interaction |
 
 * Height: 44px. Border-radius: 10px. Padding: 0 14px. Font: 14px/400.
 
@@ -1604,7 +1689,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 * Textarea: same styling, min-height 80px, padding 12px 14px, resize vertical.
 
-* Select: same styling \+ dropdown arrow icon (16px, \#6F8599) on right.
+* Select: same styling \+ dropdown arrow icon (16px, \#7C90A3) on right.
 
 ## **10.3 Cards**
 
@@ -1613,7 +1698,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 | Default | \#00162E | 1px solid rgba(255,255,255,0.06) | none | none |
 | Hover | \#001F3D | 1px solid rgba(19,139,200,0.4) | 0 4px 12px rgba(0,0,0,0.2) | translateY(-2px) |
 | Selected | \#001F3D | 1px solid rgba(19,139,200,0.6) | 0 0 0 3px rgba(19,139,200,0.15) | none |
-| Focused | \#001F3D | 1px solid rgba(19,139,200,0.4) | 0 0 0 3px rgba(19,139,200,0.15) | none |
+| Focused | \#001F3D | 1px solid rgba(19,139,200,0.4) | 2px solid `--ring` outline, 2px offset | none |
 
 * Border-radius: 12px. Padding: 16px. Transition: all 220ms.
 
@@ -1641,7 +1726,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 * Background: Surface 1\. Border: 1px solid rgba(255,255,255,0.06). Border-radius: 8px. Padding: 12px.
 
-* Time: 11px/\#6F8599. Platform: 11px/\#A7B6C7. Title: 13px/500/\#FFFFFF.
+* Time: 11px/\#7C90A3. Platform: 11px/\#A7B6C7. Title: 13px/500/\#FFFFFF.
 
 * Content type badge: 10px pill. Design status badge: 10px pill (color per status).
 
@@ -1679,7 +1764,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 * Full width, max-height 90vh, border-radius 16px 16px 0 0\.
 
-* Drag handle: 40x4px, \#6F8599, rounded, centered top.
+* Drag handle: 40x4px, \#7C90A3, rounded, centered top.
 
 * Open: translateY(100%) to 0, 320ms. Close: swipe down or backdrop tap.
 
@@ -1713,7 +1798,7 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 * Horizontal layout. Each step: circle (24px) \+ label below (12px).
 
-* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text \#138BC8. Completed: bg \#138BC8, text \#FFFFFF, checkmark icon. Future: border \#6F8599, bg transparent, text \#6F8599.
+* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text Primary Text (`--primary-text`). Completed: bg Primary Fill \#1075A8, text \#FFFFFF, checkmark icon. Future: border \#7C90A3, bg transparent, text \#7C90A3.
 
 * Connector line between steps: 2px height. Completed: \#138BC8. Future: rgba(255,255,255,0.06).
 
@@ -1852,19 +1937,49 @@ Global: border-radius 10px. Font: 13px/600. Min height: 44px (mobile), 40px (des
 
 * All text must meet WCAG AA contrast ratios (4.5:1 for normal text, 3:1 for large text).
 
-* \#FFFFFF on \#000D20 \= 21:1 (passes). \#FFFFFF on \#00162E \= 18.5:1 (passes).
+* Non-text indicators (focus rings, control boundaries) need 3:1 against what they sit on (WCAG 1.4.11).
 
-* \#A7B6C7 on \#000D20 \= 9.2:1 (passes). \#6F8599 on \#000D20 \= 5.8:1 (passes).
+* Gate: `src/app/theme-contrast.test.ts` reads the tokens out of `globals.css` (and `landing.css`) for both themes and fails the build if any text token drops below 4.5:1, or `--ring` below 3:1, on any surface token. Surfaces are found by name, so a new `--surface-*` is measured the day it lands.
 
-* \#138BC8 on \#000D20 \= 5.1:1 (passes for large text, borderline for normal).
+| Pair | Dark | Light |
+| :---- | :---- | :---- |
+| Text Primary on Base | \#FFFFFF on \#000D20 \= 19.47:1 | \#0F172A on \#EDF1F7 \= 15.75:1 |
+| Text Secondary on Base | \#A7B6C7 on \#000D20 \= 9.42:1 | \#475569 on \#EDF1F7 \= 6.68:1 |
+| Text Muted on Base | \#7C90A3 on \#000D20 \= 5.91:1 | \#58687B on \#EDF1F7 \= 5.03:1 |
+| Text Muted on Surface 2 (dialogs, popovers) | 5.05:1 on \#001F3D | 5.70:1 on \#FFFFFF |
+| Text Muted, weakest pair | 4.62:1 on \#002550 | 4.63:1 on \#E2E8F0 |
+| Ring on Base | \#138BC8 on \#000D20 \= 5.15:1 | 3.34:1 on \#EDF1F7 |
+| Ring on Surface 2 | 4.40:1 on \#001F3D | 3.78:1 on \#FFFFFF |
+| Ring, weakest pair | 4.02:1 on \#002550 | 3.07:1 on \#E2E8F0 |
+| Ring on the sidebar (dark in both themes) | 4.21:1 on \#00204F | 4.21:1 on \#00204F |
+| White on Primary Fill (rest / hover / pressed) | \#FFFFFF on \#1075A8 / \#0F6B9A / \#0C5F8A \= 5.08 / 5.85 / 6.95:1 | same tokens, same ratios |
+| Primary Text on Base | \#30ADEC on \#000D20 \= 7.71:1 | \#0D5E87 on \#EDF1F7 \= 6.24:1 |
+| Primary Text on Surface 2 | 6.58:1 on \#001F3D | 7.08:1 on \#FFFFFF |
+| Primary Text, weakest surface | 6.02:1 on \#002550 | 5.74:1 on \#E2E8F0 |
+| Primary Text, weakest brand tint (20% over the weakest surface) | 4.64:1 over \#002550 | 4.63:1 over \#E2E8F0 |
+| Primary Text Hover, weakest surface | \#45B4ED, 6.52:1 on \#002550 | \#0C577E, 6.36:1 on \#E2E8F0 |
+| Primary Text Hover, weakest brand tint | 5.03:1 | 5.13:1 |
+| In Progress text on its tint, weakest surface | \#85B7EB, 5.97:1 over \#002550 | \#175C89, 4.96:1 over \#E2E8F0 |
+| Ready / Pending / Error text on its tint, weakest surface | 6.01 / 5.44 / 4.61:1 over \#002550 | 4.63 / 4.63 / 4.63:1 over \#E2E8F0 |
+| Placeholder (Text Muted, full opacity), weakest surface | 4.62:1 on \#002550 | 4.63:1 on \#E2E8F0 |
+| White on the brand band / its badges (light) | n/a (the band is Surface 2) | 5.08:1 on Primary Fill / 6.95:1 on Primary Fill Active |
+| Disabled label on Disabled fill | \#7C90A3 on \#1A3A4A \= 3.65:1 | \#A7B6C7 on \#1A3A4A \= 5.81:1 |
+
+* For the record: \#FFFFFF on the brand \#138BC8 is 3.78:1, and \#138BC8 as text is 4.40:1 on dark Surface 2, 4.02:1 on \#002550 and 3.34:1 on the light page. That is why fills and text have their own tokens (9.2) while the ring stays on \#138BC8, which clears 3:1 everywhere.
+
+* The gate also measures the split: white on each fill token, Primary Text and its hover on every surface and on every brand-tint alpha found in `src/` over every surface, the In Progress pair on its tint over every surface, the disabled label at 3:1, and `landing.css` and `EMAIL_BRAND` against the same values. Every status pill over its tint on every surface, and each status and semantic hue as bare text, is measured the same way. The usage scan (9.2) measures what the token gate cannot see: the pairs `src/` actually writes. The rendered check (9.2, `e2e/README.md`) measures what neither can: what the browser paints.
 
 ## **12.2 Focus Management**
 
 * All interactive elements must have visible focus states.
 
-* Focus indicator: KO Blue glow ring (0 0 0 3px rgba(19,139,200,0.15)) for buttons, inputs, links.
+* Focus indicator: a 2px solid `--ring` (\#138BC8) outline at a 2px offset, on `focus-visible`, for buttons, inputs, links, tabs and cards. Apply it with the `focus-outline` utility from `globals.css` (`focus-visible:focus-outline`). Inside a scrolling or clipping parent (calendar cells, tabs, menu items) use `focus-outline-inset`, which draws 2px inside the edge. Bare `input`, `textarea` and `select` get the same outline from the base layer.
 
-* Never rely on color alone for focus — the glow ring provides visibility.
+* Why an outline and not the old glow: the glow was `--accent-glow` at 12-15% alpha, which measured 1.15:1 (light) and 1.20:1 (dark), so keyboard focus was invisible. An outline's offset gap shows the real surface behind it, it costs no layout, and it survives forced-colors mode, where box-shadow rings are dropped.
+
+* Never draw focus with `--accent-glow`, with any ring at partial alpha, or with a `focus:border-*` utility (the unlayered `* { border-color }` rule means it never paints). The gate test rejects all three anywhere in `src/`.
+
+* Never rely on color alone for focus: the outline adds a shape around the control, not just a colour change.
 
 * Tab order: logical, top-to-bottom, left-to-right.
 

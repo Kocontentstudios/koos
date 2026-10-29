@@ -184,7 +184,7 @@ export function CalendarClient({
               value={calendar.id}
               onChange={(e) => switchCalendar(e.target.value)}
               aria-label="Switch strategy calendar"
-              className="h-[38px] max-w-[280px] cursor-pointer truncate rounded-lg border border-[var(--border)] bg-surface-1 px-3 text-[13px] text-[var(--text-secondary)] outline-none transition-colors hover:border-[var(--border-accent)] focus-visible:border-primary"
+              className="h-[38px] max-w-[280px] cursor-pointer truncate rounded-lg border border-[var(--border)] bg-surface-1 px-3 text-[13px] text-[var(--text-secondary)] outline-none transition-colors hover:border-[var(--border-accent)] focus-visible:focus-outline"
             >
               {calendarOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>

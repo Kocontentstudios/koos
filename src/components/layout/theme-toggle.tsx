@@ -46,8 +46,7 @@ export function ThemeToggle({ className }: { className?: string }) {
               "hover:text-foreground",
               // --primary on the light-mode glow is 2.6:1, under the 3:1 a
               // control's state needs; the pressed shade clears it.
-              active &&
-                "bg-[var(--accent-glow)] text-primary [:root[data-theme=light]_&]:text-[var(--primary-active)]",
+              active && "bg-[var(--accent-glow)] text-primary-text",
             )}
           >
             <Icon size={15} />

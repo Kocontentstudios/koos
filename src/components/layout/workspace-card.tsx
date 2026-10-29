@@ -38,8 +38,10 @@ function WorkspaceAvatar({ ws }: { ws: WorkspaceInfo }) {
       />
     );
   }
+  /* The violet end is #7c5cff darkened (lightness only) until white clears
+     4.5:1 at both stops and every point between (worst 5.05:1). */
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#7c5cff] text-sm font-semibold text-white">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary-fill to-[#6e4aff] text-sm font-semibold text-primary-foreground">
       {ws.name.slice(0, 1).toUpperCase()}
     </div>
   );

@@ -52,7 +52,7 @@ function OptionCard({
         captureEvent("design_request_start_selected", { option: option.key })
       }
       className={cn(
-        "group flex items-center gap-3 rounded-xl text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]",
+        "group flex items-center gap-3 rounded-xl text-left transition-colors duration-150 focus-visible:focus-outline",
         HOVER_TINT,
         quiet
           ? "p-3"
@@ -64,7 +64,7 @@ function OptionCard({
           "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
           quiet
             ? "bg-[var(--border)] text-[var(--text-secondary)]"
-            : "bg-[rgba(19,139,200,0.15)] text-primary",
+            : "bg-[rgba(19,139,200,0.15)] text-primary-text",
         )}
       >
         <Icon aria-hidden="true" className="h-4 w-4" />

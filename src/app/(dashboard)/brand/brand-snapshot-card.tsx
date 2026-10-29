@@ -71,7 +71,7 @@ export function BrandSnapshotCard({
   return (
     <div className="mx-auto w-full max-w-[680px] py-8 sm:py-16">
       <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-gradient-to-b from-[var(--surface-2)] to-[var(--surface-1)] p-6 sm:p-10">
-        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-primary">
+        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-primary-text">
           <Check aria-hidden="true" className="size-3.5" />
           Brand Setup Complete!
         </p>

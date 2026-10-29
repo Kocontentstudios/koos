@@ -37,8 +37,9 @@ export function ProgressSteps({ steps, current }: ProgressStepsProps) {
               <div
                 className={cn(
                   "flex size-6 items-center justify-center rounded-full text-[11px] font-semibold",
-                  isCompleted && "bg-primary text-white",
-                  isActive && "ring-2 ring-primary text-primary bg-transparent",
+                  isCompleted && "bg-primary-fill text-primary-foreground",
+                  isActive &&
+                    "ring-2 ring-primary text-primary-text bg-transparent",
                   !isCompleted &&
                     !isActive &&
                     "text-[var(--text-muted)] border border-[var(--border)]",
@@ -50,7 +51,7 @@ export function ProgressSteps({ steps, current }: ProgressStepsProps) {
               <span
                 className={cn(
                   "text-[12px] whitespace-nowrap",
-                  isActive && "text-primary font-medium",
+                  isActive && "text-primary-text font-medium",
                   isCompleted && "text-foreground",
                   !isCompleted && !isActive && "text-[var(--text-muted)]",
                 )}

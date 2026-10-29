@@ -73,13 +73,7 @@ export function TicketsListClient({ tickets }: { tickets: TicketListRow[] }) {
             >
               {ticketFilterLabel(f)}
               {badgeCount > 0 && (
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[11px] font-semibold text-[var(--status-ready-fg)]"
-                  style={{
-                    background:
-                      "color-mix(in srgb, var(--status-ready-fg) 16%, transparent)",
-                  }}
-                >
+                <span className="rounded-full bg-[var(--status-ready-bg)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--status-ready-fg)]">
                   {badgeCount}
                 </span>
               )}

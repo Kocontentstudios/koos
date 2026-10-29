@@ -4,8 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useActionState, useState } from "react";
-import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { resetPassword } from "../actions";
 
 type ResetPasswordState = { error?: string } | null;
@@ -32,9 +31,9 @@ function CardShell({ children }: { children: React.ReactNode }) {
         >
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>
@@ -73,7 +72,7 @@ function ResetPasswordForm() {
         <div className="mt-8 text-center">
           <p className="text-sm text-[var(--text-secondary)]">
             <Link
-              className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+              className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
               href="/forgot-password"
             >
               Request a new link.
@@ -112,7 +111,7 @@ function ResetPasswordForm() {
           </label>
           <div className="relative">
             <input
-              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
               id="password"
               minLength={6}
               name="password"
@@ -144,7 +143,7 @@ function ResetPasswordForm() {
             Confirm Password
           </label>
           <input
-            className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+            className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
             id="confirm"
             minLength={6}
             name="confirm"
@@ -155,32 +154,21 @@ function ResetPasswordForm() {
         </div>
 
         {/* Submit */}
-        <button
-          className={cn(
-            "w-full bg-primary text-white rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
-            pending
-              ? "opacity-50 cursor-not-allowed"
-              : "hover:bg-[var(--primary-hover)]",
-          )}
-          disabled={pending}
+        <Button
           type="submit"
+          loading={pending}
+          loadingText="Resetting…"
+          className="mt-1 h-10 w-full rounded-xl py-2.5 text-sm"
         >
-          {pending ? (
-            <>
-              <Spinner />
-              Resetting…
-            </>
-          ) : (
-            "Reset Password"
-          )}
-        </button>
+          Reset Password
+        </Button>
       </form>
 
       {/* Footer */}
       <div className="mt-8 text-center">
         <p className="text-sm text-[var(--text-secondary)]">
           <Link
-            className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+            className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
             href="/login"
           >
             Back to sign in.

@@ -11,7 +11,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.test.mjs"],
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "scripts/**/*.test.mjs",
+      "e2e/**/*.test.ts",
+    ],
     /* The 5s default is a timer on CPU contention, not on the test.
      *
      * The suite rasterises real designs through next/og (satori, then

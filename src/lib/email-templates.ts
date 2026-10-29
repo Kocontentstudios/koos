@@ -30,6 +30,15 @@ export interface BuiltEmail {
   html: string;
 }
 
+/** Email clients cannot read CSS custom properties, so the light-theme values
+ * of --primary-text and --primary-fill are inlined. Mail renders on white,
+ * where the brand #138bc8 is 3.78:1 as text and under a white label.
+ * theme-contrast.test.ts holds these equal to the tokens. */
+export const EMAIL_BRAND = {
+  link: "#0d5e87",
+  buttonFill: "#1075a8",
+} as const;
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -87,7 +96,7 @@ export function designRequestTeamEmail(i: DesignRequestEmailInput): BuiltEmail {
     )}</strong> &lt;${escapeHtml(i.requesterEmail)}&gt;</p>
     ${detailsTable(i)}
     <p style="font-size:13px;margin-top:12px">Deliver updates &amp; final design to: <strong>${deliverTo}</strong></p>
-    <p style="margin-top:16px"><a href="${i.adminUrl}" style="color:#138bc8">Open the design queue →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.adminUrl}" style="color:${EMAIL_BRAND.link}">Open the design queue →</a></p>`,
   );
   return {
     subject: `New design request — ${formatTicketNumber(i.ticketNumber)}`,
@@ -104,7 +113,7 @@ export function designRequestConfirmationEmail(
       i.requesterName,
     )} — your request is in. We'll send updates and the final design to this address.</p>
     ${detailsTable(i)}
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">Track your request →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:${EMAIL_BRAND.link}">Track your request →</a></p>`,
   );
   return {
     subject: `Request received — ${formatTicketNumber(i.ticketNumber)}`,
@@ -116,7 +125,7 @@ export function designDeliveryEmail(i: DesignDeliveryEmailInput): BuiltEmail {
   const items = i.links
     .map(
       (l) =>
-        `<li style="margin:4px 0"><a href="${l.url}" style="color:#138bc8">${escapeHtml(
+        `<li style="margin:4px 0"><a href="${l.url}" style="color:${EMAIL_BRAND.link}">${escapeHtml(
           l.fileName,
         )}</a></li>`,
     )
@@ -132,7 +141,7 @@ export function designDeliveryEmail(i: DesignDeliveryEmailInput): BuiltEmail {
     heading,
     `<p style="font-size:13px">${lead}</p>
     <ul style="padding-left:18px">${items}</ul>
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">Review it in your dashboard →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:${EMAIL_BRAND.link}">Review it in your dashboard →</a></p>`,
   );
   return { subject: heading, html };
 }
@@ -166,7 +175,7 @@ export function ticketStatusEmail(i: TicketStatusEmailInput): BuiltEmail {
     `<p style="font-size:13px">Your <strong>${escapeHtml(
       i.designType,
     )}</strong> request is now: <strong>${escapeHtml(label)}</strong>.</p>
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View your request →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:${EMAIL_BRAND.link}">View your request →</a></p>`,
   );
   return {
     subject: `${label} — ${formatTicketNumber(i.ticketNumber)}`,
@@ -195,7 +204,7 @@ export function ticketProgressEmail(i: TicketProgressEmailInput): BuiltEmail {
       i.message,
     )}</blockquote>
     <table style="border-collapse:collapse;width:100%">${statusRow}</table>
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View your request →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:${EMAIL_BRAND.link}">View your request →</a></p>`,
   );
   return {
     subject: `Progress update — ${formatTicketNumber(i.ticketNumber)}`,
@@ -226,7 +235,7 @@ export function ticketReviewTeamEmail(
       i.designType,
     )}</strong> delivery.</p>
     <table style="border-collapse:collapse;width:100%">${noteRow}</table>
-    <p style="margin-top:16px"><a href="${i.adminUrl}" style="color:#138bc8">Open the ticket →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.adminUrl}" style="color:${EMAIL_BRAND.link}">Open the ticket →</a></p>`,
   );
   const subjectVerb =
     i.action === "approve" ? "Design approved" : "Revision requested";
@@ -267,7 +276,7 @@ export function ticketReviewClientEmail(
   const html = shell(
     heading,
     `${body}
-    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:#138bc8">View your request →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.ticketUrl}" style="color:${EMAIL_BRAND.link}">View your request →</a></p>`,
   );
   return { subject: heading, html };
 }
@@ -286,7 +295,7 @@ export function roleChangeEmail(i: RoleChangeEmailInput): BuiltEmail {
     )}, your account role is now <strong>${escapeHtml(
       i.newRole,
     )}</strong>. Your access updates the next time you sign in or refresh.</p>
-    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:#138bc8">Open KO OS →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:${EMAIL_BRAND.link}">Open KO OS →</a></p>`,
   );
   return { subject: "Your KO OS role has changed", html };
 }
@@ -302,7 +311,7 @@ export function welcomeEmail(i: WelcomeEmailInput): BuiltEmail {
     `<p style="font-size:13px">Hi ${escapeHtml(
       i.firstName,
     )}, your account is ready. Set up your brand and generate your first content strategy in minutes.</p>
-    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:#138bc8">Go to your dashboard →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:${EMAIL_BRAND.link}">Go to your dashboard →</a></p>`,
   );
   return { subject: "Welcome to KO OS", html };
 }
@@ -324,7 +333,7 @@ export function workspaceApprovedEmail(
     )}, <strong>${escapeHtml(
       i.workspaceName,
     )}</strong> has been approved. Everything in KO OS is now open to you and your team.</p>
-    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:#138bc8">Open your workspace →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.dashboardUrl}" style="color:${EMAIL_BRAND.link}">Open your workspace →</a></p>`,
   );
   return { subject: "Your KO OS workspace is ready", html };
 }
@@ -357,7 +366,7 @@ export function verifyEmailEmail(i: VerifyEmailInput): BuiltEmail {
     `<p style="font-size:13px">Hi ${escapeHtml(
       i.firstName,
     )}, welcome to KO OS! Please confirm your email address to unlock strategy and calendar generation. This link is valid for 24 hours:</p>
-    <p style="margin:16px 0"><a href="${i.verifyUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Verify my email</a></p>
+    <p style="margin:16px 0"><a href="${i.verifyUrl}" style="display:inline-block;background:${EMAIL_BRAND.buttonFill};color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Verify my email</a></p>
     <p style="font-size:12px;color:#6b7280">If you didn't create a KO OS account, you can safely ignore this email.</p>`,
   );
   return { subject: "Confirm your KO OS email address", html };
@@ -374,7 +383,7 @@ export function passwordResetEmail(i: PasswordResetEmailInput): BuiltEmail {
     `<p style="font-size:13px">Hi ${escapeHtml(
       i.firstName,
     )}, we received a request to reset your password. This link is valid for 1 hour and can be used once:</p>
-    <p style="margin-top:16px"><a href="${i.resetUrl}" style="color:#138bc8">Reset your password →</a></p>
+    <p style="margin-top:16px"><a href="${i.resetUrl}" style="color:${EMAIL_BRAND.link}">Reset your password →</a></p>
     <p style="font-size:12px;color:#6b7280;margin-top:16px">If you didn't request this, you can safely ignore this email — your password is unchanged.</p>`,
   );
   return { subject: "Reset your KO OS password", html };
@@ -397,7 +406,7 @@ export function workspaceInviteEmail(i: WorkspaceInviteEmailInput): BuiltEmail {
     )}</strong> invited you to join the <strong>${escapeHtml(
       i.workspaceName,
     )}</strong> workspace as a <strong>${escapeHtml(i.roleLabel)}</strong>.</p>
-    <p style="margin:16px 0"><a href="${i.acceptUrl}" style="display:inline-block;background:#138bc8;color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Accept invitation</a></p>
+    <p style="margin:16px 0"><a href="${i.acceptUrl}" style="display:inline-block;background:${EMAIL_BRAND.buttonFill};color:#ffffff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px">Accept invitation</a></p>
     <p style="font-size:12px;color:#6b7280">This invitation expires in ${i.expiresInDays} days. If you weren't expecting it, you can ignore this email.</p>`,
   );
   return { subject, html };
@@ -421,7 +430,7 @@ export function memberJoinedEmail(i: MemberJoinedEmailInput): BuiltEmail {
     )}) accepted your invitation to <strong>${escapeHtml(
       i.workspaceName,
     )}</strong>.</p>
-    <p style="margin-top:16px"><a href="${i.teamUrl}" style="color:#138bc8">Open your Team page →</a></p>`,
+    <p style="margin-top:16px"><a href="${i.teamUrl}" style="color:${EMAIL_BRAND.link}">Open your Team page →</a></p>`,
   );
   return { subject, html };
 }
@@ -477,7 +486,7 @@ export function ticketReminderEmail(i: TicketReminderEmailInput): BuiltEmail {
     <table style="border-collapse:collapse;width:100%">${
       i.overdueFor ? row("Overdue by", escapeHtml(i.overdueFor)) : ""
     }${i.dueDate ? row("Due", escapeHtml(i.dueDate)) : ""}</table>
-    <p style="margin-top:16px"><a href="${escapeHtml(i.ticketUrl)}" style="color:#138bc8">Open the ticket →</a></p>`,
+    <p style="margin-top:16px"><a href="${escapeHtml(i.ticketUrl)}" style="color:${EMAIL_BRAND.link}">Open the ticket →</a></p>`,
   );
   return { subject: heading, html };
 }

@@ -44,7 +44,7 @@ export default async function VerifyEmailPage({
             </p>
             <Link
               href={dbUser ? "/dashboard" : "/login"}
-              className="mt-6 inline-block rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+              className="mt-6 inline-block rounded-lg bg-primary-fill px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-fill-hover"
             >
               {dbUser ? "Go to dashboard" : "Sign in"}
             </Link>
@@ -62,7 +62,7 @@ export default async function VerifyEmailPage({
             </p>
             <Link
               href={dbUser ? "/dashboard" : "/login"}
-              className="mt-6 inline-block rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+              className="mt-6 inline-block rounded-lg bg-primary-fill px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-fill-hover"
             >
               {dbUser ? "Go to dashboard" : "Sign in"}
             </Link>

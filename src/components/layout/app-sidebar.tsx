@@ -75,7 +75,7 @@ export function AppSidebar({
             collapsed && "md:justify-center md:px-0",
           )}
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#0a6d9e] text-sm font-bold text-white">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-fill text-sm font-bold text-primary-foreground">
             KO
           </div>
           <div className={cn("min-w-0", labelHidden)}>

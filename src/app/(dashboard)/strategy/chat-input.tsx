@@ -43,7 +43,7 @@ export function ChatInput({
 
   return (
     <div className="sticky bottom-0 px-4 pb-4 pt-2 bg-background border-t border-[rgba(255,255,255,0.06)]">
-      <div className="flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)]">
+      <div className="flex items-end gap-2 bg-surface-1 rounded-2xl px-4 py-3 border border-[rgba(255,255,255,0.08)] has-[textarea:focus-visible]:focus-outline">
         <textarea
           ref={textareaRef}
           value={value}
@@ -71,9 +71,9 @@ export function ChatInput({
             onClick={handleSend}
             disabled={!value.trim() || isLoading}
             aria-label="Send message"
-            className="w-9 h-9 rounded-full bg-primary flex items-center justify-center hover:bg-[var(--primary-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
+            className="w-9 h-9 rounded-full bg-primary-fill flex items-center justify-center hover:bg-primary-fill-hover disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
           >
-            <Send className="w-4 h-4 text-white" />
+            <Send className="w-4 h-4 text-primary-foreground" />
           </button>
         )}
       </div>

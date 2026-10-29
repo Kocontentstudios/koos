@@ -8,9 +8,16 @@ const reset = vi.fn();
 const design = {
   pending: false,
   progressLabel: null as string | null,
+  stage: null,
+  progress: null,
+  jobStage: null,
   error: null as string | null,
+  partial: null,
+  failedCount: 0,
+  failedIds: [] as string[],
   generations: [] as unknown[],
   generate,
+  retry: vi.fn(),
   reset,
 };
 
@@ -18,6 +25,7 @@ vi.mock("@/components/design/use-design-generation", () => ({
   useDesignGeneration: () => design,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/analytics/posthog-client", () => ({ captureEvent: vi.fn() }));
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("./context-picker", () => ({
@@ -34,6 +42,9 @@ function generation(overrides = {}) {
     designType: "Instagram post",
     width: 1080,
     height: 1350,
+    direction: null,
+    imageSource: null,
+    editable: false,
     ...overrides,
   } as never;
 }
@@ -50,6 +61,7 @@ function renderStudio(initial: unknown[] = [generation()]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  generate.mockResolvedValue([]);
   design.pending = false;
   design.error = null;
   design.generations = [];
@@ -93,22 +105,55 @@ describe("DesignStudioClient history grid", () => {
     expect(screen.queryByRole("button", { name: /regenerate/i })).toBeNull();
   });
 
-  /* Generating opens the same modal, and there Regenerate makes sense. */
-  it("offers Regenerate for a run it started", async () => {
+  /* The image decides both directions, so it is asked for before anything is
+     generated or billed. */
+  it("asks for the imagery before starting a run", async () => {
     renderStudio([]);
     await userEvent.click(
       screen.getByRole("button", { name: /generate design/i }),
     );
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(generate).toHaveBeenCalled();
     expect(
-      screen.getByRole("button", { name: /regenerate/i }),
+      screen.getByRole("heading", { name: "Choose imagery for this design" }),
+    ).toBeInTheDocument();
+    expect(generate).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandId: "b1",
+        aspectRatio: "4:5",
+        image: { source: "ko" },
+      }),
+    );
+  });
+
+  it("offers Regenerate on each direction of a run it started", async () => {
+    design.generations = [
+      generation({ id: "d1", direction: { title: "Bold", reasons: ["a"] } }),
+      generation({ id: "d2", direction: { title: "Calm", reasons: ["b"] } }),
+    ];
+    renderStudio([]);
+    await userEvent.click(
+      screen.getByRole("button", { name: /generate design/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /let ko create the imagery/i }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Regenerate direction 1" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Regenerate direction 2" }),
     ).toBeInTheDocument();
   });
 
   /* reset() clears the run's generations and the grid is now the only route
-     back to a preview, so without a refresh the design just made is missing
+     back to a design, so without a refresh the ones just made are missing
      from it until a reload. */
   it("refreshes the grid after a run that produced a design", async () => {
     design.generations = [generation({ id: "fresh" })];
@@ -116,11 +161,25 @@ describe("DesignStudioClient history grid", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /generate design/i }),
     );
-    await screen.findByRole("dialog");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /let ko create the imagery/i }),
+    );
     await userEvent.keyboard("{Escape}");
 
     expect(reset).toHaveBeenCalled();
     expect(refresh).toHaveBeenCalled();
+  });
+
+  /* Opening the image choice and backing out made nothing new. */
+  it("does not refresh when closed before any imagery was picked", async () => {
+    renderStudio([]);
+    await userEvent.click(
+      screen.getByRole("button", { name: /generate design/i }),
+    );
+    await screen.findByRole("dialog");
+    await userEvent.keyboard("{Escape}");
+
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   /* Refetching before the job has written anything achieves nothing — the
@@ -130,7 +189,9 @@ describe("DesignStudioClient history grid", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /generate design/i }),
     );
-    await screen.findByRole("dialog");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /let ko create the imagery/i }),
+    );
 
     // The job is still running when the user gives up and closes.
     design.pending = true;

@@ -227,7 +227,7 @@ These are the seams the parallel units build against.
 - **Legacy rows** (no `direction`) keep opening the existing `DesignPreviewModal`.
 - **Flow:** both open the image-choice modal: "Use a specific image" or "Let KO create the imagery".
   - **Upload:** drop zone with click-to-browse, type and size validation, preview with Remove / Replace / Use this image.
-  - **Progress:** a four-step progress modal driven by the job's real progress events, with an error state.
+  - **Progress:** a step progress modal driven by `JobProgress.stage`, with an error state. Four steps on the KO path (Brief, Imagery, Layout, Checks); three on the upload path, which never runs `imagery` and so never lists it.
   - **Results:** two direction cards, each with the image, "why this works", Download PNG, Download JPG, Send to design team and Regenerate (this direction only, via `regenerateOf`). Editing is phase 2, so the card has no Edit control yet. A placeholder for an unbuilt feature is a lie.
 - **JPG:** converted in the browser from the stored PNG on a `canvas`, white-filled first because JPEG has no alpha.
 - Every wait follows CLAUDE.md "Every wait gets an affordance".
@@ -235,9 +235,9 @@ These are the seams the parallel units build against.
 ### Measurable outcome
 
 - **Events:**
-  - `design_image_choice` with `{source}`
+  - `design_image_choice` with `{source, entry}`
   - `design_directions_generated` with `{source, directions, quality_faults}`
-  - `design_downloaded` with `{format}`
+  - `design_downloaded` with `{format, image_source}`
 - **Funnel:** image choice → directions delivered → download.
 - **Cost:** with `source = upload`, image-model calls per generation drop from 1-3 to 0, visible on the usage row's `renderers` metadata.
 

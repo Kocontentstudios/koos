@@ -21,6 +21,7 @@
     "format": "biome format --write .",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "e2e:contrast": "playwright test --project=probe --project=contrast --project=server-log",
     "eval:design": "tsx src/lib/ai/image/eval/run.mts",
     "eval:design-logo": "tsx src/lib/ai/image/eval/run-logo.mts",
     "eval:design-spec": "tsx src/lib/ai/design-spec/eval/run.mts",
@@ -80,7 +81,9 @@
   },
   "devDependencies": {
     "@aws-sdk/lib-storage": "^3.1152.0",
+    "@axe-core/playwright": "4.14.0",
     "@biomejs/biome": "^2.5.15",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

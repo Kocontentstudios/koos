@@ -39,7 +39,7 @@ function AttachmentRow({ a }: { a: ResolvedAttachment }) {
             href={a.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="min-w-0 flex-1 truncate font-medium text-primary hover:underline"
+            className="min-w-0 flex-1 truncate font-medium text-primary-text hover:underline"
           >
             {a.label}
           </a>
