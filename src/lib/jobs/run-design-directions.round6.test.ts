@@ -3017,3 +3017,132 @@ describe("round 22: an upload pair is two compositions", () => {
     );
   });
 });
+
+/* Round-9 live critic, storefront s0: "Open daily 9am to 7pm · Sat 12
+   Dec" gave the reopening's date with no verb, so nothing said what
+   happens on 12 December. The brief reads the date as a date fact and the
+   offering as the bouquets, so the round-21 offering check never saw it. */
+describe("round 22: a date keeps its news", () => {
+  const STOREFRONT =
+    "We reopen on Saturday 12 December after a full refit. Hand-tied bouquets from ₦18,000 each, with same-day delivery across Lekki. Open daily 9am to 7pm at 22 Admiralty Way, Lekki Phase 1. Call 0815 220 9031 to order.";
+
+  async function storefront(stated: boolean) {
+    const { isFactWriteCall } = await import("./directions/fixtures");
+    const asks: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) {
+        const prompt = o.prompt ?? "";
+        asks.push(prompt);
+        const targeted = prompt.includes(
+          "the design gives the date without what happens on it",
+        );
+        return {
+          object: {
+            rewrites: [
+              {
+                id: 0,
+                subheadline:
+                  "Back at 22 Admiralty Way, Lekki Phase 1, from ₦18,000 each.",
+                footerLines:
+                  targeted && stated
+                    ? [
+                        "Open daily 9am to 7pm",
+                        "Reopening Saturday 12 December",
+                      ]
+                    : ["Open daily 9am to 7pm · Sat 12 Dec"],
+              },
+            ],
+          },
+        };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({
+              layout: "banner-bottom",
+              headline: "Hand-Tied Bouquets",
+              subheadline:
+                "Back at 22 Admiralty Way, Lekki Phase 1, from ₦18,000 each.",
+              cta: "Call to Order",
+              footerLines: ["Open daily 9am to 7pm · Sat 12 Dec"],
+              footerStyle: "text",
+            }),
+            contrastingDraft({
+              layout: "hero-center",
+              headline: "We're Back This Saturday",
+              subheadline:
+                "Hand-tied bouquets from ₦18,000 each at 22 Admiralty Way, Lekki Phase 1.",
+              cta: "Call to Order",
+              footerLines: [
+                "Open daily 9am to 7pm",
+                "Reopening Saturday 12 December",
+              ],
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "date", text: "Saturday 12 December" },
+          { kind: "price", text: "₦18,000 each" },
+          { kind: "time", text: "9am to 7pm" },
+          { kind: "place", text: "22 Admiralty Way, Lekki Phase 1" },
+        ],
+        { kind: "product", phrase: "Hand-tied bouquets" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await runBrief(STOREFRONT, { image: { source: "none" } });
+    } finally {
+      g.factWriteThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    return asks;
+  }
+
+  it("storefront s0: a date with no verb fails after one targeted ask; its sibling ships", async () => {
+    const { NewsNotStatedError } = await import("./run-design-directions");
+    const asks = await storefront(false);
+    const targeted = asks.filter((a) =>
+      a.includes(
+        'the design gives the date without what happens on it: say "Reopen on Saturday 12 December"',
+      ),
+    );
+    expect(targeted).toHaveLength(1);
+    expect(targeted[0]).toContain("Design 0:");
+    expect(targeted[0]).not.toContain("Design 1:");
+    expect(delivered("row-1")).toBeUndefined();
+    expect(failedRow("row-1")?.error).toBe(
+      new NewsNotStatedError("Reopen on Saturday 12 December").message,
+    );
+    expect(delivered("row-2")?.spec?.footerLines).toContain(
+      "Reopening Saturday 12 December",
+    );
+    expect(usage().newsLost).toBe(1);
+    expect(usage().newsRecovery).toEqual([
+      expect.objectContaining({
+        direction: 0,
+        news: "Reopen on Saturday 12 December",
+        stated: false,
+      }),
+    ]);
+  });
+
+  it("a targeted ask that says it ships the design, in the model's words", async () => {
+    await storefront(true);
+    expect(delivered("row-1")?.spec?.footerLines).toEqual([
+      "Open daily 9am to 7pm",
+      "Reopening Saturday 12 December",
+    ]);
+    expect(usage().newsLost).toBe(0);
+    expect(usage().newsRecovery).toEqual([
+      expect.objectContaining({ direction: 0, stated: true, why: null }),
+    ]);
+  });
+});

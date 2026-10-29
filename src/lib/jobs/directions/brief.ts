@@ -48,6 +48,7 @@ import type { ConceptLens } from "./concepts";
 import {
   type FactSettlement,
   type FactWriter,
+  newsFocus,
   offeringFocus,
   settleFacts,
   writeFacts,
@@ -186,6 +187,13 @@ export interface DraftDirectionsResult {
   /** Directions the writer left without the offering's name, asked once
    *  more for it, and what stood. */
   offeringRecovery: OfferingRecovery[];
+  /** Per direction: it gives a brief date without what happens on it
+   *  ("Sat 12 Dec" for "We reopen on Saturday 12 December"), even after
+   *  the same targeted ask, so it fails rather than lose the news
+   *  (round-9 live critic, storefront s0). */
+  newsLost: boolean[];
+  /** Directions asked once more for a date's news, and what stood. */
+  newsRecovery: NewsRecovery[];
   /** Each field that gave a brief date on another day after the fact
    *  writer, and what code did: left it off, or failed the direction. */
   datesContradicted: (DateSettled & { direction: number })[];
@@ -219,6 +227,14 @@ export interface OfferingRecovery {
   /** The targeted ask named it, and it is still named as drawn. */
   named: boolean;
   /** Why it is still not named, when it is not. */
+  why: string | null;
+}
+
+export interface NewsRecovery {
+  direction: number;
+  /** The fact, with its verb: "Reopen on Saturday 12 December". */
+  news: string;
+  stated: boolean;
   why: string | null;
 }
 
@@ -1521,34 +1537,56 @@ export async function draftDirections({
         (f) => f.kind === "product" && f.text === read.offering?.phrase,
       )
     : undefined;
-  const unnamedAfterWriter = offeringFact
-    ? firstWrite.directions
-        .map((_, i) => i)
-        .filter(
-          (i) =>
-            !headlineLost[i] &&
-            !factStated(offeringFact, firstWrite.directions[i]),
-        )
-    : [];
+  /* A date's news is as required as the offering's name: a design that
+     gives "Sat 12 Dec" for "We reopen on Saturday 12 December" says the
+     date of nothing (round-9 live critic, storefront s0). One targeted ask
+     covers both; code never writes either. */
+  const newsFacts = coverFacts.filter((f) =>
+    f.needs.some((n) => n.startsWith("!")),
+  );
+  const shipsWithout = (fact: BriefFact | undefined) =>
+    fact
+      ? firstWrite.directions
+          .map((_, i) => i)
+          .filter(
+            (i) =>
+              !headlineLost[i] && !factStated(fact, firstWrite.directions[i]),
+          )
+      : [];
+  const unnamedAfterWriter = shipsWithout(offeringFact);
+  const newsAfterWriter = newsFacts.map((fact) => ({
+    fact,
+    directions: shipsWithout(fact),
+  }));
+  const askedOnce = [
+    ...new Set([
+      ...unnamedAfterWriter,
+      ...newsAfterWriter.flatMap((n) => n.directions),
+    ]),
+  ].sort((a, b) => a - b);
+  const refusalOf = (id: number, fact: BriefFact) =>
+    firstWrite.leftOff.find((l) => l.direction === id && l.fact === fact.text)
+      ?.reason;
   const offeringAsk =
-    offeringFact && unnamedAfterWriter.length > 0
+    askedOnce.length > 0
       ? await settleFacts({
           ...writing,
           directions: firstWrite.directions,
           attempts: 1,
-          asks: (id) => unnamedAfterWriter.includes(id),
-          focus: (id) =>
-            offeringFocus(
-              offeringFact,
-              firstWrite.leftOff.find(
-                (l) => l.direction === id && l.fact === offeringFact.text,
-              )?.reason,
-            ),
+          asks: (id) => askedOnce.includes(id),
+          focus: (id) => [
+            ...(offeringFact && unnamedAfterWriter.includes(id)
+              ? offeringFocus(offeringFact, refusalOf(id, offeringFact))
+              : []),
+            ...newsAfterWriter
+              .filter((n) => n.directions.includes(id))
+              .flatMap((n) => newsFocus(n.fact, refusalOf(id, n.fact))),
+          ],
         })
       : null;
   if (offeringAsk) modelCalls += offeringAsk.modelCalls;
   const written = offeringAsk
-    ? mergedSettlements(firstWrite, offeringAsk, unnamedAfterWriter)
+    ? mergedSettlements(firstWrite, offeringAsk, askedOnce)
     : firstWrite;
   const final = dropFooterRepeats(written.directions, coverFacts, product);
   /* A drop shortens the copy the near-duplicate rule compares, so one that
@@ -1595,6 +1633,29 @@ export async function draftDirections({
           )?.reason ?? "not on the design once its copy was settled")
         : null,
     }),
+  );
+  const newsLost = drawnIn.map(
+    (d, i) =>
+      !headlineLost[i] &&
+      !dateFailed[i] &&
+      !offeringLost[i] &&
+      newsFacts.some((f) => !factStated(f, d)),
+  );
+  const newsRecovery: NewsRecovery[] = newsAfterWriter.flatMap(
+    ({ fact, directions }) =>
+      directions.map((direction) => {
+        const stated = factStated(fact, drawnIn[direction]);
+        return {
+          direction,
+          news: fact.text,
+          stated,
+          why: stated
+            ? null
+            : (offeringAsk?.leftOff.find(
+                (l) => l.direction === direction && l.fact === fact.text,
+              )?.reason ?? "not on the design once its copy was settled"),
+        };
+      }),
   );
   /* A fact the dropped part held is left off with it, and says why. */
   const leftOffForDate = (direction: number, fact: BriefFact) => {
@@ -1692,6 +1753,8 @@ export async function draftDirections({
     dateFailed,
     offeringLost,
     offeringRecovery,
+    newsLost,
+    newsRecovery,
     datesContradicted,
     overlap: worst?.overlap ?? null,
     modelCalls,

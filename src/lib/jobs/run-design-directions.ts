@@ -201,6 +201,19 @@ export class OfferingNotNamedError extends Error {
   }
 }
 
+/** The design gives a brief date without what happens on it, even after
+ *  the fact writer was asked for it once more, and code never writes it
+ *  in (round-9 live critic, storefront s0: "Sat 12 Dec" on the hours line
+ *  for "We reopen on Saturday 12 December"). */
+export class NewsNotStatedError extends Error {
+  constructor(news: string) {
+    super(
+      `This design gave a date from your brief without saying what happens on it (${news}), so we didn't deliver it. Regenerate it to try again.`,
+    );
+    this.name = "NewsNotStatedError";
+  }
+}
+
 interface RegenerationTarget {
   set: string;
   slot: number;
@@ -599,6 +612,11 @@ export async function generateDirectionsWork(
   const offeringFact = offering
     ? hardFacts.find((f) => f.kind === "product" && f.text === offering)
     : undefined;
+  /* A date and the brief's verb for it: drawn apart, the design gives the
+     date of nothing (newsLost, NewsNotStatedError). */
+  const newsFacts = hardFacts.filter((f) =>
+    f.needs.some((n) => n.startsWith("!")),
+  );
   /* What the reader saw in words not the brief's. Never drawn in, but a
      design that does not state one has lost it, and says so. */
   const unreadFacts = brief.read.unread;
@@ -641,6 +659,7 @@ export async function generateDirectionsWork(
   let subjectFaulted = 0;
   let headlinesLost = 0;
   let offeringsLost = 0;
+  let newsLost = 0;
   const shippedHeadlines: (string | null)[] = brief.directions.map(() => null);
   let rendered = 0;
   let checked = 0;
@@ -690,6 +709,14 @@ export async function generateDirectionsWork(
       if (brief.headlineLost[i]) throw new HeadlineNotWrittenError();
       if (brief.dateFailed[i]) throw new DateOnWrongDayError();
       if (brief.offeringLost[i]) throw new OfferingNotNamedError(offering);
+      const lostNews = brief.newsLost[i]
+        ? newsFacts.find((f) => !factStated(f, brief.directions[i]))
+        : undefined;
+      if (brief.newsLost[i]) {
+        throw new NewsNotStatedError(
+          lostNews?.text ?? newsFacts[0]?.text ?? "",
+        );
+      }
       const mark = marks[i];
       const image = images[i];
       let assets: DirectionAssets = {
@@ -858,6 +885,8 @@ export async function generateDirectionsWork(
       if (offeringFact && !factStated(offeringFact, drawnCopy)) {
         throw new OfferingNotNamedError(offering);
       }
+      const newsUndrawn = newsFacts.find((f) => !factStated(f, drawnCopy));
+      if (newsUndrawn) throw new NewsNotStatedError(newsUndrawn.text);
       const key = `${STORAGE_PREFIXES.generated}/${brandId}/${randomUUID()}.png`;
       await storeDelivered(key, result.bytes);
       /* The reasons were written before the image was painted and before the
@@ -974,6 +1003,7 @@ export async function generateDirectionsWork(
       if (err instanceof SubjectFaultError) subjectFaulted += 1;
       if (err instanceof HeadlineNotWrittenError) headlinesLost += 1;
       if (err instanceof OfferingNotNamedError) offeringsLost += 1;
+      if (err instanceof NewsNotStatedError) newsLost += 1;
       const refusal = renderRefusalMessage(err);
       if (refusal) refusals.push(refusal);
       await updateDesignGeneration(row.id, {
@@ -1072,9 +1102,11 @@ export async function generateDirectionsWork(
                 ? new HeadlineNotWrittenError().message
                 : offeringsLost === rows.length
                   ? new OfferingNotNamedError(offering).message
-                  : refusals.length === rows.length
-                    ? (refusals[0] as string)
-                    : "Design generation failed. Please try again.",
+                  : newsLost === rows.length
+                    ? new NewsNotStatedError(newsFacts[0]?.text ?? "").message
+                    : refusals.length === rows.length
+                      ? (refusals[0] as string)
+                      : "Design generation failed. Please try again.",
     );
   }
 
@@ -1130,6 +1162,10 @@ export async function generateDirectionsWork(
          more for it, what stood, and how many failed for it. */
       offeringRecovery: brief.offeringRecovery,
       offeringsLost,
+      /* Round 22: directions that gave a brief date without its news,
+         asked once more for it, what stood, and how many failed for it. */
+      newsRecovery: brief.newsRecovery,
+      newsLost,
       /* Round 12: headlines refused, asked for once more, and what stood. */
       headlineRecovery: brief.headlineRecovery.map((r) => ({
         ...r,
@@ -1214,6 +1250,7 @@ export async function generateDirectionsWork(
       text_led_upload: textLedUpload,
       headlines_lost: headlinesLost,
       offerings_lost: offeringsLost,
+      news_lost: newsLost,
       headlines_recovered: brief.headlineRecovery.filter((r) => r.recovered)
         .length,
       text_led_image_model_down: imageModelDown,

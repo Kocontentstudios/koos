@@ -345,6 +345,16 @@ export function offeringFocus(
   ];
 }
 
+/** The targeted ask for a direction that gives a brief date without what
+ *  happens on it (round-9 live critic, storefront s0: "Open daily 9am to
+ *  7pm · Sat 12 Dec" for "We reopen on Saturday 12 December"). */
+export function newsFocus(news: BriefFact, lastRefusal?: string): string[] {
+  return [
+    `the design gives the date without what happens on it: say "${news.text}", the brief's word for it beside the date, in one field or footer line, and keep every fact it states`,
+    ...(lastRefusal ? [`the last rewrite was refused: ${lastRefusal}`] : []),
+  ];
+}
+
 /** Why a new headline cannot replace the old, or null when it can: it
  *  may move only out of a fact's way, must clear the repeat it moved for,
  *  keep the old one's idea (one of its words or numbers) and hold to every

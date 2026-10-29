@@ -1340,7 +1340,9 @@ function makeNumberFact(fact: {
             ? alone
             : dateGuard(dated, DAY_FIRST_TAIL),
         ),
-        ...plain,
+        /* The verb of what happens on the date, stated where the date is
+           (brief-facts, dateWithEvent). */
+        alsoNeeds: fact.needs.filter((n) => n.startsWith("!")),
         date: dated,
       };
     }

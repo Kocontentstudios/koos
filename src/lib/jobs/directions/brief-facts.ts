@@ -14,7 +14,12 @@ import {
   withoutEdgeMarks,
 } from "@/lib/design/copy-tokens";
 import { drawnFooterLines, footerLinesFor } from "@/lib/design/render/footer";
-import { calendarNames, looksCutOff, weekdaySenseChanged } from "./claims";
+import {
+  calendarNames,
+  looksCutOff,
+  weekdayMentions,
+  weekdaySenseChanged,
+} from "./claims";
 import {
   contradictedRun,
   contradictedRunStarts,
@@ -362,6 +367,62 @@ const MEASURE =
 
 const EVERY_DAY = /\b(daily|every ?day|7 days a week|seven days a week)\b/i;
 
+/* What a date is the date of. "We reopen on Saturday 12 December" drawn
+   as "Open daily 9am to 7pm · Sat 12 Dec" gave the date and lost the news
+   (round-9 live critic, storefront s0). The brief's verb before its date
+   is part of the fact, as "from" is part of a price, and the verifier
+   reads it by family: "reopening" and "we're back" state "reopen". */
+const EVENT_FORMS: Readonly<Record<string, RegExp>> = {
+  reopen: /\bre-?open(?:s|ing|ed)?\b|\bopen(?:s|ing|ed)?\s+again\b|\bback\b/i,
+  relaunch: /\bre-?launch(?:es|ing|ed)?\b/i,
+  launch: /\blaunch(?:es|ing|ed)?\b/i,
+  open: /\bopen(?:s|ing|ed)?\b/i,
+  return: /\breturn(?:s|ing|ed)?\b|\bback\b/i,
+};
+const EVENT_VERB =
+  "(re-?open|re-?launch|launch|open|return)(?:s|es|ing|ed)?(?:\\s+(?:again|back))?";
+const EVENT_LEAD = new RegExp(
+  `\\b${EVENT_VERB}\\s+(?:(?:on|this|next|from|at)\\s+)?$`,
+  "i",
+);
+const EVENT_START = new RegExp(`^\\s*${EVENT_VERB}\\b`, "i");
+/* "Open Monday to Friday" is opening hours, not news: a day takes in only
+   a verb that cannot be hours. */
+const DAY_EVENTS: ReadonlySet<string> = new Set([
+  "reopen",
+  "relaunch",
+  "launch",
+  "return",
+]);
+
+function eventKey(verb: string): string {
+  return verb.toLowerCase().replace(/-/g, "");
+}
+
+/** The family of the verb a date or day fact opens with, or null. */
+function eventOf(text: string): string | null {
+  const verb = EVENT_START.exec(text)?.[1];
+  return verb ? eventKey(verb) : null;
+}
+
+/** Where a date or day fact starts once the brief's verb for what happens
+ *  on it is taken in: "reopen on Saturday 12 December". */
+export function dateWithEvent(
+  brief: string,
+  start: number,
+  end: number,
+  kind: "date" | "day",
+): number {
+  const lead = EVENT_LEAD.exec(brief.slice(Math.max(0, start - 40), start));
+  if (!lead) return start;
+  if (kind === "day") {
+    const days = weekdayMentions(brief.slice(start, end));
+    const single = days.length === 1 && !days[0].recurring && !days[0].range;
+    if (!single || !DAY_EVENTS.has(eventKey(lead[1]))) return start;
+  }
+  return start - lead[0].length;
+}
+
 /* The premises a business keeps for itself. An allow-list, not a list of
    landmarks to refuse: every landmark noun left off a deny-list ("centre",
    "cinema", "hotel lobby") let the brand's name narrow a public place to a
@@ -435,6 +496,8 @@ export function needsFor(
       .filter((s) => !ignore.has(s) && !isNumberWord(s))
       .map((s) => `^${s}`);
   const days = () => [...new Set(calendarNames(text))].map((d) => `~${d}`);
+  const event = eventOf(text);
+  const news = event ? [`!${event}`] : [];
   switch (kind) {
     case "contact": {
       const phones = phonesIn(text, regions);
@@ -452,7 +515,7 @@ export function needsFor(
     }
     case "day": {
       const named = days();
-      if (named.length > 0) return named;
+      if (named.length > 0) return [...named, ...news];
       /* "every day" is all stopwords, and was dropped as saying nothing
          (round-5 live run, cafe). */
       if (EVERY_DAY.test(text)) return ["%daily"];
@@ -464,10 +527,10 @@ export function needsFor(
         const [a, b] = [Number(numeric[1]), Number(numeric[2])];
         const [day, month] = MONTH_FIRST.has(region) ? [b, a] : [a, b];
         if (month >= 1 && month <= 12) {
-          return [`=${day}`, `~${MONTH_ORDER[month - 1]}`, ...days()];
+          return [`=${day}`, `~${MONTH_ORDER[month - 1]}`, ...days(), ...news];
         }
       }
-      return [...numbers(), ...days()];
+      return [...numbers(), ...days(), ...news];
     }
     case "time": {
       /* Hours with no am or pm keep their numbers, and the days they are
@@ -948,6 +1011,9 @@ export function settleBriefFacts(
       start = priceWithQualifier(brief, start);
       end = priceWithUnit(brief, end);
     }
+    if (kind === "date" || kind === "day") {
+      start = dateWithEvent(brief, start, end, kind);
+    }
     keep(kind, start, end);
   }
 
@@ -1102,6 +1168,9 @@ function needsHold(needs: readonly string[], text: string): boolean {
       return phoneStated(need.slice(1).split(","), copy);
     if (need.startsWith("^")) return stems.has(need.slice(1));
     if (need === "%daily") return EVERY_DAY.test(copy);
+    if (need.startsWith("!")) {
+      return EVENT_FORMS[need.slice(1)]?.test(copy) ?? false;
+    }
     return new RegExp(
       `(^|[^\\p{L}])${need.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
       "u",
