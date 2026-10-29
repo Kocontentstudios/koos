@@ -14,7 +14,7 @@ import {
   withoutEdgeMarks,
 } from "@/lib/design/copy-tokens";
 import { drawnFooterLines, footerLinesFor } from "@/lib/design/render/footer";
-import { calendarNames, looksCutOff } from "./claims";
+import { calendarNames, looksCutOff, weekdaySenseChanged } from "./claims";
 import {
   contradictedRun,
   contradictedRunStarts,
@@ -1119,6 +1119,7 @@ function statedIn(
   /* A time printed on a phone's line reads as the phone's hours (round-6
      live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
   if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
+  if (weekdaySenseChanged(fact.text, part.text)) return false;
   const numbered = numberFactOf(fact);
   if (numbered) {
     const tokens = formTokensOf(part.text);

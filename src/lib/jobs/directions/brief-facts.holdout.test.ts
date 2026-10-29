@@ -601,6 +601,40 @@ export const HOLDOUT_ROWS: HoldoutRow[] = [
     copy("A weekend of stillness", "₦120k per person, all meals included."),
     true,
   ],
+  /* Round 22: a start day is not a recurrence, nor the reverse (round-9
+     live critic, bakery s1). Added after the fix, labelled by what a
+     customer would do. */
+  [
+    "H98",
+    "day",
+    "available from Monday",
+    copy(
+      "Worth the early start",
+      "Strawberry mille-feuille ready for pickup from 7am every Monday, at ₦4,500 a slice.",
+    ),
+    false,
+  ],
+  [
+    "H99",
+    "day",
+    "every Monday",
+    copy("Fresh bread", "", "", ["Sourdough from Monday · 7am"]),
+    false,
+  ],
+  [
+    "H100",
+    "day",
+    "available from Monday",
+    copy("Mille-feuille is here", "", "", ["Monday onwards · Pickup from 7am"]),
+    true,
+  ],
+  [
+    "H101",
+    "day",
+    "every Monday",
+    copy("Fresh bread", "Sourdough on Mondays, from 7am."),
+    true,
+  ],
 ];
 
 /** True rows the contract refuses on purpose: the fact writer writes the

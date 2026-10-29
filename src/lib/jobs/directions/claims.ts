@@ -127,6 +127,164 @@ const HOLIDAYS: [RegExp, string][] = [
   [/\bboxing day\b/i, "boxing day"],
 ];
 
+/* A weekday says one of three things: a start ("from Monday", "Monday
+   onwards"), a recurrence ("every Monday", "Mondays") or a day. "Available
+   from Monday" drawn as "every Monday" told customers they could collect
+   only on Mondays, and the day alone passed (round-9 live critic, bakery
+   s1). */
+const WEEK = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
+const WEEKDAY_WORD =
+  /(?<![\p{L}'’])((?:mon|tues|wednes|thurs|fri|satur|sun)days?|week(?:end|day)s?)(?![\p{L}])/giu;
+const WEEKDAY_ABBREVIATION =
+  /(?<![\p{L}'’])(Mon|Tues?|Wed|Thu(?:rs?)?|Fri|Sat|Sun)(?![\p{L}'’])/gu;
+const RECURRING_BEFORE = /\b(?:every|each|weekly(?:\s+on)?)\s+$/i;
+const START_BEFORE =
+  /\b(?:from|starting(?:\s+(?:on|from))?|starts?(?:\s+on)?|beginning(?:\s+(?:on|from))?|begins?(?:\s+on)?|as\s+(?:of|from)|effective(?:\s+from)?)\s+(?:(?:this|next|coming)\s+)?$/i;
+const START_AFTER = /^\s*onwards?\b/i;
+const RANGE_AFTER =
+  /^\s*(?:-|–|—|to|till|until|through|thru|&|and)\s*(?:mon|tue|wed|thu|fri|sat|sun)/i;
+const RANGE_BEFORE =
+  /(?:mon|tue|wed|thu|fri|sat|sun)[\p{L}.]*\s*(?:-|–|—|to|till|until|through|thru|&|and)\s*$/iu;
+
+export interface WeekdayMention {
+  /** Every weekday the word names: "weekends" is Saturday and Sunday. */
+  days: string[];
+  raw: string;
+  /** "every Monday", "Mondays", "each Monday". */
+  recurring: boolean;
+  /** "from Monday", "starting Monday", "Monday onwards". */
+  start: boolean;
+  /** An end of "Monday to Friday", which names the days between too. */
+  range: boolean;
+  index: number;
+}
+
+function weekdaysOf(word: string): string[] {
+  const w = word.toLowerCase();
+  if (w.startsWith("weekend")) return ["saturday", "sunday"];
+  if (w.startsWith("weekday")) return WEEK.slice(0, 5);
+  const day = WEEK.find((d) => d.startsWith(w.slice(0, 3)));
+  return day ? [day] : [];
+}
+
+export function weekdayMentions(text: string): WeekdayMention[] {
+  const found: { index: number; raw: string; plural: boolean }[] = [];
+  for (const m of text.matchAll(WEEKDAY_WORD)) {
+    found.push({ index: m.index ?? 0, raw: m[1], plural: /s$/i.test(m[1]) });
+  }
+  for (const m of text.matchAll(WEEKDAY_ABBREVIATION)) {
+    const before = text.slice(Math.max(0, (m.index ?? 0) - 4), m.index);
+    if (/\bthe\s+$/i.test(before)) continue;
+    found.push({ index: m.index ?? 0, raw: m[1], plural: false });
+  }
+  return found.map(({ index, raw, plural }) => {
+    const before = text.slice(Math.max(0, index - 40), index);
+    const after = text.slice(index + raw.length, index + raw.length + 30);
+    const range = RANGE_AFTER.test(after) || RANGE_BEFORE.test(before);
+    const recurring = plural || RECURRING_BEFORE.test(before);
+    const start =
+      !range &&
+      !recurring &&
+      (START_BEFORE.test(before) || START_AFTER.test(after));
+    const lead = recurring && !plural ? RECURRING_BEFORE.exec(before) : null;
+    const from = start ? START_BEFORE.exec(before) : null;
+    return {
+      days: weekdaysOf(raw),
+      raw: `${lead?.[0] ?? from?.[0] ?? ""}${raw}`,
+      index,
+      recurring,
+      start,
+      range,
+    };
+  });
+}
+
+/* "Daily", "every day", "seven days a week": every weekday recurs. */
+const EVERY_WEEKDAY =
+  /\b(?:daily|every ?day|7 days a week|seven days a week|all week)\b/i;
+
+/** The weekdays `text` states as recurring: said with "every", in the
+ *  plural, or inside a range of days ("Tuesday to Saturday" is a week's
+ *  opening days, so "every Thursday" is no new fact). */
+function recurringWeekdays(text: string): Set<string> {
+  if (EVERY_WEEKDAY.test(text)) return new Set(WEEK);
+  const days = new Set<string>();
+  const mentions = weekdayMentions(text).sort((a, b) => a.index - b.index);
+  const ends: string[] = [];
+  for (const mention of mentions) {
+    if (mention.recurring || mention.range) {
+      for (const d of mention.days) days.add(d);
+    }
+    if (mention.range && mention.days.length === 1) ends.push(mention.days[0]);
+  }
+  const span = (from: string, to: string) => {
+    const a = WEEK.indexOf(from);
+    const b = WEEK.indexOf(to);
+    if (a < 0 || b < 0) return;
+    for (let d = a; ; d = (d + 1) % 7) {
+      days.add(WEEK[d]);
+      if (d === b) break;
+    }
+  };
+  for (let i = 0; i + 1 < ends.length; i += 2) span(ends[i], ends[i + 1]);
+  /* The ledger is lower case, where "tue – sat" is read only as a pair. */
+  for (const m of text.matchAll(ABBREVIATED_RANGE)) {
+    span(weekdaysOf(m[1])[0] ?? "", weekdaysOf(m[2])[0] ?? "");
+  }
+  return days;
+}
+
+const ABBREVIATED_RANGE =
+  /\b(mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)\s*(?:-|–|—|to|till|until|through|thru)\s*(mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)\b/gi;
+
+/** The weekday phrases in `text` that state a recurrence or a start the
+ *  sources never give that day: a start is never a recurrence, nor a
+ *  recurrence a start. */
+function weekdaySenseInvented(text: string, sources: string): string[] {
+  const recurs = recurringWeekdays(sources);
+  const said = weekdayMentions(sources);
+  const invented: string[] = [];
+  /* A day the sources never name is the calendar check's to report. */
+  const named = new Set(said.flatMap((s) => s.days));
+  for (const mention of weekdayMentions(text)) {
+    const unlicensed = mention.days.filter((d) => !recurs.has(d));
+    if (mention.recurring && unlicensed.some((d) => named.has(d))) {
+      invented.push(mention.raw);
+      continue;
+    }
+    if (!mention.start) continue;
+    const day = mention.days[0];
+    const ofDay = said.filter((s) => s.days.includes(day));
+    if (ofDay.length > 0 && ofDay.every((s) => s.recurring)) {
+      invented.push(mention.raw);
+    }
+  }
+  return invented;
+}
+
+/** Whether `copy` says a weekday of `fact` in the other sense: the fact's
+ *  start as a recurrence, or its recurrence as a start. */
+export function weekdaySenseChanged(fact: string, copy: string): boolean {
+  const drawn = weekdayMentions(copy);
+  return weekdayMentions(fact).some((wanted) =>
+    wanted.days.some((day) =>
+      drawn.some(
+        (m) =>
+          m.days.includes(day) &&
+          ((wanted.start && m.recurring) || (wanted.recurring && m.start)),
+      ),
+    ),
+  );
+}
+
 /* "May" the month, not "you may": only beside a preposition or a day. */
 const MAY_MONTH =
   /\b(?:in|on|from|by|until|till|this|next|since|early|late|mid)[ -]May\b|\bMay \d{1,2}\b|\b\d{1,2}(?:st|nd|rd|th)? May\b/;
@@ -637,6 +795,7 @@ export function inventedFacts(text: string, ledger: FactLedger): string[] {
   for (const name of calendarNames(text)) {
     if (!ledger.calendar.has(name)) invented.push(name);
   }
+  invented.push(...weekdaySenseInvented(text, ledger.text));
   for (const match of text.matchAll(CLOCK_WORDS)) {
     const word = match[1].toLowerCase();
     const twelve =
