@@ -11,8 +11,9 @@ export interface GenerateArgs {
   attachments?: { type: string; id: string }[];
   freeform?: string | null;
   aspectRatio?: string | null;
-  /** Selects the two-directions path. Absent keeps the legacy variants. */
-  image?: DesignImageChoice;
+  /** Required: without it the server takes the legacy variant path, which
+   *  runs only while FEATURE_KO_IMAGERY is on. */
+  image: DesignImageChoice;
   /** A generation id: the job makes exactly one new direction to take that
    *  one's place. Requires `image`. */
   regenerateOf?: string;

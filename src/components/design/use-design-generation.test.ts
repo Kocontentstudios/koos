@@ -9,7 +9,7 @@ vi.mock("@/lib/generation/poll-job", () => ({
 import { useDesignGeneration } from "./use-design-generation";
 
 const BRAND = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
-const ARGS = { brandId: BRAND };
+const ARGS = { brandId: BRAND, image: { source: "none" as const } };
 
 const row = (id: string, status = "succeeded") => ({
   id,
@@ -41,6 +41,21 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+/* The server refuses a request with no image while FEATURE_KO_IMAGERY is
+   off, so the hook must forward the caller's choice untouched. */
+it("sends the image choice in the request body", async () => {
+  const { result } = renderHook(() => useDesignGeneration());
+  await act(async () => {
+    await result.current.generate(ARGS);
+  });
+  const call = fetchMock.mock.calls.find((c) =>
+    String(c[0]).includes("/api/design/generate"),
+  );
+  expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+    image: { source: "none" },
+  });
+});
 
 describe("a finished run reads back exactly its own designs", () => {
   /* The reported bug: the hook asked for the brand's NEWEST N generations and

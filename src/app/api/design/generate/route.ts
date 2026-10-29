@@ -57,7 +57,7 @@ function parseAttachments(value: unknown): AttachmentRef[] | null {
 
 /**
  * The image choice that selects the two-directions path. Undefined when the
- * caller sent none (every caller before FEAT-033), null when it is malformed.
+ * caller sent none (the flag-gated variant path), null when it is malformed.
  * Which brand the key belongs to is checked once the brand row is known.
  */
 function parseImage(value: unknown): DirectionsImage | undefined | null {
@@ -70,6 +70,10 @@ function parseImage(value: unknown): DirectionsImage | undefined | null {
     return { source: "upload", key };
   }
   return null;
+}
+
+function paintsWithKo(image: DirectionsImage | undefined): boolean {
+  return image === undefined || image.source === "ko";
 }
 
 /**
@@ -202,8 +206,10 @@ export async function POST(req: Request) {
      fail. An uploaded image needs no image model, so only the other paths
      need a provider. */
   /* KO imagery is behind FEATURE_KO_IMAGERY (round 8): refused before any
-     job, row or model call. */
-  if (image?.source === "ko" && !koImageryEnabled()) {
+     job, row or model call. A request with no image takes the legacy variant
+     path, which paints a KO plate too, so it is gated the same way
+     (Oluwaseyi's ruling, 2026-10-29). */
+  if (paintsWithKo(image) && !koImageryEnabled()) {
     return Response.json(
       {
         error: new KoImageryDisabledError().message,

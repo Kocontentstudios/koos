@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The variant path runs only while FEATURE_KO_IMAGERY is on (Oluwaseyi's
+   ruling, 2026-10-29). */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 const generateObject = vi.fn();
 const loadBrandLogo = vi.fn();
 const overlayLogo = vi.fn();
@@ -170,6 +174,36 @@ beforeEach(() => {
   getObjectBytes.mockResolvedValue(Buffer.from(ATTACHMENT));
   updateDesignGeneration.mockResolvedValue(undefined);
   createNotification.mockResolvedValue(undefined);
+});
+
+describe("the variant path behind FEATURE_KO_IMAGERY", () => {
+  /* Defence in depth behind the route's 403: a caller that enqueues the job
+     directly must still not reach a model with the flag off. */
+  it("refuses before any model call or row while the flag is off", async () => {
+    const { KoImageryDisabledError } = await import(
+      "@/lib/design/ko-imagery-flag"
+    );
+    const { createDesignGeneration } = await import("@/lib/db/queries");
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await expect(
+        generateDesignWork({ context: context(), userId: "u1" }, runtime),
+      ).rejects.toBeInstanceOf(KoImageryDisabledError);
+      expect(generateObject).not.toHaveBeenCalled();
+      expect(getPlateAdapter).not.toHaveBeenCalled();
+      expect(getNativeAdapters).not.toHaveBeenCalled();
+      expect(nativeGenerate).not.toHaveBeenCalled();
+      expect(createDesignGeneration).not.toHaveBeenCalled();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  it("runs while the flag is on", async () => {
+    await generateDesignWork({ context: context(), userId: "u1" }, runtime);
+    expect(generateObject).toHaveBeenCalledTimes(1);
+    expect(nativeGenerate).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the logo reaches the design", () => {

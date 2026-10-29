@@ -16,6 +16,10 @@ import {
   updateDesignGeneration,
 } from "@/lib/db/queries";
 import type { DesignContext } from "@/lib/design/context";
+import {
+  KoImageryDisabledError,
+  koImageryEnabled,
+} from "@/lib/design/ko-imagery-flag";
 import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { renderCompositeDesign } from "@/lib/design/render/composite";
@@ -320,7 +324,8 @@ export function designFailureMessage(failures: unknown[]): string {
  * fails on its own — the job only fails if nothing rendered at all.
  *
  * A request carrying `directions` (an image choice) takes the two-directions
- * path instead (run-design-directions.ts); callers without one are unchanged.
+ * path instead (run-design-directions.ts). Without one it runs only while
+ * FEATURE_KO_IMAGERY is on.
  */
 export async function generateDesignWork(
   args: {
@@ -342,6 +347,10 @@ export async function generateDesignWork(
       runtime,
     );
   }
+  /* The variant path paints a KO plate or a native image on every run, so it
+     sits behind the same flag as KO imagery. Checked here as well as in the
+     route so a caller that enqueues the job directly cannot reach the model. */
+  if (!koImageryEnabled()) throw new KoImageryDisabledError();
   const { context, userId } = args;
   const plan = planVariants();
   if (plan.length === 0) {
