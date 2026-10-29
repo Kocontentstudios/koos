@@ -450,3 +450,116 @@ describe("a text-led pair keeps its compositions apart", () => {
     expect(choice.faults).toContain(SAME_COMPOSITION_AS_SIBLING);
   });
 });
+
+/* Round-9 live critic: the cafe pair was one card twice (quote-card and
+   stat-highlight, the photo in the same place), recorded as "the same
+   photo in the same place" and shipped; fashion and storefront were
+   left/right mirrors of one split. */
+describe("round 22: an upload pair keeps its compositions apart", () => {
+  const above = {
+    box: { x: 0.1, y: 0.05, w: 0.8, h: 0.4 },
+    arrangement: "above" as const,
+  };
+  const placeOf: Record<string, LayoutVerdict["place"]> = {
+    "stat-highlight": above,
+    "hero-center": above,
+    "banner-bottom": {
+      box: { x: 0, y: 0, w: 1, h: 0.55 },
+      arrangement: "above",
+    },
+    "split-left": {
+      box: { x: 0.5, y: 0, w: 0.5, h: 1 },
+      arrangement: "beside",
+    },
+  };
+
+  it("cafe: a card beside a card is refused for a layout that shows the photo elsewhere, even one with a soft fault", async () => {
+    const judge = async (s: DesignSpec): Promise<LayoutVerdict> => ({
+      subjectFault: null,
+      craft: {
+        hard: null,
+        soft: s.layout === "split-left" ? HEADLINE_NOT_LEADING : null,
+      },
+      place: placeOf[s.layout],
+    });
+    const choice = await chooseLayout({
+      spec: { ...spec, layout: "stat-highlight" },
+      held: ["quote-card"],
+      subjects: [whole],
+      apartFrom: above,
+      apartLayout: "quote-card",
+      judge,
+      relayout,
+    });
+    expect(choice.spec.layout).toBe("split-left");
+    expect(choice.faults).not.toContain(SAME_SHAPE_AS_SIBLING);
+    expect(
+      choice.considered.find((c) => c.layout === "stat-highlight")?.alike,
+    ).toBe(true);
+  });
+
+  it("a second card is alike by composition even with its photo elsewhere", async () => {
+    const { SAME_COMPOSITION_AS_SIBLING } = await import("./subject-layout");
+    const elsewhere = {
+      box: { x: 0, y: 0.6, w: 1, h: 0.4 },
+      arrangement: "below" as const,
+    };
+    const judge = async (s: DesignSpec): Promise<LayoutVerdict> => ({
+      subjectFault: s.layout === "stat-highlight" ? null : SUBJECT_COVERED,
+      craft: { hard: null, soft: null },
+      place: elsewhere,
+    });
+    const choice = await chooseLayout({
+      spec: { ...spec, layout: "stat-highlight" },
+      held: ["quote-card"],
+      subjects: [whole],
+      apartFrom: above,
+      apartLayout: "quote-card",
+      judge,
+      relayout,
+    });
+    expect(choice.spec.layout).toBe("stat-highlight");
+    expect(choice.faults).toContain(SAME_COMPOSITION_AS_SIBLING);
+  });
+
+  it("fashion: a split mirrored on the other side is the same composition, taken only when nothing else shows the photo whole", async () => {
+    const mirrored = {
+      box: { x: 0, y: 0, w: 0.5, h: 1 },
+      arrangement: "beside" as const,
+    };
+    const judge = async (s: DesignSpec): Promise<LayoutVerdict> => ({
+      subjectFault:
+        s.layout === "hero-center" || s.layout === "banner-bottom"
+          ? null
+          : SUBJECT_COVERED,
+      craft: {
+        hard: null,
+        soft: s.layout === "banner-bottom" ? IMAGE_AGAINST_EDGE : null,
+      },
+      place: s.layout === "hero-center" ? mirrored : placeOf[s.layout],
+    });
+    const apart = {
+      apartFrom: placeOf["split-left"],
+      apartLayout: "split-left",
+    };
+    const choice = await chooseLayout({
+      spec: { ...spec, layout: "hero-center" },
+      held: ["split-left"],
+      subjects: [whole],
+      ...apart,
+      judge,
+      relayout,
+    });
+    expect(choice.spec.layout).toBe("banner-bottom");
+    const onlyMirror = await chooseLayout({
+      spec: { ...spec, layout: "hero-center" },
+      held: ["split-left", "banner-bottom"],
+      subjects: [whole],
+      ...apart,
+      judge,
+      relayout,
+    });
+    expect(onlyMirror.spec.layout).toBe("hero-center");
+    expect(onlyMirror.faults).toContain(SAME_SHAPE_AS_SIBLING);
+  });
+});

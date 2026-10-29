@@ -51,7 +51,7 @@ export function sameComposition(a: string, b: string): boolean {
   return ca !== undefined && ca === COMPOSITION[b as DesignSpec["layout"]];
 }
 
-/** A text-led direction drawn in the same composition as its sibling. */
+/** A direction drawn in the same composition as its sibling. */
 export const SAME_COMPOSITION_AS_SIBLING =
   "laid out in the same composition as its sibling: one template in two colourways";
 
@@ -132,6 +132,9 @@ export interface ConsideredLayout {
   subjectFault: string | null;
   hard: string | null;
   soft: string | null;
+  /** Drawn in its sibling's composition, or with its photo in the same
+   *  place. */
+  alike?: boolean;
 }
 
 /** A layout that shows the whole subject uncut and clear, with no hard
@@ -150,15 +153,22 @@ export function isCleanAlternative(layout: ConsideredLayout): boolean {
 function rank(
   verdict: LayoutVerdict,
   partialBox: boolean,
-  sameShape: boolean,
+  alike: boolean,
 ): number | null {
   if (verdict.craft.hard) return null;
   if (verdict.subjectFault === SUBJECT_COVERED) return null;
-  const soft = verdict.craft.soft || sameShape ? 1 : 0;
+  const soft = verdict.craft.soft || alike ? 1 : 0;
   if (partialBox) return 6 + soft;
   if (verdict.subjectFault === SUBJECT_CROPPED || verdict.subjectFault) {
     return 4 + soft;
   }
+  /* The sibling's composition, or its photo in the same place, is taken
+     only when no other layout shows the subject whole: ranked under a soft
+     fault and a flush photo alike, where it once tied a soft fault and won
+     on catalogue order (round-9 live critic: the cafe pair was one card
+     twice, recorded and shipped). A cropped subject still ranks below it,
+     since an upload pair then loses the photo. */
+  if (alike) return verdict.craft.soft ? 3.75 : 3.5;
   /* A photo flush against its card's edge reads as a mistake where a
      headline that does not lead reads as a choice (round-6 eval, run b:
      textile quote-card, every inset cropping), so any other layout with a
@@ -237,20 +247,21 @@ export async function chooseLayout({
         craftBlocked = true;
       }
       const partial = boxIndex > 0 && !unknown;
+      const looksAlike = Boolean(
+        apartFrom && verdict.place && sameShape(apartFrom, verdict.place),
+      );
+      /* Round 22: on an upload pair too. Two cards are one composition
+         whatever the photo does (round-9 live critic, cafe). */
+      const readsAlike =
+        apartLayout !== null && sameComposition(apartLayout, candidate.layout);
       considered.push({
         layout: candidate.layout,
         faceOnly: partial,
         subjectFault: verdict.subjectFault,
         hard: verdict.craft.hard,
         soft: verdict.craft.soft,
+        alike: looksAlike || readsAlike,
       });
-      const looksAlike = Boolean(
-        apartFrom && verdict.place && sameShape(apartFrom, verdict.place),
-      );
-      const readsAlike =
-        imageless &&
-        apartLayout !== null &&
-        sameComposition(apartLayout, candidate.layout);
       const score = rank(verdict, partial, looksAlike || readsAlike);
       if (score === null) continue;
       if (score === 0) {

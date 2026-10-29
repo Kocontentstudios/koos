@@ -104,6 +104,10 @@ vi.mock("@/lib/design/document/from-spec", async (importOriginal) => {
       input: Parameters<typeof real.documentFromSpec>[0],
     ) => {
       const built = await real.documentFromSpec(input);
+      layoutOfDocument.set(
+        built.document,
+        (input.spec as { layout: string }).layout,
+      );
       /* Emulates the builder fault subject-fault.test.ts documents: it
          reports only "cropped" while the headline sits on the subject. */
       if (
@@ -164,9 +168,30 @@ vi.mock("@/lib/design/document/from-spec", async (importOriginal) => {
     },
   };
 });
+/* The live fonts measure craft faults the monospace double does not:
+   a layout named here is judged with this soft fault, as the live
+   measurement judged it (round 22, the cafe pair). */
+let softOn: Record<string, string> = {};
+const layoutOfDocument = new WeakMap<object, string>();
+vi.mock("./directions/craft", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./directions/craft")>();
+  return {
+    ...real,
+    layoutCraftFaults: (...args: Parameters<typeof real.layoutCraftFaults>) => {
+      const faults = real.layoutCraftFaults(...args);
+      const layout = layoutOfDocument.get(args[0] as object);
+      const soft = layout ? softOn[layout] : undefined;
+      return soft && !faults.soft ? { ...faults, soft } : faults;
+    },
+  };
+});
 /* When set, every choice made apart from a sibling's photo reports it in
    the same shape (round 21: the ruling of 2026-10-28 keeps the photo). */
 let forceSameShape = false;
+/* Every layout choice the job made, to read what each layout carried. */
+const choicesMade: Awaited<
+  ReturnType<typeof import("./directions/subject-layout").chooseLayout>
+>[] = [];
 vi.mock("./directions/subject-layout", async (importOriginal) => {
   const real =
     await importOriginal<typeof import("./directions/subject-layout")>();
@@ -174,6 +199,7 @@ vi.mock("./directions/subject-layout", async (importOriginal) => {
     ...real,
     chooseLayout: async (input: Parameters<typeof real.chooseLayout>[0]) => {
       const choice = await real.chooseLayout(input);
+      choicesMade.push(choice);
       return forceSameShape && input.apartFrom && !input.imageless
         ? {
             ...choice,
@@ -406,6 +432,7 @@ const failedRow = (id: string) =>
   updatesFor(id).find((p) => p.status === "failed");
 
 beforeEach(() => {
+  softOn = {};
   fitsOnly = null;
   correctWith = null;
   overlapHeadline = null;
@@ -2896,5 +2923,97 @@ describe("round 21: a text-led pair is two compositions", () => {
     }
     expect(delivered("row-1")?.spec?.layout).toBe("stat-highlight");
     expect(delivered("row-2")?.spec?.layout).toBe("hero-center");
+  });
+});
+
+/* Round-9 live critic, cafe: quote-card and stat-highlight drew the photo
+   at one crop in one place, recorded "the same photo in the same place"
+   and shipped as a pair. The cafe photo is 5242 x 3744 with the bar and
+   barista across its lower middle. */
+describe("round 22: an upload pair is two compositions", () => {
+  const CAFE =
+    "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.";
+
+  async function cafePair() {
+    const cafePhoto = await photo(1048, 749);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(cafePhoto),
+      contentType: "image/png",
+      width: 1048,
+      height: 749,
+    });
+    lookAtPhoto.mockResolvedValue({
+      description: "an espresso bar with a barista behind the machine",
+      subject: { x: 0.29, y: 0.36, w: 0.62, h: 0.56 },
+      face: null,
+      heads: [
+        { x: 0.53, y: 0.3, w: 0.06, h: 0.1 },
+        { x: 0.76, y: 0.33, w: 0.08, h: 0.12 },
+      ],
+      items: ["an espresso machine", "a barista"],
+    });
+    const cafeDraft = {
+      aspectRatio: "1:1" as const,
+      cta: "Ask for oat milk",
+      footerStyle: "text" as const,
+      footerLines: [
+        "Weekdays 8am to 6pm",
+        "At the bar, 9 Akinola Street, Yaba",
+      ],
+    };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...cafeDraft,
+            layout: "quote-card",
+            headline: "The Cold Brew Flight",
+            subheadline: "Three 150ml tasters for ₦6,000.",
+          }),
+          contrastingDraft({
+            ...cafeDraft,
+            layout: "stat-highlight",
+            headline: "Three Tasters. ₦6,000.",
+            subheadline:
+              "Cold brew flight: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500.",
+          }),
+        ],
+      },
+    });
+    await runBrief(CAFE, { image: { source: "upload", key: UPLOAD_KEY } });
+  }
+
+  it("cafe: the second direction leaves the card and puts the photo elsewhere", async () => {
+    const { photoPlace } = await import("./directions/render");
+    const { SAME_SHAPE_AS_SIBLING, SAME_COMPOSITION_AS_SIBLING } = await import(
+      "./directions/subject-layout"
+    );
+    const { HEADLINE_NOT_LEADING } = await import("./directions/craft");
+    softOn = { "split-left": HEADLINE_NOT_LEADING };
+    choicesMade.length = 0;
+    await cafePair();
+    expect(
+      choicesMade[1]?.considered.find((c) => c.layout === "stat-highlight"),
+    ).toMatchObject({
+      subjectFault: null,
+      hard: null,
+      soft: null,
+      alike: true,
+    });
+    const first = delivered("row-1");
+    const second = delivered("row-2");
+    expect(first?.spec?.layout).toBe("quote-card");
+    expect(["quote-card", "stat-highlight"]).not.toContain(
+      second?.spec?.layout,
+    );
+    const places = [first, second].map((d) =>
+      photoPlace(d?.document as Parameters<typeof photoPlace>[0]),
+    );
+    expect(places.every(Boolean)).toBe(true);
+    expect(places[1]?.arrangement).not.toBe(places[0]?.arrangement);
+    expect(usage().subjectFaults).not.toContainEqual(SAME_SHAPE_AS_SIBLING);
+    expect(usage().subjectFaults).not.toContainEqual(
+      SAME_COMPOSITION_AS_SIBLING,
+    );
   });
 });
