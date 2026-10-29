@@ -1,6 +1,7 @@
 import type { AssetRef, ImageElement } from "../schema";
 import {
   coverPlacement,
+  cutsAHead,
   grown,
   headsUnknown,
   intersection,
@@ -215,11 +216,17 @@ export function framedImage(
           })
         : null);
     /* A fallback is drawn only with a fault, but a fault is no licence to
-       cut a head: with heads unknown it shows the photo whole. */
-    const fallback = headsUnknown(ctx.heads ?? [])
+       cut a head: with heads unknown it shows the photo whole, and a crop
+       that would cut a known head gives way to the whole photo too. */
+    const heads = ctx.heads ?? [];
+    const fallback = headsUnknown(heads)
       ? uncropped(frame)
-      : (coverPlacement(facts, ctx.subject, frame, avoid, 0) ??
-        centredOn(ctx.subject, frame));
+      : sparingHeads(
+          facts,
+          heads,
+          coverPlacement(facts, ctx.subject, frame, avoid, 0, heads) ??
+            centredOn(ctx.subject, frame),
+        );
     const placement = balancedInset(
       exact ?? fallback,
       frame,
@@ -244,10 +251,29 @@ export function framedImage(
   return framed(
     headsUnknown(ctx.heads ?? [])
       ? uncropped(frame)
-      : { frame, fit: "cover", zoom: 1, focusX: 0.5, focusY: 0.5 },
+      : facts
+        ? sparingHeads(facts, ctx.heads ?? [], {
+            frame,
+            fit: "cover",
+            zoom: 1,
+            focusX: 0.5,
+            focusY: 0.5,
+          })
+        : { frame, fit: "cover", zoom: 1, focusX: 0.5, focusY: 0.5 },
     null,
     true,
   );
+}
+
+/** `placement`, or the whole photo in its frame when it cuts a head. */
+function sparingHeads(
+  image: { width: number; height: number },
+  heads: readonly SubjectBox[],
+  placement: ImagePlacement,
+): ImagePlacement {
+  return cutsAHead(image, heads, placement)
+    ? uncropped(placement.frame)
+    : placement;
 }
 
 /** The whole photo in `frame`, cropped nowhere. */

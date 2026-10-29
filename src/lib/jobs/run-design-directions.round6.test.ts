@@ -3933,3 +3933,115 @@ describe("round 25: heads unknown never ships a crop", () => {
     expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
   });
 });
+
+/* Round-26 contract break: round 25's live cafe split-left (usage row
+   2026-10-29 17:22:39 UTC) cut the barista's face at the photo's right
+   edge. The look boxed her head at x 0.66 to 0.90, the frame ended at
+   0.901, and her face runs to 0.946. The job lays out the look's heads
+   grown by the head margin, so no delivered crop runs through them. */
+describe("round 26: the job lays out heads with their margin", () => {
+  it("cafe 17:22 look: no delivered design crops a grown head or a true one", async () => {
+    const { drawnImageRect } = await import(
+      "@/lib/design/document/builders/ground"
+    );
+    const { cutsAHead, headsWithMargin } = await import(
+      "@/lib/design/document/subject"
+    );
+    const size = { width: 1310, height: 936 };
+    const bar = await photo(size.width, size.height);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(bar),
+      contentType: "image/png",
+      ...size,
+    });
+    const seen = [
+      { x: 0.5599999999999999, y: 0.16, w: 0.22000000000000008, h: 0.28 },
+      { x: 0.66, y: 0.09999999999999999, w: 0.24, h: 0.30000000000000004 },
+    ];
+    /* Marked by hand on busy-cafe-espresso.jpg (critique-26). */
+    const trueHeads = [
+      { x: 0.545, y: 0.375, w: 0.075, h: 0.105 },
+      { x: 0.835, y: 0.375, w: 0.11, h: 0.195 },
+    ];
+    lookAtPhoto.mockResolvedValue({
+      description: "an espresso bar, a barista, cups",
+      subject: { x: 0.16, y: 0.26, w: 0.66, h: 0.64 },
+      face: null,
+      heads: seen,
+      items: ["an espresso machine", "two baristas", "cups"],
+      peopleVisible: true,
+      headsAskedAgain: false,
+    });
+    const cafe = { aspectRatio: "1:1" as const, footerStyle: "text" as const };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...cafe,
+            layout: "split-left",
+            headline: "The Cold Brew Flight",
+            subheadline:
+              "Choose three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Ask for oat milk.",
+            cta: "Come in",
+            footerLines: [
+              "Weekdays 8am to 6pm",
+              "The bar, 9 Akinola Street, Yaba",
+            ],
+          }),
+          contrastingDraft({
+            ...cafe,
+            layout: "quote-card",
+            headline: "Three Tasters. ₦6,000.",
+            subheadline: "Or a 1-litre bottle and two glasses for ₦15,500.",
+            cta: "Ask for oat milk",
+            footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    const grown = headsWithMargin(seen);
+    expect(usage().photoHeadsSeen).toEqual(seen);
+    expect(usage().photoHeads).toEqual(grown);
+    let drawnWithPhoto = 0;
+    const layouts: string[] = [];
+    for (const id of ["row-1", "row-2"]) {
+      const row = delivered(id);
+      if (row?.spec?.layout) layouts.push(row.spec.layout);
+      const image = (
+        row?.document as { elements: Record<string, unknown>[] } | undefined
+      )?.elements.find((e) => e.type === "image") as
+        | {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            fit: "cover" | "contain";
+            crop: { zoom: number; focusX: number; focusY: number };
+          }
+        | undefined;
+      if (!image) continue;
+      drawnWithPhoto += 1;
+      const placement = {
+        frame: {
+          x: image.x,
+          y: image.y,
+          width: image.width,
+          height: image.height,
+        },
+        fit: image.fit,
+        ...image.crop,
+      };
+      expect(drawnImageRect(size, placement).width).toBeGreaterThan(0);
+      expect(cutsAHead(size, grown, placement), id).toBe(false);
+      expect(cutsAHead(size, trueHeads, placement), id).toBe(false);
+    }
+    expect(drawnWithPhoto).toBeGreaterThan(0);
+    /* Still a pair of two compositions. */
+    expect(layouts).toHaveLength(2);
+    expect(new Set(layouts).size).toBe(2);
+  });
+});

@@ -22,6 +22,7 @@ import { measureImage } from "@/lib/design/document/image-facts";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import {
   HEADS_UNKNOWN,
+  headsWithMargin,
   measureSubject,
   SUBJECT_COVERED,
   SUBJECT_CROPPED,
@@ -535,7 +536,10 @@ export async function generateDirectionsWork(
     }
   }
   /* The client's photo's people: a crop keeps each head whole or leaves it
-     out, whatever the main subject is. */
+     out, whatever the main subject is. The layouts only ever see the look's
+     boxes grown by the head margin (round-26 contract break: a box drawn
+     short of the barista's face let a crop through it). */
+  let photoHeadsSeen: SubjectBox[] = [];
   let photoHeads: SubjectBox[] = [];
   /* People in the photo and no head boxed, even when asked again, is not
      "no heads" (round-10 live verdict, CB2: the cafe crop sliced the
@@ -545,7 +549,8 @@ export async function generateDirectionsWork(
   if (upload && images[0]) {
     const measured = await facts.get(images[0]);
     if (!measured?.cutout) {
-      photoHeads = photoLook?.heads ?? [];
+      photoHeadsSeen = photoLook?.heads ?? [];
+      photoHeads = headsWithMargin(photoHeadsSeen);
       headsUnknown =
         Boolean(photoLook?.peopleVisible) && photoHeads.length === 0;
     }
@@ -1246,6 +1251,7 @@ export async function generateDirectionsWork(
          could not be traced without the look it was laid out on. */
       subjectBoxes,
       photoHeads,
+      photoHeadsSeen,
       /* Round 25 (CB2): the look saw people, asked again for heads, and
          whether any were boxed in the end. */
       photosPeopleVisible: Boolean(photoLook?.peopleVisible),

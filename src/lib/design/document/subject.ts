@@ -426,6 +426,45 @@ export const HEADS_UNKNOWN: readonly SubjectBox[] = Object.freeze([
   Object.freeze({ x: 0, y: 0, w: 1, h: 1 }),
 ]);
 
+/** The margin every head box from the look is grown by before any layout
+ *  sees it, as a share of the box's own width (each side) and height
+ *  (above and below). The look's head boxes are not where the heads are:
+ *  on the cafe photo's five live looks of 2026-10-29, against the heads
+ *  marked by hand on the photo (critique-26/head-truth.txt), the true head
+ *  ran up to 19% of the box's width past its side and up to 57% of its
+ *  height past its bottom. Round 25's split-left crop ended at 0.901 of
+ *  the photo across, the barista's box at 0.900 and her face at 0.946: a
+ *  frame edge through her face and no guard tripped. 35% across and 60%
+ *  up and down cover every miss measured, and put that box's right side
+ *  at 0.984, so the crop is a cut. Both ways on each axis: the misses ran
+ *  low on one photo, which says nothing of the next. A head the look never
+ *  boxed, or boxed somewhere else entirely, is no margin's to save. */
+export const HEAD_MARGIN_X = 0.35;
+export const HEAD_MARGIN_Y = 0.6;
+
+/**
+ * Every head the look boxed, grown by HEAD_MARGIN_X and HEAD_MARGIN_Y and
+ * clamped to the photo: the one place heads enter the layouts, so every
+ * crop, placement, band and veil check keeps the grown box. A box clamped
+ * at the photo's edge says the head may go on past it; the frame's edge
+ * then can only meet it at that same edge, since any crop inward on that
+ * side runs through the box (cutsAHead).
+ */
+export function headsWithMargin(heads: readonly SubjectBox[]): SubjectBox[] {
+  return heads.map((head) => {
+    const across = head.w * HEAD_MARGIN_X;
+    const down = head.h * HEAD_MARGIN_Y;
+    const x = Math.max(0, head.x - across);
+    const y = Math.max(0, head.y - down);
+    return {
+      x,
+      y,
+      w: Math.min(1, head.x + head.w + across) - x,
+      h: Math.min(1, head.y + head.h + down) - y,
+    };
+  });
+}
+
 /** Whether `heads` says only that a head may be anywhere in the photo. */
 export function headsUnknown(heads: readonly SubjectBox[]): boolean {
   return heads.some((h) => h.x <= 0 && h.y <= 0 && h.w >= 1 && h.h >= 1);
