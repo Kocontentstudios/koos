@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkFontBytes } from "./font-file";
 import { buildFont, OUTLINE_GLYPH } from "./font-fixtures";
 import type { LoadedFont } from "./fonts";
@@ -16,7 +16,18 @@ import { closeRenderPool, RenderTimeoutError, renderPng } from "./satori-pool";
  * out of it, and the check keeps every glyph within that bound).
  */
 
-afterAll(closeRenderPool);
+/* U+2B739 sends next/og to Google Fonts for a face. On a slow or cold
+   network that fetch alone can outlast LIMIT_MS, which reads as the loop
+   this file exists to catch. The fake network answers it at once with a
+   miss, so a timeout here can only be satori looping. */
+beforeAll(async () => {
+  await closeRenderPool();
+  process.env.KOOS_OG_FAKE_NETWORK = "ok";
+});
+afterAll(async () => {
+  await closeRenderPool();
+  delete process.env.KOOS_OG_FAKE_NETWORK;
+});
 
 const WIDE = 9000;
 const LIMIT_MS = 4000;
