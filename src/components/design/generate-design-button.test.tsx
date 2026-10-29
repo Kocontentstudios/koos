@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withKoImagery } from "@/lib/testing/ko-imagery";
 
 const captureEvent = vi.fn();
 const design = {
@@ -47,7 +48,7 @@ async function chooseKo() {
    was the one slow action whose pending state didn't match the rest. */
 describe("GenerateDesignButton", () => {
   it("is idle and actionable before a run", () => {
-    render(<GenerateDesignButton brandId="b1" />);
+    render(<GenerateDesignButton brandId="b1" />, withKoImagery(true));
     const button = screen.getByRole("button", { name: /Generate/ });
     expect(button).toBeEnabled();
     expect(button).not.toHaveAttribute("aria-busy");
@@ -55,7 +56,10 @@ describe("GenerateDesignButton", () => {
 
   it("spins, announces busy and refuses a second click while generating", async () => {
     design.pending = true;
-    const { container } = render(<GenerateDesignButton brandId="b1" />);
+    const { container } = render(
+      <GenerateDesignButton brandId="b1" />,
+      withKoImagery(true),
+    );
     const button = screen.getByRole("button", { name: /Generating…/ });
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAttribute("aria-busy", "true");
@@ -70,7 +74,10 @@ describe("GenerateDesignButton", () => {
   /* Every entry point goes through this button, so none can skip the image
      choice: nothing is generated or billed until the imagery is picked. */
   it("opens the image choice without generating anything", async () => {
-    render(<GenerateDesignButton brandId="b1" briefId="brief-1" />);
+    render(
+      <GenerateDesignButton brandId="b1" briefId="brief-1" />,
+      withKoImagery(true),
+    );
     await userEvent.click(screen.getByRole("button", { name: /Generate/ }));
     expect(
       await screen.findByRole("button", { name: /use a specific image/i }),
@@ -79,7 +86,10 @@ describe("GenerateDesignButton", () => {
   });
 
   it("generates with the chosen imagery and the caller's ids", async () => {
-    render(<GenerateDesignButton brandId="b1" briefId="brief-1" />);
+    render(
+      <GenerateDesignButton brandId="b1" briefId="brief-1" />,
+      withKoImagery(true),
+    );
     await chooseKo();
     expect(design.generate).toHaveBeenCalledWith({
       brandId: "b1",
@@ -93,7 +103,7 @@ describe("GenerateDesignButton", () => {
     [{ briefId: "brief-1" }, "brief"],
     [{}, "studio"],
   ])("records the entry point it was opened from (%o)", async (ids, entry) => {
-    render(<GenerateDesignButton brandId="b1" {...ids} />);
+    render(<GenerateDesignButton brandId="b1" {...ids} />, withKoImagery(true));
     await chooseKo();
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "ko",
@@ -102,7 +112,7 @@ describe("GenerateDesignButton", () => {
   });
 
   it("resets the run when the dialog closes", async () => {
-    render(<GenerateDesignButton brandId="b1" />);
+    render(<GenerateDesignButton brandId="b1" />, withKoImagery(true));
     await userEvent.click(screen.getByRole("button", { name: /Generate/ }));
     await screen.findByRole("dialog");
     await userEvent.keyboard("{Escape}");

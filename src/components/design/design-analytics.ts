@@ -1,11 +1,12 @@
 import { captureEvent } from "@/lib/analytics/posthog-client";
 import type { SerializedGeneration } from "@/lib/design/serialize";
+import type { DesignImageChoice } from "./use-design-generation";
 
 /** Where the image choice was opened from. Documented in docs/analytics.md. */
 export type DesignEntry = "calendar" | "brief" | "studio";
 
 export function trackImageChoice(
-  source: "upload" | "ko",
+  source: DesignImageChoice["source"],
   entry: DesignEntry,
 ): void {
   captureEvent("design_image_choice", { source, entry });

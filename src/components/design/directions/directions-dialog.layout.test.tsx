@@ -34,6 +34,7 @@ const noop = () => {};
 const HANDLERS: DirectionsHandlers = {
   onUseOwnImage: noop,
   onLetKoCreate: noop,
+  onNoImage: noop,
   onFile: noop,
   onRemoveImage: noop,
   onRetryUpload: noop,
@@ -136,6 +137,7 @@ function dialogMarkup(view: DirectionsView): string {
             entry="calendar"
             view={view}
             handlers={HANDLERS}
+            koImagery={false}
           />
         </FlowChromeProvider>
       </div>

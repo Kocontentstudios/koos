@@ -428,9 +428,9 @@ These are the seams the parallel units build against.
   Both are stored in `design_generations.rationale` as `{ title, reasons, set, slot }`: `set` and `slot` pair a direction with its sibling, so a regenerate finds the direction on screen beside it however often either slot was regenerated (`currentSibling`, over the whole set). The serializer exposes only `title` and `reasons`.
 - **`SerializedGeneration`** (`src/lib/design/serialize.ts`) gains:
   - `direction: { title: string; reasons: string[] } | null`
-  - `imageSource: "upload" | "ko" | null`
+  - `imageSource: "upload" | "ko" | "none" | null` (`none`: a text-led direction made with no image)
   - `editable: boolean` (`document !== null`)
-- **`GenerateArgs`** (`src/components/design/use-design-generation.ts`) gains `image?: { source: "upload"; key: string } | { source: "ko" }` and `regenerateOf?: string` (a generation id; requires `image`). The route validates both, checks `regenerateOf` belongs to the same brand, and passes them through to the job.
+- **`GenerateArgs`** (`src/components/design/use-design-generation.ts`) gains `image?: { source: "upload"; key: string } | { source: "ko" } | { source: "none" }` and `regenerateOf?: string` (a generation id; requires `image`). The route validates both, checks `regenerateOf` belongs to the same brand, and passes them through to the job.
 - **`JobProgress`** (`src/lib/generation/poll-job.ts`) gains `stage?: "brief" | "imagery" | "render" | "checks"`.
 - **Upload helpers:**
   - `src/lib/uploads/normalize-image.ts` (browser): `normalizeImageForUpload(file: File): Promise<{ blob: Blob; type: "image/png" | "image/jpeg"; width: number; height: number }>`. It throws `ImageNotUsableError` with a user-facing message; a fully transparent image is `blank`.
@@ -445,7 +445,9 @@ These are the seams the parallel units build against.
 - **Entry points:** every user of the shared `GenerateDesignButton` (calendar item drawer, strategy design brief panel) plus the Design Studio generate action. The flow lives behind `GenerateDesignButton`, so no entry point can skip the image choice.
 - **Send to design team** stays: each direction card carries it, keyed per row, with the ticket context the calendar drawer passes today.
 - **Legacy rows** (no `direction`) keep opening the existing `DesignPreviewModal`.
-- **Flow:** both open the image-choice modal: "Use a specific image" or "Let KO create the imagery".
+- **Flow:** both open the image-choice modal. With `FEATURE_KO_IMAGERY` on: "Use a specific image" or "Let KO create the imagery". With it off (the PR 1 default, Oluwaseyi's ruling 2026-10-27): "Use a specific image" or "Design without an image", which sends `image: { source: "none" }` for a text-led pair; no KO-imagery control is rendered anywhere in the dialog, including the way out of an unusable image.
+  - **How the flag reaches the dialog:** the server pages that can open it (Design Studio, Calendar, Strategy) read `koImageryEnabled()` and wrap their client in `KoImageryProvider` (`src/components/design/directions/ko-imagery-context.tsx`); the dialog reads `useKoImageryOffered()`. Without a provider it reads false, so a new entry point that forgets the flag hides KO imagery rather than offering a choice the route refuses with 403 `ko_imagery_disabled`. `offeredSources(koImagery)` in `flow-logic.ts` is the one rule for what the choice offers.
+  - **Tests:** `flow-logic.test.ts` (`offeredSources`, the text-led steps), `upload-steps.test.tsx` and `generation-status.test.tsx` (each control in both states), `design-directions-dialog.test.tsx` (every control on every reachable screen pressed with the flag off, none sends `ko`), `generate-design-button.ko-flag.test.tsx` (the real hook with only `fetch` faked: flag off or no provider sends `none`, never `ko`), and `calendar/page.test.tsx` plus `ko-imagery-pages.test.tsx` (each page hands the env value down).
   - **Upload:** drop zone with click-to-browse, type and size validation, preview with Remove / Replace / Use this image.
   - **Progress:** a step progress modal driven by `JobProgress.stage`, with an error state. Four steps on the KO path (Brief, Imagery, Layout, Checks); three on the upload path, which never runs `imagery` and so never lists it.
   - **Results:** two direction cards, each with the image, "why this works", Download PNG, Download JPG, Send to design team and Regenerate (this direction only, via `regenerateOf`). Editing is phase 2, so the card has no Edit control yet. A placeholder for an unbuilt feature is a lie.
@@ -459,7 +461,7 @@ These are the seams the parallel units build against.
 ### Measurable outcome
 
 - **Events:**
-  - `design_image_choice` with `{source, entry}`
+  - `design_image_choice` with `{source, entry}` (`source`: `upload`, `ko` or `none`)
   - `design_directions_generated` with `{source, directions, quality_faults}`
   - `design_downloaded` with `{format, image_source}`
 - **Funnel:** image choice → directions delivered → download.

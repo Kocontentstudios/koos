@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withKoImagery } from "@/lib/testing/ko-imagery";
 import { DesignStudioClient } from "./design-studio-client";
 
 const generate = vi.fn();
@@ -56,6 +57,7 @@ function renderStudio(initial: unknown[] = [generation()]) {
       brandName="Lagos Loom"
       initialGenerations={initial as never}
     />,
+    withKoImagery(true),
   );
 }
 

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DesignImageError } from "@/lib/uploads/design-image";
 import { FlowChromeProvider } from "./flow-heading";
+import type { ImageSource } from "./flow-logic";
 import {
   GenerationError,
   GenerationProgress,
@@ -111,12 +112,14 @@ describe("GenerationProgress", () => {
 function errorView(
   message: string,
   unusableImage: boolean,
-  source: "upload" | "ko" = "upload",
+  source: ImageSource = "upload",
+  koImagery = true,
 ) {
   const handlers = {
     onRetry: vi.fn(),
     onChooseAnotherImage: vi.fn(),
     onUseKoImagery: vi.fn(),
+    onNoImage: vi.fn(),
     onChangeImage: vi.fn(),
   };
   renderStatic(
@@ -124,6 +127,7 @@ function errorView(
       message={message}
       source={source}
       unusableImage={unusableImage}
+      koImagery={koImagery}
       {...handlers}
     />,
   );
@@ -165,6 +169,26 @@ describe("GenerationError", () => {
     expect(alert.textContent?.match(/can't be used/g)).toHaveLength(1);
     expect(alert.textContent?.match(/choose another image/gi)).toHaveLength(1);
     expect(alert.textContent).not.toMatch(/let KO create the imagery instead/);
+  });
+
+  /* FEATURE_KO_IMAGERY off (Oluwaseyi's ruling, 2026-10-27): the second way
+     out of an unusable image is a text-led design, never KO imagery. */
+  it("offers a design without an image instead of KO imagery when the flag is off", async () => {
+    const handlers = errorView(
+      new DesignImageError("not_png_or_jpeg").message,
+      true,
+      "upload",
+      false,
+    );
+    expect(
+      screen.queryByRole("button", { name: /let ko create the imagery/i }),
+    ).toBeNull();
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/KO/);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Design without an image" }),
+    );
+    expect(handlers.onNoImage).toHaveBeenCalledOnce();
+    expect(handlers.onUseKoImagery).not.toHaveBeenCalled();
   });
 
   it("keeps a remedy the buttons do not give", () => {

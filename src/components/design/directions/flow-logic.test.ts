@@ -11,6 +11,7 @@ import {
   generationStepIndex,
   generationSteps,
   isUnusableImageError,
+  offeredSources,
   resultsHeading,
   startOverLabel,
   unusableImageDetail,
@@ -86,6 +87,26 @@ describe("generationSteps", () => {
     const steps = generationSteps("upload");
     expect(steps.map((s) => s.stage)).toEqual(["brief", "render", "checks"]);
     expect(steps[1].long).toMatch(/your image/);
+  });
+
+  it("has no imagery step on the text-led path, and says the words lead", () => {
+    const steps = generationSteps("none");
+    expect(steps.map((s) => s.stage)).toEqual(["brief", "render", "checks"]);
+    expect(steps[1].long).toMatch(/your words/);
+    expect(steps.map((s) => s.long).join(" ")).not.toMatch(/image/i);
+  });
+});
+
+/* Oluwaseyi's ruling, 2026-10-27: no KO imagery in the UI while
+   FEATURE_KO_IMAGERY is off. */
+describe("offeredSources", () => {
+  it("offers the upload and KO imagery when the flag is on", () => {
+    expect(offeredSources(true)).toEqual(["upload", "ko"]);
+  });
+
+  it("offers the upload and no image, never KO, when the flag is off", () => {
+    expect(offeredSources(false)).toEqual(["upload", "none"]);
+    expect(offeredSources(false)).not.toContain("ko");
   });
 });
 
@@ -238,6 +259,7 @@ describe("startOverLabel", () => {
   it("offers to change the image only when one was chosen", () => {
     expect(startOverLabel("upload")).toBe("Change image");
     expect(startOverLabel("ko")).toBe("Start over");
+    expect(startOverLabel("none")).toBe("Start over");
     expect(startOverLabel(null)).toBe("Start over");
   });
 });

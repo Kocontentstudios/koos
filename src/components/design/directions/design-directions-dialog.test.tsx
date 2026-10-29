@@ -1,8 +1,12 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DesignGenerationState } from "@/components/design/use-design-generation";
+import type {
+  DesignGenerationState,
+  GenerateArgs,
+} from "@/components/design/use-design-generation";
 import type { SerializedGeneration } from "@/lib/design/serialize";
+import { withKoImagery } from "@/lib/testing/ko-imagery";
 import { DesignImageError } from "@/lib/uploads/design-image";
 
 const captureEvent = vi.fn();
@@ -108,8 +112,12 @@ function dialog(design: DesignGenerationState, onOpenChange = vi.fn()) {
   );
 }
 
-function open(design: DesignGenerationState, onOpenChange = vi.fn()) {
-  const utils = render(dialog(design, onOpenChange));
+function open(
+  design: DesignGenerationState,
+  onOpenChange = vi.fn(),
+  koImagery = true,
+) {
+  const utils = render(dialog(design, onOpenChange), withKoImagery(koImagery));
   return { ...utils, onOpenChange };
 }
 
@@ -163,6 +171,125 @@ beforeEach(() => {
 });
 
 const pick = () => new File(["x"], "cake.png", { type: "image/png" });
+
+/* Oluwaseyi's ruling, 2026-10-27: the UI must not offer KO imagery while
+   FEATURE_KO_IMAGERY is off. The only choices are the client's upload and a
+   text-led design with no image, on every screen of the dialog. */
+describe("DesignDirectionsDialog with FEATURE_KO_IMAGERY off", () => {
+  const koRequests = (design: DesignGenerationState) =>
+    vi
+      .mocked(design.generate)
+      .mock.calls.filter(
+        ([args]) => (args as GenerateArgs).image?.source === "ko",
+      );
+
+  it("offers the upload and no image, and nothing that names KO imagery", () => {
+    open(runState(), vi.fn(), false);
+    const dialogEl = screen.getByRole("dialog");
+    expect(
+      within(dialogEl).getByRole("button", { name: /use a specific image/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialogEl).getByRole("button", {
+        name: /design without an image/i,
+      }),
+    ).toBeInTheDocument();
+    expect(dialogEl).not.toHaveTextContent(/let ko create|ko imagery/i);
+  });
+
+  it("generates a text-led pair with no image and records the choice", async () => {
+    const design = runState();
+    const { rerender } = open(design, vi.fn(), false);
+    await userEvent.click(
+      screen.getByRole("button", { name: /design without an image/i }),
+    );
+    expect(design.generate).toHaveBeenCalledWith({
+      brandId: BRAND,
+      calendarItemId: "item-1",
+      image: { source: "none" },
+    });
+    expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
+      source: "none",
+      entry: "calendar",
+    });
+
+    rerender(
+      dialog({
+        ...design,
+        pending: true,
+        stage: "running",
+        jobStage: "render",
+        progress: { done: 0, total: 2 },
+      }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /^Laying out both designs around your words.*, step 2 of 3$/,
+    );
+  });
+
+  it("offers no image, not KO imagery, as the way out of an unusable image", async () => {
+    const design = runState();
+    const { rerender } = open(design, vi.fn(), false);
+    await userEvent.click(
+      screen.getByRole("button", { name: /design without an image/i }),
+    );
+    vi.mocked(design.generate).mockClear();
+    rerender(
+      dialog({
+        ...design,
+        error: new DesignImageError("not_png_or_jpeg").message,
+      }),
+    );
+    const alert = screen.getByRole("alert");
+    expect(
+      within(alert).queryByRole("button", { name: /let ko create/i }),
+    ).toBeNull();
+    await userEvent.click(
+      within(alert).getByRole("button", { name: "Design without an image" }),
+    );
+    expect(design.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ image: { source: "none" } }),
+    );
+  });
+
+  /* Every control on every screen reachable without a server is pressed,
+     each on a fresh dialog so one press cannot hide the next; not one of
+     them may produce a request with source "ko". */
+  it("cannot produce a KO-imagery request from any control", async () => {
+    const design = runState();
+    const buttons = () =>
+      within(screen.getByRole("dialog")).getAllByRole("button");
+    const choose = async () => open(design, vi.fn(), false);
+    const failed = (error: string) => async () => {
+      const utils = open(design, vi.fn(), false);
+      await userEvent.click(
+        screen.getByRole("button", { name: /design without an image/i }),
+      );
+      utils.rerender(dialog({ ...design, error }));
+      return utils;
+    };
+    const screens = [
+      choose,
+      failed(new DesignImageError("not_png_or_jpeg").message),
+      failed("The job timed out."),
+    ];
+    let pressed = 0;
+    for (const reach of screens) {
+      const first = await reach();
+      const count = buttons().length;
+      first.unmount();
+      for (let i = 0; i < count; i++) {
+        const utils = await reach();
+        await userEvent.click(buttons()[i]);
+        pressed++;
+        utils.unmount();
+      }
+    }
+    expect(pressed).toBeGreaterThanOrEqual(8);
+    expect(design.generate).toHaveBeenCalled();
+    expect(koRequests(design)).toEqual([]);
+  });
+});
 
 describe("DesignDirectionsDialog", () => {
   it("starts with the image choice and nothing generated", () => {

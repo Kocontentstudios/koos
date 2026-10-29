@@ -5,8 +5,9 @@
  * events and briefs with no product kept shipping objects and run-down
  * scenes, so PR 1 ships directions on the client's own photo or laid out as
  * text, and KO imagery waits for its follow-up. Read here and nowhere else.
- * No client surface offers KO imagery yet; the directions dialog reads it
- * from the server when it lands.
+ * The pages that open the image-choice dialog (Design Studio, Calendar,
+ * Strategy) hand it to the dialog through KoImageryProvider; off, the dialog
+ * offers the client's upload or a text-led design with no image.
  */
 export function koImageryEnabled(
   env: Record<string, string | undefined> = process.env,

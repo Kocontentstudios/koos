@@ -85,8 +85,8 @@ stable for the lifetime of one login) where available.
 | `design_ticket_submitted` | design ticket created | `design_type`, `from_calendar_item` |
 | `design_request_start_opened` | Design Tickets chooser opened | `label` (which CTA) |
 | `design_request_start_selected` | a start path chosen in the chooser | `option` (`direct`/`calendar`/`campaign`) |
-| `design_image_choice` | (client) a design run starts from the image choice (FEAT-033) | `source` (`upload`/`ko`), `entry` (`calendar` = calendar item drawer, `brief` = strategy design brief panel, `studio` = Design Studio) |
-| `design_downloaded` | (client) a generated design is downloaded, from a direction card or the design preview | `format` (`png`/`jpg`), `image_source` (`upload`/`ko`, or `null` for a design made before directions) |
+| `design_image_choice` | (client) a design run starts from the image choice (FEAT-033) | `source` (`upload`/`ko`/`none`; `none` is "Design without an image", the second choice while `FEATURE_KO_IMAGERY` is off, and `ko` cannot occur then), `entry` (`calendar` = calendar item drawer, `brief` = strategy design brief panel, `studio` = Design Studio) |
+| `design_downloaded` | (client) a generated design is downloaded, from a direction card or the design preview | `format` (`png`/`jpg`), `image_source` (`upload`/`ko`/`none`, or `null` for a design made before directions) |
 | `access_gate_viewed` | (client) a pending account sees `/access` | `workspaceId` |
 | `access_book_call_clicked` | (client) "Book a call" clicked on `/access` | `workspaceId` |
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
@@ -105,8 +105,8 @@ With the server's `design_directions_generated` it forms the FEAT-033 funnel:
 choice, then directions delivered, then `design_downloaded`. A slot
 regenerate is not a new choice and fires nothing. Split the funnel by
 `entry` to see which entry point people generate from, and split
-`design_downloaded` by `image_source` to compare how often an upload run and
-a KO-imagery run end in a download. A PNG download fires on the click that
+`design_downloaded` by `image_source` to compare how often an upload run, a
+KO-imagery run and a text-led run (`none`) end in a download. A PNG download fires on the click that
 opens it; a JPG fires only once the browser has finished converting it.
 
 `design_directions_generated` is the middle step of the FEAT-033 funnel,

@@ -6,7 +6,16 @@ import {
   MAX_DESIGN_IMAGE_BYTES,
 } from "@/lib/uploads/design-image-limits";
 
-export type ImageSource = "upload" | "ko";
+export type ImageSource = "upload" | "ko" | "none";
+
+/**
+ * What the image choice offers. KO imagery is behind FEATURE_KO_IMAGERY
+ * (Oluwaseyi's ruling, 2026-10-27): while it is off the second choice is a
+ * text-led design with no image, so the UI can never send `source: "ko"`.
+ */
+export function offeredSources(koImagery: boolean): ImageSource[] {
+  return koImagery ? ["upload", "ko"] : ["upload", "none"];
+}
 
 const ALLOWED_TYPES = new Set<string>(DESIGN_IMAGE_INPUT_TYPES);
 const ALLOWED_EXTENSIONS = /\.(png|jpe?g|webp)$/i;
@@ -44,7 +53,7 @@ export interface GenerationStep {
 
 const JOB_STAGE_ORDER: JobStage[] = ["brief", "imagery", "render", "checks"];
 
-/* The upload path never runs the imagery stage, so it has no step for it: a
+/* Only the KO path runs the imagery stage, so only it has a step for it: a
    step that is always skipped would read as something that failed. */
 export function generationSteps(source: ImageSource): GenerationStep[] {
   return [
@@ -68,7 +77,9 @@ export function generationSteps(source: ImageSource): GenerationStep[] {
       long:
         source === "upload"
           ? "Laying out your image in both designs"
-          : "Laying out both designs",
+          : source === "none"
+            ? "Laying out both designs around your words"
+            : "Laying out both designs",
     },
     {
       stage: "checks",

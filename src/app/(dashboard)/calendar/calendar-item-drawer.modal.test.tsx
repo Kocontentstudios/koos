@@ -15,6 +15,7 @@ import {
   launchChromium,
   pageHtml,
 } from "@/lib/testing/browser-layout";
+import { withKoImagery } from "@/lib/testing/ko-imagery";
 
 /* Round 5 (D-A): opened from this drawer, the image dialog is a nested Base
    UI dialog. Base UI drops a nested dialog's backdrop, so the drawer beside
@@ -96,6 +97,7 @@ function renderDrawer() {
       submitted={false}
       onRequestDesign={vi.fn()}
     />,
+    withKoImagery(true),
   );
   return { onOpenChange };
 }

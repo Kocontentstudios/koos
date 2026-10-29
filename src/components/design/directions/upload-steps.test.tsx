@@ -13,10 +13,13 @@ describe("ImageChoice", () => {
   it("offers both sources as buttons", async () => {
     const onUseOwnImage = vi.fn();
     const onLetKoCreate = vi.fn();
+    const onNoImage = vi.fn();
     render(
       <ImageChoice
+        koImagery
         onUseOwnImage={onUseOwnImage}
         onLetKoCreate={onLetKoCreate}
+        onNoImage={onNoImage}
         onFileDropped={vi.fn()}
       />,
     );
@@ -28,6 +31,37 @@ describe("ImageChoice", () => {
     );
     expect(onUseOwnImage).toHaveBeenCalledOnce();
     expect(onLetKoCreate).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: /design without an image/i }),
+    ).toBeNull();
+    expect(onNoImage).not.toHaveBeenCalled();
+  });
+
+  /* FEATURE_KO_IMAGERY off (Oluwaseyi's ruling, 2026-10-27): the only
+     choices are the client's own image and a text-led design. */
+  it("offers the upload and no image, and no KO imagery, when the flag is off", async () => {
+    const onLetKoCreate = vi.fn();
+    const onNoImage = vi.fn();
+    render(
+      <ImageChoice
+        koImagery={false}
+        onUseOwnImage={vi.fn()}
+        onLetKoCreate={onLetKoCreate}
+        onNoImage={onNoImage}
+        onFileDropped={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getAllByRole("button")
+        .map((b) => b.querySelector(".font-semibold")?.textContent),
+    ).toEqual(["Use a specific image", "Design without an image"]);
+    expect(screen.queryByText(/let ko create/i)).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: /design without an image/i }),
+    );
+    expect(onNoImage).toHaveBeenCalledOnce();
+    expect(onLetKoCreate).not.toHaveBeenCalled();
   });
 
   /* Dropping straight onto the card skips the empty drop zone: one step
@@ -36,8 +70,10 @@ describe("ImageChoice", () => {
     const onFileDropped = vi.fn();
     render(
       <ImageChoice
+        koImagery={false}
         onUseOwnImage={vi.fn()}
         onLetKoCreate={vi.fn()}
+        onNoImage={vi.fn()}
         onFileDropped={onFileDropped}
       />,
     );
@@ -51,20 +87,28 @@ describe("ImageChoice", () => {
 
   /* The design-system outline (2px --primary): the old accent-glow ring
      measured 1.15:1 and was invisible in light mode. */
-  it("draws the visible focus outline on both cards", () => {
-    render(
-      <ImageChoice
-        onUseOwnImage={vi.fn()}
-        onLetKoCreate={vi.fn()}
-        onFileDropped={vi.fn()}
-      />,
-    );
-    for (const name of [/use a specific image/i, /let ko create/i]) {
-      const card = screen.getByRole("button", { name });
-      expect(card).toHaveClass("focus-visible:focus-outline");
-      expect(card.className).not.toContain("accent-glow");
-    }
-  });
+  it.each([
+    [true, /let ko create/i],
+    [false, /design without an image/i],
+  ])(
+    "draws the visible focus outline on both cards (KO imagery %s)",
+    (koImagery, second) => {
+      render(
+        <ImageChoice
+          koImagery={koImagery}
+          onUseOwnImage={vi.fn()}
+          onLetKoCreate={vi.fn()}
+          onNoImage={vi.fn()}
+          onFileDropped={vi.fn()}
+        />,
+      );
+      for (const name of [/use a specific image/i, second]) {
+        const card = screen.getByRole("button", { name });
+        expect(card).toHaveClass("focus-visible:focus-outline");
+        expect(card.className).not.toContain("accent-glow");
+      }
+    },
+  );
 });
 
 describe("ImageDropzone", () => {

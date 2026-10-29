@@ -1,6 +1,6 @@
 "use client";
 
-import { ImageIcon, LayoutTemplate, Sparkles } from "lucide-react";
+import { ImageIcon, LayoutTemplate, Sparkles, Type } from "lucide-react";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { trackDesignDownload } from "@/components/design/design-analytics";
 import { Button } from "@/components/ui/button";
@@ -100,13 +100,17 @@ function SourcePill({
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-[var(--status-progress-bg)] px-2.5 py-1 text-[12px] font-medium text-[var(--status-progress-fg)]">
       {source === "upload" ? (
         <ImageIcon aria-hidden="true" className="size-3.5 shrink-0" />
+      ) : source === "none" ? (
+        <Type aria-hidden="true" className="size-3.5 shrink-0" />
       ) : (
         <Sparkles aria-hidden="true" className="size-3.5 shrink-0" />
       )}
       <span className="truncate">
         {source === "upload"
           ? `Built around ${imageName ?? "your image"}`
-          : "KO-created imagery"}
+          : source === "none"
+            ? "Text-led, no image"
+            : "KO-created imagery"}
       </span>
     </span>
   );

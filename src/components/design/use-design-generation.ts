@@ -18,9 +18,12 @@ export interface GenerateArgs {
   regenerateOf?: string;
 }
 
+/** `none` is a text-led design with no image, the second choice while
+ *  FEATURE_KO_IMAGERY is off. */
 export type DesignImageChoice =
   | { source: "upload"; key: string }
-  | { source: "ko" };
+  | { source: "ko" }
+  | { source: "none" };
 
 /**
  * Where a run is, coarser than the job's own label: "starting" until the

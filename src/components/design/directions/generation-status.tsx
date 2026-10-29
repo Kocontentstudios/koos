@@ -1,6 +1,12 @@
 "use client";
 
-import { ImageOff, RotateCw, Sparkles, TriangleAlert } from "lucide-react";
+import {
+  ImageOff,
+  RotateCw,
+  Sparkles,
+  TriangleAlert,
+  Type,
+} from "lucide-react";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { ProgressSteps } from "@/components/ui/progress-steps";
@@ -11,6 +17,7 @@ import {
   generationStepIndex,
   generationSteps,
   type ImageSource,
+  offeredSources,
   startOverLabel,
   unusableImageDetail,
 } from "./flow-logic";
@@ -80,7 +87,11 @@ export interface GenerationErrorProps {
   unusableImage: boolean;
   onRetry: () => void;
   onChooseAnotherImage: () => void;
+  /** FEATURE_KO_IMAGERY, from the server. Off, the second way out of an
+   *  unusable image is a text-led design, never KO imagery. */
+  koImagery: boolean;
   onUseKoImagery: () => void;
+  onNoImage: () => void;
   onChangeImage: () => void;
 }
 
@@ -90,7 +101,9 @@ export function GenerationError({
   unusableImage,
   onRetry,
   onChooseAnotherImage,
+  koImagery,
   onUseKoImagery,
+  onNoImage,
   onChangeImage,
 }: GenerationErrorProps) {
   const Icon = unusableImage ? ImageOff : TriangleAlert;
@@ -119,10 +132,21 @@ export function GenerationError({
             <Button type="button" onClick={onChooseAnotherImage}>
               Choose another image
             </Button>
-            <Button type="button" variant="secondary" onClick={onUseKoImagery}>
-              <Sparkles aria-hidden="true" />
-              Let KO create the imagery
-            </Button>
+            {offeredSources(koImagery).includes("ko") ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onUseKoImagery}
+              >
+                <Sparkles aria-hidden="true" />
+                Let KO create the imagery
+              </Button>
+            ) : (
+              <Button type="button" variant="secondary" onClick={onNoImage}>
+                <Type aria-hidden="true" />
+                Design without an image
+              </Button>
+            )}
           </>
         ) : (
           <>

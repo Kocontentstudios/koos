@@ -62,6 +62,7 @@ export type DirectionsView =
 export interface DirectionsHandlers {
   onUseOwnImage: () => void;
   onLetKoCreate: () => void;
+  onNoImage: () => void;
   onFile: (file: File) => void;
   onRemoveImage: () => void;
   onRetryUpload: () => void;
@@ -211,10 +212,13 @@ export function DirectionsFlowView({
   entry,
   view,
   handlers,
+  koImagery,
 }: {
   entry: DirectionsEntry;
   view: DirectionsView;
   handlers: DirectionsHandlers;
+  /** FEATURE_KO_IMAGERY, from the server; off hides every KO-imagery choice. */
+  koImagery: boolean;
 }) {
   switch (view.step) {
     case "choose":
@@ -222,11 +226,17 @@ export function DirectionsFlowView({
         <>
           <Header
             title={CHOOSE_TITLE[entry]}
-            description="Use your own image or let KO create it. Either way you get two different design directions to pick from."
+            description={
+              koImagery
+                ? "Use your own image or let KO create it. Either way you get two different design directions to pick from."
+                : "Use your own image, or go without one and let your words lead. Either way you get two different design directions to pick from."
+            }
           />
           <ImageChoice
+            koImagery={koImagery}
             onUseOwnImage={handlers.onUseOwnImage}
             onLetKoCreate={handlers.onLetKoCreate}
+            onNoImage={handlers.onNoImage}
             onFileDropped={handlers.onFile}
           />
         </>
@@ -299,7 +309,9 @@ export function DirectionsFlowView({
           unusableImage={view.unusableImage}
           onRetry={handlers.onRetryGeneration}
           onChooseAnotherImage={handlers.onChooseAnotherImage}
+          koImagery={koImagery}
           onUseKoImagery={handlers.onLetKoCreate}
+          onNoImage={handlers.onNoImage}
           onChangeImage={handlers.onBackToChoice}
         />
       );

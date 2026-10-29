@@ -29,6 +29,7 @@ import {
 import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
+import { useKoImageryOffered } from "./ko-imagery-context";
 import { useDesignImageUpload } from "./use-design-image-upload";
 
 type Step = "choose" | "upload" | "run";
@@ -86,6 +87,7 @@ export function DesignDirectionsDialog({
      stays on screen while it works. */
   const slotRun = useDesignGeneration();
   const escapeLayers = useEscapeLayerStack();
+  const koImagery = useKoImageryOffered();
   const [step, setStep] = useState<Step>("choose");
   const [source, setSource] = useState<ImageSource | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
@@ -231,7 +233,12 @@ export function DesignDirectionsDialog({
 
   const handlers: DirectionsHandlers = {
     onUseOwnImage: () => setStep("upload"),
-    onLetKoCreate: () => start({ source: "ko" }),
+    /* The view renders no KO choice while the flag is off; this guard keeps
+       a stale handler from reaching a request the server would refuse. */
+    onLetKoCreate: () => {
+      if (koImagery) start({ source: "ko" });
+    },
+    onNoImage: () => start({ source: "none" }),
     onFile: (file) => {
       setWaitingOnUpload(false);
       setStep("upload");
@@ -307,7 +314,7 @@ export function DesignDirectionsDialog({
         : design.pending
           ? {
               step: "progress",
-              source: source ?? "ko",
+              source: source ?? "none",
               stage: design.stage,
               jobStage: design.jobStage,
               progress: design.progress,
@@ -315,7 +322,7 @@ export function DesignDirectionsDialog({
           : design.error
             ? {
                 step: "error",
-                source: source ?? "ko",
+                source: source ?? "none",
                 message: design.error,
                 unusableImage: isUnusableImageError(design.error),
               }
@@ -359,6 +366,7 @@ export function DesignDirectionsDialog({
                 entry={entry}
                 view={view}
                 handlers={handlers}
+                koImagery={koImagery}
               />
             </EscapeLayerProvider>
           </FlowChromeProvider>
