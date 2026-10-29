@@ -1,5 +1,11 @@
 import type { DesignElement } from "../schema";
-import { SUBJECT_COVERED, SUBJECT_CROPPED } from "../subject";
+import {
+  grown,
+  intersection,
+  SUBJECT_COVERED,
+  SUBJECT_CROPPED,
+  subjectOnCanvas,
+} from "../subject";
 import {
   type Built,
   type Context,
@@ -27,8 +33,15 @@ import {
   subjectGap,
 } from "./image";
 import { HERO_OVER_PHOTO } from "./looks";
-import { copyBlocks, gradedVeil, scrimElement } from "./scrim";
 import {
+  copyBlocks,
+  gradedVeil,
+  scrimElement,
+  type VeilFrom,
+  veiledFaces,
+} from "./scrim";
+import {
+  buttonOn,
   CUTOUT_SHARES,
   copyBottom,
   flatColors,
@@ -45,8 +58,10 @@ import {
  * (subject.ts):
  *  1. the photo full bleed, copy low, the subject framed above it;
  *  2. the photo full bleed, copy high, the subject below it;
- *  3. the subject in a band above the copy, the copy on the flat ground.
- * A cut-out only ever takes 3: it is a product on nothing, and the flat
+ *  3. the photo full bleed, copy in a band down the side opposite the
+ *     subject, under a veil that stops short of it (sideBleed);
+ *  4. the subject in a band above the copy, the copy on the flat ground.
+ * A cut-out only ever takes 4: it is a product on nothing, and the flat
  * ground is its background. When none holds, 1 is drawn and the fault is
  * reported. Without a subject the photo fills the canvas and the copy is
  * veiled only as much as the pixels under each run need (scrim.ts).
@@ -78,6 +93,8 @@ export async function heroCenter(ctx: Context): Promise<Built> {
     const attempt = await fullBleed(ctx, foot, vAlign, true);
     if (attempt) return settle(ctx, attempt);
   }
+  const bled = await sideBleed(ctx);
+  if (bled) return bled;
   const banded = await band(ctx, foot, true);
   if (banded) return banded;
   const aside = await beside(ctx, true);
@@ -193,6 +210,118 @@ async function fullBleed(
     veilCost: graded.cost,
     stack,
   };
+}
+
+/* The share of the canvas a side band of copy takes over a full-bleed
+   photo: the copy column of a split, so the type sets as it does there. */
+const SIDE_BAND_SHARE = 0.46;
+
+/**
+ * The photo over the whole canvas, the copy in a band down the side
+ * opposite the subject, under a veil graded across from the canvas edge
+ * that stops short of the subject. Oluwaseyi's ruling of 2026-10-28 asks
+ * for the photo in both directions of a pair in different compositions,
+ * "full-bleed with a scrim" named; a portrait or facade that fits only
+ * beside the copy otherwise ships as a left/right mirror (round-9 live
+ * critic). Null unless the band keeps the subject and every head clear,
+ * the subject whole at its minimum size: no copy and no veil on them.
+ */
+async function sideBleed(ctx: Context): Promise<Built | null> {
+  const { width, height, margin, palette, subject, imageFacts } = ctx;
+  if (!subject || !imageFacts || isCutout(ctx)) return null;
+  const canvas = rect(0, 0, width, height);
+  const bandWidth = px(width * SIDE_BAND_SHARE);
+  const sides: Exclude<VeilFrom, "top" | "bottom">[] =
+    subject.x + subject.w / 2 >= 0.5 ? ["left", "right"] : ["right", "left"];
+  for (const side of sides) {
+    const band =
+      side === "left"
+        ? rect(0, 0, bandWidth, height)
+        : rect(width - bandWidth, 0, bandWidth, height);
+    const foot = await footer(ctx, {
+      band: { x: band.x + margin, width: band.width - margin * 2 },
+      align: "center",
+      color: palette.foreground,
+    });
+    const bar = foot && ctx.spec.footerStyle === "bar" ? foot : null;
+    const keepOut = [band, ...(bar ? [rect(0, bar.top, width, height)] : [])];
+    const framed = framedImage(ctx, canvas, { keepOut });
+    if (!framed?.clean || !framed.subject) continue;
+    const gap = subjectGap(ctx);
+    const heads = (ctx.heads ?? []).map((head) =>
+      subjectOnCanvas(imageFacts, head, framed.placement),
+    );
+    if (
+      keepOut.some((zone) =>
+        heads.some((h) => intersection(h, grown(zone, gap))),
+      )
+    ) {
+      continue;
+    }
+    const stack = await stackIn(
+      ctx,
+      rect(
+        band.x + margin,
+        margin,
+        band.width - margin * 2,
+        copyBottom(ctx, foot) - margin,
+      ),
+      "center",
+    );
+    const copy = await placeStack(stack);
+    /* The veil runs from the canvas edge to the subject less the gap, so
+       none of it lies on the subject. */
+    const veilBox =
+      side === "left"
+        ? rect(0, 0, Math.max(band.width, framed.subject.x - gap), height)
+        : (() => {
+            const from = Math.min(
+              band.x,
+              framed.subject.x + framed.subject.width + gap,
+            );
+            return rect(from, 0, width - from, height);
+          })();
+    const options = { from: side, background: palette.background };
+    const text = [...copy.filter((e) => e.id !== "cta"), ...veiledFooter(foot)];
+    const graded = gradedVeil(
+      ctx,
+      framed.placement,
+      veilBox,
+      copyBlocks(ctx, text),
+      options,
+    );
+    const button = copy.find((e) => e.type === "button");
+    const buttonGround = button
+      ? veiledFaces(
+          ctx,
+          framed.placement,
+          veilBox,
+          [
+            {
+              box: rect(button.x, button.y, button.width, button.height),
+              large: false,
+            },
+          ],
+          graded,
+          options,
+        )
+      : [];
+    const pill = buttonOn(ctx, buttonGround);
+    const elements: DesignElement[] = [framed.element];
+    const scrim = scrimElement(veilBox, graded, { from: side });
+    if (scrim) elements.push(scrim);
+    elements.push(
+      ...recolorCopy(copy, graded.veil.text).map((e) =>
+        e.type === "button" ? { ...e, fill: pill.fill, color: pill.label } : e,
+      ),
+    );
+    if (foot) elements.push(...recolorFooter(foot, graded.veil.text).elements);
+    const logo = logoElement(ctx);
+    if (logo) elements.push(logo);
+    commitFaults(ctx, stack);
+    return { background: palette.background, elements };
+  }
+  return null;
 }
 
 /** Footer lines that sit on the photo, not on a bar of their own. */

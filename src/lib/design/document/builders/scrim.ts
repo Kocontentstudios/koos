@@ -48,6 +48,12 @@ export const MIN_RAMP = 0.25;
 /** Most stops a gradient may have (schema). */
 const MAX_STOPS = 5;
 
+/** The edge a veil is densest at: under copy set low, high, or in a band
+ *  down one side of a full-bleed photo. */
+export type VeilFrom = "bottom" | "top" | "left" | "right";
+
+const isAcross = (from: VeilFrom) => from === "left" || from === "right";
+
 export interface CopyBlock {
   box: Rect;
   large: boolean;
@@ -168,7 +174,7 @@ function lightnessChange(
   box: Rect,
   stops: Stop[],
   veil: { color: string },
-  options: { from: "bottom" | "top"; background: string },
+  options: { from: VeilFrom; background: string },
 ): number {
   if (stops.length === 0) return 0;
   let total = 0;
@@ -176,14 +182,10 @@ function lightnessChange(
     const u = (row + 0.5) / COST_ROWS;
     const alpha = alphaAt(stops, u);
     if (alpha === 0) continue;
-    const y =
-      options.from === "top"
-        ? box.y + box.height * (1 - (row + 1) / COST_ROWS)
-        : box.y + (box.height * row) / COST_ROWS;
     const samples = samplesUnder(
       ctx,
       placement,
-      rect(box.x, y, box.width, box.height / COST_ROWS),
+      sliceAt(box, row, options.from),
       options.background,
     );
     const seen = veiled(samples, veil, alpha);
@@ -194,6 +196,22 @@ function lightnessChange(
     total += change / samples.length;
   }
   return total / COST_ROWS;
+}
+
+/* The `row`th of COST_ROWS slices of `box`, counted from its clear edge. */
+function sliceAt(box: Rect, row: number, from: VeilFrom): Rect {
+  const near = row / COST_ROWS;
+  const far = (row + 1) / COST_ROWS;
+  if (isAcross(from)) {
+    const x =
+      from === "left"
+        ? box.x + box.width * (1 - far)
+        : box.x + box.width * near;
+    return rect(x, box.y, box.width / COST_ROWS, box.height);
+  }
+  const y =
+    from === "top" ? box.y + box.height * (1 - far) : box.y + box.height * near;
+  return rect(box.x, y, box.width, box.height / COST_ROWS);
 }
 
 export interface GradedVeil {
@@ -212,7 +230,7 @@ export function gradedVeil(
   placement: ImagePlacement | null,
   box: Rect,
   blocks: CopyBlock[],
-  options: { from: "bottom" | "top"; background: string },
+  options: { from: VeilFrom; background: string },
 ): GradedVeil {
   const lead = (block: CopyBlock) => edgesOf(box, block, options.from)[0];
   let best: GradedVeil | null = null;
@@ -264,8 +282,13 @@ export function gradedVeil(
 function edgesOf(
   box: Rect,
   block: CopyBlock,
-  from: "bottom" | "top",
+  from: VeilFrom,
 ): [number, number] {
+  if (isAcross(from)) {
+    const left = (block.box.x - box.x) / box.width;
+    const right = (block.box.x + block.box.width - box.x) / box.width;
+    return from === "left" ? [1 - right, 1 - left] : [left, right];
+  }
   const top = (block.box.y - box.y) / box.height;
   const bottom = (block.box.y + block.box.height - box.y) / box.height;
   return from === "top" ? [1 - bottom, 1 - top] : [top, bottom];
@@ -282,7 +305,7 @@ export function veiledFaces(
   box: Rect,
   blocks: CopyBlock[],
   graded: GradedVeil,
-  options: { from: "bottom" | "top"; background: string },
+  options: { from: VeilFrom; background: string },
 ): Rgb[] {
   return blocks.flatMap((block) => {
     const samples = samplesUnder(ctx, placement, block.box, options.background);
@@ -296,10 +319,11 @@ export function veiledFaces(
 export function scrimElement(
   box: Rect,
   graded: GradedVeil,
-  options: { from: "bottom" | "top"; radius?: number },
+  options: { from: VeilFrom; radius?: number },
 ): DesignElement | null {
   if (graded.stops.length < 2 || graded.veil.alpha < 0.02) return null;
-  const angle = options.from === "top" ? 0 : 180;
+  /* The gradient runs from the clear edge (0%) to the dense one. */
+  const angle = { bottom: 180, top: 0, right: 90, left: 270 }[options.from];
   const stops = graded.stops.map(
     (stop) => `${veilColor(graded.veil, stop.alpha)} ${pct(stop.at)}`,
   );

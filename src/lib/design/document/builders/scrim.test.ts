@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   alphaAt,
+  gradedVeil,
   isLargeType,
   MIN_RAMP,
   profileStops,
   SLOPE_MAX,
   type Stop,
+  scrimElement,
 } from "./scrim";
 
 /** What a CSS gradient draws at `u`. */
@@ -126,5 +128,59 @@ describe("isLargeType", () => {
     [36, 700, false],
   ] as const)("%ipx at %i is large: %s", (fontSize, fontWeight, large) => {
     expect(isLargeType({ fontSize, fontWeight })).toBe(large);
+  });
+});
+
+/* Round 23: a band of copy down one side of a full-bleed photo. The veil
+   is read across the box, from its clear edge to the band's, so the side
+   away from the copy (where the subject is) stays unveiled. */
+describe("a veil across, for a side band", () => {
+  const ctx = {
+    palette: {
+      background: "#FFF4E6",
+      foreground: "#3B2416",
+      accent: "#C2410C",
+    },
+    imageFacts: null,
+  } as never;
+  const box = { x: 0, y: 0, width: 1000, height: 600 };
+  const leftBand = [
+    { box: { x: 40, y: 0, width: 260, height: 600 }, large: false },
+  ];
+
+  it("from the left: veils the band and leaves the right of the box clear", () => {
+    const graded = gradedVeil(ctx, null, box, leftBand, {
+      from: "left",
+      background: "#FFF4E6",
+    });
+    expect(alphaAt(graded.stops, 0.3)).toBe(0);
+    expect(alphaAt(graded.stops, 0.7)).toBeGreaterThan(0.5);
+  });
+
+  it("from the right: the mirror image", () => {
+    const rightBand = [
+      { box: { x: 700, y: 0, width: 260, height: 600 }, large: false },
+    ];
+    const graded = gradedVeil(ctx, null, box, rightBand, {
+      from: "right",
+      background: "#FFF4E6",
+    });
+    expect(alphaAt(graded.stops, 0.3)).toBe(0);
+    expect(alphaAt(graded.stops, 0.7)).toBeGreaterThan(0.5);
+  });
+
+  it("draws the gradient from the clear edge toward the band", () => {
+    const graded = gradedVeil(ctx, null, box, leftBand, {
+      from: "left",
+      background: "#FFF4E6",
+    });
+    const left = scrimElement(box, graded, { from: "left" }) as {
+      fill: string;
+    };
+    const right = scrimElement(box, graded, { from: "right" }) as {
+      fill: string;
+    };
+    expect(left.fill).toMatch(/^linear-gradient\(270deg, /);
+    expect(right.fill).toMatch(/^linear-gradient\(90deg, /);
   });
 });

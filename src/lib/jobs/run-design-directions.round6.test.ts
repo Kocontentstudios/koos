@@ -3387,3 +3387,109 @@ describe("round 23: a shared footer line goes where its facts are elsewhere", ()
     expect(usage().footerLinesShared).toEqual({ dropped: 1, shipped: 0 });
   });
 });
+
+/* Round-9 live critic: fashion and storefront shipped the photo beside the
+   copy twice, mirrored. Oluwaseyi's ruling of 2026-10-28 asks for the
+   photo in both, in different compositions, "full-bleed with a scrim"
+   named. hero-center now tries the photo full bleed with the copy in a
+   band down the side opposite the subject before it falls back beside. */
+describe("round 23: a beside pair takes a full-bleed second composition", () => {
+  async function pair() {
+    const wide = await photo(1048, 749);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(wide),
+      contentType: "image/png",
+      width: 1048,
+      height: 749,
+    });
+    lookAtPhoto.mockResolvedValue({
+      description: "a barista at an espresso machine on the right",
+      subject: { x: 0.62, y: 0.2, w: 0.3, h: 0.66 },
+      face: null,
+      heads: [{ x: 0.68, y: 0.2, w: 0.1, h: 0.15 }],
+      items: ["an espresso machine", "a barista"],
+    });
+    const shared = {
+      aspectRatio: "16:9" as const,
+      cta: "Ask for oat milk",
+      footerStyle: "text" as const,
+      footerLines: ["Weekdays 8am to 6pm"],
+    };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...shared,
+            layout: "split-left",
+            headline: "The Cold Brew Flight",
+            subheadline: "Three 150ml tasters for ₦6,000.",
+          }),
+          contrastingDraft({
+            ...shared,
+            layout: "hero-center",
+            headline: "Poured Slow at the Bar",
+            subheadline: "Cold brew, three ways, in Yaba.",
+          }),
+        ],
+      },
+    });
+    await generateDirectionsWork(
+      {
+        context: directionsContext({
+          briefText:
+            "Our cold brew flight is on: three 150ml tasters for ₦6,000.",
+          aspectRatio: "16:9",
+          dimensions: "1920x1080",
+        }),
+        userId: "u1",
+        sessionId: "s1",
+        request: { image: { source: "upload", key: UPLOAD_KEY } } as never,
+      },
+      runtime as never,
+    );
+  }
+
+  it("split-left beside, then hero-center full bleed with the copy in a veiled band clear of the subject", async () => {
+    const { photoPlace } = await import("./directions/render");
+    choicesMade.length = 0;
+    await pair();
+    const first = delivered("row-1");
+    const second = delivered("row-2");
+    expect(first?.spec?.layout).toBe("split-left");
+    expect(second?.spec?.layout).toBe("hero-center");
+    const doc = second?.document as {
+      width: number;
+      height: number;
+      elements: {
+        id: string;
+        type: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        fill?: string;
+      }[];
+    };
+    expect(photoPlace(first?.document as never)?.arrangement).toBe("beside");
+    expect(photoPlace(doc as never)?.arrangement).toBe("behind");
+    const image = doc.elements.find((e) => e.type === "image");
+    expect(image).toMatchObject({
+      x: 0,
+      y: 0,
+      width: doc.width,
+      height: doc.height,
+    });
+    /* The copy in the left band, the subject on the right. The harness
+       photo is mid-tone, so the dark copy may need no veil; one drawn
+       rises from the left. */
+    const copy = doc.elements.filter(
+      (e) => e.type === "text" || e.type === "button",
+    );
+    expect(copy.length).toBeGreaterThan(0);
+    for (const e of copy)
+      expect(e.x + e.width).toBeLessThanOrEqual(doc.width * 0.46);
+    const scrim = doc.elements.find((e) => e.id === "scrim");
+    if (scrim) expect(scrim.fill).toMatch(/^linear-gradient\(270deg/);
+    expect(usage().subjectFaults).toEqual([null, null]);
+  });
+});
