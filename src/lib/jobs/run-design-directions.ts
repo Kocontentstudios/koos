@@ -22,8 +22,10 @@ import { measureImage } from "@/lib/design/document/image-facts";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import {
   HEADS_UNKNOWN,
+  headsForLayout,
   headsWithMargin,
   measureSubject,
+  type NoCropReason,
   SUBJECT_COVERED,
   SUBJECT_CROPPED,
   type SubjectBox,
@@ -535,10 +537,10 @@ export async function generateDirectionsWork(
       );
     }
   }
-  /* The client's photo's people: a crop keeps each head whole or leaves it
-     out, whatever the main subject is. The layouts only ever see the look's
-     boxes grown by the head margin (round-26 contract break: a box drawn
-     short of the barista's face let a crop through it). */
+  /* The client's photo's people. The look's boxes are grown by the head
+     margin (round-26 contract break: a box drawn short of the barista's
+     face let a crop through it), and since the look also misplaces and
+     misses heads, a photo with people in it is never cropped at all. */
   let photoHeadsSeen: SubjectBox[] = [];
   let photoHeads: SubjectBox[] = [];
   /* People in the photo and no head boxed, even when asked again, is not
@@ -546,22 +548,32 @@ export async function generateDirectionsWork(
      barista's face). Every crop and band is then refused, the photo drawn
      whole or left off, and the direction carries a fault. */
   let headsUnknown = false;
+  /* What every layout of the client's photo sees as its heads, and why it
+     may not be cropped (headsForLayout: people in the photo are never
+     cropped, Oluwaseyi's ruling of 2026-10-29). */
+  let layoutHeads: readonly SubjectBox[] = [];
+  let noCropReason: NoCropReason | null = null;
   if (upload && images[0]) {
     const measured = await facts.get(images[0]);
     if (!measured?.cutout) {
       photoHeadsSeen = photoLook?.heads ?? [];
       photoHeads = headsWithMargin(photoHeadsSeen);
-      headsUnknown =
-        Boolean(photoLook?.peopleVisible) && photoHeads.length === 0;
+      const decided = headsForLayout(
+        Boolean(photoLook?.peopleVisible),
+        photoHeads,
+      );
+      layoutHeads = decided.heads;
+      noCropReason = decided.noCrop;
+      headsUnknown = noCropReason === "headsUnknown";
     }
     /* A cut-out's subject is its visible pixels, which are exact; the look
        is only for a photograph, where the whole subject comes first and a
-       person's head and shoulders second. With heads unknown and no
-       subject boxed, the subject is the whole photo. */
+       person's head and shoulders second. With people in an uncropped
+       photo and no subject boxed, the subject is the whole photo. */
     const boxes = measured?.cutout
       ? [subjectFromAlpha(measured)]
       : [
-          photoLook?.subject ?? (headsUnknown ? HEADS_UNKNOWN[0] : null),
+          photoLook?.subject ?? (noCropReason ? HEADS_UNKNOWN[0] : null),
           photoLook?.face ?? null,
         ];
     for (let i = 0; i < settled.length; i += 1) subjectBoxes[i] = boxes;
@@ -756,8 +768,7 @@ export async function generateDirectionsWork(
       let assets: DirectionAssets = {
         image,
         imageFacts: image ? await facts.get(image) : null,
-        heads:
-          image && upload ? (headsUnknown ? HEADS_UNKNOWN : photoHeads) : [],
+        heads: image && upload ? layoutHeads : [],
         logo: mark?.placed
           ? { placed: mark.placed, loaded: mark.loaded }
           : null,
@@ -1257,6 +1268,9 @@ export async function generateDirectionsWork(
       photosPeopleVisible: Boolean(photoLook?.peopleVisible),
       headsAskedAgain: Boolean(photoLook?.headsAskedAgain),
       headsUnknown,
+      /* Why the photo was drawn only whole: "headsUnknown" (a fault) or
+         "peopleNoCrop" (people seen, heads boxed, no crop trusted). */
+      noCropReason,
       layoutsConsidered: layoutChoices.map(
         (choice) =>
           choice?.considered.map((c) => ({

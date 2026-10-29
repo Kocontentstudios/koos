@@ -4045,3 +4045,326 @@ describe("round 26: the job lays out heads with their margin", () => {
     expect(new Set(layouts).size).toBe(2);
   });
 });
+
+/* Oluwaseyi's ruling of 2026-10-29: fail closed on heads. Round 26's live
+   storefront look boxed its heads on upper-floor windows, nowhere near the
+   people at street level (critique-26/storefront-look-overlay.png), and a
+   cafe look missed the barista. Wherever the look says people are in the
+   photo, no delivered design crops it, and no copy sits on it. */
+describe("round 27: a photo with people in it is never cropped", () => {
+  type Drawn = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    fit: "cover" | "contain";
+    crop: { zoom: number; focusX: number; focusY: number };
+  };
+  type Placed = {
+    id: string;
+    type: string;
+    hidden?: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  /* The 17:51:34 storefront look, as stored, on a tenth-size photo of the
+     fixture's shape (busy-storefront-24mp.jpg, 3991 by 5987). */
+  const STOREFRONT_SIZE = { width: 399, height: 599 };
+  const STOREFRONT_LOOK = {
+    description: "a florist's storefront, shoppers on the pavement",
+    subject: { x: 0.2, y: 0.08, w: 0.54, h: 0.69 },
+    face: null,
+    heads: [
+      { x: 0.55, y: 0.54, w: 0.09, h: 0.1 },
+      { x: 0.65, y: 0.53, w: 0.09, h: 0.09 },
+      { x: 0.78, y: 0.53, w: 0.09, h: 0.09 },
+    ],
+    items: ["a shopfront", "flowers", "people walking"],
+    peopleVisible: true,
+    headsAskedAgain: false,
+  };
+  const storefront = {
+    aspectRatio: "4:5" as const,
+    footerStyle: "text" as const,
+  };
+  const STOREFRONT_BRIEF =
+    "We reopen on Saturday 12 December after a full refit. Hand-tied bouquets from ₦18,000 each, with same-day delivery across Lekki. Open daily 9am to 7pm at 22 Admiralty Way, Lekki Phase 1. Call 0815 220 9031 to order.";
+  const storefrontDrafts = () => ({
+    object: {
+      directions: [
+        draftOf({
+          ...storefront,
+          layout: "split-left",
+          headline: "We Reopen Saturday 12 December",
+          subheadline:
+            "Hand-tied bouquets from ₦18,000, same-day delivery across Lekki.",
+          cta: "Call to Order",
+          footerLines: [
+            "Daily 9am to 7pm · 22 Admiralty Way, Lekki Phase 1",
+            "0815 220 9031",
+          ],
+        }),
+        contrastingDraft({
+          ...storefront,
+          layout: "hero-center",
+          headline: "Hand-Tied Bouquets From ₦18,000",
+          subheadline:
+            "We reopen Saturday 12 December, with same-day delivery across Lekki.",
+          cta: "Call 0815 220 9031",
+          footerLines: [
+            "Same-day delivery across Lekki",
+            "Open daily 9am to 7pm, 22 Admiralty Way",
+          ],
+        }),
+      ],
+    },
+  });
+
+  async function useStorefrontPhoto() {
+    const shop = await photo(STOREFRONT_SIZE.width, STOREFRONT_SIZE.height);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(shop),
+      contentType: "image/png",
+      ...STOREFRONT_SIZE,
+    });
+  }
+
+  async function shippedPhotos(size: { width: number; height: number }) {
+    const { drawnImageRect } = await import(
+      "@/lib/design/document/builders/ground"
+    );
+    const { intersection } = await import("@/lib/design/document/subject");
+    const shipped: {
+      id: string;
+      layout: string;
+      cropped: boolean;
+      copyOnPhoto: string[];
+      drawn: { x: number; y: number; width: number; height: number };
+    }[] = [];
+    for (const id of ["row-1", "row-2"]) {
+      const row = delivered(id);
+      const elements = (
+        row?.document as { elements: (Placed & Partial<Drawn>)[] } | undefined
+      )?.elements;
+      const image = elements?.find((e) => e.type === "image") as
+        | (Placed & Drawn)
+        | undefined;
+      if (!row || !elements || !image) continue;
+      const frame = {
+        x: image.x,
+        y: image.y,
+        width: image.width,
+        height: image.height,
+      };
+      const drawn = drawnImageRect(size, {
+        frame,
+        fit: image.fit,
+        ...image.crop,
+      });
+      const cropped =
+        drawn.x < frame.x - 0.5 ||
+        drawn.y < frame.y - 0.5 ||
+        drawn.x + drawn.width > frame.x + frame.width + 0.5 ||
+        drawn.y + drawn.height > frame.y + frame.height + 0.5;
+      const shown = intersection(drawn, frame) ?? frame;
+      const copyOnPhoto = elements
+        .filter(
+          (e) =>
+            !e.hidden &&
+            (e.type === "text" || e.type === "button") &&
+            intersection(e, shown) !== null,
+        )
+        .map((e) => e.id);
+      shipped.push({
+        id,
+        layout: row.spec.layout,
+        cropped,
+        copyOnPhoto,
+        drawn,
+      });
+    }
+    return shipped;
+  }
+
+  it("storefront look, heads boxed on the windows: no design crops the photo or lays copy on it", async () => {
+    await useStorefrontPhoto();
+    lookAtPhoto.mockResolvedValue(STOREFRONT_LOOK);
+    generateObject.mockResolvedValue(storefrontDrafts());
+    await runBrief(STOREFRONT_BRIEF, {
+      image: { source: "upload", key: UPLOAD_KEY },
+    });
+    const shipped = await shippedPhotos(STOREFRONT_SIZE);
+    expect(shipped.length).toBeGreaterThan(0);
+    for (const design of shipped) {
+      expect(design.cropped, `${design.id} ${design.layout}`).toBe(false);
+      expect(design.copyOnPhoto, `${design.id} ${design.layout}`).toEqual([]);
+    }
+    expect(usage().noCropReason).toBe("peopleNoCrop");
+    expect(usage().headsUnknown).toBe(false);
+    expect(usage().photosPeopleVisible).toBe(true);
+    /* Heads were boxed: not the heads-unknown fault. */
+    expect(usage().subjectFaults).not.toContain(
+      (await import("./run-design-directions")).HEADS_UNKNOWN_FAULT,
+    );
+    /* Still two compositions: never one layout twice, and two whole
+       prints never in the same place. */
+    const layouts = [
+      delivered("row-1")?.spec?.layout,
+      delivered("row-2")?.spec?.layout,
+    ].filter(Boolean);
+    expect(new Set(layouts).size).toBe(layouts.length);
+    expect(shipped).toHaveLength(2);
+    const [a, b] = shipped.map((s) => s.drawn);
+    const { intersection } = await import("@/lib/design/document/subject");
+    const shared = intersection(a, b);
+    const sharedArea = shared ? shared.width * shared.height : 0;
+    expect(
+      sharedArea / Math.min(a.width * a.height, b.width * b.height),
+    ).toBeLessThan(0.6);
+  });
+
+  it("storefront, people seen and no head boxed even when asked again: whole, copy off it, and the heads-unknown fault", async () => {
+    await useStorefrontPhoto();
+    lookAtPhoto.mockResolvedValue({
+      ...STOREFRONT_LOOK,
+      heads: [],
+      headsAskedAgain: true,
+    });
+    generateObject.mockResolvedValue(storefrontDrafts());
+    await runBrief(STOREFRONT_BRIEF, {
+      image: { source: "upload", key: UPLOAD_KEY },
+    });
+    const shipped = await shippedPhotos(STOREFRONT_SIZE);
+    expect(shipped.length).toBeGreaterThan(0);
+    for (const design of shipped) {
+      expect(design.cropped, `${design.id} ${design.layout}`).toBe(false);
+      expect(design.copyOnPhoto, `${design.id} ${design.layout}`).toEqual([]);
+    }
+    expect(usage().noCropReason).toBe("headsUnknown");
+    expect(usage().headsUnknown).toBe(true);
+    expect(usage().subjectFaults).toContain(
+      (await import("./run-design-directions")).HEADS_UNKNOWN_FAULT,
+    );
+  });
+
+  it("a photo with no people in it still crops and bleeds as before", async () => {
+    const size = { width: 1400, height: 1000 };
+    const bar = await photo(size.width, size.height);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(bar),
+      contentType: "image/png",
+      ...size,
+    });
+    lookAtPhoto.mockResolvedValue({
+      description: "a bottle of cold brew on a counter",
+      subject: { x: 0.4, y: 0.3, w: 0.2, h: 0.4 },
+      face: null,
+      heads: [],
+      items: ["a bottle", "a glass", "a counter"],
+      peopleVisible: false,
+      headsAskedAgain: false,
+    });
+    const cafe = { aspectRatio: "1:1" as const, footerStyle: "text" as const };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...cafe,
+            layout: "hero-center",
+            headline: "The Cold Brew Flight",
+            subheadline: "Three 150ml tasters for ₦6,000.",
+            cta: "Order at the bar",
+            footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+          }),
+          contrastingDraft({
+            ...cafe,
+            layout: "split-left",
+            headline: "Taste It Side by Side",
+            subheadline: "A cold brew flight, poured at the bar.",
+            cta: "Come taste it",
+            footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Our cold brew flight is on: three 150ml tasters for ₦6,000. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    const shipped = await shippedPhotos(size);
+    expect(shipped).toHaveLength(2);
+    expect(usage().noCropReason).toBeNull();
+    expect(usage().headsUnknown).toBe(false);
+    /* A 7:5 photo on a square canvas: a full bleed is a crop. */
+    expect(shipped.some((s) => s.cropped)).toBe(true);
+  });
+
+  it("the bakery cut-out is laid out as before, with no reason not to crop", async () => {
+    const { encodePngRgba } = await import("@/lib/images/png-pixels");
+    const size = { width: 512, height: 512 };
+    const pixels = new Uint8Array(size.width * size.height * 4);
+    for (let y = 0; y < size.height; y += 1) {
+      for (let x = 0; x < size.width; x += 1) {
+        const i = (y * size.width + x) * 4;
+        const plate = (x - 256) ** 2 + (y - 270) ** 2 < 170 ** 2;
+        pixels[i] = 214;
+        pixels[i + 1] = 120 + (x % 40);
+        pixels[i + 2] = 130;
+        pixels[i + 3] = plate ? 255 : 0;
+      }
+    }
+    const cutout = await encodePngRgba({ ...size, pixels });
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(cutout),
+      contentType: "image/png",
+      ...size,
+    });
+    /* Even a look that says people: a cut-out's subject is its pixels. */
+    lookAtPhoto.mockResolvedValue({
+      description: "a slice of strawberry mille-feuille on a plate",
+      subject: null,
+      face: null,
+      heads: [],
+      items: ["a plate", "pastry"],
+      peopleVisible: false,
+      headsAskedAgain: false,
+    });
+    const bakery = {
+      aspectRatio: "4:5" as const,
+      footerStyle: "text" as const,
+    };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...bakery,
+            layout: "banner-bottom",
+            headline: "Strawberry Mille-Feuille",
+            subheadline: "₦4,500 a slice, available from Monday.",
+            cta: "Order Ahead",
+            footerLines: ["Pickup from 7am"],
+          }),
+          contrastingDraft({
+            ...bakery,
+            layout: "split-left",
+            headline: "Worth the 7am Detour",
+            subheadline: "Available from Monday. Order ahead for pickup.",
+            cta: "Order for Pickup",
+            footerLines: ["₦4,500 a slice", "Pickup from 7am"],
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    const shipped = await shippedPhotos(size);
+    expect(shipped.length).toBeGreaterThan(0);
+    expect(usage().noCropReason).toBeNull();
+    expect(usage().headsUnknown).toBe(false);
+    expect(usage().photoHeads).toEqual([]);
+  });
+});

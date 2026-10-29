@@ -465,7 +465,45 @@ export function headsWithMargin(heads: readonly SubjectBox[]): SubjectBox[] {
   });
 }
 
-/** Whether `heads` says only that a head may be anywhere in the photo. */
+/** Why a photo with people in it is never cropped: no head was boxed
+ *  (`headsUnknown`, a fault), or heads were boxed and the look's boxes are
+ *  not trusted to place a crop (`peopleNoCrop`, Oluwaseyi's ruling of
+ *  2026-10-29). */
+export type NoCropReason = "headsUnknown" | "peopleNoCrop";
+
+export interface LayoutHeads {
+  heads: readonly SubjectBox[];
+  noCrop: NoCropReason | null;
+}
+
+/**
+ * The heads every layout of a photo sees, the one place the job decides
+ * whether that photo may be cropped. Fail closed on heads (Oluwaseyi's
+ * ruling of 2026-10-29): the look's head boxes landed on upper-floor
+ * windows on the storefront and missed a barista on the cafe
+ * (critique-26), so wherever the look says people are in the photo, no
+ * crop ships. The whole photo goes first as a head box, which every
+ * builder already reads as "draw it whole" (HEADS_UNKNOWN), and the
+ * grown boxes stay behind it as a second guard for the copy, band and
+ * veil checks. A deterministic face detector checking the look is the
+ * follow-up that would let a known head allow a crop again.
+ */
+export function headsForLayout(
+  peopleVisible: boolean,
+  grownHeads: readonly SubjectBox[],
+): LayoutHeads {
+  if (!peopleVisible) return { heads: grownHeads, noCrop: null };
+  if (grownHeads.length === 0) {
+    return { heads: HEADS_UNKNOWN, noCrop: "headsUnknown" };
+  }
+  return {
+    heads: [...HEADS_UNKNOWN, ...grownHeads],
+    noCrop: "peopleNoCrop",
+  };
+}
+
+/** Whether `heads` refuses every crop: a head may be anywhere in the
+ *  photo, or people are in it and no crop is trusted. */
 export function headsUnknown(heads: readonly SubjectBox[]): boolean {
   return heads.some((h) => h.x <= 0 && h.y <= 0 && h.w >= 1 && h.h >= 1);
 }
