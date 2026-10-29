@@ -31,6 +31,9 @@ export const CUTOUT_EDGE_SHOWS =
 export const IMAGE_AGAINST_EDGE =
   "the picture is narrower than its card but flush against the card's edge";
 
+export const PRINT_MARGINS_UNEVEN =
+  "the picture sits in its card with a top margin far narrower than its sides";
+
 export interface CraftFaults {
   hard: string | null;
   soft: string | null;
@@ -197,6 +200,31 @@ function imageAgainstCardEdge(visible: readonly DesignElement[]): boolean {
   );
 }
 
+/* Round-9 live critic, cafe: a print 25 px below the card's top and 114 px
+   from each side read as a framed thumbnail with uneven margins. Sides
+   past twice the top, and wider by more than a sliver of the card, are
+   what the eye reads as uneven; a print that has to stay that narrow to
+   keep its subject whole is drawn in another layout when one shows it. */
+const UNEVEN_SIDE_OVER_TOP = 2;
+const UNEVEN_MIN_SHARE = 0.04;
+
+function printMarginsUneven(visible: readonly DesignElement[]): boolean {
+  const image = visible.find((e) => e.type === "image");
+  const card = visible.find((e) => e.type === "shape" && e.id === "card");
+  if (!image || !card || !inside(image, card)) return false;
+  if (image.width >= card.width - TOLERANCE) return false;
+  const top = image.y - card.y;
+  const side = Math.min(
+    image.x - card.x,
+    card.x + card.width - (image.x + image.width),
+  );
+  return (
+    top > 1 &&
+    side > top * UNEVEN_SIDE_OVER_TOP &&
+    side - top > card.width * UNEVEN_MIN_SHARE
+  );
+}
+
 /** The craft faults of `doc`, worst first. */
 export function layoutCraftFaults(
   doc: Pick<DesignDocument, "elements"> &
@@ -238,6 +266,10 @@ export function layoutCraftFaults(
     }
   }
   if (!soft && imageAgainstCardEdge(visible)) soft = IMAGE_AGAINST_EDGE;
+  /* A cut-out has no frame to read margins from. */
+  if (!soft && !imageFacts?.cutout && printMarginsUneven(visible)) {
+    soft = PRINT_MARGINS_UNEVEN;
+  }
   if (
     !soft &&
     doc.background !== undefined &&

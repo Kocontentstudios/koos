@@ -8,6 +8,7 @@ import {
   HEADLINE_UNDER_COPY,
   IMAGE_AGAINST_EDGE,
   layoutCraftFaults,
+  PRINT_MARGINS_UNEVEN,
   paletteForCutout,
 } from "./craft";
 
@@ -237,6 +238,43 @@ describe("a print against its card's edge", () => {
       layoutCraftFaults({
         elements: [card, { ...image(86, 908), x: 86 }],
       } as never).soft,
+    ).toBeNull();
+  });
+});
+
+/* Round-9 live critic, cafe: the print sat 25 px below the card's top and
+   114 px from each side, a framed thumbnail with uneven margins. */
+describe("a print with uneven margins in its card", () => {
+  const card = shape("card", [86, 86, 908, 777]);
+  const print = (x: number, y: number, width: number) => ({
+    id: "image",
+    type: "image",
+    hidden: false,
+    x,
+    y,
+    width,
+    height: 395,
+  });
+
+  it("cafe s0: 25 px above, 114 px beside, is a soft fault", () => {
+    expect(
+      layoutCraftFaults({ elements: [card, print(200, 111, 681)] } as never)
+        .soft,
+    ).toBe(PRINT_MARGINS_UNEVEN);
+  });
+
+  it("is no fault with margins the eye reads as even, or at the card's width", () => {
+    expect(
+      layoutCraftFaults({ elements: [card, print(140, 140, 800)] } as never)
+        .soft,
+    ).toBeNull();
+    expect(
+      layoutCraftFaults({ elements: [card, print(110, 111, 860)] } as never)
+        .soft,
+    ).toBeNull();
+    expect(
+      layoutCraftFaults({ elements: [card, print(86, 111, 908)] } as never)
+        .soft,
     ).toBeNull();
   });
 });
