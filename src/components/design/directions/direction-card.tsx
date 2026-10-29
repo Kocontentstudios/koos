@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Check,
   Download,
   ImageOff,
   RefreshCw,
@@ -12,7 +13,6 @@ import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SerializedGeneration } from "@/lib/design/serialize";
-import { cn } from "@/lib/utils";
 
 const FALLBACK_SIZE = { width: 1080, height: 1350 };
 
@@ -32,26 +32,96 @@ function Eyebrow({ index }: { index: number }) {
   );
 }
 
+/** Focusable by script only: a regenerate that replaces the card moves focus
+ *  here so the keyboard user lands on the new direction. */
+const SLOT_CARD =
+  "flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface-1 outline-none focus-visible:focus-outline";
+
+const CARD_TITLE =
+  "font-display text-[16px] leading-snug font-bold text-foreground";
+
+/** While a slot regenerates, the old title would label a design that is no
+ *  longer there; the heading says what is happening instead. */
+function CardHeading({
+  id,
+  index,
+  title,
+  regenerating,
+}: {
+  id?: string;
+  index: number;
+  title: string;
+  regenerating: boolean;
+}) {
+  if (!regenerating) {
+    return (
+      <h3 id={id} className={CARD_TITLE}>
+        {title}
+      </h3>
+    );
+  }
+  return (
+    <>
+      <h3 id={id} className="sr-only">
+        Regenerating direction {index + 1}
+      </h3>
+      <Skeleton className="mt-1 h-5 w-44 max-w-full" />
+    </>
+  );
+}
+
+function ReasonsPlaceholder() {
+  return (
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-3 w-24" />
+      <Skeleton className="h-3.5 w-full" />
+      <Skeleton className="h-3.5 w-4/5" />
+    </div>
+  );
+}
+
 /** The design's own box at its own aspect ratio, full card width, so every
  *  state of a slot (loading, shown, unavailable, regenerating) is the same
  *  size and the cards never jump. */
 function DesignFrame({
   size,
-  className,
   children,
 }: {
   size: Size;
-  className?: string;
   children: React.ReactNode;
 }) {
   return (
     <div
-      className={cn(
-        "relative w-full bg-[var(--surface-container-lowest)]",
-        className,
-      )}
+      className="relative w-full bg-[var(--surface-container-lowest)]"
       style={{ aspectRatio: `${size.width} / ${size.height}` }}
     >
+      {children}
+    </div>
+  );
+}
+
+/** A slot with no design to show. --surface-container-lowest is the card's
+ *  own white in light mode, so the empty slot gets a recessed fill and a
+ *  dashed outline, or it has no visible edge at all. */
+function EmptyFrame({
+  size,
+  children,
+}: {
+  size: Size;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="relative flex w-full flex-col items-center justify-center gap-2 bg-[var(--surface-container-low)] px-6 text-center"
+      style={{ aspectRatio: `${size.width} / ${size.height}` }}
+    >
+      {/* Inline, not a border utility: globals.css sets `* { border-color }`
+          unlayered, which beats every border-* utility class. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-3 rounded-lg border-2 border-dashed"
+        style={{ borderColor: "var(--border-control)" }}
+      />
       {children}
     </div>
   );
@@ -75,21 +145,18 @@ function RegeneratingPlaceholder({ size }: { size: Size }) {
 
 function PreviewUnavailable({ size }: { size: Size }) {
   return (
-    <DesignFrame
-      size={size}
-      className="flex flex-col items-center justify-center gap-2 px-6 text-center"
-    >
+    <EmptyFrame size={size}>
       <ImageOff
         aria-hidden="true"
-        className="size-6 text-[var(--text-muted)]"
+        className="relative size-6 text-[var(--text-muted)]"
       />
       <p
         role="status"
-        className="text-[13px] font-medium text-[var(--text-secondary)]"
+        className="relative text-[13px] font-medium text-[var(--text-secondary)]"
       >
         Preview unavailable
       </p>
-    </DesignFrame>
+    </EmptyFrame>
   );
 }
 
@@ -130,7 +197,7 @@ function DesignPreview({
   );
 }
 
-function RegenerateError({ message }: { message: string }) {
+function CardError({ message }: { message: string }) {
   return (
     <p
       role="alert"
@@ -223,6 +290,27 @@ function DownloadPng({
   );
 }
 
+/** Said on the card it is about, not in a toast: a toast sits over the
+ *  dialog's own footer, and on a phone hid "Stay here" for its lifetime. The
+ *  region is always mounted (sr-only while empty, so it takes no gap) so a
+ *  screen reader announces the message the moment it lands. */
+function SentNotice({ message }: { message: string | null }) {
+  return (
+    <p
+      role="status"
+      data-slot="sent-notice"
+      className="flex items-start gap-1.5 text-[12px] font-medium text-[var(--status-ready-fg)] empty:sr-only"
+    >
+      {message ? (
+        <>
+          <Check aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+          {message}
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 export interface DirectionCardProps extends RegenerateSlotProps {
   generation: SerializedGeneration;
   index: number;
@@ -231,6 +319,11 @@ export interface DirectionCardProps extends RegenerateSlotProps {
   onDownloadJpg: () => void;
   sendingToTeam: boolean;
   onSendToTeam: () => void;
+  /** Set once this design has a ticket; sending it again would open a
+   *  duplicate. */
+  sentMessage: string | null;
+  /** A download or send that failed on this card. */
+  actionErrors: string[];
 }
 
 export function DirectionCard({
@@ -241,6 +334,8 @@ export function DirectionCard({
   onDownloadJpg,
   sendingToTeam,
   onSendToTeam,
+  sentMessage,
+  actionErrors,
   ...regenerate
 }: DirectionCardProps) {
   const size = sizeOf(generation);
@@ -252,17 +347,19 @@ export function DirectionCard({
   return (
     <article
       aria-labelledby={`direction-${generation.id}`}
-      className="flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface-1"
+      data-direction-slot={index}
+      tabIndex={-1}
+      className={SLOT_CARD}
     >
       <header className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-3">
-        <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <Eyebrow index={index} />
-          <h3
+          <CardHeading
             id={`direction-${generation.id}`}
-            className="font-display text-[16px] leading-snug font-bold text-foreground"
-          >
-            {title}
-          </h3>
+            index={index}
+            title={title}
+            regenerating={busy}
+          />
         </div>
         <span className="shrink-0 pt-0.5 text-[12px] tabular-nums text-[var(--text-muted)]">
           {size.width} × {size.height}
@@ -284,7 +381,9 @@ export function DirectionCard({
       <div className="flex flex-1 flex-col gap-4 p-4">
         {/* A legacy row has no rationale; it renders as it always did rather
             than with an empty "why" heading. */}
-        {direction && direction.reasons.length > 0 ? (
+        {busy ? (
+          <ReasonsPlaceholder />
+        ) : direction && direction.reasons.length > 0 ? (
           <section className="flex flex-col gap-1.5">
             <h4 className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
               Why this works
@@ -304,8 +403,12 @@ export function DirectionCard({
         ) : null}
 
         {regenerate.regenerateError ? (
-          <RegenerateError message={regenerate.regenerateError} />
+          <CardError message={regenerate.regenerateError} />
         ) : null}
+        {actionErrors.map((message) => (
+          <CardError key={message} message={message} />
+        ))}
+        <SentNotice message={sentMessage} />
 
         {/* Even rows rather than a wrapping flex row, which leaves ragged
             gaps. Sized by the card, not the viewport: "Send to design team"
@@ -337,11 +440,16 @@ export function DirectionCard({
               onClick={onSendToTeam}
               loading={sendingToTeam}
               loadingText="Sending…"
-              disabled={busy}
+              disabled={busy || sentMessage !== null}
+              focusableWhenDisabled={sentMessage !== null}
               className="col-span-2 @sm:col-span-1"
             >
-              <Send aria-hidden="true" />
-              Send to design team
+              {sentMessage ? (
+                <Check aria-hidden="true" />
+              ) : (
+                <Send aria-hidden="true" />
+              )}
+              {sentMessage ? "Sent to design team" : "Send to design team"}
               <span className="sr-only"> (direction {index + 1})</span>
             </Button>
             <RegenerateButton
@@ -359,6 +467,8 @@ export function DirectionCard({
 export interface FailedDirectionCardProps extends RegenerateSlotProps {
   index: number;
   size: Size | null;
+  /** Another slot holds a design, so this card can point the user to it. */
+  otherReady: boolean;
 }
 
 /** The slot of a direction that did not render: stated, and recoverable on
@@ -366,42 +476,52 @@ export interface FailedDirectionCardProps extends RegenerateSlotProps {
 export function FailedDirectionCard({
   index,
   size,
+  otherReady,
   ...regenerate
 }: FailedDirectionCardProps) {
   const box = size ?? FALLBACK_SIZE;
   return (
     <article
-      aria-label={`Direction ${index + 1} did not render`}
-      className="flex min-w-0 flex-col overflow-hidden rounded-xl border bg-surface-1"
+      aria-label={
+        regenerate.regenerating
+          ? `Regenerating direction ${index + 1}`
+          : `Direction ${index + 1} did not render`
+      }
+      data-direction-slot={index}
+      tabIndex={-1}
+      className={SLOT_CARD}
     >
-      <header className="px-4 pt-3.5 pb-3">
+      <header className="flex flex-col gap-0.5 px-4 pt-3.5 pb-3">
         <Eyebrow index={index} />
-        <h3 className="font-display text-[16px] leading-snug font-bold text-foreground">
-          This direction didn't render
-        </h3>
+        <CardHeading
+          index={index}
+          title="This direction didn't render"
+          regenerating={regenerate.regenerating}
+        />
       </header>
       {regenerate.regenerating ? (
         <RegeneratingPlaceholder size={box} />
       ) : (
-        <DesignFrame
-          size={box}
-          className="flex flex-col items-center justify-center gap-2 px-6 text-center"
-        >
+        <EmptyFrame size={box}>
           <ImageOff
             aria-hidden="true"
-            className="size-6 text-[var(--text-muted)]"
+            className="relative size-6 text-[var(--text-muted)]"
           />
-          <p className="max-w-[260px] text-[13px] leading-snug text-[var(--text-secondary)]">
-            The other direction is ready to use. Regenerate this one for a fresh
-            take.
+          <p className="relative max-w-[260px] text-[13px] leading-snug text-[var(--text-secondary)]">
+            {otherReady
+              ? "The other direction is ready to use. Regenerate this one for a fresh take."
+              : "Regenerate it to try again."}
           </p>
-        </DesignFrame>
+        </EmptyFrame>
       )}
-      <div className="flex flex-col gap-3 p-4">
+      {/* Same body as a ready card's regenerate, so a failed slot coming back
+          reads as the same wait rather than an empty panel. */}
+      <div className="flex flex-1 flex-col gap-4 p-4">
+        {regenerate.regenerating ? <ReasonsPlaceholder /> : null}
         {regenerate.regenerateError ? (
-          <RegenerateError message={regenerate.regenerateError} />
+          <CardError message={regenerate.regenerateError} />
         ) : null}
-        <div className="flex justify-end">
+        <div className="mt-auto flex justify-end">
           <RegenerateButton index={index} {...regenerate} />
         </div>
       </div>

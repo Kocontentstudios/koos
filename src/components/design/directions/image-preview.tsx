@@ -5,7 +5,7 @@ import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { DESIGN_IMAGE_ACCEPT } from "@/lib/uploads/design-image-limits";
-import { formatBytes, unusableImageReason } from "./flow-logic";
+import { formatBytes, unusableImageDetail } from "./flow-logic";
 import type { DesignImageUpload } from "./use-design-image-upload";
 
 type PickedState = Exclude<DesignImageUpload, { status: "idle" }>;
@@ -156,7 +156,7 @@ export function ImagePreview({
             </span>{" "}
             <span className="text-[var(--text-secondary)]">
               {state.step === "prepare"
-                ? unusableImageReason(state.message)
+                ? unusableImageDetail(state.message)
                 : state.message}
             </span>
           </p>

@@ -576,7 +576,7 @@ Items appear in this exact order. Each item: height 44px, padding 0 16px, icon 2
 | :---- | :---- | :---- | :---- |
 | Hamburger / Toggle | Left | Collapse sidebar icon | Open drawer icon |
 | Page Title | Center-Left | 22px/600/\#FFFFFF | 18px/600/\#FFFFFF (centered) |
-| Brand Name | Below title | 13px/\#7C90A3 — Shows active brand name | Hidden (space constraint) |
+| Brand Name | Below title | 13px/\#93A3B3 — Shows active brand name | Hidden (space constraint) |
 | Profile Avatar | Right | 36px circle, \#00204F bg, initials or icon | Same |
 | Notification Bell | Right of avatar | 20px icon, \#A7B6C7, red dot for unread | Same |
 
@@ -588,7 +588,7 @@ Items appear in this exact order. Each item: height 44px, padding 0 16px, icon 2
 
 * Each item: 13px, padding 10px 12px, border-radius 8px. Hover: background rgba(255,255,255,0.04).
 
-* Logout hover: text color shifts to \#D47575 (subtle red caution).
+* Logout hover: text color shifts to the Error text token, `--status-error-fg` (subtle red caution).
 
 * Dismiss: click outside, press Escape.
 
@@ -630,7 +630,7 @@ Full viewport height (100vh). Two-column split:
 
 68. Spacer: pushes footer to bottom.
 
-69. Footer: Privacy Policy link (13px/\#7C90A3). Hover: \#FFFFFF \+ underline.
+69. Footer: Privacy Policy link (13px/\#93A3B3). Hover: \#FFFFFF \+ underline.
 
 ### **Right Column — Looping Visual**
 
@@ -698,7 +698,7 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 82. Spacer: 16px.
 
-83. Password field: same style as email. Label: Password. Placeholder: Enter your password. Right side of input: eye icon button (show/hide toggle). Icon: 20px, \#7C90A3, hover \#FFFFFF.
+83. Password field: same style as email. Label: Password. Placeholder: Enter your password. Right side of input: eye icon button (show/hide toggle). Icon: 20px, \#93A3B3, hover \#FFFFFF.
 
 84. Spacer: 8px.
 
@@ -710,7 +710,7 @@ Centered card on full-viewport dark background. Page background: \#000D20.
 
 88. Spacer: 20px.
 
-89. Divider: horizontal line (rgba(255,255,255,0.06)) with or text centered (12px/\#7C90A3).
+89. Divider: horizontal line (rgba(255,255,255,0.06)) with or text centered (12px/\#93A3B3).
 
 90. Spacer: 20px.
 
@@ -744,11 +744,11 @@ Same layout as Login, differences:
 
 ### **Loading & Error States**
 
-* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is not disabled: it keeps its resting fill at full opacity (Primary Fill, white label, 5.08:1), carries `aria-busy` and `data-loading`, and swallows clicks, including the synthetic click an Enter key sends to a form's submit button. Loading means "I am working"; disabled means "wait". A disabled fill under a Saving… label measured 1.87:1 dark and 2.04:1 light until 2026-10-22. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
+* Loading: an inline spinner (16px, currentColor) is prepended and the label is replaced by a present-participle equivalent — Save \-\> Saving…, Submit \-\> Submitting…. The button is not disabled: it keeps its resting fill at full opacity (Primary Fill, white label, 5.08:1), carries `aria-busy`, `aria-disabled` and `data-loading`, and swallows clicks, including the Enter and Space a focused button turns into a click and the synthetic click an Enter key sends to a form's submit button, so it is inert and cannot submit its form. Because it is never natively `disabled` while loading it keeps keyboard focus: a natively disabled button drops focus to `<body>` the moment it starts loading. An explicitly `disabled` button stays natively disabled. Loading means "I am working"; disabled means "wait". A disabled fill under a Saving… label measured 1.87:1 dark and 2.04:1 light until 2026-10-22. The width follows the label rather than staying fixed: the label names what is happening, which a bare spinner cannot, and it gives assistive tech a real accessible name. Implemented once in `src/components/ui/button.tsx` via the `loading` / `loadingText` props — call sites pass state, never hand-roll a spinner.
 
-* Network error: banner appears below the card. Background \#1A3A4A, border-left 3px \#D47575, text \#A7B6C7, padding 12px 16px.
+* Network error: banner appears below the card. Background \#1A3A4A, border-left 3px `--status-error-fg`, text \#A7B6C7, padding 12px 16px.
 
-* Invalid credentials: inline error below password field. 12px/\#D47575. Message: Incorrect email or password.
+* Invalid credentials: inline error below password field. 12px/`--status-error-fg` (\#D57A7A dark, \#B23528 light). Message: Incorrect email or password.
 
 * Success (register): toast Account created\! Welcome to KO OS. Auto-route after 1 second.
 
@@ -770,7 +770,7 @@ The app shell wraps all authenticated pages. It provides consistent navigation, 
 
 * Height: 56px. Background: transparent (content scrolls behind) OR \#000D20 with bottom border 1px solid rgba(255,255,255,0.06) if page is scrolled.
 
-* Left section: Sidebar collapse toggle (icon button, 40px, ghost) \+ page title (22px/600/\#FFFFFF) \+ brand name below (13px/\#7C90A3, e.g., using: Killa Skincare).
+* Left section: Sidebar collapse toggle (icon button, 40px, ghost) \+ page title (22px/600/\#FFFFFF) \+ brand name below (13px/\#93A3B3, e.g., using: Killa Skincare).
 
 * Right section: Notification bell (20px icon, \#A7B6C7, red dot 8px for unread) \+ avatar button (36px circle, \#00204F bg, white initials, 13px/600).
 
@@ -820,7 +820,7 @@ Capture everything KO needs to know about the user's brand. This is the foundati
 
 * Subtitle: Tell us about your business. This helps our AI build better strategies and our designers create on-brand assets. (14px/400/\#A7B6C7).
 
-* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: Primary Text (`--primary-text`) \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#7C90A3 muted text.
+* Progress indicator: horizontal steps (3 steps) at the top. Step 1: Business Basics, Step 2: Brand Direction, Step 3: Brand Assets. Active step: Primary Text (`--primary-text`) \+ blue underline. Completed step: \#97C459 green checkmark. Future step: \#93A3B3 muted text.
 
 * Form area: single column, max-width 640px, centered.
 
@@ -865,7 +865,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Default state: dashed border 2px rgba(255,255,255,0.12), border-radius 10px, background \#00162E, padding 32px, text centered.
 
-* Content: Upload icon (24px, \#7C90A3) \+ primary text Click to upload or drag and drop (14px/\#A7B6C7) \+ subtext PNG, SVG, or JPG up to 5MB (12px/\#7C90A3).
+* Content: Upload icon (24px, \#93A3B3) \+ primary text Click to upload or drag and drop (14px/\#A7B6C7) \+ subtext PNG, SVG, or JPG up to 5MB (12px/\#93A3B3).
 
 * Hover state: dashed border rgba(19,139,200,0.6), background rgba(19,139,200,0.04), cursor pointer.
 
@@ -875,7 +875,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Uploaded state: solid border rgba(255,255,255,0.06), file thumbnail (64px) \+ filename \+ size \+ remove X button (ghost, 16px).
 
-* Error state: dashed border \#8B4040, error icon \+ error text (12px/\#D47575).
+* Error state: dashed border \#8B4040, error icon \+ error text (12px/`--status-error-fg` (\#D57A7A dark, \#B23528 light)).
 
 ### **Color Picker Component (Detailed Spec)**
 
@@ -891,7 +891,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Hex field: commits on blur. Accepts 3-char (\#FFF) or 6-char (\#FFFFFF) hex, auto-prefixes \#, and normalises to uppercase.
 
-* Invalid hex: **known gap.** The spec called for a red border (\#8B4040) and inline error (12px/\#D47575) *Enter a valid hex color*. That has never been implemented, and nothing validates hex on the server either — `brandProfileSchema` deliberately does not, because the colour columns hold free text. Strict mode reverts silently; free-text mode accepts the value. Recorded here rather than dropped, because a field that refuses input without saying why is the worse half of this.
+* Invalid hex: **known gap.** The spec called for a red border (\#8B4040) and inline error (12px/`--status-error-fg`) *Enter a valid hex color*. That has never been implemented, and nothing validates hex on the server either — `brandProfileSchema` deliberately does not, because the colour columns hold free text. Strict mode reverts silently; free-text mode accepts the value. Recorded here rather than dropped, because a field that refuses input without saying why is the worse half of this.
 
 * Two modes, one per screen. **Strict** (Brand Profile form, all rows): a value that is not hex reverts on blur — it is the picker-driven surface, so it normalises. **Free text** (conversational onboarding, all rows): a non-hex value is kept verbatim and the swatch shows the empty state, because the chat writes colour NAMES ("Forest green") into these columns — `parseAdditionalColors` never hex-validates, the paid onboarding eval depends on it, and reverting one would discard what the user said. The input is 140px in both modes because a brand created conversationally carries names into the Brand Profile form.
 
@@ -903,7 +903,7 @@ Primary Goal options: Product Launch, Brand Awareness, Drive Sales / Conversions
 
 * Required fields (Step 1): validated on blur. Empty \= red border \+ inline error.
 
-* Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#7C90A3.
+* Next button: disabled until all fields in current step are valid. Disabled style: bg \#1A3A4A, text \#93A3B3.
 
 * Enabled Next button: bg Primary Fill \#1075A8, text \#FFFFFF.
 
@@ -937,7 +937,7 @@ The primary workspace where users chat with the AI to create content strategies.
 
 * When user first lands here, the chat area shows a welcome screen:
 
-* Centered content: KO icon (48px, \#7C90A3 at 30% opacity).
+* Centered content: KO icon (48px, \#93A3B3 at 30% opacity).
 
 * Title: What are you working on? (24px/600/\#FFFFFF).
 
@@ -964,7 +964,7 @@ The primary workspace where users chat with the AI to create content strategies.
 | Padding | 14px 18px | 14px 18px |
 | Font | 14px/400/160% | 14px/400/160% |
 | Avatar | KO icon (24px, blue circle, left of bubble) | None (or user initials) |
-| Timestamp | 12px/\#7C90A3, below bubble | 12px/\#7C90A3, below bubble |
+| Timestamp | 12px/\#93A3B3, below bubble | 12px/\#93A3B3, below bubble |
 
 ### **AI Strategy Output Display**
 
@@ -976,7 +976,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Sections stacked vertically, each with:
 
-*   Section label: 12px/500/\#7C90A3, uppercase, letter-spacing 0.5px.
+*   Section label: 12px/500/\#93A3B3, uppercase, letter-spacing 0.5px.
 
 *   Section value: 14px/400/\#FFFFFF.
 
@@ -990,7 +990,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 * Container: Surface 1 (\#00162E), border 1px solid rgba(255,255,255,0.06), border-radius 12px, padding 10px 14px.
 
-* Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#7C90A3. Placeholder: Ask KO about your campaign...
+* Text area: multiline, auto-resize (min 1 row, max 4 rows). Background transparent. Text \#FFFFFF, placeholder \#93A3B3. Placeholder: Ask KO about your campaign...
 
 * Send button: 36px circle, bg Primary Fill \#1075A8, white paper plane icon (18px). Disabled when textarea empty (bg \#1A3A4A). Hover when enabled: \#0F6B9A (Primary Fill Hover).
 
@@ -1014,7 +1014,7 @@ When the AI completes a strategy, it renders as a structured card inside the cha
 
 *   Background: rgba(212,117,117,0.08). Border: 1px solid rgba(212,117,117,0.3).
 
-*   Icon: alert triangle (16px, \#D47575).
+*   Icon: alert triangle (16px, `--status-error-fg`).
 
 *   Text: I am temporarily unavailable. Our AI service has reached its limit. Please try again in a few moments. (14px/\#A7B6C7).
 
@@ -1058,7 +1058,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 5-6 rows depending on the month.
 
-* Grid header: day names (Mon, Tue, Wed...) in 12px/500/\#7C90A3, centered.
+* Grid header: day names (Mon, Tue, Wed...) in 12px/500/\#93A3B3, centered.
 
 * Day cell: minimum height 100px. Background: transparent. Border: 1px solid rgba(255,255,255,0.04).
 
@@ -1072,7 +1072,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Design indicator: small blue dot (4px, \#138BC8) on right edge of mini card.
 
-* Overflow: \+2 more (11px/\#7C90A3, italic). Clicking opens Day view for that date.
+* Overflow: \+2 more (11px/\#93A3B3, italic). Clicking opens Day view for that date.
 
 * Hover on cell: bg rgba(255,255,255,0.02).
 
@@ -1084,7 +1084,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grid: 7 columns (Mon-Sun), 1 row. Each column \= one day.
 
-* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#7C90A3. Date 18px/600/\#FFFFFF. Current day: date in Primary Text (`--primary-text`).
+* Column header: day name \+ date (e.g., MON 16). Day name 11px/500/\#93A3B3. Date 18px/600/\#FFFFFF. Current day: date in Primary Text (`--primary-text`).
 
 * Column: items stacked vertically. Gap: 8px between items.
 
@@ -1092,7 +1092,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Card content:
 
-*   Time: 11px/\#7C90A3 (e.g., 9:00 AM).
+*   Time: 11px/\#93A3B3 (e.g., 9:00 AM).
 
 *   Platform: 11px/\#A7B6C7 (e.g., Instagram).
 
@@ -1128,7 +1128,7 @@ Display the AI-generated content calendar in multiple view modes. The calendar s
 
 * Grouped by date: date header (14px/600/\#FFFFFF, sticky at top when scrolling).
 
-* Each item: horizontal row. Time (11px/\#7C90A3) \+ Platform (11px/\#A7B6C7) \+ Title (13px/\#FFFFFF) \+ Design status badge.
+* Each item: horizontal row. Time (11px/\#93A3B3) \+ Platform (11px/\#A7B6C7) \+ Title (13px/\#FFFFFF) \+ Design status badge.
 
 * Row hover: bg rgba(255,255,255,0.02). Click: opens Calendar Item Detail drawer.
 
@@ -1160,7 +1160,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Slides up from bottom. Full width. Max-height: 90vh. Border-radius: 16px 16px 0 0\.
 
-* Drag handle: 40px x 4px rounded bar, \#7C90A3, centered at top.
+* Drag handle: 40px x 4px rounded bar, \#93A3B3, centered at top.
 
 * Animation: slide up 12px \+ fade, 320ms.
 
@@ -1178,13 +1178,13 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Title: 20px/600/\#FFFFFF. E.g., 5 Ingredients That Make Us Different.
 
-* Date & Time row: Calendar icon (14px, \#7C90A3) \+ Monday, June 16, 2026 at 9:00 AM (13px/\#A7B6C7).
+* Date & Time row: Calendar icon (14px, \#93A3B3) \+ Monday, June 16, 2026 at 9:00 AM (13px/\#A7B6C7).
 
 * Divider: 1px solid rgba(255,255,255,0.06), margin 16px 0\.
 
 * Caption / Brief section:
 
-*   Label: CAPTION BRIEF (12px/500/\#7C90A3, uppercase).
+*   Label: CAPTION BRIEF (12px/500/\#93A3B3, uppercase).
 
 *   Content: 14px/400/\#FFFFFF. E.g., Slide 1: Hook — Did you know the average skincare product has 25 ingredients? We use 5\. Here is why each one matters. Slide 2-5: One ingredient per slide with a short benefit description. End slide: CTA to shop the kit.
 
@@ -1194,9 +1194,9 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Design section:
 
-*   Label: DESIGN ASSET (12px/500/\#7C90A3, uppercase).
+*   Label: DESIGN ASSET (12px/500/\#93A3B3, uppercase).
 
-*   If design NOT required: text No design needed for this item. (13px/\#7C90A3).
+*   If design NOT required: text No design needed for this item. (13px/\#93A3B3).
 
 *   If design required, no ticket yet:
 
@@ -1210,7 +1210,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 *     Status badge: Design Submitted (11px/\#D4A954, bg rgba(212,169,84,0.15)).
 
-*     Ticket ID: \#DT-00123 (13px/\#7C90A3).
+*     Ticket ID: \#DT-00123 (13px/\#93A3B3).
 
 *     Due date: Expected by Wednesday, June 18 (13px/\#A7B6C7).
 
@@ -1230,7 +1230,7 @@ Show the full details of a single calendar item. This is where the user reviews 
 
 * Status section:
 
-*   Label: STATUS (12px/500/\#7C90A3, uppercase).
+*   Label: STATUS (12px/500/\#93A3B3, uppercase).
 
 *   Dropdown: Draft (default), In Progress, Ready, Published.
 
@@ -1272,7 +1272,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Slides up from bottom, full width, max-height 90vh. Border-radius: 16px 16px 0 0\.
 
-* Drag handle: 40x4px rounded bar, \#7C90A3, centered. Swipe down to close.
+* Drag handle: 40x4px rounded bar, \#93A3B3, centered. Swipe down to close.
 
 ### **Modal Header**
 
@@ -1334,7 +1334,7 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Ticket summary card:
 
-*   Ticket ID: \#DT-00124 (13px/\#7C90A3).
+*   Ticket ID: \#DT-00124 (13px/\#93A3B3).
 
 *   Design type: Instagram Carousel — 5 slides (13px/\#FFFFFF).
 
@@ -1367,13 +1367,13 @@ When a calendar item requires a visual asset, this form lets the user submit a D
 
 * Card content:
 
-*   Row 1: Ticket ID (\#DT-00124, 12px/\#7C90A3) \+ Status badge (right-aligned) \+ Date submitted.
+*   Row 1: Ticket ID (\#DT-00124, 12px/\#93A3B3) \+ Status badge (right-aligned) \+ Date submitted.
 
 *   Row 2: Design type (14px/500/\#FFFFFF) \+ Campaign name (13px/\#A7B6C7).
 
 *   Row 3: Content item title (13px/\#A7B6C7).
 
-*   Row 4: Due date (12px/\#7C90A3) \+ thumbnail preview (if delivered, 48px).
+*   Row 4: Due date (12px/\#93A3B3) \+ thumbnail preview (if delivered, 48px).
 
 * Card hover: Surface 2 bg, accent border. Click: opens ticket detail.
 
@@ -1387,7 +1387,7 @@ Provide a legal baseline accessible from within the product.
 
 * Page title: Privacy Policy (32px/700/\#FFFFFF).
 
-* Last updated: \[Date\] (13px/\#7C90A3).
+* Last updated: \[Date\] (13px/\#93A3B3).
 
 * Content: standard sections (Information We Collect, How We Use It, Data Sharing, Your Rights, Contact).
 
@@ -1464,7 +1464,7 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 
 * The fill tokens are the same in both themes: they are measured against the white label they carry, not against the page. Same hue as Primary, lightness only.
 
-* Destructive Fill (`--destructive-fill`, \#B23528; hover `--destructive-fill-hover`, \#9C2E23) is the fill of a confirm button for a destructive action (Remove Member, Delete Workspace), the same in both themes: white on it is 6.12:1, on the hover 7.42:1. `--status-error-fg` is text, never a fill: the dark value under white was 3.05:1.
+* A destructive confirm button (Remove Member, Delete Workspace) fills with Destructive Fill (9.2 Status Colors), never `--status-error-fg`: that is text, and the dark value under white was 3.05:1.
 
 * Secondary (`--secondary`, \#A7B6C7, the secondary badge) carries `--background` as its label in dark mode and `--foreground` in light mode (8.64:1): the light page colour on it was 1.82:1.
 
@@ -1527,9 +1527,11 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 | :---- | :---- | :---- | :---- |
 | Text Primary | \#FFFFFF | \#0F172A | Headings, primary content, button text on primary bg |
 | Text Secondary | \#A7B6C7 | \#475569 | Body copy, descriptions, secondary labels, inactive nav items |
-| Text Muted | \#7C90A3 | \#58687B | Placeholders (at full opacity), timestamps, helper text, meta info |
+| Text Muted | \#93A3B3 | \#4F5D6F | Placeholders (at full opacity), timestamps, helper text, meta info |
 
-* Every text token clears 4.5:1 on every surface token in its theme, including popovers and dialogs (`--surface-2`). Text Muted was \#6F8599 (dark, 4.35:1 on `--surface-2`) and \#7C8DA1 (light, 3.40:1 on a white dialog) until 2026-10-21; both were lightness-only moves in the same hue. Measured values are in 12.1.
+* Every text token clears 4.5:1 on every surface token in its theme, including popovers and dialogs (`--surface-2`), and on every translucent tint (Hover, Accent Glow, each status background) composited over any of those surfaces. Hint text sits on hovered and drag-active cards, so the surface alone is not enough.
+* History, all lightness-only moves in the same hue. Text Muted dark: \#6F8599 (4.35:1 on `--surface-2`), then \#7C90A3 (4.15:1 on Accent Glow over a dialog), now \#93A3B3. Light: \#7C8DA1 (3.40:1 on a white dialog), then \#58687B (3.92:1 on the Ready tint over \#E2E8F0), now \#4F5D6F. Measured values are in 12.1.
+* Muted stays the quietest tier but sits closer to Secondary than it did: on a dialog it is 6.44:1 against Secondary's 8.04:1 (dark) and 6.71:1 against 7.58:1 (light). Use weight or size, not a lighter colour, when muted text needs to recede further.
 
 ### **Status Colors**
 
@@ -1551,6 +1553,20 @@ KO OS must feel: Quietly confident (no noisy gradients, no cheap SaaS UI). Disci
 * The semantic hues (`--success`, `--warning`, `--error`) are also text: the checklist's done state, the Pro Tip heading, inline field errors. In light mode they take the light status values (\#3F660C, \#8B5506, \#B23528; worst 5.46, 5.01 and 4.96:1). The dark values were 1.79, 1.93 and 2.81:1 on the light page (\#EDF1F7).
 
 * In Progress and Published (`--status-progress-fg`) are held to 4.5:1 over their tint on every surface token by `theme-contrast.test.ts`: 6.51:1 dark over Surface 2, 6.02:1 light over a white card, worst 4.96:1 light over \#E2E8F0. The light value was \#1F7AB5 until 2026-10-21, which measured 3.91:1 on a white card (the FEAT-033 source pill) and 3.22:1 over \#E2E8F0.
+
+* **Error text is one token, `--status-error-fg`**, for every piece of error text: status pills, inline field errors, upload rejections, a failed regenerate, error icons. On a plain surface it is \#D57A7A on dark (6.39:1 on Base, 5.46:1 on Surface 2, 4.99:1 at worst on \#002550) and \#B23528 on light (6.12:1 on a white card, 5.40:1 on Base, 4.96:1 at worst on \#E2E8F0). `--error` is the same token under its old name (`--error: var(--status-error-fg)`), in both themes. As a separate \#D47575 it was never darkened for light mode, where it measured 3.18:1 on a white card.
+* Error text is a text colour, never a fill. White on it measured 3.05:1 (dark). A filled destructive control uses Destructive Fill below.
+
+### **Destructive Fill**
+
+| Token | Dark | Light | Usage |
+| :---- | :---- | :---- | :---- |
+| Destructive Fill (`--destructive-fill`) | \#C0392B | \#B23528 | Background of the button that confirms a destructive action (delete workspace, remove member, revoke access, delete post) |
+| Destructive Fill Hover (`--destructive-fill-hover`) | \#A93226 | \#962A1F | Hover and pressed. Deepens, per 9.5; a lighter hover would drop the label under 4.5:1 |
+| Destructive Fill Foreground (`--destructive-fill-foreground`) | \#FFFFFF | \#FFFFFF | The label on either fill |
+
+* White on the fill: 5.44:1 (dark) and 6.12:1 (light) at rest, 6.62:1 and 7.93:1 on hover.
+* Implemented once as the `destructive` variant of `src/components/ui/button.tsx`. Call sites pass `variant="destructive"`; they never paint a status or error token as a fill.
 
 ### **Borders, Dividers & Effects**
 
@@ -1661,6 +1677,18 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Disabled | transparent | \#3A4656 | none |
 | Focus | transparent | \#A7B6C7 | none |
 
+### **Destructive (Filled)**
+
+| State | Background | Text | Border |
+| :---- | :---- | :---- | :---- |
+| Default | `--destructive-fill` | \#FFFFFF | none |
+| Hover | `--destructive-fill-hover` | \#FFFFFF | none |
+| Active | `--destructive-fill-hover` | \#FFFFFF | none |
+| Disabled | `--destructive-fill` at 50% opacity | \#FFFFFF at 50% | none |
+| Loading | `--destructive-fill` | \#FFFFFF | none (inline spinner \+ present-participle label: Deleting…) |
+
+* Only for the button that carries out a destructive action, usually in a confirm dialog. The trigger that opens that dialog is ghost or outline with `--status-error-fg` text.
+
 ### **Icon-Only**
 
 | State | Background | Icon Color | Size |
@@ -1677,19 +1705,19 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 | State | Background | Text | Border | Notes |
 | :---- | :---- | :---- | :---- | :---- |
-| Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#7C90A3 |
+| Default | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | Placeholder: \#93A3B3 |
 | Hover | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.1) | Slightly stronger border |
 | Focus | \#00162E | \#FFFFFF | 1px solid rgba(255,255,255,0.06) | 2px solid `--ring` outline, 2px offset. A focus border colour never paints: `* { border-color }` in globals.css is unlayered and beats every utility |
-| Error | \#00162E | \#FFFFFF | 1px solid \#8B4040 | Error text: 12px/\#D47575 below |
-| Disabled | \#001224 | \#7C90A3 | 1px solid rgba(255,255,255,0.04) | No interaction |
+| Error | \#00162E | \#FFFFFF | 1px solid \#8B4040 | Error text: 12px/`--status-error-fg` below |
+| Disabled | \#001224 | \#93A3B3 | 1px solid rgba(255,255,255,0.04) | No interaction |
 
 * Height: 44px. Border-radius: 10px. Padding: 0 14px. Font: 14px/400.
 
-* Label: 12px/500/\#A7B6C7, above field, margin-bottom 6px. Required: red asterisk \* (12px/\#D47575).
+* Label: 12px/500/\#A7B6C7, above field, margin-bottom 6px. Required: red asterisk \* (12px/`--status-error-fg`).
 
 * Textarea: same styling, min-height 80px, padding 12px 14px, resize vertical.
 
-* Select: same styling \+ dropdown arrow icon (16px, \#7C90A3) on right.
+* Select: same styling \+ dropdown arrow icon (16px, \#93A3B3) on right.
 
 ## **10.3 Cards**
 
@@ -1726,7 +1754,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Background: Surface 1\. Border: 1px solid rgba(255,255,255,0.06). Border-radius: 8px. Padding: 12px.
 
-* Time: 11px/\#7C90A3. Platform: 11px/\#A7B6C7. Title: 13px/500/\#FFFFFF.
+* Time: 11px/\#93A3B3. Platform: 11px/\#A7B6C7. Title: 13px/500/\#FFFFFF.
 
 * Content type badge: 10px pill. Design status badge: 10px pill (color per status).
 
@@ -1764,7 +1792,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Full width, max-height 90vh, border-radius 16px 16px 0 0\.
 
-* Drag handle: 40x4px, \#7C90A3, rounded, centered top.
+* Drag handle: 40x4px, \#93A3B3, rounded, centered top.
 
 * Open: translateY(100%) to 0, 320ms. Close: swipe down or backdrop tap.
 
@@ -1772,13 +1800,17 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Toast: max-width 400px. Position: bottom-right desktop, top-center mobile.
 
-* Background: Surface 2\. Border-left: 3px solid \#138BC8 (info), \#97C459 (success), \#D47575 (error).
+* Background: Surface 2\. Border-left: 3px solid \#138BC8 (info), \#97C459 (success), `--status-error-fg` (error).
 
 * Border-radius: 8px. Padding: 12px 16px. Shadow: 0 4px 16px rgba(0,0,0,0.3).
 
 * Auto-dismiss: 4 seconds. Progress bar at bottom (thin, fades over 4s).
 
 * Manual close: X button, icon-only ghost, 16px.
+
+* Rich toasts keep Sonner's tinted backgrounds, but the text of each type is the matching status token: success `--status-ready-fg`, error `--status-error-fg`, info `--status-progress-fg`, warning `--status-pending-fg`. Sonner's own light text measured 3.07-4.35:1 on its tints; the tokens clear 5.5:1 or more in both themes. `src/app/theme-contrast.test.ts` measures them against the installed Sonner's tints.
+
+* Never the only place an action in a dialog reports its outcome: a toast sits over the dialog's footer (on a phone it hid "Stay here" for its whole lifetime). Say it on the thing it is about, in a `role="status"` region that is mounted before the message lands (the design-direction card's "Sent to the design team as DT-1042").
 
 * Stacking: max 3 visible, newer pushes older up.
 
@@ -1796,13 +1828,13 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 ## **10.9 Progress Steps**
 
-* Horizontal layout. Each step: circle (24px) \+ label below (12px).
+* Horizontal layout. Each step: circle (24px) \+ label below (12px), centred in an equal-width column, so every connector is the same length whatever the labels say. Labels wrap inside their column rather than pushing a connector shorter.
 
-* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, text Primary Text (`--primary-text`). Completed: bg Primary Fill \#1075A8, text \#FFFFFF, checkmark icon. Future: border \#7C90A3, bg transparent, text \#7C90A3.
+* Step circle: border 2px. Active: border \#138BC8, bg \#000D20, number and label in `--status-progress-fg` (\#85B7EB dark, \#175C89 light). `--primary` as 12px text measured 3.78:1 on white and 4.40:1 on the dark dialog; the 2px ring is a non-text indicator, so `--primary` clears 3:1 there. Completed: bg Primary Fill \#1075A8, text \#FFFFFF, checkmark icon. Future: border \#93A3B3, bg transparent, text \#93A3B3.
 
-* Connector line between steps: 2px height. Completed: \#138BC8. Future: rgba(255,255,255,0.06).
+* Connector line between steps: 2px height, centre to centre, stopping 4px short of each circle. Completed: \#138BC8. Future: `--border`.
 
-* Used in Create Brand form (3 steps).
+* `src/components/ui/progress-steps.tsx` draws the design-generation progress (3 or 4 steps). Create Brand has its own clickable variant in `src/app/(dashboard)/brand/create/progress-steps.tsx`.
 
 # **11\. Responsiveness Specification**
 
@@ -1940,14 +1972,23 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 * Non-text indicators (focus rings, control boundaries) need 3:1 against what they sit on (WCAG 1.4.11).
 
 * Gate: `src/app/theme-contrast.test.ts` reads the tokens out of `globals.css` (and `landing.css`) for both themes and fails the build if any text token drops below 4.5:1, or `--ring` below 3:1, on any surface token. Surfaces are found by name, so a new `--surface-*` is measured the day it lands.
+* The same gate measures Error text (`--status-error-fg`) on every surface, holds `--error` to the same colour, and measures every `--*-fill` state token under its label: `--destructive-fill-foreground` on the destructive fills, `--primary-foreground` on the primary fills. It also fails on any source line that paints a light label on a status or error text token used as a fill.
+* The same gate composites every translucent tint over every surface, the way the browser does, and measures Text Primary, Secondary and Muted on each, plus each status text on its own status background. Every `rgba()` token must be classed as a text tint, a sidebar tint, or something text never sits on (borders, divider, backdrop, skeleton), so a new tint cannot land unmeasured. `landing.css` must use the app's Text Muted.
 
 | Pair | Dark | Light |
 | :---- | :---- | :---- |
 | Text Primary on Base | \#FFFFFF on \#000D20 \= 19.47:1 | \#0F172A on \#EDF1F7 \= 15.75:1 |
 | Text Secondary on Base | \#A7B6C7 on \#000D20 \= 9.42:1 | \#475569 on \#EDF1F7 \= 6.68:1 |
-| Text Muted on Base | \#7C90A3 on \#000D20 \= 5.91:1 | \#58687B on \#EDF1F7 \= 5.03:1 |
-| Text Muted on Surface 2 (dialogs, popovers) | 5.05:1 on \#001F3D | 5.70:1 on \#FFFFFF |
-| Text Muted, weakest pair | 4.62:1 on \#002550 | 4.63:1 on \#E2E8F0 |
+| Text Muted on Base | \#93A3B3 on \#000D20 \= 7.54:1 | \#4F5D6F on \#EDF1F7 \= 5.92:1 |
+| Text Muted on Surface 2 (dialogs, popovers) | 6.44:1 on \#001F3D | 6.71:1 on \#FFFFFF |
+| Text Muted on Hover over Surface 2 | 5.51:1 | 6.05:1 |
+| Text Muted on Accent Glow over Surface 2 (drag-active drop zone) | 5.31:1 | 5.82:1 |
+| Text Muted, weakest pair | 4.61:1 on the Pending tint over \#002550 | 4.61:1 on the Ready tint over \#E2E8F0 |
+| In Progress pill (source pill) on Surface 2 | 5.97:1 or better | \#175C89 on 15% Primary over \#FFFFFF \= 6.02:1 |
+| Status text, weakest pair | 4.61:1 (Error over \#002550) | 4.63:1 (Ready, Pending and Error over \#E2E8F0) |
+| Error text on Surface 2 | \#D57A7A on \#001F3D \= 5.46:1 | \#B23528 on \#FFFFFF \= 6.12:1 |
+| Error text, weakest surface | 4.99:1 on \#002550 | 4.96:1 on \#E2E8F0 |
+| Destructive Fill label | \#FFFFFF on \#C0392B \= 5.44:1 (hover 6.62:1) | \#FFFFFF on \#B23528 \= 6.12:1 (hover 7.93:1) |
 | Ring on Base | \#138BC8 on \#000D20 \= 5.15:1 | 3.34:1 on \#EDF1F7 |
 | Ring on Surface 2 | 4.40:1 on \#001F3D | 3.78:1 on \#FFFFFF |
 | Ring, weakest pair | 4.02:1 on \#002550 | 3.07:1 on \#E2E8F0 |
@@ -1961,7 +2002,7 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 | Primary Text Hover, weakest brand tint | 5.03:1 | 5.13:1 |
 | In Progress text on its tint, weakest surface | \#85B7EB, 5.97:1 over \#002550 | \#175C89, 4.96:1 over \#E2E8F0 |
 | Ready / Pending / Error text on its tint, weakest surface | 6.01 / 5.44 / 4.61:1 over \#002550 | 4.63 / 4.63 / 4.63:1 over \#E2E8F0 |
-| Placeholder (Text Muted, full opacity), weakest surface | 4.62:1 on \#002550 | 4.63:1 on \#E2E8F0 |
+| Placeholder (Text Muted, full opacity), weakest surface | 5.89:1 on \#002550 | 5.45:1 on \#E2E8F0 |
 | White on the brand band / its badges (light) | n/a (the band is Surface 2) | 5.08:1 on Primary Fill / 6.95:1 on Primary Fill Active |
 | Disabled label on Disabled fill | \#7C90A3 on \#1A3A4A \= 3.65:1 | \#A7B6C7 on \#1A3A4A \= 5.81:1 |
 
@@ -1986,6 +2027,10 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 * Trap focus within modals/drawers when open (Tab cycles within, Escape closes).
 
 * Return focus to trigger element when modal/drawer closes.
+
+* Focus never falls to `<body>`. A control that starts a wait keeps focus through it (see Loading & Error States). When the focused control is replaced, focus moves to its replacement on purpose: a regenerated design direction focuses its new card, which announces the new direction's title. A user who moved elsewhere during the wait keeps their place.
+
+* A scrolling container clips whatever crosses its edge, focus outlines included. Give it room for the 4px an outline reaches past its control (the directions dialog's scroller spans the popup's padding), or use `focus-outline-inset` for edge controls. `*.layout.test.tsx` files measure this in headless Chromium, since jsdom has no layout.
 
 ## **12.3 Screen Readers**
 

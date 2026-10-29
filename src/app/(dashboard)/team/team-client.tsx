@@ -734,6 +734,7 @@ export function TeamClient({
             </Button>
             <Button
               type="button"
+              variant="destructive"
               loading={pending}
               loadingText="Removing…"
               onClick={() => {
@@ -749,7 +750,6 @@ export function TeamClient({
                   },
                 );
               }}
-              className="bg-destructive-fill text-white hover:bg-destructive-fill-hover"
             >
               Remove Member
             </Button>

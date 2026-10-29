@@ -189,8 +189,10 @@ describe("each way the old pairing was written is still caught", () => {
       `<div className="bg-primary-fill text-foreground">Go</div>`,
     ],
     [
-      "muted text on a brand tint (fails in dark)",
-      `<div className="bg-[var(--accent-glow)]"><span className="text-[var(--text-muted)]">hint</span></div>`,
+      /* --text-muted now clears 4.5:1 on --accent-glow (UI round 3), so the
+         case uses a tint it still cannot: 3.90:1 dark, 3.94:1 light. */
+      "muted text on a 30% brand tint (fails in both themes)",
+      `<div className="bg-[rgba(19,139,200,0.3)]"><span className="text-[var(--text-muted)]">hint</span></div>`,
     ],
     [
       "the pale status blue on a tint (fails in light)",

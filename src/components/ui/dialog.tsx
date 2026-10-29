@@ -22,13 +22,18 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
+/* Base UI skips a nested dialog's backdrop by default, which left a sheet
+   under a dialog opened from it bright and clickable. forceRender dims it
+   and makes a click on it an outside press of the dialog on top. */
 function DialogOverlay({
   className,
+  forceRender = true,
   ...props
 }: DialogPrimitive.Backdrop.Props) {
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
+      forceRender={forceRender}
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className,
@@ -37,6 +42,18 @@ function DialogOverlay({
     />
   );
 }
+
+/* The nested dialog's backdrop stops pointers, but the parent popup would
+   still be reachable by Tab and by assistive tech; inert removes both. */
+export function renderInertUnderNestedDialog(
+  props: React.HTMLAttributes<HTMLDivElement>,
+  state: DialogPrimitive.Popup.State,
+) {
+  return <div {...props} inert={state.nestedDialogOpen} />;
+}
+
+export const DIALOG_CONTENT_CLASS =
+  "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95";
 
 function DialogContent({
   className,
@@ -51,10 +68,8 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className,
-        )}
+        render={renderInertUnderNestedDialog}
+        className={cn(DIALOG_CONTENT_CLASS, className)}
         {...props}
       >
         {children}

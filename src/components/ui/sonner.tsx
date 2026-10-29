@@ -10,6 +10,23 @@ import {
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
+/** Sonner's own light rich colours fail AA on their tints (success 4.26:1,
+ *  error and info 4.35:1, warning 3.07:1), so each type's text is the app's
+ *  status token for it. Sonner's tints stay, and both themes clear 4.5:1. */
+export const TOAST_TEXT_TOKENS = {
+  success: "--status-ready-fg",
+  error: "--status-error-fg",
+  info: "--status-progress-fg",
+  warning: "--status-pending-fg",
+} as const;
+
+const richTextVars = Object.fromEntries(
+  Object.entries(TOAST_TEXT_TOKENS).map(([type, token]) => [
+    `--${type}-text`,
+    `var(${token})`,
+  ]),
+);
+
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 
@@ -30,22 +47,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
-          /* richColors draws each type in sonner's own palette; its light
-             error text (#e60000 on #fff0f0) is 4.35:1. Each type takes the
-             popover ground and the status foreground the token gate holds to
-             4.5:1 on every surface instead. */
-          "--success-bg": "var(--popover)",
-          "--success-text": "var(--status-ready-fg)",
-          "--success-border": "var(--status-ready-fg)",
-          "--info-bg": "var(--popover)",
-          "--info-text": "var(--status-progress-fg)",
-          "--info-border": "var(--status-progress-fg)",
-          "--warning-bg": "var(--popover)",
-          "--warning-text": "var(--status-pending-fg)",
-          "--warning-border": "var(--status-pending-fg)",
-          "--error-bg": "var(--popover)",
-          "--error-text": "var(--status-error-fg)",
-          "--error-border": "var(--status-error-fg)",
+          ...richTextVars,
         } as React.CSSProperties
       }
       toastOptions={{

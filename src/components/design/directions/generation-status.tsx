@@ -11,15 +11,9 @@ import {
   generationStepIndex,
   generationSteps,
   type ImageSource,
-  unusableImageReason,
+  startOverLabel,
+  unusableImageDetail,
 } from "./flow-logic";
-
-/** The client's own fetching label matches the last step's name; saying it
- *  twice in one status reads as a glitch. */
-function sameWords(a: string, b: string): boolean {
-  const norm = (s: string) => s.replace(/[.…\s]+$/u, "").toLowerCase();
-  return norm(a) === norm(b);
-}
 
 export interface GenerationProgressProps {
   source: ImageSource;
@@ -27,8 +21,6 @@ export interface GenerationProgressProps {
   /** The job's own stage; the steps follow this and nothing else. */
   jobStage: JobStage | null;
   progress: { done: number; total: number } | null;
-  /** The worker's own words for what it is doing right now. */
-  label: string | null;
 }
 
 /* While designs render, done/total counts them; it is the one stage where
@@ -46,7 +38,6 @@ export function GenerationProgress({
   stage,
   jobStage,
   progress,
-  label,
 }: GenerationProgressProps) {
   const steps = generationSteps(source);
   const current = generationStepIndex(steps, stage, jobStage);
@@ -58,22 +49,17 @@ export function GenerationProgress({
       <span className="flex size-12 items-center justify-center rounded-full bg-[rgba(19,139,200,0.15)] text-primary-text">
         <Spinner className="size-6" />
       </span>
+      {/* One title and one line, as in the prototype. The worker's own label
+          is left out: it restated the step in other words. */}
       <div className="flex flex-col items-center gap-1.5">
         <FlowTitle>Creating two directions</FlowTitle>
-        <div role="status" className="flex flex-col items-center gap-1">
-          <p className="text-[14px] font-medium text-foreground">
-            {step.long}
-            {count ? (
-              <span className="text-[var(--text-secondary)]"> · {count}</span>
-            ) : null}
-            <span className="sr-only">
-              , step {current + 1} of {steps.length}
-            </span>
-          </p>
-          {label && !sameWords(label, step.long) ? (
-            <p className="text-[12px] text-[var(--text-muted)]">{label}</p>
-          ) : null}
-        </div>
+        <p role="status" className="text-[14px] text-[var(--text-secondary)]">
+          {step.long}
+          {count ? ` · ${count}` : null}
+          <span className="sr-only">
+            , step {current + 1} of {steps.length}
+          </span>
+        </p>
       </div>
       <div className="w-full max-w-[420px]" aria-hidden="true">
         <ProgressSteps steps={steps.map((s) => s.short)} current={current} />
@@ -88,6 +74,7 @@ export function GenerationProgress({
 
 export interface GenerationErrorProps {
   message: string;
+  source: ImageSource;
   /** The server refused the uploaded bytes, so retrying the same file is
    *  pointless and the way out is a different image. */
   unusableImage: boolean;
@@ -99,6 +86,7 @@ export interface GenerationErrorProps {
 
 export function GenerationError({
   message,
+  source,
   unusableImage,
   onRetry,
   onChooseAnotherImage,
@@ -106,9 +94,9 @@ export function GenerationError({
   onChangeImage,
 }: GenerationErrorProps) {
   const Icon = unusableImage ? ImageOff : TriangleAlert;
-  /* The server's sentence opens with the heading's own words; repeating them
-     directly under the heading reads as a stutter. */
-  const detail = unusableImage ? unusableImageReason(message) : message;
+  /* The server's sentence opens with the heading's words and closes with the
+     button's, so each is cut once here rather than read twice. */
+  const detail = unusableImage ? unusableImageDetail(message) : message;
   return (
     <div
       role="alert"
@@ -124,11 +112,6 @@ export function GenerationError({
             : "We couldn't finish your designs"}
         </FlowTitle>
         {detail ? <FlowDescription>{detail}</FlowDescription> : null}
-        {unusableImage ? (
-          <p className="text-[13px] text-[var(--text-secondary)]">
-            Choose another image, or let KO create the imagery instead.
-          </p>
-        ) : null}
       </div>
       <div className="flex flex-wrap justify-center gap-2">
         {unusableImage ? (
@@ -148,7 +131,7 @@ export function GenerationError({
               Try again
             </Button>
             <Button type="button" variant="secondary" onClick={onChangeImage}>
-              Change image
+              {startOverLabel(source)}
             </Button>
           </>
         )}

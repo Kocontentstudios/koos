@@ -287,9 +287,8 @@ describe("DesignDirectionsDialog", () => {
     expect(
       within(alert).getByRole("heading", { name: "This image can't be used" }),
     ).toBeInTheDocument();
-    expect(alert).toHaveTextContent(
-      "It is not a PNG or JPEG file. Choose another image.",
-    );
+    expect(alert).toHaveTextContent("It is not a PNG or JPEG file.");
+    expect(alert.textContent?.match(/choose another image/gi)).toHaveLength(1);
     expect(
       within(alert).queryByRole("button", { name: /try again/i }),
     ).toBeNull();
@@ -391,6 +390,146 @@ describe("DesignDirectionsDialog", () => {
     );
   });
 
+  /* The contract is one row per regenerate. Round 2 took the first row of
+     whatever came back, so a server that returned two would have swapped one
+     in silently and left the other unexplained. */
+  it.each([
+    ["no rows", []],
+    ["two rows", [direction("n1", "Airy"), direction("n2", "Crisp")]],
+  ])("treats %s from a regenerate as a failure", async (_label, rows) => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    await openResults(design);
+    vi.mocked(slotRun.generate).mockResolvedValue(rows);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Regenerate direction 1" }),
+    );
+    const bold = within(await screen.findByRole("article", { name: "Bold" }));
+    expect(await bold.findByRole("alert")).toHaveTextContent(
+      "Regenerating didn't work, so this design is unchanged. Try again.",
+    );
+    expect(screen.queryByRole("article", { name: "Airy" })).toBeNull();
+    expect(screen.queryByRole("article", { name: "Crisp" })).toBeNull();
+    expect(
+      screen
+        .getAllByRole("article")
+        .map((a) => a.getAttribute("aria-labelledby")),
+    ).toEqual(["direction-d1", "direction-d2"]);
+  });
+
+  /* No image was chosen on a KO-imagery run, so "Change image" named
+     something that never happened. And leaving results cleared both designs
+     from the dialog with no word that they are kept. */
+  it("asks before starting over from results, and says the designs are kept", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    await openResults(design);
+    expect(screen.queryByRole("button", { name: /change image/i })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Start over" }));
+    expect(design.reset).not.toHaveBeenCalled();
+    const prompt = screen.getByRole("group", {
+      name: "Start over? These designs stay in Design Studio.",
+    });
+    const stay = within(prompt).getByRole("button", { name: "Stay here" });
+    expect(stay).toHaveFocus();
+
+    await userEvent.click(stay);
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.getByRole("button", { name: "Start over" })).toHaveFocus();
+    expect(screen.getByRole("article", { name: "Bold" })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Start over" }));
+    await userEvent.click(
+      within(screen.getByRole("group")).getByRole("button", {
+        name: "Start over",
+      }),
+    );
+    expect(design.reset).toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: "Choose the image for this post" }),
+    ).toBeInTheDocument();
+  });
+
+  /* Escape with the confirm open closed the whole dialog: innermost first. */
+  it("dismisses only the start-over confirm on Escape, then the dialog", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    const { onOpenChange } = await openResults(design);
+
+    await userEvent.click(screen.getByRole("button", { name: "Start over" }));
+    expect(
+      within(screen.getByRole("group")).getByRole("button", {
+        name: "Stay here",
+      }),
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(design.reset).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start over" })).toHaveFocus();
+    expect(screen.getByRole("article", { name: "Bold" })).toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("calls it Change image after a run built around an upload", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    open(design);
+    await userEvent.click(
+      screen.getByRole("button", { name: /use a specific image/i }),
+    );
+    await userEvent.upload(screen.getByTestId("design-image-input"), pick());
+    await waitFor(() => expect(upload).toHaveBeenCalled());
+    uploadDone();
+    await screen.findByText(/Ready to use/);
+    await userEvent.click(
+      screen.getByRole("button", { name: /use this image/i }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Change image" }));
+    expect(
+      screen.getByRole("group", {
+        name: "Change image? These designs stay in Design Studio.",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start over" })).toBeNull();
+  });
+
+  /* With nothing rendered there is nothing to lose, so no confirm. */
+  it("starts over straight away when no design is on screen", async () => {
+    const design = runState({ failedIds: ["f1", "f2"], failedCount: 2 });
+    await openResults(design);
+    expect(
+      screen.getByRole("heading", { name: "Neither direction rendered" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start over" }));
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(design.reset).toHaveBeenCalled();
+  });
+
+  /* Round 2 kept "Two directions to choose from" over one design and one
+     failed slot. */
+  it("heads the results with what actually came back", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold")],
+      failedIds: ["f2"],
+      failedCount: 1,
+    });
+    await openResults(design);
+    expect(
+      screen.getByRole("heading", { name: "One direction is ready" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Two directions to choose from")).toBeNull();
+  });
+
   it("sends one direction to the design team with the entry's context", async () => {
     const design = runState({
       generations: [direction("d1", "Bold"), direction("d2", "Calm")],
@@ -433,17 +572,49 @@ describe("DesignDirectionsDialog", () => {
         status: 200,
       }),
     );
+    const calm = within(screen.getByRole("article", { name: "Calm" }));
     await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith(
-        "Sent to the design team as DT-42",
-      ),
+      expect(
+        screen
+          .getByRole("article", { name: "Calm" })
+          .querySelector("[data-slot=sent-notice]"),
+      ).toHaveTextContent("Sent to the design team as DT-42"),
     );
+    expect(toastSuccess).not.toHaveBeenCalled();
     expect(
-      within(screen.getByRole("article", { name: "Calm" })).getByRole(
+      calm.getByRole("button", { name: /sent to design team/i }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      within(screen.getByRole("article", { name: "Bold" })).getByRole(
         "button",
         { name: /send to design team/i },
       ),
     ).toBeEnabled();
+  });
+
+  it("says on the card when sending fails, and clears it on a retry", async () => {
+    const design = runState({
+      generations: [direction("d1", "Bold"), direction("d2", "Calm")],
+    });
+    await openResults(design);
+    const calm = () => within(screen.getByRole("article", { name: "Calm" }));
+    await userEvent.click(
+      calm().getByRole("button", { name: /send to design team/i }),
+    );
+    ticketDone(
+      new Response(JSON.stringify({ error: "The design team is offline." }), {
+        status: 500,
+      }),
+    );
+    expect(await calm().findByRole("alert")).toHaveTextContent(
+      "The design team is offline.",
+    );
+    expect(toastError).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      calm().getByRole("button", { name: /send to design team/i }),
+    );
+    expect(calm().queryByRole("alert")).toBeNull();
   });
 
   /* Rows from before directions (or a server that has not shipped them yet)

@@ -88,6 +88,47 @@ describe("useDesignImageUpload", () => {
     });
   });
 
+  /* The feat-033/upload-r2 contract: presign is told the normalised blob's
+     size, and the PUT sends that same blob with the type the presign
+     returned. The fixture makes each of those differ from what a careless
+     client would send (the picked file's size, the blob's own type), so any
+     substitution fails here rather than as a 403 from R2. */
+  it("presigns the normalised blob's size and PUTs that blob with the signed type", async () => {
+    const picked = new File([new Uint8Array(5000)], "huge.webp", {
+      type: "image/webp",
+    });
+    const blob = new Blob([new Uint8Array(1234)]);
+    normalize.mockResolvedValueOnce({
+      blob,
+      type: "image/jpeg",
+      width: 2560,
+      height: 1440,
+    });
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          url: "https://r2/put-signed",
+          key: `design-images/${BRAND}/k.jpg`,
+          contentType: "image/jpeg",
+        }),
+        { status: 200 },
+      ),
+    );
+    const { result } = renderHook(() => useDesignImageUpload(BRAND));
+    act(() => result.current.select(picked));
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.sizeBytes).toBe(1234);
+    expect(body.sizeBytes).not.toBe(picked.size);
+    expect(upload).toHaveBeenCalledTimes(1);
+    const [url, sent, , contentType] = upload.mock.calls[0];
+    expect(url).toBe("https://r2/put-signed");
+    expect(sent).toBe(blob);
+    expect(blob.type).toBe("");
+    expect(contentType).toBe("image/jpeg");
+  });
+
   it("refuses a wrong type before any bytes move", () => {
     const { result } = renderHook(() => useDesignImageUpload(BRAND));
     act(() => result.current.select(image("scan.pdf", "application/pdf")));

@@ -56,6 +56,7 @@ describe("DesignPreviewModal send action", () => {
     await user.click(send);
 
     const busy = await screen.findByRole("button", { name: /Sending…/ });
+    expect(busy).toHaveAttribute("aria-disabled", "true");
     expect(busy).toHaveAttribute("aria-busy", "true");
     await user.click(busy);
     expect(fetchMock).toHaveBeenCalledTimes(1);

@@ -229,6 +229,10 @@ These are the seams the parallel units build against.
   - **Upload:** drop zone with click-to-browse, type and size validation, preview with Remove / Replace / Use this image.
   - **Progress:** a step progress modal driven by `JobProgress.stage`, with an error state. Four steps on the KO path (Brief, Imagery, Layout, Checks); three on the upload path, which never runs `imagery` and so never lists it.
   - **Results:** two direction cards, each with the image, "why this works", Download PNG, Download JPG, Send to design team and Regenerate (this direction only, via `regenerateOf`). Editing is phase 2, so the card has no Edit control yet. A placeholder for an unbuilt feature is a lie.
+    - The heading counts what came back ("One direction is ready" when the other failed). A failed slot is its own card with its own Regenerate.
+    - While a slot regenerates, its design, title and reasons are all placeholders, so nothing on the card describes the design being replaced.
+    - A regenerate that returns anything other than exactly one row is an error on that card; the old design stays.
+    - Leaving results is "Change image" after an upload and "Start over" after a KO-imagery run. With a design on screen it asks first, in the footer, and says the designs stay in Design Studio.
 - **JPG:** converted in the browser from the stored PNG on a `canvas`, white-filled first because JPEG has no alpha.
 - Every wait follows CLAUDE.md "Every wait gets an affordance".
 

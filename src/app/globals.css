@@ -58,10 +58,12 @@
   /* --- Text --------------------------------------------------------------- */
   --foreground: #ffffff;
   --text-secondary: #a7b6c7;
-  /* Lifted from #6f8599, which was 4.35:1 on --surface-2 (popovers, dialogs).
-     Same hue, lightness only; 4.62:1 on --surface-container-highest, the
-     surface it contrasts with least. src/app/theme-contrast.test.ts holds it. */
-  --text-muted: #7c90a3;
+  /* Held to 4.5:1 on every surface AND on every translucent tint composited
+     over one: hint text sits on hovered and drag-active cards, and #7c90a3
+     fell to 4.15:1 there. Same hue, lightness only; the weakest pair is
+     --status-pending-bg over --surface-container-highest at 4.6:1.
+     src/app/theme-contrast.test.ts holds it. */
+  --text-muted: #93a3b3;
 
   /* --- Status bg / fg pairs ---------------------------------------------- */
   --status-draft-bg: rgba(255, 255, 255, 0.06);
@@ -73,8 +75,17 @@
   --status-pending-bg: rgba(212, 169, 84, 0.15);
   --status-pending-fg: #d4a954;
   --status-error-bg: rgba(212, 117, 117, 0.08);
-  /* #d47575 was 4.42:1 over its tint on --surface-container-highest. */
+  /* #d47575 was 4.42:1 on its own tint over --surface-container-highest.
+     The one token for error text: pills, inline field errors, rejections. */
   --status-error-fg: #d57a7a;
+
+  /* --- Destructive fill ---------------------------------------------------- */
+  /* A solid fill under white text, so never --status-error-fg: that is tuned
+     as text on navy and white on it measured 3.05:1. Hover deepens, per the
+     motion rules; lightening it would drop under 4.5:1. */
+  --destructive-fill: #c0392b;
+  --destructive-fill-hover: #a93226;
+  --destructive-fill-foreground: #ffffff;
 
   /* --- Borders & effects -------------------------------------------------- */
   --border: rgba(255, 255, 255, 0.06);
@@ -129,12 +140,6 @@
   --secondary: #a7b6c7;
   --secondary-foreground: var(--background);
 
-  /* A destructive confirm button: white on it is 6.12:1, hover 7.42:1, in
-     both themes. --status-error-fg is text, not a fill: dark #d57a7a under
-     white was 3.05:1 (Remove Member). */
-  --destructive-fill: #b23528;
-  --destructive-fill-hover: #9c2e23;
-
   /* Accent aliases */
   --accent: var(--surface-1);
   --accent-foreground: var(--foreground);
@@ -142,9 +147,9 @@
   /* Primary container alias */
   --primary-container: #1a3a4a;
 
-  /* Status / semantic aliases */
-  --error: #d47575;
-  --error-foreground: #ffffff;
+  /* Status / semantic aliases. --error is the error text token under its old
+     name; as a separate #d47575 it fell to 3.18:1 on a light card. */
+  --error: var(--status-error-fg);
   --success: #97c459;
   --warning: #d4a954;
 
@@ -209,9 +214,10 @@
   /* Text hierarchy */
   --foreground: #0f172a;
   --text-secondary: #475569;
-  /* Darkened from #7c8da1 (3.40:1 on a white dialog). Same hue, lightness
-     only; 4.63:1 on #e2e8f0, the surface it contrasts with least. */
-  --text-muted: #58687b;
+  /* Held to 4.5:1 on every surface and every tint over one, like the dark
+     value. #58687b fell to 3.9:1 on --status-ready-bg over #e2e8f0. Same hue,
+     lightness only. */
+  --text-muted: #4f5d6f;
 
   /* Borders & dividers */
   --border: #e2e8f0;
@@ -241,22 +247,24 @@
   --hover: rgba(15, 23, 42, 0.05);
 
   /* Status foregrounds are tuned for the dark navy shell and darkened here,
-     same hue, until each clears 4.5:1 over its own tint on every light
-     surface, the page and #e2e8f0 included (theme-contrast.test.ts). The tints
-     do not stay legible on their own: #4d7c0f, #a16207 and #c0392b measured
-     3.43, 3.69 and 4.12:1 at their worst. */
+     same hue, until each clears 4.5:1 over its own tint composited over every
+     light surface, the page and #e2e8f0 included (theme-contrast.test.ts). The
+     earlier values (#1f7ab5, #4d7c0f, #a16207, #c0392b) fell to 3.2-4.1:1
+     there, and the source pill on a white dialog read 3.89:1. */
   --status-draft-fg: #475569;
   --status-progress-fg: #175c89;
   --status-ready-fg: #3f660c;
   --status-pending-fg: #8b5506;
   --status-error-fg: #b23528;
 
-  /* The semantic hues are also text (text-success, the Pro Tip heading, inline
-     errors); the dark values were 1.79, 1.93 and 2.81:1 on the light page.
-     They share the status foregrounds' light values. */
+  /* The semantic hues are also text (text-success, the Pro Tip heading); the
+     dark values were 1.79 and 1.93:1 on the light page. They share the status
+     foregrounds' light values. --error follows --status-error-fg by alias. */
   --success: #3f660c;
   --warning: #8b5506;
-  --error: #b23528;
+
+  --destructive-fill: #b23528;
+  --destructive-fill-hover: #962a1f;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -322,8 +330,6 @@
   /* Backward-compatible secondary aliases */
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-destructive-fill: var(--destructive-fill);
-  --color-destructive-fill-hover: var(--destructive-fill-hover);
 
   /* Backward-compatible accent aliases */
   --color-accent: var(--accent);
@@ -334,7 +340,9 @@
 
   /* Backward-compatible semantic tokens */
   --color-error: var(--error);
-  --color-error-foreground: var(--error-foreground);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-destructive-fill-hover: var(--destructive-fill-hover);
+  --color-destructive-fill-foreground: var(--destructive-fill-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
 

@@ -57,6 +57,7 @@ describe("GenerateDesignButton", () => {
     design.pending = true;
     const { container } = render(<GenerateDesignButton brandId="b1" />);
     const button = screen.getByRole("button", { name: /Generating…/ });
+    expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(container.querySelector(".animate-spin")).toBeInTheDocument();
     await userEvent.click(button);

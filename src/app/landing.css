@@ -19,7 +19,7 @@
             --accent-glow: rgba(19, 139, 200, 0.15);
             --text-primary: #FFFFFF;
             --text-secondary: #A7B6C7;
-            --text-muted: #7C90A3;
+            --text-muted: #93A3B3;
             --text-faint: #475569;
             --border: rgba(255, 255, 255, 0.06);
             --easing: cubic-bezier(0.2, 0, 0, 1);
@@ -1584,10 +1584,9 @@
     --surface-2: #FFFFFF;
     --text-primary: #0F172A;
     --text-secondary: #475569;
-    /* Darker than the app's #58687B: the landing page's fixed glow orbs tint
-       the ground under muted text, and at 1280px the about stats measured
-       4.39:1 over the cyan orb. 4.79:1 there, 5.51:1 on the bare page. */
-    --text-muted: #526275;
+    /* The app's light muted. #58687B measured 4.39:1 over the landing page's
+       cyan glow orb under the about stats at 1280px; #4F5D6F clears it. */
+    --text-muted: #4F5D6F;
     --text-faint: #AEB9C7;
     --border: #E2E8F0;
     --accent-glow: rgba(19, 139, 200, 0.12);

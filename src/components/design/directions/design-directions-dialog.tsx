@@ -1,7 +1,7 @@
 "use client";
 
+import type { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import { trackImageChoice } from "@/components/design/design-analytics";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import {
@@ -18,7 +18,7 @@ import {
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
-import type { DirectionSlot } from "./direction-results";
+import type { DirectionSlot, SendNotice } from "./direction-results";
 import {
   type DirectionsEntry,
   DirectionsFlowView,
@@ -26,6 +26,7 @@ import {
   type DirectionsView,
   dialogWidthFor,
 } from "./directions-flow-view";
+import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
 import { useDesignImageUpload } from "./use-design-image-upload";
@@ -47,6 +48,19 @@ export interface DesignDirectionsDialogProps {
    *  slot's regenerate, so the caller knows new designs may exist. */
   onRunStart?: () => void;
 }
+
+export const DIRECTIONS_POPUP_CLASS =
+  "grid-rows-[minmax(0,1fr)] gap-0 sm:max-h-[92vh] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:[&_[data-slot=dialog-close]]:size-11 [@media(hover:none)]:[&_[data-slot=dialog-close]]:size-11";
+
+/* Scroll the contents, not the popup: the close button is positioned against
+   the popup, so scrolling that carries the X off-screen. The scroller spans
+   the popup's padding (-m-4 p-4) because a scroll box clips whatever crosses
+   its edge: flush with the content, it cut the 2px-offset focus outline off
+   every edge control, and the footer could not bleed to the popup's edge.
+   Padding does not stop the browser scrolling a newly focused control flush
+   with the edge, which clipped its outline again; scroll-padding does. */
+export const DIRECTIONS_SCROLL_CLASS =
+  "-m-4 flex flex-col overflow-y-auto p-4 scroll-py-2";
 
 function slotsOf(design: DesignGenerationState): DirectionSlot[] {
   return [
@@ -71,6 +85,7 @@ export function DesignDirectionsDialog({
   /* A second run for one slot, separate from the main one so the other card
      stays on screen while it works. */
   const slotRun = useDesignGeneration();
+  const escapeLayers = useEscapeLayerStack();
   const [step, setStep] = useState<Step>("choose");
   const [source, setSource] = useState<ImageSource | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
@@ -84,6 +99,9 @@ export function DesignDirectionsDialog({
     message: string;
   } | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sendNotices, setSendNotices] = useState<Record<string, SendNotice>>(
+    {},
+  );
   const lastImage = useRef<DesignImageChoice | null>(null);
 
   const slots = slotsOf(design).map((slot, i) => replaced[i] ?? slot);
@@ -93,6 +111,7 @@ export function DesignDirectionsDialog({
     setReplaced({});
     setRegeneratingSlot(null);
     setRegenerateError(null);
+    setSendNotices({});
   }
 
   function start(image: DesignImageChoice) {
@@ -131,7 +150,10 @@ export function DesignDirectionsDialog({
 
   /* One new direction for one slot (regenerateOf), swapped in where the old
      one was. A failed slot keeps its row id, so it regenerates the same way.
-     Not a new image choice, so no design_image_choice event. */
+     Not a new image choice, so no design_image_choice event.
+     The contract is exactly one row back. Any other count means the server
+     broke it, so the slot keeps its design and says so rather than guessing
+     which of several rows belongs in it. */
   async function regenerate(slot: number) {
     const image = lastImage.current;
     const target = slots[slot];
@@ -139,11 +161,12 @@ export function DesignDirectionsDialog({
     setRegeneratingSlot(slot);
     setRegenerateError(null);
     onRunStart?.();
-    const [replacement] = await slotRun.generate({
+    const rows = await slotRun.generate({
       ...args,
       image,
       regenerateOf: target.id,
     });
+    const replacement = rows.length === 1 ? rows[0] : null;
     if (replacement) {
       setReplaced((current) => ({
         ...current,
@@ -161,26 +184,42 @@ export function DesignDirectionsDialog({
   }
 
   async function sendToTeam(generation: SerializedGeneration) {
+    const notify = (notice: SendNotice) =>
+      setSendNotices((current) => ({ ...current, [generation.id]: notice }));
     setSendingId(generation.id);
+    setSendNotices(({ [generation.id]: _retried, ...rest }) => rest);
     try {
       const ticketNumber = await sendGenerationToTeam({
         brandId: args.brandId,
         generation,
         ticketContext,
       });
-      toast.success(sentToTeamMessage(ticketNumber));
+      notify({ tone: "sent", message: sentToTeamMessage(ticketNumber) });
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Could not send to the design team.",
-      );
+      notify({
+        tone: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not send to the design team.",
+      });
     } finally {
       setSendingId((id) => (id === generation.id ? null : id));
     }
   }
 
-  function handleOpenChange(next: boolean) {
+  function handleOpenChange(
+    next: boolean,
+    details?: DialogPrimitive.Root.ChangeEventDetails,
+  ) {
+    if (
+      !next &&
+      details?.reason === "escape-key" &&
+      escapeLayers.dismissInnermost()
+    ) {
+      details.cancel();
+      return;
+    }
     if (!next) {
       setStep("choose");
       setWaitingOnUpload(false);
@@ -272,7 +311,6 @@ export function DesignDirectionsDialog({
               stage: design.stage,
               jobStage: design.jobStage,
               progress: design.progress,
-              label: design.progressLabel,
             }
           : design.error
             ? {
@@ -289,24 +327,40 @@ export function DesignDirectionsDialog({
                 regeneratingSlot,
                 regenerateError,
                 sendingId,
+                sendNotices,
               };
 
+  /* A click beside the dialog is usually a slip, and closing resets the
+     flow; it may only dismiss when nothing would be thrown away. Escape and
+     the X stay deliberate ways out. */
+  const pointerDismissable =
+    view.step === "choose" ||
+    (view.step === "upload" && view.upload.status === "idle") ||
+    (view.step === "results" &&
+      view.regeneratingSlot === null &&
+      view.sendingId === null);
+
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      disablePointerDismissal={!pointerDismissable}
+    >
       {/* Bottom sheet on phones, as the design preview is: a design fills a
           small viewport, and covering the backdrop would remove
           tap-outside-to-dismiss. */}
       <DialogContent
-        className={cn(
-          "grid-rows-[minmax(0,1fr)] gap-0 sm:max-h-[92vh] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:[&_[data-slot=dialog-close]]:size-11 [@media(hover:none)]:[&_[data-slot=dialog-close]]:size-11",
-          dialogWidthFor(view),
-        )}
+        className={cn(DIRECTIONS_POPUP_CLASS, dialogWidthFor(view))}
       >
-        {/* Scroll the contents, not the popup: the close button is positioned
-            against the popup, so scrolling that carries the X off-screen. */}
-        <div className="flex flex-col overflow-y-auto">
+        <div className={DIRECTIONS_SCROLL_CLASS}>
           <FlowChromeProvider value="dialog">
-            <DirectionsFlowView entry={entry} view={view} handlers={handlers} />
+            <EscapeLayerProvider value={escapeLayers.stack}>
+              <DirectionsFlowView
+                entry={entry}
+                view={view}
+                handlers={handlers}
+              />
+            </EscapeLayerProvider>
           </FlowChromeProvider>
         </div>
       </DialogContent>

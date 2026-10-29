@@ -202,7 +202,8 @@ describe("ImagePreview", () => {
   });
 
   /* An unreadable file does not become readable by retrying it. The real
-     normaliser message, prefix and all, is said once, not twice. */
+     normaliser message is said once: its prefix is the lead and its closing
+     "Choose another image." is the button. */
   it("asks for a different file when the image could not be read", () => {
     preview({
       status: "error",
@@ -212,9 +213,10 @@ describe("ImagePreview", () => {
     });
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(
-      "This image can't be used. It couldn't be opened and may be damaged. Choose another image.",
+      "This image can't be used. It couldn't be opened and may be damaged.",
     );
     expect(alert.textContent?.match(/can't be used/g)).toHaveLength(1);
+    expect(alert.textContent?.match(/choose another/gi)).toHaveLength(1);
     expect(
       screen.getByRole("button", { name: "Choose another" }),
     ).toBeInTheDocument();
