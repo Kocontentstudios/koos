@@ -20,8 +20,10 @@ import {
   dropFooterRepeats,
   type FactCoverage,
   factStated,
+  sharedFooterLines,
   withoutContradictedDates,
   withoutRepeatingSubheadline,
+  withoutSharedFooterLines,
   withVenueOrBrand,
 } from "./brief-facts";
 import {
@@ -194,6 +196,10 @@ export interface DraftDirectionsResult {
   newsLost: boolean[];
   /** Directions asked once more for a date's news, and what stood. */
   newsRecovery: NewsRecovery[];
+  /** Footer lines a later direction drew word for word from an earlier
+   *  one: dropped where every fact was stated elsewhere, and still
+   *  shipped. */
+  footerLinesShared: { dropped: number; shipped: number };
   /** Each field that gave a brief date on another day after the fact
    *  writer, and what code did: left it off, or failed the direction. */
   datesContradicted: (DateSettled & { direction: number })[];
@@ -1588,7 +1594,21 @@ export async function draftDirections({
   const written = offeringAsk
     ? mergedSettlements(firstWrite, offeringAsk, askedOnce)
     : firstWrite;
-  const final = dropFooterRepeats(written.directions, coverFacts, product);
+  const repeatsDropped = dropFooterRepeats(
+    written.directions,
+    coverFacts,
+    product,
+  );
+  /* A footer line the other design draws word for word that the writer
+     did not differ goes where its facts are stated elsewhere; one that
+     alone holds them stays, and is counted (round-9 live critic,
+     fashion). */
+  const unshared = withoutSharedFooterLines(
+    repeatsDropped.directions,
+    coverFacts,
+    (i) => !headlineLost[i],
+  );
+  const final = { ...repeatsDropped, directions: unshared.directions };
   /* A drop shortens the copy the near-duplicate rule compares, so one that
      would make a pair that reads apart read as one is not made. */
   const apartBeforeDrops = !nearDuplicateSet(final.directions);
@@ -1611,6 +1631,20 @@ export async function draftDirections({
       : withoutContradictedDates(d, coverFacts),
   );
   const drawnIn = dated.map((d) => d.direction);
+  const footerLinesShared = {
+    dropped: unshared.dropped,
+    shipped: drawnIn.reduce(
+      (n, d, i) =>
+        headlineLost[i]
+          ? n
+          : n +
+            sharedFooterLines(
+              d,
+              drawnIn.filter((_, j) => j < i && !headlineLost[j]),
+            ).length,
+      0,
+    ),
+  };
   const datesContradicted = dated.flatMap(({ settled }, direction) =>
     settled.map((c) => ({ direction, ...c })),
   );
@@ -1755,6 +1789,7 @@ export async function draftDirections({
     offeringRecovery,
     newsLost,
     newsRecovery,
+    footerLinesShared,
     datesContradicted,
     overlap: worst?.overlap ?? null,
     modelCalls,

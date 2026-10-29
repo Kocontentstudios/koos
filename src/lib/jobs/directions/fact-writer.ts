@@ -14,6 +14,7 @@ import {
   isFragment,
   redundantFooterItems,
   rivalledFacts,
+  sharedFooterLines,
   timeOnPhoneLine,
   withoutItem,
 } from "./brief-facts";
@@ -317,18 +318,32 @@ export function productMovedDown(
     : null;
 }
 
+/** Each footer line an earlier design of the set draws word for word,
+ *  in words the model can act on (round-9 live critic, fashion). */
+export function sharedFooterProblems(
+  copy: Pick<FactCopy, "footerLines">,
+  earlier: readonly Pick<FactCopy, "footerLines">[],
+): string[] {
+  return sharedFooterLines(copy, earlier).map(
+    (line) =>
+      `the footer line "${line}" is word for word the other design's; give its facts in this design's own words, or leave it off where the copy above already states them`,
+  );
+}
+
 /** What is wrong with a direction's copy that the writer may fix, the
  *  brief's dates and rival values read against every field it may
- *  change. */
+ *  change, and the footer lines it shares with the designs before it. */
 function allProblems(
   copy: FactCopy,
   facts: readonly BriefFact[],
   writable: { headline?: boolean } = {},
+  earlier: readonly FactCopy[] = [],
 ): string[] {
   return [
     ...copyProblems(copy),
     ...dateProblems(copy, facts, writable),
     ...rivalProblems(copy, facts, writable),
+    ...sharedFooterProblems(copy, earlier),
   ];
 }
 
@@ -374,11 +389,38 @@ export function headlineFault(
   const fault = copyFault(after.headline, COPY_LIMITS.headline, ledger);
   if (fault) return `headline: ${fault}`;
   const old = contentStems(before.headline);
-  if (![...contentStems(after.headline)].some((s) => old.has(s))) {
-    return "the new headline drops the headline's idea; keep at least one of its words";
+  if (
+    ![...contentStems(after.headline)].some((s) => old.has(s)) &&
+    !namesTheOffering(before.headline, after.headline, facts)
+  ) {
+    return "the new headline drops the headline's idea; keep at least one of its words, or name what the brief offers";
   }
   if (readsAsList(after.headline)) return "the new headline reads as a list";
   return stillInTheWay(after, facts);
+}
+
+/* Round-9 live critic, cafe s1: "Three Tasters. ₦6,000." over a
+   subheadline giving ₦6,000 again. The writer's fix, "The Cold Brew
+   Flight", shared no word with the old headline and was refused, so the
+   repeat shipped. A headline moved off a repeat onto the brief's own name
+   for what it offers keeps the design's idea: it is the offering. */
+function namesTheOffering(
+  before: string,
+  after: string,
+  facts: readonly BriefFact[],
+): boolean {
+  const only = (headline: string) => ({
+    headline,
+    subheadline: "",
+    cta: "",
+    footerLines: [],
+  });
+  return facts.some(
+    (f) =>
+      f.kind === "product" &&
+      factStated(f, only(after)) &&
+      !factStated(f, only(before)),
+  );
 }
 
 const HEDGE = /\b(?:could|might|maybe|perhaps)\b/i;
@@ -440,6 +482,9 @@ export function rewriteFault(
   after: FactCopy,
   facts: readonly BriefFact[],
   ledger: FactLedger,
+  /** The designs before this one in the set, whose footer lines it may
+   *  not repeat word for word. */
+  earlier: readonly FactCopy[] = [],
 ): string | null {
   if (after.cta !== before.cta) return "the button changed";
   if (after.headline !== before.headline) {
@@ -494,8 +539,8 @@ export function rewriteFault(
   /* No new problem, though one the rewrite left alone may stand: a footer
      that now carries the price is worth taking under a subheadline the
      model could not fix. */
-  const had = allProblems(before, facts);
-  const has = allProblems(after, facts);
+  const had = allProblems(before, facts, {}, earlier);
+  const has = allProblems(after, facts, {}, earlier);
   const added = has.filter((p) => !had.includes(p));
   if (added.length > 0) return added[0];
   const gained = facts.filter(
@@ -660,14 +705,20 @@ export async function settleFacts<T extends FactCopy>({
   const refused: FactSettlement<T>["refused"] = [];
   const feedback = new Map<number, string>();
   let modelCalls = 0;
+  /* Only the later of two designs is asked to differ a shared footer
+     line, so both are never rewritten toward each other. */
+  const earlierOf = (id: number) => out.filter((_, j) => j < id && ships(j));
   const needing = () =>
     out.flatMap((copy, id) => {
       if (!ships(id) || !asks(id)) return [];
       const missing = facts.filter((f) => !factStated(f, copy));
       const headlineMayChange = headlineInTheWay(copy, facts);
-      const problems = allProblems(copy, facts, {
-        headline: headlineMayChange,
-      });
+      const problems = allProblems(
+        copy,
+        facts,
+        { headline: headlineMayChange },
+        earlierOf(id),
+      );
       if (missing.length === 0 && problems.length === 0) return [];
       const why = feedback.get(id);
       const avoid = wordsOfOthers(out, id);
@@ -743,7 +794,7 @@ export async function settleFacts<T extends FactCopy>({
               : before.footerStyle,
       } as T;
       const faultOf = (copy: T) =>
-        rewriteFault(before, copy, facts, ledger) ??
+        rewriteFault(before, copy, facts, ledger, earlierOf(request.id)) ??
         apartFault(request.id, copy);
       const fault = faultOf(after);
       const taken = rewriteParts(before, after).find(

@@ -1642,6 +1642,60 @@ export function withoutItem<T extends FactCopy>(copy: T, item: string): T {
  *  stated is still stated, and what a customer acts on in the item (a
  *  phone, price, time, date or place) is in one other place of the copy.
  *  The one test every drop passes (Oluwaseyi's ruling, round 7). */
+/* Case, spacing and the marks between items do not make a line another. */
+function footerLineKey(line: string): string {
+  return line
+    .toLowerCase()
+    .replace(/[\s.,;:!·•]+/g, " ")
+    .trim();
+}
+
+/**
+ * The footer lines of `copy` that another design of the set draws word for
+ * word. Two directions with one footer read as one design in two layouts
+ * (round-9 live critic, fashion: three footer lines the same on both).
+ */
+export function sharedFooterLines(
+  copy: Pick<FactCopy, "footerLines">,
+  others: readonly Pick<FactCopy, "footerLines">[],
+): string[] {
+  const theirs = new Set(
+    others.flatMap((o) => o.footerLines.map(footerLineKey)),
+  );
+  return copy.footerLines.filter((line) => theirs.has(footerLineKey(line)));
+}
+
+/**
+ * Each direction after the first without the footer lines an earlier one
+ * draws word for word, a line at a time, when every fact and every detail
+ * a customer acts on is still stated elsewhere on it. Code drops, never
+ * writes: a line that holds what nothing else says stays.
+ */
+export function withoutSharedFooterLines<T extends FactCopy>(
+  directions: readonly T[],
+  facts: readonly BriefFact[],
+  ships: (id: number) => boolean = () => true,
+): { directions: T[]; dropped: number; kept: number } {
+  const out = [...directions];
+  let dropped = 0;
+  let kept = 0;
+  for (let i = 1; i < out.length; i += 1) {
+    if (!ships(i)) continue;
+    const earlier = out.filter((_, j) => j < i && ships(j));
+    for (const line of sharedFooterLines(out[i], earlier)) {
+      let trial: T | null = out[i];
+      for (const item of line.split(FOOTER_JOIN).map((s) => s.trim())) {
+        trial = trial ? droppedSafely(trial, item, facts) : null;
+      }
+      if (trial) {
+        out[i] = trial;
+        dropped += 1;
+      } else kept += 1;
+    }
+  }
+  return { directions: out, dropped, kept };
+}
+
 export function droppedSafely<T extends FactCopy>(
   copy: T,
   item: string,

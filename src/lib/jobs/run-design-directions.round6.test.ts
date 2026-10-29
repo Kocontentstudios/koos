@@ -3146,3 +3146,76 @@ describe("round 22: a date keeps its news", () => {
     ]);
   });
 });
+
+/* Round-9 live critic, fashion: the pair's three footer lines were word
+   for word the same. The writer is asked to differ them; the line the
+   second design states above goes as a repeat, and what it still shares
+   is counted on the usage row. */
+describe("round 22: two directions never ship one footer", () => {
+  const FASHION =
+    "The Ire wrap dress in sage silk with pearl buttons, ₦78,000, sizes 8 to 16, only 15 made. Fittings at 3 Raymond Njoku Street, Ikoyi, Tuesday to Saturday, 11am to 6pm.";
+  const footer = [
+    "Priced at ₦78,000 · Only 15 made",
+    "3 Raymond Njoku Street, Ikoyi",
+    "Tue – Sat · 11am to 6pm",
+  ];
+
+  it("fashion: asks the second design to differ its footer, and counts the lines it still shares", async () => {
+    const { isFactWriteCall } = await import("./directions/fixtures");
+    const asks: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) {
+        asks.push(o.prompt ?? "");
+        return { object: { rewrites: [] } };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({
+              layout: "split-left",
+              headline: "The Ire Wrap Dress",
+              subheadline: "Sage silk, pearl buttons. Sizes 8 to 16.",
+              cta: "Book a Fitting",
+              footerLines: footer,
+              footerStyle: "text",
+            }),
+            contrastingDraft({
+              layout: "hero-center",
+              headline: "One Dress, Every Room",
+              subheadline: "The Ire wrap dress: only 15 made, at ₦78,000.",
+              cta: "Reserve Your Size",
+              footerLines: footer,
+              footerStyle: "text",
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "price", text: "₦78,000" },
+          { kind: "quantity", text: "only 15 made" },
+          { kind: "place", text: "3 Raymond Njoku Street, Ikoyi" },
+          { kind: "time", text: "11am to 6pm" },
+        ],
+        { kind: "product", phrase: "Ire wrap dress" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await runBrief(FASHION, { image: { source: "none" } });
+    } finally {
+      g.factWriteThroughDouble = false;
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    expect(asks[0]).toContain(
+      'the footer line "3 Raymond Njoku Street, Ikoyi" is word for word the other design\'s',
+    );
+    expect(delivered("row-1")?.spec?.footerLines).toEqual(footer);
+    expect(delivered("row-2")?.spec?.footerLines).toEqual(footer.slice(1));
+    expect(usage().footerLinesShared).toEqual({ dropped: 0, shipped: 2 });
+  });
+});

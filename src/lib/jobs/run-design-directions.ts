@@ -90,7 +90,6 @@ import {
   type LayoutChoice,
   LayoutsHeldError,
   type PhotoPlace,
-  SAME_SHAPE_AS_SIBLING,
   SUBJECT_FACE_ONLY,
   SUBJECT_UNKNOWN,
 } from "./directions/subject-layout";
@@ -1166,6 +1165,9 @@ export async function generateDirectionsWork(
          asked once more for it, what stood, and how many failed for it. */
       newsRecovery: brief.newsRecovery,
       newsLost,
+      /* Round 22: footer lines a later direction drew word for word from
+         the earlier one, dropped and still shipped. */
+      footerLinesShared: brief.footerLinesShared,
       /* Round 12: headlines refused, asked for once more, and what stood. */
       headlineRecovery: brief.headlineRecovery.map((r) => ({
         ...r,
