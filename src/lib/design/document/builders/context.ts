@@ -52,6 +52,9 @@ export interface Context {
   subject: SubjectBox | null;
   /** People's heads in image space, each kept whole or out of a crop. */
   heads?: readonly SubjectBox[];
+  /** Where the other design of the pair draws the same photo, in canvas
+   *  shares: an arrangement free to choose its side keeps apart from it. */
+  siblingPhoto?: SubjectBox | null;
   logoBox: Rect | null;
   logo: DocumentLogoInput | null;
   measurer: TextMeasurer;

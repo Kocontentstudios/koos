@@ -139,6 +139,78 @@ export function profileStops(needs: Need[]): Stop[] {
   return stops;
 }
 
+/**
+ * The higher of two rising profiles at every stop of either: straight
+ * lines between those stops never dip under the higher of the two, so it
+ * over-veils a little, never under. Past MAX_STOPS the stops nearest each
+ * other are merged into the earlier at the later's alpha, which on a
+ * rising profile again only over-veils.
+ */
+export function atLeast(a: Stop[], b: Stop[]): Stop[] {
+  if (a.length === 0) return b;
+  if (b.length === 0) return a;
+  const at = [...new Set([...a, ...b].map((stop) => stop.at))].sort(
+    (x, y) => x - y,
+  );
+  let stops = at.map((u) => ({
+    at: u,
+    alpha: Math.max(alphaAt(a, u), alphaAt(b, u)),
+  }));
+  /* The clear edge's stop is never merged: raising it would draw a hard
+     edge where the veil should start from nothing. */
+  while (stops.length > MAX_STOPS) {
+    let closest = 2;
+    for (let i = 3; i < stops.length; i += 1) {
+      if (
+        stops[i].at - stops[i - 1].at <
+        stops[closest].at - stops[closest - 1].at
+      ) {
+        closest = i;
+      }
+    }
+    /* The earlier of the pair takes the higher alpha: reaching it sooner
+       over-veils, never under. */
+    const merged = {
+      at: stops[closest - 1].at,
+      alpha: Math.max(stops[closest - 1].alpha, stops[closest].alpha),
+    };
+    stops = [
+      ...stops.slice(0, closest - 1),
+      merged,
+      ...stops.slice(closest + 1),
+    ];
+  }
+  return stops;
+}
+
+/**
+ * The veil started from nothing at its clear edge, rising straight to what
+ * it holds at `lead`, the nearest any copy comes to that edge. Copy set a
+ * margin in from the edge of a band left the graded veil a third dense
+ * there, a hard line down the photo (round-24 geometry, storefront); no
+ * copy lies before `lead`, so no run is veiled less. Unchanged when the
+ * stops would pass MAX_STOPS.
+ */
+export function startClear(stops: Stop[], lead: number): Stop[] {
+  if (stops.length === 0 || stops[0].alpha === 0 || lead <= 0) return stops;
+  const after = stops.filter((stop) => stop.at > lead);
+  const rise = [
+    { at: 0, alpha: 0 },
+    { at: lead, alpha: alphaAt(stops, lead) },
+  ];
+  return rise.length + after.length > MAX_STOPS ? stops : [...rise, ...after];
+}
+
+/** Where the copy nearest a veil's clear edge starts, as a share of `box`
+ *  from that edge. */
+export function nearestLead(
+  box: Rect,
+  blocks: CopyBlock[],
+  from: VeilFrom,
+): number {
+  return Math.min(1, ...blocks.map((block) => edgesOf(box, block, from)[0]));
+}
+
 /** The alpha drawn at `u`: linear between stops, the end stops held. */
 export function alphaAt(stops: Stop[], u: number): number {
   if (stops.length === 0) return 0;
@@ -230,11 +302,18 @@ export function gradedVeil(
   placement: ImagePlacement | null,
   box: Rect,
   blocks: CopyBlock[],
-  options: { from: VeilFrom; background: string },
+  options: {
+    from: VeilFrom;
+    background: string;
+    /** Text colours to choose among; every copy candidate by default. */
+    texts?: string[];
+    /** A profile the veil may not fall under anywhere. */
+    floor?: Stop[];
+  },
 ): GradedVeil {
   const lead = (block: CopyBlock) => edgesOf(box, block, options.from)[0];
   let best: GradedVeil | null = null;
-  for (const text of COPY_CANDIDATES(ctx)) {
+  for (const text of options.texts ?? COPY_CANDIDATES(ctx)) {
     let color = "#000000";
     const needs: Need[] = [];
     let reachable = true;
@@ -252,7 +331,9 @@ export function gradedVeil(
       needs.push({ at: lead(block), alpha: needed.alpha });
     }
     if (!reachable) continue;
-    const stops = profileStops(needs);
+    const stops = options.floor
+      ? atLeast(profileStops(needs), options.floor)
+      : profileStops(needs);
     const peak = Math.max(0, ...stops.map((stop) => stop.alpha));
     const cost = lightnessChange(
       ctx,

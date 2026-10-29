@@ -1,4 +1,6 @@
 import {
+  overlapShare,
+  SAME_PLACE_SHARE,
   SUBJECT_COVERED,
   SUBJECT_CROPPED,
   type SubjectBox,
@@ -58,26 +60,17 @@ export const SAME_COMPOSITION_AS_SIBLING =
 /** Where a design draws its picture, and how it stands to the headline. */
 export interface PhotoPlace {
   box: SubjectBox;
-  arrangement: "behind" | "above" | "below" | "beside";
+  /** "bleed": the photo runs off three edges of the canvas and fades
+   *  under the dark veil the copy sits on, which is not a print set beside
+   *  the copy (Oluwaseyi's ruling, 2026-10-29). */
+  arrangement: "behind" | "above" | "below" | "beside" | "bleed";
 }
-
-/* Overlap of two picture frames, as a share of their union, past which two
-   designs read as one shape even in different arrangements. */
-const SAME_SHAPE_IOU = 0.6;
 
 function sameShape(a: PhotoPlace, b: PhotoPlace): boolean {
   return (
     a.arrangement === b.arrangement ||
-    overlapShare(a.box, b.box) >= SAME_SHAPE_IOU
+    overlapShare(a.box, b.box) >= SAME_PLACE_SHARE
   );
-}
-
-function overlapShare(a: SubjectBox, b: SubjectBox): number {
-  const w = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
-  const h = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-  const shared = w * h;
-  const union = a.w * a.h + b.w * b.h - shared;
-  return union > 0 ? shared / union : 0;
 }
 
 /** No free layout draws the copy without a hard craft fault (craft.ts). */

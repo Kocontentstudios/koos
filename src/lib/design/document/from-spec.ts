@@ -88,6 +88,9 @@ export interface DocumentFromSpecInput {
    *  live critic, cafe: a crop that kept the machine whole cut the
    *  barista's head). */
   heads?: readonly SubjectBox[];
+  /** Where the pair's other design draws the same photo, in canvas
+   *  shares (Context.siblingPhoto). */
+  siblingPhoto?: SubjectBox | null;
 }
 
 export interface DocumentBuild {
@@ -165,12 +168,22 @@ export async function documentFromSpec({
   measurer,
   subject = null,
   heads = [],
+  siblingPhoto = null,
 }: DocumentFromSpecInput): Promise<DocumentBuild> {
   const refused = specTextFault(rawSpec);
   if (refused) throw new DocumentTextFault(refused, refused.field);
   const spec = normalizedCopy(rawSpec);
   const subjectBox = image ? resolveSubject(subject, imageFacts) : null;
-  const input = { palette, canvas, image, imageFacts, logo, measurer, heads };
+  const input = {
+    palette,
+    canvas,
+    image,
+    imageFacts,
+    logo,
+    measurer,
+    heads,
+    siblingPhoto,
+  };
   const first = await buildLeading(spec, subjectBox, input);
   /* The logo's corner is the one arrangement every layout shares. When the
      subject sits under it, the mirrored corner is tried before the fault
@@ -240,6 +253,7 @@ async function buildWith(
     logo,
     measurer,
     heads = [],
+    siblingPhoto = null,
   }: Omit<DocumentFromSpecInput, "spec" | "subject">,
   smallFooter: boolean,
 ): Promise<DocumentBuild> {
@@ -268,6 +282,7 @@ async function buildWith(
     imageFacts: image ? (imageFacts ?? null) : null,
     subject,
     heads: image ? heads : [],
+    siblingPhoto: image ? siblingPhoto : null,
     logo,
     logoBox: box ? rect(box.left, box.top, box.width, box.height) : null,
     measurer,

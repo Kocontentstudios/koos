@@ -68,6 +68,9 @@ export interface DirectionAssets {
   subject?: SubjectBox | null;
   /** People's heads in the image: each kept whole in a crop or left out. */
   heads?: readonly SubjectBox[];
+  /** Where the pair's other design draws the same photo, in canvas
+   *  shares, for an arrangement free to choose its side. */
+  siblingPhoto?: SubjectBox | null;
 }
 
 /** The subject box the builders keep clear: the one given, else a
@@ -125,6 +128,7 @@ export function documentRenderer(
       imageFacts: assets.imageFacts ?? null,
       subject: assets.subject ?? null,
       heads: assets.heads ?? [],
+      siblingPhoto: assets.siblingPhoto ?? null,
       logo: logo
         ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
         : null,
@@ -229,6 +233,7 @@ export function layoutJudge(
       imageFacts: assets.imageFacts ?? null,
       subject,
       heads: assets.heads ?? [],
+      siblingPhoto: assets.siblingPhoto ?? null,
       logo: logo
         ? { asset: logo.placed.ref, aspect: logo.loaded.aspect }
         : null,
@@ -241,7 +246,9 @@ export function layoutJudge(
     const place = photoPlace(built.document);
     const facts = assets.imageFacts;
     const measured =
-      facts && subject ? measureSubject(built.document, facts, subject) : null;
+      facts && subject
+        ? measureSubject(built.document, facts, subject, assets.heads ?? [])
+        : null;
     if (measured && measured.overlaps.length > 0) {
       return { subjectFault: SUBJECT_COVERED, craft, place };
     }
@@ -280,7 +287,7 @@ export function photoPlace(doc: {
     if (apartY && !apartX) {
       arrangement = image.y < headline.y ? "above" : "below";
     } else if (apartX) {
-      arrangement = "beside";
+      arrangement = bleedsUnderVeil(doc, image) ? "bleed" : "beside";
     }
   }
   return {
@@ -294,6 +301,26 @@ export function photoPlace(doc: {
   };
 }
 
+/** A photo that runs off the top, the bottom and one side of the canvas,
+ *  with the copy's veil drawn over its inner edge. */
+function bleedsUnderVeil(
+  doc: { width: number; height: number; elements: readonly DesignElement[] },
+  image: DesignElement,
+): boolean {
+  const flush = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const fullHeight =
+    flush(image.y, 0) && flush(image.y + image.height, doc.height);
+  const offASide = flush(image.x, 0) || flush(image.x + image.width, doc.width);
+  const scrim = doc.elements.find((e) => e.id === "scrim" && !e.hidden);
+  return Boolean(
+    fullHeight &&
+      offASide &&
+      scrim &&
+      scrim.x < image.x + image.width &&
+      scrim.x + scrim.width > image.x,
+  );
+}
+
 /** The subject rule on a finished document, or null without a subject. */
 export function measuredSubject(
   doc: DesignDocument,
@@ -302,7 +329,7 @@ export function measuredSubject(
   const subject = subjectOf(assets);
   const facts = assets.imageFacts;
   if (!subject || !facts) return null;
-  return measureSubject(doc, facts, subject);
+  return measureSubject(doc, facts, subject, assets.heads ?? []);
 }
 
 /**
@@ -344,6 +371,7 @@ export function directionGateRules({
         second.document,
         assets.imageFacts,
         keepsSubjectClear,
+        assets.heads ?? [],
       );
       return (measured?.overlaps.length ?? 0) > 0;
     },

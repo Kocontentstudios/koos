@@ -194,6 +194,13 @@ describe("an inset picture lines up with its copy", () => {
         subject,
       );
       if (!isInset || image.fit === "contain") continue;
+      /* Round 24: a photo bleeding off the top, the bottom and a side is
+         not a print, and has no axis to keep. */
+      const runsOff =
+        image.y <= 0.5 &&
+        image.y + image.height >= document.height - 0.5 &&
+        (image.x <= 0.5 || image.x + image.width >= document.width - 0.5);
+      if (runsOff) continue;
       /* Round 21: a photo set beside the copy is on the left margin, not
          the axis; the axis rule is the band's. */
       if (image.x + image.width <= headline.x) continue;

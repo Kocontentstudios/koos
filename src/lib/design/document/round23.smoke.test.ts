@@ -35,19 +35,6 @@ const haveFixtures = [
   "busy-cafe-espresso.jpg",
 ].every((name) => existsSync(`${F}/${name}`));
 
-/* The vision look's boxes, first of three looks each. */
-const FASHION_LOOK = {
-  subject: { x: 0.03, y: 0.03, w: 0.79, h: 0.97 },
-  heads: [{ x: 0.2, y: 0.16, w: 0.44, h: 0.44 }],
-};
-const STOREFRONT_LOOK = {
-  subject: { x: 0.2, y: 0.06, w: 0.54, h: 0.76 },
-  heads: [
-    { x: 0.53, y: 0.66, w: 0.08, h: 0.1 },
-    { x: 0.61, y: 0.65, w: 0.08, h: 0.09 },
-    { x: 0.41, y: 0.66, w: 0.08, h: 0.09 },
-  ],
-};
 /* The cafe's barista and machine, as a builder input on its right: no
    stock photo's look leaves a side free (critique-23/fullbleed-geometry.txt),
    and the bright windows are the hardest ground the veil meets. */
@@ -156,29 +143,9 @@ async function render(
 describe.skipIf(!haveFixtures)(
   "round 23: a full-bleed photo with the copy in a side band",
   () => {
-    it("fashion 16:9 portrait: no band clears a subject 0.97 of the photo's height, so it stays beside the copy", async () => {
-      const { document, subjectFault } = await build(
-        "portrait-fashion.jpg",
-        FASHION_LOOK,
-        "16:9",
-      );
-      expect(subjectFault).toBeNull();
-      expect(sideScrim(document)).toBeUndefined();
-      const image = imageOf(document);
-      const headline = document.elements.find(
-        (e) => e.id === "headline",
-      ) as DesignElement;
-      expect(image.x + image.width).toBeLessThanOrEqual(headline.x);
-    });
-
-    it("storefront 4:5 facade: no band clears the facade and the people before it, so no side band is drawn", async () => {
-      const { document } = await build(
-        "busy-storefront-24mp.jpg",
-        STOREFRONT_LOOK,
-        "4:5",
-      );
-      expect(sideScrim(document)).toBeUndefined();
-    });
+    /* The fashion portrait and the storefront facade, which no band
+       cleared here, take a band on the subject's outer edge under
+       Oluwaseyi's ruling of 2026-10-29: round24.smoke.test.ts. */
 
     it("a subject on the right: the photo covers the canvas, the copy and its veil stay left of the subject and every head", async () => {
       const { document, subjectFault, photo } = await build(
