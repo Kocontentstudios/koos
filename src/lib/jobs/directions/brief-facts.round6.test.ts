@@ -47,7 +47,8 @@ describe("a price grows only by its unit (round-5 break 1)", () => {
       "₦4,500 a slice",
     ],
     ["C3", "Tickets ₦5,000 for Saturday's show.", "₦5,000", "₦5,000"],
-    ["C4", "Only ₦3,000 an amazing deal", "₦3,000", "₦3,000"],
+    /* Round 21: the brief's "Only" before it is part of the price. */
+    ["C4", "Only ₦3,000 an amazing deal", "₦3,000", "Only ₦3,000"],
     ["C5", "₦2,000 per 2 hours", "₦2,000", "₦2,000 per 2 hours"],
     ["a seat", "₦35,000 a seat, 8 seats.", "₦35,000", "₦35,000 a seat"],
     ["for two", "Small box ₦4,500 for two.", "₦4,500", "₦4,500 for two"],

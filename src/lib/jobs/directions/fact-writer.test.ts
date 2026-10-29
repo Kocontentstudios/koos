@@ -674,7 +674,7 @@ describe("a fact whose words stand beside a rival value", () => {
     const [request] = writer.mock.calls[0][0].requests;
     expect(request.problems).toContainEqual(
       expect.stringContaining(
-        'gives "₦6,500 a yard" beside another value of its kind',
+        'gives "from ₦6,500 a yard" beside another value of its kind',
       ),
     );
     expect(request.problems).toContainEqual(

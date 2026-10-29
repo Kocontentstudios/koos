@@ -340,6 +340,21 @@ function priceWithUnit(brief: string, end: number): number {
   return after ? end + after[0].length : end;
 }
 
+/* The words before an amount that say which price it is: "from ₦18,000
+   each" is the cheapest bouquet, "₦18,000 each" every one (round-8 live
+   critic, storefront). Like "from" before a time, a qualifier is part of
+   the fact, never a filler, so the verifier asks for it whole. */
+const PRICE_QUALIFIER =
+  /(?:\b(?:from|starting\s+(?:at|from)|up\s+to|only|just)\s+)+$/iu;
+
+/** Where a price fact starts once the qualifier before it is taken in. */
+export function priceWithQualifier(brief: string, start: number): number {
+  const before = PRICE_QUALIFIER.exec(
+    brief.slice(Math.max(0, start - 40), start),
+  );
+  return before ? start - before[0].length : start;
+}
+
 /* A size or volume: "1-litre", "150ml", "10kg", "2 yards" is not one (a
    yard is what is sold by the yard). */
 const MEASURE =
@@ -929,7 +944,10 @@ export function settleBriefFacts(
       const cut = AFTER_ADDRESS.exec(span);
       if (cut && cut.index > 0) end = start + cut.index;
     }
-    if (kind === "price") end = priceWithUnit(brief, end);
+    if (kind === "price") {
+      start = priceWithQualifier(brief, start);
+      end = priceWithUnit(brief, end);
+    }
     keep(kind, start, end);
   }
 
