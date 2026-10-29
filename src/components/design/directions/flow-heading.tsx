@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Dialog titles only work inside a Dialog root. The same views also render
- * statically (the preview harness and tests of a single state), so the heading
+ * statically (tests and layout checks of a single state), so the heading
  * element is chosen by where the view is mounted rather than duplicated.
  */
 const FlowChrome = createContext<"dialog" | "static">("dialog");

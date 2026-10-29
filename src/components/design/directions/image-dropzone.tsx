@@ -14,7 +14,8 @@ export interface ImageDropzoneProps {
   onFile: (file: File) => void;
   /** Why the last file was refused before upload, shown under the zone. */
   rejection?: string | null;
-  /** Forces the drop-target look; the preview harness has no drag to show. */
+  /** Forces the drop-target look for a view rendered statically, where no
+   *  real drag can happen. */
   dragActive?: boolean;
 }
 
