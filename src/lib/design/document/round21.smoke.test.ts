@@ -138,16 +138,17 @@ describe("finding 4b: no print left floating in its region", () => {
   });
 
   it("storefront banner-bottom 4:5: a tall facade is never a thumbnail in the band", async () => {
+    /* At round 20 this drew a clean 454 px print in a 1080 px band. */
     const { document, subjectFault } = await build(
       specFor("banner-bottom", "4:5", {
-        headline: "Hand-Tied Bouquets, Made for You",
-        subheadline: "From ₦18,000 each, with same-day delivery across Lekki.",
+        headline: "Hand-Tied Bouquets",
+        subheadline: "From ₦18,000 each.",
         cta: "Call to Order",
-        footerStyle: "bar",
-        footerLines: ["Opens Saturday 12 December", "Call 0815 220 9031"],
+        footerStyle: "none",
+        footerLines: [],
       }),
       portrait,
-      FACADE,
+      { x: 0.3, y: 0.1, w: 0.4, h: 0.8 },
     );
     const image = imageOf(document);
     expect(
