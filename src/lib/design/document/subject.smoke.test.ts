@@ -196,9 +196,12 @@ describe("an inset picture lines up with its copy", () => {
       if (!isInset || image.fit === "contain") continue;
       /* Round 24: a photo bleeding off the top, the bottom and a side is
          not a print, and has no axis to keep. */
+      const bar = document.elements.find((e) => e.id === "footer-bar");
       const runsOff =
         image.y <= 0.5 &&
-        image.y + image.height >= document.height - 0.5 &&
+        (image.y + image.height >= document.height - 0.5 ||
+          (bar !== undefined &&
+            Math.abs(image.y + image.height - bar.y) < 0.5)) &&
         (image.x <= 0.5 || image.x + image.width >= document.width - 0.5);
       if (runsOff) continue;
       /* Round 21: a photo set beside the copy is on the left margin, not

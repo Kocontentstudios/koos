@@ -308,8 +308,12 @@ function bleedsUnderVeil(
   image: DesignElement,
 ): boolean {
   const flush = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  /* Down to the canvas edge, or to a footer bar, which is its own ground. */
+  const bar = doc.elements.find((e) => e.id === "footer-bar" && !e.hidden);
+  const bottom = image.y + image.height;
   const fullHeight =
-    flush(image.y, 0) && flush(image.y + image.height, doc.height);
+    flush(image.y, 0) &&
+    (flush(bottom, doc.height) || (bar !== undefined && flush(bottom, bar.y)));
   const offASide = flush(image.x, 0) || flush(image.x + image.width, doc.width);
   const scrim = doc.elements.find((e) => e.id === "scrim" && !e.hidden);
   return Boolean(

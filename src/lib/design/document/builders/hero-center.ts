@@ -358,22 +358,24 @@ async function planBand(
             px(width * SIDE_BAND_SHARE),
             width - (frame.x + frame.width) + reach,
           );
-    const band =
+    const full =
       given ??
       (side === "left"
         ? rect(0, 0, bandWidth, height)
         : rect(width - bandWidth, 0, bandWidth, height));
-    /* A footer bar only adds a zone to keep clear, so a band that fails
-       without one fails with it; the footer is measured only after. */
-    const open = place(band, []);
-    if (!open) return null;
+    const hasBar = ctx.spec.footerStyle === "bar";
+    /* Without a bar the footer only sits in the band, so a band that fails
+       is not worth measuring it for. */
+    if (!hasBar && !place(full, [])) return null;
     const foot = await footer(ctx, {
-      band: { x: band.x + margin, width: band.width - margin * 2 },
+      band: { x: full.x + margin, width: full.width - margin * 2 },
       align: "center",
       color: palette.foreground,
     });
-    const bar = foot && ctx.spec.footerStyle === "bar" ? foot : null;
-    const found = bar ? place(band, [rect(0, bar.top, width, height)]) : open;
+    const bar = foot && hasBar ? foot : null;
+    const band = bar ? aboveBar(full, bar.top) : full;
+    if (bar) frame = aboveBar(frame, bar.top);
+    const found = place(band, []);
     if (!found) return null;
     const bleeds = frame.width < width - 0.5;
     if (bleeds && !given) {
@@ -405,6 +407,7 @@ async function planBand(
     color: palette.foreground,
   });
   const bar = foot && ctx.spec.footerStyle === "bar" ? foot : null;
+  if (bar) frame = aboveBar(frame, bar.top);
   /* A top band leaves a plain footer on the bare photo at the bottom,
      under no veil: only a footer bar, which is its own ground, goes with
      it. */
@@ -422,9 +425,21 @@ async function planBand(
   const band =
     side === "top"
       ? rect(0, 0, width, bounds.y + bounds.height + pad)
-      : rect(0, bounds.y - pad, width, height - (bounds.y - pad));
-  const found = place(band, bar ? [rect(0, bar.top, width, height)] : []);
+      : rect(
+          0,
+          bounds.y - pad,
+          width,
+          (bar ? bar.top : height) - (bounds.y - pad),
+        );
+  const found = place(band, []);
   return found ? { side, band, frame, foot, stack, ...found } : null;
+}
+
+/* A footer bar is its own ground: the photo and its veil stop at it, as a
+   split's photo does, rather than run under it (round-24 live run, the
+   fashion portrait with a bar could not bleed past it whole). */
+function aboveBar(box: Rect, top: number): Rect {
+  return rect(box.x, box.y, box.width, Math.min(box.height, top - box.y));
 }
 
 /** A side band widened onto the photo up to the ruling's limits: no

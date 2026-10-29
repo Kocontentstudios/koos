@@ -156,7 +156,11 @@ describe("finding 4b: no print left floating in its region", () => {
     ).toBe(true);
   });
 
-  it("hero-center 16:9: a portrait no bleed or band shows whole stands beside the copy", async () => {
+  /* Superseded by Oluwaseyi's ruling of 2026-10-29: the portrait that
+     stood beside the copy here now bleeds off the top and a side under a
+     dark band on its outer edge (round24.smoke.test.ts). It is still never
+     a print floating in its region. */
+  it("hero-center 16:9: a portrait bleeds off the top and a side, never floating", async () => {
     const { document, subjectFault } = await build(
       specFor("hero-center", "16:9", FASHION),
       portrait,
@@ -164,8 +168,11 @@ describe("finding 4b: no print left floating in its region", () => {
     );
     expect(subjectFault).toBeNull();
     const image = imageOf(document);
-    const headline = byId(document, "headline");
-    expect(image.x + image.width).toBeLessThanOrEqual(headline.x);
+    expect(image.y).toBe(0);
+    expect(image.x === 0 || image.x + image.width === document.width).toBe(
+      true,
+    );
+    expect(byId(document, "scrim")).toBeDefined();
   });
 });
 

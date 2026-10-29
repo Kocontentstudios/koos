@@ -377,3 +377,69 @@ describe.skipIf(!haveFixtures)(
     }, 60_000);
   },
 );
+
+/* Round-24 live run, fashion: with a footer bar the portrait could not
+   bleed past the bar whole, and hero-center fell back beside the copy, a
+   mirror of its split sibling. The photo and its veil now stop at the
+   bar, as a split's photo does. The live look is included. */
+describe.skipIf(!haveFixtures)(
+  "round 24: a full bleed with a footer bar",
+  () => {
+    const LIVE_FASHION: Look = {
+      subject: { x: 0.03, y: 0.03, w: 0.84, h: 0.97 },
+      heads: [{ x: 0.28, y: 0.16, w: 0.44, h: 0.41 }],
+    };
+    it.each([
+      ["portrait-fashion.jpg", "16:9"],
+      ["busy-storefront-24mp.jpg", "4:5"],
+    ] as const)(
+      "%s at %s: bleeds down to the bar, nothing on the subject, heads clear",
+      async (name, aspect) => {
+        const all =
+          name === "portrait-fashion.jpg"
+            ? [...looks[name], LIVE_FASHION]
+            : looks[name];
+        for (const look of all) {
+          const spec = {
+            ...specFor("hero-center", aspect, { ...COPY, footerStyle: "bar" }),
+            logoPlacement: "none" as const,
+          };
+          const { document, subjectFault } = await documentFromSpec({
+            spec,
+            palette: spec.palette as never,
+            canvas: canvasFor(aspect),
+            image: KEY,
+            imageFacts: photos[name].facts,
+            subject: look.subject,
+            heads: look.heads,
+            logo: null,
+            measurer,
+          });
+          const label = JSON.stringify(look.subject);
+          expect(subjectFault, label).toBeNull();
+          expect(bandOf(document), label).not.toBeNull();
+          expect(["behind", "bleed"]).toContain(
+            photoPlace(document)?.arrangement,
+          );
+          const image = document.elements.find(
+            (e) => e.type === "image",
+          ) as DesignElement;
+          const bar = document.elements.find(
+            (e) => e.id === "footer-bar",
+          ) as DesignElement;
+          expect(image.y).toBe(0);
+          expect(image.y + image.height).toBeCloseTo(bar.y, 0);
+          const report = measureSubject(
+            document,
+            photos[name].facts,
+            look.subject,
+            look.heads,
+          );
+          expect(report?.overlaps, label).toEqual([]);
+          expect(report?.visibleShare).toBeGreaterThan(0.995);
+        }
+      },
+      120_000,
+    );
+  },
+);
