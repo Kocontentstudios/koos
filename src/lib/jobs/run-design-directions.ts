@@ -516,8 +516,12 @@ export async function generateDirectionsWork(
       );
     }
   }
+  /* The client's photo's people: a crop keeps each head whole or leaves it
+     out, whatever the main subject is. */
+  let photoHeads: SubjectBox[] = [];
   if (upload && images[0]) {
     const measured = await facts.get(images[0]);
+    if (!measured?.cutout) photoHeads = photoLook?.heads ?? [];
     /* A cut-out's subject is its visible pixels, which are exact; the look
        is only for a photograph, where the whole subject comes first and a
        person's head and shoulders second. */
@@ -666,10 +670,18 @@ export async function generateDirectionsWork(
     upload && target?.sibling?.imageKey === upload.key
       ? target.sibling.place
       : null;
-  let placeFirst: (place: PhotoPlace | null) => void = () => {};
-  const firstPlaced = new Promise<PhotoPlace | null>((resolve) => {
-    placeFirst = resolve;
+  let placeFirst: (place: PhotoPlace | null, layout?: string | null) => void =
+    () => {};
+  const firstPlaced = new Promise<{
+    place: PhotoPlace | null;
+    layout: string | null;
+  }>((resolve) => {
+    placeFirst = (place, layout = null) => resolve({ place, layout });
   });
+  /* A regenerate keeps apart from the sibling still on screen. */
+  const siblingLayout =
+    target?.existing.find((d) => d.layout && target.existing[0] !== d)
+      ?.layout ?? null;
 
   await mapWithConcurrency(rows, concurrency, async (row, i) => {
     let counted = false;
@@ -683,6 +695,7 @@ export async function generateDirectionsWork(
       let assets: DirectionAssets = {
         image,
         imageFacts: image ? await facts.get(image) : null,
+        heads: image && upload ? photoHeads : [],
         logo: mark?.placed
           ? { placed: mark.placed, loaded: mark.loaded }
           : null,
@@ -691,7 +704,12 @@ export async function generateDirectionsWork(
          so the spec must not keep its corner either. */
       const unmarked = (spec: DesignSpec) =>
         assets.logo ? spec : { ...spec, logoPlacement: "none" as const };
-      const apartFrom = sharesPhoto && i > 0 ? await firstPlaced : siblingPlace;
+      /* The second of a pair waits for the first's choice: on an upload to
+         keep the photo apart, and with no image to keep the composition
+         apart (round-8 live critic: two cards in two colourways). */
+      const first = rows.length > 1 && i > 0 ? await firstPlaced : null;
+      const apartFrom = first && sharesPhoto ? first.place : siblingPlace;
+      const apartLayout = first ? first.layout : siblingLayout;
       const relayout = (spec: DesignSpec, layout: DesignSpec["layout"]) =>
         unmarked(
           respecForLayout(spec, layout, {
@@ -699,7 +717,7 @@ export async function generateDirectionsWork(
             hasLogo: Boolean(assets.logo),
           }),
         );
-      const imageless = { ...assets, image: null, imageFacts: null };
+      const imageless = { ...assets, image: null, imageFacts: null, heads: [] };
       const choice = await settleDirectionLayout({
         self: { id: row.id, set, slot, replacing: request.regenerateOf },
         readSet: () => listDirectionSet(brandId, set),
@@ -712,6 +730,7 @@ export async function generateDirectionsWork(
             subjects: assets.image ? subjectBoxes[i] : [],
             imageless: !assets.image,
             apartFrom,
+            apartLayout,
             judge: layoutJudge(context, assets, prepared),
             relayout,
           });
@@ -728,18 +747,18 @@ export async function generateDirectionsWork(
           /* Round 8: deterministic for every slot of a two-direction
              upload, the first included (round-7 live critic: slot 0 of a
              16:9 portrait failed while its sibling took the one layout
-             that fits). And a second direction that would draw the photo
-             in the same shape as its sibling is laid out as text, so the
-             pair are two concepts, not one twice. */
+             that fits). */
+          /* Oluwaseyi's ruling, 2026-10-28, superseding 2026-10-26's
+             text-led second direction: a second direction that can only
+             draw the photo in the same shape as its sibling still draws
+             it, in its own layout. The pair stays two concepts through
+             copy, colour and composition; a text card is left only for a
+             photo no free layout shows whole (round-8 live critic: a dress
+             ad without the dress, a pastry ad without the pastry). The
+             shared shape stays recorded as a fault. */
           const pairOnUpload =
             Boolean(upload) && (rows.length > 1 || Boolean(target?.sibling));
-          const sameAsSibling =
-            Boolean(upload) && withImage.faults.includes(SAME_SHAPE_AS_SIBLING);
-          if (
-            !assets.image ||
-            (!subjectFaulted && !sameAsSibling) ||
-            (upload && !pairOnUpload)
-          ) {
+          if (!assets.image || !subjectFaulted || (upload && !pairOnUpload)) {
             return { ...withImage, plateLeftOff: false };
           }
           const asText = await chooseLayout({
@@ -748,6 +767,7 @@ export async function generateDirectionsWork(
             subjects: [],
             imageless: true,
             apartFrom: null,
+            apartLayout,
             judge: layoutJudge(context, imageless, prepared),
             relayout,
           });
@@ -770,7 +790,9 @@ export async function generateDirectionsWork(
         choice.fault === SUBJECT_COVERED ||
         choice.fault === LAYOUT_CRAFT_FAILED ||
         choice.faults.some((f) => SUBJECT_FAULTS.includes(f));
-      if (i === 0) placeFirst(refusedForSubject ? null : choice.place);
+      if (i === 0) {
+        placeFirst(refusedForSubject ? null : choice.place, choice.spec.layout);
+      }
       if (choice.plateLeftOff) {
         assets = imageless;
         images[i] = null;
@@ -778,7 +800,7 @@ export async function generateDirectionsWork(
         addFault(
           row.id,
           upload
-            ? "the photo fits no free layout whole, or only in the shape the other direction shows it in, so this direction was laid out as text"
+            ? "the photo fits no free layout whole, so this direction was laid out as text"
             : "no free layout showed the generated image whole and clear of the copy, so the design was laid out as text",
         );
       }

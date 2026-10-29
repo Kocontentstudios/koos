@@ -411,3 +411,42 @@ describe("chooseLayout", () => {
     expect(choice.fault).toBe(SAME_SHAPE_AS_SIBLING);
   });
 });
+
+/* Round 21, round-8 live critic finding 5: the event pair shipped in
+   stat-highlight and quote-card, one card template in two colourways. */
+describe("a text-led pair keeps its compositions apart", () => {
+  const clean = async (): Promise<LayoutVerdict> => ({
+    subjectFault: null,
+    craft: { hard: null, soft: null },
+    place: null,
+  });
+
+  it("a second text-led direction beside a card takes another composition", async () => {
+    const choice = await chooseLayout({
+      spec: { ...spec, layout: "quote-card" },
+      held: ["stat-highlight"],
+      subjects: [],
+      imageless: true,
+      apartLayout: "stat-highlight",
+      judge: clean,
+      relayout,
+    });
+    expect(choice.spec.layout).toBe("hero-center");
+    expect(choice.faults).toEqual([]);
+  });
+
+  it("takes the shared composition, recorded, only when nothing else is free", async () => {
+    const { SAME_COMPOSITION_AS_SIBLING } = await import("./subject-layout");
+    const choice = await chooseLayout({
+      spec: { ...spec, layout: "quote-card" },
+      held: ["stat-highlight", "hero-center"],
+      subjects: [],
+      imageless: true,
+      apartLayout: "stat-highlight",
+      judge: clean,
+      relayout,
+    });
+    expect(choice.spec.layout).toBe("quote-card");
+    expect(choice.faults).toContain(SAME_COMPOSITION_AS_SIBLING);
+  });
+});

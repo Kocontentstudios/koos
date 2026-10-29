@@ -35,6 +35,26 @@ export const TEXT_LED_LAYOUTS: readonly DesignSpec["layout"][] = [
 export const SAME_SHAPE_AS_SIBLING =
   "drawn in the same shape as its sibling: the same photo in the same place";
 
+/* Layouts drawn by one builder with one composition: stat-highlight and
+   quote-card are both a centred card of copy, and two text-led directions
+   in them read as one template in two colourways (round-8 live critic,
+   event). */
+const COMPOSITION: Partial<Record<DesignSpec["layout"], string>> = {
+  "stat-highlight": "card",
+  "quote-card": "card",
+};
+
+/** Two layouts that draw one composition. */
+export function sameComposition(a: string, b: string): boolean {
+  if (a === b) return true;
+  const ca = COMPOSITION[a as DesignSpec["layout"]];
+  return ca !== undefined && ca === COMPOSITION[b as DesignSpec["layout"]];
+}
+
+/** A text-led direction drawn in the same composition as its sibling. */
+export const SAME_COMPOSITION_AS_SIBLING =
+  "laid out in the same composition as its sibling: one template in two colourways";
+
 /** Where a design draws its picture, and how it stands to the headline. */
 export interface PhotoPlace {
   box: SubjectBox;
@@ -170,6 +190,7 @@ export async function chooseLayout({
   relayout,
   imageless = false,
   apartFrom = null,
+  apartLayout = null,
 }: {
   spec: DesignSpec;
   held: readonly string[];
@@ -181,6 +202,9 @@ export async function chooseLayout({
   /** Where the sibling draws the same photo: a layout that puts it in the
    *  same place is taken only when nothing else is clean. */
   apartFrom?: PhotoPlace | null;
+  /** The sibling's layout: with no image, one in the same composition is
+   *  taken only when nothing else is clean. */
+  apartLayout?: string | null;
   judge: (
     spec: DesignSpec,
     subject: SubjectBox | null,
@@ -223,7 +247,11 @@ export async function chooseLayout({
       const looksAlike = Boolean(
         apartFrom && verdict.place && sameShape(apartFrom, verdict.place),
       );
-      const score = rank(verdict, partial, looksAlike);
+      const readsAlike =
+        imageless &&
+        apartLayout !== null &&
+        sameComposition(apartLayout, candidate.layout);
+      const score = rank(verdict, partial, looksAlike || readsAlike);
       if (score === null) continue;
       if (score === 0) {
         return {
@@ -244,6 +272,7 @@ export async function chooseLayout({
           ...(verdict.subjectFault ? [verdict.subjectFault] : []),
           ...(verdict.craft.soft ? [verdict.craft.soft] : []),
           ...(looksAlike ? [SAME_SHAPE_AS_SIBLING] : []),
+          ...(readsAlike ? [SAME_COMPOSITION_AS_SIBLING] : []),
         ];
         best = {
           score,

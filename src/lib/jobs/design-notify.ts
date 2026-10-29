@@ -54,8 +54,9 @@ export async function notifyImageLeftOff({
   subject: string;
   /** "unavailable": the image model returned nothing usable, so no plate
    *  was judged. "rejected": plates were painted and turned down.
-   *  "photo-taken": the client's photo could be shown only as the other
-   *  direction already shows it. "photo-fits-none": no layout at this size
+   *  "photo-taken": the other direction shows the client's photo, and no
+   *  other free layout shows it whole (from Oluwaseyi's ruling of
+   *  2026-10-28 a shared shape alone never drops it). "photo-fits-none": no layout at this size
    *  shows it whole and clear of the copy, and no direction shows it. Told
    *  as one, two text-led directions were told a sibling held the photo
    *  (round-8 code critic, J2). */
@@ -70,7 +71,7 @@ export async function notifyImageLeftOff({
   if (cause === "photo-taken") {
     await notifyAssetFault(
       userId,
-      `${which} laid out with words only: your photo could only be shown the way the other direction already shows it. Regenerate it to try another layout, or upload a photo with more room around the subject.`,
+      `${which} laid out with words only: your photo couldn't be shown whole in any other layout at this size, so only the other direction shows it. Try another size, or upload a photo with more room around the subject.`,
     );
     return;
   }

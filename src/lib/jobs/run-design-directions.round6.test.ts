@@ -164,6 +164,26 @@ vi.mock("@/lib/design/document/from-spec", async (importOriginal) => {
     },
   };
 });
+/* When set, every choice made apart from a sibling's photo reports it in
+   the same shape (round 21: the ruling of 2026-10-28 keeps the photo). */
+let forceSameShape = false;
+vi.mock("./directions/subject-layout", async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import("./directions/subject-layout")>();
+  return {
+    ...real,
+    chooseLayout: async (input: Parameters<typeof real.chooseLayout>[0]) => {
+      const choice = await real.chooseLayout(input);
+      return forceSameShape && input.apartFrom && !input.imageless
+        ? {
+            ...choice,
+            faults: [...choice.faults, real.SAME_SHAPE_AS_SIBLING],
+            fault: choice.fault ?? real.SAME_SHAPE_AS_SIBLING,
+          }
+        : choice;
+    },
+  };
+});
 const loadBestLogo = vi.fn();
 const createNotification = vi.fn();
 const checkPlateShowsProduct = vi.fn();
@@ -793,6 +813,45 @@ describe("round-6 critic job probes", () => {
    sibling takes, leaves the second direction laid out as text, so the
    client always gets two (round-6 live critic: a 16:9 portrait delivered
    one direction of two). */
+/* Round 21, round-8 live critic finding 3 and Oluwaseyi's ruling of
+   2026-10-28 (superseding 2026-10-26): a second upload direction whose only
+   free layouts show the photo in its sibling's shape still shows it. */
+describe("an upload whose second direction shares its sibling's shape", () => {
+  it("keeps the photo in both directions and records the shared shape", async () => {
+    forceSameShape = true;
+    try {
+      lookAtPhoto.mockResolvedValue({
+        description: "a strawberry mille-feuille",
+        subject: { x: 0.3, y: 0.3, w: 0.4, h: 0.4 },
+        face: null,
+        heads: [],
+        items: ["a pastry"],
+      });
+      generateObject.mockResolvedValue({
+        object: {
+          directions: [
+            draftOf({ layout: "banner-bottom" }),
+            contrastingDraft({ layout: "hero-center" }),
+          ],
+        },
+      });
+      await run({ image: { source: "upload", key: UPLOAD_KEY } });
+    } finally {
+      forceSameShape = false;
+    }
+    for (const id of ["row-1", "row-2"]) {
+      const doc = delivered(id)?.document as
+        | { elements: { type: string }[] }
+        | undefined;
+      expect(doc?.elements.some((e) => e.type === "image")).toBe(true);
+    }
+    expect(usage().textLedUpload).toBe(0);
+    expect(notified()).not.toContainEqual(
+      expect.stringContaining("laid out with words only"),
+    );
+  });
+});
+
 describe("an upload that fits one layout", () => {
   it("delivers the second direction laid out as text", async () => {
     fitsOnly = "split-left";
@@ -824,7 +883,7 @@ describe("an upload that fits one layout", () => {
     const textLed = ["row-1", "row-2"][withPhoto.indexOf(false)];
     expect(TEXT_LED_LAYOUTS).toContain(delivered(textLed)?.spec.layout);
     expect(notified()).toContain(
-      "One direction was laid out with words only: your photo could only be shown the way the other direction already shows it. Regenerate it to try another layout, or upload a photo with more room around the subject.",
+      "One direction was laid out with words only: your photo couldn't be shown whole in any other layout at this size, so only the other direction shows it. Try another size, or upload a photo with more room around the subject.",
     );
   });
 });
@@ -2816,5 +2875,26 @@ describe("round 21: every delivered design names the offering", () => {
         (l: { fact: string }) => l.fact === "cold brew flight",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("round 21: a text-led pair is two compositions", () => {
+  it("event: stat-highlight and quote-card become a card and a centred poster", async () => {
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({ layout: "stat-highlight" }),
+          contrastingDraft({ layout: "quote-card" }),
+        ],
+      },
+    });
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await run({ image: { source: "none" } });
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+    expect(delivered("row-1")?.spec?.layout).toBe("stat-highlight");
+    expect(delivered("row-2")?.spec?.layout).toBe("hero-center");
   });
 });
