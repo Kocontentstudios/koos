@@ -612,6 +612,53 @@ export function isAction(label: string): boolean {
   return !NOT_AN_ACTION.test(text) && !isShopAddress(text);
 }
 
+/**
+ * The brief's own call to action: its first sentence that is an action the
+ * customer takes ("Call 0815 220 9031 to order.", "Ask for oat milk."), or
+ * null. A design for such a brief carries a button, or says why not
+ * (round-23 live run, storefront s1 shipped none).
+ */
+export function briefCallToAction(briefText: string): string | null {
+  const sentences = briefText.match(/[^.!?]+[.!?]*/g) ?? [];
+  return (
+    sentences
+      .map((sentence) => sentence.trim())
+      .find(
+        (sentence) =>
+          sentence.length > 0 &&
+          isAction(sentence) &&
+          /* "Open daily 9am to 7pm" starts with a verb but is the hours. */
+          !CLOCK_TIME.test(sentence),
+      ) ?? null
+  );
+}
+
+const CLOCK_TIME = /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i;
+
+/** What became of a button a delivered design does not carry: the
+ *  model's own, and why it could not be drawn, or that it wrote none. */
+export function buttonLeftOff(
+  report: Pick<FinalizeReport, "copyFallbacks"> | undefined,
+  checks: Pick<DirectionChecks, "ledger">,
+): { button: string | null; why: string } {
+  const dropped = report?.copyFallbacks.find(
+    (f) => f.field === "cta" && f.to === null,
+  );
+  if (!dropped) {
+    return {
+      button: null,
+      why: "the model wrote none, and the button it was asked for could not be drawn",
+    };
+  }
+  return {
+    button: dropped.from,
+    why: !isAction(dropped.from)
+      ? `"${dropped.from}" is not an action the customer takes`
+      : (copyFault(dropped.from, COPY_LIMITS.cta, checks.ledger) ??
+        `"${dropped.from}" could not be drawn`),
+  };
+}
+
 /** Why a piece of copy cannot go on the design as written, or null. */
 
 export function copyFault(

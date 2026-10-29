@@ -547,10 +547,24 @@ export function rewriteFault(
   const had = allProblems(before, facts, {}, earlier);
   const has = allProblems(after, facts, {}, earlier);
   const added = has.filter((p) => !had.includes(p));
-  if (added.length > 0) return added[0];
   const gained = facts.filter(
     (f) => !factStated(f, before) && factStated(f, after),
   );
+  /* A footer line shared word for word with the other design ships
+     counted, or goes where its facts are stated elsewhere (round 22); it
+     never outweighs a rewrite that states a missing fact or clears a
+     problem the reader sees. Round-23 live run, cafe s1: the rewrite that
+     took the headline off ₦6,000 and added "at the bar" was refused for
+     its address line matching the sibling's, and the price repeat
+     shipped. */
+  const shared = new Set(sharedFooterProblems(after, earlier));
+  const sharedBefore = new Set(sharedFooterProblems(before, earlier));
+  const addedOther = added.filter((p) => !shared.has(p));
+  if (addedOther.length > 0) return addedOther[0];
+  const cleared = had.filter((p) => !has.includes(p) && !sharedBefore.has(p));
+  if (added.length > 0 && gained.length === 0 && cleared.length === 0) {
+    return added[0];
+  }
   if (gained.length === 0 && has.length >= had.length) {
     return "it states nothing more";
   }

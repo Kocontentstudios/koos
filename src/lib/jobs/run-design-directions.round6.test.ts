@@ -3493,3 +3493,254 @@ describe("round 23: a beside pair takes a full-bleed second composition", () => 
     expect(usage().subjectFaults).toEqual([null, null]);
   });
 });
+
+/* Round-23 live run, fashion 16:9: the portrait shipped beside the copy in
+   both directions, mirrored, because its subject (0.97 of the photo's
+   height) and its head box fit no full bleed with the band kept off them.
+   Oluwaseyi's ruling of 2026-10-29 lets the band lie on the subject's outer
+   edge under a dark veil; the beside sibling's pair is now a full bleed. */
+describe("round 24: a beside sibling's pair is a full bleed", () => {
+  it("fashion 16:9 portrait: split-left beside, then hero-center bleeding under a dark band", async () => {
+    const { photoPlace } = await import("./directions/render");
+    const { SAME_SHAPE_AS_SIBLING } = await import(
+      "./directions/subject-layout"
+    );
+    const portrait = await photo(640, 960);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(portrait),
+      contentType: "image/png",
+      width: 640,
+      height: 960,
+    });
+    /* The vision look the stock portrait got (critique-23 fixture-looks). */
+    lookAtPhoto.mockResolvedValue({
+      description: "a woman in a green dress and a conical hat",
+      subject: { x: 0.03, y: 0.03, w: 0.79, h: 0.97 },
+      face: { x: 0.2, y: 0.16, w: 0.44, h: 0.44 },
+      heads: [{ x: 0.2, y: 0.16, w: 0.44, h: 0.44 }],
+      items: ["a woman", "a green dress"],
+    });
+    const shared = {
+      aspectRatio: "16:9" as const,
+      cta: "Book a Fitting",
+      footerStyle: "text" as const,
+      footerLines: ["Tuesday to Saturday, 11am to 6pm"],
+    };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...shared,
+            layout: "split-left",
+            headline: "The Ire Wrap Dress",
+            subheadline: "Sage silk with pearl buttons, sizes 8 to 16.",
+          }),
+          contrastingDraft({
+            ...shared,
+            layout: "hero-center",
+            headline: "Silk Worth Trying On",
+            subheadline: "The Ire wrap dress, made in sage silk.",
+          }),
+        ],
+      },
+    });
+    await generateDirectionsWork(
+      {
+        context: directionsContext({
+          briefText:
+            "The Ire wrap dress in sage silk with pearl buttons, sizes 8 to 16. Fittings Tuesday to Saturday, 11am to 6pm.",
+          aspectRatio: "16:9",
+          dimensions: "1920x1080",
+        }),
+        userId: "u1",
+        sessionId: "s1",
+        request: { image: { source: "upload", key: UPLOAD_KEY } } as never,
+      },
+      runtime as never,
+    );
+    const first = delivered("row-1");
+    const second = delivered("row-2");
+    expect(first?.spec?.layout).toBe("split-left");
+    expect(second?.spec?.layout).toBe("hero-center");
+    expect(photoPlace(first?.document as never)?.arrangement).toBe("beside");
+    const doc = second?.document as DesignDocumentLike;
+    expect(["bleed", "behind"]).toContain(
+      photoPlace(doc as never)?.arrangement,
+    );
+    const image = doc.elements.find((e) => e.type === "image");
+    expect(image?.y).toBe(0);
+    expect((image?.y ?? 0) + (image?.height ?? 0)).toBe(doc.height);
+    const scrim = doc.elements.find((e) => e.id === "scrim");
+    expect(scrim?.fill).toMatch(/rgba\(0,0,0,/);
+    expect(usage().subjectFaults).not.toContainEqual(SAME_SHAPE_AS_SIBLING);
+  });
+});
+
+interface DesignDocumentLike {
+  width: number;
+  height: number;
+  elements: {
+    id: string;
+    type: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    fill?: string;
+  }[];
+}
+
+/* Round-23 live run, cafe: quote-card and stat-highlight, two cards, though
+   round 22 counted two cards as one composition on an upload pair too. The
+   usage row held no look to replay it by; it now records the boxes and
+   every layout judged. Traced on the next live run's look (critique-24,
+   trace-cafe): the barista's head reaches past the subject box, so
+   hero-center's 46% beside panel could not hold the subject with that
+   head at its least size (covered), split-left and banner-bottom cropped
+   it, and the cards were all that held. hero-center's beside panel now
+   widens until it does; that failure needs real fonts and is pinned in
+   round24.smoke.test.ts ("traced cafe look"). Here, on the run's inputs:
+   never two cards, and the trace a later run is replayed by. */
+describe("round 24: the cafe pair on its traced look is never two cards", () => {
+  it("quote-card first, then hero-center beside, not stat-highlight", async () => {
+    const { SAME_COMPOSITION_AS_SIBLING } = await import(
+      "./directions/subject-layout"
+    );
+    const bar = await photo(1400, 1000);
+    loadDesignImage.mockResolvedValue({
+      bytes: Buffer.from(bar),
+      contentType: "image/png",
+      width: 1400,
+      height: 1000,
+    });
+    /* The traced look, its subject 0.04 narrower: split-left crops it. */
+    lookAtPhoto.mockResolvedValue({
+      description: "an espresso bar with two baristas",
+      subject: { x: 0.16, y: 0.26, w: 0.6, h: 0.61 },
+      face: null,
+      heads: [
+        { x: 0.58, y: 0.16, w: 0.19, h: 0.24 },
+        { x: 0.69, y: 0.11, w: 0.24, h: 0.33 },
+      ],
+      items: ["an espresso machine", "two baristas"],
+    });
+    const cafe = {
+      aspectRatio: "1:1" as const,
+      footerStyle: "bar" as const,
+    };
+    generateObject.mockResolvedValue({
+      object: {
+        directions: [
+          draftOf({
+            ...cafe,
+            layout: "quote-card",
+            headline: "The Cold Brew Flight Is On",
+            subheadline:
+              "Three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500.",
+            cta: "Come In",
+            footerLines: [
+              "Weekdays 8am to 6pm",
+              "At the bar, 9 Akinola Street, Yaba",
+            ],
+          }),
+          contrastingDraft({
+            ...cafe,
+            layout: "hero-center",
+            headline: "Taste It Side by Side",
+            subheadline:
+              "A cold brew flight: three tasters, poured at the bar.",
+            cta: "Ask for oat milk",
+            footerLines: ["Weekdays 8am to 6pm", "9 Akinola Street, Yaba"],
+          }),
+        ],
+      },
+    });
+    await runBrief(
+      "Our cold brew flight is on: three 150ml tasters for ₦6,000, or a 1-litre bottle and two glasses for ₦15,500. Weekdays 8am to 6pm at the bar, 9 Akinola Street, Yaba. Ask for oat milk.",
+      { image: { source: "upload", key: UPLOAD_KEY } },
+    );
+    expect(delivered("row-1")?.spec?.layout).toBe("quote-card");
+    expect(["quote-card", "stat-highlight"]).not.toContain(
+      delivered("row-2")?.spec?.layout,
+    );
+    expect(usage().subjectFaults).not.toContainEqual(
+      SAME_COMPOSITION_AS_SIBLING,
+    );
+    /* The trace a later run is replayed by. */
+    expect(usage().subjectBoxes[1][0]).toEqual({
+      x: 0.16,
+      y: 0.26,
+      w: 0.6,
+      h: 0.61,
+    });
+    expect(usage().photoHeads).toHaveLength(2);
+    expect(
+      usage().layoutsConsidered[1].map((c: { layout: string }) => c.layout),
+    ).toContain("hero-center");
+  });
+});
+
+/* Round-23 live run, storefront s1: no button, for a brief ending "Call
+   0815 220 9031 to order.", recorded only as one copy fallback. A
+   direction without a button is asked for one; one that still has none
+   ships saying why. */
+describe("round 24: a brief that asks the customer to act gets a button", () => {
+  const STOREFRONT =
+    "We reopen on Saturday 12 December after a full refit. Hand-tied bouquets from ₦18,000 each, with same-day delivery across Lekki. Open daily 9am to 7pm at 22 Admiralty Way, Lekki Phase 1. Call 0815 220 9031 to order.";
+  const isFitCall = (o: { prompt?: string }) =>
+    Boolean(o.prompt?.includes("cannot go on the design as they are"));
+  const drafts = () => ({
+    object: {
+      directions: [
+        draftOf({
+          layout: "split-left",
+          headline: "Hand-Tied Bouquets, Delivered Same Day",
+          subheadline: "From ₦18,000 each, across Lekki.",
+          cta: "Call to Order",
+          footerStyle: "text",
+          footerLines: ["Open daily 9am to 7pm"],
+        }),
+        contrastingDraft({
+          layout: "hero-center",
+          headline: "We're Back in Lekki",
+          subheadline: "Hand-tied bouquets from ₦18,000 each.",
+          cta: undefined,
+          footerStyle: "text",
+          footerLines: ["Ring 0815 220 9031 to place your order"],
+        }),
+      ],
+    },
+  });
+
+  it("storefront s1: the fit pass is asked for the missing button, and its answer ships", async () => {
+    const asked: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (!isFitCall(o)) return drafts();
+      asked.push(o.prompt ?? "");
+      return { object: { fixes: [{ id: "1.cta", text: "Call to Order" }] } };
+    });
+    await runBrief(STOREFRONT, { image: { source: "none" } });
+    expect(asked.join("\n")).toContain('id "1.cta"');
+    expect(asked.join("\n")).toContain("Call 0815 220 9031 to order.");
+    expect(delivered("row-2")?.spec?.cta).toBe("Call to Order");
+    expect(usage().buttonsLeftOff).toEqual([]);
+  });
+
+  it("storefront s1: a button the model cannot give is recorded with why", async () => {
+    generateObject.mockImplementation(async (o: { prompt?: string }) =>
+      isFitCall(o)
+        ? { object: { fixes: [{ id: "1.cta", text: "Same-day delivery" }] } }
+        : drafts(),
+    );
+    await runBrief(STOREFRONT, { image: { source: "none" } });
+    expect(delivered("row-2")?.spec?.cta ?? null).toBeNull();
+    expect(usage().buttonsLeftOff).toEqual([
+      {
+        direction: 1,
+        button: null,
+        why: "the model wrote none, and the button it was asked for could not be drawn",
+      },
+    ]);
+    expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
+  });
+});

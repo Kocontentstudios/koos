@@ -56,6 +56,7 @@ import {
   writeFacts,
 } from "./fact-writer";
 import {
+  briefCallToAction,
   copyFault,
   correctionCheck,
   type DirectionChecks,
@@ -87,6 +88,7 @@ import { forceDistinctLayouts } from "./layouts";
 import { repairDirectionsFor, repairFitText } from "./repair";
 import {
   COPY_LIMITS,
+  COPY_TARGETS,
   type DirectionDraft,
   type DirectionSpec,
   DRAFT_LIMITS,
@@ -334,6 +336,18 @@ export function fitRequests(
       COPY_LIMITS.subheadline,
     );
     copy(`${i}.cta`, "button", draft.cta, COPY_LIMITS.cta);
+    const callToAction = briefCallToAction(checks.briefText);
+    if (!draft.cta?.trim() && callToAction) {
+      requests.push({
+        id: `${i}.cta`,
+        field: "button",
+        text: "",
+        limit: COPY_LIMITS.cta,
+        problems: [
+          `the design has no button, but the brief asks the customer to act ("${callToAction}"): write that as a button, an action starting with a verb, in at most ${COPY_TARGETS.cta.words} words`,
+        ],
+      });
+    }
     if (draft.cta?.trim() && !isAction(draft.cta)) {
       const problem =
         'a button is an action the customer takes, starting with a verb ("Book a free session"), not what they get';

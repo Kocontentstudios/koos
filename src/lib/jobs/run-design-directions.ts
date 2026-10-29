@@ -63,6 +63,8 @@ import { planConcepts, regenerationConcept } from "./directions/concepts";
 import { renderConcurrency } from "./directions/concurrency";
 import { paletteForCutout } from "./directions/craft";
 import {
+  briefCallToAction,
+  buttonLeftOff,
   correctionCheck,
   drawnCopyOf,
   settleReasons,
@@ -630,6 +632,14 @@ export async function generateDirectionsWork(
   });
   const factsByDirection: (number | null)[] = rows.map(() => null);
   const factsLost: { direction: number; fact: string; reason: string }[] = [];
+  /* A delivered design without a button for a brief that asks the
+     customer to act, and why (round-23 live run, storefront s1). */
+  const callToAction = briefCallToAction(brief.checks.briefText);
+  const buttonsLeftOff: {
+    direction: number;
+    button: string | null;
+    why: string;
+  }[] = [];
   /* Settled before drawing: what was left off, and what failed. A field
      that still gives the wrong day once drawn is a fault, and "shipped". */
   const datesContradicted: (DateContradiction & {
@@ -736,6 +746,26 @@ export async function generateDirectionsWork(
       const first = rows.length > 1 && i > 0 ? await firstPlaced : null;
       const apartFrom = first && sharesPhoto ? first.place : siblingPlace;
       const apartLayout = first ? first.layout : siblingLayout;
+      /* A full bleed free to choose its side keeps the photo out of the
+         sibling's place. The first of a pair cannot see where its sibling
+         will draw it, so it is told where the sibling's own layout would
+         (round 24: a portrait bled on the side of its split sibling's
+         print). */
+      const siblingPhoto =
+        apartFrom?.box ??
+        (i === 0 && sharesPhoto && assets.image && settled[1]
+          ? ((
+              await layoutJudge(
+                context,
+                assets,
+                prepared,
+              )(
+                unmarked(paletteForCutout(settled[1].spec, assets.imageFacts)),
+                subjectBoxes[1]?.[0] ?? null,
+              )
+            ).place?.box ?? null)
+          : null);
+      assets = { ...assets, siblingPhoto };
       const relayout = (spec: DesignSpec, layout: DesignSpec["layout"]) =>
         unmarked(
           respecForLayout(spec, layout, {
@@ -863,6 +893,7 @@ export async function generateDirectionsWork(
               result.document,
               assets.imageFacts,
               choice.wholeSubject,
+              assets.heads ?? [],
             )
           : null;
       /* The chosen layout cleared the subject; a delivered document that
@@ -896,6 +927,11 @@ export async function generateDirectionsWork(
       const drawnSpec = result.logoUnplaced
         ? { ...result.spec, logoPlacement: "none" as const }
         : result.spec;
+      if (callToAction && !drawnSpec.cta?.trim()) {
+        const left = buttonLeftOff(brief.reports[i], brief.checks);
+        buttonsLeftOff.push({ direction: i, ...left });
+        addFault(row.id, `carries no button: ${left.why}`);
+      }
       const missing = factsMissing(hardFacts, drawnCopy);
       const unreadMissing = factsMissing(unreadFacts, drawnCopy);
       factsByDirection[i] =
@@ -1184,6 +1220,22 @@ export async function generateDirectionsWork(
       /* Round-3 outcomes: copy kept off the subject (and how), the brief's
          facts drawn, and where each plate's product name came from. */
       subjectKnown: subjectBoxes.map((boxes) => boxes.some(Boolean)),
+      /* What each layout choice saw and judged, so a delivered pair can be
+         replayed offline: the round-23 live cafe pair shipped two cards and
+         could not be traced without the look it was laid out on. */
+      subjectBoxes,
+      photoHeads,
+      layoutsConsidered: layoutChoices.map(
+        (choice) =>
+          choice?.considered.map((c) => ({
+            layout: c.layout,
+            ...(c.faceOnly ? { faceOnly: true } : {}),
+            ...(c.subjectFault ? { subject: c.subjectFault } : {}),
+            ...(c.hard ? { hard: c.hard } : {}),
+            ...(c.soft ? { soft: c.soft } : {}),
+            ...(c.alike ? { alike: true } : {}),
+          })) ?? null,
+      ),
       layoutsRelaid: layoutChoices.filter(
         (choice, i) => choice && choice.spec.layout !== settled[i].spec.layout,
       ).length,
@@ -1194,6 +1246,7 @@ export async function generateDirectionsWork(
       factsAdded: brief.factCoverage.added.length,
       factHeadlinesRewritten: brief.factCoverage.headlinesRewritten.length,
       factsLeftOff: factsLost,
+      buttonsLeftOff,
       /* Each refused fact-writer rewrite with the model's text, so a
          refusal can be read against what was written. */
       factRewritesRefused: brief.factCoverage.rewritesRefused,
