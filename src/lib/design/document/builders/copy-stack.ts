@@ -416,7 +416,11 @@ async function stackAt(
         zone.width,
       );
     if (await lone(headline.fontSize)) {
-      for (const size of ladder.filter((s) => s < (headline?.fontSize ?? 0))) {
+      /* Never below the hierarchy the headline keeps over the subheadline. */
+      const floorSize = Math.ceil((sub?.fontSize ?? 0) * HIERARCHY);
+      for (const size of ladder.filter(
+        (s) => s < (headline?.fontSize ?? 0) && s >= floorSize,
+      )) {
         if (await lone(size)) continue;
         const smaller = await fitHeadline(reservedFor(sub), [size]);
         if (smaller.fits && !smaller.breaksWords) headline = smaller;
