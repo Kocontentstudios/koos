@@ -3744,3 +3744,86 @@ describe("round 24: a brief that asks the customer to act gets a button", () => 
     expect(usage().qualityFaults).toBeGreaterThanOrEqual(1);
   });
 });
+
+/* Round-10 live verdict, CB1: "available from Monday" drawn as "Your
+   Monday treat is ready." and "Order ahead for Monday pickup." was
+   counted delivered. The day's bound is part of the fact: the fact writer
+   is asked to write it in, and what ships says "from Monday". */
+describe("round 25: a day keeps its bound", () => {
+  const BAKERY =
+    "Launch our new strawberry mille-feuille, ₦4,500 a slice, available from Monday. Commuters can order ahead for pickup from 7am.";
+
+  it("bakery: both live drafts that lost 'from' are written back in, and none is counted delivered before", async () => {
+    const { isFactWriteCall } = await import("./directions/fixtures");
+    const asked: string[] = [];
+    generateObject.mockImplementation(async (o: { prompt?: string }) => {
+      if (isFactWriteCall(o)) {
+        asked.push(o.prompt ?? "");
+        return {
+          object: {
+            rewrites: [
+              {
+                id: 0,
+                subheadline: "Order ahead for pickup from 7am.",
+                footerLines: ["₦4,500 a slice · Available from Monday"],
+              },
+              {
+                id: 1,
+                subheadline:
+                  "Strawberry mille-feuille, ₦4,500 a slice, available from Monday.",
+                footerLines: ["Pickup from 7am"],
+              },
+            ],
+          },
+        };
+      }
+      return {
+        object: {
+          directions: [
+            draftOf({
+              layout: "banner-bottom",
+              headline: "Strawberry Mille-Feuille",
+              subheadline: "Order ahead for Monday pickup.",
+              cta: "Order Ahead",
+              footerStyle: "text",
+              footerLines: ["₦4,500 a slice · Pickup from 7am"],
+            }),
+            contrastingDraft({
+              layout: "split-left",
+              headline: "Your Monday treat is ready.",
+              subheadline:
+                "Strawberry mille-feuille, ₦4,500 a slice — order ahead for pickup.",
+              cta: "Order for Pickup",
+              footerStyle: "text",
+              footerLines: ["Pickup from 7am"],
+            }),
+          ],
+        },
+      };
+    });
+    readBrief.mockResolvedValue(
+      readAnswer(
+        [
+          { kind: "price", text: "₦4,500 a slice" },
+          { kind: "day", text: "available from Monday" },
+          { kind: "time", text: "pickup from 7am" },
+        ],
+        { kind: "product", phrase: "strawberry mille-feuille" },
+      ),
+    );
+    const g = globalThis as { factWriteThroughDouble?: boolean };
+    g.factWriteThroughDouble = true;
+    try {
+      await runBrief(BAKERY, { image: { source: "none" } });
+    } finally {
+      g.factWriteThroughDouble = false;
+    }
+    expect(asked.join("\n")).toMatch(/available from Monday/i);
+    for (const row of ["row-1", "row-2"]) {
+      expect(failedRow(row)).toBeUndefined();
+      expect(drawnOf(row)).toMatch(/available from Monday/i);
+    }
+    const day = (l: { fact: string }) => /monday/i.test(l.fact);
+    expect(usage().factsLeftOff.filter(day)).toEqual([]);
+  });
+});

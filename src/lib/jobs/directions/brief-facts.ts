@@ -20,6 +20,7 @@ import {
   weekdayMentions,
   weekdaySenseChanged,
 } from "./claims";
+import { dayBoundKept, dayWithBound } from "./day-qualifier";
 import {
   contradictedRun,
   contradictedRunStarts,
@@ -1016,7 +1017,7 @@ export function settleBriefFacts(
       end = priceWithUnit(brief, end);
     }
     if (kind === "date" || kind === "day") {
-      start = dateWithEvent(brief, start, end, kind);
+      start = dateWithEvent(brief, dayWithBound(brief, start), end, kind);
     }
     keep(kind, start, end);
   }
@@ -1213,6 +1214,12 @@ function statedIn(
      live critic: "Call 0705 919 2284 · 9am to 4pm" for class hours). */
   if (fact.kind === "time" && PHONE_LIKE.test(part.line)) return false;
   if (weekdaySenseChanged(fact.text, part.text)) return false;
+  if (
+    (fact.kind === "day" || fact.kind === "date") &&
+    !dayBoundKept(fact.text, part.text)
+  ) {
+    return false;
+  }
   const numbered = numberFactOf(fact);
   if (numbered) {
     const tokens = formTokensOf(part.text);
