@@ -91,6 +91,36 @@ describe("cleanCutoutEdge", () => {
     );
   });
 
+  /* Round-9 live critic, bakery: the sweep's white past the shadow's light
+     end stayed opaque, a pale band under the plate on the cream ground. */
+  describe("the sweep around the shadow", () => {
+    const rimmed: Paint = (x, y) => {
+      if (x >= 140 && x < 146 && y >= 20 && y < 95) return [244, 244, 241, 255];
+      const own = product(x, y);
+      if (own) return own;
+      /* Open on the right, where the shadow meets the cut as in the
+         live cut-out. */
+      if (x < 150 && ((x - 100) / 78) ** 2 + ((y - 100) / 18) ** 2 <= 1) {
+        return [243, 243, 240, 255];
+      }
+      return null;
+    };
+
+    it("is drawn see-through below the shadow and beside it", () => {
+      const px = image(rimmed);
+      cleanCutoutEdge(px, W, H);
+      expect(at(px, 100, 115)[3]).toBeLessThan(40);
+      expect(at(px, 25, 100)[3]).toBeLessThan(40);
+    });
+
+    it("keeps a pale rim the shadow lies under", () => {
+      const px = image(rimmed);
+      cleanCutoutEdge(px, W, H);
+      expect(at(px, 143, 50)).toEqual([244, 244, 241, 255]);
+      expect(at(px, 143, 92)).toEqual([244, 244, 241, 255]);
+    });
+  });
+
   it("returns the input when the bytes cannot be read", async () => {
     const junk = new Uint8Array([1, 2, 3]);
     expect(await cleanCutoutBytes(junk)).toBe(junk);

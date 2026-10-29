@@ -116,8 +116,9 @@ export function cleanCutoutEdge(
     height,
   );
   if (!shadow) return;
+  const sweep = sweepBelowShadow(shadow, pixels, width, height);
   for (let i = 0; i < shadow.length; i += 1) {
-    if (!shadow[i]) continue;
+    if (!shadow[i] && !sweep[i]) continue;
     const o = i * 4;
     const lum =
       0.2126 * pixels[o] + 0.7152 * pixels[o + 1] + 0.0722 * pixels[o + 2];
@@ -240,6 +241,90 @@ function shadowRegion(
     if (y < height - 1) visit(i + width);
   }
   return inShadow;
+}
+
+/* The sweep's white is lighter than the shadow's light end and stopped the
+   flood there, so it stayed opaque: a pale band under the plate on any
+   ground but white (round-9 live critic, bakery, both designs). Taken only
+   below the treated shadow in its own column, with nothing but shadow or
+   more sweep between, and reached from the cut's outside through more of
+   it: what lies above the shadow is the product, and a product with no
+   cast shadow keeps every pixel. */
+function sweepBelowShadow(
+  shadow: Uint8Array,
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const n = width * height;
+  const pale = (i: number) => {
+    const o = i * 4;
+    const r = pixels[o];
+    const g = pixels[o + 1];
+    const b = pixels[o + 2];
+    return (
+      pixels[o + 3] >= TRANSPARENT &&
+      Math.max(r, g, b) - Math.min(r, g, b) <= 20 &&
+      0.2126 * r + 0.7152 * g + 0.0722 * b > SHADOW_LUM_MAX
+    );
+  };
+  const below = new Uint8Array(n);
+  /* Nothing under it in its column but more sweep: a pale pixel with the
+     shadow or the product beneath it is the product's own rim. */
+  const bottomOfColumn = new Uint8Array(n);
+  for (let x = 0; x < width; x += 1) {
+    let clear = true;
+    for (let y = height - 1; y >= 0; y -= 1) {
+      const i = y * width + x;
+      const visible = pixels[i * 4 + 3] >= TRANSPARENT;
+      if (visible && !pale(i)) clear = false;
+      if (visible && clear) bottomOfColumn[i] = 1;
+    }
+  }
+  const mark = (i: number, open: boolean, bottomOnly: boolean) => {
+    if (pixels[i * 4 + 3] < TRANSPARENT) return false;
+    if (shadow[i]) return true;
+    if (!pale(i) || (bottomOnly && !bottomOfColumn[i])) return false;
+    if (open) below[i] = 1;
+    return open;
+  };
+  for (let x = 0; x < width; x += 1) {
+    let open = false;
+    for (let y = 0; y < height; y += 1) open = mark(y * width + x, open, false);
+  }
+  for (let y = 0; y < height; y += 1) {
+    let open = false;
+    for (let x = 0; x < width; x += 1) open = mark(y * width + x, open, true);
+    open = false;
+    for (let x = width - 1; x >= 0; x -= 1) {
+      open = mark(y * width + x, open, true);
+    }
+  }
+  const sweep = new Uint8Array(n);
+  const queue = new Int32Array(n);
+  let head = 0;
+  let tail = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (pixels[i * 4 + 3] < TRANSPARENT) queue[tail++] = i;
+  }
+  const seen = new Uint8Array(n);
+  for (let i = 0; i < tail; i += 1) seen[queue[i]] = 1;
+  while (head < tail) {
+    const i = queue[head++];
+    const x = i % width;
+    const visit = (j: number) => {
+      if (seen[j]) return;
+      seen[j] = 1;
+      if (!below[j]) return;
+      sweep[j] = 1;
+      queue[tail++] = j;
+    };
+    if (x > 0) visit(i - 1);
+    if (x < width - 1) visit(i + 1);
+    if (i >= width) visit(i - width);
+    if (i < n - width) visit(i + width);
+  }
+  return sweep;
 }
 
 /** A cut-out PNG's bytes with its edge cleaned; the input when it cannot
