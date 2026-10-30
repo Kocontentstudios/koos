@@ -1,8 +1,9 @@
 "use client";
 
-import { ImageOff, TriangleAlert } from "lucide-react";
+import { ImageOff, RotateCw, TriangleAlert } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { type FrameSlot, frameState } from "./set-model";
@@ -75,12 +76,14 @@ function FramePicture({
   return (
     <>
       {load === "loading" ? (
-        <div role="status" className="absolute inset-0">
+        compact ? (
           <Skeleton className="absolute inset-0 rounded-none" />
-          {compact ? null : (
+        ) : (
+          <div role="status" className="absolute inset-0">
+            <Skeleton className="absolute inset-0 rounded-none" />
             <span className="sr-only">Loading this frame…</span>
-          )}
-        </div>
+          </div>
+        )
       ) : null}
       <Image
         src={url}
@@ -100,7 +103,8 @@ function FramePicture({
 /**
  * What one frame shows, filling the box its parent sized: the frame itself,
  * a skeleton while it renders or regenerates, or a stated failure. `compact`
- * is the thumbnail, which says the same things in icons alone.
+ * is the thumbnail, which says the same things in icons alone. `onRetry`
+ * puts the retry on the failed frame itself, where the failure is.
  */
 export function FrameFace({
   slot,
@@ -108,12 +112,14 @@ export function FrameFace({
   size,
   mode,
   compact = false,
+  onRetry,
 }: {
   slot: FrameSlot;
   alt: string;
   size: Size;
   mode: FaceMode;
   compact?: boolean;
+  onRetry?: () => void;
 }) {
   const state = frameState(slot);
   if (mode === "regenerating" || state === "rendering") {
@@ -144,6 +150,12 @@ export function FrameFace({
               : "This frame was never made."}
           </p>
         )}
+        {!compact && state === "failed" && onRetry ? (
+          <Button type="button" onClick={onRetry} className="relative">
+            <RotateCw aria-hidden="true" />
+            Retry frame {slot.index + 1}
+          </Button>
+        ) : null}
       </EmptyFace>
     );
   }

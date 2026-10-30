@@ -13,8 +13,8 @@ import {
   currentFrame,
   type SequenceProgress,
   sequenceProgressLine,
+  setNoun,
 } from "./progress";
-import { kindNoun } from "./set-model";
 
 type TileState = "done" | "current" | "waiting";
 
@@ -36,11 +36,14 @@ export function SetProgress({
   progress: SequenceProgress;
   stage: GenerationStage | null;
 }) {
-  const noun = kindNoun(progress.kind);
+  const noun = setNoun(progress);
   const line =
     stage === "fetching"
       ? `Getting your ${noun} ready…`
       : sequenceProgressLine(progress);
+  const title = progress.kind
+    ? `Making your ${progress.frameCount}-slide ${noun}`
+    : `Making your ${progress.frameCount} slides`;
   const ratio = progress.kind === "presentation" ? "16 / 9" : "4 / 5";
 
   return (
@@ -49,9 +52,7 @@ export function SetProgress({
         <Spinner className="size-6" />
       </span>
       <div className="flex flex-col items-center gap-1.5">
-        <FlowTitle>
-          Making your {progress.frameCount}-slide {noun}
-        </FlowTitle>
+        <FlowTitle>{title}</FlowTitle>
         <p role="status" className="text-[14px] text-[var(--text-secondary)]">
           {line}
         </p>

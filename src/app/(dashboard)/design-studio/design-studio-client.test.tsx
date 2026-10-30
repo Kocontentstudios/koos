@@ -136,6 +136,7 @@ describe("DesignStudioClient history grid", () => {
         aspectRatio: "4:5",
         image: { source: "ko" },
       }),
+      { sequenceKind: null },
     );
   });
 

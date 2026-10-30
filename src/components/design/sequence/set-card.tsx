@@ -3,6 +3,7 @@
 import { GalleryHorizontal, Presentation, TriangleAlert } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   coverOf,
   type DesignSet,
@@ -25,6 +26,9 @@ export function SetCard({
   onOpen: (set: DesignSet) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  /* Set on error too: a broken cover must not leave the skeleton claiming
+     it is still on its way. */
+  const [coverShown, setCoverShown] = useState(false);
   const cover = coverOf(set);
   if (!cover?.url) return null;
 
@@ -64,18 +68,26 @@ export function SetCard({
         className="absolute top-1 right-1 bottom-1 left-1 rounded-lg border bg-[var(--surface-container)]"
         style={{ borderColor: "var(--border)" }}
       />
+      {/* Sized from the frame before the cover arrives, so the grid never
+          jumps when it loads. */}
       <span
-        className="relative block overflow-hidden rounded-lg border transition-colors"
+        className="relative block overflow-hidden rounded-lg border bg-[var(--surface-container-lowest)] transition-colors"
         style={{
           borderColor: hovered ? "var(--border-accent)" : "var(--border)",
+          aspectRatio: `${size.width} / ${size.height}`,
         }}
       >
+        {coverShown ? null : (
+          <Skeleton className="absolute inset-0 rounded-none" />
+        )}
         <Image
           src={cover.url}
           alt=""
           width={size.width}
           height={size.height}
-          className="w-full"
+          onLoad={() => setCoverShown(true)}
+          onError={() => setCoverShown(true)}
+          className="relative block h-full w-full object-cover"
           unoptimized
         />
         <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white">

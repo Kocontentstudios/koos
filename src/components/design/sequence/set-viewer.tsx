@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Download,
   GalleryHorizontal,
   Pencil,
   Presentation,
@@ -8,7 +9,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import type { FrameEdits } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { FrameEditor } from "./frame-editor";
@@ -126,8 +127,8 @@ export function SetViewer({
     setEditing(null);
   }
 
-  async function regenerate(edits?: FrameEdits) {
-    const id = slot?.generation?.id;
+  async function regenerate(target: FrameSlot, edits?: FrameEdits) {
+    const id = target.generation?.id;
     if (!id) return;
     const row = await onRegenerateFrame(id, edits);
     if (row && edits) closeEditor();
@@ -154,6 +155,7 @@ export function SetViewer({
         onSelect={select}
         isRegenerating={regenerating}
         frameLabel={frameLabel}
+        onRetry={(target) => void regenerate(target)}
         panelId={panelId}
         tabId={tabIdOf(baseId, index)}
       />
@@ -213,7 +215,7 @@ export function SetViewer({
             slot={slot}
             frameName={`frame ${slot.index + 1}`}
             pending={pending}
-            onSubmit={(edits) => void regenerate(edits)}
+            onSubmit={(edits) => void regenerate(slot, edits)}
             onCancel={closeEditor}
           />
         ) : (
@@ -229,22 +231,37 @@ export function SetViewer({
               <Pencil aria-hidden="true" />
               Edit &amp; regenerate
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => void regenerate()}
-              loading={pending}
-              loadingText="Regenerating…"
-              disabled={state === "rendering"}
-              aria-label={
-                pending
-                  ? undefined
-                  : `${state === "failed" ? "Retry" : "Regenerate"} frame ${slot.index + 1}`
-              }
-            >
-              <RefreshCw aria-hidden="true" />
-              {state === "failed" ? "Retry this frame" : "Regenerate"}
-            </Button>
+            {/* A failed frame's retry sits on the frame itself (SetStage). */}
+            {state === "failed" ? null : (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void regenerate(slot)}
+                loading={pending}
+                loadingText="Regenerating…"
+                disabled={state === "rendering"}
+                aria-label={
+                  pending ? undefined : `Regenerate frame ${slot.index + 1}`
+                }
+              >
+                <RefreshCw aria-hidden="true" />
+                Regenerate
+              </Button>
+            )}
+            {state === "ready" && !pending && slot.generation ? (
+              /* A link, as on a direction card: the route redirects to a
+                 signed URL whose disposition saves the file. */
+              <a
+                href={`/api/design/generations/${slot.generation.id}/download`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonVariants({ variant: "ghost" })}
+              >
+                <Download aria-hidden="true" />
+                Download this frame
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            ) : null}
           </div>
         )}
       </div>

@@ -16,6 +16,7 @@ import {
   useDesignGeneration,
 } from "@/components/design/use-design-generation";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { sequenceKindOf } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
 import type { DirectionSlot, SendNotice } from "./direction-results";
@@ -105,6 +106,12 @@ export function DesignDirectionsDialog({
     {},
   );
   const lastImage = useRef<DesignImageChoice | null>(null);
+  /* The brief and calendar entry points already hand over the design type
+     for a ticket. Design Studio has none to give; its wait still reads a set
+     from the job's progress, without naming the kind. */
+  const runOptions = {
+    sequenceKind: sequenceKindOf(ticketContext?.designType),
+  };
 
   const slots = slotsOf(design).map((slot, i) => replaced[i] ?? slot);
 
@@ -128,7 +135,7 @@ export function DesignDirectionsDialog({
     clearRunState();
     setStep("run");
     onRunStart?.();
-    void design.generate({ ...args, image });
+    void design.generate({ ...args, image }, runOptions);
   }
 
   /* "Use this image" pressed mid-upload continues on its own the moment the
@@ -297,7 +304,7 @@ export function DesignDirectionsDialog({
           image
             ? () => {
                 onRunStart?.();
-                void design.generate({ ...args, image });
+                void design.generate({ ...args, image }, runOptions);
               }
             : undefined
         }
@@ -332,31 +339,33 @@ export function DesignDirectionsDialog({
                 jobStage: design.jobStage,
                 progress: design.progress,
               }
-            : design.error
-              ? {
-                  step: "error",
-                  source: source ?? "none",
-                  message: design.error,
-                  unusableImage: isUnusableImageError(design.error),
-                }
-              : design.set
+            : design.error && design.stillRunning
+              ? { step: "still-running", message: design.error }
+              : design.error
                 ? {
-                    step: "set-results",
-                    set: design.set,
-                    source,
-                    frameActions: design.frameActions,
-                    frameErrors: design.frameErrors,
+                    step: "error",
+                    source: source ?? "none",
+                    message: design.error,
+                    unusableImage: isUnusableImageError(design.error),
                   }
-                : {
-                    step: "results",
-                    slots,
-                    source,
-                    imageName,
-                    regeneratingSlot,
-                    regenerateError,
-                    sendingId,
-                    sendNotices,
-                  };
+                : design.set
+                  ? {
+                      step: "set-results",
+                      set: design.set,
+                      source,
+                      frameActions: design.frameActions,
+                      frameErrors: design.frameErrors,
+                    }
+                  : {
+                      step: "results",
+                      slots,
+                      source,
+                      imageName,
+                      regeneratingSlot,
+                      regenerateError,
+                      sendingId,
+                      sendNotices,
+                    };
 
   /* A click beside the dialog is usually a slip, and closing resets the
      flow; it may only dismiss when nothing would be thrown away. Escape and

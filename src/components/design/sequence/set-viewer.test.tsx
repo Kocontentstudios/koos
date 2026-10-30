@@ -237,27 +237,70 @@ describe("regenerating one frame", () => {
 });
 
 describe("Edit & regenerate", () => {
-  it("prefills the frame's headline and offers no button text off the CTA frame", async () => {
+  it("prefills the frame's lines and offers no button text off the CTA frame", async () => {
     renderViewer();
     await userEvent.click(
       screen.getByRole("button", { name: "Edit & regenerate frame 1" }),
     );
     const form = screen.getByRole("form", { name: "Edit frame 1" });
     expect(within(form).getByLabelText("Headline")).toHaveValue("Headline 1");
-    expect(within(form).getByLabelText("Subheadline")).toBeInTheDocument();
+    expect(within(form).getByLabelText("Subheadline")).toHaveValue(
+      "Subheadline 1",
+    );
     expect(within(form).queryByLabelText("Button text")).toBeNull();
     expect(document.activeElement).toBe(
       within(form).getByLabelText("Headline"),
     );
   });
 
-  it("offers the button text on the CTA frame", async () => {
+  it("prefills the CTA it is editing on the CTA frame", async () => {
     renderViewer();
     await userEvent.click(tabs()[4] as HTMLElement);
     await userEvent.click(
       screen.getByRole("button", { name: "Edit & regenerate frame 5" }),
     );
-    expect(screen.getByLabelText("Button text")).toBeInTheDocument();
+    expect(screen.getByLabelText("Button text")).toHaveValue("Book a table");
+    expect(screen.getByLabelText("Subheadline")).toHaveValue("Subheadline 5");
+  });
+
+  it("refuses a frame with no headline before anything is billed", async () => {
+    renderViewer();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit & regenerate frame 1" }),
+    );
+    const headline = screen.getByLabelText("Headline");
+    await userEvent.clear(headline);
+    expect(headline).toHaveAttribute("aria-invalid", "true");
+    expect(headline).toHaveAccessibleDescription("A frame needs a headline.");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "A frame needs a headline.",
+    );
+    const submit = screen.getByRole("button", {
+      name: "Regenerate with my words",
+    });
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(submit);
+    await userEvent.type(headline, "{Enter}");
+    expect(onRegenerateFrame).not.toHaveBeenCalled();
+
+    await userEvent.type(headline, "New hook");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await userEvent.click(submit);
+    expect(onRegenerateFrame).toHaveBeenCalledWith("f0", {
+      headline: "New hook",
+    });
+  });
+
+  it("lets the user clear a subheadline, which removes the line", async () => {
+    renderViewer();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit & regenerate frame 1" }),
+    );
+    await userEvent.clear(screen.getByLabelText("Subheadline"));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Regenerate with my words" }),
+    );
+    expect(onRegenerateFrame).toHaveBeenCalledWith("f0", { subheadline: "" });
   });
 
   /* H9: the user's words are drawn as typed. The form sends exactly what
@@ -276,7 +319,9 @@ describe("Edit & regenerate", () => {
     const headline = screen.getByLabelText("Headline");
     await userEvent.clear(headline);
     await userEvent.type(headline, "  Book by FRIDAY!  ");
-    await userEvent.type(screen.getByLabelText("Button text"), "Reserve");
+    const cta = screen.getByLabelText("Button text");
+    await userEvent.clear(cta);
+    await userEvent.type(cta, "Reserve");
     await userEvent.click(submit);
 
     expect(onRegenerateFrame).toHaveBeenCalledWith("f4", {
@@ -306,6 +351,7 @@ describe("Edit & regenerate", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Edit & regenerate frame 1" }),
     );
+    await userEvent.clear(screen.getByLabelText("Subheadline"));
     await userEvent.type(screen.getByLabelText("Subheadline"), "Hand-woven");
     await userEvent.click(
       screen.getByRole("button", { name: "Regenerate with my words" }),
@@ -335,22 +381,36 @@ describe("Edit & regenerate", () => {
 });
 
 describe("frames that are not ready", () => {
-  it("states a failed frame and offers to retry it", async () => {
+  it("states a failed frame and puts its retry on the frame itself", async () => {
     const rows = frameRows(5);
     rows[2] = frameRow(2, { status: "failed", url: null });
     renderViewer(setOf(rows));
     expect(tabs()[2]).toHaveAccessibleName(/\(didn't render\)/);
     expect(tabs()[2]).toHaveAttribute("data-state", "failed");
     await userEvent.click(tabs()[2] as HTMLElement);
+    const stage = screen.getByRole("tabpanel");
     expect(
-      within(screen.getByRole("tabpanel")).getByText(
-        "This frame didn't render.",
-      ),
+      within(stage).getByText("This frame didn't render."),
     ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Retry frame 3" }),
+    const retry = within(stage).getByRole("button", { name: "Retry frame 3" });
+    expect(screen.getAllByRole("button", { name: /Retry frame/ })).toEqual([
+      retry,
+    ]);
+    expect(screen.queryByRole("link", { name: /Download this frame/ })).toBe(
+      null,
     );
+    await userEvent.click(retry);
     expect(onRegenerateFrame).toHaveBeenCalledWith("f2", undefined);
+  });
+
+  it("swaps a retrying frame's button for the wait on that frame", async () => {
+    const rows = frameRows(5);
+    rows[2] = frameRow(2, { status: "failed", url: null });
+    renderViewer(setOf(rows), { actingOn: new Set([regenKey("f2")]) });
+    await userEvent.click(tabs()[2] as HTMLElement);
+    const stage = screen.getByRole("tabpanel");
+    expect(within(stage).queryByRole("button")).toBeNull();
+    expect(within(stage).getByText("Making a new frame…")).toBeInTheDocument();
   });
 
   it("draws a frame still rendering as a placeholder with nothing to act on", async () => {
@@ -389,6 +449,18 @@ describe("frames that are not ready", () => {
     await waitFor(() =>
       expect(first.querySelector("[data-slot=skeleton]")).toBeNull(),
     );
+  });
+
+  /* CLAUDE.md: a status region carries real text. A thumbnail has no room
+     for any, so it is a plain placeholder and the stage does the telling. */
+  it("gives no thumbnail an empty status region while it loads", () => {
+    renderViewer();
+    const rail = screen.getByRole("tablist");
+    expect(rail.querySelector("[data-slot=skeleton]")).not.toBeNull();
+    expect(within(rail).queryAllByRole("status")).toEqual([]);
+    for (const status of screen.getAllByRole("status")) {
+      expect(status.textContent?.trim()).not.toBe("");
+    }
   });
 
   it("says the preview is unavailable when a frame's picture fails", async () => {
@@ -445,6 +517,21 @@ describe("downloads", () => {
       );
     },
   );
+
+  it("offers the selected frame on its own through the design download route", async () => {
+    renderViewer();
+    await userEvent.click(tabs()[3] as HTMLElement);
+    const link = screen.getByRole("link", { name: /Download this frame/ });
+    expect(link).toHaveAttribute("href", "/api/design/generations/f3/download");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("offers no single-frame download while that frame regenerates", () => {
+    renderViewer(undefined, { actingOn: new Set([regenKey("f0")]) });
+    expect(screen.queryByRole("link", { name: /Download this frame/ })).toBe(
+      null,
+    );
+  });
 
   it("says when the file could not be made", async () => {
     stubFetch(async () => new Response("{}", { status: 500 }));

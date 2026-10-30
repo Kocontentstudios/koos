@@ -23,7 +23,11 @@ import {
 import { useEscapeLayer } from "./escape-layer";
 import { FlowDescription, FlowTitle } from "./flow-heading";
 import { type ImageSource, resultsHeading, startOverLabel } from "./flow-logic";
-import { GenerationError, GenerationProgress } from "./generation-status";
+import {
+  GenerationError,
+  GenerationProgress,
+  GenerationStillRunning,
+} from "./generation-status";
 import { ImageChoice } from "./image-choice";
 import { ImageDropzone } from "./image-dropzone";
 import { ImagePreview } from "./image-preview";
@@ -53,6 +57,11 @@ export type DirectionsView =
       source: ImageSource;
       message: string;
       unusableImage: boolean;
+    }
+  | {
+      /** The client stopped waiting; the job had not failed. */
+      step: "still-running";
+      message: string;
     }
   | {
       step: "results";
@@ -339,6 +348,15 @@ export function DirectionsFlowView({
           onUseKoImagery={handlers.onLetKoCreate}
           onNoImage={handlers.onNoImage}
           onChangeImage={handlers.onBackToChoice}
+        />
+      );
+
+    case "still-running":
+      return (
+        <GenerationStillRunning
+          message={view.message}
+          onKeepWaiting={handlers.onRetryGeneration}
+          onClose={handlers.onDone}
         />
       );
 

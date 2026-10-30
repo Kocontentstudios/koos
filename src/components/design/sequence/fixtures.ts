@@ -37,6 +37,8 @@ export function frameRow(
     briefId: null,
     calendarItemId: null,
     headline: `Headline ${index + 1}`,
+    subheadline: `Subheadline ${index + 1}`,
+    cta: roleAt(index, count) === "cta" ? "Book a table" : null,
     createdAt: `2026-10-30T10:00:0${index}.000Z`,
     direction: { title: TITLES[index] ?? `Frame ${index + 1}`, reasons: [] },
     imageSource: "none",

@@ -22,9 +22,17 @@ import {
   SET,
 } from "@/components/design/sequence/fixtures";
 import { regenKey } from "@/components/design/sequence/use-frame-set";
-import { useDesignGeneration } from "./use-design-generation";
+import {
+  SET_POLL_TIMEOUT_MS,
+  useDesignGeneration,
+} from "./use-design-generation";
 
-const ARGS = { brandId: BRAND, image: { source: "none" as const }, frames: 5 };
+const ARGS = {
+  brandId: BRAND,
+  briefId: "brief-1",
+  image: { source: "none" as const },
+};
+const CAROUSEL = { sequenceKind: "carousel" as const };
 
 const SEQUENCE = {
   kind: "sequence" as const,
@@ -44,8 +52,14 @@ function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status });
 }
 
+/* What /api/jobs/[id] says once the poll has given up on job-1. */
+let jobStatus: "running" | "failed" | "succeeded";
+
 async function serve(url: string, _init?: RequestInit): Promise<Response> {
   if (url.includes("/api/design/generate")) return respond({ jobId: "job-1" });
+  if (url.startsWith("/api/jobs/")) {
+    return respond({ status: jobStatus, result: null, error: null });
+  }
   if (url.includes("/regenerate-frame"))
     return respond({ jobId: "job-2" }, 202);
   const ids = new URL(url, "http://x").searchParams.get("ids")?.split(",");
@@ -59,6 +73,7 @@ async function serve(url: string, _init?: RequestInit): Promise<Response> {
 beforeEach(() => {
   vi.clearAllMocks();
   rows = frameRows(5);
+  jobStatus = "running";
   pollGenerationJob.mockResolvedValue(SEQUENCE);
   fetchMock = vi.fn(serve);
   vi.stubGlobal("fetch", fetchMock);
@@ -69,18 +84,40 @@ afterEach(() => vi.unstubAllGlobals());
 async function generated() {
   const hook = renderHook(() => useDesignGeneration());
   await act(async () => {
-    await hook.result.current.generate(ARGS);
+    await hook.result.current.generate(ARGS, CAROUSEL);
   });
   return hook;
 }
 
+const generatePosts = () =>
+  urls().filter((u) => u.includes("/api/design/generate"));
+
 describe("a sequence job comes back as one set", () => {
-  it("sends the requested frame count", async () => {
+  /* The frame count is the server's to read from the brief (slides), and
+     the expected kind is the client's own: neither goes on the wire. */
+  it("posts the brief's request and nothing the client only knows", async () => {
     await generated();
     const call = fetchMock.mock.calls.find((c) =>
       String(c[0]).includes("/api/design/generate"),
     );
-    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ frames: 5 });
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual(ARGS);
+  });
+
+  it("gives a set run a set's length of time to finish", async () => {
+    await generated();
+    expect(pollGenerationJob).toHaveBeenCalledWith(
+      "job-1",
+      expect.objectContaining({ timeoutMs: SET_POLL_TIMEOUT_MS }),
+    );
+    const single = renderHook(() => useDesignGeneration());
+    pollGenerationJob.mockClear();
+    await act(async () => {
+      await single.result.current.generate(ARGS);
+    });
+    expect(pollGenerationJob).toHaveBeenCalledWith(
+      "job-1",
+      expect.objectContaining({ timeoutMs: undefined }),
+    );
   });
 
   it("loads the frames by id and holds them in index order", async () => {
@@ -157,15 +194,17 @@ describe("a sequence job comes back as one set", () => {
     ).toHaveLength(1);
   });
 
-  it("reports sequence progress while the job runs, and clears it after", async () => {
+  /* The shape run-design-sequence reports (stage, done, total = frames),
+     not a field of the client's own invention. */
+  it("reads the sequence job's own progress as the set's, and clears it after", async () => {
     let release: (v: unknown) => void = () => {};
     pollGenerationJob.mockImplementation(
       (_id: string, opts: { onProgress: (p: unknown) => void }) => {
         opts.onProgress({
+          stage: "render",
           done: 2,
           total: 5,
-          label: "x",
-          sequence: { kind: "carousel", frameCount: 5, phase: "render" },
+          label: "Frame 2 of 5…",
         });
         return new Promise((resolve) => (release = resolve));
       },
@@ -173,7 +212,7 @@ describe("a sequence job comes back as one set", () => {
     const { result } = renderHook(() => useDesignGeneration());
     let run: Promise<unknown> = Promise.resolve();
     act(() => {
-      run = result.current.generate(ARGS);
+      run = result.current.generate(ARGS, CAROUSEL);
     });
     await waitFor(() =>
       expect(result.current.sequenceProgress).toEqual({
@@ -190,11 +229,107 @@ describe("a sequence job comes back as one set", () => {
     expect(result.current.sequenceProgress).toBeNull();
   });
 
+  it("keeps a directions run's progress out of the set wait", async () => {
+    pollGenerationJob.mockImplementation(
+      (_id: string, opts: { onProgress: (p: unknown) => void }) => {
+        opts.onProgress({ stage: "brief", done: 0, total: 2, label: "x" });
+        return new Promise(() => {});
+      },
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    act(() => {
+      void result.current.generate(ARGS, CAROUSEL);
+    });
+    await waitFor(() => expect(result.current.jobStage).toBe("brief"));
+    expect(result.current.sequenceProgress).toBeNull();
+  });
+
   it("leaves a directions job exactly as before: no set", async () => {
     pollGenerationJob.mockResolvedValue({ generationIds: ["f0"], failed: [] });
     const { result } = await generated();
     expect(result.current.set).toBeNull();
     expect(result.current.generations.map((g) => g.id)).toEqual(["f0"]);
+  });
+});
+
+/* H7/H8: a set can outlive any poll timeout while its job resumes slice by
+   slice. Giving up on watching is not the job failing, and a retry must
+   never post a second N-unit job for one still running. */
+describe("a set that outlives the poll", () => {
+  const timedOut = () =>
+    pollGenerationJob.mockRejectedValueOnce(
+      new Error("Generation is taking longer than expected. Please try again."),
+    );
+
+  it("says it is still being made, and retry watches the same job", async () => {
+    timedOut();
+    const { result } = await generated();
+    expect(result.current.stillRunning).toBe(true);
+    expect(result.current.error).toMatch(
+      /^Your carousel is still being made\./,
+    );
+    expect(result.current.set).toBeNull();
+
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(generatePosts()).toHaveLength(1);
+    expect(pollGenerationJob).toHaveBeenCalledTimes(2);
+    expect(pollGenerationJob.mock.calls[1]?.[0]).toBe("job-1");
+    expect(result.current.stillRunning).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.set?.frames).toHaveLength(5);
+  });
+
+  it("keeps watching through any number of timeouts without a second job", async () => {
+    timedOut();
+    timedOut();
+    const { result } = await generated();
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(result.current.stillRunning).toBe(true);
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(generatePosts()).toHaveLength(1);
+    expect(result.current.set?.frames).toHaveLength(5);
+  });
+
+  it("counts an unreachable job as still running, not as failed", async () => {
+    timedOut();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith("/api/jobs/")) throw new TypeError("offline");
+      return serve(url, init);
+    });
+    const { result } = await generated();
+    expect(result.current.stillRunning).toBe(true);
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(generatePosts()).toHaveLength(1);
+  });
+
+  it("runs again only once the job is known to have failed", async () => {
+    jobStatus = "failed";
+    pollGenerationJob.mockRejectedValueOnce(new Error("The planner failed."));
+    const { result } = await generated();
+    expect(result.current.stillRunning).toBe(false);
+    expect(result.current.error).toBe("The planner failed.");
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(generatePosts()).toHaveLength(2);
+    expect(result.current.set?.frames).toHaveLength(5);
+  });
+
+  it("names designs, not a kind, when the run did not expect a set", async () => {
+    timedOut();
+    const { result } = renderHook(() => useDesignGeneration());
+    await act(async () => {
+      await result.current.generate(ARGS);
+    });
+    expect(result.current.error).toMatch(/^Your designs are still being made/);
   });
 });
 

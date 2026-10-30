@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { frameRow } from "./fixtures";
-import { editableFields, editsFrom, frameCopyOf } from "./frame-editor";
+import {
+  editableFields,
+  editProblem,
+  editsFrom,
+  frameCopyOf,
+} from "./frame-editor";
 
 const typed = (
   t: Partial<Record<"headline" | "subheadline" | "cta", string>>,
@@ -30,7 +35,7 @@ describe("editsFrom", () => {
     ).toEqual({ headline: "  NEW  " });
   });
 
-  it("sends a cleared known line as empty, which removes it", () => {
+  it("sends a cleared subheadline as empty, which removes the line", () => {
     expect(
       editsFrom(
         ["headline", "subheadline"],
@@ -40,21 +45,12 @@ describe("editsFrom", () => {
     ).toEqual({ subheadline: "" });
   });
 
-  /* The serializer does not send subheadline or CTA yet; an empty field for
-     a line the client never saw means "keep it", not "delete it". */
-  it("keeps a line the client was never sent when its field is left empty", () => {
-    const partial = { headline: "Old", subheadline: null, cta: null };
+  it("adds a line the frame did not have", () => {
+    const bare = { headline: "Old", subheadline: "", cta: "" };
     expect(
       editsFrom(
         ["headline", "subheadline", "cta"],
-        partial,
-        typed({ headline: "Old" }),
-      ),
-    ).toBeNull();
-    expect(
-      editsFrom(
-        ["headline", "subheadline", "cta"],
-        partial,
+        bare,
         typed({ headline: "Old", cta: "Reserve" }),
       ),
     ).toEqual({ cta: "Reserve" });
@@ -71,20 +67,73 @@ describe("editsFrom", () => {
   });
 });
 
-describe("frame copy", () => {
-  it("reads the headline, and the other lines once the server sends them", () => {
-    expect(frameCopyOf(frameRow(0))).toEqual({
-      headline: "Headline 1",
-      subheadline: null,
-      cta: null,
+describe("editProblem", () => {
+  const fields = ["headline", "subheadline", "cta"] as const;
+
+  it("is null for copy that fits", () => {
+    expect(
+      editProblem([...fields], typed({ headline: "Book now", cta: "Go" })),
+    ).toBeNull();
+  });
+
+  it("requires a headline, whitespace alone included", () => {
+    for (const headline of ["", "   "]) {
+      expect(editProblem([...fields], typed({ headline }))).toEqual({
+        field: "headline",
+        message: "A frame needs a headline.",
+      });
+    }
+  });
+
+  it("names the field over the renderer's limit", () => {
+    expect(
+      editProblem([...fields], typed({ headline: "x".repeat(71) })),
+    ).toEqual({
+      field: "headline",
+      message: "Keep the headline to 70 characters.",
     });
     expect(
-      frameCopyOf({
-        ...frameRow(4),
-        subheadline: "Sat 12",
-        cta: "Book",
-      } as never),
-    ).toEqual({ headline: "Headline 5", subheadline: "Sat 12", cta: "Book" });
+      editProblem(
+        [...fields],
+        typed({ headline: "ok", subheadline: "x".repeat(141) }),
+      )?.field,
+    ).toBe("subheadline");
+    expect(
+      editProblem([...fields], typed({ headline: "ok", cta: "x".repeat(33) })),
+    ).toEqual({
+      field: "cta",
+      message: "Keep the button text to 32 characters.",
+    });
+  });
+
+  it("ignores a field the frame does not offer", () => {
+    expect(
+      editProblem(
+        ["headline", "subheadline"],
+        typed({ headline: "ok", cta: "x".repeat(99) }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("frame copy", () => {
+  it("reads every line the server sends", () => {
+    expect(frameCopyOf(frameRow(0))).toEqual({
+      headline: "Headline 1",
+      subheadline: "Subheadline 1",
+      cta: "",
+    });
+    expect(frameCopyOf(frameRow(4))).toEqual({
+      headline: "Headline 5",
+      subheadline: "Subheadline 5",
+      cta: "Book a table",
+    });
+  });
+
+  it("reads a line the frame does not have as empty", () => {
+    expect(
+      frameCopyOf({ ...frameRow(1), subheadline: null, headline: null }),
+    ).toEqual({ headline: "", subheadline: "", cta: "" });
   });
 
   it("offers the button text on the CTA frame only", () => {

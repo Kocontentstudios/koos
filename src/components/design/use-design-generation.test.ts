@@ -32,6 +32,14 @@ beforeEach(() => {
     if (String(url).includes("/api/design/generate")) {
       return new Response(JSON.stringify({ jobId: "job-1" }), { status: 200 });
     }
+    /* Asked only after a poll rejects; here that always means the job
+       failed. use-design-generation.sequence.test.ts covers a job that is
+       still running. */
+    if (String(url).startsWith("/api/jobs/")) {
+      return new Response(JSON.stringify({ status: "failed" }), {
+        status: 200,
+      });
+    }
     return new Response(
       JSON.stringify({ generations: [row("g1"), row("g2")] }),
       { status: 200 },

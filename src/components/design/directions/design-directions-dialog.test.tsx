@@ -35,6 +35,9 @@ vi.mock("sonner", () => ({
   },
 }));
 
+/* TICKET's "Instagram post" is a single design, so no run expects a set. */
+const NO_SEQUENCE = { sequenceKind: null };
+
 function runState(
   overrides: Partial<DesignGenerationState> = {},
 ): DesignGenerationState {
@@ -47,6 +50,7 @@ function runState(
     progress: null,
     jobStage: null,
     error: null,
+    stillRunning: false,
     partial: null,
     failedCount: 0,
     failedIds: [],
@@ -99,6 +103,8 @@ function direction(
     briefId: null,
     calendarItemId: null,
     headline: null,
+    subheadline: null,
+    cta: null,
     createdAt: "2026-10-21T00:00:00.000Z",
     direction: { title, reasons: ["r"] },
     imageSource: "ko",
@@ -212,11 +218,14 @@ describe("DesignDirectionsDialog with FEATURE_KO_IMAGERY off", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /design without an image/i }),
     );
-    expect(design.generate).toHaveBeenCalledWith({
-      brandId: BRAND,
-      calendarItemId: "item-1",
-      image: { source: "none" },
-    });
+    expect(design.generate).toHaveBeenCalledWith(
+      {
+        brandId: BRAND,
+        calendarItemId: "item-1",
+        image: { source: "none" },
+      },
+      NO_SEQUENCE,
+    );
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "none",
       entry: "calendar",
@@ -258,6 +267,7 @@ describe("DesignDirectionsDialog with FEATURE_KO_IMAGERY off", () => {
     );
     expect(design.generate).toHaveBeenCalledWith(
       expect.objectContaining({ image: { source: "none" } }),
+      NO_SEQUENCE,
     );
   });
 
@@ -313,11 +323,14 @@ describe("DesignDirectionsDialog", () => {
   it("generates with KO imagery in one click and records the choice", async () => {
     const design = runState();
     await openResults(design);
-    expect(design.generate).toHaveBeenCalledWith({
-      brandId: BRAND,
-      calendarItemId: "item-1",
-      image: { source: "ko" },
-    });
+    expect(design.generate).toHaveBeenCalledWith(
+      {
+        brandId: BRAND,
+        calendarItemId: "item-1",
+        image: { source: "ko" },
+      },
+      NO_SEQUENCE,
+    );
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "ko",
       entry: "calendar",
@@ -345,6 +358,7 @@ describe("DesignDirectionsDialog", () => {
     );
     expect(design.generate).toHaveBeenCalledWith(
       expect.objectContaining({ image: { source: "upload", key: KEY } }),
+      NO_SEQUENCE,
     );
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "upload",
@@ -375,6 +389,7 @@ describe("DesignDirectionsDialog", () => {
     await waitFor(() =>
       expect(design.generate).toHaveBeenCalledWith(
         expect.objectContaining({ image: { source: "upload", key: KEY } }),
+        NO_SEQUENCE,
       ),
     );
   });
@@ -771,6 +786,7 @@ describe("DesignDirectionsDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: /regenerate/i }));
     expect(design.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({ image: { source: "ko" } }),
+      NO_SEQUENCE,
     );
   });
 
@@ -832,6 +848,67 @@ describe("DesignDirectionsDialog with a set of frames", () => {
       t.getAttribute("data-tile"),
     );
     expect(tiles).toEqual(["done", "done", "current", "waiting", "waiting"]);
+  });
+
+  it("tells the run a carousel brief expects a carousel", async () => {
+    const design = runState();
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={vi.fn()}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={design}
+        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
+      />,
+      withKoImagery(true),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    expect(design.generate).toHaveBeenCalledWith(
+      { brandId: BRAND, briefId: "brief-1", image: { source: "ko" } },
+      { sequenceKind: "carousel" },
+    );
+  });
+
+  it("names the slides without a kind when the entry point gave none", async () => {
+    await openResults(
+      runState({
+        pending: true,
+        stage: "running",
+        sequenceProgress: {
+          kind: null,
+          frameCount: 6,
+          phase: "plan",
+          done: 0,
+        },
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Making your 6 slides" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Planning your slides…",
+    );
+  });
+
+  /* H7/H8: a set that outlives the poll has not failed. The way on watches
+     the same job; it never starts (and bills) a second one. */
+  it("offers to keep waiting on a set the client stopped watching", async () => {
+    const design = runState({
+      error: "Your carousel is still being made.",
+      stillRunning: true,
+    });
+    await openResults(design);
+    vi.mocked(design.generate).mockClear();
+    expect(
+      screen.getByRole("heading", { name: "Still working on it" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
+    expect(design.retry).toHaveBeenCalledTimes(1);
+    expect(design.generate).not.toHaveBeenCalled();
   });
 
   it("keeps the directions progress for a run that reports no sequence", async () => {

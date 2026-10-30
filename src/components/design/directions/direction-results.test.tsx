@@ -45,6 +45,8 @@ function direction(
     briefId: null,
     calendarItemId: null,
     headline: "Make today sweeter",
+    subheadline: null,
+    cta: null,
     createdAt: "2026-10-21T00:00:00.000Z",
     direction: {
       title: id === "d1" ? "Playful product story" : "Editorial arch frame",

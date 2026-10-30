@@ -66,6 +66,8 @@ function generation(id: string, title: string): SerializedGeneration {
     briefId: null,
     calendarItemId: null,
     headline: title,
+    subheadline: null,
+    cta: null,
     createdAt: "2026-10-21T00:00:00.000Z",
     direction: { title, reasons: ["Headline leads the eye"] },
     imageSource: "upload",

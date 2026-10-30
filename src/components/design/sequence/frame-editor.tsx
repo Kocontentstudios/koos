@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import type { FrameEdits } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { designSpecSchema } from "@/lib/design/spec";
+import { cn } from "@/lib/utils";
 import type { FrameSlot } from "./set-model";
 
 /* The renderer's own limits, so a typed line is never cut by the server
@@ -19,23 +20,23 @@ const LIMITS = {
 
 type Field = keyof typeof LIMITS;
 
-/** A frame's copy as drawn. Null is a line the client was not sent, which
- *  the form leaves to the frame rather than showing as empty. */
-export type FrameCopy = Record<Field, string | null>;
-
-type Wire = SerializedGeneration & {
-  subheadline?: string | null;
-  cta?: string | null;
+const LABELS: Record<Field, string> = {
+  headline: "Headline",
+  subheadline: "Subheadline",
+  cta: "Button text",
 };
+
+/** A frame's copy as drawn; an empty string is a line the frame does not
+ *  have. */
+export type FrameCopy = Record<Field, string>;
 
 export function frameCopyOf(
   generation: SerializedGeneration | null,
 ): FrameCopy {
-  const row = generation as Wire | null;
   return {
-    headline: row?.headline ?? null,
-    subheadline: typeof row?.subheadline === "string" ? row.subheadline : null,
-    cta: typeof row?.cta === "string" ? row.cta : null,
+    headline: generation?.headline ?? "",
+    subheadline: generation?.subheadline ?? "",
+    cta: generation?.cta ?? "",
   };
 }
 
@@ -53,20 +54,40 @@ export function editableFields(slot: FrameSlot): Field[] {
 export function editsFrom(
   fields: Field[],
   initial: FrameCopy,
-  typed: Record<Field, string>,
+  typed: FrameCopy,
 ): FrameEdits | null {
   const edits: FrameEdits = {};
   for (const field of fields) {
-    if (typed[field] !== (initial[field] ?? "")) edits[field] = typed[field];
+    if (typed[field] !== initial[field]) edits[field] = typed[field];
   }
   return Object.keys(edits).length > 0 ? edits : null;
 }
 
-const LABELS: Record<Field, string> = {
-  headline: "Headline",
-  subheadline: "Subheadline",
-  cta: "Button text",
-};
+export interface EditProblem {
+  field: Field;
+  message: string;
+}
+
+/* Checked before the submit, not left to the server: a regenerate is billed,
+   so a frame with no headline must never cost a unit to find out. A
+   subheadline or button text may be cleared; that removes the line. */
+export function editProblem(
+  fields: Field[],
+  typed: FrameCopy,
+): EditProblem | null {
+  if (typed.headline.trim().length === 0) {
+    return { field: "headline", message: "A frame needs a headline." };
+  }
+  for (const field of fields) {
+    if (typed[field].length > LIMITS[field]) {
+      return {
+        field,
+        message: `Keep the ${LABELS[field].toLowerCase()} to ${LIMITS[field]} characters.`,
+      };
+    }
+  }
+  return null;
+}
 
 export interface FrameEditorProps {
   slot: FrameSlot;
@@ -86,32 +107,31 @@ export function FrameEditor({
   const id = useId();
   const fields = editableFields(slot);
   const initial = frameCopyOf(slot.generation);
-  const [typed, setTyped] = useState<Record<Field, string>>({
-    headline: initial.headline ?? "",
-    subheadline: initial.subheadline ?? "",
-    cta: initial.cta ?? "",
-  });
+  const [typed, setTyped] = useState<FrameCopy>(initial);
   const first = useRef<HTMLInputElement>(null);
   useEffect(() => {
     first.current?.focus();
   }, []);
 
   const edits = editsFrom(fields, initial, typed);
+  const problem = editProblem(fields, typed);
   const hintId = `${id}-hint`;
+  const problemId = `${id}-problem`;
+  const ready = edits !== null && problem === null;
 
   return (
     <form
       aria-label={`Edit ${frameName}`}
       onSubmit={(e) => {
         e.preventDefault();
-        if (edits) onSubmit(edits);
+        if (ready && edits) onSubmit(edits);
       }}
       className="flex flex-col gap-3 rounded-xl border bg-[var(--surface-container-low)] p-4"
       style={{ borderColor: "var(--border-control)" }}
     >
       {fields.map((field, i) => {
         const inputId = `${id}-${field}`;
-        const unknown = initial[field] === null;
+        const invalid = problem?.field === field;
         return (
           <div key={field} className="flex flex-col gap-1.5">
             <div className="flex items-baseline justify-between gap-2">
@@ -134,19 +154,37 @@ export function FrameEditor({
               name={field}
               value={typed[field]}
               maxLength={LIMITS[field]}
-              placeholder={unknown ? "Leave empty to keep this line" : ""}
+              aria-invalid={invalid || undefined}
+              aria-describedby={invalid ? problemId : undefined}
               onChange={(e) =>
                 setTyped((t) => ({ ...t, [field]: e.target.value }))
               }
               readOnly={pending}
             />
+            {invalid ? (
+              <p
+                id={problemId}
+                role="alert"
+                className="text-[12px] text-[var(--status-error-fg)]"
+              >
+                {problem.message}
+              </p>
+            ) : null}
           </div>
         );
       })}
-      <p id={hintId} className="text-[12px] text-[var(--text-muted)]">
-        {edits
-          ? "Your words are drawn exactly as typed. The palette, type and logo stay the same."
-          : "Change a line to regenerate with your words."}
+      <p
+        id={hintId}
+        className={cn(
+          "text-[12px] text-[var(--text-muted)]",
+          problem && "sr-only",
+        )}
+      >
+        {problem
+          ? problem.message
+          : edits
+            ? "Your words are drawn exactly as typed. The palette, type and logo stay the same."
+            : "Change a line to regenerate with your words."}
       </p>
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
@@ -156,7 +194,7 @@ export function FrameEditor({
           type="submit"
           loading={pending}
           loadingText="Regenerating…"
-          disabled={!edits}
+          disabled={!ready}
           focusableWhenDisabled
           aria-describedby={hintId}
         >
