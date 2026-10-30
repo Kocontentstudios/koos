@@ -66,6 +66,7 @@
     "nextjs-toploader": "^3.9.17",
     "nodemailer": "^10.1.1",
     "nuqs": "^2.10.2",
+    "pdf-lib": "^1.17.1",
     "postgres": "^3.4.9",
     "posthog-js": "^1.438.12",
     "posthog-node": "^5.56.1",

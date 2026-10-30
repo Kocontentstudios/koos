@@ -5,22 +5,22 @@ import { cn } from "@/lib/utils";
 import { ButtonControl, type ButtonControlProps } from "./button-control";
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-[10px] border border-transparent bg-clip-padding text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 outline-none select-none focus-visible:focus-outline disabled:pointer-events-none data-loading:cursor-progress aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-[10px] border border-transparent bg-clip-padding text-[13px] font-semibold whitespace-nowrap transition-colors duration-150 outline-none select-none focus-visible:focus-outline disabled:pointer-events-none data-disabled:pointer-events-none data-loading:cursor-progress aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary-fill text-primary-foreground hover:bg-primary-fill-hover active:bg-primary-fill-active disabled:bg-primary-disabled disabled:text-primary-disabled-foreground",
+          "bg-primary-fill text-primary-foreground hover:bg-primary-fill-hover active:bg-primary-fill-active disabled:bg-primary-disabled disabled:text-primary-disabled-foreground data-disabled:bg-primary-disabled data-disabled:text-primary-disabled-foreground",
         secondary:
-          "bg-transparent text-foreground border border-[var(--border-accent)] hover:bg-[rgba(19,139,200,0.08)] hover:border-[rgba(19,139,200,0.6)] disabled:opacity-50",
+          "bg-transparent text-foreground border border-[var(--border-accent)] hover:bg-[rgba(19,139,200,0.08)] hover:border-[rgba(19,139,200,0.6)] disabled:opacity-50 data-disabled:opacity-50",
         ghost:
-          "bg-transparent text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.04)] hover:text-foreground disabled:opacity-50",
-        icon: "bg-transparent text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground rounded-lg disabled:opacity-50",
+          "bg-transparent text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.04)] hover:text-foreground disabled:opacity-50 data-disabled:opacity-50",
+        icon: "bg-transparent text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground rounded-lg disabled:opacity-50 data-disabled:opacity-50",
         outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 disabled:opacity-50",
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 disabled:opacity-50 data-disabled:opacity-50",
         destructive:
-          "bg-destructive-fill text-destructive-fill-foreground hover:bg-destructive-fill-hover active:bg-destructive-fill-hover disabled:opacity-50",
-        link: "text-primary-text underline-offset-4 hover:underline disabled:opacity-50",
+          "bg-destructive-fill text-destructive-fill-foreground hover:bg-destructive-fill-hover active:bg-destructive-fill-hover disabled:opacity-50 data-disabled:opacity-50",
+        link: "text-primary-text underline-offset-4 hover:underline disabled:opacity-50 data-disabled:opacity-50",
       },
       size: {
         default:

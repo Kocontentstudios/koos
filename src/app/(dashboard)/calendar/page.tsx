@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { KoImageryProvider } from "@/components/design/directions/ko-imagery-context";
+import { DesignFlagsProvider } from "@/components/design/directions/design-flags-provider";
 import { Button } from "@/components/ui/button";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
@@ -8,7 +8,6 @@ import {
   getDesignTicketsForMember,
   getStrategyById,
 } from "@/lib/db/queries";
-import { koImageryEnabled } from "@/lib/design/ko-imagery-flag";
 import { isUuid } from "@/lib/validation/uuid";
 import { CalendarClient } from "./calendar-client";
 import { isPickDesign } from "./pick-mode";
@@ -126,7 +125,7 @@ export default async function CalendarPage({
   }));
 
   return (
-    <KoImageryProvider enabled={koImageryEnabled()}>
+    <DesignFlagsProvider>
       <CalendarClient
         calendar={serializedCalendar}
         items={serializedItems}
@@ -136,6 +135,6 @@ export default async function CalendarPage({
         calendarOptions={calendarOptions}
         pickMode={pickMode}
       />
-    </KoImageryProvider>
+    </DesignFlagsProvider>
   );
 }

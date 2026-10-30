@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  PollConnectionLostError,
+  PollTimeoutError,
+  stoppedWaiting,
+} from "./poll-errors";
 import { pollGenerationJob } from "./poll-job";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -182,5 +187,49 @@ describe("pollGenerationJob", () => {
         timeoutMs: 0,
       }),
     ).rejects.toThrow(/taking longer than expected/);
+  });
+});
+
+/* A caller that may bill again on "Try again" has to know whether the job
+   failed or the poll merely stopped watching it. */
+describe("why pollGenerationJob stopped", () => {
+  it("throws a PollTimeoutError when it stops waiting", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ status: "running", result: null, error: null }),
+      );
+    const err = await pollGenerationJob("job-t", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: noSleep,
+      timeoutMs: 0,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PollTimeoutError);
+    expect(stoppedWaiting(err)).toBe(true);
+  });
+
+  it("throws a PollConnectionLostError when the polls keep failing", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new TypeError("offline"));
+    const err = await pollGenerationJob("job-c", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: noSleep,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PollConnectionLostError);
+    expect(stoppedWaiting(err)).toBe(true);
+  });
+
+  it("says a failed job or a refused poll is not a stop in waiting", async () => {
+    for (const response of [
+      jsonResponse({ status: "failed", result: null, error: "No." }),
+      jsonResponse({ error: "Job not found" }, 404),
+    ]) {
+      const fetchImpl = vi.fn().mockResolvedValue(response);
+      const err = await pollGenerationJob("job-f", {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        sleep: noSleep,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(stoppedWaiting(err)).toBe(false);
+    }
   });
 });

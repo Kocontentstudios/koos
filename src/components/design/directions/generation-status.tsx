@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Hourglass,
   ImageOff,
   RotateCw,
   Sparkles,
@@ -75,6 +76,44 @@ export function GenerationProgress({
         This usually takes under a minute. Closing this won't stop it: finished
         designs also appear in Design Studio.
       </FlowDescription>
+    </div>
+  );
+}
+
+/**
+ * The client stopped waiting but the job had not failed. Not an error: the
+ * work goes on, and "Keep waiting" watches the same job again, where "Try
+ * again" would start (and bill) a second one.
+ */
+export function GenerationStillRunning({
+  message,
+  onKeepWaiting,
+  onClose,
+}: {
+  message: string;
+  onKeepWaiting: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-center gap-4 py-4 text-center"
+    >
+      <span className="flex size-12 items-center justify-center rounded-full bg-[var(--status-progress-bg)] text-[var(--status-progress-fg)]">
+        <Hourglass aria-hidden="true" className="size-6" />
+      </span>
+      <div className="flex max-w-[440px] flex-col items-center gap-1.5">
+        <FlowTitle>Still working on it</FlowTitle>
+        <FlowDescription>{message}</FlowDescription>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button type="button" onClick={onKeepWaiting}>
+          Keep waiting
+        </Button>
+        <Button type="button" variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      </div>
     </div>
   );
 }

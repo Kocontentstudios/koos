@@ -16,6 +16,7 @@ import {
   useDesignGeneration,
 } from "@/components/design/use-design-generation";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { sequenceKindOf } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
 import type { DirectionSlot, SendNotice } from "./direction-results";
@@ -30,6 +31,7 @@ import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
 import { useKoImageryOffered } from "./ko-imagery-context";
+import { useMultiFrameOffered } from "./multi-frame-context";
 import { useDesignImageUpload } from "./use-design-image-upload";
 
 type Step = "choose" | "upload" | "run";
@@ -62,6 +64,9 @@ export const DIRECTIONS_POPUP_CLASS =
    with the edge, which clipped its outline again; scroll-padding does. */
 export const DIRECTIONS_SCROLL_CLASS =
   "-m-4 flex flex-col overflow-y-auto p-4 scroll-py-2";
+
+const NO_FRAME_ACTIONS: ReadonlySet<string> = new Set();
+const NO_FRAMES_WAITING: ReadonlySet<number> = new Set();
 
 function slotsOf(design: DesignGenerationState): DirectionSlot[] {
   return [
@@ -105,6 +110,22 @@ export function DesignDirectionsDialog({
     {},
   );
   const lastImage = useRef<DesignImageChoice | null>(null);
+  const multiFrame = useMultiFrameOffered();
+  /* The brief and calendar entry points hand over the ticket's design type;
+     with FEATURE_MULTI_FRAME on, a carousel or presentation there is certain
+     to be built as a set. Otherwise the run is told nothing, exactly as
+     before, and learns it is a set from the job's own progress. */
+  const expectedKind = multiFrame
+    ? sequenceKindOf(ticketContext?.designType)
+    : null;
+
+  function run(runArgs: GenerateArgs) {
+    if (expectedKind) {
+      void design.generate(runArgs, { sequenceKind: expectedKind });
+    } else {
+      void design.generate(runArgs);
+    }
+  }
 
   const slots = slotsOf(design).map((slot, i) => replaced[i] ?? slot);
 
@@ -128,7 +149,7 @@ export function DesignDirectionsDialog({
     clearRunState();
     setStep("run");
     onRunStart?.();
-    void design.generate({ ...args, image });
+    run({ ...args, image });
   }
 
   /* "Use this image" pressed mid-upload continues on its own the moment the
@@ -265,6 +286,15 @@ export function DesignDirectionsDialog({
     },
     onRegenerate: (slot) => void regenerate(slot),
     onSendToTeam: (generation) => void sendToTeam(generation),
+    /* Each frame is its own billed job, so the caller hears of it as a run,
+       the same as a slot regenerate. */
+    onRegenerateFrame: async (generationId, edits) => {
+      onRunStart?.();
+      return (await design.regenerateFrame?.(generationId, edits)) ?? null;
+    },
+    onKeepWaitingOnFrame: (index) => {
+      void design.keepWaitingOnFrame?.(index);
+    },
     onDone: () => handleOpenChange(false),
   };
 
@@ -272,8 +302,10 @@ export function DesignDirectionsDialog({
 
   /* Rows without a direction (from a server that has not shipped directions
      yet, or a run that fell back to the old path) have no title or reasons to
-     fill a direction card with, so they open the preview they always did. */
-  if (finished && design.generations.some((g) => !g.direction)) {
+     fill a direction card with, so they open the preview they always did. A
+     set's frames carry no reasons either, but a set always opens the set
+     viewer. */
+  if (finished && !design.set && design.generations.some((g) => !g.direction)) {
     const image = lastImage.current;
     return (
       <DesignPreviewModal
@@ -290,7 +322,7 @@ export function DesignDirectionsDialog({
           image
             ? () => {
                 onRunStart?.();
-                void design.generate({ ...args, image });
+                run({ ...args, image });
               }
             : undefined
         }
@@ -311,31 +343,50 @@ export function DesignDirectionsDialog({
               (upload.state.status === "preparing" ||
                 upload.state.status === "uploading"),
           }
-        : design.pending
+        : design.pending && design.sequenceProgress
           ? {
-              step: "progress",
-              source: source ?? "none",
+              step: "set-progress",
+              progress: design.sequenceProgress,
               stage: design.stage,
-              jobStage: design.jobStage,
-              progress: design.progress,
+              source: source ?? "none",
             }
-          : design.error
+          : design.pending
             ? {
-                step: "error",
+                step: "progress",
                 source: source ?? "none",
-                message: design.error,
-                unusableImage: isUnusableImageError(design.error),
+                stage: design.stage,
+                jobStage: design.jobStage,
+                progress: design.progress,
               }
-            : {
-                step: "results",
-                slots,
-                source,
-                imageName,
-                regeneratingSlot,
-                regenerateError,
-                sendingId,
-                sendNotices,
-              };
+            : design.error && design.stillRunning
+              ? { step: "still-running", message: design.error }
+              : design.error
+                ? {
+                    step: "error",
+                    source: source ?? "none",
+                    message: design.error,
+                    unusableImage: isUnusableImageError(design.error),
+                  }
+                : design.set
+                  ? {
+                      step: "set-results",
+                      set: design.set,
+                      source,
+                      frameActions: design.frameActions ?? NO_FRAME_ACTIONS,
+                      frameErrors: design.frameErrors ?? {},
+                      framesStillRunning:
+                        design.framesStillRunning ?? NO_FRAMES_WAITING,
+                    }
+                  : {
+                      step: "results",
+                      slots,
+                      source,
+                      imageName,
+                      regeneratingSlot,
+                      regenerateError,
+                      sendingId,
+                      sendNotices,
+                    };
 
   /* A click beside the dialog is usually a slip, and closing resets the
      flow; it may only dismiss when nothing would be thrown away. Escape and
@@ -345,7 +396,8 @@ export function DesignDirectionsDialog({
     (view.step === "upload" && view.upload.status === "idle") ||
     (view.step === "results" &&
       view.regeneratingSlot === null &&
-      view.sendingId === null);
+      view.sendingId === null) ||
+    (view.step === "set-results" && view.frameActions.size === 0);
 
   return (
     <Dialog

@@ -68,6 +68,28 @@ describe("serializeGeneration", () => {
     expect(out.editable).toBe(true);
   });
 
+  it("sends the subheadline and CTA a frame editor prefills from", async () => {
+    const out = await serializeGeneration({
+      ...row,
+      spec: {
+        headline: "Fresh croissants",
+        subheadline: "Out of the oven at 7",
+        cta: "Order now",
+      },
+    } as never);
+    expect(out).toMatchObject({
+      headline: "Fresh croissants",
+      subheadline: "Out of the oven at 7",
+      cta: "Order now",
+    });
+  });
+
+  it("sends null for lines the spec does not have", async () => {
+    const out = await serializeGeneration(row as never);
+    expect(out.subheadline).toBeNull();
+    expect(out.cta).toBeNull();
+  });
+
   it("treats a malformed rationale as no direction rather than throwing", async () => {
     const out = await serializeGeneration({
       ...row,
