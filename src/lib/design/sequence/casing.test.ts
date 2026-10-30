@@ -86,3 +86,28 @@ describe("withConsistentCasing", () => {
     expect(result.frames[2].headline).toBe("No rush. Real marking every week");
   });
 });
+
+describe("withConsistentCasing: card titles", () => {
+  it("sets every title in the set's casing, keeping names", () => {
+    const set = [
+      beatOf({
+        headline: "Practice papers marked every week",
+        title: "Weekly Papers",
+      }),
+      beatOf({
+        headline: "Small classes with time for questions",
+        title: "Small classes",
+      }),
+      beatOf({
+        headline: "Taught on Saturdays in Yaba",
+        title: "Saturdays In Yaba",
+      }),
+    ];
+    const { frames: cased } = withConsistentCasing(set, SOURCES);
+    expect(cased.map((f) => f.title)).toEqual([
+      "Weekly papers",
+      "Small classes",
+      "Saturdays in Yaba",
+    ]);
+  });
+});

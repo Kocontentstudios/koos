@@ -20,7 +20,13 @@ import {
   readBriefWithModel,
   settleBriefRead,
 } from "@/lib/jobs/directions/brief-read";
-import { type ArcFrame, pointPool, settleArc, sparePoints } from "./arc";
+import {
+  type ArcFrame,
+  actionPrices,
+  pointPool,
+  settleArc,
+  sparePoints,
+} from "./arc";
 import { auditFlags } from "./audit";
 import { withConsistentCasing } from "./casing";
 import {
@@ -37,22 +43,14 @@ import {
   type CopyFault,
   type FaultRules,
   type Flag,
-  flaggedFaults,
   hookScore,
   setFaults,
 } from "./faults";
-import {
-  applyFixes,
-  copyKey,
-  fixesFor,
-  newClaims,
-  tidyLines,
-  UNSOURCED,
-  withLastResorts,
-} from "./fixes";
+import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
+import { shipGate, unsourcedOnSet } from "./gate";
 import { namesFree } from "./hook";
 import { withFigureLayout } from "./layouts";
-import { inventedOn, sequenceFacts, sequenceLedger } from "./ledger";
+import { sequenceFacts, sequenceLedger } from "./ledger";
 import { profileStatements } from "./points";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, withoutRepeats } from "./repeats";
@@ -219,10 +217,12 @@ const NAMES_THE_PIECE =
  *     them) and the fix call rewrites only the frames at fault, a frame
  *     whose point is another's given a spare point; a version is kept only
  *     where the set improves. A second call takes what still blocks.
- *  7. What still blocks is settled in code (withLastResorts), the
- *     headlines take one casing, a fact still missing is written in the
- *     brief's words (withFactsDrawn), and every title is settled against
- *     its frame's final copy (withSettledTitles).
+ *  7. What must not ship is settled in code (shipGate): unsourced words
+ *     cut, a priced or repeated headline set to its claim, a broken or
+ *     missing subheadline set to its claim, the offering named on the
+ *     hook. A fact still missing is written in the brief's words
+ *     (withFactsDrawn), every title is settled against its frame's final
+ *     copy (withSettledTitles) and the set takes one casing.
  *  At most MAX_MODEL_CALLS calls, the brief read included.
  */
 export async function planSequence(
@@ -280,6 +280,7 @@ export async function planSequence(
   const offeringIndex = facts.findIndex((f) => f.kind === "product");
   const names = hookNames(context, offering);
   const free = namesFree(brandName, offering);
+  const atAction = actionPrices(facts, kind, briefText);
   const pool = pointPool({
     facts,
     briefText,
@@ -287,6 +288,7 @@ export async function planSequence(
     kind,
     free,
     slots: frameCount - 1,
+    atAction,
   });
 
   const showImage =
@@ -386,7 +388,7 @@ export async function planSequence(
   }
 
   const actionFacts = facts.filter(
-    (f) => f.kind === "contact" || (kind === "carousel" && f.kind === "price"),
+    (f, n) => f.kind === "contact" || atAction.has(n),
   );
   const arcAnswer = await ask(
     arcResponseSchema(frameCount),
@@ -412,6 +414,7 @@ export async function planSequence(
     hasImage,
     recentLayouts: input.recentLayouts,
     free,
+    atAction,
   });
   const owners = arc.frames.map((f) => f.facts);
   const claimed: ClaimedFrame[] = arc.frames.map((f) => ({
@@ -461,6 +464,7 @@ export async function planSequence(
     owners,
     claims: arc.frames.map((f) => f.claim),
     titleSources: titleRules.sources,
+    atAction,
   };
   const arcTitles = arc.frames.map((f) => [f.title]);
   const tidy = (frames: readonly FrameBeat[]) =>
@@ -479,11 +483,6 @@ export async function planSequence(
   const draft = plan;
 
   let spares = sparePoints(arc, pool, facts, free);
-  /* A statement the audit reads as unsourced is reported, never acted on:
-     asked for a sourced detail in its place, the writer restates another
-     frame's fact, and cut, the frame is left thin; either way the set
-     reads more repetitive (tuning, N=3 non-repetition 3.4 to 3.6 acting
-     on them, 4.4 reporting them). */
   let unsourced: Flag[] = [];
   try {
     const audit = await ask(
@@ -499,7 +498,7 @@ export async function planSequence(
       { looks: false },
     );
     const flags = auditFlags(audit, plan.frames, ledger.text);
-    rules.flagged = flags.filter((f) => f.kind === "repeat");
+    rules.flagged = flags;
     unsourced = flags.filter((f) => f.kind === "unsourced");
     const fresh = new Set(audit.freshSpares.map((n) => n - 1));
     spares = spares.filter((i) => fresh.has(i));
@@ -576,38 +575,27 @@ export async function planSequence(
   const blocking = blockingFaults(setFaults(plan, rules));
   if (blocking.length > 0) await withSpares(blocking);
 
-  const resorts = withLastResorts(plan, arc.frames, rules);
-  plan = resorts.plan;
-  const cased = withConsistentCasing(plan.frames, [
-    briefText,
-    context.title,
-    brandName,
-    offering,
-    ...brandFacts(context.brandSummary),
-  ]);
-  plan = { ...plan, frames: cased.frames };
-  const filled = withFactsDrawn(plan, facts, owners);
-  plan = {
-    ...filled.plan,
-    frames: withSettledTitles(filled.plan.frames, titleRules, arcTitles).map(
-      withFigureLayout,
-    ),
-  };
+  const gated = shipGate(plan, {
+    ...rules,
+    claims: arc.frames.map((f) => f.claim),
+    unsourced,
+  });
+  const filled = withFactsDrawn(gated.plan, facts, owners);
+  const cased = withConsistentCasing(
+    withSettledTitles(filled.plan.frames, titleRules, arcTitles),
+    [
+      briefText,
+      context.title,
+      brandName,
+      offering,
+      ...brandFacts(context.brandSummary),
+    ],
+  );
+  plan = { ...filled.plan, frames: cased.frames.map(withFigureLayout) };
 
   const problems = validateSequence(plan, rules);
-  const invented = [
-    ...plan.frames.flatMap((beat, frame) =>
-      inventedOn(beat, ledger).map((text) => ({ frame, text })),
-    ),
-    ...flaggedFaults(plan.frames, unsourced).map((fault) => ({
-      frame: fault.frame,
-      text: UNSOURCED.exec(fault.detail)?.[1] ?? fault.detail,
-    })),
-  ];
-  const faults = [
-    ...setFaults(plan, rules),
-    ...flaggedFaults(plan.frames, unsourced),
-  ];
+  const invented = unsourcedOnSet(plan.frames, { ledger, unsourced });
+  const faults = setFaults(plan, rules);
   console.info("design.sequence.planned", {
     kind,
     frames: frameCount,
@@ -623,7 +611,7 @@ export async function planSequence(
     layoutsChanged: arc.layoutsChanged,
     hookChosen: hooks.index,
     fixRounds,
-    lastResorts: resorts.applied,
+    gated: gated.applied,
     recased: cased.recased,
     problems: problems.map((p) => p.rule),
     invented,

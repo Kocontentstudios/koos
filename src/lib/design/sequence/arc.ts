@@ -54,8 +54,8 @@ export interface ArcPoint {
 
 /* Facts that make a frame's point on their own ("12 places", "first
    session free"). A date, a place or a contact is how and when to act,
-   which the action frame carries; a carousel's price answers what acting
-   costs, so it sits there too, while a deck's figures are slides' points. */
+   which the action frame carries, and so is a price that is what acting
+   costs (actionPrices); a deck's other figures are slides' points. */
 const CLAIM_KINDS = new Set<CoverKind>([
   "quantity",
   "offer",
@@ -63,6 +63,42 @@ const CLAIM_KINDS = new Set<CoverKind>([
   "age",
   "person",
 ]);
+
+/* Words around a deck's figure that make it the ask, what saying yes
+   costs the reader, rather than a result or the business's own pricing:
+   "raising $600,000", "the ₦5m package", "we need ₦6m". "Farmers pay
+   ₦500 per crate" is how the business earns, a slide's point. */
+const ASKING =
+  /\b(?:rais(?:e|es|ed|ing)|ask(?:s|ing)?|seek(?:s|ing)?|need(?:s|ed)?|requir(?:e|es|ed|ing)|invest(?:ment|ing|ors?)?|sponsor\w*|packages?|fund(?:s|ed|ing|raising)?|round)\b/i;
+
+const sentencesOf = (text: string) =>
+  text.split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim());
+
+/**
+ * Zero-based indexes of the prices the action frame states: every price
+ * of a carousel, and a deck's price where the brief's sentence holding it
+ * asks for it or names what saying yes costs. A deck's revenue or market
+ * figure stays a slide's point. A price the brief's words do not hold
+ * verbatim is the action's.
+ */
+export function actionPrices(
+  facts: readonly BriefFact[],
+  kind: SequenceKind,
+  briefText: string,
+): Set<number> {
+  return new Set(
+    facts.flatMap((fact, n) => {
+      if (fact.kind !== "price") return [];
+      if (kind === "carousel") return [n];
+      const holding = sentencesOf(briefText).filter((s) =>
+        s.toLowerCase().includes(fact.text.toLowerCase()),
+      );
+      return holding.length === 0 || holding.some((s) => ASKING.test(s))
+        ? [n]
+        : [];
+    }),
+  );
+}
 
 /* Facts two claims may both mention and still make different points: two
    frames can each happen at the venue. */
@@ -75,9 +111,14 @@ const LOGISTICS = new Set<CoverKind>([
   "product",
 ]);
 
-const isClaimFact = (fact: BriefFact, kind: SequenceKind) =>
+const isClaimFact = (
+  fact: BriefFact,
+  n: number,
+  kind: SequenceKind,
+  atAction: ReadonlySet<number>,
+) =>
   CLAIM_KINDS.has(fact.kind) ||
-  (kind === "presentation" && fact.kind === "price");
+  (kind === "presentation" && fact.kind === "price" && !atAction.has(n));
 
 /* A claim sharing this many content words with another, or half of the
    shorter one's (two at least), makes that claim's point again. */
@@ -141,6 +182,8 @@ export interface PoolInput {
   /** The points the set needs (the hook's and each middle frame's): a
    *  pool with fewer also offers its audience and logistics. */
   slots?: number;
+  /** Prices the action frame states (actionPrices), never a point. */
+  atAction?: ReadonlySet<number>;
 }
 
 /* What the brief says about the piece itself ("Pitch deck for our seed
@@ -197,8 +240,7 @@ function makesAPoint(
  * overlaps an earlier one is the same point and is left out, as is the
  * request itself and the action. A pool still short of the frames offers,
  * last, who the offering is for (the profile's audience, said once) and
- * where and when to come in the brief's words, as two points when two are
- * still missing.
+ * where and when to come in the brief's words, as one point.
  */
 export function pointPool({
   facts,
@@ -207,6 +249,7 @@ export function pointPool({
   kind,
   free,
   slots = 0,
+  atAction = new Set(),
 }: PoolInput): ArcPoint[] {
   const factsIn = (text: string) =>
     facts.flatMap((f, n) =>
@@ -219,7 +262,7 @@ export function pointPool({
       facts: factsIn(text),
     })),
     ...facts.flatMap((fact, n) =>
-      isClaimFact(fact, kind)
+      isClaimFact(fact, n, kind, atAction)
         ? [{ source: "fact" as const, text: fact.text, facts: [n] }]
         : [],
     ),
@@ -235,9 +278,10 @@ export function pointPool({
       })),
   ].filter(
     (c) =>
-      c.source === "profile" ||
-      c.source === "value" ||
-      makesAPoint(c.text, facts, free),
+      !c.facts.some((n) => atAction.has(n)) &&
+      (c.source === "profile" ||
+        c.source === "value" ||
+        makesAPoint(c.text, facts, free)),
   );
   const pool: ArcPoint[] = [];
   for (const candidate of candidates) {
@@ -254,19 +298,18 @@ export function pointPool({
       facts.flatMap((f, n) => (f.kind === kind ? [n] : [])),
     );
   const where = ofKinds(["place"]);
-  const when = ofKinds(["day", "date", "time"]);
-  const short = slots - pool.length;
-  const logistics =
-    short >= 2 && where.length > 0 && when.length > 0
-      ? [where, when]
-      : short >= 1 && where.length + when.length > 0
-        ? [[...where, ...when]]
-        : [];
-  for (const group of logistics) {
+  /* A carousel's hook carries the day it happens (HOOK_NEWS), so a frame
+     built on that day would make the hook's point again. */
+  const hookHasTheDay = kind === "carousel" && slots >= 2;
+  const when = ofKinds(hookHasTheDay ? ["time"] : ["day", "date", "time"]);
+  /* Where and when are one point to a reader: split over two frames they
+     read as housekeeping padded out to fill the set. */
+  const logistics = [...where, ...when];
+  if (pool.length < slots && logistics.length > 0) {
     pool.push({
       source: "fact",
-      text: group.map((n) => facts[n].text).join(", "),
-      facts: group,
+      text: logistics.map((n) => facts[n].text).join(", "),
+      facts: logistics,
     });
   }
   return pool;
@@ -319,6 +362,8 @@ export interface SettleArcOptions {
   hasImage: boolean;
   recentLayouts?: readonly string[];
   free?: ReadonlySet<string>;
+  /** Prices the action frame states (actionPrices). */
+  atAction?: ReadonlySet<number>;
 }
 
 /* What the hook never carries in a carousel of three frames or more: the
@@ -359,6 +404,7 @@ export function settleArc(
     hasImage,
     recentLayouts = [],
     free = new Set(),
+    atAction = new Set(),
   }: SettleArcOptions,
 ): ArcSettlement {
   const count = answer.frames.length;
@@ -367,9 +413,8 @@ export function settleArc(
     const i = (n ?? 0) - 1;
     return Number.isInteger(i) && i >= 0 && i < pool.length ? i : null;
   };
-  const prices = facts.filter((f) => f.kind === "price");
-  const pricedInCarousel = (text: string) =>
-    kind === "carousel" && prices.some((p) => textStatesPrice(p, text));
+  const actionPriced = (text: string) =>
+    [...atAction].some((n) => textStatesPrice(facts[n], text));
 
   const hookPoint = idOf(answer.frames[0]?.point);
   const sourceText = hookPoint === null ? "" : pool[hookPoint].text;
@@ -379,7 +424,7 @@ export function settleArc(
   if (!angle) {
     angleDropped = "no angle was given";
     hookClaim = sourceText;
-  } else if (pricedInCarousel(angle)) {
+  } else if (actionPriced(angle)) {
     angleDropped = "the angle gives the price, which the action frame carries";
     hookClaim = sourceText;
   }
@@ -494,7 +539,7 @@ export function settleArc(
     if (point === null) return;
     for (const n of pool[point].facts) {
       const fact = facts[n];
-      if (kind === "carousel" && fact.kind === "price") continue;
+      if (atAction.has(n)) continue;
       if (fact.kind === "contact") continue;
       if (
         frame === 0 &&

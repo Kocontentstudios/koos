@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DesignSpec } from "@/lib/design/spec";
 import {
   type ArcPoint,
+  actionPrices,
   claimsOverlap,
   pointPool,
   roleOf,
@@ -152,13 +153,60 @@ describe("pointPool: what is not a point", () => {
     const base = thin(0);
     expect(base).not.toContain("For Weekend riders in Lagos");
     expect(thin(base.length + 1).at(-1)).toBe("For Weekend riders in Lagos");
-    expect(thin(base.length + 2).at(-1)).toBe(
-      "our Ojota workshop, Saturday 6 December, 9am to 4pm",
-    );
+    expect(thin(base.length + 2).at(-1)).toBe("our Ojota workshop, 9am to 4pm");
     expect(thin(base.length + 3).slice(-2)).toEqual([
-      "our Ojota workshop",
-      "Saturday 6 December, 9am to 4pm",
+      "For Weekend riders in Lagos",
+      "our Ojota workshop, 9am to 4pm",
     ]);
+  });
+
+  it("never makes the day a carousel's hook carries a frame's point, while a deck's slide may", () => {
+    const short = (kind: "carousel" | "presentation") =>
+      pointPool({
+        facts: FACTS,
+        briefText: BRIEF,
+        brand: {},
+        kind,
+        free: FREE,
+        slots: 12,
+      }).map((p) => p.text);
+    expect(short("carousel").join(" ")).not.toMatch(/6 December/);
+    expect(short("presentation").join(" ")).toMatch(/6 December/);
+  });
+});
+
+describe("actionPrices: the price beside the action", () => {
+  it("gives a carousel's every price to the action frame", () => {
+    expect([...actionPrices(FACTS, "carousel", BRIEF)]).toEqual([3]);
+  });
+
+  it("gives a deck's ask to the action slide and leaves its results to the slides", () => {
+    const deck =
+      "Coldbox rents cold rooms by the crate. Revenue reached $40,000 last quarter. We are raising $600,000 to build 20 more rooms. Email ada@coldbox.co.";
+    const facts = [
+      fact("price", "$40,000"),
+      fact("price", "$600,000"),
+      fact("contact", "ada@coldbox.co"),
+    ];
+    expect([...actionPrices(facts, "presentation", deck)]).toEqual([1]);
+    const pricing =
+      "Growers pay ₦500 per crate a day. We need ₦9,000,000 for 40 more rooms.";
+    expect([
+      ...actionPrices(
+        [fact("price", "₦500 per crate"), fact("price", "₦9,000,000")],
+        "presentation",
+        pricing,
+      ),
+    ]).toEqual([1]);
+    const points = pointPool({
+      facts,
+      briefText: deck,
+      brand: {},
+      kind: "presentation",
+      free: new Set(),
+      atAction: actionPrices(facts, "presentation", deck),
+    }).map((p) => p.text);
+    expect(points.join(" ")).not.toMatch(/600,000/);
   });
 });
 
@@ -185,6 +233,7 @@ describe("settleArc", () => {
     offeringFact: 0,
     hasImage: true,
     free: FREE,
+    atAction: actionPrices(FACTS, "carousel", BRIEF),
   };
   const answer = (frames: ReturnType<typeof frame>[], over = {}) => ({
     hookAngle: "Your bike leaves tuned and safe after one visit",
@@ -271,17 +320,22 @@ describe("settleArc", () => {
     ]);
   });
 
-  it("leaves a deck's price on the slide whose point it is", () => {
+  it("leaves a deck's result figure on the slide whose point it is, and its ask on the action slide", () => {
     const deckPool: ArcPoint[] = [
       ...points,
       { source: "fact", text: "₦12,000 a service", facts: [3] },
     ];
-    const arc = settleArc(answer([frame(1), frame(6), frame(0)]), {
-      ...options,
-      pool: deckPool,
-      kind: "presentation",
-    });
-    expect(arc.frames[1].facts).toContain(3);
+    const settle = (atAction: ReadonlySet<number>) =>
+      settleArc(answer([frame(1), frame(6), frame(0)]), {
+        ...options,
+        pool: deckPool,
+        kind: "presentation",
+        atAction,
+      });
+    expect(settle(new Set()).frames[1].facts).toContain(3);
+    const asked = settle(new Set([3]));
+    expect(asked.frames[1].facts).not.toContain(3);
+    expect(asked.frames[2].facts).toContain(3);
   });
 
   it("gives a frame the closest unused point once every distinct one is spent", () => {

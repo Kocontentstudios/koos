@@ -94,6 +94,7 @@ const STRIPPED_FIGURE = /\d\s\d/;
 export function titleFault(title: string): string | null {
   const trimmed = title.trim();
   if (!trimmed) return "it is empty";
+  if (!/\p{L}{2,}/u.test(trimmed)) return "it is a bare figure, not a name";
   if (titleLeaks(trimmed).length > 0) return "it carries a planner label";
   if (
     trimmed.length > COPY_TARGETS.title.chars ||
@@ -245,33 +246,17 @@ export function sameTitle(a: string, b: string): boolean {
 const copyOf = (beat: Pick<FrameBeat, "headline" | "subheadline" | "cta">) =>
   `${beat.headline} ${beat.subheadline} ${beat.cta}`;
 
-/**
- * Whether a title names another frame rather than its own: it shares no
- * word with its own frame's copy and does share one with another's ("Ikoyi
- * roots" over a frame about the morning's baking, beside the frame about
- * the bakery in Ikoyi). A title sharing words with neither ("The price")
- * names the frame's job and stands. Every word counts, the brand's and the
- * offering's too, so the planner and the eval, which may read the
- * offering in different words, reach one answer.
- */
-export function titleOffFrame(
-  frames: readonly Pick<
-    FrameBeat,
-    "title" | "headline" | "subheadline" | "cta"
-  >[],
-  index: number,
+/** Whether a title shares no word with its own frame's headline,
+ *  subheadline and button: a title must describe its own frame's final
+ *  copy, so one left from before an edit, or one naming the frame's job
+ *  ("The price"), is not a name for it. */
+export function titleOffCopy(
+  beat: Pick<FrameBeat, "title" | "headline" | "subheadline" | "cta">,
 ): boolean {
-  const own = frames[index];
-  if (!own) return false;
-  const named = contentStems(own.title);
-  if (named.size === 0) return false;
-  const mine = contentStems(copyOf(own));
-  if ([...named].some((s) => mine.has(s))) return false;
-  return frames.some((other, i) => {
-    if (i === index) return false;
-    const theirs = contentStems(copyOf(other));
-    return [...named].some((s) => theirs.has(s));
-  });
+  const named = contentStems(beat.title);
+  if (named.size === 0) return true;
+  const mine = contentStems(copyOf(beat));
+  return ![...named].some((s) => mine.has(s));
 }
 
 export interface TitleRules {
@@ -297,8 +282,8 @@ export function titleProblems(
         ? `its title "${beat.title}" is a phrase cut off mid-way`
         : frames.some((e, k) => k < frame && sameTitle(e.title, beat.title))
           ? `its title "${beat.title}" is an earlier frame's title`
-          : titleOffFrame(frames, frame)
-            ? `its title "${beat.title}" names another frame's point, not this one's`
+          : titleOffCopy(beat)
+            ? `its title "${beat.title}" shares no word with its own frame's copy`
             : null;
     return detail ? [{ frame, detail }] : [];
   });
@@ -317,6 +302,32 @@ function clausesOf(text: string): string[] {
 
 const capitalised = (text: string) =>
   text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+
+/** The opening words of a headline that fit on a card and end on a word
+ *  a phrase can end on, longest first: "Taught by teachers" and "Taught
+ *  by" dropped, of "Taught by teachers who mark the exam". Two words at
+ *  least; a two-word name is never read as cut (isCutTitle). */
+export function headPhrases(headline: string): string[] {
+  const words = headline
+    .trim()
+    .replace(/[.!?…]+$/u, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  const phrases: string[] = [];
+  for (
+    let n = Math.min(words.length, COPY_TARGETS.title.words);
+    n >= 2;
+    n -= 1
+  ) {
+    const kept = words.slice(0, n);
+    const last = (kept.at(-1) ?? "").toLowerCase().replace(/[^\p{L}'-]/gu, "");
+    if (OPEN_ENDS.has(last)) continue;
+    if (kept.slice(0, -1).some((w) => /[,;:]$/.test(w))) continue;
+    const phrase = kept.join(" ").replace(/[,;:]+$/u, "");
+    if (phrase.length <= COPY_TARGETS.title.chars) phrases.push(phrase);
+  }
+  return phrases;
+}
 
 /**
  * Every frame's title settled against its final copy, in order: the title
@@ -338,6 +349,8 @@ export function withSettledTitles<T extends FrameBeat>(
       ...clausesOf(beat.headline),
       ...(beat.role === "cta" ? clausesOf(beat.cta) : []),
       ...clausesOf(beat.subheadline),
+      ...headPhrases(beat.headline),
+      ...headPhrases(beat.subheadline),
     ]
       .map((t) => capitalised(cleanTitle(t)))
       .filter(Boolean);
@@ -347,11 +360,13 @@ export function withSettledTitles<T extends FrameBeat>(
     };
     const distinctClean = (t: string) =>
       isCleanTitle(t) && !settled.some((e) => sameTitle(e.title, t));
+    const onCopy = (t: string) => !titleOffCopy({ ...beat, title: t });
     const title =
       candidates.find(fits) ??
       candidates.find(
-        (t) => distinctClean(t) && !isCutTitle(t, rules.sources),
+        (t) => distinctClean(t) && onCopy(t) && !isCutTitle(t, rules.sources),
       ) ??
+      candidates.find((t) => distinctClean(t) && onCopy(t)) ??
       candidates.find(distinctClean) ??
       beat.title;
     settled.push({ ...beat, title });

@@ -73,7 +73,8 @@ describe("titleFaults", () => {
     const faults = titleFaults(plan.frames, [
       "Steeped for eighteen hours, served over ice",
     ]);
-    expect(faults.map((f) => f.frame)).toEqual([1, 4]);
+    expect(faults.find((f) => f.frame === 1)?.detail).toMatch(/cut off/);
+    expect(faults.find((f) => f.frame === 4)?.detail).toMatch(/placeholder/);
   });
 });
 

@@ -1,0 +1,415 @@
+import { formatRules } from "@/lib/design/formats";
+import { isFragment } from "@/lib/jobs/directions/brief-facts";
+import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
+import { COPY_LIMITS, COPY_TARGETS } from "@/lib/jobs/directions/schema";
+import { contentStems } from "@/lib/jobs/directions/text-overlap";
+import { textsOverlap } from "./arc";
+import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
+import { withoutStatement } from "./cuts";
+import {
+  type FaultRules,
+  type Flag,
+  flaggedFaults,
+  headlinePrices,
+  pointRepeats,
+  stillSays,
+  subheadlineGrammar,
+} from "./faults";
+import { namesFree, previewedFrames } from "./hook";
+import { inventedOn } from "./ledger";
+import { textStatesPrice } from "./points";
+import { withoutFactWords } from "./repeats";
+import { factsUncovered, validateSequence } from "./validate";
+
+/**
+ * What must not ship, settled in code after the fix calls: a statement no
+ * source gives, a carousel's price in a headline before the action, a
+ * headline making another frame's point, a subheadline that is not a
+ * sentence, a middle frame with a headline alone, and a hook that does not
+ * name the offering. Unlike a fix, a change here is not weighed against
+ * the set's other faults: the fault it removes is one a reader may not be
+ * shown. Code only removes words or puts the frame's own claim (its
+ * source's words) in their place; the one exception is the offering's
+ * name, written on the hook when no version named it.
+ */
+
+export interface GateRules extends FaultRules {
+  /** Each frame's claim from the arc ("" for none). */
+  claims: readonly string[];
+  /** The audit's unsourced statements, by frame. */
+  unsourced: readonly Flag[];
+}
+
+export interface GateResult {
+  plan: PlannedSequence;
+  applied: string[];
+}
+
+const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+const capitalised = (text: string) =>
+  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+
+/** `text` as one sentence: a capital first and a full stop last. */
+export function asSentence(text: string): string {
+  const flat = capitalised(text.trim().replace(/\s+/g, " "));
+  if (!flat) return "";
+  return /[.!?]$/.test(flat) ? flat : `${flat}.`;
+}
+
+function fitsHeadline(text: string, kind: SequenceKind): boolean {
+  return (
+    text.length > 0 &&
+    text.length <= COPY_LIMITS.headline &&
+    wordCount(text) <= formatRules(kind).headlineWords + 2 &&
+    !isFragment(text)
+  );
+}
+
+function fitsSubheadline(text: string): boolean {
+  return (
+    text.length > 0 &&
+    text.length <= COPY_LIMITS.subheadline &&
+    wordCount(text) <= COPY_TARGETS.subheadline.words + 2 &&
+    !isFragment(text) &&
+    subheadlineGrammar(text) === null
+  );
+}
+
+const SENTENCE_BREAK = /(?<=[.!?])\s+(?=\S)/;
+
+const says = (field: string, text: string) =>
+  stillSays({ headline: field, subheadline: "", footerLines: [] }, text);
+
+/** The statements on a frame that no source gives: the ledger's and the
+ *  audit's, while the frame still says them. */
+export function unsourcedOn(
+  beat: FrameBeat,
+  frame: number,
+  rules: Pick<GateRules, "ledger" | "unsourced">,
+): string[] {
+  const audited = rules.unsourced.flatMap((flag) =>
+    flag.kind === "unsourced" &&
+    flag.frame === frame &&
+    stillSays(beat, flag.text)
+      ? [flag.text]
+      : [],
+  );
+  return [...new Set([...inventedOn(beat, rules.ledger), ...audited])];
+}
+
+class Gate {
+  frames: FrameBeat[];
+  applied: string[] = [];
+  readonly free: ReadonlySet<string>;
+
+  constructor(
+    readonly plan: PlannedSequence,
+    readonly rules: GateRules,
+  ) {
+    this.frames = [...plan.frames];
+    this.free = namesFree(rules.brandName, rules.offering);
+  }
+
+  /** Whether `frames` keeps what only the copy can carry: every name the
+   *  hook must give, and every brief fact code cannot draw onto a footer
+   *  afterwards (withFactsDrawn). */
+  keepsCoverage(frames: readonly FrameBeat[]): boolean {
+    const names = [this.rules.offering, ...this.rules.names].filter(
+      (n): n is string => Boolean(n),
+    );
+    const named = (beats: readonly FrameBeat[]) =>
+      names.filter((n) => beats[0] && copyNamesOffering(beats[0], n)).length;
+    const undrawable = (beats: readonly FrameBeat[]) =>
+      factsUncovered(beats, this.rules.facts).filter(
+        (f) => f.kind === "product" || f.text.length > COPY_LIMITS.footerLine,
+      ).length;
+    return (
+      named(frames) >= named(this.frames) &&
+      undrawable(frames) <= undrawable(this.frames)
+    );
+  }
+
+  set(frame: number, change: Partial<FrameBeat>, what: string): boolean {
+    const next = this.frames.map((b, i) =>
+      i === frame ? { ...b, ...change } : b,
+    );
+    if (!this.keepsCoverage(next)) return false;
+    this.frames = next;
+    this.applied.push(`frame ${frame + 1}: ${what}`);
+    return true;
+  }
+
+  /** The frame's claim as a line no other frame's copy says, or null. */
+  claimAs(frame: number, field: "headline" | "subheadline"): string | null {
+    const claim = (this.rules.claims[frame] ?? "").trim();
+    const beat = this.frames[frame];
+    if (!claim || !beat) return null;
+    const line =
+      field === "headline" ? claim.replace(/[.]$/, "") : asSentence(claim);
+    const fits =
+      field === "headline"
+        ? fitsHeadline(line, this.plan.kind)
+        : fitsSubheadline(line) &&
+          !textsOverlap(line, beat.headline, this.free);
+    if (!fits) return null;
+    const alone = {
+      ...beat,
+      headline: field === "headline" ? line : "",
+      subheadline: field === "subheadline" ? line : "",
+      cta: "",
+      footerLines: [],
+    };
+    if (unsourcedOn(alone, frame, this.rules).length > 0) return null;
+    const elsewhere = this.frames.some(
+      (other, i) =>
+        i !== frame &&
+        textsOverlap(line, `${other.headline} ${other.subheadline}`, this.free),
+    );
+    return elsewhere ? null : line;
+  }
+
+  withoutUnsourced() {
+    this.frames.forEach((_, frame) => {
+      for (let pass = 0; pass < 4; pass += 1) {
+        const beat = this.frames[frame];
+        const [statement] = unsourcedOn(beat, frame, this.rules);
+        if (!statement) return;
+        const cut = withoutStatement(beat, statement);
+        if (cut) {
+          if (this.set(frame, cut, `cut "${statement}"`)) continue;
+          return;
+        }
+        /* One word ("two") is too little to lose a sentence over, as the
+           rest is the brief's more often than not: only the frame's own
+           claim takes its place. */
+        const oneWord = wordCount(statement) < 2;
+        if (says(beat.subheadline, statement)) {
+          const own = this.claimAs(frame, "subheadline");
+          if (oneWord && !own) return;
+          /* A hook's lone sentence often carries its names: in its place
+             go the names alone, never an empty line. */
+          const claim =
+            own ??
+            (frame === 0 ? this.namesLine({ ...beat, subheadline: "" }) : null);
+          const done = this.set(
+            frame,
+            { subheadline: claim ?? "" },
+            claim
+              ? `subheadline with "${statement}" set to its claim`
+              : `subheadline with "${statement}" left out`,
+          );
+          if (done) continue;
+          return;
+        }
+        if (says(beat.headline, statement)) {
+          const claim = this.claimAs(frame, "headline");
+          if (!claim) return;
+          const done = this.set(
+            frame,
+            { headline: claim },
+            `headline with "${statement}" set to its claim`,
+          );
+          if (done) continue;
+          return;
+        }
+        return;
+      }
+    });
+  }
+
+  withoutHeadlinePrices() {
+    const { facts } = this.rules;
+    for (const fault of headlinePrices(
+      this.frames,
+      facts,
+      this.plan.kind,
+      this.rules.atAction,
+    )) {
+      const beat = this.frames[fault.frame];
+      const price = facts.find(
+        (f) => f.kind === "price" && fault.detail.includes(`"${f.text}"`),
+      );
+      if (!beat || !price || !textStatesPrice(price, beat.headline)) continue;
+      const cut = withoutFactWords(beat.headline, price);
+      if (cut && fitsHeadline(cut, this.plan.kind)) {
+        this.set(
+          fault.frame,
+          { headline: capitalised(cut) },
+          "price cut from the headline",
+        );
+        continue;
+      }
+      const claim = this.claimAs(fault.frame, "headline");
+      if (claim && !textStatesPrice(price, claim)) {
+        this.set(
+          fault.frame,
+          { headline: claim },
+          "priced headline set to its claim",
+        );
+      }
+    }
+  }
+
+  /** Middle frames whose headline makes another frame's point, by words
+   *  or by the audit's reading. */
+  twins(): number[] {
+    const { facts } = this.rules;
+    const plan = { ...this.plan, frames: this.frames };
+    const repeated = [
+      ...pointRepeats(this.frames, facts, this.free).map((f) => f.frame),
+      ...validateSequence(plan, this.rules).flatMap((p) =>
+        p.rule === "headline-repeat" && p.frame !== null ? [p.frame] : [],
+      ),
+      ...flaggedFaults(
+        this.frames,
+        (this.rules.flagged ?? []).filter((f) => f.kind === "repeat"),
+      ).map((f) => f.frame),
+    ];
+    return [...new Set(repeated)].filter(
+      (i) => this.frames[i]?.role === "body",
+    );
+  }
+
+  withoutTwins() {
+    for (const frame of this.twins()) {
+      const claim = this.claimAs(frame, "headline");
+      const beat = this.frames[frame];
+      if (!claim || claim === beat.headline) continue;
+      const before = this.twins().length;
+      const previous = beat;
+      this.set(
+        frame,
+        { headline: claim },
+        "repeated headline set to its claim",
+      );
+      if (this.twins().length >= before) {
+        this.frames = this.frames.map((b, i) => (i === frame ? previous : b));
+        this.applied.pop();
+      }
+    }
+  }
+
+  withWholeSubheadlines() {
+    this.frames.forEach((beat, frame) => {
+      if (subheadlineGrammar(beat.subheadline) === null) return;
+      const claim = this.claimAs(frame, "subheadline");
+      this.set(
+        frame,
+        { subheadline: claim ?? "" },
+        claim
+          ? "broken subheadline set to its claim"
+          : "broken subheadline left out",
+      );
+    });
+  }
+
+  withSubheadlinesUnderBareHeadlines() {
+    this.frames.forEach((beat, frame) => {
+      if (beat.role !== "body" || beat.subheadline.trim()) return;
+      const claim = this.claimAs(frame, "subheadline");
+      if (claim)
+        this.set(frame, { subheadline: claim }, "subheadline set to its claim");
+    });
+  }
+
+  /** The hook's subheadline without its sentences that spend a later
+   *  frame's point, while one of its own is left. */
+  withoutHookPreviews() {
+    const hook = this.frames[0];
+    if (!hook) return;
+    const later = previewedFrames(
+      this.frames,
+      this.rules.offering,
+      this.rules.brandName,
+    );
+    if (later.length === 0) return;
+    const theirs = new Set(
+      later.flatMap((i) => [
+        ...contentStems(
+          `${this.frames[i].headline} ${this.frames[i].subheadline}`,
+          this.free,
+        ),
+      ]),
+    );
+    const sentences = hook.subheadline.split(SENTENCE_BREAK);
+    const kept = sentences.filter(
+      (s) =>
+        [...contentStems(s, this.free)].filter((w) => theirs.has(w)).length < 2,
+    );
+    if (kept.length === 0 || kept.length === sentences.length) return;
+    this.set(
+      0,
+      { subheadline: asSentence(kept.join(" ")) },
+      "hook sentence spending a later point cut",
+    );
+  }
+
+  /** The hook with every name it must give (the offering, and the brand
+   *  when the brief makes it the subject) that no version gave, written
+   *  as a sentence of names opening its subheadline. */
+  /** A sentence of the names the hook must give and `hook` leaves out
+   *  ("Cold brew from Kiln Coffee."), or null when it gives them all. */
+  namesLine(hook: FrameBeat): string | null {
+    const { offering, names, brandName } = this.rules;
+    const wanted = [offering, ...names].filter(
+      (n, i, all): n is string =>
+        Boolean(n?.trim()) &&
+        all.indexOf(n) === i &&
+        !copyNamesOffering(hook, n ?? ""),
+    );
+    if (wanted.length === 0) return null;
+    const brand = brandName.trim();
+    const sayBrand =
+      brand &&
+      !wanted.some((n) => n.toLowerCase().includes(brand.toLowerCase())) &&
+      !copyNamesOffering(hook, brand);
+    const [lead, ...rest] = wanted.map((n) => n.trim());
+    return asSentence(
+      [capitalised(lead), ...rest].join(" from ") +
+        (sayBrand ? ` at ${brand}` : ""),
+    );
+  }
+
+  /** The hook with every name it must give (the offering, and the brand
+   *  when the brief makes it the subject) that no version gave, written
+   *  as a sentence opening its subheadline. */
+  withNamesOnHook() {
+    const hook = this.frames[0];
+    const named = hook ? this.namesLine(hook) : null;
+    if (!hook || !named) return;
+    const joined = hook.subheadline ? `${named} ${hook.subheadline}` : named;
+    const subheadline =
+      joined.length <= COPY_LIMITS.subheadline ? joined : named;
+    if (subheadline.length > COPY_LIMITS.subheadline) return;
+    this.frames = this.frames.map((b, i) =>
+      i === 0 ? { ...b, subheadline } : b,
+    );
+    this.applied.push("frame 1: the hook's names written on it");
+  }
+}
+
+/** The plan with every fault that must not ship settled (see the module
+ *  comment), in an order where no step undoes an earlier one's work. */
+export function shipGate(plan: PlannedSequence, rules: GateRules): GateResult {
+  const gate = new Gate(plan, rules);
+  gate.withoutUnsourced();
+  gate.withoutHeadlinePrices();
+  gate.withoutTwins();
+  gate.withoutHookPreviews();
+  gate.withWholeSubheadlines();
+  gate.withSubheadlinesUnderBareHeadlines();
+  gate.withNamesOnHook();
+  gate.withoutUnsourced();
+  return { plan: { ...plan, frames: gate.frames }, applied: gate.applied };
+}
+
+/** Every unsourced statement still on the set, by zero-based frame. */
+export function unsourcedOnSet(
+  frames: readonly FrameBeat[],
+  rules: Pick<GateRules, "ledger" | "unsourced">,
+): { frame: number; text: string }[] {
+  return frames.flatMap((beat, frame) =>
+    unsourcedOn(beat, frame, rules).map((text) => ({ frame, text })),
+  );
+}

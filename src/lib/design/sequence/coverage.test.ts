@@ -57,18 +57,29 @@ describe("withFactsDrawn: a count the copy already gives", () => {
   const facts = [...CAFE_FACTS, estates];
   const owners = [...OWNERS.slice(0, 4), [4, 6], [5]];
 
-  it("does not write a brief fragment that leans on words outside it when a frame already gives its figure", () => {
+  it("still draws a fact the copy gives only in other words: coverage is a hard gate", () => {
     const plan = withFrame(cafePlan(), 3, {
       subheadline: "31 estates already pour it",
     });
-    const {
-      plan: filled,
-      drawn,
-      restated,
-    } = withFactsDrawn(plan, facts, owners);
-    expect(drawn).toEqual([]);
-    expect(restated).toEqual(["31 estates use them"]);
-    expect(filled).toBe(plan);
+    const { plan: filled, drawn } = withFactsDrawn(plan, facts, owners);
+    expect(drawn).toEqual(["31 estates use them"]);
+    expect(factsUncovered(filled.frames, facts)).toEqual([]);
+    expect(filled.frames[3].footerLines).not.toContain("31 estates use them");
+  });
+
+  it("draws a turnaround a headline gives in other words, even beside a price with the same figure", () => {
+    const turnaround = fact("condition", "done in 2 days");
+    const plan = withFrame(
+      withFrame(cafePlan(), 3, { headline: "Back with you in 2 days" }),
+      4,
+      {
+        footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142", "Yaba"],
+      },
+    );
+    const all = [...CAFE_FACTS, turnaround];
+    const { plan: filled } = withFactsDrawn(plan, all, [...OWNERS, [3]]);
+    expect(factsUncovered(filled.frames, all)).toEqual([]);
+    expect(filled.frames[0]).toEqual(plan.frames[0]);
   });
 
   it("still writes a count whose words read on their own", () => {

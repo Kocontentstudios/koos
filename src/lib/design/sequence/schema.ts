@@ -55,7 +55,7 @@ export const arcFrameSchema = z.object({
     .min(1)
     .max(DRAFT_LIMITS.title)
     .describe(
-      `What this frame is about in 2 to ${t.title.words} words, at most ${t.title.chars} characters, e.g. "The price". No two frames share a title.`,
+      `What this frame is about in 2 to ${t.title.words} words of its own point, at most ${t.title.chars} characters. No two frames share a title.`,
     ),
   layout: z.enum(DESIGN_LAYOUTS),
   showsImage: z.boolean(),

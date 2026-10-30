@@ -90,9 +90,9 @@ export interface ProfilePoint {
 }
 
 /* Share of a profile clause's content words already said (by the brief or
-   an earlier clause) past which it is not a new point. Tuning set, school
-   deck: values ("no cost") and differentiators ("at no cost to families")
-   became three slides the judge read as one. */
+   an earlier clause) past which it is not a new point: values ("no cost")
+   and differentiators ("at no cost to families") are one point, not two
+   slides. */
 const SAID_SHARE = 0.5;
 
 /* A clause needs this many content words to be a point of its own;
@@ -213,6 +213,40 @@ export function textStatesPrice(price: BriefFact, text: string): boolean {
   if (amounts.size === 0) return factStated(price, text);
   const said = numbersIn(text);
   return [...amounts].some((n) => said.has(n));
+}
+
+/* The words that lead into an amount and lean on it: "for", "at",
+   "just" in "Your soles, sorted for ₦7,500". */
+const AMOUNT_LEAD = /(?:,?\s+(?:for|at|from|just|only|of|costs?|is)){0,2}\s*$/i;
+
+/**
+ * `text` with the price's amount, and the words leading into it, taken
+ * out where what is left still reads: "Your soles, sorted" of "Your soles,
+ * sorted for ₦7,500". Null when the amount is not in it, fewer than two
+ * words are left or the rest opens mid-sentence. Words are only removed.
+ */
+export function withoutAmount(text: string, price: BriefFact): string | null {
+  const amounts = priceAmounts(price);
+  let cut = text;
+  let found = false;
+  for (const m of [...text.matchAll(AMOUNT)].reverse()) {
+    const value = [...numbersIn(m[1] ?? m[2] ?? "")];
+    if (!value.some((n) => amounts.has(n)) || m.index === undefined) continue;
+    found = true;
+    const before = cut.slice(0, m.index).replace(AMOUNT_LEAD, "");
+    const after = cut.slice(m.index + m[0].length);
+    cut = `${before}${after}`;
+  }
+  if (!found) return null;
+  const rest = cut
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/^[\s,;:—–-]+|[\s,;:—–-]+$/g, "")
+    .trim();
+  /* What opened on the amount and now opens mid-sentence ("gets your
+     soles rebuilt") leans on it. */
+  if (/^\p{Ll}/u.test(rest)) return null;
+  return rest.split(/\s+/).filter(Boolean).length >= 2 ? rest : null;
 }
 
 /** Whether `beat` gives the price's amount, in any words. */

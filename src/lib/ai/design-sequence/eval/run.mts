@@ -6,8 +6,8 @@
  * reader say the hook earns the swipe, the last frame carries the action
  * and the copy never repeats itself?
  *
- * Paid lane: per run the brief read, the arc, the copy and (when code
- * finds a fault) up to two fix calls, then one judge call. Runs the production
+ * Paid lane: per run the brief read, the arc, the copy, the audit and
+ * (when code finds a fault) up to two fix calls, then one judge call. Runs the production
  * planSequence; nothing is rendered or stored. Run before shipping a change
  * to src/lib/design/sequence/ or src/lib/ai/prompts/design-sequence.ts, and
  * nightly. Not part of `pnpm test`.

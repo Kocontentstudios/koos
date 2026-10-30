@@ -273,7 +273,7 @@ describe("buildFrameRegeneratePrompt", () => {
       `Write frame 1 again, ${REGENERATE_VERSIONS} different versions of it`,
     );
     expect(prompt).not.toContain("frame 1 (hook): title");
-    expect(prompt).toContain('frame 2 (body): title "The price"');
+    expect(prompt).toContain('frame 2 (body): title "Price per bottle"');
     expect(prompt).toContain('Each version names "cold brew"');
     expect(prompt).toContain('"cta" is ""');
   });

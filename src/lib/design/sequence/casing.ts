@@ -140,7 +140,9 @@ function toTitle(headline: string): string {
     .join("");
 }
 
-/** The set's headlines in the casing most of them use. */
+/** The set's headlines in the casing most of them use, and every card
+ *  title in that casing too: "Heel Turnaround" beside "Made for office
+ *  shoes" reads as two writers. */
 export function withConsistentCasing(
   frames: readonly FrameBeat[],
   sources: readonly (string | null | undefined)[],
@@ -149,24 +151,25 @@ export function withConsistentCasing(
   const styles = frames.map((beat) => headlineCase(beat.headline, names));
   const titles = styles.filter((s) => s === "title").length;
   const sentences = styles.filter((s) => s === "sentence").length;
-  if (titles === 0 || sentences === 0) {
-    return {
-      frames: [...frames],
-      recased: [],
-      style: titles > 0 ? "title" : sentences > 0 ? "sentence" : null,
-    };
-  }
-  const style: HeadlineCase = titles > sentences ? "title" : "sentence";
+  const style: HeadlineCase | null =
+    titles === 0 && sentences === 0
+      ? null
+      : titles > sentences
+        ? "title"
+        : "sentence";
+  if (style === null) return { frames: [...frames], recased: [], style };
+  const recase = (text: string) =>
+    style === "title" ? toTitle(text) : toSentence(text, names);
   const recased: number[] = [];
   const next = frames.map((beat, i) => {
-    if (styles[i] === null || styles[i] === style) return beat;
     const headline =
-      style === "title"
-        ? toTitle(beat.headline)
-        : toSentence(beat.headline, names);
-    if (headline === beat.headline) return beat;
+      styles[i] === null || styles[i] === style
+        ? beat.headline
+        : recase(beat.headline);
+    const title = recase(beat.title);
+    if (headline === beat.headline && title === beat.title) return beat;
     recased.push(i);
-    return { ...beat, headline };
+    return { ...beat, headline, title };
   });
   return { frames: next, recased, style };
 }

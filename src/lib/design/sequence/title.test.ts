@@ -8,7 +8,7 @@ import {
   settledTitle,
   titleFault,
   titleLeaks,
-  titleOffFrame,
+  titleOffCopy,
   titleProblems,
   withSettledTitles,
 } from "./title";
@@ -117,20 +117,56 @@ describe("isCutTitle", () => {
   });
 });
 
-describe("titleOffFrame", () => {
-  const frames = [
-    beatOf({ title: "Ikoyi roots", headline: "A morning of hands-on baking" }),
-    beatOf({ title: "Our bakery", headline: "Our bakery is in Ikoyi" }),
-    beatOf({ title: "The price", headline: "Book your place" }),
-  ];
-
-  it("finds a title naming another frame's point", () => {
-    expect(titleOffFrame(frames, 0)).toBe(true);
+describe("titleOffCopy", () => {
+  it("finds a title sharing no word with its own frame's copy", () => {
+    expect(
+      titleOffCopy(
+        beatOf({
+          title: "Ikoyi roots",
+          headline: "A morning of hands-on baking",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      titleOffCopy(beatOf({ title: "The price", headline: "Book your place" })),
+    ).toBe(true);
   });
 
-  it("passes a title on its own copy and one naming the frame's job", () => {
-    expect(titleOffFrame(frames, 1)).toBe(false);
-    expect(titleOffFrame(frames, 2)).toBe(false);
+  it("passes a title built on its own copy", () => {
+    expect(
+      titleOffCopy(
+        beatOf({ title: "Our bakery", headline: "Our bakery is in Ikoyi" }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("titleFault: a figure cut at its comma", () => {
+  it.each(["1", "₦7,500", "82%", "3 · 4"])("refuses %j as a name", (title) => {
+    expect(titleFault(title)).toBe("it is a bare figure, not a name");
+  });
+
+  it("takes a title with a figure and a word", () => {
+    expect(titleFault("1,900 sellers")).toBeNull();
+  });
+
+  it("settles a deck's action slide titled by a cut figure on its own copy", () => {
+    const frames = [
+      beatOf({
+        role: "hook",
+        title: "Cold rooms",
+        headline: "Cold rooms by the crate",
+      }),
+      beatOf({
+        role: "cta",
+        title: "1",
+        headline: "1,900 sellers are waiting for the next room",
+        cta: "Email Ada",
+      }),
+    ];
+    const settled = withSettledTitles(frames, { sources: [] });
+    expect(titleProblems(settled, { sources: [] })).toEqual([]);
+    expect(settled[1].title).not.toBe("1");
   });
 });
 
@@ -190,5 +226,37 @@ describe("titleProblems and withSettledTitles", () => {
       "Solar kits",
       "Join us",
     ]);
+  });
+});
+
+describe("withSettledTitles: when every longer name is cut or too long", () => {
+  it("settles on a short head of the headline rather than keep a title off its copy", () => {
+    const sources = [
+      "Private offices and meeting rooms come included every month for teams",
+    ];
+    const frames = [
+      beatOf({
+        role: "hook",
+        title: "Team plan",
+        headline: "A team plan for small teams",
+      }),
+      beatOf({
+        title: "Always connected",
+        headline: "Private offices and meeting rooms come included",
+      }),
+      beatOf({
+        role: "cta",
+        title: "Book a tour",
+        headline: "Book a tour this week",
+        cta: "Book a tour",
+      }),
+    ];
+    const settled = withSettledTitles(frames, { sources }, [
+      [],
+      ["Private offices and meeting rooms"],
+      [],
+    ]);
+    expect(settled[1].title).toBe("Private offices");
+    expect(titleProblems(settled, { sources })).toEqual([]);
   });
 });

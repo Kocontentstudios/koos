@@ -1,28 +1,21 @@
 import type { FrameFix } from "@/lib/ai/prompts/design-sequence";
-import { formatRules } from "@/lib/design/formats";
-import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
-import type { ArcFrame, ArcPoint } from "./arc";
-import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
-import { withoutStatement } from "./cuts";
+import type { ArcPoint } from "./arc";
+import type { FrameBeat, PlannedSequence } from "./contract";
 import {
-  blockingFaults,
   COVERAGE,
   type CopyFault,
   type FaultRules,
   faultScore,
   setFaults,
-  stillSays,
 } from "./faults";
-import { textStatesPrice } from "./points";
-import { withoutFactWords } from "./repeats";
 import type { FrameRewrite } from "./schema";
 import { settledTitle } from "./title";
 
 /**
- * How a written set's faults are settled: the fix call's versions kept
- * only where the set improves, a spare point for a frame whose point is
- * another's, and what still blocks cut in code. Code chooses between the
- * model's answers and removes words; it never writes one.
+ * How the fix call's answers are taken: its versions kept only where the
+ * set improves, and a spare point for a frame whose point is another's.
+ * Code chooses between the model's answers; it never writes one. What
+ * still must not ship after the fix calls is settled in gate.ts.
  */
 
 export const tidyLines = (lines: readonly string[]) =>
@@ -146,87 +139,4 @@ export function newClaims(
     claims.set(fault.frame, pool[next].text);
   }
   return claims;
-}
-
-const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
-
-/** Whether `text` can stand as a headline of `kind` as written. */
-function fitsHeadline(text: string, kind: SequenceKind): boolean {
-  return (
-    text.length > 0 &&
-    text.length <= COPY_LIMITS.headline &&
-    wordCount(text) <= formatRules(kind).headlineWords + 2
-  );
-}
-
-/* A fault whose words are a statement no source gives: inventedOn's and
-   the audit's. */
-export const UNSOURCED = /^it states "(.+)", which neither/;
-const ABOUT_ITSELF = /talks about the set itself \("(.+)"\)/;
-
-/**
- * The faults that must not ship and that no rewrite fixed, settled in
- * code by removing words or putting a sourced claim in their place, each
- * kept only where the set improves (improves):
- *  - a carousel's price in a headline: the price's words cut where the
- *    rest reads on its own, else the frame's claim as headline;
- *  - a headline making another frame's point: the frame's own claim, in
- *    its source's words;
- *  - a statement no source gives, or copy about the set itself: its words
- *    or its sentence cut (withoutStatement), else a headline set to the
- *    frame's claim;
- *  - a subheadline that is not a sentence: left out.
- */
-export function withLastResorts(
-  plan: PlannedSequence,
-  arc: readonly ArcFrame[],
-  rules: FaultRules,
-): { plan: PlannedSequence; applied: string[] } {
-  let current = plan;
-  const applied: string[] = [];
-  const attempt = (frame: number, change: Partial<FrameBeat>, what: string) => {
-    const candidate = {
-      ...current,
-      frames: current.frames.map((b, i) =>
-        i === frame ? { ...b, ...change } : b,
-      ),
-    };
-    if (!improves(current, candidate, rules)) return false;
-    current = candidate;
-    applied.push(`frame ${frame + 1}: ${what}`);
-    return true;
-  };
-  const toClaim = (frame: number, claim: string) =>
-    fitsHeadline(claim, current.kind) &&
-    attempt(frame, { headline: claim }, "headline set to its claim");
-  for (const fault of blockingFaults(setFaults(current, rules))) {
-    const beat = current.frames[fault.frame];
-    if (!beat) continue;
-    const claim = arc[fault.frame]?.claim ?? "";
-    const statement =
-      UNSOURCED.exec(fault.detail)?.[1] ?? ABOUT_ITSELF.exec(fault.detail)?.[1];
-    if (statement) {
-      const cut = withoutStatement(beat, statement);
-      if (cut && attempt(fault.frame, cut, `cut "${statement}"`)) continue;
-      if (stillSays({ ...beat, subheadline: "", footerLines: [] }, statement)) {
-        toClaim(fault.frame, claim);
-      }
-    } else if (
-      fault.field === "headline" &&
-      /gives the price/.test(fault.detail)
-    ) {
-      const price = rules.facts.find(
-        (f) => f.kind === "price" && fault.detail.includes(`"${f.text}"`),
-      );
-      const cut = price ? withoutFactWords(beat.headline, price) : null;
-      if (cut && attempt(fault.frame, { headline: cut }, "price cut")) continue;
-      const priced = price !== undefined && textStatesPrice(price, claim);
-      if (!priced) toClaim(fault.frame, claim);
-    } else if (fault.field === "headline" && POINT_TAKEN.test(fault.detail)) {
-      toClaim(fault.frame, claim);
-    } else if (fault.field === "subheadline" && beat.subheadline) {
-      attempt(fault.frame, { subheadline: "" }, "subheadline left out");
-    }
-  }
-  return { plan: current, applied };
 }

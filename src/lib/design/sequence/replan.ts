@@ -17,6 +17,7 @@ import {
   readBriefWithModel,
   settleBriefRead,
 } from "@/lib/jobs/directions/brief-read";
+import type { FactLedger } from "@/lib/jobs/directions/claims";
 import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
 import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
 import {
@@ -29,15 +30,17 @@ import type {
   PlannedSequence,
   ReplanFrameInput,
 } from "./contract";
+import { withoutStatement } from "./cuts";
 import { withRewrite } from "./fixes";
+import { asSentence } from "./gate";
 import { hookFaults, hookPreviews } from "./hook";
 import { withFigureLayout } from "./layouts";
 import { inventedOn, sequenceFacts, sequenceLedger } from "./ledger";
-import { misplacedPrices } from "./points";
+import { misplacedPrices, textStatesPrice, withoutAmount } from "./points";
 import { repairSequenceFor } from "./repair";
 import { factsTwiceInFrame, withoutRepeats } from "./repeats";
 import { type FrameRewrite, rewriteResponseSchema } from "./schema";
-import { settledTitle } from "./title";
+import { titleProblems, withSettledTitles } from "./title";
 import {
   copyLimitProblems,
   factsUncovered,
@@ -187,14 +190,46 @@ export function sameWords(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+/** Whether a headline is another's words to a reader: the same words
+ *  (sameWords), or those words with one more ("We rebuild the sole from
+ *  scratch today" beside "We rebuild the sole from scratch"). */
+export function sameHeadline(a: string, b: string): boolean {
+  if (sameWords(a, b)) return true;
+  const words = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}₦$£€%]+/gu, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+  const [short, long] = [words(a), words(b)].sort(
+    (x, y) => x.length - y.length,
+  );
+  if (short.length < 2 || long.length - short.length !== 1) return false;
+  const at = (k: number) => short.every((w, i) => long[i + k] === w);
+  return at(0) || at(1);
+}
+
+/** The frame's title, kept when it still names the frame's copy, else
+ *  settled on the copy as it now reads (withSettledTitles). */
+function titleFor(frames: readonly FrameBeat[], index: number): string {
+  const own = titleProblems(frames, { sources: [] }).some(
+    (p) => p.frame === index,
+  );
+  if (!own) return frames[index].title;
+  return withSettledTitles(frames, { sources: [] })[index].title;
+}
+
 /**
  * The frame with the user's words as typed: no model call and no rewrite
  * (H9). Role, image and footer stay; the layout changes only when a
  * stat-highlight is left with no figure to set large (withFigureLayout).
  * Refused, with a reason the user can act on, only when the words cannot
  * be drawn: past a limit, an empty headline, a headline another frame
- * already has word for word (H4), a button on a frame that is not the
- * last, or the last frame left without one.
+ * already has word for word or with one word more (H4), a button on a
+ * frame that is not the last, or the last frame left without one. The
+ * card's title follows the edited copy when the old one no longer names
+ * it.
  */
 export function applyFrameEdits(
   plan: PlannedSequence,
@@ -213,7 +248,7 @@ export function applyFrameEdits(
     throw new FrameEditError("Every frame needs a headline.", "headline");
   }
   const twin = plan.frames.findIndex(
-    (other, i) => i !== index && sameWords(other.headline, headline),
+    (other, i) => i !== index && sameHeadline(other.headline, headline),
   );
   if (edits.headline !== undefined && twin >= 0) {
     throw new FrameEditError(
@@ -239,13 +274,9 @@ export function applyFrameEdits(
       "cta",
     );
   }
-  const next = withFigureLayout({
-    ...beat,
-    title: settledTitle(beat.title, beat.title),
-    headline,
-    subheadline,
-    cta,
-  });
+  const typed = withFigureLayout({ ...beat, headline, subheadline, cta });
+  const draft = plan.frames.map((b, i) => (i === index ? typed : b));
+  const next = { ...typed, title: titleFor(draft, index) };
   const frames = plan.frames.map((b, i) => (i === index ? next : b));
   const before = new Set(factsUncovered(plan.frames, facts));
   return {
@@ -341,7 +372,17 @@ export function regenerateProblems(
       add("price-placement", fault.detail);
     }
   }
-  for (const fact of factsTwiceInFrame(next, facts)) {
+  const twice = new Set(factsTwiceInFrame(next, facts));
+  for (const price of facts.filter((f) => f.kind === "price")) {
+    const fields = [
+      next.headline,
+      next.subheadline,
+      next.cta,
+      ...next.footerLines,
+    ].filter((text) => textStatesPrice(price, text));
+    if (fields.length > 1) twice.add(price);
+  }
+  for (const fact of twice) {
     add("fact-twice", `it gives "${fact.text}" twice on one frame`);
   }
   if (index === 0) {
@@ -354,6 +395,50 @@ export function regenerateProblems(
     }
   }
   return problems;
+}
+
+/**
+ * A regenerated version with what code can take out taken out, before it
+ * is judged: a statement no source gives (withoutStatement), a carousel's
+ * price on a frame before the action, and on the action frame a price its
+ * footer already gives said again in the copy. A version only these made
+ * unusable is then kept rather than the regenerate refused. Code only
+ * removes words.
+ */
+export function repairedVersion(
+  next: FrameBeat,
+  kind: PlannedSequence["kind"],
+  facts: readonly BriefFact[],
+  ledger: FactLedger,
+): FrameBeat {
+  let beat = next;
+  for (const statement of inventedOn(beat, ledger)) {
+    const cut = withoutStatement(beat, statement);
+    if (cut) beat = { ...beat, ...cut };
+  }
+  const offAction = kind === "carousel" && beat.role !== "cta";
+  for (const price of facts.filter((f) => f.kind === "price")) {
+    if (offAction) {
+      beat = {
+        ...beat,
+        footerLines: beat.footerLines.filter(
+          (line) => !textStatesPrice(price, line),
+        ),
+      };
+    }
+    const footed = beat.footerLines.some((l) => textStatesPrice(price, l));
+    if (!offAction && !footed) continue;
+    for (const field of ["headline", "subheadline"] as const) {
+      if (!textStatesPrice(price, beat[field])) continue;
+      const cut = withoutAmount(beat[field], price);
+      if (cut === null) continue;
+      beat = {
+        ...beat,
+        [field]: field === "subheadline" ? asSentence(cut) : cut,
+      };
+    }
+  }
+  return beat;
 }
 
 export interface ReplanFrameDeps {
@@ -469,19 +554,22 @@ export async function replanFrame(
   };
 
   const judge = (rewrite: FrameRewrite) => {
-    /* Same point, so the same title on its card. */
     /* A footer line that repeats the copy above is dropped, as a planned
        set's is (withoutRepeats); code drops, it never writes. */
-    const [next] = withoutRepeats(
-      [
-        withFigureLayout({
-          ...withRewrite(beat, rewrite),
-          title: settledTitle(beat.title, beat.title),
-        }),
-      ],
+    /* Same point, so the same card title while it still names the copy. */
+    const [written] = withoutRepeats(
+      [withFigureLayout({ ...withRewrite(beat, rewrite), title: beat.title })],
       facts,
       offering,
     );
+    const repaired = repairedVersion(written, plan.kind, facts, ledger);
+    const next = {
+      ...repaired,
+      title: titleFor(
+        plan.frames.map((b, i) => (i === index ? repaired : b)),
+        index,
+      ),
+    };
     return {
       next,
       problems: regenerateProblems(plan, index, next, {

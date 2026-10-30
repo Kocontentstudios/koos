@@ -18,17 +18,22 @@ pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
-SigV4 keys are used. Each run makes 3 to 5 planner calls, never more than
-`MAX_MODEL_CALLS` (8, the brief read included), arc first: the brief read;
+SigV4 keys are used. Each run makes 4 to 6 planner calls, never more than
+`MAX_MODEL_CALLS` (9, the brief read included), arc first: the brief read;
 the arc call, which ranks the pool of points code built from the brief and
 the brand profile (`pointPool` in `src/lib/design/sequence/arc.ts`),
 names each point's kind and assigns one point per frame, writing no claim
 but the hook's angle, which code then holds to distinctness
 (`settleArc`); the copy call, each frame told only its own claim and the
-claims and facts it must leave alone, with two more openings; and up to two
-fix calls for the frames code still finds at fault (`setFaults` in
-`faults.ts`), the second giving a frame whose point another frame makes a
-spare point. Plus one judge call. A full tuning run is
+claims and facts it must leave alone, with two more openings; the audit
+call, a cold read for two frames making one point and for statements no
+source gives; and up to two fix calls for the frames code still finds at
+fault (`setFaults` in `faults.ts`), the second giving a frame whose point
+another frame makes a spare point. What must still not ship is then
+settled in code (`shipGate` in `gate.ts`): unsourced words cut, a priced
+or repeated headline set to the frame's own claim, a broken or missing
+subheadline set to its claim, the hook's names written on it, and any
+brief fact still missing drawn in the brief's words. Plus one judge call. A full tuning run is
 30 planner runs, three at a time, and takes about 12 minutes; the
 held-out set is 12 more. Each run
 also prints the copy faults the planner could not get rewritten

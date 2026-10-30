@@ -593,7 +593,7 @@ describe("planSequence: the audit", () => {
     expect(result.invented).toEqual([]);
   });
 
-  it("reports a statement the audit reads as unsourced, never asking or cutting it", async () => {
+  it("asks the fix call to take out a statement the audit reads as unsourced, and cuts it when the fix leaves it", async () => {
     answer({
       copy: {
         ...COPY,
@@ -613,15 +613,13 @@ describe("planSequence: the audit", () => {
       },
     });
     const result = await plan();
+    expect(promptsOf(isFix).join("\n")).toContain("No appointment needed");
     expect(result.plan.frames[1].subheadline).toBe(
-      "Each batch is roasted here before it is brewed. No appointment needed for a tasting.",
+      "Each batch is roasted here before it is brewed.",
     );
-    expect(promptsOf(isFix).join("\n")).not.toContain("No appointment needed");
-    expect(result.invented).toEqual([
-      { frame: 1, text: "No appointment needed" },
-    ]);
-    expect(result.faults.map((f) => f.detail)).toContainEqual(
-      expect.stringContaining('it states "No appointment needed"'),
+    expect(result.invented).toEqual([]);
+    expect(result.faults.map((f) => f.detail).join("\n")).not.toContain(
+      "No appointment needed",
     );
   });
 

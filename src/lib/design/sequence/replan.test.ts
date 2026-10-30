@@ -6,14 +6,18 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { CAFE_BRIEF, CAFE_RULES, cafePlan, fact } from "./fixtures";
+import { sequenceLedger } from "./ledger";
 import {
   applyFrameEdits,
   FrameEditError,
   FrameReplanError,
   regenerateProblems,
+  repairedVersion,
   replanFrame,
   replanReason,
+  sameHeadline,
 } from "./replan";
+import { titleProblems } from "./title";
 import { validateSequence } from "./validate";
 
 const context = directionsContext({
@@ -83,10 +87,45 @@ describe("replanFrame with the user's edits", () => {
   });
 
   it("keeps role, title, layout, image, scene and footer", () => {
-    const { beat } = applyFrameEdits(plan, 4, { headline: "See you there" });
+    const { beat } = applyFrameEdits(plan, 4, {
+      headline: "Reserve one for Saturday",
+    });
     const { headline: _, ...kept } = beat;
     const { headline: __, ...before } = plan.frames[4];
     expect(kept).toEqual(before);
+  });
+
+  it("gives the card a title from the edited copy when the old one no longer names it", () => {
+    const { beat } = applyFrameEdits(plan, 3, {
+      headline: "We also fix handbags and belts",
+      subheadline: "Bring them in with your shoes.",
+    });
+    expect(beat.title).not.toBe(plan.frames[3].title);
+    expect(
+      titleProblems(
+        plan.frames.map((b, i) => (i === 3 ? beat : b)),
+        { sources: [] },
+      ).filter((p) => p.frame === 3),
+    ).toEqual([]);
+  });
+
+  it("refuses a headline that is another frame's with one word more", () => {
+    const twin = `${plan.frames[3].headline} today`;
+    expect(() => applyFrameEdits(plan, 1, { headline: twin })).toThrow(
+      "Frame 4 already has this headline",
+    );
+    expect(
+      sameHeadline(
+        "We rebuild the sole from scratch today",
+        "We rebuild the sole from scratch",
+      ),
+    ).toBe(true);
+    expect(
+      sameHeadline("Today we rebuild the sole", "We rebuild the sole"),
+    ).toBe(true);
+    expect(sameHeadline("We rebuild the sole", "We rebuild the heel")).toBe(
+      false,
+    );
   });
 
   it("keeps a field the user left out, and clears one they emptied", () => {
@@ -636,5 +675,76 @@ describe("replanFrame: one fact twice on one frame", () => {
       { briefReader: reader },
     );
     expect(result.beat.title).toBe("The price");
+  });
+});
+
+describe("repairedVersion: what code takes out before a regenerate is judged", () => {
+  const facts = [
+    fact("price", "₦2,500 a bottle"),
+    fact("contact", "WhatsApp 0803 555 0142"),
+  ];
+  const ledger = sequenceLedger(context, "");
+  const cafe = cafePlan();
+
+  it("takes a carousel's price out of a frame before the action", () => {
+    const hook = {
+      ...cafe.frames[0],
+      headline: "Slow-steeped cold brew for ₦2,500",
+      footerLines: ["₦2,500 a bottle"],
+    };
+    const repaired = repairedVersion(hook, "carousel", facts, ledger);
+    expect(repaired.headline).toBe("Slow-steeped cold brew");
+    expect(repaired.footerLines).toEqual([]);
+  });
+
+  it("takes the price out of the action frame's headline when its footer gives it", () => {
+    const action = {
+      ...cafe.frames[4],
+      headline: "Your Saturday bottle for ₦2,500",
+      footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
+    };
+    const repaired = repairedVersion(action, "carousel", facts, ledger);
+    expect(repaired.headline).toBe("Your Saturday bottle");
+    expect(repaired.footerLines).toEqual(action.footerLines);
+  });
+
+  it("refuses a price said twice on one frame in other words", () => {
+    const plan = cafePlan();
+    const next = {
+      ...plan.frames[4],
+      headline: "Your Saturday bottle for ₦2,500",
+      footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
+    };
+    const kinds = regenerateProblems(plan, 4, next, {
+      facts,
+      offering: null,
+      invented: [],
+      brandName: "Kiln Coffee",
+    }).map((p) => p.kind);
+    expect(kinds).toContain("fact-twice");
+  });
+
+  it("keeps a regenerated hook the model priced, with the price taken out", async () => {
+    generateObject.mockResolvedValue(
+      versions(
+        {
+          frame: 1,
+          title: "Slow-steeped",
+          headline: "Make Saturday morning yours, ₦2,500",
+          subheadline: "Kiln Coffee launches its cold brew.",
+        },
+        {
+          frame: 1,
+          title: "Slow-steeped",
+          headline: "Kiln cold brew for ₦2,500",
+          subheadline: "Kiln Coffee launches its cold brew.",
+        },
+      ),
+    );
+    const result = await replanFrame(
+      { context, plan: cafePlan(), index: 0 },
+      { briefReader: reader },
+    );
+    expect(result.beat.headline).not.toMatch(/2,500/);
   });
 });

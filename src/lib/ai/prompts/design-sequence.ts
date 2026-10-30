@@ -177,7 +177,7 @@ export function buildArcPrompt(
       `- "kinds": first read the list and give each numbered point, in order, the kind of thing it says: what-it-is, what-goes-in, how-it-is-made, where-it-comes-from, who-makes-it, what-you-get, how-it-works, proof, who-it-is-for, belief, price, when-where or limit. Points of one kind are one point to a reader ("no preservatives" and "nothing artificial" are both what-goes-in), so no two ${noun}s make points of one kind while a point of another kind is left.`,
       `- "sameAs": every other pair of points a reader would say make one point (a benefit and its cause; a fact and what it means). No two ${noun}s make points of one pair.`,
       `- "spare": every point no ${noun} uses, by number, strongest first. A ${noun} whose point cannot stand takes the first spare point that says something no other ${noun} says.`,
-      `- "title": what the ${noun} is about in 2 to ${t.title.words} words ("The price", "Where to find us"), naming its own point. No two ${noun}s share a title, in any casing.`,
+      `- "title": what the ${noun} is about in 2 to ${t.title.words} words taken from its own point, never a label for its job ("The price", "Next steps"). No two ${noun}s share a title, in any casing.`,
       `- "layout": the composition. Neighbouring ${noun}s never share a layout; stat-highlight only for a ${noun} whose point is a figure.`,
       `- "showsImage": whether the ${noun} shows the set's image.`,
       `- The shared brand frame, chosen once for every ${noun}: "palette" from the brand colours, "logoPlacement", "logoFree", "logoFreeQuote", "backgroundTreatment" and "footerStyle" ("bar" or "text" when any ${noun} has contact, place or date lines to show, "none" otherwise).`,
@@ -504,6 +504,9 @@ export function buildFrameRegeneratePrompt(
       : null,
     beat.role === "hook" && offering
       ? `Each version names "${offering}" in its headline or subheadline.`
+      : null,
+    kind === "carousel" && beat.role !== "cta"
+      ? `No version gives a price: the price is said once, on ${noun} ${frames.length} beside the action.`
       : null,
     COPY_RULES(kind),
     `Return the ${REGENERATE_VERSIONS} versions as the entries in "frames", each with "frame" set to ${index + 1}. "cta" is ${beat.role === "cta" ? "its button" : '""'}.`,

@@ -60,6 +60,8 @@ export interface FaultRules {
   titleSources?: readonly string[];
   /** What the audit call read in the written set (flaggedFaults). */
   flagged?: readonly Flag[];
+  /** Prices the action frame states (actionPrices). */
+  atAction?: ReadonlySet<number>;
 }
 
 /** One finding of the audit call, held to the copy it was made on. */
@@ -277,23 +279,25 @@ export function claimStrays(
   });
 }
 
-/** A carousel's price in a headline before the action frame: the hook or
- *  a body frame that leads on the figure the reader meets at the end. */
+/** A price the action frame states (a carousel's every price, a deck's
+ *  ask: actionPrices) in a headline before it: the hook or a body frame
+ *  that leads on the figure the reader meets at the end. */
 export function headlinePrices(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],
   kind: SequenceKind,
+  atAction: ReadonlySet<number> = new Set(),
 ): CopyFault[] {
-  if (kind !== "carousel") return [];
   const last = frames.length;
+  const priced = facts.filter(
+    (f, n) => f.kind === "price" && (kind === "carousel" || atAction.has(n)),
+  );
   return frames.flatMap((beat, frame) =>
     beat.role === "cta"
       ? []
-      : facts
-          .filter(
-            (f) =>
-              f.kind === "price" &&
-              statesPrice(f, { ...beat, subheadline: "", footerLines: [] }),
+      : priced
+          .filter((f) =>
+            statesPrice(f, { ...beat, subheadline: "", footerLines: [] }),
           )
           .map((price) => ({
             frame,
@@ -414,7 +418,7 @@ export function setFaults(
     ...selfReferences(frames),
     ...pointRepeats(frames, facts, free),
     ...claimStrays(frames, rules.claims ?? [], logisticsFree(free, facts)),
-    ...headlinePrices(frames, facts, kind),
+    ...headlinePrices(frames, facts, kind, rules.atAction),
     ...(hook
       ? hookFaults(hook, offering, names, brandName, facts).map((detail) => ({
           frame: 0,
@@ -433,7 +437,12 @@ export function setFaults(
             detail: `it says again what the hook says ("${frames[0]?.headline ?? ""}"); the last frame gives how to act, in words no earlier frame used`,
             weight: MAJOR,
           }
-        : minor({ frame: 0, detail }),
+        : {
+            frame: 0,
+            field: "subheadline" as const,
+            detail,
+            weight: MAJOR,
+          },
     ),
     ...bareFrames(frames),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
