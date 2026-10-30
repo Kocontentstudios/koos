@@ -242,7 +242,13 @@ export function useFrameSet(): FrameSetState {
         return null;
       }
       frameJobs.current.set(slot.index, { jobId, key });
-      rememberSetJob({ jobId, brandId: owner.brandId, kind: "frame" });
+      rememberSetJob({
+        jobId,
+        brandId: owner.brandId,
+        kind: "frame",
+        sequenceKind: owner.kind,
+        setId: owner.setId,
+      });
       return follow(owner, slot.index, jobId, key, hadFrame);
     },
     [follow],

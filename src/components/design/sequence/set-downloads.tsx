@@ -7,7 +7,9 @@ import { saveBlob } from "@/lib/design/png-to-jpeg";
 import {
   type DesignSet,
   type DownloadFormat,
+  isBuilding,
   kindNoun,
+  readyFrames,
   setDownloadUrl,
 } from "./set-model";
 
@@ -26,6 +28,44 @@ const LABELS: Record<DownloadFormat, { idle: string; busy: string }> = {
   pdf: { idle: "Download PDF", busy: "Making PDF…" },
 };
 
+/** What a download of the set would hold right now, and whether to offer
+ *  it: a file made while frames are still landing would be short with no
+ *  word of it, so the user is told, and asked to wait while they land. */
+export function downloadReadiness(set: DesignSet): {
+  open: boolean;
+  ready: number;
+  count: number;
+  note: string | null;
+} {
+  const count = set.frames.length;
+  const ready = readyFrames(set).length;
+  if (isBuilding(set)) {
+    return {
+      open: false,
+      ready,
+      count,
+      note: `Downloads open once every frame is in. ${ready} of ${count} so far.`,
+    };
+  }
+  if (ready === 0) {
+    return {
+      open: false,
+      ready,
+      count,
+      note: "No frame rendered, so there is nothing to download yet.",
+    };
+  }
+  return {
+    open: true,
+    ready,
+    count,
+    note:
+      ready < count
+        ? `Only the ${ready} of ${count} frames that rendered are included.`
+        : null,
+  };
+}
+
 /**
  * The whole set in one file. Fetched rather than linked: packing ten frames
  * takes long enough to need its own "working" state, and a failure is said
@@ -42,6 +82,8 @@ export function SetDownloads({
 }) {
   const [busy, setBusy] = useState<DownloadFormat | null>(null);
   const [failed, setFailed] = useState<DownloadFormat | null>(null);
+  const readiness = downloadReadiness(set);
+  const partial = readiness.open && readiness.ready < readiness.count;
 
   async function download(format: DownloadFormat) {
     setBusy(format);
@@ -68,7 +110,7 @@ export function SetDownloads({
             onClick={() => void download(format)}
             loading={busy === format}
             loadingText={LABELS[format].busy}
-            disabled={blocked}
+            disabled={blocked || !readiness.open}
             data-download={format}
           >
             {format === "zip" ? (
@@ -76,10 +118,20 @@ export function SetDownloads({
             ) : (
               <FileText aria-hidden="true" />
             )}
-            {LABELS[format].idle}
+            {partial
+              ? `${LABELS[format].idle} · ${readiness.ready} of ${readiness.count}`
+              : LABELS[format].idle}
           </Button>
         ))}
       </div>
+      {readiness.note ? (
+        <p
+          data-download-note
+          className="text-right text-[12px] text-[var(--text-secondary)]"
+        >
+          {readiness.note}
+        </p>
+      ) : null}
       {failed ? (
         <p
           role="alert"

@@ -49,21 +49,48 @@ const NONE_WAITING: ReadonlySet<number> = new Set();
 
 /* Said of the set as a whole while its job is still delivering frames, so
    the skeletons on the stage and rail are never the only sign of it. */
-function BuildingStatus({ set }: { set: DesignSet }) {
+function buildingLine(set: DesignSet): string | null {
   if (!isBuilding(set)) return null;
   const count = set.frames.length;
   const ready = set.frames.filter((s) => frameState(s) === "ready").length;
   const failed = set.frames.filter((s) => frameState(s) === "failed").length;
   const next = Math.min(ready + failed + 1, count);
+  return `Frame ${next} of ${count}… ${ready} of ${count} ready. The rest appear here as they land.`;
+}
+
+function BuildingStatus({ line }: { line: string | null }) {
+  if (!line) return null;
   return (
     <p
-      role="status"
+      data-building-status
       className="flex items-center gap-2 rounded-lg bg-[var(--status-progress-bg)] px-3 py-2 text-[13px] text-[var(--status-progress-fg)]"
     >
       <Spinner className="size-3.5 shrink-0" />
-      Frame {next} of {count}… {ready} of {count} ready. The rest appear here as
-      they land.
+      {line}
     </p>
+  );
+}
+
+/**
+ * The viewer's one live region. Each part is its own node, so only the part
+ * that changed is read out: moving to a frame says where you are, a frame
+ * landing says how far the set has got, and neither repeats the other.
+ */
+function ViewerAnnouncer({
+  position,
+  building,
+  waiting,
+}: {
+  position: string;
+  building: string | null;
+  waiting: string | null;
+}) {
+  return (
+    <div role="status" data-viewer-status className="sr-only">
+      <span data-announce="position">{position}</span>
+      {building ? <span data-announce="building"> {building}</span> : null}
+      {waiting ? <span data-announce="waiting"> {waiting}</span> : null}
+    </div>
   );
 }
 
@@ -76,7 +103,7 @@ function FrameWaiting({
 }) {
   return (
     <div
-      role="status"
+      data-frame-waiting
       className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--status-progress-bg)] px-3 py-2"
     >
       <p className="flex items-start gap-1.5 text-[12px] text-[var(--status-progress-fg)]">
@@ -207,6 +234,10 @@ export function SetViewer({
       : state === "ready"
         ? null
         : "didn't render";
+  const building = buildingLine(set);
+  const waitingMessage = waiting
+    ? (frameErrors[slot.index] ?? FRAME_STILL_RUNNING)
+    : null;
 
   return (
     <section
@@ -219,7 +250,13 @@ export function SetViewer({
         <SetDownloads set={set} blocked={actingOn.size > 0} />
       </div>
 
-      <BuildingStatus set={set} />
+      <ViewerAnnouncer
+        position={`${position} · ${role}${statusNote ? `, ${statusNote}` : ""}`}
+        building={building}
+        waiting={waitingMessage}
+      />
+
+      <BuildingStatus line={building} />
 
       <SetStage
         set={set}
@@ -250,11 +287,7 @@ export function SetViewer({
       >
         <header className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p
-              role="status"
-              aria-atomic="true"
-              className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]"
-            >
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
               {position} · {role}
               {statusNote ? (
                 <span className="sr-only">{`, ${statusNote}`}</span>
@@ -269,9 +302,9 @@ export function SetViewer({
           </span>
         </header>
 
-        {waiting ? (
+        {waitingMessage ? (
           <FrameWaiting
-            message={frameErrors[slot.index] ?? FRAME_STILL_RUNNING}
+            message={waitingMessage}
             onKeepWaiting={
               onKeepWaiting ? () => onKeepWaiting(slot.index) : undefined
             }

@@ -300,7 +300,9 @@ describe("DesignDirectionsDialog with a set of frames", () => {
         frameErrors: { 0: FRAME_STILL_RUNNING },
       }),
     );
-    expect(screen.getByText(FRAME_STILL_RUNNING)).toBeInTheDocument();
+    expect(document.querySelector("[data-frame-waiting]")).toHaveTextContent(
+      FRAME_STILL_RUNNING,
+    );
     expect(screen.queryByText(/didn't work/)).toBeNull();
     expect(
       screen.getByRole("button", { name: "Regenerate frame 1" }),

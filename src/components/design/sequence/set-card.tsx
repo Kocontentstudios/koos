@@ -52,10 +52,53 @@ export function SetBuildingCard({ job }: { job: LiveSetJob }) {
   );
 }
 
+/* What the card's face shows when no frame has a picture yet. */
+function CoverlessFace({
+  building,
+  noun,
+}: {
+  building: boolean;
+  noun: string;
+}) {
+  if (building) {
+    return (
+      <>
+        <Skeleton className="absolute inset-0 rounded-none" />
+        <span className="absolute inset-x-2 top-1/2 -translate-y-1/2 text-center text-[12px] font-medium text-[var(--text-secondary)]">
+          Making your {noun}…
+        </span>
+      </>
+    );
+  }
+  /* Recessed fill and a dashed edge, as a failed frame has in the viewer:
+     the card's own surface is the page's white in light mode. */
+  return (
+    <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-[var(--surface-container-low)] px-3 text-center">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-2 rounded-md border-2 border-dashed"
+        style={{ borderColor: "var(--border-control)" }}
+      />
+      <TriangleAlert
+        aria-hidden="true"
+        className="relative size-5 text-[var(--status-error-fg)]"
+      />
+      <span className="relative text-[12px] font-semibold text-foreground">
+        This {noun} didn&apos;t render
+      </span>
+      <span className="relative text-[11px] text-[var(--text-secondary)]">
+        Open it to retry its frames
+      </span>
+    </span>
+  );
+}
+
 /**
  * A whole carousel or presentation in the history grid: its hook frame on
  * top of a visible stack, with the slide count, so it reads as one thing
- * with more behind it rather than as one design among many.
+ * with more behind it rather than as one design among many. A set with no
+ * picture yet keeps its card: a skeleton while it is being made, or a
+ * stated failure that opens to its frames' retries.
  */
 export function SetCard({
   set,
@@ -69,7 +112,7 @@ export function SetCard({
      it is still on its way. */
   const [coverShown, setCoverShown] = useState(false);
   const cover = coverOf(set);
-  if (!cover?.url) return null;
+  const coverUrl = cover?.url ?? null;
 
   const size = frameSize(set);
   const count = set.frames.length;
@@ -79,20 +122,25 @@ export function SetCard({
   }).length;
   const Icon = set.kind === "carousel" ? GalleryHorizontal : Presentation;
   const noun = kindNoun(set.kind);
-  const headline = set.frames[0]?.title || cover.headline || noun;
+  const headline = set.frames[0]?.title || cover?.headline || "";
+  const named = headline
+    ? `Open ${noun}, ${slideCount(count)}: ${headline}`
+    : `Open ${noun}, ${slideCount(count)}`;
   const building = isBuilding(set);
   const ready = set.frames.filter((s) => frameState(s) === "ready").length;
   const note = building
     ? `. Still being made, ${ready} of ${count} ready`
-    : broken
-      ? `. ${broken} didn't render`
-      : "";
+    : !coverUrl
+      ? ". None of its frames rendered. Open it to retry them"
+      : broken
+        ? `. ${broken} didn't render`
+        : "";
 
   return (
     <button
       type="button"
       onClick={() => onOpen(set)}
-      aria-label={`Open ${noun}, ${slideCount(count)}: ${headline}${note}`}
+      aria-label={`${named}${note}`}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}
@@ -121,19 +169,25 @@ export function SetCard({
           aspectRatio: `${size.width} / ${size.height}`,
         }}
       >
-        {coverShown ? null : (
-          <Skeleton className="absolute inset-0 rounded-none" />
+        {coverUrl ? (
+          <>
+            {coverShown ? null : (
+              <Skeleton className="absolute inset-0 rounded-none" />
+            )}
+            <Image
+              src={coverUrl}
+              alt=""
+              width={size.width}
+              height={size.height}
+              onLoad={() => setCoverShown(true)}
+              onError={() => setCoverShown(true)}
+              className="relative block h-full w-full object-cover"
+              unoptimized
+            />
+          </>
+        ) : (
+          <CoverlessFace building={building} noun={noun} />
         )}
-        <Image
-          src={cover.url}
-          alt=""
-          width={size.width}
-          height={size.height}
-          onLoad={() => setCoverShown(true)}
-          onError={() => setCoverShown(true)}
-          className="relative block h-full w-full object-cover"
-          unoptimized
-        />
         <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white">
           <Icon aria-hidden="true" className="size-3" />
           {slideCount(count)}

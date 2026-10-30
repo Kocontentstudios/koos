@@ -319,7 +319,13 @@ export function useDesignGeneration(): LiveDesignGeneration {
         last.isSet = true;
         /* Kept for Design Studio, which polls it on (and so resumes it) if
            this wait is closed or gives up. */
-        rememberSetJob({ jobId, brandId: last.args.brandId, kind: "set" });
+        const sequenceKind = last.progress?.kind ?? expectedKind;
+        rememberSetJob({
+          jobId,
+          brandId: last.args.brandId,
+          kind: "set",
+          ...(sequenceKind ? { sequenceKind } : {}),
+        });
       };
       if (expectedKind) watchAsSet();
       /* Only while this wait still shows the run. Once it was closed or
@@ -350,8 +356,8 @@ export function useDesignGeneration(): LiveDesignGeneration {
               if (p.stage) setJobStage(p.stage);
               const read = readSequenceProgress(p, expectedKind);
               if (read) {
-                watchAsSet();
                 last.progress = read;
+                watchAsSet();
               }
               setSequenceProgress(last.isSet ? last.progress : null);
             },

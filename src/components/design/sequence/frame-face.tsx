@@ -75,15 +75,10 @@ function FramePicture({
   }
   return (
     <>
+      {/* Not a live region: the stage holds every frame, so each picture
+          announcing its own load would talk over the viewer's one status. */}
       {load === "loading" ? (
-        compact ? (
-          <Skeleton className="absolute inset-0 rounded-none" />
-        ) : (
-          <div role="status" className="absolute inset-0">
-            <Skeleton className="absolute inset-0 rounded-none" />
-            <span className="sr-only">Loading this frame…</span>
-          </div>
-        )
+        <Skeleton className="absolute inset-0 rounded-none" />
       ) : null}
       <Image
         src={url}

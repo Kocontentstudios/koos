@@ -50,10 +50,17 @@ function renderViewer(
 const tabs = () => screen.getAllByRole("tab");
 const selectedTab = () =>
   tabs().find((t) => t.getAttribute("aria-selected") === "true");
-const position = () =>
-  screen
-    .getAllByRole("status")
-    .find((s) => /^Frame \d+ of \d+/.test(s.textContent ?? ""))?.textContent;
+/* Round 3 L7: the viewer has one live region, each part its own node. */
+const liveRegion = () => {
+  const regions = screen.getAllByRole("status");
+  expect(regions).toHaveLength(1);
+  return regions[0] as HTMLElement;
+};
+const announced = (part: "position" | "building" | "waiting") =>
+  liveRegion()
+    .querySelector(`[data-announce="${part}"]`)
+    ?.textContent?.trim() ?? null;
+const position = () => announced("position");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -442,9 +449,7 @@ describe("frames that are not ready", () => {
     const panel = screen.getByRole("tabpanel");
     const first = panel.querySelector('[data-frame-index="0"]') as HTMLElement;
     expect(first.querySelector("[data-slot=skeleton]")).not.toBeNull();
-    expect(within(first).getByRole("status")).toHaveTextContent(
-      "Loading this frame…",
-    );
+    expect(within(first).queryByRole("status")).toBeNull();
     fireEvent.load(within(first).getByRole("img"));
     await waitFor(() =>
       expect(first.querySelector("[data-slot=skeleton]")).toBeNull(),
@@ -518,6 +523,59 @@ describe("downloads", () => {
     },
   );
 
+  /* Round 3 L5: a ZIP or PDF taken while frames were still landing was
+     short, with nothing to say so. */
+  it("holds the whole-set downloads while frames are still landing, and says why", () => {
+    const rows = frameRows(5);
+    rows[3] = frameRow(3, { status: "pending", url: null });
+    rows[4] = frameRow(4, { status: "pending", url: null });
+    renderViewer(setOf(rows));
+    expect(screen.getByRole("button", { name: "Download ZIP" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeDisabled();
+    expect(document.querySelector("[data-download-note]")).toHaveTextContent(
+      "Downloads open once every frame is in. 3 of 5 so far.",
+    );
+  });
+
+  it("names a short set's download by what it holds", async () => {
+    const fetchMock = stubFetch(async () => new Response("bytes"));
+    const rows = frameRows(5);
+    rows[2] = frameRow(2, { status: "failed", url: null });
+    renderViewer(setOf(rows));
+    const zip = screen.getByRole("button", { name: "Download ZIP · 4 of 5" });
+    expect(zip).toBeEnabled();
+    expect(document.querySelector("[data-download-note]")).toHaveTextContent(
+      "Only the 4 of 5 frames that rendered are included.",
+    );
+    await userEvent.click(zip);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a stopped set's downloads to the frames it did make", () => {
+    const rows = frameRows(5);
+    rows[4] = frameRow(4, { status: "pending", url: null });
+    renderViewer(markStalled(setOf(rows)));
+    expect(
+      screen.getByRole("button", { name: "Download PDF · 4 of 5" }),
+    ).toBeEnabled();
+  });
+
+  it("offers nothing to download from a set where no frame rendered", () => {
+    renderViewer(
+      setOf(frameRows(5).map((r) => ({ ...r, status: "failed", url: null }))),
+    );
+    expect(screen.getByRole("button", { name: "Download ZIP" })).toBeDisabled();
+    expect(document.querySelector("[data-download-note]")).toHaveTextContent(
+      "No frame rendered, so there is nothing to download yet.",
+    );
+  });
+
+  it("says nothing extra about a complete set's downloads", () => {
+    renderViewer();
+    expect(document.querySelector("[data-download-note]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Download ZIP" })).toBeEnabled();
+  });
+
   it("offers the selected frame on its own through the design download route", async () => {
     renderViewer();
     await userEvent.click(tabs()[3] as HTMLElement);
@@ -554,12 +612,21 @@ describe("round 2: a set still on its way", () => {
 
   it("announces where the set is while frames are still coming", () => {
     renderViewer(building());
-    const status = screen
-      .getAllByRole("status")
-      .find((s) => s.textContent?.startsWith("Frame 4 of 5…"));
-    expect(status?.textContent).toBe(
+    expect(announced("building")).toBe(
       "Frame 4 of 5… 3 of 5 ready. The rest appear here as they land.",
     );
+    expect(document.querySelector("[data-building-status]")).toHaveTextContent(
+      "Frame 4 of 5… 3 of 5 ready. The rest appear here as they land.",
+    );
+  });
+
+  /* Round 3 L7: the building line, three loading pictures and the header
+     were five live regions at once, so every image load was read out. */
+  it("keeps one live region for the whole viewer while the set builds", async () => {
+    renderViewer(building());
+    expect(liveRegion()).toHaveAttribute("data-viewer-status");
+    await userEvent.click(tabs()[1] as HTMLElement);
+    expect(liveRegion()).toHaveTextContent(/^Frame 2 of 5 · Point/);
   });
 
   it("says nothing of the kind once every frame is in", () => {
@@ -571,12 +638,7 @@ describe("round 2: a set still on its way", () => {
   it("reads a rendering frame's position without a stray space", async () => {
     renderViewer(building());
     await userEvent.click(tabs()[3] as HTMLElement);
-    expect(
-      screen
-        .getAllByRole("status")
-        .map((s) => s.textContent)
-        .find((t) => t?.includes(" · ")),
-    ).toBe("Frame 4 of 5 · Point, still rendering");
+    expect(announced("position")).toBe("Frame 4 of 5 · Point, still rendering");
   });
 
   it("calls a deck a slide deck and a carousel a carousel", () => {
@@ -626,8 +688,10 @@ describe("round 2: a frame regenerate still running", () => {
         onRegenerateFrame={onRegenerateFrame}
       />,
     );
-    const notice = screen.getByText(FRAME_STILL_RUNNING).closest("[role]");
-    expect(notice).toHaveAttribute("role", "status");
+    expect(document.querySelector("[data-frame-waiting]")).toHaveTextContent(
+      FRAME_STILL_RUNNING,
+    );
+    expect(announced("waiting")).toBe(FRAME_STILL_RUNNING);
     expect(
       screen.getByRole("button", { name: "Regenerate frame 1" }),
     ).toBeDisabled();

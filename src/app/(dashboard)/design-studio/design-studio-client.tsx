@@ -14,11 +14,13 @@ import {
 import {
   type GalleryItem,
   groupGallery,
-  isBuilding,
   markStalled,
 } from "@/components/design/sequence/set-model";
 import { SetViewerDialog } from "@/components/design/sequence/set-viewer-dialog";
-import { useSetWatch } from "@/components/design/sequence/use-set-watch";
+import {
+  placeholderJobs,
+  useSetWatch,
+} from "@/components/design/sequence/use-set-watch";
 import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -111,12 +113,12 @@ export function DesignStudioClient({
       (item): item is Extract<GalleryItem, { type: "set" }> =>
         item.type === "set" && item.set.setId === viewingSetId,
     )?.set ?? null;
-  /* A set of ours with no frame ready yet has no card of its own; it would
-     otherwise be invisible until it was done. */
-  const anyBuilding = items.some(
-    (item) => item.type === "set" && isBuilding(item.set),
+  /* A set job whose set has no row yet has no card of its own; it would
+     otherwise be invisible until its first frame landed. */
+  const building = placeholderJobs(
+    watch.live,
+    items.flatMap((item) => (item.type === "set" ? [item.set] : [])),
   );
-  const building = anyBuilding ? [] : watch.live;
 
   return (
     <div className="mx-auto flex w-full max-w-[960px] flex-col gap-8">

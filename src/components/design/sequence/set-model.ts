@@ -236,7 +236,8 @@ export type GalleryItem =
  * The history grid's items: every frame of a set folded into one item, at
  * the place its newest row held, and single designs passed through exactly
  * as they came. A set keeps its failed frames, because the viewer offers to
- * retry them; a set with no frame to put on its cover is left out.
+ * retry them, and a set with no frame to put on its cover still gets its
+ * card: one that failed outright says so, one still being made says that.
  */
 export function groupGallery(
   brandId: string,
@@ -262,7 +263,7 @@ export function groupGallery(
     if (placed.has(setId)) continue;
     placed.add(setId);
     const set = buildSet(brandId, bySet.get(setId) ?? [], { setId });
-    if (set && coverOf(set)) items.push({ type: "set", set });
+    if (set) items.push({ type: "set", set });
   }
   return items;
 }

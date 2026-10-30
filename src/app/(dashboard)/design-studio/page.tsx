@@ -1,4 +1,4 @@
-import { KoImageryProvider } from "@/components/design/directions/ko-imagery-context";
+import { DesignFlagsProvider } from "@/components/design/directions/design-flags-provider";
 import { redirectToLogin } from "@/lib/auth/redirects";
 import { requireOpenWorkspace } from "@/lib/auth/require-open-workspace";
 import {
@@ -6,7 +6,6 @@ import {
   listDesignGenerationsForBrand,
   listSetFrames,
 } from "@/lib/db/queries";
-import { koImageryEnabled } from "@/lib/design/ko-imagery-flag";
 import { serializeGeneration } from "@/lib/design/serialize";
 import { DesignStudioClient } from "./design-studio-client";
 import { historyRows } from "./history-rows";
@@ -27,7 +26,7 @@ export default async function DesignStudioPage() {
   const generations = await Promise.all(rows.map(serializeGeneration));
 
   return (
-    <KoImageryProvider enabled={koImageryEnabled()}>
+    <DesignFlagsProvider>
       <DesignStudioClient
         brandId={brand?.id ?? null}
         brandName={brand?.name ?? null}
@@ -36,6 +35,6 @@ export default async function DesignStudioPage() {
           (g) => g.frame !== null || g.status === "succeeded",
         )}
       />
-    </KoImageryProvider>
+    </DesignFlagsProvider>
   );
 }

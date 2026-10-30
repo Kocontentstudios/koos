@@ -201,13 +201,16 @@ describe("groupGallery", () => {
     ]);
   });
 
-  it("leaves out a set with nothing to put on its cover", () => {
-    const rows = frameRows(2).map((r) => ({
-      ...r,
-      status: "failed" as const,
-      url: null,
-    }));
-    expect(groupGallery(BRAND, rows)).toEqual([]);
+  /* Round 3 M4: a carousel that failed outright, or is still being made
+     elsewhere, used to vanish from the grid with no error and no retry. */
+  it("keeps a set with nothing to put on its cover", () => {
+    for (const status of ["failed", "pending"] as const) {
+      const rows = frameRows(2).map((r) => ({ ...r, status, url: null }));
+      const items = groupGallery(BRAND, rows);
+      expect(items).toHaveLength(1);
+      const [item] = items;
+      expect(item?.type === "set" && coverOf(item.set)).toBeNull();
+    }
   });
 });
 

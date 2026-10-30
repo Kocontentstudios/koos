@@ -1,21 +1,23 @@
 /**
  * The set and frame jobs this browser started and has not seen end.
  *
- * A set resumes across 300s slices only while something polls its job
- * (/api/jobs/[id] is the resume driver), and the rows carry no job id. So
- * the job id is kept here when a wait lets go of it, and Design Studio
- * picks it up: its poll keeps the set going and swaps frames in as they
- * land. Per browser by nature; a set started elsewhere is still watched by
- * its rows, and stops claiming to render once it is plainly stuck
- * (use-set-watch.ts).
+ * The server lists a brand's open set jobs too (GET /api/design/set-jobs),
+ * but only by the mark the job puts on its progress, which a job has not
+ * reported yet in its first seconds. This copy covers that gap and any job
+ * whose mark has not landed, and carries what this browser already knows:
+ * a frame job's set, and the kind the dialog expected.
  */
+import type { SequenceKind } from "@/lib/design/sequence/contract";
+import type { SetJobKind } from "@/lib/design/sequence/open-set-jobs";
 
-export type SetJobKind = "set" | "frame";
+export type { SetJobKind };
 
 export interface SetJob {
   jobId: string;
   brandId: string;
   kind: SetJobKind;
+  sequenceKind?: SequenceKind;
+  setId?: string;
   /** ms since epoch. */
   startedAt: number;
 }
@@ -33,7 +35,11 @@ function isSetJob(value: unknown): value is SetJob {
     typeof job.jobId === "string" &&
     typeof job.brandId === "string" &&
     (job.kind === "set" || job.kind === "frame") &&
-    typeof job.startedAt === "number"
+    typeof job.startedAt === "number" &&
+    (job.sequenceKind === undefined ||
+      job.sequenceKind === "carousel" ||
+      job.sequenceKind === "presentation") &&
+    (job.setId === undefined || typeof job.setId === "string")
   );
 }
 

@@ -82,12 +82,17 @@ function buildingSet(pendingFrom: number): SerializedGeneration[] {
 let fetchMock: Mock<(url: string) => Promise<Response>>;
 let jobReply: () => Response;
 let rowsOnServer: SerializedGeneration[];
+/* What GET /api/design/set-jobs lists: the user's open set jobs for the
+   brand, wherever they were started. */
+let openJobs: unknown[];
 const urls = () => fetchMock.mock.calls.map((c) => String(c[0]));
+const LIST_URL = `/api/design/set-jobs?brandId=${BRAND}`;
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   rowsOnServer = [];
+  openJobs = [];
   jobReply = () =>
     respond({
       status: "running",
@@ -97,6 +102,9 @@ beforeEach(() => {
     });
   fetchMock = vi.fn(async (url: string) => {
     if (url.startsWith("/api/jobs/")) return jobReply();
+    if (url.startsWith("/api/design/set-jobs")) {
+      return respond({ jobs: openJobs });
+    }
     const ids = new URL(url, "http://x").searchParams.get("ids")?.split(",");
     return respond({
       generations: rowsOnServer.filter((r) => ids?.includes(r.id)),
@@ -172,10 +180,35 @@ describe("DesignStudioClient history grid with sets", () => {
     ).toBeInTheDocument();
   });
 
-  it("asks the network for nothing while there is nothing to watch", async () => {
+  /* Once, on arrival, for a set started on another device; then nothing
+     while there is nothing to watch. */
+  it("asks only for the open set jobs, once, while there is nothing to watch", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     renderStudio([...frames, singleRow("s1")]);
-    await act(async () => {});
-    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(urls()).toEqual([LIST_URL]));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SET_WATCH_INTERVAL_MS * 12);
+    });
+    expect(urls()).toEqual([LIST_URL]);
+  });
+
+  /* Round 3 M4: a set where every frame failed used to vanish. */
+  it("keeps a card for a set where every frame failed, opening to its retries", async () => {
+    renderStudio(
+      frameRows(5).map((r) => ({
+        ...r,
+        status: "failed",
+        url: null,
+      })) as SerializedGeneration[],
+    );
+    const card = screen.getByRole("button", {
+      name: "Open carousel, 5 slides: The launch. None of its frames rendered. Open it to retry them",
+    });
+    await userEvent.click(card);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByRole("button", { name: "Retry frame 1" }),
+    ).toBeEnabled();
   });
 });
 
@@ -225,9 +258,10 @@ describe("a set still being made when Design Studio opens", () => {
       screen.getByRole("button", { name: /^Open carousel/ }),
     );
     const dialog = await screen.findByRole("dialog");
-    expect(
-      within(dialog).getByText(/^Frame 4 of 5… 3 of 5 ready/),
-    ).toHaveAttribute("role", "status");
+    const announcer = () =>
+      dialog.querySelector('[data-viewer-status] [data-announce="building"]');
+    expect(announcer()).toHaveTextContent(/^Frame 4 of 5… 3 of 5 ready/);
+    expect(within(dialog).getAllByRole("status")).toHaveLength(1);
 
     rowsOnServer = initial.map((row) => ({
       ...row,
@@ -251,15 +285,14 @@ describe("a set still being made when Design Studio opens", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SET_WATCH_INTERVAL_MS);
     });
-    await waitFor(() =>
-      expect(within(dialog).queryByText(/^Frame \d of 5…/)).toBeNull(),
-    );
+    await waitFor(() => expect(announcer()).toBeNull());
+    expect(within(dialog).queryByText(/^Frame \d of 5…/)).toBeNull();
     expect(setJobsFor(BRAND)).toEqual([]);
   });
 
   it("turns frames still pending into failed frames with a retry when the job failed", async () => {
     const initial = buildingSet(3);
-    rememberSetJob({ jobId: "job-9", brandId: BRAND, kind: "set" });
+    rememberSetJob({ jobId: "job-9", brandId: BRAND, kind: "set", setId: SET });
     rowsOnServer = initial;
     jobReply = () =>
       respond({ status: "failed", result: null, error: "Stalled." });
@@ -289,6 +322,191 @@ describe("a set still being made when Design Studio opens", () => {
       within(dialog).getByRole("button", { name: "Retry frame 4" }),
     ).toBeEnabled();
     expect(setJobsFor(BRAND)).toEqual([]);
+  });
+
+  /* Round 3 M2: an ended job that never said which set it built stops
+     nothing; the set may be another job's, still on its way. */
+  it("does not stop a set over a job that ended without naming its set", async () => {
+    const initial = buildingSet(3);
+    rememberSetJob({ jobId: "job-9", brandId: BRAND, kind: "set" });
+    rowsOnServer = initial;
+    jobReply = () =>
+      respond({ status: "failed", result: null, error: "Stalled." });
+    renderStudio(initial);
+    await waitFor(() => expect(setJobsFor(BRAND)).toEqual([]));
+    await act(async () => {});
+    expect(
+      screen.getByRole("button", { name: /Still being made, 3 of 5 ready/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /didn't render/ })).toBeNull();
+  });
+
+  it("does not stop a set's other frames over a failed frame job", async () => {
+    const initial = buildingSet(3);
+    rememberSetJob({
+      jobId: "job-frame",
+      brandId: BRAND,
+      kind: "frame",
+      sequenceKind: "carousel",
+      setId: SET,
+    });
+    rowsOnServer = initial;
+    jobReply = () =>
+      respond({ status: "failed", result: null, error: "Stalled." });
+    renderStudio(initial);
+    await waitFor(() => expect(setJobsFor(BRAND)).toEqual([]));
+    await act(async () => {});
+    expect(
+      screen.getByRole("button", { name: /Still being made, 3 of 5 ready/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("stops only the set whose job ended, and leaves another recent set building", async () => {
+    const OTHER = "0c0ffee0-0000-4000-8000-000000000002";
+    const mine = buildingSet(3);
+    const theirs = buildingSet(4).map((row) => ({
+      ...row,
+      id: `b-${row.id}`,
+      frame: row.frame ? { ...row.frame, setId: OTHER } : null,
+    })) as SerializedGeneration[];
+    rememberSetJob({ jobId: "job-9", brandId: BRAND, kind: "set", setId: SET });
+    rowsOnServer = [...mine, ...theirs];
+    jobReply = () =>
+      respond({ status: "failed", result: null, error: "Stalled." });
+    renderStudio([...mine, ...theirs]);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Open carousel, 5 slides: The launch. 2 didn't render",
+        }),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Open carousel, 5 slides: The launch. Still being made, 4 of 5 ready",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  /* Round 3 M3: a set started on the phone, in a private window, or before
+     site data was cleared is known to the server, not this browser. */
+  it("drives a set this browser never started, from the server's list", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const initial = buildingSet(3);
+    rowsOnServer = initial;
+    openJobs = [
+      {
+        jobId: "job-phone",
+        kind: "set",
+        sequenceKind: "carousel",
+        setId: SET,
+        startedAt: Date.now() - 60_000,
+      },
+    ];
+    jobReply = () =>
+      respond({
+        status: "running",
+        result: null,
+        error: null,
+        progress: {
+          stage: "render",
+          done: 3,
+          total: 5,
+          label: "x",
+          sequenceKind: "carousel",
+          setId: SET,
+        },
+      });
+    renderStudio(initial);
+    await waitFor(() => expect(urls()).toContain("/api/jobs/job-phone"));
+    expect(setJobsFor(BRAND)).toEqual([]);
+
+    rowsOnServer = initial.map((row) => ({
+      ...row,
+      status: "succeeded",
+      url: `https://cdn.example/${row.id}.png`,
+    })) as SerializedGeneration[];
+    jobReply = () =>
+      respond({
+        status: "succeeded",
+        error: null,
+        result: {
+          kind: "sequence",
+          setId: SET,
+          sequenceKind: "carousel",
+          frameCount: 5,
+          generationIds: ["f0", "f1", "f2", "f3", "f4"],
+          failed: [],
+          imageSource: "none",
+        },
+      });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SET_WATCH_INTERVAL_MS);
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Open carousel, 5 slides: The launch",
+        }),
+      ).toBeInTheDocument(),
+    );
+    expect(document.querySelector("[data-set-building]")).toBeNull();
+  });
+
+  /* Round 3 L6: the placeholder is per job. */
+  it("shows no placeholder beside the card of the set its job is checking", async () => {
+    const done = frameRows(5).map((r) => ({ ...r, createdAt: justNow() }));
+    rememberSetJob({ jobId: "job-9", brandId: BRAND, kind: "set", setId: SET });
+    jobReply = () =>
+      respond({
+        status: "running",
+        result: null,
+        error: null,
+        progress: { stage: "checks", done: 5, total: 5, label: "x" },
+      });
+    renderStudio(done);
+    await waitFor(() => expect(urls()).toContain("/api/jobs/job-9"));
+    await act(async () => {});
+    expect(document.querySelector("[data-set-building]")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Open carousel, 5 slides: The launch",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("holds a place for a new set while an older one is still building", async () => {
+    const older = frameRows(5).map((row, i) =>
+      i >= 3
+        ? {
+            ...row,
+            status: "pending",
+            url: null,
+            createdAt: new Date(Date.now() - 300_000).toISOString(),
+          }
+        : { ...row, createdAt: new Date(Date.now() - 300_000).toISOString() },
+    ) as SerializedGeneration[];
+    rowsOnServer = older;
+    rememberSetJob({
+      jobId: "job-new",
+      brandId: BRAND,
+      kind: "set",
+      sequenceKind: "presentation",
+    });
+    jobReply = () =>
+      respond({
+        status: "running",
+        result: null,
+        error: null,
+        progress: { stage: "brief", done: 0, total: 6, label: "x" },
+      });
+    renderStudio(older);
+    expect(
+      await screen.findByText("Making your presentation. Planning…"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Still being made, 3 of 5 ready/ }),
+    ).toBeInTheDocument();
   });
 
   it("says a frame long past any set's time has stopped, with no job of ours to ask", () => {

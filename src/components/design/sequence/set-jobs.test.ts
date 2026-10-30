@@ -37,6 +37,46 @@ describe("the set jobs this browser started", () => {
     expect(setJobsFor("b1")).toEqual([]);
   });
 
+  /* Round 3: what this browser knew at the start (the kind the dialog
+     expected, a frame job's set) travels with the job, so the grid can say
+     "carousel" and stop only the set a failed job was building. */
+  it("keeps a job's kind and set, and refuses a malformed one", () => {
+    rememberSetJob(
+      {
+        jobId: "j1",
+        brandId: "b1",
+        kind: "frame",
+        sequenceKind: "presentation",
+        setId: "set-1",
+      },
+      1000,
+    );
+    expect(setJobsFor("b1", 2000)).toEqual([
+      {
+        jobId: "j1",
+        brandId: "b1",
+        kind: "frame",
+        sequenceKind: "presentation",
+        setId: "set-1",
+        startedAt: 1000,
+      },
+    ]);
+    window.localStorage.setItem(
+      "koos.design.setJobs.v1",
+      JSON.stringify([
+        {
+          jobId: "j",
+          brandId: "b1",
+          kind: "set",
+          startedAt: 1,
+          sequenceKind: "reel",
+        },
+        { jobId: "k", brandId: "b1", kind: "set", startedAt: 1, setId: 4 },
+      ]),
+    );
+    expect(setJobsFor("b1", 2)).toEqual([]);
+  });
+
   /* Private mode and blocked site data throw on access. */
   it("keeps working when storage throws", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {

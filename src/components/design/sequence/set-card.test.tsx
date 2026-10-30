@@ -73,6 +73,42 @@ describe("SetCard", () => {
   });
 });
 
+/* Round 3 M4: a set with no frame to put on its cover kept no card at all,
+   so a carousel that failed outright, or was being made elsewhere, left the
+   grid with no trace. */
+describe("SetCard for a set with no picture yet", () => {
+  const all = (status: "failed" | "pending") =>
+    setOf(frameRows(5).map((r) => ({ ...r, status, url: null })));
+
+  it("says a set that failed outright failed, and opens to its retries", async () => {
+    const onOpen = vi.fn();
+    const set = all("failed");
+    const { container } = render(<SetCard set={set} onOpen={onOpen} />);
+    const card = screen.getByRole("button", {
+      name: "Open carousel, 5 slides: The launch. None of its frames rendered. Open it to retry them",
+    });
+    expect(card).toHaveTextContent("This carousel didn't render");
+    expect(card).toHaveTextContent("5 failed");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("[data-slot=skeleton]")).toBeNull();
+    await userEvent.click(card);
+    expect(onOpen).toHaveBeenCalledWith(set);
+  });
+
+  it("holds the frame's shape with a skeleton while the set is being made", () => {
+    const { container } = render(
+      <SetCard set={all("pending")} onOpen={vi.fn()} />,
+    );
+    expect(screen.getByRole("button")).toHaveAccessibleName(
+      "Open carousel, 5 slides: The launch. Still being made, 0 of 5 ready",
+    );
+    expect(container.querySelector("[data-slot=skeleton]")).not.toBeNull();
+    expect(screen.getByText("Making your carousel…")).toBeInTheDocument();
+    expect(screen.getByText("0 of 5")).toBeInTheDocument();
+    expect(screen.queryByText(/failed/)).toBeNull();
+  });
+});
+
 describe("SetBuildingCard", () => {
   it("says where a set with no frame yet has got, as a status", () => {
     const job = {
@@ -82,6 +118,7 @@ describe("SetBuildingCard", () => {
       frameCount: 5,
       done: 2,
       rendering: true,
+      startedAt: 0,
     };
     const { rerender } = render(<SetBuildingCard job={job} />);
     expect(screen.getByRole("status")).toHaveTextContent(
