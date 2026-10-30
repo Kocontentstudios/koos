@@ -56,7 +56,7 @@ vi.mock("@/lib/design/sequence/plan", () => ({
   planSequence: (input: unknown) => planSequence(input),
 }));
 vi.mock("@/lib/design/sequence/replan", () => ({
-  replanFrame: (input: unknown) => replanFrame(input),
+  replanFrame: (input: unknown, deps: unknown) => replanFrame(input, deps),
 }));
 vi.mock("@/lib/design/sequence/frame-spec", async () => {
   const { designSpecOf } = await import("./directions/schema");
@@ -918,6 +918,7 @@ describe("regenerating one frame (H9)", () => {
       }) => ({
         beat: { ...input.plan.frames[input.index], ...input.edits },
         modelCalls: 0,
+        uncovered: [],
       }),
     );
     const usageBefore = db.usage.length;
@@ -941,6 +942,7 @@ describe("regenerating one frame (H9)", () => {
       frameIndex: 1,
       generationId: fresh.id,
       replaced: target.id,
+      uncovered: [],
     });
     expect(replanFrame).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -948,6 +950,7 @@ describe("regenerating one frame (H9)", () => {
         plan: set.plan,
         edits: { headline: "butter from ONE farm, really" },
       }),
+      expect.objectContaining({ facts: expect.any(Array) }),
     );
     expect(replaceDesignSetBeat).toHaveBeenCalledWith(
       target.setId,
@@ -964,6 +967,26 @@ describe("regenerating one frame (H9)", () => {
     });
   });
 
+  it("hands on the facts an edit left the set without, so the UI can warn (round-3 critic, finding 7)", async () => {
+    const rows = await deliveredSet();
+    replanFrame.mockImplementation(
+      async (input: {
+        plan: PlannedSequence;
+        index: number;
+        edits: object;
+      }) => ({
+        beat: { ...input.plan.frames[input.index], ...input.edits },
+        modelCalls: 0,
+        uncovered: [{ kind: "price", text: "₦2,500 a bottle" }],
+      }),
+    );
+    const outcome = await regenerate(rows[1].id, { subheadline: "" });
+    expect(outcome.result.uncovered).toEqual(["₦2,500 a bottle"]);
+    expect(db.usage.at(-1)?.metadata).toMatchObject({
+      uncovered: ["₦2,500 a bottle"],
+    });
+  });
+
   it("leaves the other frames untouched", async () => {
     const rows = await deliveredSet();
     const others = [rows[0], rows[2]].map((r) => ({ ...db.rows.get(r.id) }));
@@ -971,6 +994,7 @@ describe("regenerating one frame (H9)", () => {
       async (input: { plan: PlannedSequence; index: number }) => ({
         beat: { ...input.plan.frames[input.index], headline: "A new angle" },
         modelCalls: 1,
+        uncovered: [],
       }),
     );
     await regenerate(rows[1].id);
@@ -988,6 +1012,7 @@ describe("regenerating one frame (H9)", () => {
           layout: rows[0].spec.layout,
         },
         modelCalls: 1,
+        uncovered: [],
       }),
     );
     const outcome = await regenerate(rows[1].id);
@@ -1002,6 +1027,7 @@ describe("regenerating one frame (H9)", () => {
       async (input: { plan: PlannedSequence; index: number }) => ({
         beat: input.plan.frames[input.index],
         modelCalls: 1,
+        uncovered: [],
       }),
     );
     db.rows.set("in-flight", {
@@ -1023,6 +1049,7 @@ describe("regenerating one frame (H9)", () => {
       async (input: { plan: PlannedSequence; index: number }) => ({
         beat: input.plan.frames[input.index],
         modelCalls: 1,
+        uncovered: [],
       }),
     );
     rasterizeDocument.mockRejectedValue(new Error("render worker crashed"));
@@ -1112,6 +1139,7 @@ function regenerateWith(
 const keepBeat = async (input: { plan: PlannedSequence; index: number }) => ({
   beat: input.plan.frames[input.index],
   modelCalls: 1,
+  uncovered: [],
 });
 
 /* A first slice that pauses once `delivered` frames have rendered. */

@@ -167,6 +167,12 @@ export interface RegenerateFrameJobResult {
   frameIndex: number;
   generationId: string;
   replaced: string;
+  /** The brief facts the set stated before a user's edit and no frame
+   *  states now, in the brief's words. The edit still stands (H9); this is
+   *  what the set stopped saying, for the UI to warn about. Absent on
+   *  results stored before it existed and on a model rewrite, which is
+   *  refused instead of dropping a fact. */
+  uncovered?: string[];
 }
 
 /** The frame fields SerializedGeneration carries; null on single designs. */

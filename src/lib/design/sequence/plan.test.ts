@@ -77,6 +77,7 @@ const OUTLINE_FRAMES = [
     title: "The launch",
     point: "Cold brew is here",
     facts: [],
+    profilePoint: 0,
     layout: "banner-bottom",
     showsImage: false,
   },
@@ -85,6 +86,7 @@ const OUTLINE_FRAMES = [
     title: "The price",
     point: "A bottle costs the price",
     facts: [3],
+    profilePoint: 0,
     layout: "banner-bottom",
     showsImage: false,
   },
@@ -93,6 +95,7 @@ const OUTLINE_FRAMES = [
     title: "The day",
     point: "It happens one Saturday morning",
     facts: [4, 5],
+    profilePoint: 0,
     layout: "hero-center",
     showsImage: false,
   },
@@ -101,6 +104,7 @@ const OUTLINE_FRAMES = [
     title: "The place",
     point: "Where the bar is",
     facts: [2],
+    profilePoint: 0,
     layout: "split-left",
     showsImage: true,
   },
@@ -109,6 +113,7 @@ const OUTLINE_FRAMES = [
     title: "Reserve",
     point: "Message to reserve",
     facts: [6],
+    profilePoint: 0,
     layout: "quote-card",
     showsImage: false,
   },
@@ -122,8 +127,8 @@ const copyFrames = () => [
     backgroundPrompt: "a bottle of cold brew on a bar",
   },
   {
-    headline: "₦2,500 a bottle",
-    subheadline: "Kept cold, ready at the counter",
+    headline: "Chilled and ready to carry",
+    subheadline: "",
     footerLines: [],
     backgroundPrompt: "",
   },
@@ -142,7 +147,7 @@ const copyFrames = () => [
   {
     headline: "Reserve a bottle before Saturday",
     subheadline: "",
-    footerLines: ["WhatsApp 0803 555 0142"],
+    footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
     backgroundPrompt: "",
   },
 ];
@@ -286,7 +291,7 @@ describe("planSequence", () => {
   it("asks one repair pass for the frames that break a rule, by name", async () => {
     const broken = copyFrames();
     broken[3] = { ...broken[3], headline: "Your Saturday, slowed right down" };
-    broken[4] = { ...broken[4], footerLines: [] };
+    broken[4] = { ...broken[4], footerLines: ["₦2,500 a bottle"] };
     answer({
       copy: () => copy(broken),
       repair: () => ({
@@ -305,7 +310,7 @@ describe("planSequence", () => {
               title: "Reserve",
               headline: "Reserve a bottle before Saturday",
               subheadline: "",
-              footerLines: ["WhatsApp 0803 555 0142"],
+              footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
               cta: "Message us",
             },
           ],
@@ -332,7 +337,7 @@ describe("planSequence", () => {
 
   it("keeps the first copy where a rewrite would leave more problems, and returns what stands", async () => {
     const broken = copyFrames();
-    broken[4] = { ...broken[4], footerLines: [] };
+    broken[4] = { ...broken[4], footerLines: ["₦2,500 a bottle"] };
     answer({
       copy: () => copy(broken),
       repair: () => ({
@@ -366,7 +371,7 @@ describe("planSequence", () => {
 
   it("ignores a rewrite of a frame it did not ask about", async () => {
     const broken = copyFrames();
-    broken[4] = { ...broken[4], footerLines: [] };
+    broken[4] = { ...broken[4], footerLines: ["₦2,500 a bottle"] };
     answer({
       copy: () => copy(broken),
       repair: () => ({
@@ -385,7 +390,7 @@ describe("planSequence", () => {
       }),
     });
     const result = await planSequence(input(), { briefReader: reader });
-    expect(result.plan.frames[1].headline).toBe("₦2,500 a bottle");
+    expect(result.plan.frames[1].headline).toBe("Chilled and ready to carry");
   });
 
   it("asks a repair for a number the brief never gave", async () => {
@@ -706,13 +711,14 @@ describe("planSequence", () => {
 
   it("goes on with the draft that breaks fewer rules, with no editor call", async () => {
     const broken = copyFrames();
-    broken[4] = { ...broken[4], footerLines: [] };
+    broken[4] = { ...broken[4], footerLines: ["₦2,500 a bottle"] };
     answer({ copy: (draft) => (draft === 1 ? copy(broken) : copy()) });
     const result = await planSequence(input(), { briefReader: reader });
     expect(generateObject.mock.calls.map(([o]) => o).some(isChoice)).toBe(
       false,
     );
     expect(result.plan.frames[4].footerLines).toEqual([
+      "₦2,500 a bottle",
       "WhatsApp 0803 555 0142",
     ]);
     expect(console.info).toHaveBeenCalledWith(
@@ -1067,7 +1073,7 @@ describe("planSequence: the edit pass and its limits", () => {
 
   it("keeps the set's button when a rewrite of the action frame leaves it empty", async () => {
     const broken = copyFrames();
-    broken[4] = { ...broken[4], footerLines: [] };
+    broken[4] = { ...broken[4], footerLines: ["₦2,500 a bottle"] };
     answer({
       copy: () => copy(broken),
       repair: () => ({
@@ -1076,7 +1082,7 @@ describe("planSequence: the edit pass and its limits", () => {
             rewriteOf(5, {
               title: "Reserve",
               headline: "Reserve a bottle before Saturday",
-              footerLines: ["WhatsApp 0803 555 0142"],
+              footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
               cta: "",
             }),
           ],
@@ -1086,5 +1092,192 @@ describe("planSequence: the edit pass and its limits", () => {
     const result = await planSequence(input(), { briefReader: reader });
     expect(result.plan.frames[4].cta).toBe("Message us");
     expect(result.problems).toEqual([]);
+  });
+});
+
+describe("planSequence: the round-3 critic's findings", () => {
+  it("LOW 6: refuses a frame count outside FRAME_BOUNDS before any call", async () => {
+    await expect(
+      planSequence(input({ kind: "presentation", frameCount: 2 }), {
+        briefReader: reader,
+      }),
+    ).rejects.toThrow("a presentation is 3 to 12 frames, not 2");
+    await expect(
+      planSequence(input({ frameCount: 11 }), { briefReader: reader }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      planSequence(input({ frameCount: 4.5 }), { briefReader: reader }),
+    ).rejects.toThrow(RangeError);
+    expect(generateObject).not.toHaveBeenCalled();
+    expect(reader).not.toHaveBeenCalled();
+  });
+
+  it("MEDIUM 3: moves a price the copy put on a middle frame to the action frame, both halves together", async () => {
+    const misplaced = copyFrames();
+    misplaced[1] = {
+      ...misplaced[1],
+      headline: "₦2,500 a bottle",
+      subheadline: "Kept cold, ready at the counter",
+    };
+    misplaced[4] = { ...misplaced[4], footerLines: ["WhatsApp 0803 555 0142"] };
+    answer({
+      copy: () => copy(misplaced),
+      repair: () => ({
+        object: {
+          frames: [
+            {
+              frame: 2,
+              title: "Ready to carry",
+              headline: "Chilled and ready to carry",
+              subheadline: "",
+              footerLines: [],
+              cta: "",
+            },
+            {
+              frame: 5,
+              title: "Reserve",
+              headline: "Reserve a bottle before Saturday",
+              subheadline: "",
+              footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
+              cta: "Message us",
+            },
+          ],
+        },
+      }),
+    });
+    const result = await planSequence(input(), { briefReader: reader });
+    const asked = promptOf(
+      generateObject.mock.calls.map(([o]) => o).find(isEdit),
+    );
+    expect(asked).toContain(
+      'problem: it gives the price "₦2,500 a bottle", which belongs on frame 5',
+    );
+    expect(asked).toContain(
+      'problem: it must state the price "₦2,500 a bottle" beside the action',
+    );
+    expect(result.plan.frames[1].headline).toBe("Chilled and ready to carry");
+    expect(result.plan.frames[4].footerLines).toContain("₦2,500 a bottle");
+    expect(result.problems).toEqual([]);
+    expect(result.faults.map((f) => f.detail).join(" ")).not.toContain(
+      "belongs on frame",
+    );
+  });
+
+  it("MEDIUM 3: counts a price left on a middle frame as a fault, not silently", async () => {
+    const misplaced = copyFrames();
+    misplaced[1] = {
+      ...misplaced[1],
+      headline: "₦2,500 a bottle",
+      subheadline: "Kept cold, ready at the counter",
+    };
+    misplaced[4] = { ...misplaced[4], footerLines: ["WhatsApp 0803 555 0142"] };
+    answer({ copy: () => copy(misplaced) });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(result.faults).toContainEqual({
+      frame: 1,
+      detail: expect.stringContaining("belongs on frame 5"),
+    });
+  });
+
+  it("MEDIUM 4: sets no frame in stat-highlight unless its headline gives a figure", async () => {
+    const frames = OUTLINE_FRAMES.map((f) => ({
+      ...f,
+      layout: "stat-highlight",
+      showsImage: false,
+    }));
+    answer({ outline: () => outline(frames) });
+    const result = await planSequence(input({ imageSource: "none" }), {
+      briefReader: reader,
+    });
+    result.plan.frames.forEach((beat) => {
+      if (beat.layout === "stat-highlight") {
+        expect(beat.headline).toMatch(/[\d₦$€£%]/);
+      }
+    });
+    expect(result.plan.frames.map((f) => f.layout)).toContain("quote-card");
+  });
+
+  describe("thin briefs borrow points from the brand profile (Oluwaseyi, 2026-10-30)", () => {
+    const profiled = () =>
+      context({
+        brandSummary: {
+          name: "Kiln Coffee",
+          overview: "Coffee bar in Yaba, Lagos",
+          tone: "Warm",
+          differentiators: "Beans from the Mambilla Plateau, roasted each week",
+          values: "Patience over shortcuts",
+        },
+      });
+
+    it("offers the profile's points to the outline as a labelled second source", async () => {
+      answer({});
+      await planSequence(input({ context: profiled() }), {
+        briefReader: reader,
+      });
+      const asked = promptOf(
+        generateObject.mock.calls.map(([o]) => o).find(isOutline),
+      );
+      expect(asked).toContain(
+        "A second source, used only once the brief's own points are spent",
+      );
+      expect(asked).toContain(
+        'P1. (what sets it apart) "Beans from the Mambilla Plateau, roasted each week"',
+      );
+      expect(asked).toContain('P2. (its values) "Patience over shortcuts"');
+    });
+
+    it("hands the cited point to the copy writer, and the ledger accepts it", async () => {
+      const frames = OUTLINE_FRAMES.map((f, i) =>
+        i === 2
+          ? { ...f, beat: "proof", title: "The beans", profilePoint: 1 }
+          : f,
+      );
+      const written = copyFrames();
+      written[2] = {
+        ...written[2],
+        subheadline: "8am to 2pm",
+        headline: "Mambilla Plateau beans, roasted each week",
+      };
+      answer({ outline: () => outline(frames), copy: () => copy(written) });
+      const result = await planSequence(input({ context: profiled() }), {
+        briefReader: reader,
+      });
+      const copyPrompt = promptOf(
+        generateObject.mock.calls.map(([o]) => o).find(isCopy),
+      );
+      expect(copyPrompt).toContain(
+        `its point is the brand profile's, so say it in the profile's measure and add nothing to it: "Beans from the Mambilla Plateau, roasted each week"`,
+      );
+      expect(result.plan.frames).toHaveLength(5);
+      expect(console.info).toHaveBeenCalledWith(
+        "design.sequence.planned",
+        expect.objectContaining({
+          invented: [],
+          profilePoints: 3,
+          profilePointsUsed: 1,
+        }),
+      );
+    });
+
+    it("asks the outline again when two frames make one profile point", async () => {
+      const twice = OUTLINE_FRAMES.map((f, i) =>
+        i === 1 || i === 3 ? { ...f, profilePoint: 1 } : f,
+      );
+      let outlines = 0;
+      answer({
+        outline: () => {
+          outlines += 1;
+          return outline(outlines === 1 ? twice : OUTLINE_FRAMES);
+        },
+      });
+      await planSequence(input({ context: profiled() }), {
+        briefReader: reader,
+      });
+      expect(outlines).toBe(2);
+      const again = promptOf(
+        generateObject.mock.calls.map(([o]) => o).filter(isOutline)[1],
+      );
+      expect(again).toContain("Your last outline made the same point twice");
+    });
   });
 });

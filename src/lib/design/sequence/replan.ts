@@ -30,7 +30,9 @@ import type {
   ReplanFrameInput,
 } from "./contract";
 import { hookFaults, hookPreviews } from "./hook";
+import { withFigureLayout } from "./layouts";
 import { inventedOn, sequenceFacts, sequenceLedger, withRewrite } from "./plan";
+import { misplacedPrices } from "./points";
 import { repairSequenceFor } from "./repair";
 import { type FrameRewrite, rewriteResponseSchema } from "./schema";
 import {
@@ -51,25 +53,65 @@ export class FrameEditError extends Error {
   }
 }
 
-/** What kept a version out, in the user's terms: the problems are
- *  written for the model ("it states "one", which the brief does not
- *  give"), and a refused paid regenerate should say why (round-2 critic,
- *  finding 8). */
-export function replanReason(problems: readonly string[]): string | null {
-  const first = problems[0]?.trim();
-  if (!first) return null;
-  return first.replace(/^it\b/, "the new version");
+/** Why a regenerated version cannot stand, by kind. The detail is
+ *  written for the model and the logs; the user is told the kind. */
+export type RegenerateProblemKind =
+  | "too-long"
+  | "same-as-before"
+  | "repeats-frame"
+  | "drops-fact"
+  | "drops-offering"
+  | "invented"
+  | "role"
+  | "flat-hook"
+  | "hook-preview"
+  | "price-placement"
+  | "nothing-back";
+
+export interface RegenerateProblem {
+  kind: RegenerateProblemKind;
+  detail: string;
+}
+
+/* A refused paid regenerate says why (round-2 critic, finding 8), in a
+   sentence for the person who pressed the button, never the instruction
+   the model was given (round-3 critic, finding 5). */
+const USER_REASON: Record<RegenerateProblemKind, string> = {
+  "too-long": "The new words were too long to fit.",
+  "same-as-before": "Every new version said what it says now.",
+  "repeats-frame": "Every new version repeated another frame's headline.",
+  "drops-fact": "Every new version left out a detail only this frame gives.",
+  "drops-offering": "Every new version stopped saying what is on offer.",
+  invented: "Every new version added a detail the brief does not give.",
+  role: "Every new version broke this frame's job in the set.",
+  "flat-hook": "Every new opening was a label, not a reason to swipe.",
+  "hook-preview": "Every new opening gave away a later frame's point.",
+  "price-placement": "Every new version moved the price off the last frame.",
+  "nothing-back": "No new version came back.",
+};
+
+/** The user's reason for a refused regenerate, from its first problem. */
+export function replanReason(
+  problems: readonly RegenerateProblem[],
+): string | null {
+  const first = problems[0];
+  return first ? USER_REASON[first.kind] : null;
 }
 
 /** A model rewrite none of whose versions could stand beside its set.
- *  The frame on show is kept. */
+ *  The frame on show is kept. `problems` are the model-facing details,
+ *  for the logs; the message is the user's. */
 export class FrameReplanError extends Error {
-  constructor(readonly problems: string[]) {
-    const reason = replanReason(problems);
+  readonly problems: string[];
+  readonly reasons: RegenerateProblemKind[];
+  constructor(found: readonly RegenerateProblem[]) {
+    const reason = replanReason(found);
     super(
-      `KO couldn't write a different version of this frame that fits the rest of the set${reason ? `: ${reason}` : ""}. The frame is unchanged; try again or edit its words.`,
+      `KO couldn't rewrite this frame to fit the set.${reason ? ` ${reason}` : ""} The frame is unchanged. Try again, or edit its words.`,
     );
     this.name = "FrameReplanError";
+    this.problems = found.map((p) => p.detail);
+    this.reasons = found.map((p) => p.kind);
   }
 }
 
@@ -98,14 +140,35 @@ function edited(
   return text;
 }
 
+export interface FrameEditResult {
+  beat: FrameBeat;
+  /** Brief facts the set stated before the edit and no frame states now.
+   *  The user's words still stand (H9); the job hands these on so the
+   *  user is told what the set stopped saying (round-3 critic, finding 7:
+   *  clearing a subheadline dropped the set's only price unseen). */
+  uncovered: BriefFact[];
+}
+
 /**
  * The frame with the user's words as typed: no model call and no rewrite
- * (H9). Role, layout, image and footer stay. Refused, with a reason the
- * user can act on, only when the words cannot be drawn: past a limit, an
- * empty headline, a button on a frame that is not the last, or the last
- * frame left without one.
+ * (H9). Role, image and footer stay; the layout changes only when a
+ * stat-highlight is left with no figure to set large (withFigureLayout).
+ * Refused, with a reason the user can act on, only when the words cannot
+ * be drawn: past a limit, an empty headline, a button on a frame that is
+ * not the last, or the last frame left without one.
  */
-export function applyFrameEdits(beat: FrameBeat, edits: FrameEdits): FrameBeat {
+export function applyFrameEdits(
+  plan: PlannedSequence,
+  index: number,
+  edits: FrameEdits,
+  facts: readonly BriefFact[] = [],
+): FrameEditResult {
+  const beat = plan.frames[index];
+  if (!beat) {
+    throw new RangeError(
+      `applyFrameEdits: frame ${index} is outside a ${plan.frames.length}-frame set`,
+    );
+  }
   const headline = edited("headline", edits.headline, beat.headline);
   if (!headline) {
     throw new FrameEditError("Every frame needs a headline.", "headline");
@@ -128,7 +191,13 @@ export function applyFrameEdits(beat: FrameBeat, edits: FrameEdits): FrameBeat {
       "cta",
     );
   }
-  return { ...beat, headline, subheadline, cta };
+  const next = withFigureLayout({ ...beat, headline, subheadline, cta });
+  const frames = plan.frames.map((b, i) => (i === index ? next : b));
+  const before = new Set(factsUncovered(plan.frames, facts));
+  return {
+    beat: next,
+    uncovered: factsUncovered(frames, facts).filter((f) => !before.has(f)),
+  };
 }
 
 /** What stops a rewritten frame standing beside its set: a limit, a
@@ -155,7 +224,7 @@ export function regenerateProblems(
     /** What the hook names (hookNames). */
     names?: readonly string[];
   },
-): string[] {
+): RegenerateProblem[] {
   const before = plan.frames[index];
   const frames = plan.frames.map((beat, i) => (i === index ? next : beat));
   const roleBefore = new Set(roleProblems(plan.frames).map((p) => p.detail));
@@ -163,18 +232,27 @@ export function regenerateProblems(
   /* Hard limits only: a headline a word over the format's budget is still
      drawn, and failing a paid regenerate over it would cost the user more
      than the word does. */
-  const problems = copyLimitProblems(next, index, plan.kind, {
-    budget: false,
-  }).map((p) => p.detail);
+  const problems: RegenerateProblem[] = copyLimitProblems(
+    next,
+    index,
+    plan.kind,
+    { budget: false },
+  ).map((p) => ({ kind: "too-long", detail: p.detail }));
+  const add = (kind: RegenerateProblemKind, detail: string) =>
+    problems.push({ kind, detail });
   if (isNearDuplicateHeadline(before.headline, next.headline, ignore)) {
-    problems.push(`the headline "${next.headline}" says what it said before`);
+    add(
+      "same-as-before",
+      `the headline "${next.headline}" says what it said before`,
+    );
   }
   plan.frames.forEach((beat, i) => {
     if (
       i !== index &&
       isNearDuplicateHeadline(beat.headline, next.headline, ignore)
     ) {
-      problems.push(
+      add(
+        "repeats-frame",
         `the headline "${next.headline}" says what frame ${i + 1}'s "${beat.headline}" says`,
       );
     }
@@ -182,7 +260,7 @@ export function regenerateProblems(
   const wasUncovered = new Set(factsUncovered(plan.frames, facts));
   for (const fact of factsUncovered(frames, facts)) {
     if (!wasUncovered.has(fact)) {
-      problems.push(`it no longer states "${fact.text}"`);
+      add("drops-fact", `it no longer states "${fact.text}"`);
     }
   }
   if (
@@ -191,19 +269,31 @@ export function regenerateProblems(
     !copyNamesOffering(next, offering) &&
     copyNamesOffering(before, offering)
   ) {
-    problems.push(`the hook no longer names "${offering}"`);
+    add("drops-offering", `the hook no longer names "${offering}"`);
   }
   for (const made of invented) {
-    problems.push(`it states "${made}", which the brief does not give`);
+    add("invented", `it states "${made}", which the brief does not give`);
   }
   for (const role of roleProblems(frames)) {
-    if (!roleBefore.has(role.detail)) problems.push(role.detail);
+    if (!roleBefore.has(role.detail)) add("role", role.detail);
+  }
+  const priced = new Set(
+    misplacedPrices(plan.frames, facts, plan.kind)
+      .filter((f) => f.frame === index)
+      .map((f) => f.detail),
+  );
+  for (const fault of misplacedPrices(frames, facts, plan.kind)) {
+    if (fault.frame === index && !priced.has(fault.detail)) {
+      add("price-placement", fault.detail);
+    }
   }
   if (index === 0) {
-    problems.push(...hookFaults(next, offering, names, brandName, facts));
+    for (const fault of hookFaults(next, offering, names, brandName, facts)) {
+      add("flat-hook", fault);
+    }
     const previewed = new Set(hookPreviews(plan.frames, offering, brandName));
     for (const preview of hookPreviews(frames, offering, brandName)) {
-      if (!previewed.has(preview)) problems.push(preview);
+      if (!previewed.has(preview)) add("hook-preview", preview);
     }
   }
   return problems;
@@ -262,14 +352,19 @@ async function heldTo(
 export async function replanFrame(
   { context, plan, index, edits }: ReplanFrameInput,
   deps: ReplanFrameDeps = {},
-): Promise<{ beat: FrameBeat; modelCalls: number }> {
+): Promise<{ beat: FrameBeat; modelCalls: number; uncovered: BriefFact[] }> {
   const beat = plan.frames[index];
   if (!beat) {
     throw new RangeError(
       `replanFrame: frame ${index} is outside a ${plan.frames.length}-frame set`,
     );
   }
-  if (edits) return { beat: applyFrameEdits(beat, edits), modelCalls: 0 };
+  if (edits) {
+    return {
+      ...applyFrameEdits(plan, index, edits, deps.facts ?? []),
+      modelCalls: 0,
+    };
+  }
 
   const held = await heldTo(context, deps);
   const { facts, offering } = held;
@@ -314,7 +409,10 @@ export async function replanFrame(
 
   const judge = (rewrite: FrameRewrite) => {
     /* Same point, so the same title on its card. */
-    const next = { ...withRewrite(beat, rewrite), title: beat.title };
+    const next = withFigureLayout({
+      ...withRewrite(beat, rewrite),
+      title: beat.title,
+    });
     return {
       next,
       problems: regenerateProblems(plan, index, next, {
@@ -339,10 +437,10 @@ export async function replanFrame(
     readBrief: held.calls > 0,
     modelCalls,
   });
-  if (usable) return { beat: usable.next, modelCalls };
+  if (usable) return { beat: usable.next, modelCalls, uncovered: [] };
   throw new FrameReplanError(
     versions.length > 0
       ? versions[versions.length - 1].problems
-      : ["no frame came back"],
+      : [{ kind: "nothing-back", detail: "no frame came back" }],
   );
 }

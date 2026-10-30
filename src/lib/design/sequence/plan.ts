@@ -21,6 +21,7 @@ import {
   type BriefFact,
   brandRegion,
   drawnText,
+  factStated,
   withVenueOrBrand,
 } from "@/lib/jobs/directions/brief-facts";
 import {
@@ -43,20 +44,23 @@ import {
   shownOrder,
 } from "./choose";
 import {
+  FRAME_BOUNDS,
   type FrameBeat,
   type PlannedSequence,
   type PlanSequenceInput,
   type PlanSequenceResult,
   PRESENTATION_ASPECT,
+  type SequenceKind,
   type SequenceProblem,
 } from "./contract";
 import { hookFaults, hookPreviews, unnamedOnHook } from "./hook";
+import { withFigureLayout } from "./layouts";
 import {
   type OutlineSettlement,
   repeatedPoints,
   settleOutline,
 } from "./outline";
-import { factOnlyFrames } from "./points";
+import { factOnlyFrames, misplacedPrices, profilePoints } from "./points";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, sequenceRepeats, withoutRepeats } from "./repeats";
 import {
@@ -256,8 +260,18 @@ export function repairFixes(
     offering,
     names,
     brandName,
+    plan.kind,
   )) {
     add(repeat.frame, repeat.detail);
+  }
+  const lastBeat = plan.frames[last];
+  for (const price of misplacedFacts(plan.frames, facts, plan.kind)) {
+    if (lastBeat && !factStated(price, lastBeat)) {
+      add(
+        last,
+        `it must state the price "${price.text}" beside the action, now that the frame that gave it leaves it out`,
+      );
+    }
   }
   return [...asked.entries()]
     .sort(([a], [b]) => a - b)
@@ -333,6 +347,7 @@ export function planScore(
     rules.offering,
     names,
     brandName,
+    plan.kind,
   ).length;
   const hook = hookCopyFaults(
     plan.frames,
@@ -395,10 +410,13 @@ export function hookScore(
     rules.facts,
   );
   const unnamed = unnamedOnHook(hook, rules.offering, names).length;
+  const priced = misplacedPrices(plan.frames, rules.facts, plan.kind).filter(
+    (f) => f.frame === 0,
+  ).length;
   return (
     problems +
     invented +
-    faults.length * HOOK_WEIGHT +
+    (faults.length + priced) * HOOK_WEIGHT +
     unnamed * (COVERAGE_WEIGHT - HOOK_WEIGHT)
   );
 }
@@ -438,12 +456,28 @@ export function copyFaults(
   offering: string | null,
   names: readonly string[] = [],
   brandName = "",
+  kind: SequenceKind = "presentation",
 ): FrameRepeat[] {
   return [
     ...sequenceRepeats(frames, facts, offering, brandName),
     ...factOnlyFrames(frames, facts),
+    ...misplacedPrices(frames, facts, kind),
     ...hookCopyFaults(frames, offering, names, brandName, facts),
   ];
+}
+
+/** The prices a carousel states on a frame other than the last. */
+export function misplacedFacts(
+  frames: readonly FrameBeat[],
+  facts: readonly BriefFact[],
+  kind: SequenceKind,
+): BriefFact[] {
+  if (kind !== "carousel") return [];
+  return facts.filter(
+    (f) =>
+      f.kind === "price" &&
+      frames.some((beat) => beat.role !== "cta" && factStated(f, beat)),
+  );
 }
 
 /**
@@ -454,6 +488,11 @@ export function copyFaults(
  * what code cannot count; a version that breaks a rule, drops a fact or
  * adds a fault still loses. Code chooses between the model's answers; it
  * never writes a word of any.
+ *
+ * `linked` pairs frames whose fix is one move made on two frames (a price
+ * leaving a middle frame for the action frame): each half alone scores
+ * worse (the fact is dropped, or said twice), so one at a time neither is
+ * ever kept. Each pair's versions are also tried together.
  */
 export function applyRewrites(
   plan: PlannedSequence,
@@ -461,6 +500,7 @@ export function applyRewrites(
   asked: ReadonlySet<number>,
   score: (plan: PlannedSequence) => number,
   reviewed: ReadonlySet<number> = new Set(),
+  linked: readonly (readonly [number, number])[] = [],
 ): { plan: PlannedSequence; kept: number } {
   const changed = new Set<number>();
   let current = plan;
@@ -488,7 +528,44 @@ export function applyRewrites(
       kept += 1;
     }
   }
+  const versionsOf = (index: number) =>
+    asked.has(index) ? rewrites.filter((r) => r.frame - 1 === index) : [];
+  for (const [a, b] of linked) {
+    if (!current.frames[a] || !current.frames[b]) continue;
+    let best: { plan: PlannedSequence; score: number } | null = null;
+    for (const va of versionsOf(a)) {
+      for (const vb of versionsOf(b)) {
+        const frames = current.frames.map((beat, i) => {
+          if (i === a) return withRewrite(beat, va);
+          return i === b ? withRewrite(beat, vb) : beat;
+        });
+        const candidate = { ...current, frames };
+        const candidateScore = score(candidate);
+        if (candidateScore < (best?.score ?? currentScore)) {
+          best = { plan: candidate, score: candidateScore };
+        }
+      }
+    }
+    if (best) {
+      current = best.plan;
+      currentScore = best.score;
+      kept += 2;
+    }
+  }
   return { plan: current, kept };
+}
+
+/** The frame pairs a carousel's misplaced price moves between: each
+ *  frame before the last that states a price, with the last. */
+export function priceMoves(
+  plan: PlannedSequence,
+  facts: readonly BriefFact[],
+): [number, number][] {
+  const last = plan.frames.length - 1;
+  return misplacedPrices(plan.frames, facts, plan.kind)
+    .map((f) => f.frame)
+    .filter((frame, i, all) => all.indexOf(frame) === i)
+    .map((frame) => [frame, last]);
 }
 
 /** The outline and its copy as one plan every frame of the set shares. */
@@ -568,8 +645,15 @@ export async function planSequence(
   { briefReader = readBriefWithModel }: PlanSequenceDeps = {},
 ): Promise<PlannedSequenceResult> {
   const { context, kind, frameCount, imageSource, image } = input;
-  if (!Number.isInteger(frameCount) || frameCount < 2) {
-    throw new RangeError(`planSequence: ${frameCount} is not a frame count`);
+  const bounds = FRAME_BOUNDS[kind];
+  if (
+    !Number.isInteger(frameCount) ||
+    frameCount < bounds.min ||
+    frameCount > bounds.max
+  ) {
+    throw new RangeError(
+      `planSequence: a ${kind} is ${bounds.min} to ${bounds.max} frames, not ${frameCount} (clampFrameCount)`,
+    );
   }
   const started = Date.now();
   const memorySummary = input.memorySummary ?? "";
@@ -602,6 +686,7 @@ export async function planSequence(
   const offering = read.offering?.phrase ?? null;
   const offeringIndex = facts.findIndex((f) => f.kind === "product");
   const names = hookNames(context, offering);
+  const profile = profilePoints(context.brandSummary, briefText);
   const shared = contentStems(
     [context.brandSummary.name, offering].filter(Boolean).join(" "),
   );
@@ -706,6 +791,8 @@ export async function planSequence(
     hasImage,
     recentLayouts: input.recentLayouts,
     factKinds: facts.map((f) => f.kind),
+    factTexts: facts.map((f) => f.text),
+    profilePointCount: profile.length,
     priceWithAction: kind === "carousel",
   };
   const askOutline = (repeated: string[]) =>
@@ -720,6 +807,7 @@ export async function planSequence(
           offering,
           imageSource,
           imageAttached: attached,
+          profilePoints: profile,
           repeated,
         }),
       OUTLINE_MAX_OUTPUT_TOKENS,
@@ -727,14 +815,20 @@ export async function planSequence(
     );
   let outlineAnswer = await askOutline([]);
   let outline = settleOutline(outlineAnswer, outlineOptions);
-  const repeated = repeatedPoints(outline.frames, shared);
+  const repeatsIn = (settled: OutlineSettlement) => [
+    ...new Set([
+      ...repeatedPoints(settled.frames, shared),
+      ...settled.profileReused.map((i) => settled.frames[i].point),
+    ]),
+  ];
+  const repeated = repeatsIn(outline);
   let outlineAskedAgain = false;
   if (repeated.length > 0) {
     outlineAskedAgain = true;
     try {
       const again = await askOutline(repeated);
       const settled = settleOutline(again, outlineOptions);
-      if (repeatedPoints(settled.frames, shared).length < repeated.length) {
+      if (repeatsIn(settled).length < repeated.length) {
         outlineAnswer = again;
         outline = settled;
       }
@@ -752,6 +846,10 @@ export async function planSequence(
           frames: outline.frames.map((frame) => ({
             ...frame,
             facts: frame.facts.map((n) => facts[n].text),
+            profilePoint:
+              frame.profilePoint === null
+                ? null
+                : profile[frame.profilePoint].text,
           })),
           offering,
           imageSource,
@@ -859,6 +957,9 @@ export async function planSequence(
             owned.map((n) => facts[n].text),
           ),
           names,
+          spareProfilePoints: profile.filter(
+            (_, n) => !outline.frames.some((f) => f.profilePoint === n),
+          ),
         }),
       COPY_MAX_OUTPUT_TOKENS,
     );
@@ -866,29 +967,42 @@ export async function planSequence(
       (note) => note.frame >= 2 && note.frame <= frameCount,
     );
     const reviewed = new Set(review.map((note) => note.frame - 1));
+    const moves = priceMoves(plan, facts);
     const applied = applyRewrites(
       plan,
       answer.frames.filter((rewrite) => rewrite.frame !== 1),
       new Set([...bodyFixes.map((f) => f.index), ...reviewed]),
       score,
       reviewed,
+      moves.filter(([from]) => from !== 0),
     );
     kept = applied.kept;
     const current = { ...applied.plan, frames: tidied(applied.plan.frames) };
     plan = current;
+    const last = frameCount - 1;
+    /* A price on the hook moves to the action frame in the same choice:
+       a hook version that drops it alone leaves the set without it. */
+    const actionVersions = moves.some(([from]) => from === 0)
+      ? answer.frames.filter((rewrite) => rewrite.frame === frameCount)
+      : [];
+    const hookWith = (v: FrameRewrite, action: FrameRewrite | null) => ({
+      ...current,
+      frames: tidied(
+        current.frames.map((beat, i) => {
+          if (i === 0) return { ...withRewrite(beat, v), title: beat.title };
+          return i === last && action ? withRewrite(beat, action) : beat;
+        }),
+      ),
+    });
+    const hookVersions = answer.frames
+      .filter((rewrite) => rewrite.frame === 1)
+      .slice(0, HOOK_VERSIONS);
     const versions = [
       current,
-      ...answer.frames
-        .filter((rewrite) => rewrite.frame === 1)
-        .slice(0, HOOK_VERSIONS)
-        .map((v) => ({
-          ...current,
-          frames: tidied(
-            current.frames.map((beat, i) =>
-              i === 0 ? { ...withRewrite(beat, v), title: beat.title } : beat,
-            ),
-          ),
-        })),
+      ...hookVersions.map((v) => hookWith(v, null)),
+      ...hookVersions.flatMap((v) =>
+        actionVersions.map((action) => hookWith(v, action)),
+      ),
     ];
     if (versions.length > 1) {
       hook = await editorChoice(
@@ -912,16 +1026,27 @@ export async function planSequence(
     console.error("sequence edit pass failed; keeping the draft", err);
   }
 
+  plan = { ...plan, frames: plan.frames.map(withFigureLayout) };
   const problems = validateSequence(plan, rules);
   const invented = plan.frames.flatMap((beat, frame) =>
     inventedOn(beat, ledger).map((text) => ({ frame, text })),
   );
-  const faults = copyFaults(plan.frames, facts, offering, names, brandName);
+  const faults = copyFaults(
+    plan.frames,
+    facts,
+    offering,
+    names,
+    brandName,
+    kind,
+  );
   console.info("design.sequence.planned", {
     kind,
     frames: frameCount,
     facts: facts.length,
     factsPlaced: outline.factsPlaced.length,
+    profilePoints: profile.length,
+    profilePointsUsed: outline.frames.filter((f) => f.profilePoint !== null)
+      .length,
     layoutsChanged: outline.layoutsChanged,
     outlineAskedAgain,
     drafts: drafts.length,

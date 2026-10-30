@@ -11,6 +11,15 @@ import type { BriefFactKind } from "@/lib/jobs/directions/brief-facts";
  * presentations, each run at 3, 5 and 8 frames. Facts are labelled by hand
  * in the brief's own words, so coverage is measured against the labels and
  * never against the brief reader the planner itself uses.
+ *
+ * SEQUENCE_EVAL_CASES is the tuning set: rounds 1 to 3 read its runs to
+ * change the prompt. SEQUENCE_HELD_OUT_CASES was written on 2026-10-30,
+ * after the round-3 critic found the prompt quoting tuning-set hooks, and
+ * is never read to change the prompt: its score is reported on its own
+ * (--set held-out), as the measure of whether the planner generalises.
+ * No phrase of either set may appear in the prompt (prompt-leak.test.ts).
+ * Every brand profile carries the fields a thin brief may borrow points
+ * from (profilePoints), so that path is measured, not only unit-tested.
  */
 
 export interface LabelledSequenceFact {
@@ -51,6 +60,7 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       values: "Patience over shortcuts; coffee that tastes of where it grew",
       differentiators:
         "Beans from the Mambilla Plateau, roasted in-house each week",
+      primaryGoal: "Make the Yaba bar a weekend habit for students",
       primaryColor: "#1F2A24",
       secondaryColor: "#D9822B",
     },
@@ -86,6 +96,7 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       values: "Keeping the Abeokuta dyeing tradition paid and alive",
       differentiators:
         "Buys directly from the dyers; every piece is one of a kind",
+      primaryGoal: "Sell each new batch before the next one arrives",
       primaryColor: "#1E3A8A",
       secondaryColor: "#F5EBDD",
     },
@@ -121,6 +132,7 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
         "Freelancers should spend their time on the work, not on chasing payment",
       differentiators:
         "Built for Nigerian freelancers billing clients at home and abroad",
+      primaryGoal: "Sign up freelancers who invoice clients every month",
       primaryColor: "#0F766E",
       secondaryColor: "#F0FDFA",
     },
@@ -153,6 +165,7 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       values: "Real bread, made slowly, taught generously",
       differentiators:
         "Every class is taught by our own bakers in our working kitchen",
+      primaryGoal: "Fill every weekend class",
       primaryColor: "#FFF4E6",
       secondaryColor: "#C2410C",
     },
@@ -190,6 +203,7 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       values: "Farmers keep more of what they grow",
       differentiators:
         "No upfront cost for farmers; cold rooms run on solar, off the grid",
+      primaryGoal: "Close the seed round to open cold rooms in new markets",
       primaryColor: "#14532D",
       secondaryColor: "#FEF3C7",
     },
@@ -225,6 +239,7 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       values: "Design from Lagos, on its own terms",
       differentiators:
         "Brings designers, brands and buyers into one programme each December",
+      primaryGoal: "Sign brand partners for the main stage and the market",
       primaryColor: "#111827",
       secondaryColor: "#F59E0B",
     },
@@ -244,6 +259,151 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       { kind: "place", text: "Landmark Centre, Victoria Island" },
       { kind: "price", text: "₦15,000,000" },
       { kind: "contact", text: "partners@lagosdesignweek.ng" },
+    ],
+  },
+];
+
+/**
+ * Briefs the prompt was never tuned on. Two are thin on purpose (the
+ * pepper sauce gives two facts, the laundry service four, at up to eight
+ * frames), so a set has to borrow points from the brand profile rather
+ * than repeat the brief's. One is text-led, one a presentation.
+ */
+export const SEQUENCE_HELD_OUT_CASES: SequenceEvalCase[] = [
+  {
+    id: "pepper-sauce",
+    kind: "carousel",
+    brand: {
+      name: "Ata Kitchen",
+      overview: "Small-batch Nigerian pepper sauces made in Ibadan",
+      targetAudience: "Home cooks in Lagos and Ibadan who cook with heat",
+      tone: "Bold, friendly, a little cheeky",
+      offer: "Scotch bonnet pepper sauce in jars",
+      values: "Real heat from real peppers, nothing artificial added",
+      differentiators:
+        "Peppers bought from smallholder farmers in Oyo, blended without preservatives",
+      primaryGoal: "Turn first-time buyers into monthly reorders",
+      primaryColor: "#B91C1C",
+      secondaryColor: "#FDE68A",
+    },
+    hasLogo: true,
+    imageSource: "ko",
+    request: {
+      title: "Pepper sauce restock",
+      designType: "Instagram carousel",
+      platform: "Instagram",
+      aspectRatio: "4:5",
+      briefText:
+        "Our scotch bonnet pepper sauce is back in stock. ₦3,500 a 250ml jar. Order on WhatsApp 0809 222 7781.",
+    },
+    offering: "scotch bonnet pepper sauce",
+    facts: [
+      { kind: "price", text: "₦3,500 a 250ml jar" },
+      { kind: "contact", text: "WhatsApp 0809 222 7781" },
+    ],
+  },
+  {
+    id: "laundry",
+    kind: "carousel",
+    brand: {
+      name: "FreshFold",
+      overview: "Laundry pickup and delivery service in Lekki",
+      targetAudience: "Busy professionals and young families in Lekki",
+      tone: "Calm, tidy, reassuring",
+      offer: "Wash, dry and iron with free pickup and delivery",
+      values: "Your weekend belongs to you, not to the washing",
+      differentiators:
+        "Every bag is washed separately, never mixed with another customer's",
+      primaryGoal: "Win weekly subscribers in Lekki Phase 1",
+      primaryColor: "#0E7490",
+      secondaryColor: "#ECFEFF",
+    },
+    hasLogo: true,
+    imageSource: "none",
+    request: {
+      title: "Laundry pickup in Lekki",
+      designType: "Instagram carousel",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText:
+        "Laundry pickup for Lekki Phase 1. We collect on Monday and bring your clothes back washed and ironed on Wednesday. ₦8,000 for a 10kg bag. Book at freshfold.ng.",
+    },
+    offering: "Laundry pickup",
+    facts: [
+      { kind: "place", text: "Lekki Phase 1" },
+      { kind: "day", text: "Monday" },
+      { kind: "day", text: "Wednesday" },
+      { kind: "price", text: "₦8,000 for a 10kg bag" },
+      { kind: "contact", text: "freshfold.ng" },
+    ],
+  },
+  {
+    id: "clinic",
+    kind: "carousel",
+    brand: {
+      name: "Smile Studio",
+      overview: "Dental clinic in Ikeja GRA",
+      targetAudience: "Adults 25-50 in Ikeja who want a brighter smile",
+      tone: "Warm, professional, plain-spoken",
+      offer: "Check-ups, cleaning and teeth whitening",
+      values: "Gentle care, explained before it starts",
+      differentiators:
+        "Every treatment is done by a licensed dentist, not an assistant",
+      primaryGoal: "Book more whitening appointments on weekdays",
+      primaryColor: "#1D4ED8",
+      secondaryColor: "#F8FAFC",
+    },
+    hasLogo: true,
+    imageSource: "ko",
+    request: {
+      title: "Teeth whitening offer",
+      designType: "Instagram carousel",
+      platform: "Instagram",
+      aspectRatio: "4:5",
+      briefText:
+        "Teeth whitening at Smile Studio, Ikeja GRA. One 60-minute session. ₦45,000 for the month of December. Call 0701 234 9876 to book.",
+    },
+    offering: "Teeth whitening",
+    facts: [
+      { kind: "place", text: "Ikeja GRA" },
+      { kind: "quantity", text: "One 60-minute session" },
+      { kind: "price", text: "₦45,000" },
+      { kind: "date", text: "December" },
+      { kind: "contact", text: "Call 0701 234 9876" },
+    ],
+  },
+  {
+    id: "school-deck",
+    kind: "presentation",
+    brand: {
+      name: "Ikorodu Code Club",
+      overview: "Free after-school coding club at a public school in Ikorodu",
+      targetAudience: "Corporate social responsibility leads at Lagos firms",
+      tone: "Earnest, specific, hopeful",
+      offer: "Weekly coding lessons for secondary school students",
+      values: "Every child deserves a first line of code",
+      differentiators:
+        "Taught by volunteer engineers from the community, at no cost to families",
+      primaryGoal: "Fund laptops so more students can join",
+      primaryColor: "#7C3AED",
+      secondaryColor: "#FAF5FF",
+    },
+    hasLogo: true,
+    imageSource: "none",
+    request: {
+      title: "Fund our laptops",
+      designType: "Fundraising presentation",
+      platform: "Email to sponsors",
+      aspectRatio: "16:9",
+      briefText:
+        "Fundraising deck for Ikorodu Code Club. 120 students learn to code with us each term. We need ₦6,000,000 for 30 laptops. Contact hello@ikorodu-codeclub.org.",
+    },
+    offering: "Ikorodu Code Club",
+    facts: [
+      { kind: "quantity", text: "120 students" },
+      { kind: "price", text: "₦6,000,000" },
+      { kind: "quantity", text: "30 laptops" },
+      { kind: "contact", text: "hello@ikorodu-codeclub.org" },
     ],
   },
 ];

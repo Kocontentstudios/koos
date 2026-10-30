@@ -83,36 +83,34 @@ describe("replanFrame with the user's edits", () => {
   });
 
   it("keeps role, title, layout, image, scene and footer", () => {
-    const beat = applyFrameEdits(plan.frames[4], { headline: "See you there" });
+    const { beat } = applyFrameEdits(plan, 4, { headline: "See you there" });
     const { headline: _, ...kept } = beat;
     const { headline: __, ...before } = plan.frames[4];
     expect(kept).toEqual(before);
   });
 
   it("keeps a field the user left out, and clears one they emptied", () => {
-    const beat = applyFrameEdits(plan.frames[0], { subheadline: "" });
+    const { beat } = applyFrameEdits(plan, 0, { subheadline: "" });
     expect(beat.headline).toBe(plan.frames[0].headline);
     expect(beat.subheadline).toBe("");
   });
 
   it("only trims whitespace no one would see", () => {
     expect(
-      applyFrameEdits(plan.frames[1], { headline: "  Hi there  " }).headline,
+      applyFrameEdits(plan, 1, { headline: "  Hi there  " }).beat.headline,
     ).toBe("Hi there");
   });
 
   it("refuses words past a frame's limit with a reason the user can act on", () => {
     const tooLong = "x".repeat(75);
-    expect(() =>
-      applyFrameEdits(plan.frames[1], { headline: tooLong }),
-    ).toThrow(
+    expect(() => applyFrameEdits(plan, 1, { headline: tooLong })).toThrow(
       new FrameEditError(
         "The headline is 75 characters; a frame fits 70. Shorten it by 5.",
         "headline",
       ),
     );
     try {
-      applyFrameEdits(plan.frames[4], { cta: "c".repeat(40) });
+      applyFrameEdits(plan, 4, { cta: "c".repeat(40) });
     } catch (err) {
       expect(err).toBeInstanceOf(FrameEditError);
       expect((err as FrameEditError).field).toBe("cta");
@@ -122,25 +120,25 @@ describe("replanFrame with the user's edits", () => {
 
   it("accepts words at exactly the limit", () => {
     const atLimit = "x".repeat(70);
-    expect(
-      applyFrameEdits(plan.frames[1], { headline: atLimit }).headline,
-    ).toBe(atLimit);
+    expect(applyFrameEdits(plan, 1, { headline: atLimit }).beat.headline).toBe(
+      atLimit,
+    );
   });
 
   it("refuses an empty headline", () => {
-    expect(() => applyFrameEdits(plan.frames[1], { headline: "   " })).toThrow(
+    expect(() => applyFrameEdits(plan, 1, { headline: "   " })).toThrow(
       "Every frame needs a headline.",
     );
   });
 
   it("refuses a button anywhere but the last frame, and the last without one", () => {
-    expect(() => applyFrameEdits(plan.frames[2], { cta: "Buy" })).toThrow(
+    expect(() => applyFrameEdits(plan, 2, { cta: "Buy" })).toThrow(
       FrameEditError,
     );
-    expect(() => applyFrameEdits(plan.frames[4], { cta: "" })).toThrow(
+    expect(() => applyFrameEdits(plan, 4, { cta: "" })).toThrow(
       "The last frame needs its button text",
     );
-    expect(applyFrameEdits(plan.frames[4], { cta: "Book now" }).cta).toBe(
+    expect(applyFrameEdits(plan, 4, { cta: "Book now" }).beat.cta).toBe(
       "Book now",
     );
   });
@@ -157,10 +155,13 @@ describe("replanFrame without edits", () => {
     );
     expect(result.modelCalls).toBe(2);
     expect(generateObject).toHaveBeenCalledTimes(1);
+    /* The figure moved to the subheadline, so the stat layout has nothing
+       to set large and becomes the statement card. */
     expect(result.beat).toEqual({
       ...plan.frames[1],
       headline: "Slow coffee, fair price",
       subheadline: "₦2,500 a bottle",
+      layout: "quote-card",
     });
     const prompt = generateObject.mock.calls[0][0].prompt as string;
     expect(prompt).toContain("Write frame 2 again, 2 different versions");
@@ -335,7 +336,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
         invented: [],
         brandName: "Kiln Coffee",
       }),
-    ).toContain("the last frame has no button");
+    ).toContainEqual({ kind: "role", detail: "the last frame has no button" });
   });
 
   it("P2: refuses a hook that announces the offering", async () => {
@@ -380,11 +381,12 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(FrameReplanError);
-    expect((err as FrameReplanError).message).toContain(
-      'the new version states "one", which the brief does not give',
+    expect((err as FrameReplanError).message).toBe(
+      "KO couldn't rewrite this frame to fit the set. Every new version added a detail the brief does not give. The frame is unchanged. Try again, or edit its words.",
     );
-    expect((err as FrameReplanError).message).toContain(
-      "The frame is unchanged",
+    expect((err as FrameReplanError).reasons).toContain("invented");
+    expect((err as FrameReplanError).problems).toContain(
+      'it states "one", which the brief does not give',
     );
   });
 
@@ -399,10 +401,113 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
 });
 
 describe("replanReason", () => {
-  it("reads the first problem as the user would", () => {
+  it("gives the user a short sentence keyed by the problem, never the model's instruction", () => {
     expect(
-      replanReason(['it states "one", which the brief does not give']),
-    ).toBe('the new version states "one", which the brief does not give');
+      replanReason([
+        {
+          kind: "flat-hook",
+          detail:
+            'the hook\'s headline "Cold brew is here" announces the offering, which gives no reason to swipe; make the headline the reason to swipe',
+        },
+      ]),
+    ).toBe("Every new opening was a label, not a reason to swipe.");
     expect(replanReason([])).toBeNull();
+  });
+
+  it("P2 (round-3 critic): the refused hook's message says nothing addressed to a model", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        frame: 1,
+        title: "The launch",
+        headline: "Cold brew is here",
+        subheadline: "At Kiln Coffee",
+      }),
+    );
+    const err = (await replanFrame(
+      { context, plan: cafePlan(), index: 0 },
+      {
+        briefReader: reader,
+        facts: [fact("price", "₦2,500 a bottle")],
+        offering: "cold brew",
+      },
+    ).catch((e: unknown) => e)) as FrameReplanError;
+    expect(err).toBeInstanceOf(FrameReplanError);
+    expect(err.message).toBe(
+      "KO couldn't rewrite this frame to fit the set. Every new opening was a label, not a reason to swipe. The frame is unchanged. Try again, or edit its words.",
+    );
+    expect(err.message).not.toMatch(/subheadline|swipe;|headline "/);
+    expect(err.message.length).toBeLessThan(160);
+  });
+});
+
+describe("applyFrameEdits: what an edit uncovers (round-3 critic, finding 7)", () => {
+  const facts = [
+    fact("price", "₦2,500 a bottle"),
+    fact("contact", "WhatsApp 0803 555 0142"),
+  ];
+
+  it("P4: clearing the only frame that gave the price keeps the user's words and names the price", () => {
+    const plan = cafePlan();
+    const { beat, uncovered } = applyFrameEdits(
+      plan,
+      1,
+      { headline: "Slow coffee, worth the wait" },
+      facts,
+    );
+    expect(beat.headline).toBe("Slow coffee, worth the wait");
+    expect(uncovered.map((f) => f.text)).toEqual(["₦2,500 a bottle"]);
+  });
+
+  it("names nothing when coverage holds, or when the fact was already missing", () => {
+    const plan = cafePlan();
+    expect(
+      applyFrameEdits(plan, 2, { subheadline: "" }, facts).uncovered,
+    ).toEqual([]);
+    const without = applyFrameEdits(
+      plan,
+      1,
+      { headline: "Slow coffee" },
+      facts,
+    );
+    const after = {
+      ...plan,
+      frames: plan.frames.map((b, i) => (i === 1 ? without.beat : b)),
+    };
+    expect(
+      applyFrameEdits(after, 1, { headline: "Slower coffee" }, facts).uncovered,
+    ).toEqual([]);
+  });
+
+  it("returns the uncovered facts through replanFrame, with no model call", async () => {
+    const result = await replanFrame(
+      {
+        context,
+        plan: cafePlan(),
+        index: 1,
+        edits: { headline: "Slow coffee" },
+      },
+      { briefReader: reader, facts, offering: "cold brew" },
+    );
+    expect(result.modelCalls).toBe(0);
+    expect(result.uncovered.map((f) => f.text)).toEqual(["₦2,500 a bottle"]);
+    expect(reader).not.toHaveBeenCalled();
+  });
+
+  it("sets a stat-highlight the edit left with no figure as the statement card", () => {
+    const plan = cafePlan();
+    const stat = {
+      ...plan,
+      frames: plan.frames.map((b, i) =>
+        i === 2 ? { ...b, layout: "stat-highlight" as const } : b,
+      ),
+    };
+    expect(
+      applyFrameEdits(stat, 2, { headline: "Patience in every glass" }).beat
+        .layout,
+    ).toBe("quote-card");
+    expect(
+      applyFrameEdits(stat, 2, { headline: "18 hours, no shortcuts" }).beat
+        .layout,
+    ).toBe("stat-highlight");
   });
 });

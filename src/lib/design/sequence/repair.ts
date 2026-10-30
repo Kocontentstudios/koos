@@ -102,6 +102,12 @@ function repairedFrame(value: unknown): unknown {
     if (frame.facts === null) frame.facts = [];
   }
   if ("showsImage" in frame) frame.showsImage = asBoolean(frame.showsImage);
+  /* An outline frame that leaves out its profile point makes the brief's
+     point: 0 is the schema's answer for that, so the outline is kept. */
+  if ("beat" in frame) {
+    const cited = Number(frame.profilePoint ?? 0);
+    frame.profilePoint = Number.isInteger(cited) ? cited : 0;
+  }
   return frame;
 }
 

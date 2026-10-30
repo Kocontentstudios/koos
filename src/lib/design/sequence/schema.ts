@@ -64,6 +64,12 @@ export const outlineFrameSchema = z.object({
     .array(z.number().int())
     .max(12)
     .describe("The numbers of the brief facts this frame states; [] for none."),
+  profilePoint: z
+    .number()
+    .int()
+    .describe(
+      "The number of the brand-profile point this frame makes, or 0 when its point comes from the brief.",
+    ),
   layout: z.enum(DESIGN_LAYOUTS),
   showsImage: z.boolean(),
 });

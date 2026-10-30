@@ -12,6 +12,8 @@ pnpm eval:design-sequence                         # 6 briefs x N in {3, 5, 8}
 pnpm eval:design-sequence --kind carousel --n 5   # the 4 carousels at 5 frames
 pnpm eval:design-sequence --case event            # one brief, every N
 pnpm eval:design-sequence --no-judge              # deterministic lane only
+pnpm eval:design-sequence --set held-out          # the 4 held-out briefs x N
+pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
 ```
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
@@ -33,6 +35,32 @@ every plan and every judge reason, lands in
 `qa-reports/eval/design-sequence.json` (gitignored).
 
 ## Fixtures
+
+Two sets, scored and reported separately against the same frozen
+thresholds:
+
+- **Tuning** (`SEQUENCE_EVAL_CASES`, the default): the six briefs rounds 1
+  to 3 read to change the prompt.
+- **Held out** (`SEQUENCE_HELD_OUT_CASES`, `--set held-out`): four briefs
+  written on 2026-10-30, after the round-3 critic found the prompt quoting
+  tuning-set hooks word for word. A pepper sauce restock (two facts, so
+  thin at N=8), a laundry pickup service (text-led), a dental clinic
+  offer and a fundraising deck. Nobody reads their runs to change the
+  prompt; they measure whether the planner generalises. The report goes
+  to `qa-reports/eval/design-sequence.held-out.json`.
+
+`prompt-leak.test.ts` (gate lane) fails if any distinctive phrase of
+either set (the offering, title, brand name, every labelled fact, every
+figure with its unit, the distinctive words of the names) appears in
+`src/lib/ai/prompts/design-sequence.ts`, comments included, in
+`HOOK_CRAFT`, or in any prompt the builders produce for a brief that is
+not a fixture. The phrases are computed from `cases.ts`, so a new fixture
+is covered the day it is added.
+
+Every brand profile carries `overview`, `offer`, `values`,
+`differentiators`, `targetAudience` and `primaryGoal`, the fields a thin
+brief may borrow points from (`profilePoints` in
+`src/lib/design/sequence/points.ts`), so that path is measured live.
 
 `cases.ts` holds four carousels (a cafe, a textile store, a SaaS launch, a
 teen baking class) and two presentations (a seed pitch deck and a
@@ -83,6 +111,61 @@ anyone edits them.
   failed) is reported as "not measured". It never counts as a pass.
 
 ## Results so far
+
+### Round 4 (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
+
+Logs and JSON reports in `/tmp/feat-multiframe/critique/u1r4/`
+(`eval-tuning-{a,b,c}`, `eval-heldout-{a,b,c}`). Run a was the first
+pass of this round; b and c are two runs of the code as committed.
+
+Changes: fixture examples removed from the prompt (a tuning-set hook had
+been copied word for word) and gated by `prompt-leak.test.ts`; a thin
+brief may borrow points from the brand profile, labelled as a second
+source and each used once; a carousel price stated before the action
+frame is a fault after copy, and its move is tried on both frames
+together; stat-highlight only for a headline with a figure.
+
+| Run | set | coverage | hook | last action | non-repetitive |
+|---|---|---|---|---|---|
+| a | tuning | 1.0 | 3.78 | 4.94 | 3.44 |
+| a | held out | 0.75 (label error, see below) | 3.33 | 4.83 | 3.08 |
+| b | tuning | 1.0 | 3.56 | 4.89 | 3.11 |
+| b | held out | 0.917 | 3.50 | 4.92 | 3.50 |
+| c | tuning | 1.0 | 3.89 | 5.00 | 3.17 |
+| c | held out | 1.0 | 3.50 | 4.83 | 3.67 |
+
+**Both sets fail the frozen hook and non-repetition thresholds.** The
+tuning hook fell from round 3's 3.72 to 4.11 range to 3.56 to 3.89 once
+the prompt stopped handing the model two fixtures' hooks: round 3's hook
+number was partly recall. The held-out set lands in the same range
+(hook 3.33 to 3.50, non-repetition 3.08 to 3.67), so the planner is not
+worse on briefs it never saw; it is just as short of 4.
+
+Run a's held-out coverage miss was the label, not the planner: the
+clinic's quantity was labelled "60-minute session" where the brief says
+"One 60-minute session", and the product's fact reader (`factStated`)
+counts the extra number. The label was corrected to the brief's words
+before runs b and c. Run b's one miss (clinic N=8) is real: the planner
+reported it as `fact-uncovered` itself.
+
+Deterministic evidence from runs b and c: 0 price-placement faults left
+in 60 runs, 0 stat-highlight frames without a figure.
+
+What holds the judge scores down, from the reasons in the reports:
+
+- Hooks: a question any competitor could post ("Still doing laundry
+  yourself?"), or a headline that leaves the offering to the
+  subheadline. The judge marks both 3.
+- Non-repetition at N=8 on thin briefs: profile points that are near
+  each other in meaning (a school's "free" in three fields), and two
+  action-adjacent frames (a "reserve" frame before the action frame).
+- Text-led sets (no image) alternate hero-center and the centred card for
+  the whole set. The renderer has two text-led compositions
+  (`TEXT_LED_LAYOUTS`); a third needs a new builder in
+  `src/lib/design/document/builders/`, outside the planner.
+
+### Round 3
+
 
 Round 3 of the revision (2026-10-30, Bedrock
 `us.anthropic.claude-sonnet-4-6`). Logs and JSON reports are in

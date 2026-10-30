@@ -11,6 +11,7 @@ const frame = (over: Partial<OutlineFrame> = {}): OutlineFrame => ({
   title: "A point",
   point: "Something the viewer learns",
   facts: [],
+  profilePoint: 0,
   layout: "hero-center",
   showsImage: false,
   ...over,
@@ -128,10 +129,67 @@ describe("settleOutline", () => {
     );
     expect(settled.frames.map((f) => f.layout)).toEqual([
       "hero-center",
-      "stat-highlight",
+      "quote-card",
       "hero-center",
     ]);
     expect(settled.layoutsChanged).toBe(2);
+  });
+
+  it("sets stat-highlight only on a frame that states a figure (round-3 critic, finding 4)", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ layout: "hero-center" }),
+          frame({ layout: "stat-highlight", facts: [3] }),
+          frame({ layout: "hero-center" }),
+          frame({ layout: "stat-highlight" }),
+        ],
+      },
+      {
+        ...options,
+        hasImage: false,
+        offeringFact: null,
+        factTexts: ["cold brew", "our Yaba bar", "₦2,500 a bottle", "Saturday"],
+      },
+    );
+    expect(settled.frames.map((f) => f.layout)).toEqual([
+      "hero-center",
+      "stat-highlight",
+      "hero-center",
+      "quote-card",
+    ]);
+  });
+
+  it("makes each brand-profile point once, on a middle frame only", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ profilePoint: 1 }),
+          frame({ profilePoint: 1 }),
+          frame({ profilePoint: 1, point: "The same point again" }),
+          frame({ profilePoint: 2 }),
+          frame({ profilePoint: 2 }),
+        ],
+      },
+      { ...options, profilePointCount: 2 },
+    );
+    expect(settled.frames.map((f) => f.profilePoint)).toEqual([
+      null,
+      0,
+      null,
+      1,
+      null,
+    ]);
+    expect(settled.profileReused).toEqual([2]);
+  });
+
+  it("drops a profile point the outline was never offered", () => {
+    const settled = settleOutline(
+      { frames: [frame(), frame({ profilePoint: 3 }), frame()] },
+      { ...options, profilePointCount: 2 },
+    );
+    expect(settled.frames[1].profilePoint).toBeNull();
+    expect(settled.profileReused).toEqual([]);
   });
 });
 
@@ -156,6 +214,38 @@ describe("settleFrameLayouts", () => {
     for (let i = 1; i < layouts.length; i += 1) {
       expect(sameComposition(layouts[i - 1], layouts[i])).toBe(false);
     }
+  });
+
+  it("cycles a text-led set through three layouts when frames have figures, not one pair", () => {
+    const layouts = settleFrameLayouts(
+      Array.from({ length: 6 }, () => ({
+        layout: "quote-card" as const,
+        showsImage: false,
+        figure: true,
+      })),
+    );
+    expect(layouts).toEqual([
+      "quote-card",
+      "hero-center",
+      "stat-highlight",
+      "hero-center",
+      "quote-card",
+      "hero-center",
+    ]);
+    for (let i = 1; i < layouts.length; i += 1) {
+      expect(sameComposition(layouts[i - 1], layouts[i])).toBe(false);
+    }
+  });
+
+  it("never sets stat-highlight on a frame with no figure", () => {
+    const layouts = settleFrameLayouts(
+      Array.from({ length: 8 }, (_, i) => ({
+        layout: i % 2 ? ("stat-highlight" as const) : ("hero-center" as const),
+        showsImage: i === 0,
+      })),
+    );
+    expect(layouts).not.toContain("stat-highlight");
+    expect(layouts[1]).toBe("quote-card");
   });
 
   it("draws a frame without the image in a text-led layout", () => {

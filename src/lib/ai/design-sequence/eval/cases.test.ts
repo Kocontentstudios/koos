@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { FRAME_BOUNDS } from "@/lib/design/sequence/contract";
 import { cafePlan, withFrame } from "@/lib/design/sequence/fixtures";
+import { profilePoints } from "@/lib/design/sequence/points";
 import { inBrief } from "@/lib/jobs/directions/brief-read";
 import {
   FRAME_COUNTS,
   SEQUENCE_EVAL_CASES,
   SEQUENCE_EVAL_THRESHOLDS,
+  SEQUENCE_HELD_OUT_CASES,
 } from "./cases";
 import {
   buildJudgePrompt,
@@ -42,7 +44,7 @@ describe("SEQUENCE_EVAL_CASES", () => {
   });
 
   it("labels every fact and offering in the brief's own words", () => {
-    for (const c of SEQUENCE_EVAL_CASES) {
+    for (const c of [...SEQUENCE_EVAL_CASES, ...SEQUENCE_HELD_OUT_CASES]) {
       expect(inBrief(c.offering, c.request.briefText), c.id).not.toBeNull();
       for (const f of c.facts) {
         expect(
@@ -51,6 +53,46 @@ describe("SEQUENCE_EVAL_CASES", () => {
         ).not.toBeNull();
       }
     }
+  });
+
+  it("gives every brand a profile a thin brief can borrow points from", () => {
+    for (const c of [...SEQUENCE_EVAL_CASES, ...SEQUENCE_HELD_OUT_CASES]) {
+      for (const field of [
+        "overview",
+        "offer",
+        "values",
+        "differentiators",
+        "targetAudience",
+        "primaryGoal",
+      ] as const) {
+        expect(c.brand[field]?.trim(), `${c.id}: ${field}`).toBeTruthy();
+      }
+      expect(
+        profilePoints(c.brand, c.request.briefText).length,
+        c.id,
+      ).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("keeps a held-out set of at least three briefs, apart from the tuning set", () => {
+    expect(SEQUENCE_HELD_OUT_CASES.length).toBeGreaterThanOrEqual(3);
+    const tuning = new Set(SEQUENCE_EVAL_CASES.map((c) => c.id));
+    const brands = new Set(SEQUENCE_EVAL_CASES.map((c) => c.brand.name));
+    for (const c of SEQUENCE_HELD_OUT_CASES) {
+      expect(tuning.has(c.id), c.id).toBe(false);
+      expect(brands.has(c.brand.name), c.id).toBe(false);
+    }
+    expect(SEQUENCE_HELD_OUT_CASES.map((c) => c.kind)).toContain(
+      "presentation",
+    );
+    expect(SEQUENCE_HELD_OUT_CASES.map((c) => c.imageSource)).toContain("none");
+    /* At least one brief has fewer facts than the longest set has middle
+       frames, so the profile is the only honest source left. */
+    expect(
+      SEQUENCE_HELD_OUT_CASES.some(
+        (c) => c.facts.length < Math.max(...FRAME_COUNTS) - 2,
+      ),
+    ).toBe(true);
   });
 
   it("freezes the rubric's thresholds", () => {

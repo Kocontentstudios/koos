@@ -12,8 +12,13 @@
  * to src/lib/design/sequence/ or src/lib/ai/prompts/design-sequence.ts, and
  * nightly. Not part of `pnpm test`.
  *
- * Usage: pnpm eval:design-sequence [--case <id>] [--n <3|5|8>]
- *          [--kind carousel|presentation] [--no-judge]
+ * Usage: pnpm eval:design-sequence [--set tuning|held-out] [--case <id>]
+ *          [--n <3|5|8>] [--kind carousel|presentation] [--no-judge]
+ *          [--report <path>]
+ *
+ * --set tuning (the default) runs the briefs earlier rounds tuned the
+ * prompt against; --set held-out runs the briefs it was never tuned on,
+ * scored and reported on their own, against the same frozen thresholds.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -32,8 +37,12 @@ process.env.AWS_BEARER_TOKEN_BEDROCK = "";
 const { generateObject } = await import("ai");
 const { getModel } = await import("../../provider");
 const { planSequence } = await import("../../../design/sequence/plan");
-const { FRAME_COUNTS, SEQUENCE_EVAL_CASES, SEQUENCE_EVAL_THRESHOLDS } =
-  await import("./cases");
+const {
+  FRAME_COUNTS,
+  SEQUENCE_EVAL_CASES,
+  SEQUENCE_EVAL_THRESHOLDS,
+  SEQUENCE_HELD_OUT_CASES,
+} = await import("./cases");
 type SequenceEvalCase = import("./cases").SequenceEvalCase;
 const { aggregate, failures, scoreRun } = await import("./score");
 type RunScore = import("./score").RunScore;
@@ -55,9 +64,20 @@ const onlyCase = flag("--case");
 const onlyN = flag("--n");
 const onlyKind = flag("--kind");
 const withJudge = !args.includes("--no-judge");
-const reportPath = "qa-reports/eval/design-sequence.json";
+const set = flag("--set") ?? "tuning";
+if (set !== "tuning" && set !== "held-out") {
+  console.error(`--set is tuning or held-out, not ${set}`);
+  process.exit(1);
+}
+const reportPath =
+  flag("--report") ??
+  (set === "held-out"
+    ? "qa-reports/eval/design-sequence.held-out.json"
+    : "qa-reports/eval/design-sequence.json");
 
-const cases = SEQUENCE_EVAL_CASES.filter(
+const cases = (
+  set === "held-out" ? SEQUENCE_HELD_OUT_CASES : SEQUENCE_EVAL_CASES
+).filter(
   (c) => (!onlyCase || c.id === onlyCase) && (!onlyKind || c.kind === onlyKind),
 );
 const counts = onlyN ? [Number(onlyN)] : [...FRAME_COUNTS];
@@ -230,12 +250,12 @@ mkdirSync(dirname(reportPath), { recursive: true });
 writeFileSync(
   reportPath,
   JSON.stringify(
-    { aggregate: agg, thresholds: SEQUENCE_EVAL_THRESHOLDS, records },
+    { set, aggregate: agg, thresholds: SEQUENCE_EVAL_THRESHOLDS, records },
     null,
     2,
   ),
 );
-console.log("\n", agg);
+console.log(`\nset: ${set}`, agg);
 console.log(
   `copy faults left: ${records.reduce((n, r) => n + r.faults.length, 0)} across ${records.filter((r) => r.faults.length > 0).length} of ${records.length} runs`,
 );

@@ -4,15 +4,31 @@ import { CAFE_BRIEF, CAFE_RULES, cafePlan, withFrame } from "./fixtures";
 import { hookScore, planScore } from "./plan";
 
 const ledger = factLedger([CAFE_BRIEF, "Kiln Coffee"], 2);
-/* The fixture with its price frame given a line, so nothing is left. */
+/* The fixture with its price moved beside the action, as a carousel's
+   price belongs, so nothing is left. */
 const clean = () =>
-  withFrame(cafePlan(), 1, { subheadline: "Kept cold, ready at the counter" });
+  withFrame(
+    withFrame(cafePlan(), 1, {
+      headline: "Chilled and ready to carry",
+      subheadline: "",
+    }),
+    4,
+    { footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"] },
+  );
 const score = (plan = clean(), names: string[] = []) =>
   planScore(plan, { rules: CAFE_RULES, ledger, names });
 
 describe("planScore", () => {
   it("is 0 for a plan with nothing left to fix", () => {
     expect(score()).toBe(0);
+  });
+
+  it("counts a carousel price the copy put on a middle frame (round-3 critic, finding 3)", () => {
+    const misplaced = withFrame(cafePlan(), 1, {
+      subheadline: "Kept cold, ready at the counter",
+    });
+    expect(score(misplaced)).toBeGreaterThan(0);
+    expect(score({ ...misplaced, kind: "presentation" })).toBe(0);
   });
 
   it("never trades a brief fact for the removal of an invented one (round-3 partner deck)", () => {
@@ -41,14 +57,14 @@ describe("hookScore", () => {
     const label = withHook("Cold brew at our Yaba bar", "Steeped slow");
     const pull = withHook(
       "Why rush a Saturday?",
-      "Our cold brew, kept cold at the counter",
+      "Our cold brew, chilled and ready to carry",
     );
     const clear = withHook(
       "Why rush a Saturday?",
       "Our cold brew, slow and strong",
     );
     expect(opening(clear)).toBe(0);
-    /* "kept cold at the counter" is frame 2's point: the editor weighs it. */
+    /* "chilled and ready to carry" is frame 2's point: the editor weighs it. */
     expect(opening(pull)).toBe(0);
     expect(opening(label)).toBeGreaterThan(0);
     /* planScore still counts the shared phrase, so the drafts and the edit

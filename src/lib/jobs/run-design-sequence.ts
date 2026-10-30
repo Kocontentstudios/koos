@@ -1828,12 +1828,16 @@ export async function regenerateFrameWork(
     "brief",
   );
 
-  const { beat, modelCalls } = await replanFrame({
-    context,
-    plan,
-    index,
-    edits,
-  });
+  /* The facts and offering the set was planned against, so a rewrite is
+     held to those and an edit reports the ones it uncovers, without a
+     second brief read that could return a different list. */
+  const { beat, modelCalls, uncovered } = await replanFrame(
+    { context, plan, index, edits },
+    {
+      facts: (set.facts as BriefFact[]) ?? [],
+      offering: set.offering,
+    },
+  );
   const replanned: PlannedSequence = {
     ...plan,
     frames: plan.frames.map((b, i) => (i === index ? beat : b)),
@@ -1938,6 +1942,7 @@ export async function regenerateFrameWork(
       role: beat.role,
       edited,
       modelCalls,
+      uncovered: uncovered.map((f) => f.text),
       renderers: [`composite:${providerOf(kit)}`],
       imageSource: source,
       imageCalls: outcome.record.imageCalls,
@@ -1971,6 +1976,7 @@ export async function regenerateFrameWork(
       frameIndex: index,
       generationId: row.id,
       replaced: target.id,
+      uncovered: uncovered.map((f) => f.text),
     },
   };
 }

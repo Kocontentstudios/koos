@@ -2,7 +2,7 @@ import type { DesignSpec } from "@/lib/design/spec";
 import type { CoverKind } from "@/lib/jobs/directions/brief-facts";
 import { isNearDuplicateHeadline } from "@/lib/jobs/directions/text-overlap";
 import type { FrameRole } from "./contract";
-import { settleFrameLayouts } from "./layouts";
+import { hasFigure, settleFrameLayouts } from "./layouts";
 import type { FrameBeatKind, OutlineAnswer } from "./schema";
 
 /** A frame's role is its position: the hook opens, the call to action
@@ -19,6 +19,9 @@ export interface SettledOutlineFrame {
   beat: FrameBeatKind;
   /** Zero-based indexes into the brief's facts. */
   facts: number[];
+  /** Zero-based index into the brand profile's points (profilePoints),
+   *  or null when the frame's point is the brief's. */
+  profilePoint: number | null;
   layout: DesignSpec["layout"];
   showsImage: boolean;
 }
@@ -28,7 +31,14 @@ export interface OutlineSettlement {
   /** Facts the model left on no frame, placed by code (homeFor). */
   factsPlaced: number[];
   layoutsChanged: number;
+  /** Frames that cited a profile point an earlier frame already made:
+   *  the citation is dropped and the frame's point counts as repeated. */
+  profileReused: number[];
 }
+
+type OutlineFrameIn = Omit<OutlineAnswer["frames"][number], "profilePoint"> & {
+  profilePoint?: number;
+};
 
 /**
  * The model's arc, held to the rules no copy is needed to check, before any
@@ -44,23 +54,33 @@ export interface OutlineSettlement {
  *    it answers what acting costs, and a middle frame holding only the
  *    price read as "a receipt stub where a slide should be" (round-2
  *    critic, every five-frame carousel);
+ *  - a brand-profile point (a thin brief's second source) is a middle
+ *    frame's, and made once: the hook and the action have the brief's
+ *    jobs, and a second frame citing one point is that point twice;
  *  - with no image no frame shows one, and with one the hook does;
  *  - layouts are settled by settleFrameLayouts.
  */
 export function settleOutline(
-  answer: Pick<OutlineAnswer, "frames">,
+  answer: { frames: readonly OutlineFrameIn[] },
   {
     factCount,
+    profilePointCount = 0,
     offeringFact,
     hasImage,
     recentLayouts = [],
     factKinds = [],
+    factTexts = [],
     priceWithAction = false,
   }: {
     factCount: number;
+    /** How many brand-profile points the outline was offered. */
+    profilePointCount?: number;
     /** Each fact's kind, by index, so a fact left unplaced finds the
      *  frame whose point it belongs to. */
     factKinds?: readonly CoverKind[];
+    /** Each fact's words, by index: a frame stating a figure may be set
+     *  as stat-highlight, and no other. */
+    factTexts?: readonly string[];
     /** Index of the offering's own fact, which the hook carries. */
     offeringFact: number | null;
     hasImage: boolean;
@@ -71,6 +91,20 @@ export function settleOutline(
 ): OutlineSettlement {
   const count = answer.frames.length;
   const owned = new Set<number>(offeringFact === null ? [] : [offeringFact]);
+  const profileUsed = new Set<number>();
+  const profileReused: number[] = [];
+  const profileOf = (cited: number | undefined, i: number): number | null => {
+    const n = (cited ?? 0) - 1;
+    const role = roleOf(i, count);
+    if (!Number.isInteger(n) || n < 0 || n >= profilePointCount) return null;
+    if (role !== "body") return null;
+    if (profileUsed.has(n)) {
+      profileReused.push(i);
+      return null;
+    }
+    profileUsed.add(n);
+    return n;
+  };
   const frames = answer.frames.map((frame, i) => {
     const facts = frame.facts
       .map((n) => n - 1)
@@ -84,6 +118,7 @@ export function settleOutline(
       title: frame.title.trim(),
       point: frame.point.trim(),
       facts,
+      profilePoint: profileOf(frame.profilePoint, i),
       layout: frame.layout,
       showsImage: hasImage && (i === 0 || frame.showsImage),
     };
@@ -111,13 +146,19 @@ export function settleOutline(
         : homeFor(frames, factKinds[n]);
     frames[home]?.facts.push(n);
   }
-  const layouts = settleFrameLayouts(frames, recentLayouts);
+  const layouts = settleFrameLayouts(
+    frames.map((frame) => ({
+      ...frame,
+      figure: frame.facts.some((n) => hasFigure(factTexts[n] ?? "")),
+    })),
+    recentLayouts,
+  );
   let layoutsChanged = 0;
   frames.forEach((frame, i) => {
     if (frame.layout !== layouts[i]) layoutsChanged += 1;
     frame.layout = layouts[i];
   });
-  return { frames, factsPlaced, layoutsChanged };
+  return { frames, factsPlaced, layoutsChanged, profileReused };
 }
 
 /* The beats a fact of each kind is the point of. */
