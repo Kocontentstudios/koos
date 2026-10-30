@@ -181,6 +181,30 @@ describe("mergeAttachments", () => {
       expect(merged.designType).toBe("Post");
     });
 
+    it("takes the slide count with the same precedence as the format", () => {
+      const ticket: ResolvedAttachment = {
+        type: "ticket",
+        id: "t1",
+        label: "Carousel request",
+        text: "Five slides",
+        designType: "Carousel",
+        slides: 5,
+      };
+      expect(
+        mergeAttachments({ attachments: [ticket, brief({ slides: 7 })] })
+          .slides,
+      ).toBe(7);
+      expect(
+        mergeAttachments({ attachments: [ticket, brief({ slides: null })] })
+          .slides,
+      ).toBe(5);
+      expect(
+        mergeAttachments({ attachments: [ticket, brief({ slides: 0 })] })
+          .slides,
+      ).toBe(5);
+      expect(mergeAttachments({ attachments: [brief()] }).slides).toBeNull();
+    });
+
     it("is null for a scalar nothing supplies", () => {
       const merged = mergeAttachments({ attachments: [strategy()] });
       expect(merged.platform).toBeNull();

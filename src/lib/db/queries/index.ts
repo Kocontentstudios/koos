@@ -30,6 +30,7 @@ import {
   designBriefs,
   designDeliverables,
   designGenerations,
+  designSets,
   designTicketAttachments,
   designTickets,
   emailVerificationTokens,
@@ -1049,6 +1050,62 @@ export async function supersedeFrame(id: string, replacedBy: string) {
     .update(designGenerations)
     .set({ supersededBy: replacedBy })
     .where(eq(designGenerations.id, id));
+}
+
+/** A set's plan. A resumed job writes it again, which changes nothing. */
+export async function createDesignSet(data: typeof designSets.$inferInsert) {
+  await db.insert(designSets).values(data).onConflictDoNothing();
+}
+
+/** One set's plan, brand-scoped like listSetFrames. */
+export async function getDesignSet(brandId: string, setId: string) {
+  const [row] = await db
+    .select()
+    .from(designSets)
+    .where(and(eq(designSets.id, setId), eq(designSets.brandId, brandId)));
+  return row ?? null;
+}
+
+/**
+ * Replaces one frame's beat in a set's plan, in place in the database, so two
+ * frames regenerated at once cannot write each other's old beat back.
+ */
+export async function replaceDesignSetBeat(
+  setId: string,
+  index: number,
+  beat: unknown,
+) {
+  await db
+    .update(designSets)
+    .set({
+      plan: sql`jsonb_set(${designSets.plan}, ${`{frames,${index}}`}::text[], ${JSON.stringify(beat)}::jsonb)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(designSets.id, setId));
+}
+
+/**
+ * The generations of a set already charged for. A sequence job bills its
+ * delivered frames when it completes; a job resumed after that write and
+ * before its success was recorded would otherwise bill them again.
+ */
+export async function listBilledSetGenerations(
+  brandId: string,
+  setId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({
+      id: sql<string | null>`${usageEvents.metadata}->>'generationId'`,
+    })
+    .from(usageEvents)
+    .where(
+      and(
+        eq(usageEvents.brandId, brandId),
+        eq(usageEvents.kind, "design_generated"),
+        sql`${usageEvents.metadata}->>'setId' = ${setId}`,
+      ),
+    );
+  return rows.map((r) => r.id).filter((id): id is string => Boolean(id));
 }
 
 /**

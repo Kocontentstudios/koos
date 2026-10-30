@@ -47,6 +47,10 @@ import {
   type DirectionsRequest,
   generateDirectionsWork,
 } from "./run-design-directions";
+import {
+  generateSequenceWork,
+  type SequenceContextRequest,
+} from "./run-design-sequence";
 import type { JobRuntime } from "./run-generation";
 
 /** Bedrock's 4096 default truncates structured output mid-JSON, which surfaces
@@ -324,7 +328,9 @@ export function designFailureMessage(failures: unknown[]): string {
  * fails on its own — the job only fails if nothing rendered at all.
  *
  * A request carrying `directions` (an image choice) takes the two-directions
- * path instead (run-design-directions.ts). Without one it runs only while
+ * path instead (run-design-directions.ts), or, when it also carries
+ * `sequence`, builds a carousel or presentation as a set of frames
+ * (run-design-sequence.ts). Without one it runs only while
  * FEATURE_KO_IMAGERY is on.
  */
 export async function generateDesignWork(
@@ -333,9 +339,27 @@ export async function generateDesignWork(
     userId: string;
     sessionId?: string | null;
     directions?: DirectionsRequest;
+    /** Set by the route only with FEATURE_MULTI_FRAME on, for a carousel or
+     *  presentation brief with an image choice. */
+    sequence?: { frames: number; contextRequest?: SequenceContextRequest };
   },
   runtime: JobRuntime,
 ): Promise<{ resultId?: string; result: unknown }> {
+  if (args.directions && args.sequence) {
+    return generateSequenceWork(
+      {
+        context: args.context,
+        userId: args.userId,
+        sessionId: args.sessionId,
+        request: {
+          image: args.directions.image,
+          frames: args.sequence.frames,
+        },
+        contextRequest: args.sequence.contextRequest,
+      },
+      runtime,
+    );
+  }
   if (args.directions) {
     return generateDirectionsWork(
       {

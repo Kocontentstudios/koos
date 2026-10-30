@@ -1,0 +1,947 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/* KOOS-AI-002 gate tests for the set-of-frames job. The planner (U1) is
+   mocked: these pin what the job does with a plan, not what a plan says.
+   Layout choice, the document builders and the gate run for real; only the
+   pixels (rasterizeDocument) and the outside world are doubled. */
+
+process.env.FEATURE_MULTI_FRAME = "1";
+process.env.FEATURE_KO_IMAGERY = "1";
+
+interface Row {
+  id: string;
+  brandId: string;
+  setId: string | null;
+  frameIndex: number | null;
+  frameCount: number | null;
+  supersededBy: string | null;
+  status: string;
+  spec: Record<string, unknown>;
+  document: unknown;
+  rationale: unknown;
+  imageSource: string | null;
+  sourceImageKey: string | null;
+  designType: string | null;
+  createdAt: Date;
+  [key: string]: unknown;
+}
+
+const db = {
+  rows: new Map<string, Row>(),
+  sets: new Map<string, Record<string, unknown>>(),
+  usage: [] as { metadata: Record<string, unknown>; [k: string]: unknown }[],
+  clock: 0,
+};
+
+const planSequence = vi.fn();
+const replanFrame = vi.fn();
+const rasterizeDocument = vi.fn();
+const lookAtPhoto = vi.fn();
+const loadDesignImage = vi.fn();
+const captureServerEvent = vi.fn();
+const createNotification = vi.fn();
+const uploadObject = vi.fn();
+const loadBestLogo = vi.fn();
+const supersedeFrame = vi.fn();
+const replaceDesignSetBeat = vi.fn();
+const getPlateAdapter = vi.fn();
+
+vi.mock("@/lib/design/sequence/plan", () => ({
+  planSequence: (input: unknown) => planSequence(input),
+}));
+vi.mock("@/lib/design/sequence/replan", () => ({
+  replanFrame: (input: unknown) => replanFrame(input),
+}));
+vi.mock("@/lib/design/sequence/frame-spec", async () => {
+  const { designSpecOf } = await import("./directions/schema");
+  const { draftOf } = await import("./directions/fixtures");
+  return {
+    frameSpec: (
+      plan: import("@/lib/design/sequence/contract").PlannedSequence,
+      index: number,
+    ) => {
+      const beat = plan.frames[index];
+      return designSpecOf(
+        draftOf({
+          layout: beat.layout,
+          headline: beat.headline,
+          subheadline: beat.subheadline,
+          cta: beat.cta,
+          footerLines: beat.footerLines,
+          footerStyle: plan.footerStyle,
+          palette: plan.palette,
+          logoPlacement: plan.logoPlacement,
+          logoFree: plan.logoFree,
+          logoFreeQuote: plan.logoFreeQuote,
+          backgroundPrompt: beat.backgroundPrompt,
+          backgroundTreatment: plan.backgroundTreatment,
+          aspectRatio: plan.aspectRatio,
+        }),
+      );
+    },
+  };
+});
+vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
+vi.mock("@/lib/ai/memory", () => ({ buildMemoryBlock: async () => "" }));
+vi.mock("@/lib/ai/image", () => ({
+  getPlateAdapter: () => getPlateAdapter(),
+  getNativeAdapters: () => [],
+}));
+vi.mock("@/lib/db/queries", () => ({
+  createDesignGeneration: async (row: Partial<Row>) => {
+    const created: Row = {
+      id: `row-${db.rows.size + 1}`,
+      supersededBy: null,
+      document: null,
+      setId: null,
+      frameIndex: null,
+      frameCount: null,
+      imageSource: null,
+      sourceImageKey: null,
+      designType: null,
+      status: "pending",
+      spec: {},
+      rationale: null,
+      brandId: "",
+      ...row,
+      createdAt: new Date(1_000_000 + db.clock++),
+    } as Row;
+    db.rows.set(created.id, created);
+    return created;
+  },
+  updateDesignGeneration: async (id: string, patch: Partial<Row>) => {
+    const row = db.rows.get(id);
+    if (row) db.rows.set(id, { ...row, ...patch });
+  },
+  getDesignGenerationById: async (id: string) => db.rows.get(id) ?? null,
+  listSetFrames: async (brandId: string, setId: string) =>
+    [...db.rows.values()]
+      .filter((r) => r.brandId === brandId && r.setId === setId)
+      .sort(
+        (a, b) =>
+          (a.frameIndex ?? 0) - (b.frameIndex ?? 0) ||
+          a.createdAt.getTime() - b.createdAt.getTime(),
+      ),
+  supersedeFrame: async (id: string, by: string) => {
+    supersedeFrame(id, by);
+    const row = db.rows.get(id);
+    if (row) db.rows.set(id, { ...row, supersededBy: by });
+  },
+  createDesignSet: async (set: { id: string }) => {
+    if (!db.sets.has(set.id)) db.sets.set(set.id, set);
+  },
+  getDesignSet: async (brandId: string, id: string) => {
+    const set = db.sets.get(id);
+    return set && set.brandId === brandId ? set : null;
+  },
+  replaceDesignSetBeat: async (id: string, index: number, beat: unknown) =>
+    replaceDesignSetBeat(id, index, beat),
+  listBilledSetGenerations: async (_brandId: string, setId: string) =>
+    db.usage
+      .filter((u) => u.metadata.setId === setId)
+      .map((u) => u.metadata.generationId as string),
+  recordUsageEvent: async (event: { metadata: Record<string, unknown> }) => {
+    db.usage.push(event);
+  },
+  createNotification: (input: unknown) => createNotification(input),
+  listDesignGenerationsForBrand: async () => [],
+  updateGenerationJob: vi.fn(),
+}));
+vi.mock("@/lib/analytics/posthog-server", () => ({
+  captureServerEvent: (event: unknown) => captureServerEvent(event),
+}));
+vi.mock("@/lib/storage", () => ({
+  uploadObject: (input: unknown) => uploadObject(input),
+  getObjectBytes: vi.fn(),
+  storageKeyFrom: () => null,
+  STORAGE_PREFIXES: {
+    generated: "generated",
+    logos: "logos",
+    designImages: "design-images",
+  },
+}));
+vi.mock("@/lib/uploads/design-image", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  loadDesignImage: (key: string, brandId: string) =>
+    loadDesignImage(key, brandId),
+}));
+vi.mock("@/lib/design/document/rasterize", async (importOriginal) => ({
+  DocumentAssetError: (
+    await importOriginal<typeof import("@/lib/design/document/rasterize")>()
+  ).DocumentAssetError,
+  rasterizeDocument: (input: unknown) => rasterizeDocument(input),
+  prepareDocumentFonts: async () => ({ fonts: [], fault: null }),
+}));
+vi.mock("@/lib/design/document/measure", async () => {
+  const { monospaceMeasurer } = await import("@/lib/design/document/fixtures");
+  return { createRendererMeasurer: () => monospaceMeasurer() };
+});
+vi.mock("@/lib/design/quality/plate-check", () => ({
+  checkPlateShowsProduct: vi.fn(),
+  lookAtPhoto: (bytes: unknown) => lookAtPhoto(bytes),
+}));
+vi.mock("@/lib/design/render/logo", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  loadBestLogo: (args: unknown) => loadBestLogo(args),
+}));
+
+const {
+  FrameTargetError,
+  generateSequenceWork,
+  heldByNeighbours,
+  regenerateFrameWork,
+  renderWaves,
+  SequencePlanError,
+  setFactsMissing,
+} = await import("./run-design-sequence");
+const { JobPausedError } = await import("./run-generation");
+const { MultiFrameDisabledError } = await import(
+  "@/lib/design/multi-frame-flag"
+);
+const { BRAND_ID, designPng, directionsContext } = await import(
+  "./directions/fixtures"
+);
+type PlannedSequence = import("@/lib/design/sequence/contract").PlannedSequence;
+type FrameBeat = import("@/lib/design/sequence/contract").FrameBeat;
+
+const PALETTE = {
+  background: "#FFF4E6",
+  foreground: "#3B2416",
+  accent: "#C2410C",
+};
+const UPLOAD_KEY = `design-images/${BRAND_ID}/2b1e0c8e-0b6a-4b0e-9a37-3a3c1f0a7d11.png`;
+const TEXT_LAYOUTS = ["hero-center", "quote-card", "stat-highlight"] as const;
+
+/* A real opaque photograph: a header-only PNG decodes as an empty cut-out,
+   whose subject box is refused (subject.ts). */
+async function photo(width: number, height: number): Promise<Uint8Array> {
+  const { encodePngRgba } = await import("@/lib/images/png-pixels");
+  const pixels = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    pixels[i * 4] = 200 - (i % width) / 4;
+    pixels[i * 4 + 1] = 140;
+    pixels[i * 4 + 2] = 90 + Math.floor(i / width) / 6;
+    pixels[i * 4 + 3] = 255;
+  }
+  return encodePngRgba({ width, height, pixels });
+}
+const UPLOADED_PHOTO = await photo(600, 600);
+
+function beat(i: number, n: number, over: Partial<FrameBeat> = {}): FrameBeat {
+  const role = i === 0 ? "hook" : i === n - 1 ? "cta" : "body";
+  return {
+    role,
+    title: `Frame ${i + 1}`,
+    headline: [
+      "Almond croissants, baked at dawn",
+      "Butter from one farm",
+      "Flaked almonds, toasted twice",
+      "Ready before your commute",
+      "Six hundred naira each",
+      "Pick up on Admiralty Way",
+      "Open from six every day",
+      "Order ahead, skip the queue",
+      "Fresh every single morning",
+      "Order your box today",
+    ][i % 10],
+    subheadline: i === 0 ? "Crumb & Co. in Lekki" : "",
+    cta: role === "cta" ? "Order for pickup" : "",
+    footerLines: [],
+    layout: TEXT_LAYOUTS[i % 3],
+    showsImage: i % 2 === 0,
+    backgroundPrompt: "a bakery counter at dawn",
+    ...over,
+  };
+}
+
+function planOf(n: number, frames?: FrameBeat[]): PlannedSequence {
+  return {
+    kind: "carousel",
+    palette: PALETTE,
+    logoPlacement: "top-right",
+    logoFree: false,
+    logoFreeQuote: "",
+    backgroundTreatment: "photographic",
+    footerStyle: "none",
+    aspectRatio: "4:5",
+    frames: frames ?? Array.from({ length: n }, (_, i) => beat(i, n)),
+  };
+}
+
+function planned(plan: PlannedSequence, over: Record<string, unknown> = {}) {
+  return {
+    plan,
+    facts: [],
+    offering: null,
+    problems: [],
+    modelCalls: 1,
+    repaired: false,
+    ...over,
+  };
+}
+
+function runtimeWith(
+  checkpoint: Record<string, unknown> = {},
+  shouldPause: () => boolean = () => false,
+) {
+  const progress: { label: string; done: number; total: number }[] = [];
+  return {
+    progress,
+    runtime: {
+      jobId: "job-1",
+      reportProgress: (p: (typeof progress)[number]) => progress.push(p),
+      checkpoint,
+      saveCheckpoint: vi.fn(async (partial: Record<string, unknown>) => {
+        Object.assign(checkpoint, partial);
+      }),
+      shouldPause,
+    },
+  };
+}
+
+const carouselContext = (over: Record<string, unknown> = {}) =>
+  directionsContext({ designType: "Instagram Carousel", slides: 4, ...over });
+
+function run(
+  frames: number,
+  image: Record<string, unknown> = { source: "none" },
+  runtime = runtimeWith().runtime,
+  context = carouselContext(),
+) {
+  return generateSequenceWork(
+    {
+      context,
+      userId: "u1",
+      sessionId: "s1",
+      request: { image: image as never, frames },
+    },
+    runtime as never,
+  );
+}
+
+const frameRows = () =>
+  [...db.rows.values()]
+    .filter((r) => r.setId)
+    .sort((a, b) => (a.frameIndex ?? 0) - (b.frameIndex ?? 0));
+const headlineOf = (row: Row) =>
+  (row.document as { elements: { role?: string; text?: string }[] }).elements
+    .filter((e) => e.role === "headline")
+    .map((e) => e.text)
+    .join(" ");
+
+let logSpy: { mock: { calls: unknown[][] }; mockRestore: () => void };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  process.env.FEATURE_MULTI_FRAME = "1";
+  db.rows.clear();
+  db.sets.clear();
+  db.usage.length = 0;
+  db.clock = 0;
+  planSequence.mockImplementation(async (input: { frameCount: number }) =>
+    planned(planOf(input.frameCount)),
+  );
+  uploadObject.mockResolvedValue(undefined);
+  loadBestLogo.mockResolvedValue({ logo: null, fault: null });
+  createNotification.mockResolvedValue(undefined);
+  lookAtPhoto.mockResolvedValue(null);
+  getPlateAdapter.mockReturnValue(null);
+  loadDesignImage.mockImplementation(async () => ({
+    bytes: Buffer.from(UPLOADED_PHOTO),
+    contentType: "image/png",
+    width: 600,
+    height: 600,
+  }));
+  rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => ({
+    bytes: designPng(1080, 1350),
+    contentType: "image/png",
+    width: 1080,
+    height: 1350,
+    document: input.doc,
+    logoFault: null,
+    brandFontFault: null,
+  }));
+  logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  logSpy.mockRestore();
+  vi.restoreAllMocks();
+});
+
+describe("a set of frames", () => {
+  it("delivers exactly the frames asked for, in order, one row each", async () => {
+    const outcome = await run(4);
+    const rows = frameRows();
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r) => r.frameIndex)).toEqual([0, 1, 2, 3]);
+    const setId = rows[0].setId;
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        setId,
+        frameCount: 4,
+        status: "succeeded",
+        imageSource: "none",
+      });
+    }
+    expect(outcome.result).toEqual({
+      kind: "sequence",
+      setId,
+      sequenceKind: "carousel",
+      frameCount: 4,
+      generationIds: rows.map((r) => r.id),
+      failed: [],
+      imageSource: "none",
+    });
+    expect(outcome.resultId).toBe(rows[0].id);
+  });
+
+  it("stores each frame's rationale as frameRationale: role and title, no set", async () => {
+    await run(3);
+    expect(frameRows().map((r) => r.rationale)).toEqual([
+      { title: "Frame 1", reasons: [], role: "hook" },
+      { title: "Frame 2", reasons: [], role: "body" },
+      { title: "Frame 3", reasons: [], role: "cta" },
+    ]);
+  });
+
+  it("draws every frame in the one palette of the set", async () => {
+    await run(5);
+    const palettes = frameRows().map((r) => JSON.stringify(r.spec.palette));
+    expect(new Set(palettes).size).toBe(1);
+    expect(JSON.parse(palettes[0])).toEqual(PALETTE);
+  });
+
+  it("draws a presentation at 16:9 whatever the plan said", async () => {
+    planSequence.mockResolvedValue(
+      planned({ ...planOf(3), kind: "presentation", aspectRatio: "4:5" }),
+    );
+    const outcome = await run(
+      3,
+      { source: "none" },
+      runtimeWith().runtime,
+      carouselContext({ designType: "Pitch deck" }),
+    );
+    expect(outcome.result.sequenceKind).toBe("presentation");
+    expect(frameRows().map((r) => r.spec.aspectRatio)).toEqual([
+      "16:9",
+      "16:9",
+      "16:9",
+    ]);
+  });
+
+  it("never gives two neighbouring frames the same layout, even when the plan does", async () => {
+    planSequence.mockResolvedValue(
+      planned(
+        planOf(
+          4,
+          Array.from({ length: 4 }, (_, i) =>
+            beat(i, 4, { layout: "hero-center" }),
+          ),
+        ),
+        {
+          problems: [
+            { frame: 1, rule: "layout-repeat", detail: "same as frame 0" },
+          ],
+        },
+      ),
+    );
+    await run(4);
+    const layouts = frameRows().map((r) => r.spec.layout);
+    for (let i = 1; i < layouts.length; i += 1) {
+      expect(layouts[i]).not.toBe(layouts[i - 1]);
+    }
+  });
+
+  it("draws the copy the plan wrote, and the button only on the last frame", async () => {
+    await run(3);
+    const rows = frameRows();
+    expect(rows.map(headlineOf)).toEqual([
+      "Almond croissants, baked at dawn",
+      "Butter from one farm",
+      "Flaked almonds, toasted twice",
+    ]);
+    const buttons = rows.map(
+      (r) =>
+        (r.document as { elements: { type: string }[] }).elements.filter(
+          (e) => e.type === "button",
+        ).length,
+    );
+    expect(buttons).toEqual([0, 0, 1]);
+  });
+
+  it("reports progress as frame k of N", async () => {
+    const { runtime, progress } = runtimeWith();
+    await run(3, { source: "none" }, runtime);
+    const labels = progress.map((p) => p.label);
+    expect(labels).toContain("Planning 3 frames…");
+    for (const k of [1, 2, 3]) {
+      expect(labels).toContain(`Frame ${k} of 3…`);
+    }
+    expect(progress.every((p) => p.total === 3)).toBe(true);
+  });
+
+  it("refuses with the flag off, before planning", async () => {
+    process.env.FEATURE_MULTI_FRAME = "";
+    await expect(run(3)).rejects.toBeInstanceOf(MultiFrameDisabledError);
+    expect(planSequence).not.toHaveBeenCalled();
+    expect(db.rows.size).toBe(0);
+  });
+
+  it("fails a plan that breaks the set's promise before any row or charge", async () => {
+    planSequence.mockResolvedValue(
+      planned(planOf(3), {
+        problems: [{ frame: 2, rule: "cta-last", detail: "no action" }],
+      }),
+    );
+    await expect(run(3)).rejects.toBeInstanceOf(SequencePlanError);
+    expect(db.rows.size).toBe(0);
+    expect(db.usage).toHaveLength(0);
+  });
+
+  it("fails a plan with the wrong number of frames", async () => {
+    planSequence.mockResolvedValue(planned(planOf(2)));
+    await expect(run(3)).rejects.toBeInstanceOf(SequencePlanError);
+    expect(db.rows.size).toBe(0);
+  });
+
+  it("draws the client's photo only on frames that show the image", async () => {
+    await run(4, { source: "upload", key: UPLOAD_KEY });
+    const imageKeys = frameRows().map((r) =>
+      (
+        r.document as { elements: { type: string; asset?: { key: string } }[] }
+      ).elements
+        .filter((e) => e.type === "image")
+        .map((e) => e.asset?.key),
+    );
+    expect(imageKeys).toEqual([[UPLOAD_KEY], [], [UPLOAD_KEY], []]);
+    expect(loadDesignImage).toHaveBeenCalledWith(UPLOAD_KEY, BRAND_ID);
+    expect(new Set(frameRows().map((r) => r.sourceImageKey))).toEqual(
+      new Set([UPLOAD_KEY]),
+    );
+  });
+});
+
+describe("billing and traces", () => {
+  it("records one design_generated usage row per delivered frame", async () => {
+    await run(4);
+    const rows = frameRows();
+    expect(db.usage).toHaveLength(4);
+    for (const [i, usage] of db.usage.entries()) {
+      expect(usage).toMatchObject({
+        userId: "u1",
+        brandId: BRAND_ID,
+        kind: "design_generated",
+      });
+      expect(usage.metadata).toMatchObject({
+        setId: rows[i].setId,
+        frameIndex: i,
+        frameCount: 4,
+        generationId: rows[i].id,
+      });
+    }
+  });
+
+  it("logs one design.sequence.completed line with the outcome", async () => {
+    await run(3);
+    const lines = logSpy.mock.calls
+      .map(([line]: unknown[]) => String(line))
+      .filter((line: string) => line.startsWith("design.sequence.completed "));
+    expect(lines).toHaveLength(1);
+    const payload = JSON.parse(
+      lines[0].slice("design.sequence.completed ".length),
+    );
+    expect(payload).toMatchObject({
+      setId: frameRows()[0].setId,
+      requested: 3,
+      delivered: 3,
+      failed: 0,
+    });
+    expect(typeof payload.ms).toBe("number");
+  });
+
+  it("captures design_sequence_generated", async () => {
+    await run(3);
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: "u1",
+        event: "design_sequence_generated",
+        properties: expect.objectContaining({
+          requested: 3,
+          delivered: 3,
+          failed: 0,
+          kind: "carousel",
+        }),
+      }),
+    );
+  });
+
+  it("measures fact coverage across the drawn frames, not per frame", async () => {
+    const facts = [
+      { kind: "price", text: "₦600", needs: ["600"] },
+      { kind: "place", text: "Admiralty Way", needs: ["admiralty"] },
+      { kind: "date", text: "Saturday 5 December", needs: ["5", "december"] },
+    ];
+    const frames = Array.from({ length: 3 }, (_, i) => beat(i, 3));
+    frames[1] = { ...frames[1], headline: "Only ₦600 a box" };
+    frames[2] = { ...frames[2], subheadline: "On Admiralty Way" };
+    planSequence.mockResolvedValue(planned(planOf(3, frames), { facts }));
+    await run(3);
+    const metadata = db.usage[0].metadata;
+    expect(metadata.setFactsMissing).toEqual(["Saturday 5 December"]);
+    expect(metadata.setFaults).toEqual([
+      "the set leaves off 1 of the brief's 3 facts",
+    ]);
+  });
+});
+
+describe("a frame that fails", () => {
+  it("marks its row failed and delivers and bills the rest", async () => {
+    let calls = 0;
+    rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => {
+      calls += 1;
+      if (calls === 2) throw new Error("render worker crashed");
+      return {
+        bytes: designPng(1080, 1350),
+        contentType: "image/png",
+        width: 1080,
+        height: 1350,
+        document: input.doc,
+        logoFault: null,
+        brandFontFault: null,
+      };
+    });
+    const outcome = await run(4);
+    const rows = frameRows();
+    const failed = rows.filter((r) => r.status === "failed");
+    expect(failed).toHaveLength(1);
+    expect(outcome.result.failed).toEqual([failed[0].id]);
+    expect(outcome.result.generationIds).toHaveLength(3);
+    expect(db.usage).toHaveLength(3);
+    expect(db.usage.map((u) => u.metadata.generationId)).not.toContain(
+      failed[0].id,
+    );
+    expect(db.usage[0].metadata.setFaults).toContain("1 of 4 frames failed");
+  });
+
+  it("fails the job, billing nothing, when no frame is delivered", async () => {
+    rasterizeDocument.mockRejectedValue(new Error("render worker crashed"));
+    await expect(run(3)).rejects.toThrow("render worker crashed");
+    expect(db.usage).toHaveLength(0);
+    expect(frameRows().every((r) => r.status === "failed")).toBe(true);
+  });
+});
+
+describe("resuming a set past the slice deadline (H8)", () => {
+  it("pauses with frames left, then renders only those, never planning again", async () => {
+    const checkpoint: Record<string, unknown> = {};
+    let paused = false;
+    const first = runtimeWith(checkpoint, () => paused);
+    rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => {
+      paused = true;
+      return {
+        bytes: designPng(1080, 1350),
+        contentType: "image/png",
+        width: 1080,
+        height: 1350,
+        document: input.doc,
+        logoFault: null,
+        brandFontFault: null,
+      };
+    });
+    await expect(
+      run(5, { source: "none" }, first.runtime),
+    ).rejects.toBeInstanceOf(JobPausedError);
+    const afterFirst = rasterizeDocument.mock.calls.length;
+    const deliveredFirst = frameRows().filter((r) => r.status === "succeeded");
+    expect(deliveredFirst.length).toBeGreaterThan(0);
+    expect(deliveredFirst.length).toBeLessThan(5);
+    expect(db.usage).toHaveLength(0);
+    expect(checkpoint.setId).toBe(frameRows()[0].setId);
+    expect(checkpoint.plan).toBeTruthy();
+
+    paused = false;
+    const second = runtimeWith(checkpoint, () => false);
+    const outcome = await run(5, { source: "none" }, second.runtime);
+
+    expect(planSequence).toHaveBeenCalledTimes(1);
+    expect(rasterizeDocument.mock.calls.length - afterFirst).toBe(
+      5 - deliveredFirst.length,
+    );
+    const rows = frameRows();
+    expect(rows).toHaveLength(5);
+    expect(rows.every((r) => r.status === "succeeded")).toBe(true);
+    expect(outcome.result.generationIds).toEqual(rows.map((r) => r.id));
+    expect(db.usage).toHaveLength(5);
+    expect(new Set(db.usage.map((u) => u.metadata.generationId)).size).toBe(5);
+  });
+
+  it("does not render a frame that already failed in an earlier slice", async () => {
+    const checkpoint: Record<string, unknown> = {};
+    let paused = false;
+    let calls = 0;
+    rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => {
+      calls += 1;
+      paused = true;
+      if (calls === 1) throw new Error("render worker crashed");
+      return {
+        bytes: designPng(1080, 1350),
+        contentType: "image/png",
+        width: 1080,
+        height: 1350,
+        document: input.doc,
+        logoFault: null,
+        brandFontFault: null,
+      };
+    });
+    await expect(
+      run(4, { source: "none" }, runtimeWith(checkpoint, () => paused).runtime),
+    ).rejects.toBeInstanceOf(JobPausedError);
+    const failedIndex = frameRows().find(
+      (r) => r.status === "failed",
+    )?.frameIndex;
+    expect(failedIndex).not.toBeUndefined();
+    const before = calls;
+    const settledFirst = frameRows().filter(
+      (r) => r.status !== "pending",
+    ).length;
+    paused = false;
+    await run(4, { source: "none" }, runtimeWith(checkpoint).runtime);
+    expect(calls - before).toBe(4 - settledFirst);
+    expect(frameRows().find((r) => r.frameIndex === failedIndex)?.status).toBe(
+      "failed",
+    );
+  });
+
+  it("never bills a frame twice when a completed set is run again", async () => {
+    const checkpoint: Record<string, unknown> = {};
+    await run(3, { source: "none" }, runtimeWith(checkpoint).runtime);
+    expect(db.usage).toHaveLength(3);
+    await run(3, { source: "none" }, runtimeWith(checkpoint).runtime);
+    expect(db.usage).toHaveLength(3);
+    expect(planSequence).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("renderWaves and heldByNeighbours", () => {
+  it("never puts two neighbours in one wave", () => {
+    expect(renderWaves([0, 1, 2, 3, 4])).toEqual([
+      [0, 2, 4],
+      [1, 3],
+    ]);
+    expect(renderWaves([1, 3])).toEqual([[1, 3]]);
+    expect(renderWaves([])).toEqual([]);
+  });
+
+  it("holds a neighbour's drawn layout over its planned one", () => {
+    const planned = [
+      { layout: "hero-center" },
+      { layout: "quote-card" },
+      { layout: "stat-highlight" },
+    ];
+    expect(heldByNeighbours(1, new Map([[0, "split-left"]]), planned)).toEqual([
+      "split-left",
+      "stat-highlight",
+    ]);
+    expect(heldByNeighbours(0, new Map(), planned)).toEqual(["quote-card"]);
+    expect(heldByNeighbours(2, new Map(), planned)).toEqual(["quote-card"]);
+  });
+
+  it("covers a fact when any one frame states it", () => {
+    const fact = { kind: "price" as const, text: "₦600", needs: ["600"] };
+    expect(
+      setFactsMissing(
+        [fact],
+        [
+          { headline: "Fresh croissants", footerLines: [] },
+          { headline: "Only ₦600", footerLines: [] },
+        ],
+      ),
+    ).toEqual([]);
+    expect(
+      setFactsMissing([fact], [{ headline: "Fresh", footerLines: [] }]),
+    ).toEqual([fact]);
+  });
+});
+
+describe("regenerating one frame (H9)", () => {
+  async function deliveredSet(n = 3) {
+    await run(n);
+    return frameRows();
+  }
+
+  function regenerate(id: string, edits?: Record<string, string>) {
+    return regenerateFrameWork(
+      {
+        context: carouselContext(),
+        userId: "u1",
+        sessionId: "s1",
+        generationId: id,
+        edits,
+      },
+      runtimeWith().runtime as never,
+    );
+  }
+
+  it("draws the user's copy exactly as typed, on the set's palette, as a new row of the same frame", async () => {
+    const rows = await deliveredSet();
+    const target = rows[1];
+    const set = db.sets.get(target.setId as string) as {
+      plan: PlannedSequence;
+    };
+    replanFrame.mockImplementation(
+      async (input: {
+        plan: PlannedSequence;
+        index: number;
+        edits: object;
+      }) => ({
+        beat: { ...input.plan.frames[input.index], ...input.edits },
+        modelCalls: 0,
+      }),
+    );
+    const usageBefore = db.usage.length;
+    const outcome = await regenerate(target.id, {
+      headline: "butter from ONE farm, really",
+    });
+
+    const fresh = db.rows.get(outcome.result.generationId) as Row;
+    expect(fresh).toMatchObject({
+      setId: target.setId,
+      frameIndex: 1,
+      frameCount: 3,
+      status: "succeeded",
+    });
+    expect(headlineOf(fresh)).toBe("butter from ONE farm, really");
+    expect(fresh.spec.palette).toEqual(target.spec.palette);
+    expect(db.rows.get(target.id)?.supersededBy).toBe(fresh.id);
+    expect(outcome.result).toEqual({
+      kind: "frame",
+      setId: target.setId,
+      frameIndex: 1,
+      generationId: fresh.id,
+      replaced: target.id,
+    });
+    expect(replanFrame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        index: 1,
+        plan: set.plan,
+        edits: { headline: "butter from ONE farm, really" },
+      }),
+    );
+    expect(replaceDesignSetBeat).toHaveBeenCalledWith(
+      target.setId,
+      1,
+      expect.objectContaining({ headline: "butter from ONE farm, really" }),
+    );
+    expect(db.usage.length - usageBefore).toBe(1);
+    expect(db.usage.at(-1)?.metadata).toMatchObject({
+      setId: target.setId,
+      frameIndex: 1,
+      frameCount: 3,
+      generationId: fresh.id,
+      regenerateOf: target.id,
+    });
+  });
+
+  it("leaves the other frames untouched", async () => {
+    const rows = await deliveredSet();
+    const others = [rows[0], rows[2]].map((r) => ({ ...db.rows.get(r.id) }));
+    replanFrame.mockImplementation(
+      async (input: { plan: PlannedSequence; index: number }) => ({
+        beat: { ...input.plan.frames[input.index], headline: "A new angle" },
+        modelCalls: 1,
+      }),
+    );
+    await regenerate(rows[1].id);
+    for (const before of others) {
+      expect(db.rows.get(before.id as string)).toEqual(before);
+    }
+  });
+
+  it("keeps a layout apart from both neighbours", async () => {
+    const rows = await deliveredSet();
+    replanFrame.mockImplementation(
+      async (input: { plan: PlannedSequence; index: number }) => ({
+        beat: {
+          ...input.plan.frames[input.index],
+          layout: rows[0].spec.layout,
+        },
+        modelCalls: 1,
+      }),
+    );
+    const outcome = await regenerate(rows[1].id);
+    const layout = db.rows.get(outcome.result.generationId)?.spec.layout;
+    expect(layout).not.toBe(rows[0].spec.layout);
+    expect(layout).not.toBe(rows[2].spec.layout);
+  });
+
+  it("leaves a regenerate still rendering at the same frame to land after it", async () => {
+    const rows = await deliveredSet();
+    replanFrame.mockImplementation(
+      async (input: { plan: PlannedSequence; index: number }) => ({
+        beat: input.plan.frames[input.index],
+        modelCalls: 1,
+      }),
+    );
+    db.rows.set("in-flight", {
+      ...rows[1],
+      id: "in-flight",
+      status: "pending",
+      createdAt: new Date(2_000_000),
+    });
+    const outcome = await regenerate(rows[1].id);
+    expect(db.rows.get(rows[1].id)?.supersededBy).toBe(
+      outcome.result.generationId,
+    );
+    expect(db.rows.get("in-flight")?.supersededBy).toBeNull();
+  });
+
+  it("supersedes nothing and bills nothing when the new frame fails", async () => {
+    const rows = await deliveredSet();
+    replanFrame.mockImplementation(
+      async (input: { plan: PlannedSequence; index: number }) => ({
+        beat: input.plan.frames[input.index],
+        modelCalls: 1,
+      }),
+    );
+    rasterizeDocument.mockRejectedValue(new Error("render worker crashed"));
+    const usageBefore = db.usage.length;
+    await expect(regenerate(rows[1].id)).rejects.toThrow(
+      "render worker crashed",
+    );
+    expect(supersedeFrame).not.toHaveBeenCalled();
+    expect(replaceDesignSetBeat).not.toHaveBeenCalled();
+    expect(db.rows.get(rows[1].id)?.supersededBy).toBeNull();
+    expect(db.usage.length).toBe(usageBefore);
+  });
+
+  it("refuses a row that is not a frame, or another brand's", async () => {
+    const rows = await deliveredSet();
+    db.rows.set("single", {
+      ...rows[0],
+      id: "single",
+      setId: null,
+      frameIndex: null,
+      frameCount: null,
+    });
+    await expect(regenerate("single")).rejects.toBeInstanceOf(FrameTargetError);
+    db.rows.set("foreign", { ...rows[0], id: "foreign", brandId: "other" });
+    await expect(regenerate("foreign")).rejects.toBeInstanceOf(
+      FrameTargetError,
+    );
+    await expect(regenerate("missing")).rejects.toBeInstanceOf(
+      FrameTargetError,
+    );
+    expect(replanFrame).not.toHaveBeenCalled();
+  });
+
+  it("refuses with the flag off", async () => {
+    const rows = await deliveredSet();
+    process.env.FEATURE_MULTI_FRAME = "";
+    await expect(regenerate(rows[1].id)).rejects.toBeInstanceOf(
+      MultiFrameDisabledError,
+    );
+  });
+});

@@ -30,6 +30,8 @@ export interface ResolvedAttachment {
   /** The prose this attachment contributes. Empty for an image-only asset. */
   text: string | null;
   designType?: string | null;
+  /** How many frames a carousel or deck brief asked for (KOOS-AI-002). */
+  slides?: number | null;
   dimensions?: string | null;
   platform?: string | null;
   scheduledFor?: string | null;
@@ -76,10 +78,21 @@ function firstDefined<K extends keyof ResolvedAttachment>(
   return null;
 }
 
+function firstCount(ordered: ResolvedAttachment[]): number | null {
+  for (const attachment of ordered) {
+    const value = attachment.slides;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
 export interface MergedContext {
   briefText: string | null;
   title: string | null;
   designType: string | null;
+  slides: number | null;
   dimensions: string | null;
   platform: string | null;
   scheduledFor: string | null;
@@ -126,6 +139,9 @@ export function mergeAttachments(input: {
     // from an attachment.
     title: ordered[0]?.label ?? null,
     designType: firstDefined(ordered, "designType"),
+    /* The same precedence as designType, so the count read belongs to the
+       format read. */
+    slides: firstCount(ordered),
     dimensions,
     platform: firstDefined(ordered, "platform"),
     scheduledFor: firstDefined(ordered, "scheduledFor"),

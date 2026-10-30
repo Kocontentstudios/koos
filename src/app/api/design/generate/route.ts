@@ -16,10 +16,16 @@ import {
   KoImageryDisabledError,
   koImageryEnabled,
 } from "@/lib/design/ko-imagery-flag";
+import { multiFrameEnabled } from "@/lib/design/multi-frame-flag";
 import { checkDesignQuota, quotaExceeded } from "@/lib/design/quota";
+import {
+  clampFrameCount,
+  sequenceKindOf,
+} from "@/lib/design/sequence/contract";
 import type { DirectionsImage } from "@/lib/jobs/run-design-directions";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
 import { executeGenerationJob } from "@/lib/jobs/run-generation";
+import { SEQUENCE_SLICE_BUDGET_MS } from "@/lib/jobs/stale";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isStorageConfigured } from "@/lib/storage";
 import {
@@ -72,6 +78,22 @@ function parseImage(value: unknown): DirectionsImage | undefined | null {
   return null;
 }
 
+/* Far above any set a job delivers (FRAME_BOUNDS clamps it); this only
+   refuses a number that is not a count of frames. */
+const MAX_FRAMES_ASKED = 100;
+
+/** The frame count a carousel or presentation was asked for: undefined when
+ *  none was sent, null when it is not a whole positive number. */
+function parseFrames(value: unknown): number | undefined | null {
+  if (value == null) return undefined;
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= MAX_FRAMES_ASKED
+    ? value
+    : null;
+}
+
 function paintsWithKo(image: DirectionsImage | undefined): boolean {
   return image === undefined || image.source === "ko";
 }
@@ -105,6 +127,7 @@ export async function POST(req: Request) {
     aspectRatio?: string | null;
     image?: unknown;
     regenerateOf?: unknown;
+    frames?: unknown;
   };
   try {
     body = await req.json();
@@ -149,6 +172,12 @@ export async function POST(req: Request) {
   const image = parseImage(body.image);
   if (image === null) {
     return Response.json({ error: "Invalid image" }, { status: 400 });
+  }
+  /* Read only with FEATURE_MULTI_FRAME on: off, the field is ignored as any
+     unknown field always was. */
+  const frames = multiFrameEnabled() ? parseFrames(body.frames) : undefined;
+  if (frames === null) {
+    return Response.json({ error: "Invalid frames" }, { status: 400 });
   }
   const { regenerateOf } = body;
   if (regenerateOf != null) {
@@ -255,6 +284,37 @@ export async function POST(req: Request) {
     throw err;
   }
 
+  /* A carousel or presentation becomes a set of frames (KOOS-AI-002) only
+     with the flag on and an image choice, and never for a direction being
+     regenerated. Its count comes from the request, else the brief. */
+  const sequenceKind =
+    image && regenerateOf == null && multiFrameEnabled()
+      ? sequenceKindOf(context.designType)
+      : null;
+  const sequence = sequenceKind
+    ? {
+        frames: clampFrameCount(sequenceKind, frames ?? context.slides),
+        contextRequest: {
+          briefId: briefId ?? null,
+          calendarItemId: calendarItemId ?? null,
+          attachments,
+          freeform: freeform ?? null,
+          aspectRatio: aspectRatio ?? null,
+        },
+      }
+    : null;
+  /* A set costs one unit per frame, so it is refused before the job when
+     the workspace cannot pay for all of them, rather than delivering the
+     first few frames of a carousel. */
+  if (sequenceKind && sequence) {
+    const setQuota = await checkDesignQuota(
+      access.brand.workspaceId,
+      new Date(),
+      sequence.frames,
+    );
+    if (!setQuota.ok) return quotaExceeded(setQuota, sequenceKind);
+  }
+
   const job = await createGenerationJob({
     kind: "design_render",
     userId: dbUser.id,
@@ -264,30 +324,42 @@ export async function POST(req: Request) {
       calendarItemId: calendarItemId ?? null,
       attachments,
       ...(image ? { image, regenerateOf: regenerateOf ?? null } : {}),
+      ...(sequence
+        ? {
+            sequence: { frames: sequence.frames },
+            freeform: freeform ?? null,
+            aspectRatio: aspectRatio ?? null,
+          }
+        : {}),
     },
   });
 
   const sessionId = await getAnalyticsSessionId();
+  const work = (runtime: Parameters<typeof generateDesignWork>[1]) =>
+    generateDesignWork(
+      {
+        context,
+        userId: dbUser.id,
+        sessionId,
+        ...(image
+          ? {
+              directions: {
+                image,
+                regenerateOf:
+                  typeof regenerateOf === "string" ? regenerateOf : null,
+              },
+            }
+          : {}),
+        ...(sequence ? { sequence } : {}),
+      },
+      runtime,
+    );
   after(() =>
-    executeGenerationJob(job.id, (runtime) =>
-      generateDesignWork(
-        {
-          context,
-          userId: dbUser.id,
-          sessionId,
-          ...(image
-            ? {
-                directions: {
-                  image,
-                  regenerateOf:
-                    typeof regenerateOf === "string" ? regenerateOf : null,
-                },
-              }
-            : {}),
-        },
-        runtime,
-      ),
-    ),
+    sequence
+      ? executeGenerationJob(job.id, work, {
+          softDeadlineMs: SEQUENCE_SLICE_BUDGET_MS,
+        })
+      : executeGenerationJob(job.id, work),
   );
 
   return Response.json({ jobId: job.id }, { status: 202 });

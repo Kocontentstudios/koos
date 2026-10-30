@@ -16,6 +16,8 @@
  * src/lib/ai/design-training/playbooks.ts.
  */
 
+import { multiFrameEnabled } from "@/lib/design/multi-frame-flag";
+
 export const DESIGN_FORMATS = [
   "social-post",
   "carousel",
@@ -181,13 +183,31 @@ const RULES: Record<DesignFormat, FormatRules> = {
   },
 };
 
-export function formatRules(format: DesignFormat): FormatRules {
+/* With FEATURE_MULTI_FRAME on, a deck is generated as a set of 16:9 slides
+   (KOOS-AI-002), so the format stops claiming the renderer can only offer a
+   title slide. Off, it reads exactly as before. */
+const PRESENTATION_AS_SET: FormatRules = {
+  headlineWords: 10,
+  multiPage: true,
+  generatable: true,
+  defaultDimensions: "1344x756",
+  guidance:
+    "A deck is a sequence of 16:9 slides on one master: the title slide states the subject, each slide after it makes one point, and the last slide carries the action. Every slide shares the palette, type and logo placement.",
+};
+
+export function formatRules(
+  format: DesignFormat,
+  env: Record<string, string | undefined> = process.env,
+): FormatRules {
+  if (format === "presentation" && multiFrameEnabled(env)) {
+    return PRESENTATION_AS_SET;
+  }
   return RULES[format];
 }
 
 /** Format guidance as a prompt block, or empty when nothing useful to add. */
 export function formatBlock(format: DesignFormat): string {
-  const rules = RULES[format];
+  const rules = formatRules(format);
   return [
     `Deliverable format: ${format}.`,
     rules.guidance,

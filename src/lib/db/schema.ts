@@ -713,6 +713,27 @@ export const designGenerations = pgTable(
   ],
 );
 
+/** KOOS-AI-002: what a carousel or presentation was planned as, one row per
+ *  set. Its frames are design_generations rows sharing set_id = id. The plan
+ *  is kept so one frame can be regenerated under the set's palette, logo and
+ *  footer system without planning the whole set again; plan.frames[i] is
+ *  replaced when frame i is. `request` is what the context was resolved
+ *  from, so a regenerate reads the brief the set was made from. */
+export const designSets = pgTable("design_sets", {
+  id: uuid("id").primaryKey(),
+  brandId: uuid("brand_id")
+    .notNull()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["carousel", "presentation"] }).notNull(),
+  frameCount: integer("frame_count").notNull(),
+  plan: jsonb("plan").notNull(),
+  facts: jsonb("facts").notNull().default(sql`'[]'::jsonb`),
+  offering: text("offering"),
+  request: jsonb("request").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const designDeliverables = pgTable(
   "design_deliverables",
   {
