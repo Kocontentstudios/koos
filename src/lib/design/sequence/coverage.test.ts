@@ -80,3 +80,64 @@ describe("withFactsDrawn: a count the copy already gives", () => {
     expect(drawn).toEqual(["14 cold rooms"]);
   });
 });
+
+describe("withFactsDrawn: a count the copy already gives after its verb", () => {
+  it("draws no footer for a count a headline states", () => {
+    const facts = [
+      ...CAFE_FACTS,
+      fact("quantity", "3x in 2025"),
+      fact("quantity", "5,000 more kits"),
+    ];
+    const plan = withFrame(
+      withFrame(cafePlan(), 1, { headline: "Revenue grew 3x in 2025" }),
+      3,
+      { headline: "The round buys 5,000 more kits" },
+    );
+    const { drawn, plan: filled } = withFactsDrawn(plan, facts, [
+      ...OWNERS,
+      [],
+      [],
+    ]);
+    expect(drawn).not.toContain("3x in 2025");
+    expect(drawn).not.toContain("5,000 more kits");
+    expect(filled.frames.flatMap((f) => f.footerLines)).not.toContain(
+      "3x in 2025",
+    );
+  });
+});
+
+describe("withFactsDrawn: a footer item giving part of a fact", () => {
+  it("puts the fact's own words in its place rather than beside it", () => {
+    const facts = [...CAFE_FACTS, fact("quantity", "One 60-minute session")];
+    const plan = withFrame(cafePlan(), 4, {
+      footerLines: [
+        "60-minute session · ₦2,500 a bottle",
+        "WhatsApp 0803 555 0142",
+      ],
+    });
+    expect(factsUncovered(plan.frames, facts).map((f) => f.text)).toEqual([
+      "One 60-minute session",
+    ]);
+    const { plan: filled, drawn } = withFactsDrawn(plan, facts, [
+      ...OWNERS,
+      [],
+    ]);
+    expect(drawn).toEqual(["One 60-minute session"]);
+    expect(filled.frames[4].footerLines).toEqual([
+      "One 60-minute session · ₦2,500 a bottle",
+      "WhatsApp 0803 555 0142",
+    ]);
+    expect(factsUncovered(filled.frames, facts)).toEqual([]);
+  });
+});
+
+describe("withFactsDrawn: a figure the frame already gives", () => {
+  it("never draws a count whose figures the frame's own copy states", () => {
+    const facts = [...CAFE_FACTS, fact("quantity", "40 kilos a week")];
+    const plan = withFrame(cafePlan(), 4, {
+      headline: "We roast 40 kilos for you",
+    });
+    const { plan: filled } = withFactsDrawn(plan, facts, [...OWNERS, [4]]);
+    expect(filled.frames[4].footerLines).not.toContain("40 kilos a week");
+  });
+});

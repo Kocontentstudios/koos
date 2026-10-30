@@ -3,14 +3,13 @@ import type { z } from "zod";
 import {
   buildArcCopyPrompt,
   buildArcPrompt,
+  buildAuditPrompt,
   buildFixPrompt,
   buildSequenceSystemPrompt,
   type ClaimedFrame,
-  type FrameFix,
   hookNames,
 } from "@/lib/ai/prompts/design-sequence";
 import { getModel } from "@/lib/ai/provider";
-import { formatRules } from "@/lib/design/formats";
 import {
   ART_DIRECTOR_IMAGE_MAX_BYTES,
   brandFacts,
@@ -21,15 +20,8 @@ import {
   readBriefWithModel,
   settleBriefRead,
 } from "@/lib/jobs/directions/brief-read";
-import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
-import {
-  type ArcFrame,
-  type ArcPoint,
-  pointPool,
-  settleArc,
-  sparePoints,
-  titleFromClaim,
-} from "./arc";
+import { type ArcFrame, pointPool, settleArc, sparePoints } from "./arc";
+import { auditFlags } from "./audit";
 import { withConsistentCasing } from "./casing";
 import {
   FRAME_BOUNDS,
@@ -38,44 +30,53 @@ import {
   type PlanSequenceInput,
   type PlanSequenceResult,
   PRESENTATION_ASPECT,
-  type SequenceKind,
 } from "./contract";
 import { withFactsDrawn } from "./coverage";
 import {
   blockingFaults,
-  COVERAGE,
   type CopyFault,
   type FaultRules,
-  faultScore,
+  type Flag,
+  flaggedFaults,
   hookScore,
   setFaults,
 } from "./faults";
+import {
+  applyFixes,
+  copyKey,
+  fixesFor,
+  newClaims,
+  tidyLines,
+  UNSOURCED,
+  withLastResorts,
+} from "./fixes";
 import { namesFree } from "./hook";
 import { withFigureLayout } from "./layouts";
 import { inventedOn, sequenceFacts, sequenceLedger } from "./ledger";
-import { textStatesPrice } from "./points";
+import { profileStatements } from "./points";
 import { repairSequenceFor } from "./repair";
-import { type FrameRepeat, withoutFactWords, withoutRepeats } from "./repeats";
+import { type FrameRepeat, withoutRepeats } from "./repeats";
 import {
   type ArcAnswer,
   arcResponseSchema,
+  auditResponseSchema,
   type CopyAnswer,
   copyResponseSchema,
-  type FrameRewrite,
   rewriteResponseSchema,
 } from "./schema";
-import { settledTitle } from "./title";
+import { settledTitle, type TitleRules, withSettledTitles } from "./title";
 import { validateSequence } from "./validate";
 
 const ARC_MAX_OUTPUT_TOKENS = 3000;
 /** N frames of copy, the button and the other openings. */
 const COPY_MAX_OUTPUT_TOKENS = 8000;
+const AUDIT_MAX_OUTPUT_TOKENS = 2000;
 const FIX_MAX_OUTPUT_TOKENS = 6000;
 
-/* The brief read, the arc, the copy and two fix calls are five; the rest
-   covers a schema retry on each. Past that a fix is skipped rather than
-   the wait growing. */
-export const MAX_MODEL_CALLS = 8;
+/* The brief read, the arc, the copy, the audit and two fix calls are six;
+   the rest covers a schema retry on three of them. Past that a fix is
+   skipped rather than the wait growing. */
+export const MAX_MODEL_CALLS = 9;
 
 /** Thrown in place of a call past MAX_MODEL_CALLS. */
 export class ModelBudgetError extends Error {
@@ -84,6 +85,13 @@ export class ModelBudgetError extends Error {
     this.name = "ModelBudgetError";
   }
 }
+
+/* A model error carries the answer's text, which is the client's copy:
+   its name and message say what failed without putting a brief in a log. */
+const failure = (err: unknown) => ({
+  name: (err as Error)?.name,
+  message: String((err as Error)?.message ?? err).slice(0, 300),
+});
 
 export interface PlanSequenceDeps {
   /** Reads the brief's facts, offering and people (brief-read.ts). */
@@ -102,38 +110,6 @@ export interface PlannedSequenceResult extends PlanSequenceResult {
   /** Brief facts the copy left out that code wrote onto a frame's footer
    *  in the brief's own words (withFactsDrawn). */
   factsDrawn: string[];
-}
-
-const tidyLines = (lines: readonly string[]) =>
-  lines.map((line) => line.trim()).filter(Boolean);
-
-/** A frame with the model's rewrite in place of its words. Role, layout,
- *  image and scene are kept: the rewrite is of copy only. */
-export function withRewrite(beat: FrameBeat, rewrite: FrameRewrite): FrameBeat {
-  /* The action frame's button is the set's only one (H3): a rewrite that
-     leaves it empty keeps the button it had. */
-  const cta = beat.role === "cta" ? rewrite.cta.trim() || beat.cta : "";
-  return {
-    ...beat,
-    title: settledTitle(rewrite.title, beat.title),
-    headline: rewrite.headline.trim(),
-    subheadline: rewrite.subheadline.trim(),
-    cta,
-    footerLines: tidyLines(rewrite.footerLines),
-  };
-}
-
-/** The words a set of frames draws, for telling versions apart. */
-function copyKey(frames: readonly FrameBeat[]): string {
-  return JSON.stringify(
-    frames.map((f) => [
-      f.title,
-      f.headline,
-      f.subheadline,
-      f.cta,
-      f.footerLines,
-    ]),
-  );
 }
 
 type BrandFrame = Pick<
@@ -158,7 +134,7 @@ export function assemblePlan(
     const written = copy.frames[i];
     return {
       role: frame.role,
-      title: frame.title,
+      title: settledTitle(written.title, frame.title),
       headline: written.headline.trim(),
       subheadline: written.subheadline.trim(),
       cta: frame.role === "cta" ? copy.cta.trim() : "",
@@ -214,183 +190,12 @@ export function chosenHook(
   };
 }
 
-const coverageOf = (faults: readonly CopyFault[]) =>
-  faults.filter((f) => f.weight >= COVERAGE).length;
-
-/** Whether `after` ships with fewer faults than `before`, never by losing
- *  coverage: a brief fact or the offering is never the price of a fix. */
-export function improves(
-  before: PlannedSequence,
-  after: PlannedSequence,
-  rules: FaultRules,
-): boolean {
-  const was = setFaults(before, rules);
-  const now = setFaults(after, rules);
-  return (
-    coverageOf(now) <= coverageOf(was) && faultScore(now) < faultScore(was)
-  );
-}
-
-/**
- * The fix call's versions, kept frame by frame only where the set is left
- * with fewer faults (improves). Code chooses between the model's answers;
- * it never writes a word of any. Returns the frames whose rewrite was kept.
- */
-export function applyFixes(
-  plan: PlannedSequence,
-  rewrites: readonly FrameRewrite[],
-  asked: ReadonlySet<number>,
-  rules: FaultRules,
-  tidy: (frames: readonly FrameBeat[]) => FrameBeat[] = (f) => [...f],
-  retitle: ReadonlySet<number> = new Set(),
-): { plan: PlannedSequence; kept: number[] } {
-  let current = plan;
-  const kept: number[] = [];
-  for (const index of [...asked].sort((a, b) => a - b)) {
-    if (!current.frames[index]) continue;
-    let best: PlannedSequence | null = null;
-    for (const rewrite of rewrites.filter((r) => r.frame - 1 === index)) {
-      /* A title is the frame's name on its card: it changes only where
-         the title itself was at fault, never because a version renamed
-         it. */
-      const rewritten = (b: FrameBeat) => {
-        const next = withRewrite(b, rewrite);
-        return retitle.has(index) ? next : { ...next, title: b.title };
-      };
-      const frames = tidy(
-        current.frames.map((b, i) => (i === index ? rewritten(b) : b)),
-      );
-      if (copyKey(frames) === copyKey(current.frames)) continue;
-      const candidate = { ...current, frames };
-      if (improves(best ?? current, candidate, rules)) best = candidate;
-    }
-    if (best) {
-      current = best;
-      kept.push(index);
-    }
-  }
-  return { plan: current, kept };
-}
-
-/** The frames whose title, or whose claim, is at fault: the only ones a
- *  fix may rename. */
-export function retitled(
-  faults: readonly CopyFault[],
-  fixes: readonly FrameFix[],
-): Set<number> {
-  return new Set([
-    ...faults.filter((f) => f.field === "title").map((f) => f.frame),
-    ...fixes.filter((f) => f.newClaim).map((f) => f.index),
-  ]);
-}
-
-/** The faults the fix call is asked about, by frame. */
-export function fixesFor(faults: readonly CopyFault[]): FrameFix[] {
-  const byFrame = new Map<number, string[]>();
-  for (const fault of faults) {
-    const list = byFrame.get(fault.frame) ?? [];
-    if (!list.includes(fault.detail)) list.push(fault.detail);
-    byFrame.set(fault.frame, list);
-  }
-  return [...byFrame.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([index, list]) => ({ index, faults: list }));
-}
-
-/* A body frame whose headline makes another frame's point cannot be fixed
-   by rewording it: its claim is the other frame's. */
-const POINT_TAKEN =
-  /makes frame \d+'s point|says what frame \d+|built on the words of frame \d+/;
-
-/** Body frames whose point another frame already makes, each given the
- *  next spare point of the pool as a new claim. */
-export function newClaims(
-  plan: PlannedSequence,
-  blocking: readonly CopyFault[],
-  spare: readonly number[],
-  pool: readonly ArcPoint[],
-): Map<number, string> {
-  const claims = new Map<number, string>();
-  const left = [...spare];
-  for (const fault of blocking) {
-    const beat = plan.frames[fault.frame];
-    if (beat?.role !== "body" || claims.has(fault.frame)) continue;
-    if (!POINT_TAKEN.test(fault.detail)) continue;
-    const next = left.shift();
-    if (next === undefined) break;
-    claims.set(fault.frame, pool[next].text);
-  }
-  return claims;
-}
-
-const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
-
-/** Whether `text` can stand as a headline of `kind` as written. */
-function fitsHeadline(text: string, kind: SequenceKind): boolean {
-  return (
-    text.length > 0 &&
-    text.length <= COPY_LIMITS.headline &&
-    wordCount(text) <= formatRules(kind).headlineWords + 2
-  );
-}
-
-/**
- * The faults that must not ship and that no rewrite fixed, settled in
- * code by removing words or putting a sourced claim in their place, each
- * kept only where the set improves (improves):
- *  - a carousel's price in a headline: the price's words cut where the
- *    rest reads on its own, else the frame's claim as headline;
- *  - a headline making another frame's point: the frame's own claim, in
- *    its source's words;
- *  - a subheadline that is not a sentence: left out;
- *  - a title another frame has: one made from the frame's claim.
- */
-export function withLastResorts(
-  plan: PlannedSequence,
-  arc: readonly ArcFrame[],
-  rules: FaultRules,
-): { plan: PlannedSequence; applied: string[] } {
-  let current = plan;
-  const applied: string[] = [];
-  const attempt = (frame: number, change: Partial<FrameBeat>, what: string) => {
-    const candidate = {
-      ...current,
-      frames: current.frames.map((b, i) =>
-        i === frame ? { ...b, ...change } : b,
-      ),
-    };
-    if (!improves(current, candidate, rules)) return false;
-    current = candidate;
-    applied.push(`frame ${frame + 1}: ${what}`);
-    return true;
-  };
-  for (const fault of blockingFaults(setFaults(current, rules))) {
-    const beat = current.frames[fault.frame];
-    if (!beat) continue;
-    const claim = arc[fault.frame]?.claim ?? "";
-    if (fault.field === "headline" && /gives the price/.test(fault.detail)) {
-      const price = rules.facts.find(
-        (f) => f.kind === "price" && fault.detail.includes(`"${f.text}"`),
-      );
-      const cut = price ? withoutFactWords(beat.headline, price) : null;
-      if (cut && attempt(fault.frame, { headline: cut }, "price cut")) continue;
-      const priced = price !== undefined && textStatesPrice(price, claim);
-      if (!priced && fitsHeadline(claim, current.kind)) {
-        attempt(fault.frame, { headline: claim }, "headline set to its claim");
-      }
-    } else if (fault.field === "headline" && POINT_TAKEN.test(fault.detail)) {
-      if (fitsHeadline(claim, current.kind)) {
-        attempt(fault.frame, { headline: claim }, "headline set to its claim");
-      }
-    } else if (fault.field === "subheadline" && beat.subheadline) {
-      attempt(fault.frame, { subheadline: "" }, "subheadline left out");
-    } else if (fault.field === "title") {
-      const title = titleFromClaim(claim);
-      if (title) attempt(fault.frame, { title }, "title made from its claim");
-    }
-  }
-  return { plan: current, applied };
-}
+/* A brief read can take the piece for the offering ("Investor deck"):
+   the hook is then told to name it, and talks about the deck instead of
+   what the deck is about. Only a phrase whose head is the piece itself:
+   "Desk posts" or "Slides and sandals" can be what a brand sells. */
+const NAMES_THE_PIECE =
+  /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|presentation|carousel)$/iu;
 
 /**
  * The set's plan, arc first:
@@ -403,17 +208,21 @@ export function withLastResorts(
  *  3. The arc call ranks the pool and assigns one point to each frame,
  *     writing only the hook's angle; code settles it (settleArc): no point
  *     overlapping another frame's, every fact on exactly one frame, prices
- *     beside the action, distinct titles, layouts.
+ *     beside the action, layouts.
  *  4. The copy call writes every frame told only its own claim and the
  *     claims and facts it must leave to the others, and frame 1 three ways;
  *     code keeps the opening with the fewest faults.
- *  5. Code finds what is wrong (setFaults) and the fix call rewrites only
- *     the frames at fault; a version is kept only where the set improves.
- *     A frame whose point is still another frame's takes a spare point and
- *     is rewritten once more, with every fault still blocking.
- *  6. What still blocks is settled in code (withLastResorts), the
- *     headlines take one casing, and a fact still missing is written in
- *     the brief's words (withFactsDrawn).
+ *  5. The audit call reads the written set for what words cannot show:
+ *     two frames making one point in other words, a statement no source
+ *     gives, and which spare points are still unsaid (auditFlags).
+ *  6. Code finds what is wrong (setFaults, the audit's findings among
+ *     them) and the fix call rewrites only the frames at fault, a frame
+ *     whose point is another's given a spare point; a version is kept only
+ *     where the set improves. A second call takes what still blocks.
+ *  7. What still blocks is settled in code (withLastResorts), the
+ *     headlines take one casing, a fact still missing is written in the
+ *     brief's words (withFactsDrawn), and every title is settled against
+ *     its frame's final copy (withSettledTitles).
  *  At most MAX_MODEL_CALLS calls, the brief read included.
  */
 export async function planSequence(
@@ -448,7 +257,7 @@ export async function planSequence(
     briefText,
     title: context.title ?? "",
   }).catch((err) => {
-    console.error("sequence brief read failed", err);
+    console.error("sequence brief read failed", failure(err));
     return null;
   });
   const read = settleBriefRead(
@@ -460,8 +269,14 @@ export async function planSequence(
     ]),
   );
   const brandName = context.brandSummary.name;
-  const facts = sequenceFacts(read, brandName);
-  const offering = read.offering?.phrase ?? null;
+  const facts = sequenceFacts(read, brandName, briefText).filter(
+    (f) => f.kind !== "product" || !NAMES_THE_PIECE.test(f.text.trim()),
+  );
+  const readOffering = read.offering?.phrase ?? null;
+  const offering =
+    readOffering && NAMES_THE_PIECE.test(readOffering.trim())
+      ? null
+      : readOffering;
   const offeringIndex = facts.findIndex((f) => f.kind === "product");
   const names = hookNames(context, offering);
   const free = namesFree(brandName, offering);
@@ -537,10 +352,12 @@ export async function planSequence(
         );
       } catch (err) {
         if ((err as Error)?.name !== "AI_NoObjectGeneratedError") throw err;
+        /* The answer's text is the client's copy: its length says what
+           went wrong without putting their brief in the log. */
         console.error(
           "sequence answer did not match the schema; asking again",
           {
-            text: String((err as { text?: unknown }).text ?? "").slice(0, 2000),
+            chars: String((err as { text?: unknown }).text ?? "").length,
           },
         );
         return askOnce(
@@ -559,7 +376,10 @@ export async function planSequence(
       return answer;
     } catch (err) {
       if (err instanceof ModelBudgetError) throw err;
-      console.error("sequence planner could not take the photograph", err);
+      console.error(
+        "sequence planner could not take the photograph",
+        failure(err),
+      );
       imageRefused = true;
       return once(false);
     }
@@ -618,6 +438,18 @@ export async function planSequence(
   );
 
   const ledger = sequenceLedger(context, memorySummary);
+  const profile = [
+    ...profileStatements(context.brandSummary),
+    context.brandSummary.targetAudience?.trim() ?? "",
+  ].filter(Boolean);
+  const titleRules: TitleRules = {
+    sources: [
+      briefText,
+      ...Object.values(context.brandSummary).filter(
+        (v): v is string => typeof v === "string",
+      ),
+    ],
+  };
   const rules: FaultRules = {
     frameCount,
     facts,
@@ -628,9 +460,15 @@ export async function planSequence(
     ledger,
     owners,
     claims: arc.frames.map((f) => f.claim),
+    titleSources: titleRules.sources,
   };
+  const arcTitles = arc.frames.map((f) => [f.title]);
   const tidy = (frames: readonly FrameBeat[]) =>
-    withoutRepeats(frames, facts, offering, owners);
+    withSettledTitles(
+      withoutRepeats(frames, facts, offering, owners),
+      titleRules,
+      arcTitles,
+    );
   const written = assemblePlan({ kind, context }, arcAnswer, arc.frames, copy);
   const hooks = chosenHook(
     { ...written, frames: tidy(written.frames) },
@@ -639,6 +477,39 @@ export async function planSequence(
   );
   let plan = hooks.plan;
   const draft = plan;
+
+  let spares = sparePoints(arc, pool, facts, free);
+  /* A statement the audit reads as unsourced is reported, never acted on:
+     asked for a sourced detail in its place, the writer restates another
+     frame's fact, and cut, the frame is left thin; either way the set
+     reads more repetitive (tuning, N=3 non-repetition 3.4 to 3.6 acting
+     on them, 4.4 reporting them). */
+  let unsourced: Flag[] = [];
+  try {
+    const audit = await ask(
+      auditResponseSchema,
+      () =>
+        buildAuditPrompt(context, {
+          kind,
+          frames: plan.frames,
+          spares: spares.map((i) => ({ number: i + 1, text: pool[i].text })),
+          profile,
+        }),
+      AUDIT_MAX_OUTPUT_TOKENS,
+      { looks: false },
+    );
+    const flags = auditFlags(audit, plan.frames, ledger.text);
+    rules.flagged = flags.filter((f) => f.kind === "repeat");
+    unsourced = flags.filter((f) => f.kind === "unsourced");
+    const fresh = new Set(audit.freshSpares.map((n) => n - 1));
+    spares = spares.filter((i) => fresh.has(i));
+  } catch (err) {
+    if (err instanceof ModelBudgetError) throw err;
+    console.error(
+      "sequence audit failed; fixing on code's faults alone",
+      failure(err),
+    );
+  }
 
   const fixRounds: { asked: number[]; kept: number[]; claims: number[] }[] = [];
   const fixRound = async (
@@ -670,7 +541,6 @@ export async function planSequence(
         new Set(fixes.map((f) => f.index)),
         rules,
         tidy,
-        retitled(faults, fixes),
       );
       plan = applied.plan;
       const swapped = fixes.filter(
@@ -688,18 +558,23 @@ export async function planSequence(
         claims: swapped.map((f) => f.index),
       });
     } catch (err) {
-      console.error("sequence fix call failed; keeping the copy", err);
+      console.error("sequence fix call failed; keeping the copy", failure(err));
     }
   };
 
-  await fixRound(setFaults(plan, rules));
-  const blocking = blockingFaults(setFaults(plan, rules));
-  if (blocking.length > 0) {
-    await fixRound(
-      blocking,
-      newClaims(plan, blocking, sparePoints(arc, pool, facts, free), pool),
+  const withSpares = async (faults: readonly CopyFault[]) => {
+    const swaps = newClaims(plan, blockingFaults(faults), spares, pool);
+    const taken = new Set(
+      [...swaps.values()].map((claim) =>
+        pool.findIndex((p) => p.text === claim),
+      ),
     );
-  }
+    await fixRound(faults, swaps);
+    spares = spares.filter((i) => !taken.has(i));
+  };
+  await withSpares(setFaults(plan, rules));
+  const blocking = blockingFaults(setFaults(plan, rules));
+  if (blocking.length > 0) await withSpares(blocking);
 
   const resorts = withLastResorts(plan, arc.frames, rules);
   plan = resorts.plan;
@@ -712,13 +587,27 @@ export async function planSequence(
   ]);
   plan = { ...plan, frames: cased.frames };
   const filled = withFactsDrawn(plan, facts, owners);
-  plan = { ...filled.plan, frames: filled.plan.frames.map(withFigureLayout) };
+  plan = {
+    ...filled.plan,
+    frames: withSettledTitles(filled.plan.frames, titleRules, arcTitles).map(
+      withFigureLayout,
+    ),
+  };
 
   const problems = validateSequence(plan, rules);
-  const invented = plan.frames.flatMap((beat, frame) =>
-    inventedOn(beat, ledger).map((text) => ({ frame, text })),
-  );
-  const faults = setFaults(plan, rules);
+  const invented = [
+    ...plan.frames.flatMap((beat, frame) =>
+      inventedOn(beat, ledger).map((text) => ({ frame, text })),
+    ),
+    ...flaggedFaults(plan.frames, unsourced).map((fault) => ({
+      frame: fault.frame,
+      text: UNSOURCED.exec(fault.detail)?.[1] ?? fault.detail,
+    })),
+  ];
+  const faults = [
+    ...setFaults(plan, rules),
+    ...flaggedFaults(plan.frames, unsourced),
+  ];
   console.info("design.sequence.planned", {
     kind,
     frames: frameCount,
@@ -730,6 +619,7 @@ export async function planSequence(
     unsourced: arc.unsourced,
     crowded: arc.crowded,
     sameAs: [...arc.sameAs].filter((_, i) => i % 2 === 0),
+    flagged: [...(rules.flagged ?? []), ...unsourced],
     layoutsChanged: arc.layoutsChanged,
     hookChosen: hooks.index,
     fixRounds,

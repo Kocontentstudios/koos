@@ -102,7 +102,7 @@ against the `frameSpec` output the renderer would draw:
 | `roles` | Hook first, cta last, body between, and a button on the last frame only |
 | `paletteShared` | Every frame's spec has the same palette, logo, treatment and aspect, with at most one footer style. A presentation is 16:9 |
 | `layoutVariety` | No frame uses its neighbour's layout or composition |
-| `titleClean` | Every frame's title reads as its name on the card: no "version A" label or point id leaked from the planner (`title.ts`) |
+| `titleClean` | Every frame's title reads as its own name on the card (`title.ts` `titleProblems`): no "version A" label, point id or placeholder ("How to act"); not cut off mid-phrase from the brief or profile ("Taught by volunteer"); no figure stripped of its comma ("₦18 000"); no earlier frame's title; and not naming another frame's point while sharing no word with its own copy |
 | `factCoverage` | Every labelled fact is stated on at least one frame (`factStated`), and the hook names the labelled offering |
 
 The judge lives in `judge.ts`. It is a text judge on the same model path. It
@@ -119,8 +119,9 @@ scores three things from 1 to 5:
 
 These were written on 2026-10-30, before the first run, from rubric H13.
 They are frozen in `SEQUENCE_EVAL_THRESHOLDS`, and `cases.test.ts` fails if
-anyone edits them. `titleClean` was added in round 6 as a new 1.0 gate;
-no threshold has been lowered.
+anyone edits them. `titleClean` was added in round 6 as a new 1.0 gate and
+made stricter on 2026-10-30 (cut, stripped, placeholder and mismatched
+titles); no threshold has been lowered.
 
 - `count`, `roles`, `paletteShared`, `layoutVariety`, `titleClean` and `factCoverage`:
   **1.0**, meaning every run. The planner enforces or repairs each of these,
@@ -131,6 +132,51 @@ no threshold has been lowered.
   failed) is reported as "not measured". It never counts as a pass.
 
 ## Results so far
+
+### Arc-first planner, audit pass (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
+
+Logs and JSON reports in `/tmp/feat-multiframe/critique/arc-b-r2/`
+(`committed-{tuning,heldout}-{3,4}` are the code as committed; `final-*`,
+`tuning-*`, `heldout-*` and `exp-*` are the steps on the way).
+
+Changes: an audit call reads the written set cold for two frames making
+one point in other words and for statements no source gives
+(`buildAuditPrompt`, `audit.ts`); a repeat sends the later frame to the fix
+call with a spare point the audit reads as unsaid, an unsourced statement
+is reported in `invented` and never acted on (asking for a sourced detail
+in its place made the set restate other frames' facts: N=3
+non-repetition 3.4 to 3.6 acting on them, 4.4 reporting them,
+`exp-repeat-n3`). Titles are written by the copy call and settled in code
+against each frame's final copy (`withSettledTitles`); `titleClean` now
+fails a title cut from the brief, a stripped figure, a placeholder, a
+repeat or another frame's point. A set with no image cycles three
+compositions (split-left beside an accent panel). A count after its verb
+("The round buys 5,000 kits") and a time after a count of days ("Join us
+6 Saturdays, 9am to 12pm") read as stated; a count word the reader
+dropped ("One 60-minute session") is restored; a footer item that gives
+part of a fact is replaced by the fact; a year or a number ending one
+field is not read as an invented count.
+
+Two passes of each set on the committed code:
+
+| Set | pass | count..layoutVariety | titleClean | factCoverage | hook | last action | non-repetitive |
+|---|---|---|---|---|---|---|---|
+| tuning | 3 | 1.0 | 1.0 | 1.0 | 3.23 | 4.90 | 3.10 |
+| tuning | 4 | 1.0 | 1.0 | 0.967 | 3.37 | 4.97 | 3.30 |
+| held out | 3 | 1.0 | 1.0 | 1.0 | 3.42 | 4.83 | 3.25 |
+| held out | 4 | 1.0 | 1.0 | 1.0 | 4.00 | 5.00 | 3.58 |
+
+**Fails H13** on hook and non-repetition, as every round has. The
+coverage miss is school-deck's "30 laptops" written as "30 laptops to
+learn to code", which `factStated` refuses on purpose (a count before
+"to" names what is to be done). No set alternates two compositions (0 of
+84; 14 in the round before). By frame count non-repetition stays near 4
+at N=3 and falls to about 2.5 at N=8:
+the briefs and profiles hold four to six distinct points, and an
+eight-frame set with that much to say either pads or repeats. Moving the
+judged scores past 4.0 needs a decision, not more tuning: cap a carousel
+at the distinct points it has, set the threshold by N, or let the user
+approve the arc before copy is written.
 
 ### Arc-first planner (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
 

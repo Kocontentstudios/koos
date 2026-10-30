@@ -61,6 +61,44 @@ function homesFor(owner: number, frames: readonly FrameBeat[]): number[] {
   return [...new Set(order)].filter((i) => i > 0 && i <= last);
 }
 
+/* A count whose figures the frame's own headline or subheadline already
+   gives would be on the frame twice ("5,000 more kits" under "The round
+   buys 5,000 more kits"), however the verifier reads the words around it.
+   A price, date, time or contact is still drawn whole: the reader acts on
+   its exact words. */
+function givesFigures(beat: FrameBeat, fact: BriefFact): boolean {
+  if (!RESTATABLE.has(fact.kind)) return false;
+  const figures = [...numbersIn(fact.text)];
+  if (figures.length === 0) return false;
+  const said = numbersIn(`${beat.headline} ${beat.subheadline}`);
+  return figures.every((n) => said.has(n));
+}
+
+const ITEM_BREAK = /\s+·\s+/;
+
+/** `lines` with the fact's own words in place of a footer item that gives
+ *  only part of them ("60-minute session" for "One 60-minute session"),
+ *  else with them added as a line of their own. Beside its part, the
+ *  whole reads as a second value and is not counted as stated. */
+function withLine(lines: readonly string[], line: string): string[] {
+  const whole = line.toLowerCase();
+  let replaced = false;
+  const next = lines.map((existing) =>
+    existing
+      .split(ITEM_BREAK)
+      .map((item) => {
+        const part = item.trim().toLowerCase();
+        if (replaced || part.length === 0 || !whole.includes(part)) {
+          return item;
+        }
+        replaced = true;
+        return line;
+      })
+      .join(" · "),
+  );
+  return replaced ? next : [...lines, line];
+}
+
 /** Whether the line leaves the frame drawable: within the footer's lines
  *  and adding no limit the frame did not already break. */
 function fits(
@@ -109,7 +147,8 @@ export function withFactsDrawn(
     const owner = owners.findIndex((owned) => owned.includes(index));
     for (const home of homesFor(owner, frames)) {
       const beat = frames[home];
-      const next = { ...beat, footerLines: [...beat.footerLines, line] };
+      if (givesFigures(beat, fact)) continue;
+      const next = { ...beat, footerLines: withLine(beat.footerLines, line) };
       if (!fits(beat, next, home, plan.kind)) continue;
       if (!factStated(fact, frameCopy(next))) continue;
       frames = frames.map((b, i) => (i === home ? next : b));

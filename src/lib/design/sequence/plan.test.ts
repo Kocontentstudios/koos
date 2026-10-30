@@ -5,6 +5,7 @@ vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
+import { auditFlags } from "./audit";
 import type { PlannedSequence } from "./contract";
 import { CAFE_BRIEF } from "./fixtures";
 import { MAX_MODEL_CALLS, planSequence } from "./plan";
@@ -27,6 +28,8 @@ const isCopy = (o: unknown) =>
   promptOf(o).includes("Write the copy for this arc");
 const isFix = (o: unknown) =>
   promptOf(o).includes("as written, with each frame's claim");
+const isAudit = (o: unknown) =>
+  promptOf(o).includes("report what you find. Rewrite nothing.");
 
 const context = (over: Record<string, unknown> = {}) =>
   directionsContext({
@@ -88,7 +91,8 @@ const copyFrame = (
   headline: string,
   subheadline = "",
   footerLines: string[] = [],
-) => ({ headline, subheadline, footerLines, backgroundPrompt: "" });
+  title = "",
+) => ({ title, headline, subheadline, footerLines, backgroundPrompt: "" });
 
 const COPY = {
   frames: [
@@ -117,15 +121,29 @@ const COPY = {
 type Answers = {
   arc?: unknown;
   copy?: unknown;
+  audit?: unknown;
   fixes?: unknown[];
 };
 
+/* The audit finds nothing and keeps every spare point. */
+const AUDIT = {
+  repeats: [],
+  unsourced: [],
+  freshSpares: [1, 2, 3, 4, 5, 6, 7, 8],
+};
+
 /** Answers each call by what it asks for; fix calls in turn. */
-function answer({ arc = ARC, copy = COPY, fixes = [] }: Answers = {}) {
+function answer({
+  arc = ARC,
+  copy = COPY,
+  audit = AUDIT,
+  fixes = [],
+}: Answers = {}) {
   let fix = 0;
   generateObject.mockImplementation(async (o: unknown) => {
     if (isArc(o)) return { object: arc };
     if (isCopy(o)) return { object: copy };
+    if (isAudit(o)) return { object: audit };
     if (isFix(o)) {
       const next = fixes[fix] ?? { frames: [] };
       fix += 1;
@@ -165,9 +183,9 @@ describe("planSequence: arc first", () => {
     answer();
     const result = await plan();
     const order = generateObject.mock.calls.map(([o]) =>
-      isArc(o) ? "arc" : isCopy(o) ? "copy" : "fix",
+      isArc(o) ? "arc" : isCopy(o) ? "copy" : isAudit(o) ? "audit" : "fix",
     );
-    expect(order.slice(0, 2)).toEqual(["arc", "copy"]);
+    expect(order.slice(0, 3)).toEqual(["arc", "copy", "audit"]);
     expect(result.plan.frames.map((f) => f.role)).toEqual([
       "hook",
       "body",
@@ -195,7 +213,7 @@ describe("planSequence: arc first", () => {
     );
     const [copyPrompt] = promptsOf(isCopy);
     expect(copyPrompt).toContain(
-      'its claim, the only point it makes: "roasted in-house each week"',
+      'its claim, the only point it makes: "Roasted in-house each week"',
     );
     expect(copyPrompt).toContain(
       'its claim, the only point it makes: "Every bottle starts with beans from one farm"',
@@ -222,7 +240,7 @@ describe("planSequence: arc first", () => {
       copyPrompt.indexOf("frame 3 ("),
     );
     expect(frame2).toContain(
-      'its claim, the only point it makes: "roasted in-house each week"',
+      'its claim, the only point it makes: "Roasted in-house each week"',
     );
   });
 
@@ -246,7 +264,7 @@ describe("planSequence: arc first", () => {
     const result = await plan();
     expect(promptsOf(isFix)).toEqual([]);
     expect(result.faults).toEqual([]);
-    expect(result.modelCalls).toBe(3);
+    expect(result.modelCalls).toBe(4);
     expect(result.repaired).toBe(false);
   });
 
@@ -400,7 +418,7 @@ describe("planSequence: faults are fixed, not shipped", () => {
     expect(promptsOf(isFix).length).toBeGreaterThan(0);
   });
 
-  it("gives a frame whose point another frame makes a spare point, and asks again", async () => {
+  it("gives a frame whose point another frame makes a spare point in the first fix call", async () => {
     answer({
       arc: {
         ...ARC,
@@ -426,7 +444,7 @@ describe("planSequence: faults are fixed, not shipped", () => {
     await plan({ frameCount: 3 });
     const fixes = promptsOf(isFix);
     expect(fixes).toHaveLength(2);
-    expect(fixes[1]).toContain(
+    expect(fixes[0]).toContain(
       'NEW CLAIM: its point was another frame\'s, so it now makes this one instead: "Patience over shortcuts"',
     );
   });
@@ -507,6 +525,228 @@ describe("planSequence: faults are fixed, not shipped", () => {
   });
 });
 
+describe("planSequence: the audit", () => {
+  const fourFrames = {
+    ...ARC,
+    frames: [
+      arcFrame(1, "One farm"),
+      arcFrame(2, "Roasted here"),
+      arcFrame(0, "Reserve yours"),
+    ],
+    spare: [3],
+  };
+  const threeCopy = {
+    ...COPY,
+    frames: [COPY.frames[0], COPY.frames[1], COPY.frames[3]],
+  };
+
+  it("gives a frame the audit reads as an earlier frame's point a spare point", async () => {
+    answer({
+      arc: fourFrames,
+      copy: threeCopy,
+      audit: {
+        repeats: [{ frame: 2, sameAs: 1 }],
+        unsourced: [],
+        freshSpares: [3],
+      },
+    });
+    await plan({ frameCount: 3 });
+    const [fix] = promptsOf(isFix);
+    expect(fix).toContain("makes frame 1's point");
+    expect(fix).toContain(
+      'NEW CLAIM: its point was another frame\'s, so it now makes this one instead: "Patience over shortcuts"',
+    );
+  });
+
+  it("offers no spare point the audit reads as said already", async () => {
+    answer({
+      arc: fourFrames,
+      copy: threeCopy,
+      audit: {
+        repeats: [{ frame: 2, sameAs: 1 }],
+        unsourced: [],
+        freshSpares: [],
+      },
+    });
+    await plan({ frameCount: 3 });
+    expect(promptsOf(isFix).join("\n")).not.toContain("NEW CLAIM");
+  });
+
+  it("cuts a sentence giving a number no source gives when no rewrite takes it out", async () => {
+    answer({
+      copy: {
+        ...COPY,
+        frames: [
+          COPY.frames[0],
+          copyFrame(
+            "Roasted in-house each week",
+            "Each batch is roasted here before it is brewed. We roast 40 kilos at a time.",
+          ),
+          ...COPY.frames.slice(2),
+        ],
+      },
+    });
+    const result = await plan();
+    expect(result.plan.frames[1].subheadline).toBe(
+      "Each batch is roasted here before it is brewed.",
+    );
+    expect(result.invented).toEqual([]);
+  });
+
+  it("reports a statement the audit reads as unsourced, never asking or cutting it", async () => {
+    answer({
+      copy: {
+        ...COPY,
+        frames: [
+          COPY.frames[0],
+          copyFrame(
+            "Roasted in-house each week",
+            "Each batch is roasted here before it is brewed. No appointment needed for a tasting.",
+          ),
+          ...COPY.frames.slice(2),
+        ],
+      },
+      audit: {
+        repeats: [],
+        unsourced: [{ frame: 2, text: "No appointment needed" }],
+        freshSpares: [],
+      },
+    });
+    const result = await plan();
+    expect(result.plan.frames[1].subheadline).toBe(
+      "Each batch is roasted here before it is brewed. No appointment needed for a tasting.",
+    );
+    expect(promptsOf(isFix).join("\n")).not.toContain("No appointment needed");
+    expect(result.invented).toEqual([
+      { frame: 1, text: "No appointment needed" },
+    ]);
+    expect(result.faults.map((f) => f.detail)).toContainEqual(
+      expect.stringContaining('it states "No appointment needed"'),
+    );
+  });
+
+  it("plans on code's faults alone when the audit fails", async () => {
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isArc(o)) return { object: ARC };
+      if (isCopy(o)) return { object: COPY };
+      throw new Error("provider down");
+    });
+    const result = await plan();
+    expect(result.plan.frames).toHaveLength(4);
+  });
+
+  it("never takes the piece itself for what the brief offers", async () => {
+    answer();
+    const result = await planSequence(
+      {
+        context: context(),
+        kind: "presentation",
+        frameCount: 4,
+        imageSource: "none",
+        image: null,
+        memorySummary: "",
+        recentLayouts: [],
+      },
+      {
+        briefReader: async () => ({
+          facts: [{ kind: "contact", text: "WhatsApp 0803 555 0142" }],
+          offering: { kind: "product", phrase: "Investor deck" },
+          people: [],
+        }),
+      },
+    );
+    expect(result.offering).toBeNull();
+    expect(result.facts.map((f) => f.text)).not.toContain("Investor deck");
+  });
+
+  it("keeps an offering that only mentions a piece's word", async () => {
+    answer();
+    const result = await planSequence(
+      {
+        context: context({
+          briefText:
+            "Deck chairs for patios are back. WhatsApp 0803 555 0142 to order.",
+        }),
+        kind: "carousel",
+        frameCount: 4,
+        imageSource: "none",
+        image: null,
+        memorySummary: "",
+        recentLayouts: [],
+      },
+      {
+        briefReader: async () => ({
+          facts: [{ kind: "contact", text: "WhatsApp 0803 555 0142" }],
+          offering: { kind: "product", phrase: "Deck chairs for patios" },
+          people: [],
+        }),
+      },
+    );
+    expect(result.offering).toBe("Deck chairs for patios");
+  });
+});
+
+describe("auditFlags", () => {
+  const frames = [
+    { headline: "Hook", subheadline: "", footerLines: [], role: "hook" },
+    {
+      headline: "Fast delivery",
+      subheadline: "",
+      footerLines: [],
+      role: "body",
+    },
+    {
+      headline: "At your door within the hour",
+      subheadline: "Free parking at the shop.",
+      footerLines: [],
+      role: "body",
+    },
+  ] as never;
+
+  it("holds a repeat to the later frame and never the hook", () => {
+    expect(
+      auditFlags(
+        {
+          repeats: [
+            { frame: 2, sameAs: 3 },
+            { frame: 1, sameAs: 2 },
+          ],
+          unsourced: [],
+        },
+        frames,
+        "",
+      ),
+    ).toEqual([
+      {
+        kind: "repeat",
+        frame: 2,
+        sameAs: 1,
+        headline: "At your door within the hour",
+      },
+      { kind: "repeat", frame: 1, sameAs: 0, headline: "Fast delivery" },
+    ]);
+  });
+
+  it("keeps an unsourced statement only where it is written and no source says it", () => {
+    expect(
+      auditFlags(
+        {
+          repeats: [],
+          unsourced: [
+            { frame: 3, text: "Free parking at the shop" },
+            { frame: 3, text: "Something not on the frame" },
+            { frame: 2, text: "Fast delivery" },
+          ],
+        },
+        frames,
+        "we promise fast delivery",
+      ),
+    ).toEqual([
+      { kind: "unsourced", frame: 2, text: "Free parking at the shop" },
+    ]);
+  });
+});
+
 describe("planSequence: calls and inputs", () => {
   it("asks again when an answer does not match the schema, within its call budget", async () => {
     const malformed = Object.assign(new Error("no object"), {
@@ -551,15 +791,19 @@ describe("planSequence: calls and inputs", () => {
     expect(result.plan.frames[0].showsImage).toBe(true);
   });
 
-  it("plans a set with no image as text-led frames", async () => {
+  it("plans a set with no image as text-led frames in more than two compositions", async () => {
     answer();
     const result = await plan();
     expect(result.plan.frames.every((f) => !f.showsImage)).toBe(true);
+    const layouts = result.plan.frames.map((f) => f.layout);
     expect(
-      result.plan.frames.every((f) =>
-        ["hero-center", "quote-card", "stat-highlight"].includes(f.layout),
+      layouts.every((l) =>
+        ["hero-center", "quote-card", "stat-highlight", "split-left"].includes(
+          l,
+        ),
       ),
     ).toBe(true);
+    expect(new Set(layouts).size).toBeGreaterThanOrEqual(3);
   });
 
   it("still plans when the brief reader is down", async () => {
@@ -596,7 +840,7 @@ describe("planSequence: calls and inputs", () => {
     expect(trace).toMatchObject({
       kind: "carousel",
       frames: 4,
-      modelCalls: 3,
+      modelCalls: 4,
     });
     expect(trace.arc).toHaveLength(4);
     info.mockRestore();

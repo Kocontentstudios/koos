@@ -3,14 +3,11 @@ import type { DesignSpec } from "@/lib/design/spec";
 import {
   type ArcPoint,
   claimsOverlap,
-  distinctTitles,
   pointPool,
   roleOf,
-  sameTitle,
   settleArc,
   sparePoints,
   textsOverlap,
-  titleFromClaim,
 } from "./arc";
 import { fact } from "./fixtures";
 
@@ -346,19 +343,39 @@ describe("settleArc", () => {
     expect(arc.frames[1].claim).toBe("Mechanics who race on weekends");
   });
 
-  it("gives every frame a distinct title and shows the image on the hook", () => {
+  it("keeps the arc's titles as proposals, cleaned, and shows the image on the hook", () => {
     const arc = settleArc(
       answer([
-        frame(1, "The service"),
-        frame(2, "the Service"),
-        frame(3, "Who fixes it"),
+        frame(1, "The service — version A"),
+        frame(2, "Who fixes it"),
+        frame(3, "Pickup"),
         frame(0, "Book"),
       ]),
       options,
     );
-    const titles = arc.frames.map((f) => f.title.toLowerCase());
-    expect(new Set(titles).size).toBe(4);
+    expect(arc.frames.map((f) => f.title)).toEqual([
+      "The service",
+      "Who fixes it",
+      "Pickup",
+      "Book",
+    ]);
     expect(arc.frames[0].showsImage).toBe(true);
+  });
+
+  it("cycles three compositions in a set with no image", () => {
+    const arc = settleArc(
+      answer(
+        Array.from({ length: 8 }, (_, i) =>
+          frame(i === 7 ? 0 : (i % 3) + 1, `Frame name ${i}`),
+        ),
+      ),
+      { ...options, hasImage: false },
+    );
+    const layouts = arc.frames.map((f) => f.layout);
+    expect(new Set(layouts).size).toBeGreaterThanOrEqual(3);
+    for (let i = 2; i < layouts.length; i += 1) {
+      expect(layouts[i]).not.toBe(layouts[i - 2]);
+    }
   });
 
   it("sets no neighbouring frames in one layout and no text-led frame in an image layout", () => {
@@ -376,38 +393,5 @@ describe("settleArc", () => {
       expect(layouts[i]).not.toBe(layouts[i - 1]);
     }
     expect(layouts[1]).not.toBe("split-left");
-  });
-});
-
-describe("titles", () => {
-  it("reads titles the same in any casing as one", () => {
-    expect(sameTitle("Cold-Chain Advantage", "cold-chain advantage")).toBe(
-      true,
-    );
-    expect(sameTitle("The price", "Where to find us")).toBe(false);
-  });
-
-  it("makes a title from a claim's first words", () => {
-    expect(titleFromClaim("Our mechanics race every weekend")).toBe(
-      "Mechanics race every weekend",
-    );
-    expect(titleFromClaim("")).toBe("");
-  });
-
-  it("renames a later frame whose title an earlier frame has", () => {
-    expect(
-      distinctTitles([
-        {
-          title: "Cold-Chain Advantage",
-          claim: "We own the vans",
-          role: "body",
-        },
-        {
-          title: "Cold-chain advantage",
-          claim: "Quality held by us, not a third party",
-          role: "body",
-        },
-      ]),
-    ).toEqual(["Cold-Chain Advantage", "Quality held by us"]);
   });
 });

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildArcCopyPrompt,
   buildArcPrompt,
+  buildAuditPrompt,
   buildFixPrompt,
   buildFrameRegeneratePrompt,
   buildSequenceSystemPrompt,
@@ -95,6 +96,12 @@ describe("the sequence prompt never quotes an eval fixture", () => {
           offering: "bike servicing",
           imageSource: "none",
           aspectRatio: "4:5",
+        }),
+        buildAuditPrompt(context, {
+          kind,
+          frames,
+          spares: [{ number: 2, text: "Repairs and servicing" }],
+          profile: ["Bicycle repair workshop in Ojota"],
         }),
         buildFixPrompt(context, {
           kind,

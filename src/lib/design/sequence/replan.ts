@@ -29,10 +29,10 @@ import type {
   PlannedSequence,
   ReplanFrameInput,
 } from "./contract";
+import { withRewrite } from "./fixes";
 import { hookFaults, hookPreviews } from "./hook";
 import { withFigureLayout } from "./layouts";
 import { inventedOn, sequenceFacts, sequenceLedger } from "./ledger";
-import { withRewrite } from "./plan";
 import { misplacedPrices } from "./points";
 import { repairSequenceFor } from "./repair";
 import { factsTwiceInFrame, withoutRepeats } from "./repeats";
@@ -175,6 +175,18 @@ export interface FrameEditResult {
   uncovered: BriefFact[];
 }
 
+/** Whether two headlines are the same words to a reader: case, spacing
+ *  and punctuation aside ("Killed your last plant?!" is "Killed your last
+ *  plant?"). */
+export function sameWords(a: string, b: string): boolean {
+  const norm = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}₦$£€%]+/gu, " ")
+      .trim();
+  return norm(a) === norm(b);
+}
+
 /**
  * The frame with the user's words as typed: no model call and no rewrite
  * (H9). Role, image and footer stay; the layout changes only when a
@@ -200,9 +212,8 @@ export function applyFrameEdits(
   if (!headline) {
     throw new FrameEditError("Every frame needs a headline.", "headline");
   }
-  const same = (a: string) => a.toLowerCase().replace(/\s+/g, " ").trim();
   const twin = plan.frames.findIndex(
-    (other, i) => i !== index && same(other.headline) === same(headline),
+    (other, i) => i !== index && sameWords(other.headline, headline),
   );
   if (edits.headline !== undefined && twin >= 0) {
     throw new FrameEditError(
@@ -385,7 +396,11 @@ async function heldTo(
     ]),
   );
   return {
-    facts: sequenceFacts(read, context.brandSummary.name),
+    facts: sequenceFacts(
+      read,
+      context.brandSummary.name,
+      context.briefText ?? "",
+    ),
     offering:
       offering !== undefined ? offering : (read.offering?.phrase ?? null),
     calls: 1,

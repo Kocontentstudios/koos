@@ -140,6 +140,12 @@ const copyFields = {
 };
 
 export const frameCopySchema = z.object({
+  title: z
+    .string()
+    .max(DRAFT_LIMITS.title)
+    .describe(
+      `The frame's name on its card, written last: 2 to ${t.title.words} words naming what this frame's own copy says, a whole phrase.`,
+    ),
   ...copyFields,
   backgroundPrompt: z
     .string()
@@ -188,3 +194,38 @@ export type FrameRewrite = z.infer<typeof frameRewriteSchema>;
 export const rewriteResponseSchema = z.object({
   frames: z.array(frameRewriteSchema).min(1).max(40),
 });
+
+/** A second reader's look at the written set, before any fix: what code
+ *  cannot see in words alone. Frame and point numbers are as listed. */
+export const auditResponseSchema = z.object({
+  repeats: z
+    .array(
+      z.object({
+        frame: z.number().int(),
+        sameAs: z.number().int(),
+      }),
+    )
+    .max(20)
+    .describe(
+      "Each frame whose point an earlier frame already made, in any words: the same benefit or quality, or a cause and its effect. frame is the later one, sameAs the earlier. [] when none.",
+    ),
+  unsourced: z
+    .array(
+      z.object({
+        frame: z.number().int(),
+        text: z.string().max(120),
+      }),
+    )
+    .max(20)
+    .describe(
+      "Each fact a frame adds that neither the brief nor the brand profile gives in any words, quoted in at most 8 of the frame's own words. [] when none.",
+    ),
+  freshSpares: z
+    .array(z.number().int())
+    .max(40)
+    .describe(
+      "The spare points, by number, that say something no frame says. [] when none.",
+    ),
+});
+
+export type AuditAnswer = z.infer<typeof auditResponseSchema>;

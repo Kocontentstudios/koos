@@ -1,12 +1,13 @@
 import { type BriefFact, isFragment } from "@/lib/jobs/directions/brief-facts";
 import type { FactLedger } from "@/lib/jobs/directions/claims";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
-import { sameTitle, textsOverlap } from "./arc";
+import { textsOverlap } from "./arc";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
 import { factOnlyFrames, misplacedPrices, statesPrice } from "./points";
 import { sequenceRepeats } from "./repeats";
+import { titleProblems } from "./title";
 import { isWordBudgetProblem, validateSequence } from "./validate";
 
 /**
@@ -54,6 +55,111 @@ export interface FaultRules {
   /** Each frame's claim from the arc, by index ("" for none), so copy that
    *  strays into another frame's claim is found. */
   claims?: readonly string[];
+  /** The brief's and the profile's words, which a title cut from them is
+   *  read against (titleProblems). */
+  titleSources?: readonly string[];
+  /** What the audit call read in the written set (flaggedFaults). */
+  flagged?: readonly Flag[];
+}
+
+/** One finding of the audit call, held to the copy it was made on. */
+export type Flag =
+  | {
+      kind: "repeat";
+      /** Zero-based: the later frame, and the earlier one whose point it
+       *  makes. */
+      frame: number;
+      sameAs: number;
+      /** The later frame's headline when it was read: a rewrite of the
+       *  frame is a new reading, which the call never saw. */
+      headline: string;
+    }
+  | { kind: "unsourced"; frame: number; text: string };
+
+const flatten = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/* Share of a flagged statement's content words still on its frame past
+   which the frame still says it. */
+const STILL_SAID = 0.75;
+
+/** Whether `frame` still says the statement `text`: its words, or most of
+ *  its content words. */
+export function stillSays(
+  beat: Pick<FrameBeat, "headline" | "subheadline" | "footerLines">,
+  text: string,
+): boolean {
+  const copy = [beat.headline, beat.subheadline, ...beat.footerLines].join(" ");
+  if (flatten(copy).includes(flatten(text))) return true;
+  const wanted = [...contentStems(text)];
+  if (wanted.length < 2) return false;
+  const said = contentStems(copy);
+  return wanted.filter((s) => said.has(s)).length / wanted.length >= STILL_SAID;
+}
+
+/** The audit's findings that still stand on the set as it is now: a
+ *  repeat until the later frame is rewritten, an unsourced statement until
+ *  its words are gone. */
+export function flaggedFaults(
+  frames: readonly FrameBeat[],
+  flagged: readonly Flag[],
+): CopyFault[] {
+  return flagged.flatMap((flag): CopyFault[] => {
+    const beat = frames[flag.frame];
+    if (!beat) return [];
+    if (flag.kind === "unsourced") {
+      return stillSays(beat, flag.text)
+        ? [
+            {
+              frame: flag.frame,
+              field: "frame",
+              detail: `it states "${flag.text}", which neither the brief nor the brand profile gives; leave it out`,
+              weight: MAJOR,
+            },
+          ]
+        : [];
+    }
+    const earlier = frames[flag.sameAs];
+    if (!earlier || beat.headline !== flag.headline) return [];
+    return [
+      {
+        frame: flag.frame,
+        field: "headline",
+        detail:
+          beat.role === "cta"
+            ? `it says what frame ${flag.sameAs + 1} ("${earlier.headline}") already says; the last frame gives what acting gets the reader, in words no earlier frame used`
+            : `it makes frame ${flag.sameAs + 1}'s point ("${earlier.headline}") again in other words; this frame says only its own claim`,
+        weight: MAJOR,
+      },
+    ];
+  });
+}
+
+/* Copy that talks about the piece rather than what it is about: "This
+   investor deck covers the round". */
+const ABOUT_ITSELF =
+  /\b(?:this|our|these|the next|the following)\s+(?:[\p{L}-]+\s+)?(?:deck|carousel|presentation|slides?|frames?)\b/iu;
+
+/** Fields that speak of the set itself instead of the offering. */
+export function selfReferences(frames: readonly FrameBeat[]): CopyFault[] {
+  return frames.flatMap((beat, frame) =>
+    (["headline", "subheadline"] as const).flatMap((field) => {
+      const found = ABOUT_ITSELF.exec(beat[field]);
+      return found
+        ? [
+            {
+              frame,
+              field,
+              detail: `its ${field} talks about the set itself ("${found[0]}"); say what the offering is or does instead`,
+              weight: MAJOR,
+            },
+          ]
+        : [];
+    }),
+  );
 }
 
 const SUBJECTLESS =
@@ -78,23 +184,18 @@ export function subheadlineGrammar(subheadline: string): string | null {
   return null;
 }
 
-/** Frames whose card title an earlier frame already has, ignoring case. */
-export function titleRepeats(frames: readonly FrameBeat[]): CopyFault[] {
-  return frames.flatMap((beat, j) => {
-    const i = frames.findIndex(
-      (earlier, k) => k < j && sameTitle(earlier.title, beat.title),
-    );
-    return i < 0
-      ? []
-      : [
-          {
-            frame: j,
-            field: "title" as const,
-            detail: `its title "${beat.title}" is frame ${i + 1}'s title; give this frame a title that names its own point`,
-            weight: MAJOR,
-          },
-        ];
-  });
+/** Frames whose card title is not a clean, whole, distinct name for its
+ *  own copy (titleProblems). */
+export function titleFaults(
+  frames: readonly FrameBeat[],
+  sources: readonly string[],
+): CopyFault[] {
+  return titleProblems(frames, { sources }).map(({ frame, detail }) => ({
+    frame,
+    field: "title" as const,
+    detail: `${detail}; give this frame a title of 2 to 4 words that names its own point`,
+    weight: MAJOR,
+  }));
 }
 
 /**
@@ -308,7 +409,9 @@ export function setFaults(
           ]
         : [];
     }),
-    ...titleRepeats(frames),
+    ...titleFaults(frames, rules.titleSources ?? []),
+    ...flaggedFaults(frames, rules.flagged ?? []),
+    ...selfReferences(frames),
     ...pointRepeats(frames, facts, free),
     ...claimStrays(frames, rules.claims ?? [], logisticsFree(free, facts)),
     ...headlinePrices(frames, facts, kind),

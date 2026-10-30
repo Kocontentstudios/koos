@@ -37,6 +37,10 @@ const COUNTED_DAYS = [
   "Classes run six Saturdays, 9am to 12pm",
   "Saturdays, 9am to 12pm",
   "Every Saturday, 9am to 12pm",
+  "Join us 6 Saturdays, 9am to 12pm",
+  "Six Saturday mornings, 9am to 12pm",
+  "6 Saturday mornings, 9am to 12pm",
+  "We meet 8 Tuesdays, 9am to 12pm",
 ];
 
 /* An hour written in digits after a word, before a day word, is still a
@@ -45,6 +49,8 @@ const HOURS_STILL_RIVAL = [
   "Doors 6 Fridays, 9am to 12pm Saturdays",
   "Doors 9am to 12pm, 8 Fridays",
   "Doors 9am to 12pm (8 weekends)",
+  "Gates 7 Saturdays, 9am to 12pm",
+  "Open from 6 Saturdays, 9am to 12pm",
 ];
 
 describe("factStated: a time after a count of days", () => {
@@ -64,5 +70,31 @@ describe("factStated: a time after a count of days", () => {
 
   it("still reads a lone count of days as no time", () => {
     expect(factStated(time, asHeadline("Six Saturdays"))).toBe(false);
+  });
+});
+
+/*
+ * A count after the verb that counts it ("The round buys 5,000 kits",
+ * "Revenue grew 3x in 2025") states the brief's count. Read as unstated,
+ * code drew the same figure again in the slide's footer.
+ */
+describe("factStated: a count after its verb", () => {
+  it.each([
+    ["5,000 more kits", "The round buys 5,000 more kits"],
+    ["5,000 kits", "Sunbox funds 5,000 kits"],
+    ["3x in 2025", "Revenue grew 3x in 2025"],
+    ["3,400 shops", "We serve 3,400 shops"],
+    ["120 students", "Volunteers taught 120 students"],
+  ])("states %j in %j", (count, text) => {
+    expect(factStated(fact("quantity", count), asHeadline(text))).toBe(true);
+  });
+
+  it("still refuses another count of the same noun", () => {
+    expect(
+      factStated(
+        fact("quantity", "5,000 kits"),
+        asHeadline("The round buys 4,000 kits"),
+      ),
+    ).toBe(false);
   });
 });

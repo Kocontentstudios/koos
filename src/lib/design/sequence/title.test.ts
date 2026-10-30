@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { cleanTitle, isCleanTitle, settledTitle, titleLeaks } from "./title";
+import { beatOf } from "./fixtures";
+import {
+  cleanTitle,
+  isCleanTitle,
+  isCutTitle,
+  sameTitle,
+  settledTitle,
+  titleFault,
+  titleLeaks,
+  titleOffFrame,
+  titleProblems,
+  withSettledTitles,
+} from "./title";
 
 describe("cleanTitle", () => {
   it.each([
@@ -48,5 +60,135 @@ describe("settledTitle", () => {
     expect(settledTitle("", "Generous portions — Version A")).toBe(
       "Generous portions",
     );
+  });
+});
+
+describe("titleFault", () => {
+  it.each([
+    ["How to act", /placeholder/],
+    ["Point 3", /placeholder/],
+    ["$1 2m pre-series", /lost its comma/],
+    ["₦18 000 a month", /lost its comma/],
+    ["For apartment dwellers who", /mid-phrase/],
+    ["Beans from one", null],
+    ["Beans from the", /mid-phrase/],
+    ["Services B", /planner label/],
+  ])("reads %j", (title, fault) => {
+    const found = titleFault(title);
+    if (fault === null) expect(found).toBeNull();
+    else expect(found).toMatch(fault);
+  });
+
+  it("passes a whole name with its figure intact", () => {
+    expect(titleFault("₦18,000 a month")).toBeNull();
+    expect(titleFault("$1.2m pre-series A")).toBeNull();
+    expect(titleFault("Our Series A")).toBeNull();
+  });
+});
+
+describe("isCutTitle", () => {
+  const sources = [
+    "Taught by volunteer engineers from the community",
+    "Solar kits for small shops, paid weekly by mobile money",
+    "Free repotting for life",
+    "Book on WhatsApp 0816 404 5050",
+    "Clinic in Ikeja GRA",
+    "Make the Yaba bar a weekend habit",
+  ];
+
+  it.each([
+    "Taught by volunteer",
+    "Solar kits for small",
+    "Paid weekly by mobile",
+  ])("finds %j cut from a longer phrase", (title) => {
+    expect(isCutTitle(title, sources)).toBe(true);
+  });
+
+  it.each([
+    "Free repotting",
+    "Solar kits",
+    "Paid weekly",
+    "Book on WhatsApp",
+    "Clinic in Ikeja",
+    "The Yaba bar",
+    "Something else entirely",
+  ])("takes %j as whole", (title) => {
+    expect(isCutTitle(title, sources)).toBe(false);
+  });
+});
+
+describe("titleOffFrame", () => {
+  const frames = [
+    beatOf({ title: "Ikoyi roots", headline: "A morning of hands-on baking" }),
+    beatOf({ title: "Our bakery", headline: "Our bakery is in Ikoyi" }),
+    beatOf({ title: "The price", headline: "Book your place" }),
+  ];
+
+  it("finds a title naming another frame's point", () => {
+    expect(titleOffFrame(frames, 0)).toBe(true);
+  });
+
+  it("passes a title on its own copy and one naming the frame's job", () => {
+    expect(titleOffFrame(frames, 1)).toBe(false);
+    expect(titleOffFrame(frames, 2)).toBe(false);
+  });
+});
+
+describe("titleProblems and withSettledTitles", () => {
+  const rules = { sources: ["Solar kits for small shops in the north"] };
+  const frames = [
+    beatOf({
+      role: "hook",
+      title: "Solar kits for small",
+      headline: "Solar kits that pay back",
+    }),
+    beatOf({ title: "How to act", headline: "Shops repay weekly by phone" }),
+    beatOf({ title: "the kits", headline: "Installed in two hours" }),
+    beatOf({
+      role: "cta",
+      title: "The kits",
+      headline: "Join the round",
+      cta: "Email us",
+    }),
+  ];
+
+  it("names every title that is cut, a placeholder, a repeat or another frame's", () => {
+    expect(titleProblems(frames, rules).map((p) => p.frame)).toEqual([
+      0, 1, 2, 3,
+    ]);
+  });
+
+  it("settles each title on a whole, distinct name from the frame's own copy", () => {
+    const settled = withSettledTitles(frames, rules);
+    expect(titleProblems(settled, rules)).toEqual([]);
+    expect(settled.map((f) => f.title)).toEqual([
+      "Solar kits that pay back",
+      "Shops repay weekly by phone",
+      "Installed in two hours",
+      "Join the round",
+    ]);
+    for (let i = 1; i < settled.length; i += 1) {
+      expect(sameTitle(settled[i].title, settled[i - 1].title)).toBe(false);
+    }
+  });
+
+  it("keeps a title that already fits", () => {
+    const fine = [
+      beatOf({
+        role: "hook",
+        title: "Solar kits",
+        headline: "Solar kits that pay for themselves",
+      }),
+      beatOf({
+        role: "cta",
+        title: "Join us",
+        headline: "Join the round",
+        cta: "Email us",
+      }),
+    ];
+    expect(withSettledTitles(fine, rules).map((f) => f.title)).toEqual([
+      "Solar kits",
+      "Join us",
+    ]);
   });
 });

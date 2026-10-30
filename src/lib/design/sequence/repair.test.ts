@@ -36,6 +36,7 @@ const arcAnswer = (over: Record<string, unknown> = {}) => ({
 });
 
 const copyFrame = (headline: string) => ({
+  title: "",
   headline,
   subheadline: "",
   footerLines: [],
@@ -207,6 +208,15 @@ describe("the planner's answer schemas", () => {
         false,
       );
     }
+  });
+
+  it("names a frame of copy that came without its title as untitled, for code to name", async () => {
+    const { title: _title, ...untitled } = copyFrame("Hook");
+    const fixed = await repaired(
+      { frames: [untitled], cta: "", otherHooks: [] },
+      1,
+    );
+    expect(copyResponseSchema(1).safeParse(fixed).success).toBe(true);
   });
 
   it("require every field of the copy and of a rewrite", () => {

@@ -28,8 +28,9 @@ import type { BrandSummary } from "./strategy";
  * them and assigns one to each frame, writing no claim but the hook's
  * angle; code holds the assignment to distinctness (arc.ts). The copy call
  * then writes each frame told only its own claim and the claims it must
- * leave alone, and the fix call rewrites only the fields code found at
- * fault. A model asked for N frames of copy in one go writes one ad cut
+ * leave alone, the audit call reads the set cold for repeats in other
+ * words and unsourced statements, and the fix call rewrites only the
+ * fields found at fault. A model asked for N frames of copy in one go writes one ad cut
  * into N pieces: the arc is where the story is decided.
  */
 
@@ -219,12 +220,13 @@ const COPY_RULES = (kind: SequenceKind) => {
   const words = formatRules(kind).headlineWords;
   return `Write to length. Count the words before you answer; text over its limit is rewritten or the ${frameNoun(kind)} fails:
 - "headline": at most ${words} words and ${t.headline.chars} characters (hard limit ${COPY_LIMITS.headline}).
-- "subheadline": at most ${t.subheadline.words} words and ${t.subheadline.chars} characters (hard limit ${COPY_LIMITS.subheadline}), or "" for none. Most frames read better with one short line or none.
+- "subheadline": at most ${t.subheadline.words} words and ${t.subheadline.chars} characters (hard limit ${COPY_LIMITS.subheadline}). Every middle ${frameNoun(kind)} has one: a headline alone reads as an unfinished thought. The first and last may leave it "".
 - "footerLines": up to 3 lines of at most ${t.footerLine.chars} characters each, for contact, place, date and booking details. Leave it empty on a frame with none.
 - "cta": the last frame's button, at most ${t.cta.words} words and ${t.cta.chars} characters.
 
 Only the brief's facts. Every number, price, time, day, date, count, place, contact and claim must be written in the brief or the brand profile, and a number written as a word counts ("one message", "two weeks"); a detail the brief did not give is left out, never guessed. State each fact a frame must carry in the brief's own words ("₦4,500 a slice", not "from ₦4,500"), each time, price, date or count in a field of its own, and a phone number never on the same line as a time (a time beside a phone number reads as part of it). Never "now", "only", "fresh", "today", "limited" or "new" unless the brief says it, and no scarcity, urgency or praise the brief does not give ("they go fast", "before it's gone", "award-winning"). Never promise the reader a perk, reward, recognition or result that neither the brief nor the brand profile offers (their name on something, a gift, a guaranteed outcome, a document, demo or meeting the brief does not offer), and never state what the brand hopes will happen as if it already does: the brand's goal is why it is posting, not something true to say.
 ${kind === "carousel" ? `A price is stated on the last ${frameNoun(kind)} only, beside the action.\n` : ""}Say everything once. A frame states the facts it must state and no others; no fact appears on two frames, or twice on one frame (in the subheadline and again in the footer). A subheadline never restates its own headline. No two headlines or subheadlines share their idea or their words beyond the offering's name. The offering is named on the first frame; later frames may name it again only where the point needs it.
+Never write about the ${kind} itself ("this ${kind} covers", "in the next ${frameNoun(kind)}s"): say what it is about.
 One voice: the frames sound like one brand speaking in order, not ${frameNoun(kind)}s written by strangers, and every headline is in sentence case.`;
 };
 
@@ -283,7 +285,7 @@ function claimedLines(
     .map((f, i) =>
       [
         `${noun} ${i + 1} (${ROLE_BRIEF[f.role]})`,
-        `  title: ${f.title}`,
+        `  working title: ${f.title}`,
         f.claim
           ? `  its claim, the only point it makes: "${f.claim}"`
           : f.role === "cta"
@@ -332,6 +334,7 @@ export function buildArcCopyPrompt(
     `In "otherHooks", write ${noun} 1 ${OTHER_HOOKS} more ways on the same claim, each a headline and subheadline: one a question that holds the claim, one a before-and-after that holds it. Put your strongest opening in "frames".`,
     COPY_RULES(kind),
     `Every subheadline is a whole sentence: it starts with a capital and names its own subject, never a clause that leans on the headline above it.`,
+    `"title": each ${noun}'s name on its card, written after its copy: 2 to ${t.title.words} words naming what its own headline says, as a whole phrase (never cut off mid-way), any figure written as in the copy, and never another ${noun}'s title.`,
     sceneRule(imageSource),
   ].join("\n\n");
 }
@@ -349,8 +352,6 @@ export interface FrameFix {
   /** A new claim for a frame whose own could not be written without
    *  repeating another frame; null keeps its claim. */
   newClaim?: string | null;
-  /** A new title to go with the new claim. */
-  newTitle?: string | null;
 }
 
 export interface FixPromptInput {
@@ -376,9 +377,7 @@ export function buildFixPrompt(
   const last = plan.length;
   const claimed = frames.map((f, i) => {
     const fix = fixes.find((x) => x.index === i);
-    return fix?.newClaim
-      ? { ...f, claim: fix.newClaim, title: fix.newTitle ?? f.title }
-      : f;
+    return fix?.newClaim ? { ...f, claim: fix.newClaim } : f;
   });
   const listed = plan
     .map((beat, i) => {
@@ -431,6 +430,44 @@ function beatLines(
 ): string {
   return frames
     .map((f, i) => (only && !only.has(i) ? null : beatLine(f, i, noun)))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export interface AuditPromptInput {
+  kind: SequenceKind;
+  frames: readonly FrameBeat[];
+  /** Unused points of the arc's pool, by their number in it. */
+  spares: readonly { number: number; text: string }[];
+  /** What the brand profile states, besides the brief. */
+  profile: readonly string[];
+}
+
+/**
+ * A cold read of the written set for what word overlap cannot find: two
+ * frames making one point in different words, and a statement no source
+ * gives. The reader reports; code decides which frame takes a spare point
+ * and which words are cut, and never takes a word from this call.
+ */
+export function buildAuditPrompt(
+  context: DesignContext,
+  { kind, frames, spares, profile }: AuditPromptInput,
+): string {
+  const noun = frameNoun(kind);
+  return [
+    requestBlock(context, kind, frames.length, null),
+    profile.length > 0
+      ? `The brand profile says:\n${profile.map((p) => `- ${p}`).join("\n")}`
+      : "The brand profile says nothing beyond the brand's name.",
+    `The ${kind} as written:\n\n${beatLines(frames, noun)}`,
+    spares.length > 0
+      ? `Spare points no ${noun} makes yet, numbered:\n${spares.map((p) => `${p.number}. "${p.text}"`).join("\n")}`
+      : null,
+    `Read the ${kind} in order, as the person it is for would, and report what you find. Rewrite nothing.
+- "repeats": every ${noun} whose point an earlier ${noun} already made. One point in other words is a repeat ("Fast delivery" and "At your door within the hour"), and so is a benefit beside its cause ("Automatic backups" and "Never lose a file"). Two ${noun}s that share a word but make different points are not. The last ${noun} repeats only where its headline makes an earlier ${noun}'s point again.
+- "unsourced": every fact a ${noun} adds that neither the brief nor the brand profile gives in any words: a policy ("walk-ins welcome"), a promise or guarantee, a feature, a step of how it is made, a number. Quote only the words that carry the new fact, at most 8, exactly as the ${noun} writes them. Saying a sourced point in other words, explaining it, or naming what it plainly means for the reader is sourced; wording, tone and the offering's name never count. When unsure, leave it out.
+- "freshSpares": the spare points that say something no ${noun} says.`,
+  ]
     .filter(Boolean)
     .join("\n\n");
 }

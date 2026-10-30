@@ -98,7 +98,7 @@ describe("profilePoints", () => {
   it("lists the profile's statements clause by clause, what sets the brand apart first, never the goal or the audience", () => {
     expect(profilePoints(brand, "Launch our cold brew.")).toEqual([
       { field: "differentiators", text: "Beans from the Mambilla Plateau" },
-      { field: "differentiators", text: "roasted each week" },
+      { field: "differentiators", text: "Roasted each week" },
       { field: "offer", text: "Specialty coffee and cold brew" },
       { field: "values", text: "Patience over shortcuts" },
       { field: "overview", text: "Coffee bar in Yaba, Lagos" },
@@ -124,19 +124,32 @@ describe("profilePoints", () => {
       ),
     ).toEqual([
       "Full-grain leather",
-      "hand-stitched soles",
-      "free resole in year one",
+      "Hand-stitched soles",
+      "Free resole in year one",
     ]);
     expect(profileClauses("Coffee bar in Yaba, Lagos")).toEqual([
       "Coffee bar in Yaba, Lagos",
     ]);
     expect(
       profileClauses(
+        "Brings designers, brands and buyers into one programme. A week of talks, exhibitions and a market",
+      ),
+    ).toEqual([
+      "Brings designers, brands and buyers into one programme",
+      "A week of talks, exhibitions and a market",
+    ]);
+    expect(
+      profileClauses(
+        "Bike servicing. Gears tuned and brakes bled in one visit",
+      ),
+    ).toEqual(["Bike servicing", "Gears tuned and brakes bled in one visit"]);
+    expect(
+      profileClauses(
         "Kano hibiscus; dates, no refined sugar. Made at ledgerly.app daily.",
       ),
     ).toEqual([
       "Kano hibiscus, dates",
-      "no refined sugar",
+      "No refined sugar",
       "Made at ledgerly.app daily",
     ]);
   });

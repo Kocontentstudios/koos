@@ -480,6 +480,16 @@ describe("applyFrameEdits: a headline another frame has", () => {
     );
   });
 
+  it.each([
+    "Your Saturday, slowed down!?",
+    "your saturday slowed down",
+    "Your Saturday — slowed down.",
+  ])("refuses %j, the same words in other punctuation", (headline) => {
+    expect(() => applyFrameEdits(cafePlan(), 2, { headline })).toThrow(
+      "Frame 1 already has this headline.",
+    );
+  });
+
   it("lets a frame keep its own headline while another field is edited", () => {
     const plan = cafePlan();
     expect(

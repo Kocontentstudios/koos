@@ -97,6 +97,9 @@ function repairedFrame(value: unknown): unknown {
         );
     }
   }
+  /* A frame of copy without its card name still has all its words; code
+     names it from them (withSettledTitles) rather than ask again. */
+  if ("headline" in frame && typeof frame.title !== "string") frame.title = "";
   if ("showsImage" in frame) frame.showsImage = asBoolean(frame.showsImage);
   if ("point" in frame) {
     const cited = Number(frame.point);

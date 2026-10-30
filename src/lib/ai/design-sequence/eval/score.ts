@@ -1,7 +1,7 @@
 import type { PlannedSequence } from "@/lib/design/sequence/contract";
 import { PRESENTATION_ASPECT } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
-import { isCleanTitle } from "@/lib/design/sequence/title";
+import { titleProblems } from "@/lib/design/sequence/title";
 import {
   factsUncovered,
   validateSequence,
@@ -32,8 +32,10 @@ export interface RunScore {
   paletteShared: boolean;
   /** No frame in its neighbour's layout or composition. */
   layoutVariety: boolean;
-  /** Every frame's title reads as its name on the card: no version label
-   *  or source id leaked from the planner (title.ts). */
+  /** Every frame's title reads as its own name on the card: no planner
+   *  label or placeholder, not cut off mid-phrase or stripped of a
+   *  figure's comma, no other frame's title, and not naming another
+   *  frame's point (title.ts titleProblems). */
   titleClean: boolean;
   /** Every labelled fact on at least one frame, and the offering named on
    *  the hook. */
@@ -111,7 +113,15 @@ export function scoreRun(
     roles: rolesHold(plan),
     paletteShared: sharedSystem(plan, c),
     layoutVariety: !problems.some((p) => p.rule === "layout-repeat"),
-    titleClean: plan.frames.every((beat) => isCleanTitle(beat.title)),
+    titleClean:
+      titleProblems(plan.frames, {
+        sources: [
+          c.request.briefText,
+          ...Object.values(c.brand).filter(
+            (v): v is string => typeof v === "string",
+          ),
+        ],
+      }).length === 0,
     factCoverage: uncovered.length === 0 && offeringOnHook,
     uncovered,
     offeringOnHook,

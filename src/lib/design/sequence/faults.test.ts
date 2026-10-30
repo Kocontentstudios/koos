@@ -5,13 +5,15 @@ import {
   COVERAGE,
   type FaultRules,
   faultScore,
+  flaggedFaults,
   headlinePrices,
   hookScore,
   MAJOR,
   pointRepeats,
+  selfReferences,
   setFaults,
   subheadlineGrammar,
-  titleRepeats,
+  titleFaults,
 } from "./faults";
 import { CAFE_BRIEF, CAFE_FACTS, cafePlan, withFrame } from "./fixtures";
 
@@ -45,16 +47,84 @@ describe("subheadlineGrammar", () => {
   });
 });
 
-describe("titleRepeats", () => {
+describe("titleFaults", () => {
   it("finds two frames under one title in any casing", () => {
     const plan = withFrame(
       withFrame(cafePlan(), 1, { title: "Cold-Chain Advantage" }),
       3,
       { title: "Cold-chain advantage" },
     );
-    expect(titleRepeats(plan.frames)).toEqual([
-      expect.objectContaining({ frame: 3, field: "title", weight: MAJOR }),
+    expect(titleFaults(plan.frames, [])).toContainEqual(
+      expect.objectContaining({
+        frame: 3,
+        field: "title",
+        weight: MAJOR,
+        detail: expect.stringMatching(/an earlier frame's title/),
+      }),
+    );
+  });
+
+  it("finds a title cut from the brief and a placeholder", () => {
+    const plan = withFrame(
+      withFrame(cafePlan(), 1, { title: "Steeped for eighteen" }),
+      4,
+      { title: "How to act" },
+    );
+    const faults = titleFaults(plan.frames, [
+      "Steeped for eighteen hours, served over ice",
     ]);
+    expect(faults.map((f) => f.frame)).toEqual([1, 4]);
+  });
+});
+
+describe("flaggedFaults", () => {
+  it("holds a repeat until the later frame is rewritten", () => {
+    const plan = cafePlan();
+    const flag = {
+      kind: "repeat" as const,
+      frame: 3,
+      sameAs: 1,
+      headline: plan.frames[3].headline,
+    };
+    expect(flaggedFaults(plan.frames, [flag])).toEqual([
+      expect.objectContaining({
+        frame: 3,
+        field: "headline",
+        weight: MAJOR,
+        detail: expect.stringMatching(/makes frame 2's point/),
+      }),
+    ]);
+    const rewritten = withFrame(plan, 3, { headline: "Another point" });
+    expect(flaggedFaults(rewritten.frames, [flag])).toEqual([]);
+  });
+
+  it("holds an unsourced statement until its words are gone", () => {
+    const plan = withFrame(cafePlan(), 2, {
+      subheadline: "Walk in any time. No appointment needed.",
+    });
+    const flag = {
+      kind: "unsourced" as const,
+      frame: 2,
+      text: "No appointment needed",
+    };
+    expect(flaggedFaults(plan.frames, [flag])).toHaveLength(1);
+    const cut = withFrame(plan, 2, { subheadline: "Walk in any time." });
+    expect(flaggedFaults(cut.frames, [flag])).toEqual([]);
+  });
+});
+
+describe("selfReferences", () => {
+  it("finds copy about the set itself", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      subheadline: "This investor deck covers the round.",
+    });
+    expect(selfReferences(plan.frames)).toEqual([
+      expect.objectContaining({ frame: 0, field: "subheadline" }),
+    ]);
+  });
+
+  it("leaves copy about the offering alone", () => {
+    expect(selfReferences(cafePlan().frames)).toEqual([]);
   });
 });
 

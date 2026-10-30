@@ -107,6 +107,10 @@ const QUALIFIES =
 /* A clause joined by one of these is a point of its own once the joining
    word is gone ("and get a reminder when a client pays late"). */
 const JOINED = /^(?:and|but|plus)\s+/i;
+/* The last items of a list a comma split, in lower case: one or two
+   words, then "and" or "or" ("brands and buyers into one programme" after
+   "Brings designers"). Alone, each half reads cut off. */
+const LIST_TAIL = /^[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+)?\s+(?:and|or|&)\s/iu;
 
 const capitalised = (text: string) =>
   text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
@@ -118,16 +122,19 @@ const capitalised = (text: string) =>
  *  clause before it, is read with that clause. */
 export function profileClauses(text: string): string[] {
   const clauses: string[] = [];
-  for (const raw of text.split(/\s*(?:;|,(?=\s)|\.(?=\s|$)|\s[-–—]\s)\s*/)) {
-    let clause = raw.trim();
+  const pieces = text.split(/\s*(;|,(?=\s)|\.(?=\s|$)|\s[-–—]\s)\s*/);
+  for (let i = 0; i < pieces.length; i += 2) {
+    const clause = pieces[i].trim();
     if (!clause) continue;
     const short = contentStems(clause).size < CLAUSE_WORDS;
-    if (clauses.length > 0 && (short || QUALIFIES.test(clause))) {
+    const listed = pieces[i - 1] === "," && /^\p{Ll}/u.test(clause);
+    const leans =
+      short || QUALIFIES.test(clause) || (listed && LIST_TAIL.test(clause));
+    if (clauses.length > 0 && leans) {
       clauses[clauses.length - 1] = `${clauses[clauses.length - 1]}, ${clause}`;
       continue;
     }
-    if (JOINED.test(clause)) clause = capitalised(clause.replace(JOINED, ""));
-    clauses.push(clause);
+    clauses.push(capitalised(clause.replace(JOINED, "")));
   }
   return clauses;
 }

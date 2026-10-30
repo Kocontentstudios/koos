@@ -783,6 +783,33 @@ const COUNT_BEFORE = [
   "featuring",
   "offering",
   "including",
+  /* The verbs a deck or a post counts with: "The round buys 5,000 kits",
+     "Revenue grew 3x in 2025", "We serve 3,400 shops". */
+  "buys",
+  "buy",
+  "funds",
+  "fund",
+  "grew",
+  "grow",
+  "grows",
+  "serve",
+  "serves",
+  "served",
+  "reach",
+  "reaches",
+  "reached",
+  "run",
+  "runs",
+  "sold",
+  "sells",
+  "trained",
+  "trains",
+  "teach",
+  "teaches",
+  "taught",
+  "installed",
+  "delivered",
+  "delivers",
 ];
 const counted: Guard = (around) =>
   (startsClause(around) || word(around.before, ...COUNT_BEFORE)) &&
@@ -2053,18 +2080,50 @@ function timeRival(
   return namesWhen(nouns) || !namesKnownCount(t, nouns);
 }
 
+/* Words after which a number in digits is the hour something starts
+   ("Doors 6 Fridays", "Gates 7 Saturdays"), not a count of the days. */
+const HOUR_LEADS = [
+  "doors",
+  "door",
+  "gates",
+  "gate",
+  "opens",
+  "open",
+  "starts",
+  "start",
+  "kickoff",
+  "from",
+  "at",
+  "by",
+  "till",
+  "til",
+  "until",
+  "before",
+  "after",
+  "around",
+];
+/* "Six Saturday mornings" counts the mornings of those days. */
+const PARTS_OF_DAY = ["mornings", "afternoons", "evenings", "nights"];
+
 /* "Six Saturdays, 9am to 12pm" counts the days the hours fall on; it is
-   not "6 Fridays" read as six o'clock. Copy writes an hour in digits after
-   a word ("Doors 6 Fridays"), so a count of days is a number spelled out,
-   or one that opens the field, before a plural day word. */
+   not "6 Fridays" read as six o'clock. A digit counts days when it opens
+   the field or follows a word that does not lead an hour ("Join us 6
+   Saturdays"); after a mark or an hour's lead ("9am to 12pm, 8 Fridays",
+   "Doors 6 Fridays") it is still an hour. */
 function countsDays(
   tokens: readonly CopyToken[],
   i: number,
   nouns: readonly CopyToken[],
 ): boolean {
   const spelled = !/\d/.test(tokens[i].text);
-  const pluralDays = nouns.some((n) => isDayWord(n) && /s$/.test(n.key));
-  return pluralDays && (spelled || i === 0);
+  const before = tokens[i - 1];
+  const opensCount =
+    i === 0 || (before?.kind === "word" && !word(before, ...HOUR_LEADS));
+  const daysCounted = nouns.some(
+    (n, k) =>
+      isDayWord(n) && (/s$/.test(n.key) || word(nouns[k + 1], ...PARTS_OF_DAY)),
+  );
+  return daysCounted && (spelled || opensCount);
 }
 
 /* Whether the number at `i` is another price beside the run's amount:

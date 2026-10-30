@@ -9,7 +9,7 @@ import {
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
 import type { FrameRole, SequenceKind } from "./contract";
-import { hasFigure, settleFrameLayouts } from "./layouts";
+import { isStatFigure, settleFrameLayouts } from "./layouts";
 import {
   briefPoints,
   type ProfilePoint,
@@ -17,7 +17,7 @@ import {
   textStatesPrice,
 } from "./points";
 import type { ArcAnswer } from "./schema";
-import { cleanTitle, isCleanTitle } from "./title";
+import { cleanTitle } from "./title";
 
 /**
  * The arc a set is written to, settled before any copy: exactly one claim
@@ -329,84 +329,6 @@ const OFF_HOOK = new Set<CoverKind>(["time", "place", "contact"]);
    reason, and the action frame says how to act on it. */
 const HOOK_NEWS = new Set<CoverKind>(["date", "day"]);
 
-const TITLE_STOP = new Set(["a", "an", "the", "our", "your", "we", "it"]);
-/* Words a title never ends on: "Beans from one" reads as cut off. */
-const TITLE_TAIL = new Set([
-  ...TITLE_STOP,
-  "from",
-  "one",
-  "of",
-  "to",
-  "in",
-  "on",
-  "for",
-  "with",
-  "and",
-  "or",
-  "by",
-  "at",
-  "is",
-  "are",
-  "every",
-  "each",
-]);
-
-/** A card name made from the claim's first words, for a frame whose
- *  proposed title another frame already has. */
-export function titleFromClaim(claim: string): string {
-  const words = claim
-    .replace(/[^\p{L}\p{N}₦$£€%'\s-]/gu, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  while (words.length > 1 && TITLE_STOP.has(words[0].toLowerCase())) {
-    words.shift();
-  }
-  const picked: string[] = [];
-  for (const word of words.slice(0, 4)) {
-    if ([...picked, word].join(" ").length > 28) break;
-    picked.push(word);
-  }
-  while (
-    picked.length > 1 &&
-    TITLE_TAIL.has(picked[picked.length - 1].toLowerCase())
-  ) {
-    picked.pop();
-  }
-  const text = picked.join(" ");
-  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : "";
-}
-
-/** Whether two card titles name one frame: the same words ignoring case,
- *  or near-duplicate wording. */
-export function sameTitle(a: string, b: string): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  return norm(a) === norm(b) || isNearDuplicateHeadline(a, b);
-}
-
-/** Titles with none repeated: a frame whose title an earlier frame has
- *  takes one made from its claim. */
-export function distinctTitles(
-  frames: readonly Pick<ArcFrame, "title" | "claim" | "role">[],
-): string[] {
-  const titles: string[] = [];
-  frames.forEach((frame, i) => {
-    const proposed = cleanTitle(frame.title);
-    const taken = (t: string) =>
-      titles.some((earlier) => sameTitle(earlier, t));
-    const fallbacks = [
-      proposed,
-      titleFromClaim(frame.claim),
-      frame.role === "cta" ? "How to act" : `Point ${i + 1}`,
-    ];
-    titles.push(
-      fallbacks.find((t) => t && isCleanTitle(t) && !taken(t)) ??
-        proposed ??
-        frame.title,
-    );
-  });
-  return titles;
-}
-
 /**
  * The model's assignment, held to the rules no copy is needed to check:
  *  - roles come from position;
@@ -423,7 +345,8 @@ export function distinctTitles(
  *    offering on the hook, a carousel's prices and every fact no point
  *    holds on the action frame; in a carousel of three frames or more the
  *    day it happens on the hook as its news, and no time, place or contact;
- *  - titles are distinct and layouts are settled by settleFrameLayouts.
+ *  - layouts are settled by settleFrameLayouts; titles are proposals,
+ *    settled against the written copy (withSettledTitles).
  */
 export function settleArc(
   answer: Pick<ArcAnswer, "frames" | "hookAngle" | "spare"> &
@@ -591,16 +514,7 @@ export function settleArc(
     return point === null ? "" : pool[point].text;
   });
   const roles = answer.frames.map((_, i) => roleOf(i, count));
-  const moved = new Set(replaced.map((r) => r.frame));
-  const titles = distinctTitles(
-    answer.frames.map((frame, i) => ({
-      title: moved.has(i)
-        ? titleFromClaim(claims[i]) || frame.title
-        : frame.title,
-      claim: claims[i],
-      role: roles[i],
-    })),
-  );
+  const titles = answer.frames.map((frame) => cleanTitle(frame.title));
   const factsOf = (frame: number) =>
     facts.flatMap((_, n) => (owner.get(n) === frame ? [n] : []));
   const shows = answer.frames.map(
@@ -610,9 +524,10 @@ export function settleArc(
     answer.frames.map((frame, i) => ({
       layout: frame.layout,
       showsImage: shows[i],
-      figure: factsOf(i).some((n) => hasFigure(facts[n].text)),
+      figure: factsOf(i).some((n) => isStatFigure(facts[n].text)),
     })),
     recentLayouts,
+    { panel: !hasImage },
   );
   const frames: ArcFrame[] = answer.frames.map((_, i) => ({
     role: roles[i],

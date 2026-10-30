@@ -34,7 +34,7 @@ const wordsIn = (text: string) =>
 const WORD_BUDGET = " words, over the ";
 
 /** A headline past the format's word budget: drawable, so it weighs less
- *  than a problem that loses the frame (plan.ts planScore). */
+ *  than a problem that loses the frame (faults.ts ruleFaults). */
 export function isWordBudgetProblem(problem: SequenceProblem): boolean {
   return problem.rule === "copy-length" && problem.detail.includes(WORD_BUDGET);
 }
