@@ -694,12 +694,22 @@ export const designGenerations = pgTable(
     imageSource: text("image_source", { enum: ["upload", "ko", "none"] }),
     /** The user's upload this design was built around, when it was. */
     sourceImageKey: text("source_image_key"),
+    /** KOOS-AI-002: the carousel or presentation this row is one frame of.
+     *  Null on single designs. */
+    setId: uuid("set_id"),
+    frameIndex: integer("frame_index"),
+    /** How many frames the set was asked for, so a set short of a failed
+     *  frame still knows its size. */
+    frameCount: integer("frame_count"),
+    /** The regenerated row that replaced this frame. */
+    supersededBy: uuid("superseded_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
     index().on(t.brandId),
     index().on(t.briefId),
     index().on(t.calendarItemId),
+    index().on(t.setId),
   ],
 );
 
