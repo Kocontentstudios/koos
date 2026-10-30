@@ -20,7 +20,8 @@ Outside this folder:
 | --- | --- |
 | `src/components/design/directions/design-flags-provider.tsx` | Server component. Reads FEATURE_KO_IMAGERY and FEATURE_MULTI_FRAME and hands both down. Design Studio, strategy (brief panel) and calendar pages wrap themselves in it; `src/app/(dashboard)/multi-frame-pages.test.tsx` checks all three. |
 | `src/lib/design/sequence/progress-mark.ts` | The mark a set or frame job puts on its progress. |
-| `src/lib/design/sequence/open-set-jobs.ts`, `.server.ts`, `src/app/api/design/set-jobs/route.ts` | `GET /api/design/set-jobs?brandId=`: the caller's open set and frame jobs for the brand, found by that mark. |
+| `src/lib/design/sequence/open-set-jobs.ts`, `.server.ts`, `src/app/api/design/set-jobs/route.ts` | `GET /api/design/set-jobs?brandId=`: the caller's open set and frame jobs for the brand, found by that mark or, without it, by the job's input and checkpoint. |
+| `src/lib/design/generation-ids.ts` | `MAX_GENERATION_IDS`, the route's by-id limit, and `chunkIds`, which the watcher reads with. |
 
 `use-design-generation.ts` composes `useFrameSet`: a job result with
 `kind: "sequence"` loads its frames by id and exposes them as `set`.
@@ -36,7 +37,8 @@ In order of trust:
    must spread `sequenceMarkFor(kind, setId)` (set job, `setId` from the
    moment the plan is saved) or `frameMarkFor(kind, setId, index)` (frame
    job) into every `reportProgress` call. Until they do, rules 2 and 3 are
-   what the app runs on, and the server's set-job list (below) is empty.
+   what the wait runs on. The server's set-job list (below) does not wait
+   for the mark.
 2. `generate(args, { sequenceKind })`. The dialog passes it only when
    FEATURE_MULTI_FRAME is on (`useMultiFrameOffered()`, from
    `DesignFlagsProvider`) and the ticket's design type names a carousel or
@@ -70,20 +72,44 @@ job ends. The jobs come from two places:
 - `GET /api/design/set-jobs`, read on arrival, when the tab comes back into
   view, and every fifth tick while anything is being watched. This is what
   drives a set started on another device, in a private window, or before
-  site data was cleared. It finds jobs by the mark (rule 1).
-- `set-jobs.ts`, for jobs this browser started. This covers a job's first
-  seconds before it has reported, and every job until U2 emits the mark.
+  site data was cleared. It trusts the mark (rule 1) when a job carries one.
+  Without it, a job is a set's when the generate route wrote `sequence`
+  into its input, and a frame's when the regenerate-frame route wrote
+  `regenerateFrame`. A directions run has neither. The set and its kind
+  come from the checkpoint (`setId`, `plan.kind`) once the plan is saved.
+- `set-jobs.ts`, for jobs this browser started, with what the dialog knew
+  at the start: the kind it expected, a frame job's set.
+
+Pending frames are read again by id through `GET /api/design/generations`,
+which answers at most `MAX_GENERATION_IDS` (20) ids per request. A 12-slide
+deck and a 10-slide carousel building at once are 22, so the read goes out
+in chunks (`chunkIds`). A chunk that fails is unknown, not unchanged: its
+ids are asked for again next tick, and a set with a pending frame whose last
+read failed is never shown as stopped, because that frame may have rendered
+and a retry would bill it.
+
+While the tab is hidden the watcher ticks every
+`SET_WATCH_HIDDEN_INTERVAL_MS` (30s) instead of 3s. It keeps polling because
+a set resumes only while something polls its job. Coming back ticks at
+once, the set-job list included.
 
 A set shows as stopped, with the on-frame retry, only when no running job
-could be building it, and either:
+could be building it, no read of its pending frames just failed, and
+either:
 
 - the set job known to have built that set ended without delivering it, or
 - its oldest pending frame is older than `STALLED_AFTER_MS`.
 
-A set job is known to have built a set when its mark named the set. A set
-job that ended without naming a set stops nothing, and neither does a
-failed frame job, which speaks only for its own frame. That set may belong to a job this browser cannot see, and a retry
-would bill a frame that is already on its way.
+A running job could be building a set when it names that set, or when it
+names none and started before the set's first row (allowing 30s of clock
+skew). So a job started two minutes ago does not bring a set abandoned three
+days ago back to "still being made".
+
+A set job is known to have built a set when it named the set. A set job
+that ended without naming a set stops nothing, and neither does a failed
+frame job, which speaks only for its own frame. That set may belong to a job
+this browser cannot see, and a retry would bill a frame that is already on
+its way.
 
 The placeholder card is per job. A job that names its set gets no
 placeholder once that set has a card. A job that does not name its set
@@ -108,4 +134,4 @@ a cleared subheadline removes that line.
 
 ## Testing
 
-`pnpm vitest run src/components/design/sequence src/components/design/use-design-generation.sequence.test.ts src/components/design/directions "src/app/(dashboard)/design-studio" "src/app/(dashboard)/multi-frame-pages.test.tsx" src/app/api/design/set-jobs src/lib/design/sequence/open-set-jobs`
+`pnpm vitest run src/components/design/sequence src/components/design/use-design-generation.sequence.test.ts src/components/design/directions "src/app/(dashboard)/design-studio" "src/app/(dashboard)/multi-frame-pages.test.tsx" src/app/api/design/set-jobs src/lib/design/sequence/open-set-jobs src/lib/design/generation-ids.test.ts`

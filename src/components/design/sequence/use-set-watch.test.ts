@@ -45,12 +45,55 @@ const longAgo = new Date(NOW - STALLED_AFTER_MS - 1).toISOString();
 
 describe("stalledSets", () => {
   it("keeps a set coming while a job of ours could be building it", () => {
+    const startedBefore = Date.parse(longAgo) - 60_000;
     expect(
-      stalledSets([building(longAgo)], [live()], new Set(["set-a"]), NOW).size,
+      stalledSets(
+        [building(longAgo)],
+        [live(null, startedBefore)],
+        new Set(["set-a"]),
+        NOW,
+      ).size,
     ).toBe(0);
     expect(
       stalledSets([building(longAgo)], [live("set-a")], none, NOW).size,
     ).toBe(0);
+  });
+
+  /* Round 4 M2: any running job with no set named brought every abandoned
+     set back to "still being made", hid its retries and put its pending
+     ids back into the poll. A job started two minutes ago cannot be
+     writing rows from three days ago. */
+  it("does not let a job started after a set's first row keep that set coming", () => {
+    const threeDaysAgo = new Date(NOW - 3 * 24 * 3600 * 1000).toISOString();
+    const abandoned = building(threeDaysAgo, "set-old");
+    const fresh = live(null, NOW - 120_000, "j-new");
+    expect([...stalledSets([abandoned], [], none, NOW)]).toEqual(["set-old"]);
+    expect([...stalledSets([abandoned], [fresh], none, NOW)]).toEqual([
+      "set-old",
+    ]);
+    expect(placeholderJobs([fresh], [abandoned])).toEqual([fresh]);
+  });
+
+  it("allows for clock skew between the browser and the database", () => {
+    const job = live(null, NOW - 100_000);
+    const writtenJustBefore = new Date(NOW - 110_000).toISOString();
+    expect(
+      stalledSets([building(writtenJustBefore)], [job], new Set(["set-a"]), NOW)
+        .size,
+    ).toBe(0);
+  });
+
+  /* Round 4 H1: a failed read was taken as "nothing changed", so a frame
+     that had rendered could still be offered as a billed retry. */
+  it("never stops a set while the last read of its pending frames failed", () => {
+    const set = building(longAgo);
+    expect(
+      stalledSets([set], [], new Set(["set-a"]), NOW, new Set(["set-a-f2"]))
+        .size,
+    ).toBe(0);
+    expect([...stalledSets([set], [], none, NOW, new Set(["other"]))]).toEqual([
+      "set-a",
+    ]);
   });
 
   it("stops a set once the job known to build it ended without delivering", () => {

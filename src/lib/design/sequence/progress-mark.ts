@@ -7,7 +7,8 @@
  *
  * Kept beside contract.ts rather than in it: the frozen contract has no
  * progress type. The client reads it with `sequenceMarkOf`, and
- * GET /api/design/set-jobs lists a brand's open set jobs by it.
+ * GET /api/design/set-jobs trusts it first and, without it, knows a set job
+ * by its input and checkpoint (open-set-jobs.ts).
  *
  * PRODUCER CONTRACT (KOOS-AI-002 U2, not yet emitted on this branch): the
  * sequence job spreads `sequenceMarkFor(kind, setId)` into every

@@ -2,10 +2,9 @@
  * The set and frame jobs this browser started and has not seen end.
  *
  * The server lists a brand's open set jobs too (GET /api/design/set-jobs),
- * but only by the mark the job puts on its progress, which a job has not
- * reported yet in its first seconds. This copy covers that gap and any job
- * whose mark has not landed, and carries what this browser already knows:
- * a frame job's set, and the kind the dialog expected.
+ * read every few ticks. This copy covers a job's first seconds before that
+ * list is read again, and carries what this browser already knows: a frame
+ * job's set, and the kind the dialog expected before any plan is saved.
  */
 import type { SequenceKind } from "@/lib/design/sequence/contract";
 import type { SetJobKind } from "@/lib/design/sequence/open-set-jobs";

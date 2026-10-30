@@ -29,6 +29,7 @@ beforeEach(() => {
     {
       id: "job-set",
       status: "running",
+      input: { sequence: { frames: 5, asked: 5 } },
       result: {
         progress: { stage: "render", sequenceKind: "carousel", setId: SET },
       },
@@ -37,8 +38,17 @@ beforeEach(() => {
     {
       id: "job-directions",
       status: "running",
+      input: { image: { source: "none" }, regenerateOf: null },
       result: { progress: { stage: "render", done: 1, total: 2 } },
       createdAt: new Date(NOW - 30_000),
+    },
+    /* As U2's sequence job reports today: no mark on its progress. */
+    {
+      id: "job-unmarked",
+      status: "pending",
+      input: { sequence: { frames: 6, asked: null } },
+      result: null,
+      createdAt: new Date(NOW - 10_000),
     },
   ]);
   setCurrent(rec as unknown as { db: Record<string, unknown> });
@@ -77,6 +87,19 @@ describe("listOpenSetJobs", () => {
         setId: SET,
         startedAt: NOW - 60_000,
       },
+      {
+        jobId: "job-unmarked",
+        kind: "set",
+        sequenceKind: null,
+        setId: null,
+        startedAt: NOW - 10_000,
+      },
     ]);
+  });
+
+  it("selects the input, which is how a job without the mark is known", async () => {
+    await listOpenSetJobs(USER, BRAND, NOW);
+    expect(rec.recorded.sources).toMatchObject({ input: expect.any(String) });
+    expect(JSON.stringify(rec.recorded.sources?.input)).toContain("input");
   });
 });

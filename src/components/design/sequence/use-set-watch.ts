@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { chunkIds } from "@/lib/design/generation-ids";
 import type {
   RegenerateFrameJobResult,
   SequenceJobResult,
@@ -23,6 +24,10 @@ import {
 } from "./set-model";
 
 export const SET_WATCH_INTERVAL_MS = 3000;
+/* A hidden tab still polls, slowly: a set resumes into its next slice only
+   while something polls its job, and this tab may be the only thing that
+   does. */
+export const SET_WATCH_HIDDEN_INTERVAL_MS = 30_000;
 /* The server's list of open set jobs changes only when a set starts
    somewhere else, so it is read far less often than the jobs are polled. */
 export const SET_LIST_EVERY_TICKS = 5;
@@ -135,21 +140,41 @@ function liveOf(
   };
 }
 
-async function readRows(
+export interface RowsRead {
+  rows: SerializedGeneration[];
+  /** Ids whose read failed: their state is unknown, not unchanged. */
+  unread: string[];
+}
+
+async function readChunk(
   brandId: string,
   ids: string[],
-): Promise<SerializedGeneration[]> {
-  if (ids.length === 0) return [];
+): Promise<SerializedGeneration[] | null> {
   try {
     const res = await fetch(
       `/api/design/generations?brandId=${brandId}&ids=${ids.join(",")}`,
     );
-    if (!res.ok) return [];
-    const body = (await res.json()) as { generations?: SerializedGeneration[] };
-    return body.generations ?? [];
+    if (!res.ok) return null;
+    const body = (await res.json()) as { generations?: unknown };
+    return Array.isArray(body.generations)
+      ? (body.generations as SerializedGeneration[])
+      : null;
   } catch {
-    return [];
+    return null;
   }
+}
+
+/** Reads the rows by id, as many requests as the route's id limit needs. */
+export async function readRows(
+  brandId: string,
+  ids: string[],
+): Promise<RowsRead> {
+  const chunks = chunkIds(ids);
+  const reads = await Promise.all(chunks.map((c) => readChunk(brandId, c)));
+  return {
+    rows: reads.flatMap((read) => read ?? []),
+    unread: chunks.flatMap((chunk, i) => (reads[i] ? [] : chunk)),
+  };
 }
 
 async function listOpenJobs(brandId: string): Promise<OpenSetJob[] | null> {
@@ -164,27 +189,48 @@ async function listOpenJobs(brandId: string): Promise<OpenSetJob[] | null> {
   }
 }
 
+/* A set's first row is written after its job starts; this covers the
+   clock between the browser that noted the start and the database. */
+const CLAIM_SKEW_MS = 30_000;
+
+function firstRowAt(set: DesignSet): number {
+  return Math.min(
+    ...set.frames.flatMap((slot) =>
+      slot.generation ? [Date.parse(slot.generation.createdAt)] : [],
+    ),
+  );
+}
+
+/* A job that has not named its set can only be building one first written
+   after it started: the same rule placeholderJobs claims sets by. */
+function couldBuild(job: LiveSetJob, set: DesignSet): boolean {
+  if (job.setId) return job.setId === set.setId;
+  return firstRowAt(set) >= job.startedAt - CLAIM_SKEW_MS;
+}
+
 /**
  * Which building sets have stopped. A set is still coming while a job of
- * ours runs that could be building it: one whose set is this one, or one
- * that has not said which set it builds. Otherwise it has stopped once a job
- * known to have been building THIS set ended without delivering it, or once
- * its oldest pending frame is past STALLED_AFTER_MS. A job that ended
- * without saying which set it built stops nothing: the set may belong to a
- * job running somewhere this browser cannot see, and a retry there would
- * bill a frame already on its way.
+ * ours runs that could be building it (`couldBuild`), or while the last read
+ * of any of its pending frames failed: that frame may have rendered, and a
+ * retry would bill it. Otherwise it has stopped once a job known to have
+ * been building THIS set ended without delivering it, or once its oldest
+ * pending frame is past STALLED_AFTER_MS. A job that ended without saying
+ * which set it built stops nothing: the set may belong to a job running
+ * somewhere this browser cannot see, and a retry there would bill a frame
+ * already on its way.
  */
 export function stalledSets(
   sets: DesignSet[],
   live: LiveSetJob[],
   endedSets: ReadonlySet<string>,
   now: number,
+  unread: ReadonlySet<string> = new Set(),
 ): Set<string> {
   const stalled = new Set<string>();
   for (const set of sets) {
     if (!isBuilding(set)) continue;
-    const covered = live.some((j) => !j.setId || j.setId === set.setId);
-    if (covered) continue;
+    if (live.some((job) => couldBuild(job, set))) continue;
+    if (renderingIds(set).some((id) => unread.has(id))) continue;
     const oldest = Math.min(
       ...set.frames.flatMap((slot) =>
         slot.generation && slot.generation.status !== "succeeded"
@@ -197,18 +243,6 @@ export function stalledSets(
     }
   }
   return stalled;
-}
-
-/* A set's first row is written after its job starts; this covers the
-   clock between the browser that noted the start and the database. */
-const CLAIM_SKEW_MS = 30_000;
-
-function firstRowAt(set: DesignSet): number {
-  return Math.min(
-    ...set.frames.flatMap((slot) =>
-      slot.generation ? [Date.parse(slot.generation.createdAt)] : [],
-    ),
-  );
 }
 
 /**
@@ -279,6 +313,7 @@ export function useSetWatch(
   );
   const [live, setLive] = useState<LiveSetJob[]>([]);
   const [endedSets, setEndedSets] = useState<ReadonlySet<string>>(new Set());
+  const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
 
   const rows = useMemo(() => overlay(given, fresh), [given, fresh]);
@@ -292,8 +327,8 @@ export function useSetWatch(
     [brandId, rows],
   );
   const stalled = useMemo(
-    () => stalledSets(sets, live, endedSets, now),
-    [sets, live, endedSets, now],
+    () => stalledSets(sets, live, endedSets, now, unread),
+    [sets, live, endedSets, now, unread],
   );
 
   const latest = useRef({ sets, stalled });
@@ -305,6 +340,11 @@ export function useSetWatch(
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let ticks = 0;
+    let ticking = false;
+    let listDue = false;
+    /* Rows a finished job made whose read failed: asked for again every
+       tick until they arrive, or the set they belong to never shows. */
+    const owed = new Set<string>();
     /* Kept until a poll sees the job end, not until the list drops it: a
        job that ends between two reads of the list still hands over the
        frames it made. */
@@ -334,9 +374,26 @@ export function useSetWatch(
     }
 
     async function tick() {
+      ticking = true;
+      try {
+        await step();
+      } finally {
+        ticking = false;
+      }
+      if (cancelled) return;
+      timer = setTimeout(
+        () => void tick(),
+        document.hidden ? SET_WATCH_HIDDEN_INTERVAL_MS : SET_WATCH_INTERVAL_MS,
+      );
+    }
+
+    async function step() {
       const active =
         latest.current.sets.some(isBuilding) || watched().length > 0;
-      if (ticks % SET_LIST_EVERY_TICKS === 0 && (ticks === 0 || active)) {
+      const listOnSchedule =
+        ticks % SET_LIST_EVERY_TICKS === 0 && (ticks === 0 || active);
+      if (listDue || listOnSchedule) {
+        listDue = false;
         await refreshList();
         if (cancelled) return;
       }
@@ -349,7 +406,7 @@ export function useSetWatch(
       const pendingIds = latest.current.sets
         .filter((set) => !latest.current.stalled.has(set.setId))
         .flatMap(renderingIds);
-      if (jobs.length > 0 || pendingIds.length > 0) {
+      if (jobs.length > 0 || pendingIds.length > 0 || owed.size > 0) {
         const polled = await Promise.all(jobs.map(pollOnce));
         if (cancelled) return;
         const nextLive: LiveSetJob[] = [];
@@ -377,29 +434,37 @@ export function useSetWatch(
           setOfJob.delete(job.jobId);
         });
         const read = await readRows(brand, [
-          ...new Set([...pendingIds, ...delivered]),
+          ...new Set([...pendingIds, ...owed, ...delivered]),
         ]);
         if (cancelled) return;
+        const pending = new Set(pendingIds);
+        owed.clear();
+        for (const id of read.unread) if (!pending.has(id)) owed.add(id);
         setLive(nextLive);
+        setUnread(new Set(read.unread));
         if (stopped.length > 0) {
           setEndedSets((held) => new Set([...held, ...stopped]));
         }
-        if (read.length > 0) {
+        if (read.rows.length > 0) {
           setFresh((held) => {
             const next = new Map(held);
-            for (const row of read) next.set(row.id, row);
+            for (const row of read.rows) next.set(row.id, row);
             return next;
           });
         }
       }
       if (latest.current.sets.some(isBuilding)) setNow(Date.now());
-      timer = setTimeout(() => void tick(), SET_WATCH_INTERVAL_MS);
     }
 
     /* Coming back to the tab is when a set started on the phone meanwhile
-       is most likely; read the list then rather than waiting for a tick. */
+       is most likely, and the hidden tab's last tick may be half a minute
+       old: tick now, list included, rather than wait out the slow timer. */
     function onVisible() {
-      if (document.visibilityState === "visible") void refreshList();
+      if (document.visibilityState !== "visible") return;
+      listDue = true;
+      if (ticking) return;
+      if (timer) clearTimeout(timer);
+      void tick();
     }
 
     void tick();

@@ -19,6 +19,7 @@ export async function listOpenSetJobs(
     .select({
       id: generationJobs.id,
       status: generationJobs.status,
+      input: generationJobs.input,
       result: generationJobs.result,
       createdAt: generationJobs.createdAt,
     })
