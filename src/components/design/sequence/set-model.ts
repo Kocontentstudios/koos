@@ -12,6 +12,10 @@ export interface FrameSlot {
   role: FrameRole;
   title: string;
   generation: SerializedGeneration | null;
+  /** The row is still pending but nothing is building it any more (its job
+   *  ended, or it is far older than any set takes): shown as failed, with a
+   *  retry, rather than as rendering forever. */
+  stalled?: boolean;
 }
 
 /** A carousel or presentation as the client holds it: every index from 0 to
@@ -29,7 +33,32 @@ export function frameState(slot: FrameSlot): FrameState {
   const status = slot.generation?.status;
   if (!status) return "missing";
   if (status === "succeeded") return "ready";
-  return status === "failed" ? "failed" : "rendering";
+  return status === "failed" || slot.stalled ? "failed" : "rendering";
+}
+
+/** Whether any frame of the set is still on its way. */
+export function isBuilding(set: DesignSet): boolean {
+  return set.frames.some((slot) => frameState(slot) === "rendering");
+}
+
+/** The ids of the rows still on their way, to read again. */
+export function renderingIds(set: DesignSet): string[] {
+  return set.frames.flatMap((slot) =>
+    frameState(slot) === "rendering" && slot.generation
+      ? [slot.generation.id]
+      : [],
+  );
+}
+
+/** The set with every frame still on its way shown as stopped. */
+export function markStalled(set: DesignSet): DesignSet {
+  if (!isBuilding(set)) return set;
+  return {
+    ...set,
+    frames: set.frames.map((slot) =>
+      frameState(slot) === "rendering" ? { ...slot, stalled: true } : slot,
+    ),
+  };
 }
 
 const ROLE_LABELS: Record<SequenceKind, Record<FrameRole, string>> = {
@@ -153,6 +182,24 @@ export function swapFrame(
           }
         : slot,
     ),
+  };
+}
+
+/**
+ * A fresher read of a set already on screen. Per index the row that
+ * outranks wins, so a frame regenerated here is not undone by a gallery
+ * read taken before it landed; `incoming` says which frames are stalled.
+ */
+export function mergeSets(held: DesignSet, incoming: DesignSet): DesignSet {
+  if (held.setId !== incoming.setId) return incoming;
+  return {
+    ...incoming,
+    frames: incoming.frames.map((slot) => {
+      const mine = held.frames[slot.index]?.generation;
+      const theirs = slot.generation;
+      if (!mine || (theirs && !outranks(mine, theirs))) return slot;
+      return { ...slot, generation: mine, stalled: undefined };
+    }),
   };
 }
 

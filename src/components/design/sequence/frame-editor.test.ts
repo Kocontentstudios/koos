@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
 import { frameRow } from "./fixtures";
 import {
   editableFields,
   editProblem,
   editsFrom,
   frameCopyOf,
+  FRAME_COPY_LIMITS as LIMITS_UNDER_TEST,
 } from "./frame-editor";
 
 const typed = (
@@ -103,6 +105,28 @@ describe("editProblem", () => {
     ).toEqual({
       field: "cta",
       message: "Keep the button text to 32 characters.",
+    });
+  });
+
+  /* The server accepts an empty CTA, which would leave the carousel with no
+     action at all (H3). */
+  it("requires the action frame's button text, whitespace alone included", () => {
+    for (const cta of ["", "  "]) {
+      expect(editProblem([...fields], typed({ headline: "ok", cta }))).toEqual({
+        field: "cta",
+        message: "The last frame needs its button text.",
+      });
+    }
+    expect(
+      editProblem(["headline", "subheadline"], typed({ headline: "ok" })),
+    ).toBeNull();
+  });
+
+  it("holds every field to the limits the route checks", () => {
+    expect(LIMITS_UNDER_TEST).toEqual({
+      headline: COPY_LIMITS.headline,
+      subheadline: COPY_LIMITS.subheadline,
+      cta: COPY_LIMITS.cta,
     });
   });
 

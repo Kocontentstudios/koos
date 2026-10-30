@@ -4,14 +4,53 @@ import { GalleryHorizontal, Presentation, TriangleAlert } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   coverOf,
   type DesignSet,
   frameSize,
   frameState,
+  isBuilding,
   kindNoun,
   slideCount,
 } from "./set-model";
+import type { LiveSetJob } from "./use-set-watch";
+
+/**
+ * A set of ours still being made that has no frame to put on a card yet:
+ * a placeholder in the frame's shape, saying where the job is, so the grid
+ * is not silent while the set it was promised is on its way.
+ */
+export function SetBuildingCard({ job }: { job: LiveSetJob }) {
+  const noun = job.kind ? kindNoun(job.kind) : "slides";
+  const where =
+    job.rendering && job.frameCount
+      ? `Frame ${Math.min(job.done + 1, job.frameCount)} of ${job.frameCount}…`
+      : "Planning…";
+  return (
+    <div
+      role="status"
+      data-set-building={job.jobId}
+      className="relative block pt-2 pr-2"
+    >
+      <span
+        className="relative block overflow-hidden rounded-lg border"
+        style={{
+          borderColor: "var(--border)",
+          aspectRatio: job.kind === "presentation" ? "16 / 9" : "4 / 5",
+        }}
+      >
+        <Skeleton className="absolute inset-0 rounded-none" />
+        <span className="absolute inset-x-2 bottom-2 inline-flex items-center gap-1.5 rounded-full bg-[var(--status-progress-bg)] px-2 py-1 text-[11px] font-semibold text-[var(--status-progress-fg)]">
+          <Spinner className="size-3" />
+          <span>
+            Making your {noun}. {where}
+          </span>
+        </span>
+      </span>
+    </div>
+  );
+}
 
 /**
  * A whole carousel or presentation in the history grid: its hook frame on
@@ -41,14 +80,19 @@ export function SetCard({
   const Icon = set.kind === "carousel" ? GalleryHorizontal : Presentation;
   const noun = kindNoun(set.kind);
   const headline = set.frames[0]?.title || cover.headline || noun;
+  const building = isBuilding(set);
+  const ready = set.frames.filter((s) => frameState(s) === "ready").length;
+  const note = building
+    ? `. Still being made, ${ready} of ${count} ready`
+    : broken
+      ? `. ${broken} didn't render`
+      : "";
 
   return (
     <button
       type="button"
       onClick={() => onOpen(set)}
-      aria-label={`Open ${noun}, ${slideCount(count)}: ${headline}${
-        broken ? `. ${broken} didn't render` : ""
-      }`}
+      aria-label={`Open ${noun}, ${slideCount(count)}: ${headline}${note}`}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}
@@ -94,7 +138,12 @@ export function SetCard({
           <Icon aria-hidden="true" className="size-3" />
           {slideCount(count)}
         </span>
-        {broken ? (
+        {building ? (
+          <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-[var(--status-progress-bg)] px-2 py-0.5 text-[11px] font-semibold text-[var(--status-progress-fg)]">
+            <Spinner className="size-3" />
+            {ready} of {count}
+          </span>
+        ) : broken ? (
           <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-[var(--status-error-bg)] px-2 py-0.5 text-[11px] font-semibold text-[var(--status-error-fg)]">
             <TriangleAlert aria-hidden="true" className="size-3" />
             {broken} failed

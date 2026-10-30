@@ -22,9 +22,10 @@ export interface SerializedGeneration {
   calendarItemId: string | null;
   headline: string | null;
   /** The frame editor prefills from these (KOOS-AI-002): a user editing a
-   *  frame sees the line they are changing. Null when the spec has none. */
-  subheadline: string | null;
-  cta: string | null;
+   *  frame sees the line they are changing. Null when the spec has none;
+   *  optional so a row built before they were on the wire still types. */
+  subheadline?: string | null;
+  cta?: string | null;
   createdAt: string;
   /** A direction's name and "why this works" list; null on variant rows. */
   direction: { title: string; reasons: string[] } | null;

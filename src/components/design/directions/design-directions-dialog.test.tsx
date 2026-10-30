@@ -1,9 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { frameRows, SET } from "@/components/design/sequence/fixtures";
-import { buildSet } from "@/components/design/sequence/set-model";
-import { regenKey } from "@/components/design/sequence/use-frame-set";
 import type {
   DesignGenerationState,
   GenerateArgs,
@@ -35,9 +32,6 @@ vi.mock("sonner", () => ({
   },
 }));
 
-/* TICKET's "Instagram post" is a single design, so no run expects a set. */
-const NO_SEQUENCE = { sequenceKind: null };
-
 function runState(
   overrides: Partial<DesignGenerationState> = {},
 ): DesignGenerationState {
@@ -50,16 +44,10 @@ function runState(
     progress: null,
     jobStage: null,
     error: null,
-    stillRunning: false,
     partial: null,
     failedCount: 0,
     failedIds: [],
     generations: [],
-    set: null,
-    sequenceProgress: null,
-    regenerateFrame: vi.fn(async () => null),
-    frameActions: new Set(),
-    frameErrors: {},
     reset: vi.fn(),
     ...overrides,
   };
@@ -103,8 +91,6 @@ function direction(
     briefId: null,
     calendarItemId: null,
     headline: null,
-    subheadline: null,
-    cta: null,
     createdAt: "2026-10-21T00:00:00.000Z",
     direction: { title, reasons: ["r"] },
     imageSource: "ko",
@@ -218,14 +204,11 @@ describe("DesignDirectionsDialog with FEATURE_KO_IMAGERY off", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /design without an image/i }),
     );
-    expect(design.generate).toHaveBeenCalledWith(
-      {
-        brandId: BRAND,
-        calendarItemId: "item-1",
-        image: { source: "none" },
-      },
-      NO_SEQUENCE,
-    );
+    expect(design.generate).toHaveBeenCalledWith({
+      brandId: BRAND,
+      calendarItemId: "item-1",
+      image: { source: "none" },
+    });
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "none",
       entry: "calendar",
@@ -267,7 +250,6 @@ describe("DesignDirectionsDialog with FEATURE_KO_IMAGERY off", () => {
     );
     expect(design.generate).toHaveBeenCalledWith(
       expect.objectContaining({ image: { source: "none" } }),
-      NO_SEQUENCE,
     );
   });
 
@@ -323,14 +305,11 @@ describe("DesignDirectionsDialog", () => {
   it("generates with KO imagery in one click and records the choice", async () => {
     const design = runState();
     await openResults(design);
-    expect(design.generate).toHaveBeenCalledWith(
-      {
-        brandId: BRAND,
-        calendarItemId: "item-1",
-        image: { source: "ko" },
-      },
-      NO_SEQUENCE,
-    );
+    expect(design.generate).toHaveBeenCalledWith({
+      brandId: BRAND,
+      calendarItemId: "item-1",
+      image: { source: "ko" },
+    });
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "ko",
       entry: "calendar",
@@ -358,7 +337,6 @@ describe("DesignDirectionsDialog", () => {
     );
     expect(design.generate).toHaveBeenCalledWith(
       expect.objectContaining({ image: { source: "upload", key: KEY } }),
-      NO_SEQUENCE,
     );
     expect(captureEvent).toHaveBeenCalledWith("design_image_choice", {
       source: "upload",
@@ -389,7 +367,6 @@ describe("DesignDirectionsDialog", () => {
     await waitFor(() =>
       expect(design.generate).toHaveBeenCalledWith(
         expect.objectContaining({ image: { source: "upload", key: KEY } }),
-        NO_SEQUENCE,
       ),
     );
   });
@@ -786,7 +763,6 @@ describe("DesignDirectionsDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: /regenerate/i }));
     expect(design.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({ image: { source: "ko" } }),
-      NO_SEQUENCE,
     );
   });
 
@@ -800,166 +776,5 @@ describe("DesignDirectionsDialog", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-});
-
-/* KOOS-AI-002: a carousel or presentation run is one set of frames, shown in
-   the set viewer from its first progress report to its last regenerate. */
-describe("DesignDirectionsDialog with a set of frames", () => {
-  const frames = frameRows(5);
-  const set = buildSet(BRAND, frames, { setId: SET, frameCount: 5 });
-
-  it("says it is planning before any frame renders", async () => {
-    await openResults(
-      runState({
-        pending: true,
-        stage: "running",
-        sequenceProgress: {
-          kind: "carousel",
-          frameCount: 5,
-          phase: "plan",
-          done: 0,
-        },
-      }),
-    );
-    expect(
-      screen.getByRole("heading", { name: "Making your 5-slide carousel" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Planning your carousel…",
-    );
-  });
-
-  it("counts frames as they render, one tile per frame", async () => {
-    await openResults(
-      runState({
-        pending: true,
-        stage: "running",
-        sequenceProgress: {
-          kind: "carousel",
-          frameCount: 5,
-          phase: "render",
-          done: 2,
-        },
-      }),
-    );
-    expect(screen.getByRole("status")).toHaveTextContent("Frame 3 of 5…");
-    const tiles = [...document.querySelectorAll("[data-tile]")].map((t) =>
-      t.getAttribute("data-tile"),
-    );
-    expect(tiles).toEqual(["done", "done", "current", "waiting", "waiting"]);
-  });
-
-  it("tells the run a carousel brief expects a carousel", async () => {
-    const design = runState();
-    render(
-      <DesignDirectionsDialog
-        open
-        onOpenChange={vi.fn()}
-        entry="brief"
-        args={{ brandId: BRAND, briefId: "brief-1" }}
-        design={design}
-        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
-      />,
-      withKoImagery(true),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /let ko create the imagery/i }),
-    );
-    expect(design.generate).toHaveBeenCalledWith(
-      { brandId: BRAND, briefId: "brief-1", image: { source: "ko" } },
-      { sequenceKind: "carousel" },
-    );
-  });
-
-  it("names the slides without a kind when the entry point gave none", async () => {
-    await openResults(
-      runState({
-        pending: true,
-        stage: "running",
-        sequenceProgress: {
-          kind: null,
-          frameCount: 6,
-          phase: "plan",
-          done: 0,
-        },
-      }),
-    );
-    expect(
-      screen.getByRole("heading", { name: "Making your 6 slides" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Planning your slides…",
-    );
-  });
-
-  /* H7/H8: a set that outlives the poll has not failed. The way on watches
-     the same job; it never starts (and bills) a second one. */
-  it("offers to keep waiting on a set the client stopped watching", async () => {
-    const design = runState({
-      error: "Your carousel is still being made.",
-      stillRunning: true,
-    });
-    await openResults(design);
-    vi.mocked(design.generate).mockClear();
-    expect(
-      screen.getByRole("heading", { name: "Still working on it" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
-    expect(design.retry).toHaveBeenCalledTimes(1);
-    expect(design.generate).not.toHaveBeenCalled();
-  });
-
-  it("keeps the directions progress for a run that reports no sequence", async () => {
-    await openResults(runState({ pending: true, stage: "running" }));
-    expect(
-      screen.getByRole("heading", { name: "Creating two directions" }),
-    ).toBeInTheDocument();
-  });
-
-  it("opens the set viewer, not the legacy preview, once the set is in", async () => {
-    await openResults(runState({ generations: frames, set }));
-    expect(
-      screen.getByRole("heading", { name: "Your 5-slide carousel" }),
-    ).toBeInTheDocument();
-    expect(screen.getAllByRole("tab")).toHaveLength(5);
-    expect(screen.getByRole("button", { name: "Download ZIP" })).toBeVisible();
-  });
-
-  it("regenerates one frame through the run's hook and counts it as a run", async () => {
-    const regenerateFrame = vi.fn(async () => null);
-    const onRunStart = vi.fn();
-    render(
-      <DesignDirectionsDialog
-        open
-        onOpenChange={vi.fn()}
-        entry="studio"
-        args={{ brandId: BRAND }}
-        design={runState({ generations: frames, set, regenerateFrame })}
-        onRunStart={onRunStart}
-      />,
-      withKoImagery(true),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: /let ko create the imagery/i }),
-    );
-    onRunStart.mockClear();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Regenerate frame 1" }),
-    );
-    expect(regenerateFrame).toHaveBeenCalledWith("f0", undefined);
-    expect(onRunStart).toHaveBeenCalledTimes(1);
-  });
-
-  it("holds Start over while a frame regenerates", async () => {
-    await openResults(
-      runState({
-        generations: frames,
-        set,
-        frameActions: new Set([regenKey("f2")]),
-      }),
-    );
-    expect(screen.getByRole("button", { name: "Start over" })).toBeDisabled();
   });
 });

@@ -1,24 +1,26 @@
-import type { SequenceKind } from "@/lib/design/sequence/contract";
+import {
+  FRAME_BOUNDS,
+  type SequenceKind,
+} from "@/lib/design/sequence/contract";
+import { sequenceMarkOf } from "@/lib/design/sequence/progress-mark";
 import type { JobProgress } from "@/lib/generation/poll-job";
 import { kindNoun } from "./set-model";
 
 export type SequencePhase = "plan" | "render" | "checks";
 
 export interface SequenceProgress {
-  /** Known when the brief's design type said carousel or presentation;
-   *  null when the run became a set without the client being told. */
+  /** Null when the run became a set without anything naming its kind. */
   kind: SequenceKind | null;
-  frameCount: number;
+  /** Null until the job reports its count. */
+  frameCount: number | null;
   phase: SequencePhase;
   /** Frames delivered so far. */
   done: number;
 }
 
-/* A directions run reports its total as the directions it makes (two, or one
-   for a regenerate). A sequence run reports its frame count, and the
-   smallest set past that is a three-frame one. So a total above two can only
-   be a set. A two-frame carousel reads the same as a directions run and
-   shows the directions wait; its result still opens as a set. */
+/* With neither a mark nor a known kind, the counts are all there is: a
+   directions run reports a total of two at most (one for a regenerate), and
+   the smallest set past that is three frames. */
 const MOST_DIRECTIONS_PER_RUN = 2;
 
 const PHASE_OF_STAGE: Partial<Record<string, SequencePhase>> = {
@@ -27,11 +29,20 @@ const PHASE_OF_STAGE: Partial<Record<string, SequencePhase>> = {
   checks: "checks",
 };
 
+function isSetTotal(total: number, kind: SequenceKind | null): boolean {
+  if (!Number.isInteger(total)) return false;
+  return kind
+    ? total >= FRAME_BOUNDS[kind].min
+    : total > MOST_DIRECTIONS_PER_RUN;
+}
+
 /**
- * Reads the progress a sequence job already sends ({stage, done, total}) as
- * a set's progress. Null for anything a directions run could have sent, so
- * that wait keeps its own copy. The UI branches on stage and counts, never
- * on `label`, which is human text.
+ * Reads a job's progress as a set's, or null for anything a directions run
+ * could have sent, so that wait keeps its own copy. The job's mark
+ * (progress-mark.ts) settles it; failing that, `expectedKind`, which the
+ * caller passes only when FEATURE_MULTI_FRAME is on and the brief names a
+ * carousel or presentation, so the server is certain to build a set. The UI
+ * branches on stage and counts, never on `label`, which is human text.
  */
 export function readSequenceProgress(
   progress: JobProgress,
@@ -39,21 +50,26 @@ export function readSequenceProgress(
 ): SequenceProgress | null {
   const phase = progress.stage ? PHASE_OF_STAGE[progress.stage] : undefined;
   if (!phase) return null;
+  const kind = sequenceMarkOf(progress)?.sequenceKind ?? expectedKind;
   const frameCount = progress.total;
-  if (!Number.isInteger(frameCount) || frameCount <= MOST_DIRECTIONS_PER_RUN) {
-    return null;
-  }
+  if (!isSetTotal(frameCount, kind)) return null;
   return {
-    kind: expectedKind,
+    kind,
     frameCount,
     phase,
     done: Math.max(0, Math.min(progress.done, frameCount)),
   };
 }
 
+/** The wait a known set opens on, before the job's first report. */
+export function plannedProgress(kind: SequenceKind): SequenceProgress {
+  return { kind, frameCount: null, phase: "plan", done: 0 };
+}
+
 /** The frame being worked on, 1-based: one past those already delivered. */
 export function currentFrame(progress: SequenceProgress): number {
-  return Math.min(progress.done + 1, progress.frameCount);
+  const next = progress.done + 1;
+  return progress.frameCount ? Math.min(next, progress.frameCount) : next;
 }
 
 /** "carousel", "presentation", or "slides" when the kind is not known. */
@@ -66,7 +82,9 @@ export function sequenceProgressLine(progress: SequenceProgress): string {
     case "plan":
       return `Planning your ${setNoun(progress)}…`;
     case "render":
-      return `Frame ${currentFrame(progress)} of ${progress.frameCount}…`;
+      return progress.frameCount
+        ? `Frame ${currentFrame(progress)} of ${progress.frameCount}…`
+        : `Frame ${currentFrame(progress)}…`;
     case "checks":
       return `Checking your ${setNoun(progress)}…`;
   }

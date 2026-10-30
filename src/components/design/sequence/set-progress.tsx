@@ -5,6 +5,7 @@ import {
   FlowDescription,
   FlowTitle,
 } from "@/components/design/directions/flow-heading";
+import type { ImageSource } from "@/components/design/directions/flow-logic";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -29,22 +30,39 @@ function tileState(progress: SequenceProgress, index: number): TileState {
  * have, filling in as each one is delivered. The tiles are the picture; the
  * status line is what a screen reader hears.
  */
+function titleOf(progress: SequenceProgress): string {
+  const noun = setNoun(progress);
+  if (!progress.frameCount) return `Making your ${noun}`;
+  return progress.kind
+    ? `Making your ${progress.frameCount}-slide ${noun}`
+    : `Making your ${progress.frameCount} slides`;
+}
+
+/* KO paints a picture for every frame, and a set of them runs as several
+   210s slices; drawn on an upload or on type alone a frame is a render. No
+   figure is promised for the second: it depends on the count. */
+function durationNote(source: ImageSource): string | null {
+  return source === "ko"
+    ? "KO paints a picture for every frame, so this can take several minutes."
+    : null;
+}
+
 export function SetProgress({
   progress,
   stage,
+  source,
 }: {
   progress: SequenceProgress;
   stage: GenerationStage | null;
+  source: ImageSource;
 }) {
   const noun = setNoun(progress);
   const line =
     stage === "fetching"
       ? `Getting your ${noun} ready…`
       : sequenceProgressLine(progress);
-  const title = progress.kind
-    ? `Making your ${progress.frameCount}-slide ${noun}`
-    : `Making your ${progress.frameCount} slides`;
   const ratio = progress.kind === "presentation" ? "16 / 9" : "4 / 5";
+  const duration = durationNote(source);
 
   return (
     <div className="flex flex-col items-center gap-5 py-4 text-center">
@@ -52,7 +70,7 @@ export function SetProgress({
         <Spinner className="size-6" />
       </span>
       <div className="flex flex-col items-center gap-1.5">
-        <FlowTitle>{title}</FlowTitle>
+        <FlowTitle>{titleOf(progress)}</FlowTitle>
         <p role="status" className="text-[14px] text-[var(--text-secondary)]">
           {line}
         </p>
@@ -61,7 +79,7 @@ export function SetProgress({
         aria-hidden="true"
         className="flex max-w-full flex-wrap justify-center gap-1.5"
       >
-        {Array.from({ length: progress.frameCount }, (_, index) => {
+        {Array.from({ length: progress.frameCount ?? 0 }, (_, index) => {
           const state = tileState(progress, index);
           return (
             <li
@@ -94,8 +112,9 @@ export function SetProgress({
         })}
       </ol>
       <FlowDescription className="max-w-[420px] text-[12px] text-[var(--text-muted)]">
-        Each frame takes a few seconds. Closing this won't stop it: finished
-        frames also appear in Design Studio.
+        {duration ? `${duration} ` : null}
+        Closing this won't stop it: Design Studio picks it up and shows each
+        frame as it lands.
       </FlowDescription>
     </div>
   );

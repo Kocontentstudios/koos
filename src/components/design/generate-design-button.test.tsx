@@ -91,26 +91,10 @@ describe("GenerateDesignButton", () => {
       withKoImagery(true),
     );
     await chooseKo();
-    expect(design.generate).toHaveBeenCalledWith(
-      { brandId: "b1", briefId: "brief-1", image: { source: "ko" } },
-      { sequenceKind: null },
-    );
-  });
-
-  /* The brief panel hands over its design type in ticketContext; a carousel
-     brief tells the run to expect a carousel. */
-  it("passes on the set kind its design type names", async () => {
-    render(
-      <GenerateDesignButton
-        brandId="b1"
-        briefId="brief-1"
-        ticketContext={{ briefId: "brief-1", designType: "Carousel" }}
-      />,
-      withKoImagery(true),
-    );
-    await chooseKo();
-    expect(design.generate).toHaveBeenCalledWith(expect.anything(), {
-      sequenceKind: "carousel",
+    expect(design.generate).toHaveBeenCalledWith({
+      brandId: "b1",
+      briefId: "brief-1",
+      image: { source: "ko" },
     });
   });
 

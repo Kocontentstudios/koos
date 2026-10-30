@@ -145,9 +145,11 @@ export function FrameFace({
         />
         {compact ? null : (
           <p className="relative max-w-[240px] text-[13px] leading-snug text-[var(--text-secondary)]">
-            {state === "failed"
-              ? "This frame didn't render."
-              : "This frame was never made."}
+            {state === "missing"
+              ? "This frame was never made."
+              : slot.stalled
+                ? "This frame stopped before it finished."
+                : "This frame didn't render."}
           </p>
         )}
         {!compact && state === "failed" && onRetry ? (

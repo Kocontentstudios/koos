@@ -2,9 +2,14 @@
 
 import { useCallback, useRef, useState } from "react";
 import {
+  plannedProgress,
   readSequenceProgress,
   type SequenceProgress,
 } from "@/components/design/sequence/progress";
+import {
+  forgetSetJob,
+  rememberSetJob,
+} from "@/components/design/sequence/set-jobs";
 import {
   buildSet,
   type DesignSet,
@@ -20,11 +25,8 @@ import type {
   SequenceKind,
 } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
-import {
-  type JobStage,
-  type JobStatusResponse,
-  pollGenerationJob,
-} from "@/lib/generation/poll-job";
+import { PollTimeoutError, stoppedWaiting } from "@/lib/generation/poll-errors";
+import { type JobStage, pollGenerationJob } from "@/lib/generation/poll-job";
 
 export interface GenerateArgs {
   brandId: string;
@@ -43,9 +45,9 @@ export interface GenerateArgs {
 
 /** What the caller knows about the run that the request does not carry. */
 export interface GenerateOptions {
-  /** The kind the brief's design type names (sequenceKindOf). It names the
-   *  wait ("Planning your carousel…") and gives the poll a set's length of
-   *  time. The server still decides whether a set is built. */
+  /** Set only when FEATURE_MULTI_FRAME is on and the brief's design type
+   *  names a carousel or presentation (sequenceKindOf): the server then
+   *  builds a set, so the wait opens as one. */
   sequenceKind?: SequenceKind | null;
 }
 
@@ -82,8 +84,8 @@ export interface DesignGenerationState {
     args: GenerateArgs,
     options?: GenerateOptions,
   ) => Promise<SerializedGeneration[]>;
-  /** Re-reads a finished job's designs, keeps waiting on one still running,
-   *  or re-runs one that produced none. */
+  /** Re-reads a finished job's designs, keeps waiting on a set still
+   *  running, or re-runs one that produced none. */
   retry: () => Promise<void>;
   pending: boolean;
   progressLabel: string | null;
@@ -94,9 +96,6 @@ export interface DesignGenerationState {
    *  one, and always null on the legacy path. */
   jobStage: JobStage | null;
   error: string | null;
-  /** Set with `error` when the client stopped waiting but the job had not
-   *  failed: `retry` goes back to watching it rather than starting another. */
-  stillRunning: boolean;
   /** Set when some designs rendered and some did not. Never set with `error`. */
   partial: string | null;
   /** How many rows the job produced that did not render. */
@@ -105,59 +104,61 @@ export interface DesignGenerationState {
   failedIds: string[];
   /** Every rendered design, in order; for a set, its rendered frames. */
   generations: SerializedGeneration[];
+  reset: () => void;
+  /* The fields below are KOOS-AI-002's. Optional so a caller written for
+     single designs (and its test doubles) is still a whole state; the hook
+     always returns them. */
+  /** Set with `error` when the client stopped waiting on a SET whose job had
+   *  not failed: `retry` goes back to watching it rather than starting
+   *  another. A directions run never sets it. */
+  stillRunning?: boolean;
   /** Set when the run made a carousel or presentation: every frame, in
    *  index order, rendered or not. Null for single designs. */
-  set: DesignSet | null;
-  /** Set while a sequence job reports where it is. */
-  sequenceProgress: SequenceProgress | null;
+  set?: DesignSet | null;
+  /** Set while a set's job runs, from the moment it is known to be one. */
+  sequenceProgress?: SequenceProgress | null;
   /** Replaces one frame of `set` in place; see useFrameSet. */
-  regenerateFrame: FrameSetState["regenerateFrame"];
+  regenerateFrame?: FrameSetState["regenerateFrame"];
+  keepWaitingOnFrame?: FrameSetState["keepWaiting"];
   /** `regen:${generationId}` for every frame regenerating. */
-  frameActions: FrameSetState["actingOn"];
-  frameErrors: FrameSetState["frameErrors"];
-  reset: () => void;
+  frameActions?: FrameSetState["actingOn"];
+  frameErrors?: FrameSetState["frameErrors"];
+  framesStillRunning?: FrameSetState["stillRunning"];
 }
+
+/** What the hook itself returns: every field, the set ones included. */
+export type LiveDesignGeneration = Required<DesignGenerationState>;
 
 async function readError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   return body.error ?? "Design generation failed. Please try again.";
 }
 
-/* Asked once the poll has given up, to tell "stopped waiting" from "the job
-   failed". Anything short of a definite failure counts as still running:
-   starting another job for one that is in fact still going bills the user
-   twice. */
-async function jobMayStillDeliver(jobId: string): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/jobs/${jobId}`);
-    if (!res.ok) return res.status >= 500;
-    const { status } = (await res.json()) as JobStatusResponse<unknown>;
-    return status !== "failed";
-  } catch {
-    return true;
-  }
-}
-
 class StillRunningError extends Error {}
 
 function stillRunningMessage(kind: SequenceKind | null): string {
-  const what = kind ? `Your ${kindNoun(kind)} is` : "Your designs are";
-  return `${what} still being made. It's taking longer than usual; it keeps going while you wait, and finished designs also appear in Design Studio.`;
+  const what = kind ? `Your ${kindNoun(kind)} is` : "Your slides are";
+  return `${what} still being made. It's taking longer than usual and keeps going while you wait. You can close this: Design Studio picks it up and shows each frame as it lands.`;
 }
 
 interface LastRun {
   args: GenerateArgs;
   options: GenerateOptions;
-  /** The job this run started. Kept until it is known to have failed, so a
-   *  retry never posts a second job while the first may still deliver. */
+  /** The job a set run started. Kept while it may still deliver, so a retry
+   *  never posts a second job while the first is still going. */
   jobId: string | null;
   ids: string[];
   sequence: SequenceJobResult | null;
+  /** Known to be building a set: from the caller's kind, or from the first
+   *  progress report only a set sends. */
+  isSet: boolean;
+  /** The set's progress as last reported, so the wait reopens where it was. */
+  progress: SequenceProgress | null;
 }
 
 /** Drives the 202 + poll flow every entry point shares, then reloads the
  * finished variants so callers only deal with rendered designs. */
-export function useDesignGeneration(): DesignGenerationState {
+export function useDesignGeneration(): LiveDesignGeneration {
   const [pending, setPending] = useState(false);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [stage, setStage] = useState<GenerationStage | null>(null);
@@ -306,30 +307,73 @@ export function useDesignGeneration(): DesignGenerationState {
   );
 
   /* Watches a started job to the end and reads back what it made. Shared by
-     a fresh run and by a retry that goes back to a job still running. */
+     a fresh run and by a retry that goes back to a set still running. A
+     directions run polls exactly as it always has: one poll, and any way it
+     ends is that run's error. */
   const follow = useCallback(
     async (last: LastRun, jobId: string, run: number) => {
       const expectedKind = last.options.sequenceKind ?? null;
+      const startedAt = Date.now();
+      const watchAsSet = () => {
+        if (last.isSet) return;
+        last.isSet = true;
+        /* Kept for Design Studio, which polls it on (and so resumes it) if
+           this wait is closed or gives up. */
+        rememberSetJob({ jobId, brandId: last.args.brandId, kind: "set" });
+      };
+      if (expectedKind) watchAsSet();
+      /* Only while this wait still shows the run. Once it was closed or
+         replaced, Design Studio's watcher collects the end itself, and
+         adds the set it made to the grid. */
+      const settled = () => {
+        if (last.isSet && runId.current === run) forgetSetJob(jobId);
+      };
+
       let result: JobResult;
-      try {
-        result = await pollGenerationJob<JobResult>(jobId, {
-          timeoutMs: expectedKind ? SET_POLL_TIMEOUT_MS : undefined,
-          onProgress: (p) => {
-            if (runId.current !== run) return;
-            setProgressLabel(p.label);
-            setStage("running");
-            setProgress({ done: p.done, total: p.total });
-            if (p.stage) setJobStage(p.stage);
-            setSequenceProgress(readSequenceProgress(p, expectedKind));
-          },
-        });
-      } catch (err) {
-        if (await jobMayStillDeliver(jobId)) {
-          throw new StillRunningError(stillRunningMessage(expectedKind));
+      for (;;) {
+        const polledAsSet = last.isSet;
+        try {
+          result = await pollGenerationJob<JobResult>(jobId, {
+            ...(polledAsSet
+              ? {
+                  timeoutMs: Math.max(
+                    0,
+                    SET_POLL_TIMEOUT_MS - (Date.now() - startedAt),
+                  ),
+                }
+              : {}),
+            onProgress: (p) => {
+              if (runId.current !== run) return;
+              setProgressLabel(p.label);
+              setStage("running");
+              setProgress({ done: p.done, total: p.total });
+              if (p.stage) setJobStage(p.stage);
+              const read = readSequenceProgress(p, expectedKind);
+              if (read) {
+                watchAsSet();
+                last.progress = read;
+              }
+              setSequenceProgress(last.isSet ? last.progress : null);
+            },
+          });
+          break;
+        } catch (err) {
+          /* It showed itself to be a set only after this poll began, so the
+             poll still had a directions run's five minutes. */
+          if (err instanceof PollTimeoutError && last.isSet && !polledAsSet) {
+            continue;
+          }
+          if (last.isSet && stoppedWaiting(err)) {
+            throw new StillRunningError(
+              stillRunningMessage(last.progress?.kind ?? expectedKind),
+            );
+          }
+          settled();
+          last.jobId = null;
+          throw err;
         }
-        last.jobId = null;
-        throw err;
       }
+      settled();
       last.jobId = null;
       if (runId.current !== run) return [];
 
@@ -363,18 +407,25 @@ export function useDesignGeneration(): DesignGenerationState {
     setError(err instanceof Error ? err.message : "Design generation failed.");
   }, []);
 
-  const begin = useCallback((label: string, stageNow: GenerationStage) => {
-    setPending(true);
-    setError(null);
-    setStillRunning(false);
-    setPartial(null);
-    setFailedIds([]);
-    setSequenceProgress(null);
-    setProgressLabel(label);
-    setStage(stageNow);
-    setProgress(null);
-    setJobStage(null);
-  }, []);
+  const begin = useCallback(
+    (
+      label: string,
+      stageNow: GenerationStage,
+      setProgressNow: SequenceProgress | null,
+    ) => {
+      setPending(true);
+      setError(null);
+      setStillRunning(false);
+      setPartial(null);
+      setFailedIds([]);
+      setSequenceProgress(setProgressNow);
+      setProgressLabel(label);
+      setStage(stageNow);
+      setProgress(null);
+      setJobStage(null);
+    },
+    [],
+  );
 
   const finish = useCallback(
     (run: number) => {
@@ -391,6 +442,11 @@ export function useDesignGeneration(): DesignGenerationState {
       options: GenerateOptions = {},
     ): Promise<SerializedGeneration[]> => {
       const run = ++runId.current;
+      /* A known set opens on its own wait, not the directions one, before
+         the job's first report arrives. */
+      const seeded = options.sequenceKind
+        ? plannedProgress(options.sequenceKind)
+        : null;
       /* Recorded before anything can fail, with no job yet: a failure before
        the POST returns means nothing was started, so a retry is a real
        re-run rather than a re-read. */
@@ -400,9 +456,11 @@ export function useDesignGeneration(): DesignGenerationState {
         jobId: null,
         ids: [],
         sequence: null,
+        isSet: false,
+        progress: seeded,
       };
       lastRun.current = last;
-      begin("Starting…", "starting");
+      begin("Starting…", "starting", seeded);
       setGenerations([]);
       loadSet(null);
       try {
@@ -432,7 +490,7 @@ export function useDesignGeneration(): DesignGenerationState {
    * would bill the user again and leave duplicate designs behind for a
    * failure that was only ever about display — the ticket's "no duplicate
    * designs are created when a user retries after a display-only failure".
-   * A job the client stopped waiting on is watched again, for the same
+   * A set the client stopped waiting on is watched again, for the same
    * reason. Only a generation that produced nothing is actually re-run.
    */
   const retry = useCallback(async () => {
@@ -445,10 +503,10 @@ export function useDesignGeneration(): DesignGenerationState {
     const run = ++runId.current;
     try {
       if (last.ids.length === 0 && last.jobId) {
-        begin("Still working…", "running");
+        begin("Still working…", "running", last.progress);
         await follow(last, last.jobId, run);
       } else {
-        begin("Fetching your designs…", "fetching");
+        begin("Fetching your designs…", "fetching", null);
         await readBack(last.args.brandId, last.ids, last.sequence, run);
       }
     } catch (err) {
@@ -475,8 +533,10 @@ export function useDesignGeneration(): DesignGenerationState {
     set: frameSet.set,
     sequenceProgress,
     regenerateFrame: frameSet.regenerateFrame,
+    keepWaitingOnFrame: frameSet.keepWaiting,
     frameActions: frameSet.actingOn,
     frameErrors: frameSet.frameErrors,
+    framesStillRunning: frameSet.stillRunning,
     reset,
   };
 }

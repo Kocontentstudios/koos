@@ -3,6 +3,7 @@
 import {
   Download,
   GalleryHorizontal,
+  Hourglass,
   Pencil,
   Presentation,
   RefreshCw,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import type { FrameEdits } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { FrameEditor } from "./frame-editor";
@@ -20,12 +22,13 @@ import {
   type FrameSlot,
   frameSize,
   frameState,
+  isBuilding,
   kindNoun,
   roleLabel,
   slideCount,
 } from "./set-model";
 import { SetStage } from "./set-stage";
-import { regenKey } from "./use-frame-set";
+import { FRAME_STILL_RUNNING, regenKey } from "./use-frame-set";
 
 export interface SetViewerProps {
   set: DesignSet;
@@ -37,7 +40,64 @@ export interface SetViewerProps {
     generationId: string,
     edits?: FrameEdits,
   ) => Promise<SerializedGeneration | null>;
+  /** Frame indexes whose regenerate outlived the poll and may still deliver. */
+  stillRunning?: ReadonlySet<number>;
+  onKeepWaiting?: (index: number) => void;
 }
+
+const NONE_WAITING: ReadonlySet<number> = new Set();
+
+/* Said of the set as a whole while its job is still delivering frames, so
+   the skeletons on the stage and rail are never the only sign of it. */
+function BuildingStatus({ set }: { set: DesignSet }) {
+  if (!isBuilding(set)) return null;
+  const count = set.frames.length;
+  const ready = set.frames.filter((s) => frameState(s) === "ready").length;
+  const failed = set.frames.filter((s) => frameState(s) === "failed").length;
+  const next = Math.min(ready + failed + 1, count);
+  return (
+    <p
+      role="status"
+      className="flex items-center gap-2 rounded-lg bg-[var(--status-progress-bg)] px-3 py-2 text-[13px] text-[var(--status-progress-fg)]"
+    >
+      <Spinner className="size-3.5 shrink-0" />
+      Frame {next} of {count}… {ready} of {count} ready. The rest appear here as
+      they land.
+    </p>
+  );
+}
+
+function FrameWaiting({
+  message,
+  onKeepWaiting,
+}: {
+  message: string;
+  onKeepWaiting?: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--status-progress-bg)] px-3 py-2"
+    >
+      <p className="flex items-start gap-1.5 text-[12px] text-[var(--status-progress-fg)]">
+        <Hourglass aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+        {message}
+      </p>
+      {onKeepWaiting ? (
+        <Button type="button" size="sm" onClick={onKeepWaiting}>
+          Keep waiting
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/* "carousel" is the ARIA pattern's own word; a deck read out as a carousel
+   would misname what the user is holding. */
+const ROLE_DESCRIPTION: Record<DesignSet["kind"], string> = {
+  carousel: "carousel",
+  presentation: "slide deck",
+};
 
 function KindPill({ set }: { set: DesignSet }) {
   const Icon = set.kind === "carousel" ? GalleryHorizontal : Presentation;
@@ -74,6 +134,8 @@ export function SetViewer({
   actingOn,
   frameErrors,
   onRegenerateFrame,
+  stillRunning = NONE_WAITING,
+  onKeepWaiting,
 }: SetViewerProps) {
   const baseId = useId();
   const panelId = `${baseId}-stage`;
@@ -134,12 +196,21 @@ export function SetViewer({
     if (row && edits) closeEditor();
   }
 
-  const status =
-    state === "rendering" ? "rendering" : state === "ready" ? null : "failed";
+  const waiting = stillRunning.has(slot.index);
+  /* A frame whose job may still deliver is not offered a second, billed
+     regenerate: "Keep waiting" follows the one already running. */
+  const held = pending || waiting || state === "rendering";
+  const statusNote = pending
+    ? "regenerating"
+    : state === "rendering"
+      ? "still rendering"
+      : state === "ready"
+        ? null
+        : "didn't render";
 
   return (
     <section
-      aria-roledescription="carousel"
+      aria-roledescription={ROLE_DESCRIPTION[set.kind]}
       aria-label={`${kindNoun(set.kind)}, ${slideCount(count)}`}
       className="flex flex-col gap-4"
     >
@@ -147,6 +218,8 @@ export function SetViewer({
         <KindPill set={set} />
         <SetDownloads set={set} blocked={actingOn.size > 0} />
       </div>
+
+      <BuildingStatus set={set} />
 
       <SetStage
         set={set}
@@ -183,12 +256,8 @@ export function SetViewer({
               className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]"
             >
               {position} · {role}
-              {pending ? (
-                <span className="sr-only">, regenerating</span>
-              ) : status ? (
-                <span className="sr-only">
-                  , {status === "failed" ? "didn't render" : "still rendering"}
-                </span>
+              {statusNote ? (
+                <span className="sr-only">{`, ${statusNote}`}</span>
               ) : null}
             </p>
             <h3 className="font-display text-[16px] leading-snug font-bold text-foreground">
@@ -200,7 +269,14 @@ export function SetViewer({
           </span>
         </header>
 
-        {frameErrors[slot.index] ? (
+        {waiting ? (
+          <FrameWaiting
+            message={frameErrors[slot.index] ?? FRAME_STILL_RUNNING}
+            onKeepWaiting={
+              onKeepWaiting ? () => onKeepWaiting(slot.index) : undefined
+            }
+          />
+        ) : frameErrors[slot.index] ? (
           <FrameError message={frameErrors[slot.index] ?? ""} />
         ) : null}
 
@@ -225,7 +301,7 @@ export function SetViewer({
               type="button"
               variant="secondary"
               onClick={() => setEditing(slot.index)}
-              disabled={pending || state === "rendering"}
+              disabled={held}
               aria-label={`Edit & regenerate frame ${slot.index + 1}`}
             >
               <Pencil aria-hidden="true" />
@@ -239,7 +315,7 @@ export function SetViewer({
                 onClick={() => void regenerate(slot)}
                 loading={pending}
                 loadingText="Regenerating…"
-                disabled={state === "rendering"}
+                disabled={state === "rendering" || waiting}
                 aria-label={
                   pending ? undefined : `Regenerate frame ${slot.index + 1}`
                 }

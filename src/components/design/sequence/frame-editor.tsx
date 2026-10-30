@@ -6,19 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FrameEdits } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
-import { designSpecSchema } from "@/lib/design/spec";
+import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
 import { cn } from "@/lib/utils";
 import type { FrameSlot } from "./set-model";
 
-/* The renderer's own limits, so a typed line is never cut by the server
-   after the user saw it fit here. */
-const LIMITS = {
-  headline: designSpecSchema.shape.headline.maxLength ?? 70,
-  subheadline: designSpecSchema.shape.subheadline.unwrap().maxLength ?? 140,
-  cta: designSpecSchema.shape.cta.unwrap().maxLength ?? 32,
-} as const;
+type Field = "headline" | "subheadline" | "cta";
 
-type Field = keyof typeof LIMITS;
+/* The limits the regenerate-frame route checks an edit against, so a line
+   that fits here is never refused there. */
+export const FRAME_COPY_LIMITS: Readonly<Record<Field, number>> = {
+  headline: COPY_LIMITS.headline,
+  subheadline: COPY_LIMITS.subheadline,
+  cta: COPY_LIMITS.cta,
+};
+const LIMITS = FRAME_COPY_LIMITS;
 
 const LABELS: Record<Field, string> = {
   headline: "Headline",
@@ -69,8 +70,10 @@ export interface EditProblem {
 }
 
 /* Checked before the submit, not left to the server: a regenerate is billed,
-   so a frame with no headline must never cost a unit to find out. A
-   subheadline or button text may be cleared; that removes the line. */
+   so a frame with no headline must never cost a unit to find out. The
+   action frame is the only one with a button (H3), and a carousel with no
+   action has lost its point, so its button text is required too. A
+   subheadline may be cleared; that removes the line. */
 export function editProblem(
   fields: Field[],
   typed: FrameCopy,
@@ -85,6 +88,9 @@ export function editProblem(
         message: `Keep the ${LABELS[field].toLowerCase()} to ${LIMITS[field]} characters.`,
       };
     }
+  }
+  if (fields.includes("cta") && typed.cta.trim().length === 0) {
+    return { field: "cta", message: "The last frame needs its button text." };
   }
   return null;
 }

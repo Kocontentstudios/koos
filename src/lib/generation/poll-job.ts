@@ -1,5 +1,7 @@
 /** Client-side polling for async generation jobs (/api/jobs/[id]). */
 
+import { PollConnectionLostError, PollTimeoutError } from "./poll-errors";
+
 /** The design-directions job's steps, in order. The UI keys its progress
  *  steps off this, never off `label`, which is human text. */
 export const JOB_STAGES = ["brief", "imagery", "render", "checks"] as const;
@@ -79,9 +81,7 @@ export async function pollGenerationJob<T>(
       if (err instanceof FatalPollError) throw err;
       consecutiveFailures++;
       if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        throw new Error(
-          "Lost connection while checking generation progress. Generation continues in the background — check back shortly.",
-        );
+        throw new PollConnectionLostError();
       }
       await sleep(intervalMs);
       continue;
@@ -97,7 +97,5 @@ export async function pollGenerationJob<T>(
     if (data.progress && onProgress) onProgress(data.progress);
     await sleep(intervalMs);
   }
-  throw new Error(
-    "Generation is taking longer than expected. Please try again.",
-  );
+  throw new PollTimeoutError();
 }

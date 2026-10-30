@@ -77,6 +77,7 @@ export type DirectionsView =
       step: "set-progress";
       progress: SequenceProgress;
       stage: GenerationStage | null;
+      source: ImageSource;
     }
   | {
       step: "set-results";
@@ -85,6 +86,8 @@ export type DirectionsView =
       /** `regen:${generationId}` for every frame regenerating. */
       frameActions: ReadonlySet<string>;
       frameErrors: Readonly<Record<number, string>>;
+      /** Frame indexes whose regenerate outlived the poll. */
+      framesStillRunning: ReadonlySet<number>;
     };
 
 export interface DirectionsHandlers {
@@ -100,10 +103,13 @@ export interface DirectionsHandlers {
   onChooseAnotherImage: () => void;
   onRegenerate: (slot: number) => void;
   onSendToTeam: (generation: SerializedGeneration) => void;
-  onRegenerateFrame: (
+  /* Optional: only a set's results use them, and a caller built for
+     directions alone stays complete without them. */
+  onRegenerateFrame?: (
     generationId: string,
     edits?: FrameEdits,
   ) => Promise<SerializedGeneration | null>;
+  onKeepWaitingOnFrame?: (index: number) => void;
   onDone: () => void;
 }
 
@@ -361,7 +367,13 @@ export function DirectionsFlowView({
       );
 
     case "set-progress":
-      return <SetProgress progress={view.progress} stage={view.stage} />;
+      return (
+        <SetProgress
+          progress={view.progress}
+          stage={view.stage}
+          source={view.source}
+        />
+      );
 
     case "set-results": {
       const heading = setHeading(view.set);
@@ -372,7 +384,9 @@ export function DirectionsFlowView({
             set={view.set}
             actingOn={view.frameActions}
             frameErrors={view.frameErrors}
-            onRegenerateFrame={handlers.onRegenerateFrame}
+            stillRunning={view.framesStillRunning}
+            onRegenerateFrame={handlers.onRegenerateFrame ?? (async () => null)}
+            onKeepWaiting={handlers.onKeepWaitingOnFrame}
           />
           <ResultsFooter
             source={view.source}

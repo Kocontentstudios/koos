@@ -3,16 +3,22 @@
 import { Wand2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { DesignCard } from "@/components/design/design-card";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import { DesignDirectionsDialog } from "@/components/design/directions/design-directions-dialog";
-import { SetCard } from "@/components/design/sequence/set-card";
 import {
-  type DesignSet,
+  SetBuildingCard,
+  SetCard,
+} from "@/components/design/sequence/set-card";
+import {
+  type GalleryItem,
   groupGallery,
+  isBuilding,
+  markStalled,
 } from "@/components/design/sequence/set-model";
 import { SetViewerDialog } from "@/components/design/sequence/set-viewer-dialog";
+import { useSetWatch } from "@/components/design/sequence/use-set-watch";
 import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,7 +55,9 @@ export function DesignStudioClient({
   /* A card from the history opens the design preview with just that design,
      so saving always happens behind a preview of what is being saved. */
   const [viewing, setViewing] = useState<SerializedGeneration | null>(null);
-  const [viewingSet, setViewingSet] = useState<DesignSet | null>(null);
+  /* By id, not a snapshot: the grid's read of the set moves on as frames
+     land, and the open viewer follows it. */
+  const [viewingSetId, setViewingSetId] = useState<string | null>(null);
   /* Recorded when a run starts, not inferred from state at close: a second
      generation that fails clears the first one's results, so reading
      `generations` on the way out would skip the refresh and leave the designs
@@ -57,9 +65,14 @@ export function DesignStudioClient({
   const [ranThisSession, setRanThisSession] = useState(false);
   const design = useDesignGeneration();
 
-  const history = design.generations.length
-    ? [...design.generations, ...initialGenerations]
-    : initialGenerations;
+  const history = useMemo(
+    () =>
+      design.generations.length
+        ? [...design.generations, ...initialGenerations]
+        : initialGenerations,
+    [design.generations, initialGenerations],
+  );
+  const watch = useSetWatch(brandId, history);
 
   /* Nothing is generated yet: the image choice comes first, and the run starts
      from inside the dialog once the user has picked one. */
@@ -85,8 +98,25 @@ export function DesignStudioClient({
     );
   }
 
-  /* A carousel's frames fold into one card; single designs are untouched. */
-  const items = groupGallery(brandId, history);
+  /* A carousel's frames fold into one card; single designs are untouched. A
+     set whose missing frames are not coming shows them as stopped, with a
+     retry, instead of as rendering forever. */
+  const items = groupGallery(brandId, watch.rows).map((item) =>
+    item.type === "set" && watch.stalled.has(item.set.setId)
+      ? { ...item, set: markStalled(item.set) }
+      : item,
+  );
+  const viewingSet =
+    items.find(
+      (item): item is Extract<GalleryItem, { type: "set" }> =>
+        item.type === "set" && item.set.setId === viewingSetId,
+    )?.set ?? null;
+  /* A set of ours with no frame ready yet has no card of its own; it would
+     otherwise be invisible until it was done. */
+  const anyBuilding = items.some(
+    (item) => item.type === "set" && isBuilding(item.set),
+  );
+  const building = anyBuilding ? [] : watch.live;
 
   return (
     <div className="mx-auto flex w-full max-w-[960px] flex-col gap-8">
@@ -156,19 +186,22 @@ export function DesignStudioClient({
         <h2 className="mb-3 font-display text-[18px] font-bold text-foreground">
           Your designs
         </h2>
-        {items.length === 0 ? (
+        {items.length === 0 && building.length === 0 ? (
           <p className="text-[14px] text-[var(--text-muted)]">
             Nothing yet. Generate your first design above, or start one from a
             chat brief or a calendar item.
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {building.map((job) => (
+              <SetBuildingCard key={job.jobId} job={job} />
+            ))}
             {items.map((item) =>
               item.type === "set" ? (
                 <SetCard
                   key={item.set.setId}
                   set={item.set}
-                  onOpen={setViewingSet}
+                  onOpen={(set) => setViewingSetId(set.setId)}
                 />
               ) : (
                 <DesignCard
@@ -212,7 +245,7 @@ export function DesignStudioClient({
       <SetViewerDialog
         set={viewingSet}
         onClose={(changed) => {
-          setViewingSet(null);
+          setViewingSetId(null);
           if (changed) router.refresh();
         }}
       />

@@ -16,9 +16,9 @@ vi.mock("@/lib/design/png-to-jpeg", () => ({
 }));
 
 import { BRAND, frameRow, frameRows, SET } from "./fixtures";
-import { buildSet, type DesignSet } from "./set-model";
+import { buildSet, type DesignSet, markStalled } from "./set-model";
 import { SetViewer } from "./set-viewer";
-import { regenKey } from "./use-frame-set";
+import { FRAME_STILL_RUNNING, regenKey } from "./use-frame-set";
 
 function setOf(rows: SerializedGeneration[], frameCount?: number): DesignSet {
   const set = buildSet(BRAND, rows, { frameCount });
@@ -541,5 +541,151 @@ describe("downloads", () => {
       "The PDF couldn't be made. Try again.",
     );
     expect(saveBlob).not.toHaveBeenCalled();
+  });
+});
+
+describe("round 2: a set still on its way", () => {
+  function building() {
+    const rows = frameRows(5);
+    rows[3] = frameRow(3, { status: "pending", url: null });
+    rows[4] = frameRow(4, { status: "pending", url: null });
+    return setOf(rows);
+  }
+
+  it("announces where the set is while frames are still coming", () => {
+    renderViewer(building());
+    const status = screen
+      .getAllByRole("status")
+      .find((s) => s.textContent?.startsWith("Frame 4 of 5…"));
+    expect(status?.textContent).toBe(
+      "Frame 4 of 5… 3 of 5 ready. The rest appear here as they land.",
+    );
+  });
+
+  it("says nothing of the kind once every frame is in", () => {
+    renderViewer();
+    expect(screen.queryByText(/The rest appear here as they land/)).toBeNull();
+  });
+
+  /* L9: the sr-only suffix read "Point , still rendering". */
+  it("reads a rendering frame's position without a stray space", async () => {
+    renderViewer(building());
+    await userEvent.click(tabs()[3] as HTMLElement);
+    expect(
+      screen
+        .getAllByRole("status")
+        .map((s) => s.textContent)
+        .find((t) => t?.includes(" · ")),
+    ).toBe("Frame 4 of 5 · Point, still rendering");
+  });
+
+  it("calls a deck a slide deck and a carousel a carousel", () => {
+    const deck = buildSet(
+      BRAND,
+      frameRows(3).map((r) => ({ ...r, width: 1920, height: 1080 })),
+      { kind: "presentation" },
+    );
+    const { unmount } = renderViewer(deck as DesignSet);
+    expect(
+      screen.getByRole("region", { name: "presentation, 3 slides" }),
+    ).toHaveAttribute("aria-roledescription", "slide deck");
+    unmount();
+    renderViewer();
+    expect(
+      screen.getByRole("region", { name: "carousel, 5 slides" }),
+    ).toHaveAttribute("aria-roledescription", "carousel");
+  });
+
+  it("offers a stalled frame its retry, said as stopped rather than failed", async () => {
+    const set = markStalled(building());
+    renderViewer(set);
+    await userEvent.click(tabs()[3] as HTMLElement);
+    const stage = screen.getByRole("tabpanel");
+    expect(
+      within(stage).getAllByText("This frame stopped before it finished.")
+        .length,
+    ).toBeGreaterThan(0);
+    await userEvent.click(
+      within(stage).getByRole("button", { name: "Retry frame 4" }),
+    );
+    expect(onRegenerateFrame).toHaveBeenCalledWith("f3", undefined);
+  });
+});
+
+/* M6: a frame whose regenerate outlived the poll is still being made. */
+describe("round 2: a frame regenerate still running", () => {
+  it("says so, offers Keep waiting and no second regenerate", async () => {
+    const onKeepWaiting = vi.fn();
+    render(
+      <SetViewer
+        set={setOf(frameRows(5))}
+        actingOn={new Set()}
+        frameErrors={{ 0: FRAME_STILL_RUNNING }}
+        stillRunning={new Set([0])}
+        onKeepWaiting={onKeepWaiting}
+        onRegenerateFrame={onRegenerateFrame}
+      />,
+    );
+    const notice = screen.getByText(FRAME_STILL_RUNNING).closest("[role]");
+    expect(notice).toHaveAttribute("role", "status");
+    expect(
+      screen.getByRole("button", { name: "Regenerate frame 1" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Edit & regenerate frame 1" }),
+    ).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
+    expect(onKeepWaiting).toHaveBeenCalledWith(0);
+    expect(onRegenerateFrame).not.toHaveBeenCalled();
+  });
+});
+
+describe("round 2: frame editor rules", () => {
+  /* M5: the server accepts an empty CTA, so the editor must not. */
+  it("refuses to clear the action frame's button text", async () => {
+    renderViewer();
+    await userEvent.click(tabs()[4] as HTMLElement);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit & regenerate frame 5" }),
+    );
+    const cta = screen.getByLabelText("Button text");
+    await userEvent.clear(cta);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The last frame needs its button text.",
+    );
+    const submit = screen.getByRole("button", {
+      name: /Regenerate with my words/,
+    });
+    await userEvent.click(submit);
+    expect(onRegenerateFrame).not.toHaveBeenCalled();
+  });
+
+  /* M3: disabled-but-focusable reads as disabled, not as a live primary. */
+  it("draws the submit on the disabled fill until a line changes", async () => {
+    renderViewer();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit & regenerate frame 1" }),
+    );
+    const submit = screen.getByRole("button", {
+      name: /Regenerate with my words/,
+    });
+    expect(submit).toHaveAttribute("data-disabled");
+    expect(submit.className).toContain("data-disabled:bg-primary-disabled");
+    await userEvent.type(screen.getByLabelText("Headline"), "!");
+    expect(submit).not.toHaveAttribute("data-disabled");
+  });
+
+  it("marks Previous disabled on the first frame and Next on the last", async () => {
+    renderViewer();
+    expect(
+      screen.getByRole("button", { name: "Previous frame" }),
+    ).toHaveAttribute("data-disabled");
+    expect(
+      screen.getByRole("button", { name: "Next frame" }),
+    ).not.toHaveAttribute("data-disabled");
+    await userEvent.click(tabs()[4] as HTMLElement);
+    expect(screen.getByRole("button", { name: "Next frame" })).toHaveAttribute(
+      "data-disabled",
+    );
   });
 });

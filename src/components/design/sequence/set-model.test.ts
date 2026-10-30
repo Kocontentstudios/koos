@@ -7,7 +7,11 @@ import {
   frameSize,
   frameState,
   groupGallery,
+  isBuilding,
+  markStalled,
+  mergeSets,
   readyFrames,
+  renderingIds,
   roleLabel,
   setDownloadUrl,
   swapFrame,
@@ -204,5 +208,72 @@ describe("groupGallery", () => {
       url: null,
     }));
     expect(groupGallery(BRAND, rows)).toEqual([]);
+  });
+});
+
+describe("a set still being made", () => {
+  const building = () => {
+    const rows = frameRows(5);
+    rows[3] = frameRow(3, { status: "pending", url: null });
+    rows[4] = frameRow(4, { status: "pending", url: null });
+    return buildSet(BRAND, rows) as NonNullable<ReturnType<typeof buildSet>>;
+  };
+
+  it("knows which frames are still on their way", () => {
+    expect(isBuilding(building())).toBe(true);
+    expect(renderingIds(building())).toEqual(["f3", "f4"]);
+    const done = buildSet(BRAND, frameRows(5));
+    expect(done && isBuilding(done)).toBe(false);
+  });
+
+  it("shows stalled frames as failed, and leaves the rest alone", () => {
+    const stalled = markStalled(building());
+    expect(stalled.frames.map(frameState)).toEqual([
+      "ready",
+      "ready",
+      "ready",
+      "failed",
+      "failed",
+    ]);
+    expect(isBuilding(stalled)).toBe(false);
+    expect(stalled.frames[0]?.stalled).toBeUndefined();
+    const done = buildSet(BRAND, frameRows(5));
+    expect(done && markStalled(done)).toBe(done);
+  });
+});
+
+describe("mergeSets", () => {
+  it("takes the fresher read of a row it already holds", () => {
+    const rows = frameRows(5);
+    rows[3] = frameRow(3, { status: "pending", url: null });
+    const held = buildSet(BRAND, rows) as NonNullable<
+      ReturnType<typeof buildSet>
+    >;
+    const incoming = buildSet(BRAND, frameRows(5)) as typeof held;
+    expect(mergeSets(held, incoming).frames[3]?.generation?.status).toBe(
+      "succeeded",
+    );
+  });
+
+  /* A frame regenerated in the open viewer must not be undone by a grid
+     read taken before its new row existed. */
+  it("keeps a frame swapped in here over an older read of the set", () => {
+    const base = buildSet(BRAND, frameRows(5)) as NonNullable<
+      ReturnType<typeof buildSet>
+    >;
+    const held = swapFrame(
+      base,
+      frameRow(2, { id: "f2-new", createdAt: "2026-10-30T12:00:00.000Z" }),
+    );
+    expect(mergeSets(held, base).frames[2]?.generation?.id).toBe("f2-new");
+  });
+
+  it("carries the stalled mark of the read it takes", () => {
+    const rows = frameRows(5);
+    rows[4] = frameRow(4, { status: "pending", url: null });
+    const held = buildSet(BRAND, rows) as NonNullable<
+      ReturnType<typeof buildSet>
+    >;
+    expect(mergeSets(held, markStalled(held)).frames[4]?.stalled).toBe(true);
   });
 });

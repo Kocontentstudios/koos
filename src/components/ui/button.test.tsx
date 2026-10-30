@@ -291,3 +291,49 @@ describe("Button rendered from a Server Component", () => {
     expect(element.props).toMatchObject({ loading: true, "aria-busy": true });
   });
 });
+
+/* focusableWhenDisabled keeps the button in the tab order, so Base UI marks
+   it data-disabled rather than natively disabled; styled by `disabled:`
+   alone it kept the full Primary Fill (spec: disabled is #1A3A4A). Loading
+   sets aria-disabled, never data-disabled, so it keeps its resting fill. */
+describe("Button disabled but focusable", () => {
+  it("paints the disabled fill on data-disabled", () => {
+    render(
+      <Button disabled focusableWhenDisabled>
+        Regenerate
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Regenerate" });
+    expect(button).toHaveAttribute("data-disabled");
+    expect(button).not.toBeDisabled();
+    expect(button.className).toContain("data-disabled:bg-primary-disabled");
+    expect(button.className).toContain(
+      "data-disabled:text-primary-disabled-foreground",
+    );
+  });
+
+  it.each([
+    "secondary",
+    "ghost",
+    "icon",
+    "outline",
+    "destructive",
+    "link",
+  ] as const)("recedes the %s variant on data-disabled", (variant) => {
+    render(<Button variant={variant}>Next</Button>);
+    expect(screen.getByRole("button", { name: "Next" }).className).toContain(
+      "data-disabled:opacity-50",
+    );
+  });
+
+  it("keeps a loading button off the disabled styling", () => {
+    render(
+      <Button loading loadingText="Saving…">
+        Save
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: /Saving/ });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toHaveAttribute("data-disabled");
+  });
+});

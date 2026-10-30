@@ -30,12 +30,21 @@ export function SetViewerDialog({
 }) {
   const frames = useFrameSet();
   const changed = useRef(false);
-  const { load } = frames;
+  const { load, refresh } = frames;
+  const openSetId = useRef<string | null>(null);
 
+  /* The grid hands over a fresher read of the same set as its frames land
+     (useSetWatch). That is a refresh, not a new set: a frame regenerating
+     here must keep its pending state and its job. */
   useEffect(() => {
+    if (set && set.setId === openSetId.current) {
+      refresh(set);
+      return;
+    }
+    openSetId.current = set?.setId ?? null;
     changed.current = false;
     load(set);
-  }, [set, load]);
+  }, [set, load, refresh]);
 
   /* The set as given until the effect has loaded it into the hook, and the
      last one kept through the close animation, so the dialog is never
@@ -73,10 +82,16 @@ export function SetViewerDialog({
                 set={shown}
                 actingOn={frames.actingOn}
                 frameErrors={frames.frameErrors}
+                stillRunning={frames.stillRunning}
                 onRegenerateFrame={async (id, edits) => {
                   const row = await frames.regenerateFrame(id, edits);
                   if (row) changed.current = true;
                   return row;
+                }}
+                onKeepWaiting={(index) => {
+                  void frames.keepWaiting(index).then((row) => {
+                    if (row) changed.current = true;
+                  });
                 }}
               />
               <DialogFooter className="mt-4 max-sm:rounded-b-none max-sm:pb-10">

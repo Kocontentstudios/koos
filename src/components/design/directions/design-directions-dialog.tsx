@@ -31,6 +31,7 @@ import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
 import { useKoImageryOffered } from "./ko-imagery-context";
+import { useMultiFrameOffered } from "./multi-frame-context";
 import { useDesignImageUpload } from "./use-design-image-upload";
 
 type Step = "choose" | "upload" | "run";
@@ -63,6 +64,9 @@ export const DIRECTIONS_POPUP_CLASS =
    with the edge, which clipped its outline again; scroll-padding does. */
 export const DIRECTIONS_SCROLL_CLASS =
   "-m-4 flex flex-col overflow-y-auto p-4 scroll-py-2";
+
+const NO_FRAME_ACTIONS: ReadonlySet<string> = new Set();
+const NO_FRAMES_WAITING: ReadonlySet<number> = new Set();
 
 function slotsOf(design: DesignGenerationState): DirectionSlot[] {
   return [
@@ -106,12 +110,22 @@ export function DesignDirectionsDialog({
     {},
   );
   const lastImage = useRef<DesignImageChoice | null>(null);
-  /* The brief and calendar entry points already hand over the design type
-     for a ticket. Design Studio has none to give; its wait still reads a set
-     from the job's progress, without naming the kind. */
-  const runOptions = {
-    sequenceKind: sequenceKindOf(ticketContext?.designType),
-  };
+  const multiFrame = useMultiFrameOffered();
+  /* The brief and calendar entry points hand over the ticket's design type;
+     with FEATURE_MULTI_FRAME on, a carousel or presentation there is certain
+     to be built as a set. Otherwise the run is told nothing, exactly as
+     before, and learns it is a set from the job's own progress. */
+  const expectedKind = multiFrame
+    ? sequenceKindOf(ticketContext?.designType)
+    : null;
+
+  function run(runArgs: GenerateArgs) {
+    if (expectedKind) {
+      void design.generate(runArgs, { sequenceKind: expectedKind });
+    } else {
+      void design.generate(runArgs);
+    }
+  }
 
   const slots = slotsOf(design).map((slot, i) => replaced[i] ?? slot);
 
@@ -135,7 +149,7 @@ export function DesignDirectionsDialog({
     clearRunState();
     setStep("run");
     onRunStart?.();
-    void design.generate({ ...args, image }, runOptions);
+    run({ ...args, image });
   }
 
   /* "Use this image" pressed mid-upload continues on its own the moment the
@@ -274,19 +288,23 @@ export function DesignDirectionsDialog({
     onSendToTeam: (generation) => void sendToTeam(generation),
     /* Each frame is its own billed job, so the caller hears of it as a run,
        the same as a slot regenerate. */
-    onRegenerateFrame: (generationId, edits) => {
+    onRegenerateFrame: async (generationId, edits) => {
       onRunStart?.();
-      return design.regenerateFrame(generationId, edits);
+      return (await design.regenerateFrame?.(generationId, edits)) ?? null;
+    },
+    onKeepWaitingOnFrame: (index) => {
+      void design.keepWaitingOnFrame?.(index);
     },
     onDone: () => handleOpenChange(false),
   };
 
   const finished = step === "run" && !design.pending && !design.error;
 
-  /* A set never takes this path, though its frames carry no reasons: it
-     always opens the set viewer. Rows without a direction (from a server that has not shipped directions
+  /* Rows without a direction (from a server that has not shipped directions
      yet, or a run that fell back to the old path) have no title or reasons to
-     fill a direction card with, so they open the preview they always did. */
+     fill a direction card with, so they open the preview they always did. A
+     set's frames carry no reasons either, but a set always opens the set
+     viewer. */
   if (finished && !design.set && design.generations.some((g) => !g.direction)) {
     const image = lastImage.current;
     return (
@@ -304,7 +322,7 @@ export function DesignDirectionsDialog({
           image
             ? () => {
                 onRunStart?.();
-                void design.generate({ ...args, image }, runOptions);
+                run({ ...args, image });
               }
             : undefined
         }
@@ -330,6 +348,7 @@ export function DesignDirectionsDialog({
               step: "set-progress",
               progress: design.sequenceProgress,
               stage: design.stage,
+              source: source ?? "none",
             }
           : design.pending
             ? {
@@ -353,8 +372,10 @@ export function DesignDirectionsDialog({
                       step: "set-results",
                       set: design.set,
                       source,
-                      frameActions: design.frameActions,
-                      frameErrors: design.frameErrors,
+                      frameActions: design.frameActions ?? NO_FRAME_ACTIONS,
+                      frameErrors: design.frameErrors ?? {},
+                      framesStillRunning:
+                        design.framesStillRunning ?? NO_FRAMES_WAITING,
                     }
                   : {
                       step: "results",
