@@ -18,13 +18,17 @@ pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
-SigV4 keys are used. Each run makes 6 to 9 planner calls, never more than
-`MAX_MODEL_CALLS` (10, the brief read included): the brief read, the
-outline, three copy drafts in parallel, the one edit pass (the problems
-code found, the hook in three angles and the editor's own review of which
-frames repeat another, in a single call); when needed, the outline re-ask,
-the grade of the drafts and the final grade of the edited set against its
-new openings and the draft. Plus one judge call. A full tuning run is
+SigV4 keys are used. Each run makes 3 to 5 planner calls, never more than
+`MAX_MODEL_CALLS` (8, the brief read included), arc first: the brief read;
+the arc call, which ranks the pool of points code built from the brief and
+the brand profile (`pointPool` in `src/lib/design/sequence/arc.ts`),
+names each point's kind and assigns one point per frame, writing no claim
+but the hook's angle, which code then holds to distinctness
+(`settleArc`); the copy call, each frame told only its own claim and the
+claims and facts it must leave alone, with two more openings; and up to two
+fix calls for the frames code still finds at fault (`setFaults` in
+`faults.ts`), the second giving a frame whose point another frame makes a
+spare point. Plus one judge call. A full tuning run is
 30 planner runs, three at a time, and takes about 12 minutes; the
 held-out set is 12 more. Each run
 also prints the copy faults the planner could not get rewritten
@@ -127,6 +131,27 @@ no threshold has been lowered.
   failed) is reported as "not measured". It never counts as a pass.
 
 ## Results so far
+
+### Arc-first planner (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
+
+Code builds the pool of points, the arc call ranks, classifies and assigns
+them, code holds the assignment to distinct points and kinds, the copy call
+writes each frame to its own claim, and up to two fix calls rewrite only
+the faulted frames. Five tuning iterations; the last tuning run and the
+held-out run on the committed code:
+
+| Set | runs | count..titleClean | factCoverage | hook | last action | non-repetitive |
+|---|---|---|---|---|---|---|
+| tuning | 30 (29 judged) | 1.0 | 0.967 | 3.55 | 4.80 | 3.14 |
+| held out | 12 | 1.0 | 1.0 | 3.67 | 4.83 | 3.25 |
+
+**Fails H13** on hook and non-repetition. By frame count (tuning):
+N=3 hook 3.89 / non-rep 4.22, N=5 3.20 / 2.70, N=8 3.60 / 2.60. The judge's
+reasons at N=5 and N=8 are thin briefs: more frames than the brief and
+profile have distinct points, so two frames share a theme, or a frame left
+without a point pads. The coverage miss is school-deck's "30 laptops",
+which the brief reader did not return as a fact.
+
 
 ### Round 6 (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
 

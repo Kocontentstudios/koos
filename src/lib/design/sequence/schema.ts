@@ -5,8 +5,8 @@ import { COPY_TARGETS, DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
 /**
  * What the planner's model calls answer with. Looser than the contract on
  * purpose, as directionDraftSchema is: a headline at 74 characters would
- * otherwise fail the whole set, and validateSequence names it instead so the
- * repair pass can ask for a rewrite.
+ * otherwise fail the whole set, and the fault check names it instead so the
+ * fix call can ask for a rewrite.
  *
  * Every field is required, with "" or [] as the empty answer, as in
  * spec.ts: Bedrock compiles the schema into a decoding grammar and each
@@ -18,70 +18,53 @@ import { COPY_TARGETS, DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
 
 const t = COPY_TARGETS;
 
-export const POINT_MAX = 200;
-export const SCENE_MAX = 400;
-export const REVIEW_NOTE_MAX = 300;
+export const ANGLE_MAX = 200;
 
 /**
- * The kinds of point a frame can make. Asked for so that "different
- * points" is checkable in code (repeatedPoints): two frames of one kind are
- * one point made twice, which is what the eval's judge kept finding when
- * the outline was free text alone ("both frames sell the craft").
+ * What a listed point is about. Two points of one kind make one point to a
+ * reader ("no preservatives" and "nothing artificial" are both what goes
+ * in it), so code holds no two frames to one kind while another is left.
  */
-export const FRAME_BEATS = [
-  "promise",
-  "benefit",
-  "proof",
-  "detail",
+export const POINT_KINDS = [
+  "what-it-is",
+  "what-goes-in",
+  "how-it-is-made",
+  "where-it-comes-from",
+  "who-makes-it",
+  "what-you-get",
   "how-it-works",
-  "audience",
+  "proof",
+  "who-it-is-for",
+  "belief",
   "price",
   "when-where",
-  "scarcity",
-  "action",
+  "limit",
 ] as const;
-export type FrameBeatKind = (typeof FRAME_BEATS)[number];
+export type PointKind = (typeof POINT_KINDS)[number];
+export const SCENE_MAX = 400;
 
-export const outlineFrameSchema = z.object({
-  beat: z
-    .enum(FRAME_BEATS)
-    .describe("The kind of point this frame makes; no two frames share one."),
+export const arcFrameSchema = z.object({
+  point: z
+    .number()
+    .int()
+    .describe(
+      "The number of the point this frame makes, from the numbered list; 0 on the last frame, whose job is the action.",
+    ),
   title: z
     .string()
     .min(1)
     .max(DRAFT_LIMITS.title)
     .describe(
-      `What this frame is about in 2 to ${t.title.words} words, at most ${t.title.chars} characters, e.g. "The price".`,
-    ),
-  point: z
-    .string()
-    .min(1)
-    .max(POINT_MAX)
-    .describe(
-      "The one thing this frame tells the viewer, in a plain sentence. Not the copy.",
-    ),
-  facts: z
-    .array(z.number().int())
-    .max(12)
-    .describe("The numbers of the brief facts this frame states; [] for none."),
-  briefPoint: z
-    .number()
-    .int()
-    .describe(
-      "The number of the brief point (B) this frame is built on, or 0 for none.",
-    ),
-  profilePoint: z
-    .number()
-    .int()
-    .describe(
-      "The number of the brand-profile point this frame makes, or 0 when its point comes from the brief.",
+      `What this frame is about in 2 to ${t.title.words} words, at most ${t.title.chars} characters, e.g. "The price". No two frames share a title.`,
     ),
   layout: z.enum(DESIGN_LAYOUTS),
   showsImage: z.boolean(),
 });
 
-/** The arc: one shared brand frame and one point per frame. */
-export function outlineResponseSchema(count: number) {
+/** The arc: the shared brand frame, one listed point per frame, the
+ *  hook's angle on its point and the unused points ranked best first. The
+ *  model ranks and assigns; the hook's angle is the only claim it writes. */
+export function arcResponseSchema(count: number) {
   return z.object({
     palette: z.object({
       background: z.string(),
@@ -99,11 +82,40 @@ export function outlineResponseSchema(count: number) {
       "solid",
     ]),
     footerStyle: z.enum(["bar", "text", "none"]),
-    frames: z.array(outlineFrameSchema).min(count).max(count),
+    hookAngle: z
+      .string()
+      .max(ANGLE_MAX)
+      .describe(
+        "The hook's claim: frame 1's point said as the one reason to see frame 2, in a plain sentence. Not the copy.",
+      ),
+    kinds: z
+      .array(z.enum(POINT_KINDS))
+      .max(60)
+      .describe(
+        "The kind of each numbered point, in the list's order: what the point is about.",
+      ),
+    sameAs: z
+      .array(
+        z.object({
+          a: z.number().int(),
+          b: z.number().int(),
+        }),
+      )
+      .max(40)
+      .describe(
+        "Every pair of listed points, by number, that a reader would say make one point: the same subject or quality from two sides, a cause and its effect. [] when none.",
+      ),
+    frames: z.array(arcFrameSchema).min(count).max(count),
+    spare: z
+      .array(z.number().int())
+      .max(40)
+      .describe(
+        "Every point no frame uses, by number, strongest first; [] when none is left.",
+      ),
   });
 }
 
-export type OutlineAnswer = z.infer<ReturnType<typeof outlineResponseSchema>>;
+export type ArcAnswer = z.infer<ReturnType<typeof arcResponseSchema>>;
 
 const copyFields = {
   headline: z
@@ -117,7 +129,7 @@ const copyFields = {
     .string()
     .max(DRAFT_LIMITS.subheadline)
     .describe(
-      `At most ${t.subheadline.words} words and ${t.subheadline.chars} characters. Empty string for none.`,
+      `At most ${t.subheadline.words} words and ${t.subheadline.chars} characters, a whole sentence. Empty string for none.`,
     ),
   footerLines: z
     .array(z.string().max(DRAFT_LIMITS.footerLine))
@@ -135,9 +147,14 @@ export const frameCopySchema = z.object({
     .describe("The image or ground for this frame. Never any lettering."),
 });
 
-/** The copy for every frame of the outline, and the one button the last
- *  frame carries. A single top-level cta means no other frame can hold
- *  one (H3), whatever the model writes. */
+export const hookVersionSchema = z.object({
+  headline: copyFields.headline,
+  subheadline: copyFields.subheadline,
+});
+
+/** The copy for every frame of the arc, the one button the last frame
+ *  carries, and more openings on the hook's claim. A single top-level cta
+ *  means no other frame can hold one (H3), whatever the model writes. */
 export function copyResponseSchema(count: number) {
   return z.object({
     frames: z.array(frameCopySchema).min(count).max(count),
@@ -147,6 +164,10 @@ export function copyResponseSchema(count: number) {
       .describe(
         `The last frame's button: at most ${t.cta.words} words and ${t.cta.chars} characters.`,
       ),
+    otherHooks: z
+      .array(hookVersionSchema)
+      .max(4)
+      .describe("Frame 1 written two more ways, on the same claim."),
   });
 }
 
@@ -165,24 +186,5 @@ export const frameRewriteSchema = z.object({
 export type FrameRewrite = z.infer<typeof frameRewriteSchema>;
 
 export const rewriteResponseSchema = z.object({
-  frames: z.array(frameRewriteSchema).min(1).max(20),
-});
-
-/** The edit pass's answer: the editor's read of which frames repeat
- *  another or lack a point, then the versions it wrote. */
-export const editResponseSchema = z.object({
-  review: z
-    .array(
-      z.object({
-        frame: z.number().int().describe("The failing frame's number."),
-        fails: z
-          .string()
-          .max(REVIEW_NOTE_MAX)
-          .describe("What it repeats (naming the other frame) or lacks."),
-      }),
-    )
-    .max(20),
   frames: z.array(frameRewriteSchema).min(1).max(40),
 });
-
-export type EditAnswer = z.infer<typeof editResponseSchema>;

@@ -291,7 +291,7 @@ describe("replanFrame without edits", () => {
   });
 });
 
-describe("replanFrame without edits: the round-2 critic's probes", () => {
+describe("replanFrame without edits: probes", () => {
   const plan = cafePlan();
   const held = {
     briefReader: reader,
@@ -304,7 +304,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
     offering: "cold brew",
   };
 
-  it("P1: a rewrite of the action frame with an empty button keeps the set's button", async () => {
+  it("a rewrite of the action frame with an empty button keeps the set's button", async () => {
     generateObject.mockResolvedValue(
       rewrite({
         frame: 5,
@@ -327,7 +327,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
     ).not.toContain("cta-last");
   });
 
-  it("P1: regenerateProblems names an action frame left without its button", () => {
+  it("regenerateProblems names an action frame left without its button", () => {
     const next = { ...plan.frames[4], cta: "" };
     expect(
       regenerateProblems(plan, 4, next, {
@@ -339,7 +339,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
     ).toContainEqual({ kind: "role", detail: "the last frame has no button" });
   });
 
-  it("P2: refuses a hook that announces the offering", async () => {
+  it("refuses a hook that announces the offering", async () => {
     generateObject.mockResolvedValue(
       rewrite({
         frame: 1,
@@ -357,7 +357,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
     );
   });
 
-  it("P2: keeps a hook that gives a reason to swipe", async () => {
+  it("keeps a hook that gives a reason to swipe", async () => {
     generateObject.mockResolvedValue(
       rewrite({
         frame: 1,
@@ -382,7 +382,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
     );
     expect(err).toBeInstanceOf(FrameReplanError);
     expect((err as FrameReplanError).message).toBe(
-      "KO couldn't rewrite this frame to fit the set. Every new version added a detail neither the brief nor the brand profile gives. The frame is unchanged. Try again, or edit its words.",
+      "KO couldn't rewrite this frame to fit the set. The new version added a detail neither the brief nor the brand profile gives. The frame is unchanged. Try again, or edit its words.",
     );
     expect((err as FrameReplanError).reasons).toContain("invented");
     expect((err as FrameReplanError).problems).toContain(
@@ -401,20 +401,40 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
 });
 
 describe("replanReason", () => {
+  const flat = {
+    kind: "flat-hook" as const,
+    detail:
+      'the hook\'s headline "Cold brew is here" announces the offering, which gives no reason to swipe; make the headline the reason to swipe',
+  };
+  const long = {
+    kind: "too-long" as const,
+    detail: "the headline is 90 characters",
+  };
+
   it("gives the user a short sentence keyed by the problem, never the model's instruction", () => {
-    expect(
-      replanReason([
-        {
-          kind: "flat-hook",
-          detail:
-            'the hook\'s headline "Cold brew is here" announces the offering, which gives no reason to swipe; make the headline the reason to swipe',
-        },
-      ]),
-    ).toBe("Every new opening was a label, not a reason to swipe.");
+    expect(replanReason([[flat], [flat]])).toBe(
+      "Every new version was a label, not a reason to swipe.",
+    );
     expect(replanReason([])).toBeNull();
   });
 
-  it("P2 (round-3 critic): the refused hook's message says nothing addressed to a model", async () => {
+  it("says a problem of every version only when every version has it", () => {
+    expect(replanReason([[long], [flat]])).toBe(
+      "One new version was too long to fit; another was a label, not a reason to swipe.",
+    );
+    expect(replanReason([[flat, long], [long]])).toBe(
+      "Every new version was too long to fit.",
+    );
+  });
+
+  it("speaks of the one version when only one came back", () => {
+    expect(replanReason([[long]])).toBe("The new version was too long to fit.");
+    expect(
+      replanReason([[{ kind: "nothing-back", detail: "no frame came back" }]]),
+    ).toBe("No new version came back.");
+  });
+
+  it("the refused hook's message says nothing addressed to a model", async () => {
     generateObject.mockResolvedValue(
       rewrite({
         frame: 1,
@@ -433,20 +453,52 @@ describe("replanReason", () => {
     ).catch((e: unknown) => e)) as FrameReplanError;
     expect(err).toBeInstanceOf(FrameReplanError);
     expect(err.message).toBe(
-      "KO couldn't rewrite this frame to fit the set. Every new opening was a label, not a reason to swipe. The frame is unchanged. Try again, or edit its words.",
+      "KO couldn't rewrite this frame to fit the set. The new version was a label, not a reason to swipe. The frame is unchanged. Try again, or edit its words.",
     );
     expect(err.message).not.toMatch(/subheadline|swipe;|headline "/);
     expect(err.message.length).toBeLessThan(160);
   });
 });
 
-describe("applyFrameEdits: what an edit uncovers (round-3 critic, finding 7)", () => {
+describe("applyFrameEdits: a headline another frame has", () => {
+  it("refuses an edit that repeats another frame's headline word for word, ignoring case", () => {
+    const plan = cafePlan();
+    const err = (() => {
+      try {
+        applyFrameEdits(plan, 2, {
+          headline: "  your saturday,  SLOWED down ",
+        });
+      } catch (e) {
+        return e;
+      }
+      return null;
+    })();
+    expect(err).toBeInstanceOf(FrameEditError);
+    expect((err as FrameEditError).field).toBe("headline");
+    expect((err as FrameEditError).message).toBe(
+      "Frame 1 already has this headline. Give this frame its own.",
+    );
+  });
+
+  it("lets a frame keep its own headline while another field is edited", () => {
+    const plan = cafePlan();
+    expect(
+      applyFrameEdits(plan, 0, { headline: plan.frames[0].headline }).beat
+        .headline,
+    ).toBe(plan.frames[0].headline);
+    expect(
+      applyFrameEdits(plan, 2, { subheadline: "From 8am" }).beat.subheadline,
+    ).toBe("From 8am");
+  });
+});
+
+describe("applyFrameEdits: what an edit uncovers", () => {
   const facts = [
     fact("price", "₦2,500 a bottle"),
     fact("contact", "WhatsApp 0803 555 0142"),
   ];
 
-  it("P4: clearing the only frame that gave the price keeps the user's words and names the price", () => {
+  it("clearing the only frame that gave the price keeps the user's words and names the price", () => {
     const plan = cafePlan();
     const { beat, uncovered } = applyFrameEdits(
       plan,
@@ -512,7 +564,7 @@ describe("applyFrameEdits: what an edit uncovers (round-3 critic, finding 7)", (
   });
 });
 
-describe("replanFrame: one fact twice on one frame (round-5 critic, MEDIUM 7)", () => {
+describe("replanFrame: one fact twice on one frame", () => {
   const facts = [
     fact("price", "₦2,500 a bottle"),
     fact("contact", "WhatsApp 0803 555 0142"),
@@ -554,12 +606,13 @@ describe("replanFrame: one fact twice on one frame (round-5 critic, MEDIUM 7)", 
       brandName: "Kiln Coffee",
     });
     expect(problems.map((p) => p.kind)).toContain("fact-twice");
-    expect(replanReason(problems.filter((p) => p.kind === "fact-twice"))).toBe(
+    const twice = problems.filter((p) => p.kind === "fact-twice");
+    expect(replanReason([twice, twice])).toBe(
       "Every new version gave the same detail twice.",
     );
   });
 
-  it("cleans a planner label off the title a regenerate keeps (round-5 critic, HIGH 1)", async () => {
+  it("cleans a planner label off the title a regenerate keeps", async () => {
     generateObject.mockResolvedValue(rewrite());
     const plan = cafePlan();
     const labelled = {

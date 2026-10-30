@@ -1,0 +1,172 @@
+import type { FrameBeat } from "./contract";
+
+/**
+ * One casing across a set's headlines. A set read in order with "Taught by
+ * Teachers Who Mark WAEC Scripts" beside sentence-case headlines reads as
+ * frames written by strangers. The style most headlines already use wins
+ * (sentence case on a tie), and only the others are changed. Proper nouns
+ * survive the change: a word the brief or the brand profile capitalises
+ * mid-sentence, a day or a month, and an acronym keep their capitals.
+ */
+
+export type HeadlineCase = "title" | "sentence";
+
+/* Words title case leaves lowercase inside a headline. */
+const SMALL_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "nor",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "for",
+  "by",
+  "with",
+  "from",
+  "as",
+  "per",
+  "via",
+  "vs",
+  "into",
+  "onto",
+  "over",
+  "than",
+  "so",
+  "yet",
+]);
+
+const CALENDAR = new Set(
+  [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ].flatMap((w) => [w, `${w}s`]),
+);
+
+const isWord = (token: string) => /^\p{L}/u.test(token);
+const isAcronym = (token: string) => /^\p{Lu}{2,}\b/u.test(token);
+const bare = (token: string) =>
+  token.toLowerCase().replace(/[^\p{L}\p{N}'’-]/gu, "");
+
+/** The words `sources` capitalise where a sentence does not make them:
+ *  the names a casing change must keep. */
+export function properNouns(sources: readonly (string | null | undefined)[]) {
+  const names = new Set<string>(CALENDAR);
+  for (const source of sources) {
+    const tokens = (source ?? "").split(/\s+/).filter(Boolean);
+    tokens.forEach((token, i) => {
+      const startsSentence = i === 0 || /[.!?:]$/.test(tokens[i - 1]);
+      if (!startsSentence && /^\p{Lu}/u.test(token)) names.add(bare(token));
+    });
+  }
+  return names;
+}
+
+/** The casing a headline is written in, or null when it has too few
+ *  words beyond the first to tell. */
+export function headlineCase(
+  headline: string,
+  names: ReadonlySet<string> = new Set(),
+): HeadlineCase | null {
+  const words = headline
+    .split(/\s+/)
+    .slice(1)
+    .filter(
+      (w) =>
+        isWord(w) &&
+        !SMALL_WORDS.has(bare(w)) &&
+        !isAcronym(w) &&
+        !names.has(bare(w)),
+    );
+  if (words.length < 2) return null;
+  const capped = words.filter((w) => /^\p{Lu}/u.test(w)).length;
+  if (capped === words.length) return "title";
+  return capped === 0 ? "sentence" : null;
+}
+
+function toSentence(headline: string, names: ReadonlySet<string>): string {
+  const tokens = headline.split(/(\s+)/);
+  let words = 0;
+  let sentenceStart = true;
+  return tokens
+    .map((token) => {
+      if (/^\s+$/.test(token) || !token) return token;
+      const first = words === 0 || sentenceStart;
+      words += 1;
+      sentenceStart = /[.!?:]$/.test(token);
+      if (first || !isWord(token) || isAcronym(token)) return token;
+      if (names.has(bare(token))) return token;
+      return /^\p{Lu}\p{Ll}/u.test(token) || /^\p{Lu}$/u.test(token)
+        ? `${token[0].toLowerCase()}${token.slice(1)}`
+        : token;
+    })
+    .join("");
+}
+
+function toTitle(headline: string): string {
+  const tokens = headline.split(/(\s+)/);
+  let words = 0;
+  return tokens
+    .map((token) => {
+      if (/^\s+$/.test(token) || !token) return token;
+      const first = words === 0;
+      words += 1;
+      if (!isWord(token) || /^\p{Lu}/u.test(token)) return token;
+      if (!first && SMALL_WORDS.has(bare(token))) return token;
+      return `${token[0].toUpperCase()}${token.slice(1)}`;
+    })
+    .join("");
+}
+
+/** The set's headlines in the casing most of them use. */
+export function withConsistentCasing(
+  frames: readonly FrameBeat[],
+  sources: readonly (string | null | undefined)[],
+): { frames: FrameBeat[]; recased: number[]; style: HeadlineCase | null } {
+  const names = properNouns(sources);
+  const styles = frames.map((beat) => headlineCase(beat.headline, names));
+  const titles = styles.filter((s) => s === "title").length;
+  const sentences = styles.filter((s) => s === "sentence").length;
+  if (titles === 0 || sentences === 0) {
+    return {
+      frames: [...frames],
+      recased: [],
+      style: titles > 0 ? "title" : sentences > 0 ? "sentence" : null,
+    };
+  }
+  const style: HeadlineCase = titles > sentences ? "title" : "sentence";
+  const recased: number[] = [];
+  const next = frames.map((beat, i) => {
+    if (styles[i] === null || styles[i] === style) return beat;
+    const headline =
+      style === "title"
+        ? toTitle(beat.headline)
+        : toSentence(beat.headline, names);
+    if (headline === beat.headline) return beat;
+    recased.push(i);
+    return { ...beat, headline };
+  });
+  return { frames: next, recased, style };
+}

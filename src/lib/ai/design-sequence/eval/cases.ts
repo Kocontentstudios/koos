@@ -260,8 +260,8 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       { kind: "contact", text: "partners@lagosdesignweek.ng" },
     ],
   },
-  /* Held out in round 4, read by its builder to tune points.ts and a
-     label, so tuning from round 5 on (round-4 critic, HIGH 4). */
+  /* Once held out, then read to tune points.ts and a label, so it is a
+     tuning brief now: a brief read while tuning never measures it. */
   {
     id: "pepper-sauce",
     kind: "carousel",
@@ -401,8 +401,8 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
 ];
 
 /**
- * Briefs written on 2026-10-30 for round 5, after the round-4 critic found
- * the previous held-out set had been read to tune the planner. Nothing in
+ * Briefs written on 2026-10-30 to replace a held-out set that had been read
+ * while tuning the planner. Nothing in
  * the planner or the prompt has been changed with their runs in view: the
  * runner prints only their aggregate (run.mts, --set held-out), and the
  * plans go to a report file nobody tuning the planner reads. Two are thin

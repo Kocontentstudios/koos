@@ -6,8 +6,8 @@
  * reader say the hook earns the swipe, the last frame carries the action
  * and the copy never repeats itself?
  *
- * Paid lane: per run the brief read, the outline, the copy and (when
- * needed) the repair pass, then one judge call. Runs the production
+ * Paid lane: per run the brief read, the arc, the copy and (when code
+ * finds a fault) up to two fix calls, then one judge call. Runs the production
  * planSequence; nothing is rendered or stored. Run before shipping a change
  * to src/lib/design/sequence/ or src/lib/ai/prompts/design-sequence.ts, and
  * nightly. Not part of `pnpm test`.
@@ -16,13 +16,12 @@
  *          [--n <3|5|8>] [--kind carousel|presentation] [--no-judge]
  *          [--report <path>]
  *
- * --set tuning (the default) runs the briefs earlier rounds tuned the
- * prompt against; --set held-out runs the briefs it was never tuned on,
+ * --set tuning (the default) runs the briefs the planner is tuned
+ * against; --set held-out runs the briefs it was never tuned on,
  * scored and reported on their own, against the same frozen thresholds.
  * A held-out run prints its aggregate only: the plans, faults and judge
  * reasons go to the report file, so whoever tunes the planner from this
- * terminal never reads the briefs it is measured on (round-4 critic,
- * HIGH 4).
+ * terminal never reads the briefs it is measured on.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

@@ -14,7 +14,7 @@ const priceFrame = (over: Partial<FrameBeat> = {}) =>
   beatOf({ headline: "₦2,500 a Bottle", subheadline: "", ...over });
 
 describe("factOnlyFrames", () => {
-  it("names a middle frame that is only the price (round-2 critic, every five-frame carousel)", () => {
+  it("names a middle frame that is only the price", () => {
     const frames = [cafePlan().frames[0], priceFrame(), cafePlan().frames[4]];
     expect(factOnlyFrames(frames, CAFE_FACTS)).toEqual([
       {
@@ -64,7 +64,7 @@ describe("factOnlyFrames", () => {
     ).toEqual([]);
   });
 
-  it('names a bare date or venue frame (round-4 critic: "Launches on 3 March")', () => {
+  it('names a bare date or venue frame ("Launches on 3 March")', () => {
     const facts = [fact("date", "3 March"), ...CAFE_FACTS];
     const frames = [
       beatOf({ role: "hook", headline: "Still chasing payment?" }),
@@ -143,7 +143,7 @@ describe("profilePoints", () => {
 });
 
 describe("misplacedPrices", () => {
-  it("names a carousel price the copy put before the action frame (round-3 critic, finding 3)", () => {
+  it("names a carousel price the copy put before the action frame", () => {
     expect(misplacedPrices(cafePlan().frames, CAFE_FACTS, "carousel")).toEqual([
       {
         frame: 1,
@@ -154,7 +154,7 @@ describe("misplacedPrices", () => {
     ]);
   });
 
-  it("finds the amount in any words around it (round-4 critic, MEDIUM 6)", () => {
+  it("finds the amount in any words around it", () => {
     const pair = [fact("price", "₦32,000 a pair")];
     const said = (headline: string) =>
       misplacedPrices(

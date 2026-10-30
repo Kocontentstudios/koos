@@ -76,8 +76,8 @@ describe("SEQUENCE_EVAL_CASES", () => {
 
   it("keeps a held-out set of at least three briefs, apart from the tuning set", () => {
     expect(SEQUENCE_HELD_OUT_CASES.length).toBeGreaterThanOrEqual(3);
-    /* Round-4 critic, HIGH 4: the set read in round 4 is tuning now, and
-       the held-out briefs are new ones. */
+    /* A held-out brief read while tuning moves to the tuning set, and the
+       held-out briefs are new ones. */
     expect(SEQUENCE_HELD_OUT_CASES.map((c) => c.id)).toEqual([
       "tailor",
       "car-wash",

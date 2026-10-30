@@ -40,15 +40,15 @@ export interface RunScore {
   factCoverage: boolean;
   uncovered: string[];
   offeringOnHook: boolean;
-  /** Reported, not gated: what still stood after the repair pass. */
+  /** Reported, not gated: what still stood after the fix calls. */
   problems: string[];
 }
 
 /** The case's hand labels, needing what a design must show to state
  *  them. A venue the brief calls "our Yaba bar" is stated by the brand's
  *  name and the area, exactly as the directions path and the job's
- *  drawn-copy check read it (withVenueOrBrand): round 3's cafe set ended on
- *  "Kiln Coffee, Yaba", which the product counts and a bare label did not.
+ *  drawn-copy check read it (withVenueOrBrand): "Kiln Coffee, Yaba" states
+ *  "our Yaba bar", as the product counts it.
  *  The rule is deterministic, so this is still not the planner's reader. */
 export function labelledFacts(c: SequenceEvalCase): BriefFact[] {
   return withVenueOrBrand(

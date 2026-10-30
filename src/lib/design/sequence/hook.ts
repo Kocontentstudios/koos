@@ -23,16 +23,16 @@ import type { FrameBeat } from "./contract";
 const ANNOUNCEMENT =
   /\b(?:is|are|'s)\s+(?:here|back|live|now available|available now)\b[.!]?\s*$|^\s*(?:introducing|meet|presenting|announcing|new|now)\b|\b(?:arrived|arrives|landed|lands|dropped)\b|\bjust\s+in\b|\bnew\s+(?:in|arrival|arrivals|stock)\b|\bnow\s+(?:available|open|in stock)\b|\b(?:out now|in stores?|back in stock)\b|\bfinally\b/i;
 
-/* What a strong hook does instead. Round 4's judge marked down every
-   question any competitor could ask ("Still doing laundry yourself?") and
-   every mood line, and asked each time for the brief's specific: the
-   steeping time, the price, the number of students. */
+/* What a strong hook does instead: a question any competitor could ask
+   ("Still doing laundry yourself?") or a mood line reads as generic; the
+   brief's own specific (a duration, a count, who makes it) does not. */
 export const HOOK_CRAFT =
   "build the headline on the most concrete thing the brief gives (a figure, how it is made, who makes it, what it changes for the reader), said straight, as a question that holds it or as a before-and-after, and name the offering in the headline or the subheadline";
 
 /* Content words a headline and its subheadline may share before the second
-   line reads as the first said again; the brand's name is free. */
-const ECHO_WORDS = 3;
+   line reads as the first said again; the brand's name is free. Two is
+   already an echo a reader hears ("Whiter teeth" over "teeth whitening"). */
+const ECHO_WORDS = 2;
 
 function echoedWords(hook: FrameBeat, brandName: string): string[] {
   const free = contentStems(brandName);
@@ -44,10 +44,8 @@ function echoedWords(hook: FrameBeat, brandName: string): string[] {
 
 /* Content words the hook may share with a later frame before it reads as
    spending that frame's point before the swipe. Tighter than two body
-   frames are held to (repeats.ts), as variant A's craft check found: eval
-   round 2, "Straight from Abeokuta" on the hook and "directly from
-   Abeokuta" on frame 2, "naira or dollars" on both of the SaaS set's first
-   two frames, each marked down by the judge as one point made twice. */
+   frames are held to (repeats.ts): "Straight from Abeokuta" on the hook
+   and "directly from Abeokuta" on frame 2 read as one point made twice. */
 const HOOK_PREVIEW_WORDS = 2;
 
 /** Zero-based indexes of the later frames whose point the hook already
@@ -88,8 +86,7 @@ export function hookPreviews(
 /* An offering read as a name ("cold brew", "Ledgerly") may be said on any
    frame; one read as a description ("Send an invoice in naira or dollars
    in under a minute") is made of points, and a frame that says them again
-   repeats them (round 2: "naira or dollars" on two SaaS frames went
-   uncounted while the whole description was free). */
+   repeats them, so "naira or dollars" on two frames still counts. */
 const NAME_STEMS = 3;
 
 /** Stems any frame may say without repeating a point: the brand's name and
@@ -117,6 +114,44 @@ export function unnamedOnHook(
   );
 }
 
+const CONCRETE_WORDS = 3;
+
+/* Words an announcement is made of: news carried beside a concrete
+   reason ("Back in stock: real Oyo heat") still gives the reader one. */
+const NEWS_WORDS = new Set(
+  [
+    "here",
+    "back",
+    "live",
+    "available",
+    "introducing",
+    "meet",
+    "presenting",
+    "announcing",
+    "arrived",
+    "landed",
+    "dropped",
+    "stock",
+    "finally",
+    "launch",
+    "launches",
+    "store",
+  ].flatMap((w) => [...contentStems(w)]),
+);
+
+/** Whether a headline says something concrete beyond the names, where to
+ *  find it and the news: a figure, or three words of its own. */
+function concreteBeyond(
+  headline: string,
+  labelWords: ReadonlySet<string>,
+): boolean {
+  if (/\d/.test(headline)) return true;
+  const own = [...contentStems(headline)].filter(
+    (s) => !labelWords.has(s) && !NEWS_WORDS.has(s),
+  );
+  return own.length >= CONCRETE_WORDS;
+}
+
 /** `names`: what else the hook must name beyond the offering (the brand,
  *  when the brief makes it the subject: hookNames in the prompt). The
  *  offering itself is validateSequence's offering-unnamed. */
@@ -132,9 +167,8 @@ export function hookFaults(
       `the hook does not name "${name}"; put it in the subheadline in these words`,
   );
   const named = contentStems(offering ?? "");
-  /* The name and where to find it is still a label: round 3's cafe hook
-     "Cold brew at our Yaba bar" scored 2, "purely locational
-     housekeeping". */
+  /* The name and where to find it is still a label ("Cold brew at our
+     Yaba bar" is housekeeping, not a reason to swipe). */
   const labelWords = new Set([
     ...named,
     ...contentStems(brandName),
@@ -147,7 +181,10 @@ export function hookFaults(
     named.size > 0 &&
     [...said].some((s) => named.has(s)) &&
     [...said].every((s) => labelWords.has(s));
-  if (ANNOUNCEMENT.test(hook.headline)) {
+  if (
+    ANNOUNCEMENT.test(hook.headline) &&
+    !concreteBeyond(hook.headline, labelWords)
+  ) {
     faults.push(
       `the hook's headline "${hook.headline}" announces the offering, which gives no reason to swipe; ${HOOK_CRAFT}`,
     );
@@ -156,9 +193,8 @@ export function hookFaults(
       `the hook's headline "${hook.headline}" is only the name of what is offered; ${HOOK_CRAFT}`,
     );
   }
-  /* Round 2's judge, on "Hand-dyed indigo adire — just arrived at Adire
-     House" under a question: "a flat retail cliché that undercuts the
-     intrigue". The second line spends the pull the first one made. */
+  /* An announcement under a question ("— just arrived") is a flat retail
+     cliché: the second line spends the pull the first one made. */
   if (ANNOUNCEMENT.test(hook.subheadline)) {
     faults.push(
       `the hook's subheadline "${hook.subheadline}" announces the offering; name it with the one specific from the brief that makes the headline's pull concrete`,

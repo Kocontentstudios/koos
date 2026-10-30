@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { beatOf } from "./fixtures";
-import { inventedOn, sequenceLedger } from "./plan";
+import { inventedOn, sequenceLedger } from "./ledger";
 
-/* Round-4 critic, HIGH 2 and 3: the profile's own words were refused as
-   invented, so a profile-point frame could never be regenerated, while
-   the goal licensed claims the brand only hopes are true. */
+/* The profile's own words are sourced, so a profile-point frame can be
+   regenerated; the goal licenses nothing, since it is what the brand only
+   hopes is true. */
 const sandals = () =>
   directionsContext({
     title: "Leather sandals",

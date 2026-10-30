@@ -69,8 +69,8 @@ describe("openSetJobOf", () => {
     ).toBe("frame");
   });
 
-  /* Round 4 M3: the sequence job does not put the mark on its progress
-     yet, so a list that read only the mark was always empty. */
+  /* The sequence job does not put the mark on its progress yet, so a list
+     that read only the mark would always be empty. */
   it("knows an unmarked set job by its input, and its set by its checkpoint", () => {
     expect(
       openSetJobOf(

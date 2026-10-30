@@ -2,12 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  buildFrameCopyPrompt,
+  buildArcCopyPrompt,
+  buildArcPrompt,
+  buildFixPrompt,
   buildFrameRegeneratePrompt,
-  buildOutlinePrompt,
-  buildSequenceEditPrompt,
   buildSequenceSystemPrompt,
-  buildSetGradePrompt,
 } from "@/lib/ai/prompts/design-sequence";
 import { HOOK_CRAFT } from "@/lib/design/sequence/hook";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
@@ -19,7 +18,7 @@ const PROMPT_FILE = join(
 );
 
 describe("the sequence prompt never quotes an eval fixture", () => {
-  it("finds the phrases the round-3 prompt leaked", () => {
+  it("finds fixture phrases a prompt once quoted", () => {
     expect(
       leaks(
         'a question ("Can your teen bake real sourdough?") or ("18 hours for one bottle")',
@@ -67,36 +66,46 @@ describe("the sequence prompt never quotes an eval fixture", () => {
       beat,
       { ...beat, role: "cta" as const, cta: "Message us" },
     ];
-    const outlined = frames.map((f) => ({ ...f, point: "A point", facts: [] }));
+    const claimed = frames.map((f) => ({
+      role: f.role,
+      title: f.title,
+      claim: "A point",
+      facts: [],
+      layout: f.layout,
+      showsImage: f.showsImage,
+    }));
     const built = [
       buildSequenceSystemPrompt(brandSummary, true),
       ...(["carousel", "presentation"] as const).flatMap((kind) => [
-        buildOutlinePrompt(context, {
+        buildArcPrompt(context, {
           kind,
           frameCount: 3,
           aspectRatio: "4:5",
-          facts: [],
+          pool: [
+            { source: "profile", text: "Repairs and servicing", facts: [] },
+          ],
+          actionFacts: [],
           offering: "bike servicing",
           imageSource: "ko",
           imageAttached: false,
-          profilePoints: [{ field: "offer", text: "Repairs and servicing" }],
         }),
-        buildFrameCopyPrompt(context, {
+        buildArcCopyPrompt(context, {
           kind,
-          frames: outlined,
+          frames: claimed,
           offering: "bike servicing",
           imageSource: "none",
           aspectRatio: "4:5",
         }),
-        buildSequenceEditPrompt(context, {
+        buildFixPrompt(context, {
           kind,
-          frames,
-          fixes: [],
-          hookProblems: [],
-          mustState: [[], [], []],
+          plan: frames,
+          frames: claimed,
+          fixes: [
+            { index: 0, faults: ["a fault"] },
+            { index: 1, faults: ["a fault"], newClaim: "Another point" },
+          ],
           names: ["bike servicing"],
         }),
-        buildSetGradePrompt(context, { kind, versions: [frames, frames] }),
         buildFrameRegeneratePrompt(context, {
           kind,
           frames,

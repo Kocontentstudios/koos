@@ -17,7 +17,7 @@ const NOT_A_FOOTER_LINE = new Set<BriefFact["kind"]>(["product"]);
 /* A count or a condition the copy already gives in its own words, whose
    brief wording leans on a word outside it ("31 estates use them"), is
    not drawn: on its own line the pronoun points at nothing, and it is the
-   third time the set says the figure (round-5 critic, MEDIUM 6). A brief
+   third time the set says the figure. A brief
    line that reads on its own is still drawn, and a price, date, time,
    place or contact always is, since the reader acts on it. */
 const LEANS_OUTSIDE = /\b(?:them|it|they|these|those|this|that|its|their)\b/i;
@@ -51,7 +51,7 @@ export function restatedFigure(
 }
 
 /** The frames a missing fact may be written onto, best first: the frame
- *  the outline gave it, then the action frame (where how and when to act
+ *  the arc gave it, then the action frame (where how and when to act
  *  is read), then the middle frames in order. Never the hook, whose job is
  *  the reason to swipe. */
 function homesFor(owner: number, frames: readonly FrameBeat[]): number[] {
@@ -80,14 +80,13 @@ function fits(
 /**
  * The plan with every brief fact the copy still leaves out written as a
  * footer line, in the brief's own words, on the frame that was meant to
- * carry it. The last resort after the edit pass: round 4's critic watched
- * the planner report `fact-uncovered: no frame states "5pm to 9pm"` and
- * ship the set without the evening hours (H5). The words are the brief's,
+ * carry it. The last resort after the fix calls, so a set never ships
+ * reporting `fact-uncovered` while leaving the fact off (H5). The words are the brief's,
  * as the directions path draws a fact a direction left out, so code adds
  * no claim; a line is kept only where it fits the footer and is read as
  * stating the fact.
  *
- * `owners` holds each fact's planned frame by fact index (the outline's
+ * `owners` holds each fact's planned frame by fact index (the arc's
  * factsByFrame); a fact with none goes to the action frame.
  */
 export function withFactsDrawn(

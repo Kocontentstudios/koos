@@ -2049,7 +2049,22 @@ function timeRival(
   }
   if (word(tokens[i + 1], ...RATE)) return false;
   const { nouns } = nounsAfter(tokens, i);
+  if (countsDays(tokens, i, nouns)) return false;
   return namesWhen(nouns) || !namesKnownCount(t, nouns);
+}
+
+/* "Six Saturdays, 9am to 12pm" counts the days the hours fall on; it is
+   not "6 Fridays" read as six o'clock. Copy writes an hour in digits after
+   a word ("Doors 6 Fridays"), so a count of days is a number spelled out,
+   or one that opens the field, before a plural day word. */
+function countsDays(
+  tokens: readonly CopyToken[],
+  i: number,
+  nouns: readonly CopyToken[],
+): boolean {
+  const spelled = !/\d/.test(tokens[i].text);
+  const pluralDays = nouns.some((n) => isDayWord(n) && /s$/.test(n.key));
+  return pluralDays && (spelled || i === 0);
 }
 
 /* Whether the number at `i` is another price beside the run's amount:

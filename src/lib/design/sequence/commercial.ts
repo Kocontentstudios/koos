@@ -4,9 +4,8 @@
  * covers, who is behind it and how proven it is. A customer acts on each
  * of these, and once posted the business is held to it. The directions
  * ledger (claims.ts inventedFacts) reads numbers, days and a fixed set of
- * claim words; round 5 shipped "Pay when you collect.", "Sign up your
- * whole office weekly", "No hidden charges.", "at no obligation" and "A
- * local team handles setup" with nothing reported.
+ * claim words, and copy like "Pay when you collect.", "No hidden
+ * charges." or "at no obligation" passed it unreported.
  *
  * Each term stands only when the brief or the brand profile licenses it
  * (`licence`, tested against the ledger's text). Kept here, not in the
@@ -101,6 +100,15 @@ const TERMS: readonly CommercialTerm[] = [
     pattern:
       /\b(?:same|next)[- ]day\b|\bwithin\s+(?:the\s+)?(?:hour|day|week)\b|\bin\s+minutes\b/i,
     licence: /\b(?:same|next)[- ]day\b|\bwithin\b|\bminutes?\b|\bhours?\b/i,
+  },
+  {
+    /* A document or meeting offered to the reader is a promise someone
+       has to keep: a deck's close offered "the full data room" that no
+       source mentions. */
+    pattern:
+      /\bdata\s+room\b|\b(?:full|detailed)\s+(?:deck|financials|financial\s+model|projections|business\s+plan)\b|\binvestor\s+(?:pack|memo)\b|\b(?:free|complimentary)\s+(?:consultation|demo|trial|sample|tasting|audit)\b/i,
+    licence:
+      /\bdata\s+room\b|\bdeck\b|\bfinancials?\b|\bprojections?\b|\bbusiness\s+plan\b|\binvestor\s+(?:pack|memo)\b|\bconsultation\b|\bdemo\b|\btrial\b|\bsample\b|\btasting\b|\baudit\b/i,
   },
 ];
 

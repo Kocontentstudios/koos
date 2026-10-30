@@ -7,7 +7,7 @@ import { factsUncovered } from "./validate";
    4 place, 5 contact. The cafe plan's owners, as its outline gave them. */
 const OWNERS = [[0], [1], [2, 3], [4], [5]];
 
-describe("withFactsDrawn (round-4 critic, MEDIUM 5: a known fact-uncovered shipped)", () => {
+describe("withFactsDrawn: no known fact-uncovered ships", () => {
   it("writes a fact the copy left out on the frame meant to carry it, in the brief's words", () => {
     const plan = withFrame(cafePlan(), 2, { subheadline: "Come early" });
     expect(factsUncovered(plan.frames, CAFE_FACTS).map((f) => f.text)).toEqual([
@@ -52,7 +52,7 @@ describe("withFactsDrawn (round-4 critic, MEDIUM 5: a known fact-uncovered shipp
   });
 });
 
-describe("withFactsDrawn: a count the copy already gives (round-5 critic, MEDIUM 6)", () => {
+describe("withFactsDrawn: a count the copy already gives", () => {
   const estates = fact("quantity", "31 estates use them");
   const facts = [...CAFE_FACTS, estates];
   const owners = [...OWNERS.slice(0, 4), [4, 6], [5]];

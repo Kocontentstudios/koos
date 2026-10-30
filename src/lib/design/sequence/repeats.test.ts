@@ -242,10 +242,30 @@ describe("hookFaults", () => {
     "Our cold brew has arrived",
     "Introducing Kiln cold brew",
     "Cold brew, just landed",
-    "New in: hand-dyed adire",
     "Now available at our Yaba bar",
   ])("names an announcement: %s", (headline) => {
     expect(hookFaults({ ...hook, headline }, "cold brew")).toContainEqual(
+      expect.stringContaining("announces the offering"),
+    );
+  });
+
+  it.each([
+    ["New in: hand-dyed adire", "hand-dyed adire"],
+    ["New hand-dyed indigo adire arrived", "hand-dyed indigo adire"],
+  ])(
+    "names an announcement of the offering alone: %s",
+    (headline, offering) => {
+      expect(hookFaults({ ...hook, headline }, offering)).toContainEqual(
+        expect.stringContaining("announces the offering"),
+      );
+    },
+  );
+
+  it.each([
+    ["Back in stock: real heat from Oyo peppers", "scotch bonnet pepper sauce"],
+    ["Launch day: 18 hours in every bottle", "cold brew"],
+  ])("lets news stand beside a concrete reason: %s", (headline, offering) => {
+    expect(hookFaults({ ...hook, headline }, offering)).not.toContainEqual(
       expect.stringContaining("announces the offering"),
     );
   });
@@ -344,7 +364,6 @@ describe("hookFaults: announcements", () => {
   const hook = cafePlan().frames[0];
 
   it.each([
-    "New hand-dyed indigo adire arrived",
     "Cold brew, out now",
     "Adire back in stock",
     "Cold Brew, Finally at Kiln",
@@ -409,8 +428,8 @@ describe("namesFree", () => {
   });
 });
 
-/* The round-2 critic's event run (u1r2c/eval-n5.json), as the planner
-   left it: frame 5 gave frame 4's date, time and address again. */
+/* An event set as a planner once left it: frame 5 gave frame 4's date,
+   time and address again. */
 const EVENT_FACTS = [
   fact("date", "Saturday 22 November"),
   fact("time", "10am to 1pm"),
@@ -452,7 +471,7 @@ const eventFrames = (): FrameBeat[] => [
   }),
 ];
 
-describe("withoutRecap: the round-2 event run", () => {
+describe("withoutRecap: an event set that recaps", () => {
   /* Fact indexes in EVENT_FACTS: frame 4 owns the date and time. */
   const DATE_AND_TIME_ON_4 = [[], [], [4], [0, 1, 5], [2, 3, 6]];
   const logisticsOn4 = () => {
@@ -581,7 +600,7 @@ describe("sequenceRepeats: numbers inside brief facts", () => {
 describe("hookFaults: a name and a place is still a label", () => {
   const hook = cafePlan().frames[0];
 
-  it("names a headline that is only the offering and where it is (round 3, judged 2)", () => {
+  it("names a headline that is only the offering and where it is", () => {
     expect(
       hookFaults(
         { ...hook, headline: "Cold brew at our Yaba bar" },
@@ -608,7 +627,7 @@ describe("hookFaults: a name and a place is still a label", () => {
   });
 });
 
-describe("factsTwiceInFrame (round-5 critic, MEDIUM 7)", () => {
+describe("factsTwiceInFrame", () => {
   it("finds a fact one frame gives in two fields", () => {
     const beat = beatOf({
       role: "cta",
@@ -626,7 +645,7 @@ describe("factsTwiceInFrame (round-5 critic, MEDIUM 7)", () => {
   });
 });
 
-describe("sequenceRepeats: one idea headlined twice (round-5 critic, MEDIUM 5)", () => {
+describe("sequenceRepeats: one idea headlined twice", () => {
   it("names a later headline built on an earlier one's words", () => {
     const plan = withFrame(
       withFrame(cafePlan(), 1, {

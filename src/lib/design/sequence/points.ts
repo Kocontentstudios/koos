@@ -14,9 +14,8 @@ import { frameCopy } from "./validate";
 const FACT_ONLY_SLACK = 1;
 
 /* Every fact a middle frame can stand on alone with nothing said about
-   it. Round 2 named the receipt kinds (price, offer, count, condition);
-   round 4's critic named the rest: "Launches on 3 March", a bare venue or
-   date frame, read as a holding slide in every set that had one. A place
+   it: the receipt kinds (price, offer, count, condition) and the holding
+   slides ("Launches on 3 March", a bare venue or date). A place
    or a date with a word of its own ("Pour one at our Yaba bar") is a
    point, which FACT_ONLY_SLACK allows. A contact is the action frame's. */
 const STANDALONE_KINDS = new Set<BriefFact["kind"]>([
@@ -33,12 +32,10 @@ const STANDALONE_KINDS = new Set<BriefFact["kind"]>([
 /**
  * Middle frames whose whole copy is one brief fact: a headline that only
  * gives the price, offer or count, with no subheadline saying what it buys
- * or why it matters. Round-2 critic: every five-frame carousel had one
- * ("₦2,500 a Bottle", "₦18,000 for a 2-yard piece", "Free for your first 3
- * months"), and the judge called it "a receipt stub where a slide should
- * be". The hook and the action frame have their own jobs and checks.
+ * or why it matters ("₦2,500 a Bottle" alone reads as a receipt stub where
+ * a slide should be). The hook and the action frame have their own jobs and checks.
  *
- * Not a contract rule: the frame is drawable. The edit pass is asked for
+ * Not a contract rule: the frame is drawable. The fix call is asked for
  * the line, and code never writes one.
  */
 export function factOnlyFrames(
@@ -71,12 +68,10 @@ export function factOnlyFrames(
 
 /** The brand-profile fields a thin brief may borrow a frame's point from
  *  (Oluwaseyi, 2026-10-30): its statements of what is true. primaryGoal is
- *  not one: a goal is what the business wants, and round 4 shipped goals
- *  as achieved facts ("First-time buyers become monthly reorders" for
- *  "Turn first-time buyers into monthly reorders"). targetAudience is not
- *  one either: round 5's judge marked down every frame built on it as the
- *  set describing its reader twice ("Frames 5 and 6 both address the same
- *  three audiences"); who the set is for shapes every frame's words
+ *  not one: a goal is what the business wants, and drawn as a point it
+ *  reads as achieved ("First-time buyers become monthly reorders").
+ *  targetAudience is not one either: a frame built on it describes the
+ *  reader a second time; who the set is for shapes every frame's words
  *  through the system prompt instead. Ordered by what a
  *  viewer acts on: what sets the brand apart before what it says about
  *  itself. sequenceLedger reads these fields as the brief's own sources,
@@ -105,19 +100,33 @@ const SAID_SHARE = 0.5;
    says nothing a frame can stand on). */
 const CLAUSE_WORDS = 2;
 
+/* A clause opening on one of these qualifies the clause before it ("Spend
+   your time on the work, not on chasing payment"): alone it says nothing. */
+const QUALIFIES =
+  /^(?:not|nor|without|so|then|which|who|whose|where|while|yet)\b/i;
+/* A clause joined by one of these is a point of its own once the joining
+   word is gone ("and get a reminder when a client pays late"). */
+const JOINED = /^(?:and|but|plus)\s+/i;
+
+const capitalised = (text: string) =>
+  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+
 /** A field's statements, one per clause: "Full-grain leather, hand-stitched
  *  soles, free resole in year one" is three points a thin set can spend on
  *  three frames, rather than one a frame states whole and the next pads
- *  around (round-4 critic, LOW 8: "Exactly what you want at lunch."). */
+ *  around. A clause too short to stand, or one that only qualifies the
+ *  clause before it, is read with that clause. */
 export function profileClauses(text: string): string[] {
   const clauses: string[] = [];
   for (const raw of text.split(/\s*(?:;|,(?=\s)|\.(?=\s|$)|\s[-–—]\s)\s*/)) {
-    const clause = raw.trim();
+    let clause = raw.trim();
     if (!clause) continue;
-    if (contentStems(clause).size < CLAUSE_WORDS && clauses.length > 0) {
+    const short = contentStems(clause).size < CLAUSE_WORDS;
+    if (clauses.length > 0 && (short || QUALIFIES.test(clause))) {
       clauses[clauses.length - 1] = `${clauses[clauses.length - 1]}, ${clause}`;
       continue;
     }
+    if (JOINED.test(clause)) clause = capitalised(clause.replace(JOINED, ""));
     clauses.push(clause);
   }
   return clauses;
@@ -151,9 +160,8 @@ export function profilePoints(
 /** The brief's own points besides its hard facts, one per clause: what
  *  it says the offering does, how it is made, who it is for. A clause that
  *  is only facts and the offering's name ("₦2,500 a bottle", "Launch our
- *  cold brew at our Yaba bar") is the fact list's. Numbered for the outline
- *  so each middle frame is built on one source no other frame uses: the
- *  round-4 judge's repeats were two frames drawing on one brief sentence
+ *  cold brew at our Yaba bar") is the fact list's. Each becomes one point
+ *  of the arc's pool, so no two frames draw on one brief sentence
  *  ("steeped slow" on the hook, "steeped for 18 hours" on frame 2). */
 export function briefPoints(
   briefText: string,
@@ -179,9 +187,8 @@ export function profileStatements(
 }
 
 /* A price's amount, the way a reader finds it whatever words are around
-   it: round 4's critic got "Priced at ₦32,000", "Just ₦32,000" and
-   "₦32,000 this December" past a check that wanted the brief's whole
-   "₦32,000 a pair". A unit's number ("a 10kg bag") is not the amount. */
+   it: "Priced at ₦32,000", "Just ₦32,000" and "₦32,000 this December" all
+   give the brief's "₦32,000 a pair". A unit's number ("a 10kg bag") is not the amount. */
 const AMOUNT =
   /(?:[₦$£€]|\bNGN\s?|\bN(?=\d))\s?(\d[\d,]*(?:\.\d+)?\s?k?)\b|(\d[\d,]*(?:\.\d+)?\s?k?)\s?(?:naira|ngn)\b/gi;
 
@@ -193,19 +200,23 @@ export function priceAmounts(price: BriefFact): Set<string> {
   return amounts;
 }
 
-/** Whether `beat` gives the price's amount, in any words. */
-export function statesPrice(price: BriefFact, beat: FrameBeat): boolean {
+/** Whether `text` gives the price's amount, in any words. */
+export function textStatesPrice(price: BriefFact, text: string): boolean {
   const amounts = priceAmounts(price);
-  if (amounts.size === 0) return factStated(price, beat);
-  const said = numbersIn(drawnText(frameCopy(beat)));
+  if (amounts.size === 0) return factStated(price, text);
+  const said = numbersIn(text);
   return [...amounts].some((n) => said.has(n));
 }
 
+/** Whether `beat` gives the price's amount, in any words. */
+export function statesPrice(price: BriefFact, beat: FrameBeat): boolean {
+  return textStatesPrice(price, drawnText(frameCopy(beat)));
+}
+
 /* A carousel's price answers "what does acting cost", so it sits beside
-   the action. The outline places it there (settleOutline priceWithAction),
-   but the copy writer can still state it on a frame the outline did not
-   give it (round-3 critic, textile N=5: "₦18,000 for a 2-yard piece" set
-   as a middle frame's stat), so the written set is checked again. */
+   the action. The arc places it there (settleArc), but the copy writer
+   can still state it on a frame the arc did not give it, so the written
+   set is checked again. */
 export function misplacedPrices(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],

@@ -8,9 +8,8 @@ import type { FrameBeat } from "./contract";
 type Layout = DesignSpec["layout"];
 
 /* stat-highlight sets "one figure or short phrase very large" (frame-spec
-   LAYOUT_DESCRIPTION). Round-3 critic: the pitch deck drew "Kiln farmers
-   have no access to cold storage" in it, a sentence posing as a figure.
-   A figure is a digit, a currency or a percentage, not a number word:
+   LAYOUT_DESCRIPTION); a sentence set in it poses as a figure. A figure
+   is a digit, a currency or a percentage, not a number word:
    "One of a kind" is not a stat. */
 const FIGURE = /[\d₦$€£%]/;
 
@@ -41,13 +40,13 @@ export interface LayoutSlot {
  * is the check, this is the fix):
  *  - A frame without the image is drawn in a text-led layout; the others
  *    keep a half or a band for a picture and draw it as an empty panel
- *    (TEXT_LED_LAYOUTS, round-4 live critic).
+ *    (TEXT_LED_LAYOUTS).
  *  - stat-highlight only on a frame with a figure.
  *  - No frame repeats its neighbour's composition. The proposal stands when
  *    it can; otherwise its same-composition twin, then a layout neither of
  *    the two frames before it used (so a text-led set cycles hero-center,
  *    quote-card, hero-center, stat-highlight rather than repeating one
- *    pair; round-3 critic, W2), preferring one the brand's recent designs
+ *    pair), preferring one the brand's recent designs
  *    do not hold, as distinctLayout swaps a direction.
  *
  * Left to right, so each frame only has to avoid the one already settled

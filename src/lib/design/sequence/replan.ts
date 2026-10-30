@@ -31,7 +31,8 @@ import type {
 } from "./contract";
 import { hookFaults, hookPreviews } from "./hook";
 import { withFigureLayout } from "./layouts";
-import { inventedOn, sequenceFacts, sequenceLedger, withRewrite } from "./plan";
+import { inventedOn, sequenceFacts, sequenceLedger } from "./ledger";
+import { withRewrite } from "./plan";
 import { misplacedPrices } from "./points";
 import { repairSequenceFor } from "./repair";
 import { factsTwiceInFrame, withoutRepeats } from "./repeats";
@@ -76,31 +77,50 @@ export interface RegenerateProblem {
   detail: string;
 }
 
-/* A refused paid regenerate says why (round-2 critic, finding 8), in a
-   sentence for the person who pressed the button, never the instruction
-   the model was given (round-3 critic, finding 5). */
+/* A refused paid regenerate says why, in a sentence for the person who
+   pressed the button, never the instruction the model was given. Each
+   reason completes "Every new version ..." or "One new version ...". */
 const USER_REASON: Record<RegenerateProblemKind, string> = {
-  "too-long": "The new words were too long to fit.",
-  "same-as-before": "Every new version said what it says now.",
-  "repeats-frame": "Every new version repeated another frame's headline.",
-  "drops-fact": "Every new version left out a detail only this frame gives.",
-  "drops-offering": "Every new version stopped saying what is on offer.",
-  invented:
-    "Every new version added a detail neither the brief nor the brand profile gives.",
-  role: "Every new version broke this frame's job in the set.",
-  "flat-hook": "Every new opening was a label, not a reason to swipe.",
-  "hook-preview": "Every new opening gave away a later frame's point.",
-  "price-placement": "Every new version moved the price off the last frame.",
-  "fact-twice": "Every new version gave the same detail twice.",
-  "nothing-back": "No new version came back.",
+  "too-long": "was too long to fit",
+  "same-as-before": "said what it says now",
+  "repeats-frame": "repeated another frame's headline",
+  "drops-fact": "left out a detail only this frame gives",
+  "drops-offering": "stopped saying what is on offer",
+  invented: "added a detail neither the brief nor the brand profile gives",
+  role: "broke this frame's job in the set",
+  "flat-hook": "was a label, not a reason to swipe",
+  "hook-preview": "gave away a later frame's point",
+  "price-placement": "moved the price off the last frame",
+  "fact-twice": "gave the same detail twice",
+  "nothing-back": "came back empty",
 };
 
-/** The user's reason for a refused regenerate, from its first problem. */
+/**
+ * The user's reason for a refused regenerate, true of what came back: a
+ * problem every version shares is said of every version; otherwise each
+ * version's first problem is said of that one. Null when there is none.
+ */
 export function replanReason(
-  problems: readonly RegenerateProblem[],
+  versions: readonly (readonly RegenerateProblem[])[],
 ): string | null {
-  const first = problems[0];
-  return first ? USER_REASON[first.kind] : null;
+  const refused = versions.filter((v) => v.length > 0);
+  if (refused.length === 0) return null;
+  if (refused.length === 1 && versions.length <= 1) {
+    const only = refused[0][0];
+    return only.kind === "nothing-back"
+      ? "No new version came back."
+      : `The new version ${USER_REASON[only.kind]}.`;
+  }
+  const shared = refused[0].find((p) =>
+    refused.every((v) => v.some((q) => q.kind === p.kind)),
+  );
+  if (shared && refused.length === versions.length) {
+    return `Every new version ${USER_REASON[shared.kind]}.`;
+  }
+  const said = [...new Set(refused.map((v) => USER_REASON[v[0].kind]))];
+  return said.length === 1
+    ? `${refused.length === 1 ? "One" : "Each"} new version ${said[0]}.`
+    : `One new version ${said[0]}; another ${said.slice(1).join("; another ")}.`;
 }
 
 /** A model rewrite none of whose versions could stand beside its set.
@@ -109,14 +129,15 @@ export function replanReason(
 export class FrameReplanError extends Error {
   readonly problems: string[];
   readonly reasons: RegenerateProblemKind[];
-  constructor(found: readonly RegenerateProblem[]) {
-    const reason = replanReason(found);
+  constructor(versions: readonly (readonly RegenerateProblem[])[]) {
+    const reason = replanReason(versions);
     super(
       `KO couldn't rewrite this frame to fit the set.${reason ? ` ${reason}` : ""} The frame is unchanged. Try again, or edit its words.`,
     );
     this.name = "FrameReplanError";
+    const found = versions.flat();
     this.problems = found.map((p) => p.detail);
-    this.reasons = found.map((p) => p.kind);
+    this.reasons = [...new Set(found.map((p) => p.kind))];
   }
 }
 
@@ -149,8 +170,8 @@ export interface FrameEditResult {
   beat: FrameBeat;
   /** Brief facts the set stated before the edit and no frame states now.
    *  The user's words still stand (H9); the job hands these on so the
-   *  user is told what the set stopped saying (round-3 critic, finding 7:
-   *  clearing a subheadline dropped the set's only price unseen). */
+   *  user is told what the set stopped saying: clearing a subheadline can
+   *  drop the set's only price. */
   uncovered: BriefFact[];
 }
 
@@ -159,8 +180,9 @@ export interface FrameEditResult {
  * (H9). Role, image and footer stay; the layout changes only when a
  * stat-highlight is left with no figure to set large (withFigureLayout).
  * Refused, with a reason the user can act on, only when the words cannot
- * be drawn: past a limit, an empty headline, a button on a frame that is
- * not the last, or the last frame left without one.
+ * be drawn: past a limit, an empty headline, a headline another frame
+ * already has word for word (H4), a button on a frame that is not the
+ * last, or the last frame left without one.
  */
 export function applyFrameEdits(
   plan: PlannedSequence,
@@ -177,6 +199,16 @@ export function applyFrameEdits(
   const headline = edited("headline", edits.headline, beat.headline);
   if (!headline) {
     throw new FrameEditError("Every frame needs a headline.", "headline");
+  }
+  const same = (a: string) => a.toLowerCase().replace(/\s+/g, " ").trim();
+  const twin = plan.frames.findIndex(
+    (other, i) => i !== index && same(other.headline) === same(headline),
+  );
+  if (edits.headline !== undefined && twin >= 0) {
+    throw new FrameEditError(
+      `Frame ${twin + 1} already has this headline. Give this frame its own.`,
+      "headline",
+    );
   }
   const subheadline = edited(
     "subheadline",
@@ -462,7 +494,7 @@ export async function replanFrame(
   if (usable) return { beat: usable.next, modelCalls, uncovered: [] };
   throw new FrameReplanError(
     versions.length > 0
-      ? versions[versions.length - 1].problems
-      : [{ kind: "nothing-back", detail: "no frame came back" }],
+      ? versions.map((v) => v.problems)
+      : [[{ kind: "nothing-back", detail: "no frame came back" }]],
   );
 }

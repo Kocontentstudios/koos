@@ -124,7 +124,7 @@ export interface PlanSequenceResult {
   facts: BriefFact[];
   /** What the brief offers, in its words; the hook must name it. */
   offering: string | null;
-  /** Problems still standing after the one repair pass; the job decides
+  /** Problems still standing after the fix calls; the job decides
    *  which are fatal. Empty when the plan passed. */
   problems: SequenceProblem[];
   modelCalls: number;
