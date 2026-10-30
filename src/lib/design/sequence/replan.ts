@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import {
   buildFrameRegeneratePrompt,
   buildSequenceSystemPrompt,
+  REGENERATE_VERSIONS,
 } from "@/lib/ai/prompts/design-sequence";
 import { getModel } from "@/lib/ai/provider";
 import { brandFacts } from "@/lib/jobs/directions/brief";
@@ -12,7 +13,6 @@ import {
 } from "@/lib/jobs/directions/brief-facts";
 import {
   type BriefReader,
-  coverFactsOf,
   readBriefWithModel,
   settleBriefRead,
 } from "@/lib/jobs/directions/brief-read";
@@ -28,7 +28,8 @@ import type {
   PlannedSequence,
   ReplanFrameInput,
 } from "./contract";
-import { inventedOn, sequenceLedger, withRewrite } from "./plan";
+import { inventedOn, sequenceFacts, sequenceLedger, withRewrite } from "./plan";
+import { repairSequenceFor } from "./repair";
 import { type FrameRewrite, rewriteResponseSchema } from "./schema";
 import { copyLimitProblems, factsUncovered, frameCopy } from "./validate";
 
@@ -43,8 +44,8 @@ export class FrameEditError extends Error {
   }
 }
 
-/** A model rewrite that, asked twice, still could not stand beside its
- *  set. The frame on show is kept. */
+/** A model rewrite none of whose versions could stand beside its set.
+ *  The frame on show is kept. */
 export class FrameReplanError extends Error {
   constructor(readonly problems: string[]) {
     super(
@@ -175,23 +176,28 @@ export function regenerateProblems(
 }
 
 export interface ReplanFrameDeps {
+  /** The facts and offering the set was planned and checked against
+   *  (PlanSequenceResult). Given, the frame is held to exactly those; the
+   *  brief is read again only when they are absent, since a second read
+   *  can return a different list than the set was planned with. */
+  facts?: readonly BriefFact[];
+  offering?: string | null;
   briefReader?: BriefReader;
 }
 
-/** A new beat for one frame of an existing plan: the user's edits as
- *  written, or a model rewrite distinct from its neighbours. */
-export async function replanFrame(
-  { context, plan, index, edits }: ReplanFrameInput,
-  { briefReader = readBriefWithModel }: ReplanFrameDeps = {},
-): Promise<{ beat: FrameBeat; modelCalls: number }> {
-  const beat = plan.frames[index];
-  if (!beat) {
-    throw new RangeError(
-      `replanFrame: frame ${index} is outside a ${plan.frames.length}-frame set`,
-    );
+/** The facts and offering a frame's rewrite is held to, with the model
+ *  calls it took to get them. */
+async function heldTo(
+  context: ReplanFrameInput["context"],
+  { facts, offering, briefReader = readBriefWithModel }: ReplanFrameDeps,
+): Promise<{
+  facts: readonly BriefFact[];
+  offering: string | null;
+  calls: number;
+}> {
+  if (facts !== undefined) {
+    return { facts, offering: offering ?? null, calls: 0 };
   }
-  if (edits) return { beat: applyFrameEdits(beat, edits), modelCalls: 0 };
-
   const briefText = context.briefText ?? "";
   const raw = await briefReader({
     briefText,
@@ -208,9 +214,32 @@ export async function replanFrame(
       context.brandSummary.websiteUrl,
     ]),
   );
-  const facts = coverFactsOf(read);
-  const offering = read.offering?.phrase ?? null;
-  let modelCalls = 1;
+  return {
+    facts: sequenceFacts(read, context.brandSummary.name),
+    offering:
+      offering !== undefined ? offering : (read.offering?.phrase ?? null),
+    calls: 1,
+  };
+}
+
+/** A new beat for one frame of an existing plan: the user's edits as
+ *  written, or one model call for REGENERATE_VERSIONS versions of the
+ *  frame, of which code keeps the first that stands beside its set. */
+export async function replanFrame(
+  { context, plan, index, edits }: ReplanFrameInput,
+  deps: ReplanFrameDeps = {},
+): Promise<{ beat: FrameBeat; modelCalls: number }> {
+  const beat = plan.frames[index];
+  if (!beat) {
+    throw new RangeError(
+      `replanFrame: frame ${index} is outside a ${plan.frames.length}-frame set`,
+    );
+  }
+  if (edits) return { beat: applyFrameEdits(beat, edits), modelCalls: 0 };
+
+  const held = await heldTo(context, deps);
+  const { facts, offering } = held;
+  let modelCalls = held.calls;
   const system = buildSequenceSystemPrompt(
     context.brandSummary,
     Boolean(context.brand?.logoUrl),
@@ -229,33 +258,27 @@ export async function replanFrame(
     )
     .map((fact) => fact.text);
 
-  const askRewrite = async (
-    problems: string[],
-  ): Promise<FrameRewrite | null> => {
+  const askVersions = async (): Promise<FrameRewrite[]> => {
     modelCalls += 1;
     const { object } = await generateObject({
       model: getModel("strategy"),
       schema: rewriteResponseSchema,
       system,
       maxOutputTokens: 2000,
+      experimental_repairText: repairSequenceFor(),
       prompt: buildFrameRegeneratePrompt(context, {
         kind: plan.kind,
         frames: plan.frames,
         index,
         mustState,
         offering,
-        problems,
       }),
     });
-    return (
-      object.frames.find((f) => f.frame === index + 1) ??
-      object.frames[0] ??
-      null
-    );
+    const own = object.frames.filter((f) => f.frame === index + 1);
+    return own.length > 0 ? own : object.frames;
   };
 
-  const judge = (rewrite: FrameRewrite | null) => {
-    if (!rewrite) return { next: null, problems: ["no frame came back"] };
+  const judge = (rewrite: FrameRewrite) => {
     /* Same point, so the same title on its card. */
     const next = { ...withRewrite(beat, rewrite), title: beat.title };
     return {
@@ -269,18 +292,22 @@ export async function replanFrame(
     };
   };
 
-  const attempt = judge(await askRewrite([]));
-  if (attempt.next && attempt.problems.length === 0) {
-    return { beat: attempt.next, modelCalls };
-  }
-  const second = judge(await askRewrite(attempt.problems));
-  if (second.next && second.problems.length === 0) {
-    return { beat: second.next, modelCalls };
-  }
-  console.error("design.sequence.frame_replan_refused", {
+  const versions = (await askVersions())
+    .slice(0, REGENERATE_VERSIONS)
+    .map(judge);
+  const usable = versions.find((v) => v.problems.length === 0);
+  console.info("design.sequence.frame_replanned", {
     index,
-    first: attempt.problems,
-    second: second.problems,
+    versions: versions.length,
+    kept: usable ? versions.indexOf(usable) : null,
+    problems: versions.map((v) => v.problems),
+    readBrief: held.calls > 0,
+    modelCalls,
   });
-  throw new FrameReplanError(second.problems);
+  if (usable) return { beat: usable.next, modelCalls };
+  throw new FrameReplanError(
+    versions.length > 0
+      ? versions[versions.length - 1].problems
+      : ["no frame came back"],
+  );
 }

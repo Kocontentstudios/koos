@@ -38,8 +38,13 @@ type SequenceEvalCase = import("./cases").SequenceEvalCase;
 const { aggregate, failures, scoreRun } = await import("./score");
 type RunScore = import("./score").RunScore;
 type JudgeScores = import("./score").JudgeScores;
-const { buildJudgePrompt, JUDGE_SYSTEM, judgeSchema, judgeScores } =
-  await import("./judge");
+const {
+  buildJudgePrompt,
+  JUDGE_SYSTEM,
+  judgeSchema,
+  judgeScores,
+  repairJudgeText,
+} = await import("./judge");
 type PlannedSequence =
   import("../../../design/sequence/contract").PlannedSequence;
 
@@ -97,6 +102,7 @@ async function judge(
       system: JUDGE_SYSTEM,
       maxOutputTokens: 1000,
       prompt: buildJudgePrompt(c, plan),
+      experimental_repairText: repairJudgeText,
     });
     return {
       scores: judgeScores(object),
@@ -118,6 +124,9 @@ interface RunRecord {
   plan: PlannedSequence | null;
   modelCalls: number;
   repaired: boolean;
+  /** Copy faults the planner could not get rewritten (plan.ts copyFaults):
+   *  a flat hook or a line said twice that ships, counted, not hidden. */
+  faults: string[];
   ms: number;
   error?: string;
 }
@@ -151,6 +160,7 @@ async function worker() {
         plan: result.plan,
         modelCalls: result.modelCalls,
         repaired: result.repaired,
+        faults: result.faults.map((f) => `frame ${f.frame + 1}: ${f.detail}`),
         ms: Date.now() - started,
       });
       const marks = [
@@ -166,8 +176,11 @@ async function worker() {
         ? ` judge ${verdict.scores.hook}/${verdict.scores.lastAction}/${verdict.scores.nonRepetitive}`
         : "";
       console.log(
-        `${c.id} N=${n}: ${marks}${judged} calls=${result.modelCalls}${result.repaired ? " repaired" : ""} ${Date.now() - started}ms`,
+        `${c.id} N=${n}: ${marks}${judged} calls=${result.modelCalls}${result.repaired ? " repaired" : ""} faults=${result.faults.length} ${Date.now() - started}ms`,
       );
+      for (const fault of result.faults) {
+        console.log(`  fault: frame ${fault.frame + 1}: ${fault.detail}`);
+      }
       if (score.uncovered.length > 0) {
         console.log(`  uncovered: ${score.uncovered.join(" | ")}`);
       }
@@ -180,6 +193,7 @@ async function worker() {
         plan: null,
         modelCalls: 0,
         repaired: false,
+        faults: [],
         ms: Date.now() - started,
         error: String(err),
       });
@@ -222,6 +236,9 @@ writeFileSync(
   ),
 );
 console.log("\n", agg);
+console.log(
+  `copy faults left: ${records.reduce((n, r) => n + r.faults.length, 0)} across ${records.filter((r) => r.faults.length > 0).length} of ${records.length} runs`,
+);
 console.log(`report: ${reportPath}`);
 if (failed.length > 0) {
   console.error(`FAIL\n- ${failed.join("\n- ")}`);

@@ -8,14 +8,18 @@ import { COPY_TARGETS, DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
  * otherwise fail the whole set, and validateSequence names it instead so the
  * repair pass can ask for a rewrite.
  *
+ * Every field is required, with "" or [] as the empty answer, as in
+ * spec.ts: Bedrock compiles the schema into a decoding grammar and each
+ * optional property becomes a union in it.
+ *
  * Roles are not asked for. A frame's role is its position (hook first, cta
  * last), so it is assigned in code and the model cannot get it wrong.
  */
 
 const t = COPY_TARGETS;
 
-const POINT_MAX = 200;
-const SCENE_MAX = 400;
+export const POINT_MAX = 200;
+export const SCENE_MAX = 400;
 
 /**
  * The kinds of point a frame can make. Asked for so that "different
@@ -58,8 +62,7 @@ export const outlineFrameSchema = z.object({
   facts: z
     .array(z.number().int())
     .max(12)
-    .default([])
-    .describe("The numbers of the brief facts this frame states."),
+    .describe("The numbers of the brief facts this frame states; [] for none."),
   layout: z.enum(DESIGN_LAYOUTS),
   showsImage: z.boolean(),
 });
@@ -82,7 +85,7 @@ export function outlineResponseSchema(count: number) {
       "pattern",
       "solid",
     ]),
-    footerStyle: z.enum(["bar", "text", "none"]).default("none"),
+    footerStyle: z.enum(["bar", "text", "none"]),
     frames: z.array(outlineFrameSchema).min(count).max(count),
   });
 }
@@ -100,15 +103,15 @@ const copyFields = {
   subheadline: z
     .string()
     .max(DRAFT_LIMITS.subheadline)
-    .default("")
     .describe(
       `At most ${t.subheadline.words} words and ${t.subheadline.chars} characters. Empty string for none.`,
     ),
   footerLines: z
     .array(z.string().max(DRAFT_LIMITS.footerLine))
     .max(DRAFT_LIMITS.footerLines)
-    .default([])
-    .describe(`Each line at most ${t.footerLine.chars} characters.`),
+    .describe(
+      `Each line at most ${t.footerLine.chars} characters; [] for none.`,
+    ),
 };
 
 export const frameCopySchema = z.object({
@@ -116,7 +119,6 @@ export const frameCopySchema = z.object({
   backgroundPrompt: z
     .string()
     .max(SCENE_MAX)
-    .default("")
     .describe("The image or ground for this frame. Never any lettering."),
 });
 
@@ -144,7 +146,6 @@ export const frameRewriteSchema = z.object({
   cta: z
     .string()
     .max(DRAFT_LIMITS.cta)
-    .default("")
     .describe("Only for the last frame; empty string on every other."),
 });
 

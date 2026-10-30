@@ -4,9 +4,11 @@ const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
+import { HOOK_VERSIONS } from "@/lib/ai/prompts/design-sequence";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { CAFE_BRIEF } from "./fixtures";
 import { planSequence } from "./plan";
+import { validateSequence } from "./validate";
 
 type Call = {
   system: string;
@@ -25,6 +27,11 @@ const isOutline = (o: unknown) =>
 const isCopy = (o: unknown) => promptOf(o).includes("Now write the copy");
 const isRepair = (o: unknown) =>
   promptOf(o).includes("cannot go out as they are");
+const isChoice = (o: unknown) =>
+  promptOf(o).includes("You are the editor choosing");
+const noVersions = () => ({ object: { frames: [] } });
+const isHook = (o: unknown) =>
+  promptOf(o).includes(`Write ${HOOK_VERSIONS} different versions of frame 1`);
 
 const context = (over: Record<string, unknown> = {}) =>
   directionsContext({
@@ -159,13 +166,21 @@ const input = (over: Record<string, unknown> = {}) => ({
 
 function answer(handlers: {
   outline?: () => unknown;
-  copy?: () => unknown;
+  copy?: (draft: number) => unknown;
   repair?: (o: unknown) => unknown;
+  hook?: (o: unknown) => unknown;
+  choice?: (o: unknown) => unknown;
 }) {
+  let drafts = 0;
   generateObject.mockImplementation(async (o: unknown) => {
     if (isOutline(o)) return (handlers.outline ?? (() => outline()))();
-    if (isCopy(o)) return (handlers.copy ?? (() => copy()))();
+    if (isCopy(o)) {
+      drafts += 1;
+      return (handlers.copy ?? (() => copy()))(drafts);
+    }
     if (isRepair(o) && handlers.repair) return handlers.repair(o);
+    if (isHook(o)) return (handlers.hook ?? noVersions)(o);
+    if (isChoice(o) && handlers.choice) return handlers.choice(o);
     throw new Error(`unexpected call: ${promptOf(o).slice(0, 80)}`);
   });
 }
@@ -191,7 +206,8 @@ describe("planSequence", () => {
     ]);
     expect(result.problems).toEqual([]);
     expect(result.repaired).toBe(false);
-    expect(result.modelCalls).toBe(3);
+    /* Brief read, outline, two drafts (alike, so no choice), hook. */
+    expect(result.modelCalls).toBe(5);
     expect(result.offering).toBe("cold brew");
     expect(result.facts.map((f) => f.text)).toEqual([
       "cold brew",
@@ -297,7 +313,7 @@ describe("planSequence", () => {
     );
     expect(result.problems).toEqual([]);
     expect(result.repaired).toBe(true);
-    expect(result.modelCalls).toBe(4);
+    expect(result.modelCalls).toBe(6);
   });
 
   it("keeps the first copy where a rewrite would leave more problems, and returns what stands", async () => {
@@ -437,7 +453,7 @@ describe("planSequence", () => {
     });
     const result = await planSequence(input(), { briefReader: reader });
     expect(result.plan.frames).toHaveLength(5);
-    expect(result.modelCalls).toBe(4);
+    expect(result.modelCalls).toBe(6);
   });
 
   it("shows the planner an upload, and plans without it if the provider refuses", async () => {
@@ -503,12 +519,308 @@ describe("planSequence", () => {
     expect(generateObject).not.toHaveBeenCalled();
   });
 
+  it("reads a venue the brief calls ours the way the directions do (round-1 probe)", async () => {
+    const venueReader = vi.fn(async () => ({
+      facts: [{ kind: "place", text: "our Yaba bar" }],
+      offering: { kind: "product", phrase: "cold brew" },
+      people: [],
+    }));
+    const frames = copyFrames();
+    frames[3] = { ...frames[3], headline: "Find Brew Lab, Yaba" };
+    answer({ copy: () => copy(frames) });
+    const result = await planSequence(
+      input({
+        context: context({
+          brandSummary: { name: "Brew Lab", overview: "Coffee bar, Lagos" },
+        }),
+      }),
+      { briefReader: venueReader },
+    );
+    expect(result.problems.map((p) => p.rule)).not.toContain("fact-uncovered");
+    expect(generateObject.mock.calls.map(([o]) => o).some(isRepair)).toBe(
+      false,
+    );
+    const place = result.facts.find((f) => f.kind === "place");
+    expect(place?.text).toBe("our Yaba bar");
+    /* The same facts the job's drawn-copy check receives. */
+    expect(
+      validateSequence(result.plan, {
+        frameCount: 5,
+        facts: result.facts,
+        offering: result.offering,
+        hasImage: true,
+        brandName: "Brew Lab",
+      }).map((p) => p.rule),
+    ).toEqual([]);
+  });
+
+  it("asks for the hook alone when it still announces, and keeps the best version", async () => {
+    const flat = copyFrames();
+    flat[0] = {
+      ...flat[0],
+      headline: "Cold brew is here",
+      subheadline: "Steeped slow at our bar",
+    };
+    answer({
+      copy: () => copy(flat),
+      repair: () => ({
+        object: {
+          frames: [
+            {
+              frame: 1,
+              title: "The launch",
+              headline: "Kiln cold brew has arrived",
+              subheadline: "Steeped slow at our bar",
+              footerLines: [],
+              cta: "",
+            },
+          ],
+        },
+      }),
+      hook: () => ({
+        object: {
+          frames: [
+            {
+              frame: 1,
+              title: "The launch",
+              headline: "Introducing cold brew",
+              subheadline: "Steeped slow",
+              footerLines: [],
+              cta: "",
+            },
+            {
+              frame: 1,
+              title: "The launch",
+              headline: "Your slowest Saturday yet?",
+              subheadline: "Kiln's cold brew, poured over ice",
+              footerLines: [],
+              cta: "",
+            },
+          ],
+        },
+      }),
+    });
+    const result = await planSequence(input(), { briefReader: reader });
+    const hookCall = generateObject.mock.calls.map(([o]) => o).find(isHook);
+    expect(promptOf(hookCall)).toContain(
+      "announces the offering, which gives no reason to swipe",
+    );
+    expect(result.plan.frames[0].headline).toBe("Your slowest Saturday yet?");
+    expect(result.plan.frames[0].role).toBe("hook");
+    expect(result.faults).toEqual([]);
+    expect(result.repaired).toBe(true);
+    expect(result.modelCalls).toBe(6);
+  });
+
+  it("returns the hook's faults when no version fixes them, instead of hiding them", async () => {
+    const flat = copyFrames();
+    flat[0] = {
+      ...flat[0],
+      headline: "Cold brew is here",
+      subheadline: "Steeped slow at our bar",
+    };
+    const stillFlat = () => ({
+      object: {
+        frames: [
+          {
+            frame: 1,
+            title: "The launch",
+            headline: "Cold brew is here",
+            subheadline: "Steeped slow at our bar",
+            footerLines: [],
+            cta: "",
+          },
+        ],
+      },
+    });
+    answer({ copy: () => copy(flat), repair: stillFlat, hook: stillFlat });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(result.plan.frames[0].headline).toBe("Cold brew is here");
+    expect(result.problems).toEqual([]);
+    expect(result.faults).toEqual([
+      {
+        frame: 0,
+        detail: expect.stringContaining("announces the offering"),
+      },
+    ]);
+    expect(console.info).toHaveBeenCalledWith(
+      "design.sequence.planned",
+      expect.objectContaining({
+        hookAsked: [expect.stringContaining("announces the offering")],
+        hook: expect.objectContaining({ index: 0, by: "code" }),
+      }),
+    );
+  });
+
+  it("keeps a hook no version beats, and asks the editor only between versions code cannot tell apart", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const hookVersion = (headline: string, subheadline: string) => ({
+      frame: 1,
+      title: "A longer title the model gave this version",
+      headline,
+      subheadline,
+      footerLines: [],
+      cta: "",
+    });
+    answer({
+      hook: () => ({
+        object: {
+          frames: [
+            hookVersion("Cold brew is here", "Kiln's cold brew"),
+            hookVersion(
+              "Slow mornings, cold glasses",
+              "Kiln's cold brew, over ice",
+            ),
+          ],
+        },
+      }),
+      choice: () => ({ object: { choice: 2, why: "It pulls harder." } }),
+    });
+    const result = await planSequence(input(), { briefReader: reader });
+    const choiceCall = generateObject.mock.calls.map(([o]) => o).find(isChoice);
+    const shown = promptOf(choiceCall);
+    expect(shown).toContain('1. headline "Your Saturday, slowed down"');
+    expect(shown).toContain('2. headline "Slow mornings, cold glasses"');
+    expect(shown).not.toContain("Cold brew is here");
+    expect(result.plan.frames[0].headline).toBe("Slow mornings, cold glasses");
+    expect(result.plan.frames[0].title).toBe("The launch");
+    expect(result.faults).toEqual([]);
+  });
+
+  it("goes on with the draft that breaks fewer rules, with no editor call", async () => {
+    const broken = copyFrames();
+    broken[4] = { ...broken[4], footerLines: [] };
+    answer({ copy: (draft) => (draft === 1 ? copy(broken) : copy()) });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(generateObject.mock.calls.map(([o]) => o).some(isChoice)).toBe(
+      false,
+    );
+    expect(result.plan.frames[4].footerLines).toEqual([
+      "WhatsApp 0803 555 0142",
+    ]);
+    expect(console.info).toHaveBeenCalledWith(
+      "design.sequence.planned",
+      expect.objectContaining({
+        draft: expect.objectContaining({ index: 1, by: "code" }),
+      }),
+    );
+  });
+
+  it("asks the editor between clean drafts and maps its pick back through the shuffle", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const second = copyFrames();
+    second[4] = { ...second[4], headline: "Hold a bottle for yourself" };
+    answer({
+      copy: (draft) => (draft === 1 ? copy() : copy(second)),
+      choice: () => ({ object: { choice: 1, why: "Builds better." } }),
+    });
+    const result = await planSequence(input(), { briefReader: reader });
+    const asked = promptOf(
+      generateObject.mock.calls.map(([o]) => o).find(isChoice),
+    );
+    /* random 0 swaps the two, so draft 1 as shown is the second written. */
+    expect(asked.indexOf("Hold a bottle for yourself")).toBeLessThan(
+      asked.indexOf("Draft 2:"),
+    );
+    expect(result.plan.frames[4].headline).toBe("Hold a bottle for yourself");
+  });
+
+  it("plans from the one draft that came back when the other call fails", async () => {
+    answer({
+      copy: (draft) => {
+        if (draft === 1) throw new Error("model down");
+        return copy();
+      },
+    });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(result.plan.frames).toHaveLength(5);
+    expect(result.problems).toEqual([]);
+  });
+
+  it("plans a set through two malformed answers in a row, rescued by repairText", async () => {
+    /* What the AI SDK does with an answer that fails the schema: hands the
+       text to experimental_repairText and checks the schema again. */
+    type Options = {
+      schema: {
+        safeParse: (v: unknown) => { success: boolean; data?: unknown };
+      };
+      experimental_repairText?: (a: {
+        text: string;
+        error: unknown;
+      }) => Promise<string | null>;
+    };
+    const sdk = async (o: unknown, text: string) => {
+      const options = o as Options;
+      const tryParse = (t: string) => {
+        try {
+          return options.schema.safeParse(JSON.parse(t));
+        } catch {
+          return { success: false };
+        }
+      };
+      let parsed = tryParse(text);
+      if (!parsed.success && options.experimental_repairText) {
+        const repaired = await options.experimental_repairText({
+          text,
+          error: new Error("schema"),
+        });
+        if (repaired) parsed = tryParse(repaired);
+      }
+      if (!parsed.success) {
+        throw Object.assign(new Error("No object generated"), {
+          name: "AI_NoObjectGeneratedError",
+          text,
+        });
+      }
+      return { object: parsed.data };
+    };
+    const quotedOutline = JSON.stringify({
+      ...BRAND,
+      logoPlacement: '"top-left"',
+      footerStyle: '"none"',
+      logoFreeQuote: '""',
+      frames: JSON.stringify(OUTLINE_FRAMES),
+    });
+    const extraFrame = JSON.stringify({
+      frames: [
+        ...copyFrames().slice(0, 4),
+        { ...copyFrames()[3], headline: "A frame too many" },
+        copyFrames()[4],
+      ],
+      cta: "Message us",
+    });
+    let outlineAsks = 0;
+    let copyAsks = 0;
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isOutline(o)) {
+        outlineAsks += 1;
+        return sdk(o, outlineAsks === 1 ? "{ truncated" : quotedOutline);
+      }
+      if (isCopy(o)) {
+        copyAsks += 1;
+        return sdk(o, extraFrame);
+      }
+      if (isHook(o)) return noVersions();
+      throw new Error("unexpected call");
+    });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(outlineAsks).toBe(2);
+    expect(copyAsks).toBe(2);
+    expect(result.plan.frames).toHaveLength(5);
+    expect(result.plan.logoPlacement).toBe("top-left");
+    expect(result.plan.frames.map((f) => f.headline)).not.toContain(
+      "A frame too many",
+    );
+    expect(result.plan.frames[4].cta).toBe("Message us");
+    expect(result.problems).toEqual([]);
+  });
+
   it("leaves a trace of what it did", async () => {
     answer({});
     await planSequence(input(), { briefReader: reader });
     expect(console.info).toHaveBeenCalledWith(
       "design.sequence.planned",
-      expect.objectContaining({ kind: "carousel", frames: 5, modelCalls: 3 }),
+      expect.objectContaining({ kind: "carousel", frames: 5, modelCalls: 5 }),
     );
   });
 });

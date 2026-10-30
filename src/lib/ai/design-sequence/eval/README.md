@@ -16,10 +16,14 @@ pnpm eval:design-sequence --no-judge              # deterministic lane only
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
-SigV4 keys are used. Each run makes 3 to 5 planner calls (brief read,
-outline, copy, and the outline re-ask or repair pass when they are
-needed), plus one judge call. A full run is 18 planner runs, three at a
-time, and takes about 2.5 minutes. Run it before shipping a change to
+SigV4 keys are used. Each run makes 5 to 9 planner calls (brief read,
+outline, two copy drafts in parallel, hook versions, and when needed the
+outline re-ask, the draft or hook choice and the repair pass), plus one
+judge call. A full run is 18 planner runs, three at a time, and takes
+about 10 minutes. Each run also prints the copy faults the planner could
+not get rewritten (`PlannedSequenceResult.faults`), and the report keeps
+them per run, so a flat hook or a line said twice is counted, never
+silent. Run it before shipping a change to
 `src/lib/design/sequence/` or `src/lib/ai/prompts/design-sequence.ts`, and
 nightly. It is not part of `pnpm test`. Nothing is rendered, uploaded or
 stored. The JSON report, with every plan and every judge reason, lands in
@@ -74,36 +78,52 @@ anyone edits them.
 
 ## Results so far
 
-The latest numbers come from round 11, on the code as committed (2026-10-30, Bedrock
-`us.anthropic.claude-sonnet-4-6`):
+The latest numbers come from round 2 of the revision (2026-10-30, Bedrock
+`us.anthropic.claude-sonnet-4-6`), three full runs on the pipeline as
+committed or one change from it. Logs and JSON reports are in
+`/tmp/feat-multiframe/critique/u1r2/` (`eval-full-a`, `-b`, `-c`).
 
 | Run | count | roles | palette | layouts | coverage | hook | last action | non-repetitive |
 |---|---|---|---|---|---|---|---|---|
-| 4 carousels, N=5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.50 | 5.00 | 3.50 |
-| All 18 runs | 1.0 | 1.0 | 1.0 | 1.0 | 0.944 | 3.50 | 4.88 | 3.31 |
+| All 18 runs, full-a | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.78 | 4.94 | 3.61 |
+| All 18 runs, full-b (3 drafts, slack 2: reverted) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.78 | 5.00 | 3.44 |
+| All 18 runs, full-c (as committed) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.72 | 4.94 | 3.22 |
 
-**The eval fails its frozen judge thresholds.** The deterministic lane holds
-on every run except one, which is a coverage miss described below. Across
-rounds 6 to 11 the judge's hook average stayed between 3.4 and 3.8 and its
-non-repetition average between 3.2 and 3.7, with run-to-run swings of about
-0.4 on the same code. The judge is the same model as the writer, and its
-system prompt sets a 5 as beating Canva or Predis.
+**The eval still fails its frozen judge thresholds.** The deterministic
+lane now holds on every run, coverage included: the SaaS "Ledgerly" miss is
+gone because the hook is held to every name it must carry and asked for
+again on its own when it misses one. The judge's hook average moved from
+3.50 to 3.72 to 3.78 and its non-repetition average from 3.31 to between
+3.22 and 3.61. Run-to-run swings on the same code are about 0.4, so the
+non-repetition change is inside the noise.
+
+The judge is not the problem. A calibration run
+(`/tmp/feat-multiframe/critique/u1r2/judge-calibration.json`) put a
+hand-written textile set through the frozen judge three times and got
+5/5/5 each time, with the same reasons. A hand-written SaaS set that made
+the reminder point on two frames got 2 for non-repetition three times out
+of three. The judge is strict and consistent; the planner's copy is not yet
+at that level.
 
 The low scores cluster in two places:
 
-- **Thin briefs stretched to 8 frames.** The SaaS brief has 3 facts and the
-  sponsorship deck has 4. Frames past the brief's real points get marked as
-  filler. The planner is told never to invent a point.
-- **Hooks that are accurate but generic**, such as "Send an invoice in under
-  a minute". Code catches only the two shapes it can recognise: an
-  announcement ("is here", "has arrived") and a headline that is only the
-  offering's name (`hook.ts`).
+- **Thin briefs stretched to 8 frames, and the decks.** The sponsorship
+  deck has 4 facts and scores 2 or 3 for non-repetition at every N. The
+  frames past the brief's real points get marked as filler. The planner is
+  told never to invent a point, and code never writes one.
+- **Hook subheadlines that only name the offering**, such as "Teen
+  sourdough baking class with head baker Tunde Okafor" under "Can your teen
+  bake real sourdough?". The judge gives that 3 or 4. Code catches
+  announcements in either line, a subheadline echoing its headline, a name
+  the hook leaves out, and a hook that spends a later frame's point
+  (`hook.ts`). What remains is taste, and the editor's choice between
+  versions (`choose.ts`) has not moved it past 3.8.
 
-The one remaining coverage miss is the SaaS brief. The brief reader takes
-the offering to be the service phrase, not the app's name "Ledgerly". The
-planner asks the hook to name the brand when the brief makes the brand its
-subject (`hookNames`), and the repair pass asks again, but it does not
-always land.
+What did not help, so the next attempt does not repeat it: an editor call
+that wrote notes for the repair pass (non-repetition 3.25 to 3.5 on the
+carousels at N=5, and it asked for scarcity the brief never gave), and
+three drafts with the editor choosing among any within two faults of the
+best (full-b above).
 
 Earlier rounds, kept so later runs can be compared against them:
 
@@ -114,3 +134,4 @@ Earlier rounds, kept so later runs can be compared against them:
 | 6 | first full run, beats in the outline | 3.83 | 3.33 | 0.944 |
 | 9 | phone/time rule, hook subheadline rule | 3.76 | 3.65 | 0.889 |
 | 11 | hook must name the brand when it is the subject | 3.50 | 3.31 | 0.944 |
+| R2 | venue facts as the directions read them, hook versions every run, two drafts and an editor's choice, cross-frame recap drops, phrase, action and hook-preview checks | 3.78 | 3.61 | 1.0 |

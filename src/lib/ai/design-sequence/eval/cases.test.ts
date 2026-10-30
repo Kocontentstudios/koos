@@ -7,7 +7,12 @@ import {
   SEQUENCE_EVAL_CASES,
   SEQUENCE_EVAL_THRESHOLDS,
 } from "./cases";
-import { buildJudgePrompt, judgeSchema, judgeScores } from "./judge";
+import {
+  buildJudgePrompt,
+  judgeSchema,
+  judgeScores,
+  repairJudgeText,
+} from "./judge";
 import { aggregate, failures, type RunScore, scoreRun } from "./score";
 
 const cafe = SEQUENCE_EVAL_CASES.find((c) => c.id === "cafe");
@@ -161,5 +166,35 @@ describe("judge", () => {
     expect(
       judgeSchema.safeParse({ ...answer, hook: { why: "", score: 6 } }).success,
     ).toBe(false);
+  });
+});
+
+describe("repairJudgeText", () => {
+  const verdict = (why: string) => ({
+    hook: { why, score: 3 },
+    lastAction: { why: "Clear.", score: 5 },
+    nonRepetitive: { why: "Builds.", score: 4 },
+  });
+
+  it("shortens a reason past its limit and keeps every score", async () => {
+    const long = verdict("x".repeat(520));
+    expect(judgeSchema.safeParse(long).success).toBe(false);
+    const fixed = JSON.parse(
+      (await repairJudgeText({ text: JSON.stringify(long) })) ?? "null",
+    );
+    const parsed = judgeSchema.safeParse(fixed);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data && judgeScores(parsed.data)).toEqual({
+      hook: 3,
+      lastAction: 5,
+      nonRepetitive: 4,
+    });
+  });
+
+  it("leaves anything else to fail", async () => {
+    expect(await repairJudgeText({ text: "{ cut" })).toBeNull();
+    expect(
+      await repairJudgeText({ text: JSON.stringify(verdict("Fine.")) }),
+    ).toBeNull();
   });
 });

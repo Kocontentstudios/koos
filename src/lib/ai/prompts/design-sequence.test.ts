@@ -8,11 +8,16 @@ import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import {
   buildFrameCopyPrompt,
   buildFrameRegeneratePrompt,
+  buildHookChoicePrompt,
+  buildHookRewritePrompt,
   buildOutlinePrompt,
+  buildSequenceChoicePrompt,
   buildSequenceRepairPrompt,
   buildSequenceSystemPrompt,
   factList,
+  HOOK_VERSIONS,
   hookNames,
+  REGENERATE_VERSIONS,
 } from "./design-sequence";
 
 const context = directionsContext({
@@ -178,11 +183,55 @@ describe("buildFrameRegeneratePrompt", () => {
       mustState: [],
       offering: "cold brew",
     });
-    expect(prompt).toContain("Write frame 1 again");
+    expect(prompt).toContain(
+      `Write frame 1 again, ${REGENERATE_VERSIONS} different versions of it`,
+    );
     expect(prompt).not.toContain("frame 1 (hook): title");
     expect(prompt).toContain('frame 2 (body): title "The price"');
-    expect(prompt).toContain('It names "cold brew"');
+    expect(prompt).toContain('Each version names "cold brew"');
     expect(prompt).toContain('"cta" is ""');
+  });
+});
+
+describe("buildHookRewritePrompt", () => {
+  const prompt = buildHookRewritePrompt(context, {
+    kind: "carousel",
+    frames: cafePlan().frames,
+    problems: [
+      'the hook\'s headline "Cold brew is here" announces the offering',
+    ],
+    mustState: ["cold brew"],
+    names: ["cold brew", "Kiln Coffee"],
+  });
+
+  it("shows the later frames, never the hook as one to keep", () => {
+    expect(prompt).not.toContain("frame 1 (hook): title");
+    expect(prompt).toContain('frame 2 (body): title "The price"');
+    expect(prompt).toContain("No version says what a later frame says.");
+  });
+
+  it("names what is wrong and asks for one version per angle", () => {
+    expect(prompt).toContain(
+      '- the hook\'s headline "Cold brew is here" announces the offering',
+    );
+    expect(prompt).toContain(
+      `Write ${HOOK_VERSIONS} different versions of frame 1`,
+    );
+    expect(prompt).toContain("a question the customer is already asking");
+    expect(prompt).toContain("a before-and-after");
+    expect(prompt).toContain("put the name in the subheadline");
+  });
+
+  it("holds every version to the names and facts the hook carries", () => {
+    expect(prompt).toContain(
+      'Each version names "cold brew" and "Kiln Coffee" in its headline or subheadline',
+    );
+    expect(prompt).toContain(
+      'Each version states, in these words: "cold brew"',
+    );
+    expect(prompt).toContain(
+      'each with "frame" set to 1, the title "The launch"',
+    );
   });
 });
 
@@ -225,5 +274,64 @@ describe("factList", () => {
     expect(factList(CAFE_FACTS.slice(0, 2))).toBe(
       '1. (product) "cold brew"\n2. (price) "₦2,500 a bottle"',
     );
+  });
+});
+
+describe("buildHookRewritePrompt with nothing code can name", () => {
+  it("still asks for versions that could open stronger", () => {
+    const prompt = buildHookRewritePrompt(context, {
+      kind: "carousel",
+      frames: cafePlan().frames,
+      problems: [],
+      mustState: [],
+      names: ["cold brew"],
+    });
+    expect(prompt).not.toContain("It cannot go out");
+    expect(prompt).toContain("could open stronger than it does");
+  });
+});
+
+describe("buildSequenceChoicePrompt", () => {
+  const plan = cafePlan();
+  const other = plan.frames.map((f, i) =>
+    i === 0 ? { ...f, headline: "Slow mornings, cold glasses" } : f,
+  );
+  const prompt = buildSequenceChoicePrompt(context, {
+    kind: "carousel",
+    drafts: [plan.frames, other],
+  });
+
+  it("numbers every draft in full", () => {
+    expect(prompt).toContain("Draft 1:");
+    expect(prompt).toContain("Draft 2:");
+    expect(prompt).toContain('headline: "Slow mornings, cold glasses"');
+  });
+
+  it("holds them to the opening, one point per frame and the action", () => {
+    expect(prompt).toContain("a question the customer is already asking");
+    expect(prompt).toContain("no idea, detail or phrase given twice");
+    expect(prompt).toContain("ends on one clear action");
+    expect(prompt).toContain("Answer with the draft's number.");
+  });
+});
+
+describe("buildHookChoicePrompt", () => {
+  const plan = cafePlan();
+  const prompt = buildHookChoicePrompt(context, {
+    kind: "carousel",
+    frames: plan.frames,
+    hooks: [plan.frames[0], { ...plan.frames[0], headline: "Still rushing?" }],
+  });
+
+  it("shows the rest of the set and the numbered versions", () => {
+    expect(prompt).toContain('frame 2 (body): title "The price"');
+    expect(prompt).not.toContain("frame 1 (hook): title");
+    expect(prompt).toContain('1. headline "Your Saturday, slowed down"');
+    expect(prompt).toContain('2. headline "Still rushing?"');
+  });
+
+  it("asks for the opening that does not spend a later frame's point", () => {
+    expect(prompt).toContain("does not spend a point a later frame makes");
+    expect(prompt).toContain("Answer with the version's number.");
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sameComposition } from "@/lib/jobs/directions/subject-layout";
 import { settleFrameLayouts } from "./layouts";
-import { repeatedPoints, roleOf, settleOutline } from "./outline";
+import { homeFor, repeatedPoints, roleOf, settleOutline } from "./outline";
 import type { OutlineAnswer } from "./schema";
 
 type OutlineFrame = OutlineAnswer["frames"][number];
@@ -56,6 +56,47 @@ describe("settleOutline", () => {
     );
     expect(settled.frames.map((f) => f.facts)).toEqual([[0], [1], [2, 3]]);
     expect(settled.factsPlaced).toEqual([2, 3]);
+  });
+
+  it("gives an unplaced fact the body frame it is the point of, else one that states nothing, before the last", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ beat: "promise" }),
+          frame({ beat: "proof", facts: [2] }),
+          frame({ beat: "price" }),
+          frame({ beat: "detail" }),
+          frame({ beat: "action" }),
+        ],
+      },
+      {
+        ...options,
+        factCount: 5,
+        factKinds: ["product", "place", "price", "contact", "age"],
+      },
+    );
+    expect(settled.frames.map((f) => f.facts)).toEqual([
+      [0],
+      [1],
+      [2],
+      [4],
+      [3],
+    ]);
+    expect(settled.factsPlaced).toEqual([2, 3, 4]);
+  });
+
+  it("falls back to the last frame only when every body frame has its own fact", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ beat: "promise" }),
+          frame({ beat: "proof", facts: [2] }),
+          frame({ beat: "action" }),
+        ],
+      },
+      { ...options, factCount: 3, factKinds: ["product", "place", "time"] },
+    );
+    expect(settled.frames.map((f) => f.facts)).toEqual([[0], [1], [2]]);
   });
 
   it("shows the image on the hook when the set has one", () => {
@@ -168,5 +209,33 @@ describe("repeatedPoints", () => {
         ignore,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("homeFor", () => {
+  const frames = [
+    { role: "hook" as const, beat: "promise" as const, facts: [0] },
+    { role: "body" as const, beat: "proof" as const, facts: [1] },
+    { role: "body" as const, beat: "when-where" as const, facts: [2] },
+    { role: "body" as const, beat: "detail" as const, facts: [] },
+    { role: "cta" as const, beat: "action" as const, facts: [] },
+  ];
+
+  it("sends a contact to the action", () => {
+    expect(homeFor(frames, "contact")).toBe(4);
+  });
+
+  it("sends a fact to the frame whose beat it is, even one that has facts", () => {
+    expect(homeFor(frames, "time")).toBe(2);
+  });
+
+  it("sends a fact with no beat of its own to an empty body frame", () => {
+    expect(homeFor(frames, "price")).toBe(3);
+  });
+
+  it("never sends one to the hook", () => {
+    expect(homeFor(frames.slice(0, 1).concat(frames.slice(4)), "price")).toBe(
+      1,
+    );
   });
 });

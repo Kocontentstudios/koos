@@ -11,8 +11,10 @@ import type { JudgeScores } from "./score";
  * prompts or reasoning.
  */
 
+const WHY_MAX = 400;
+
 const scored = z.object({
-  why: z.string().max(400),
+  why: z.string().max(WHY_MAX),
   score: z.number().int().min(1).max(5),
 });
 
@@ -23,6 +25,37 @@ export const judgeSchema = z.object({
 });
 
 export type JudgeAnswer = z.infer<typeof judgeSchema>;
+
+/**
+ * A verdict whose reasons run past WHY_MAX, shortened so it parses: round
+ * 2 lost the cafe run's whole verdict to one 520-character "why", and a
+ * run the judge failed on is not counted, which skews the average toward
+ * whichever runs it could score. Only the reasons are cut; a score is
+ * never touched.
+ */
+export async function repairJudgeText({
+  text,
+}: {
+  text: string;
+}): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const answer = { ...(parsed as Record<string, unknown>) };
+  let changed = false;
+  for (const key of Object.keys(judgeSchema.shape)) {
+    const entry = answer[key] as { why?: unknown } | undefined;
+    if (typeof entry?.why === "string" && entry.why.length > WHY_MAX) {
+      answer[key] = { ...entry, why: `${entry.why.slice(0, WHY_MAX - 1)}…` };
+      changed = true;
+    }
+  }
+  return changed ? JSON.stringify(answer) : null;
+}
 
 export const JUDGE_SYSTEM =
   "You are a senior social media creative director reviewing a junior's work before it goes out. You are hard to impress: a 5 is work you would post unchanged and that would beat what Canva or Predis would produce for the same brief. Generic, safe or repetitive work scores 3 or less. Judge only what is written.";

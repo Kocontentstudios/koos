@@ -32,20 +32,22 @@ const reader = vi.fn(async () => ({
   people: [],
 }));
 
+const version = (over: Record<string, unknown> = {}) => ({
+  frame: 2,
+  title: "Price",
+  headline: "Slow coffee, fair price",
+  subheadline: "₦2,500 a bottle",
+  footerLines: [],
+  cta: "",
+  ...over,
+});
+
 const rewrite = (over: Record<string, unknown> = {}) => ({
-  object: {
-    frames: [
-      {
-        frame: 2,
-        title: "Price",
-        headline: "Slow coffee, fair price",
-        subheadline: "₦2,500 a bottle",
-        footerLines: [],
-        cta: "",
-        ...over,
-      },
-    ],
-  },
+  object: { frames: [version(over)] },
+});
+
+const versions = (...overs: Record<string, unknown>[]) => ({
+  object: { frames: overs.map(version) },
 });
 
 beforeEach(() => {
@@ -151,34 +153,83 @@ describe("replanFrame without edits", () => {
       { briefReader: reader },
     );
     expect(result.modelCalls).toBe(2);
+    expect(generateObject).toHaveBeenCalledTimes(1);
     expect(result.beat).toEqual({
       ...plan.frames[1],
       headline: "Slow coffee, fair price",
       subheadline: "₦2,500 a bottle",
     });
     const prompt = generateObject.mock.calls[0][0].prompt as string;
-    expect(prompt).toContain("Write frame 2 again");
+    expect(prompt).toContain("Write frame 2 again, 2 different versions");
     expect(prompt).toContain('"Your Saturday, slowed down"');
     expect(prompt).toContain(
-      'It must state, in these words: "₦2,500 a bottle"',
+      'Each version states, in these words: "₦2,500 a bottle"',
     );
   });
 
-  it("asks once more when the rewrite repeats a neighbour, then keeps the good one", async () => {
-    generateObject
-      .mockResolvedValueOnce(
-        rewrite({ headline: "Your Saturday, slowed right down" }),
-      )
-      .mockResolvedValueOnce(rewrite());
+  it("keeps the first version that stands beside its neighbours, in one call", async () => {
+    generateObject.mockResolvedValue(
+      versions({ headline: "Your Saturday, slowed right down" }, {}),
+    );
     const result = await replanFrame(
       { context, plan, index: 1 },
       { briefReader: reader },
     );
-    expect(result.modelCalls).toBe(3);
-    const second = generateObject.mock.calls[1][0].prompt as string;
-    expect(second).toContain("Your last attempt could not be used");
-    expect(second).toContain("says what frame 1's");
+    expect(generateObject).toHaveBeenCalledTimes(1);
+    expect(result.modelCalls).toBe(2);
     expect(result.beat.headline).toBe("Slow coffee, fair price");
+  });
+
+  it("holds the frame to the facts the set was planned with, reading no brief", async () => {
+    generateObject.mockResolvedValue(rewrite());
+    const result = await replanFrame(
+      { context, plan, index: 1 },
+      {
+        briefReader: reader,
+        facts: [
+          {
+            kind: "price",
+            text: "₦2,500 a bottle",
+            needs: ["₦2,500"],
+          },
+        ],
+        offering: "cold brew",
+      },
+    );
+    expect(reader).not.toHaveBeenCalled();
+    expect(result.modelCalls).toBe(1);
+    expect(result.beat.subheadline).toBe("₦2,500 a bottle");
+  });
+
+  it("judges a planned fact against the planned list, not a fresh read", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({ headline: "Worth every naira", subheadline: "" }),
+    );
+    const planned = await replanFrame(
+      { context, plan, index: 1 },
+      { briefReader: reader, facts: [], offering: "cold brew" },
+    );
+    expect(planned.beat.headline).toBe("Worth every naira");
+    const reread = await replanFrame(
+      { context, plan, index: 1 },
+      { briefReader: reader },
+    ).catch((e: unknown) => e);
+    expect(reread).toBeInstanceOf(FrameReplanError);
+  });
+
+  it("reads a venue the brief calls ours as the brand's name and area, as the directions do", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        frame: 4,
+        headline: "Find Kiln Coffee, Yaba",
+        subheadline: "Cold glasses at the counter",
+      }),
+    );
+    const result = await replanFrame(
+      { context, plan, index: 3 },
+      { briefReader: reader },
+    );
+    expect(result.beat.headline).toBe("Find Kiln Coffee, Yaba");
   });
 
   it("refuses a rewrite that drops a fact only this frame stated", async () => {
@@ -188,7 +239,7 @@ describe("replanFrame without edits", () => {
     const err = await replanFrame(
       { context, plan, index: 1 },
       { briefReader: reader },
-    ).catch((e) => e);
+    ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FrameReplanError);
     expect((err as FrameReplanError).problems).toContain(
       'it no longer states "₦2,500 a bottle"',
@@ -202,7 +253,7 @@ describe("replanFrame without edits", () => {
     const err = await replanFrame(
       { context, plan, index: 3 },
       { briefReader: reader },
-    ).catch((e) => e);
+    ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FrameReplanError);
   });
 
@@ -213,7 +264,7 @@ describe("replanFrame without edits", () => {
     const err = await replanFrame(
       { context, plan, index: 1 },
       { briefReader: reader },
-    ).catch((e) => e);
+    ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FrameReplanError);
     expect((err as FrameReplanError).message).toContain(
       "The frame is unchanged",
