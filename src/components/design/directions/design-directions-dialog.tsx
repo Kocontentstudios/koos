@@ -265,15 +265,22 @@ export function DesignDirectionsDialog({
     },
     onRegenerate: (slot) => void regenerate(slot),
     onSendToTeam: (generation) => void sendToTeam(generation),
+    /* Each frame is its own billed job, so the caller hears of it as a run,
+       the same as a slot regenerate. */
+    onRegenerateFrame: (generationId, edits) => {
+      onRunStart?.();
+      return design.regenerateFrame(generationId, edits);
+    },
     onDone: () => handleOpenChange(false),
   };
 
   const finished = step === "run" && !design.pending && !design.error;
 
-  /* Rows without a direction (from a server that has not shipped directions
+  /* A set never takes this path, though its frames carry no reasons: it
+     always opens the set viewer. Rows without a direction (from a server that has not shipped directions
      yet, or a run that fell back to the old path) have no title or reasons to
      fill a direction card with, so they open the preview they always did. */
-  if (finished && design.generations.some((g) => !g.direction)) {
+  if (finished && !design.set && design.generations.some((g) => !g.direction)) {
     const image = lastImage.current;
     return (
       <DesignPreviewModal
@@ -311,31 +318,45 @@ export function DesignDirectionsDialog({
               (upload.state.status === "preparing" ||
                 upload.state.status === "uploading"),
           }
-        : design.pending
+        : design.pending && design.sequenceProgress
           ? {
-              step: "progress",
-              source: source ?? "none",
+              step: "set-progress",
+              progress: design.sequenceProgress,
               stage: design.stage,
-              jobStage: design.jobStage,
-              progress: design.progress,
             }
-          : design.error
+          : design.pending
             ? {
-                step: "error",
+                step: "progress",
                 source: source ?? "none",
-                message: design.error,
-                unusableImage: isUnusableImageError(design.error),
+                stage: design.stage,
+                jobStage: design.jobStage,
+                progress: design.progress,
               }
-            : {
-                step: "results",
-                slots,
-                source,
-                imageName,
-                regeneratingSlot,
-                regenerateError,
-                sendingId,
-                sendNotices,
-              };
+            : design.error
+              ? {
+                  step: "error",
+                  source: source ?? "none",
+                  message: design.error,
+                  unusableImage: isUnusableImageError(design.error),
+                }
+              : design.set
+                ? {
+                    step: "set-results",
+                    set: design.set,
+                    source,
+                    frameActions: design.frameActions,
+                    frameErrors: design.frameErrors,
+                  }
+                : {
+                    step: "results",
+                    slots,
+                    source,
+                    imageName,
+                    regeneratingSlot,
+                    regenerateError,
+                    sendingId,
+                    sendNotices,
+                  };
 
   /* A click beside the dialog is usually a slip, and closing resets the
      flow; it may only dismiss when nothing would be thrown away. Escape and
@@ -345,7 +366,8 @@ export function DesignDirectionsDialog({
     (view.step === "upload" && view.upload.status === "idle") ||
     (view.step === "results" &&
       view.regeneratingSlot === null &&
-      view.sendingId === null);
+      view.sendingId === null) ||
+    (view.step === "set-results" && view.frameActions.size === 0);
 
   return (
     <Dialog

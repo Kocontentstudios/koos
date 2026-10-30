@@ -1,6 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { frameRows, SET } from "@/components/design/sequence/fixtures";
+import { buildSet } from "@/components/design/sequence/set-model";
+import { regenKey } from "@/components/design/sequence/use-frame-set";
 import type {
   DesignGenerationState,
   GenerateArgs,
@@ -48,6 +51,11 @@ function runState(
     failedCount: 0,
     failedIds: [],
     generations: [],
+    set: null,
+    sequenceProgress: null,
+    regenerateFrame: vi.fn(async () => null),
+    frameActions: new Set(),
+    frameErrors: {},
     reset: vi.fn(),
     ...overrides,
   };
@@ -776,5 +784,105 @@ describe("DesignDirectionsDialog", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+/* KOOS-AI-002: a carousel or presentation run is one set of frames, shown in
+   the set viewer from its first progress report to its last regenerate. */
+describe("DesignDirectionsDialog with a set of frames", () => {
+  const frames = frameRows(5);
+  const set = buildSet(BRAND, frames, { setId: SET, frameCount: 5 });
+
+  it("says it is planning before any frame renders", async () => {
+    await openResults(
+      runState({
+        pending: true,
+        stage: "running",
+        sequenceProgress: {
+          kind: "carousel",
+          frameCount: 5,
+          phase: "plan",
+          done: 0,
+        },
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Making your 5-slide carousel" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Planning your carousel…",
+    );
+  });
+
+  it("counts frames as they render, one tile per frame", async () => {
+    await openResults(
+      runState({
+        pending: true,
+        stage: "running",
+        sequenceProgress: {
+          kind: "carousel",
+          frameCount: 5,
+          phase: "render",
+          done: 2,
+        },
+      }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Frame 3 of 5…");
+    const tiles = [...document.querySelectorAll("[data-tile]")].map((t) =>
+      t.getAttribute("data-tile"),
+    );
+    expect(tiles).toEqual(["done", "done", "current", "waiting", "waiting"]);
+  });
+
+  it("keeps the directions progress for a run that reports no sequence", async () => {
+    await openResults(runState({ pending: true, stage: "running" }));
+    expect(
+      screen.getByRole("heading", { name: "Creating two directions" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the set viewer, not the legacy preview, once the set is in", async () => {
+    await openResults(runState({ generations: frames, set }));
+    expect(
+      screen.getByRole("heading", { name: "Your 5-slide carousel" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(5);
+    expect(screen.getByRole("button", { name: "Download ZIP" })).toBeVisible();
+  });
+
+  it("regenerates one frame through the run's hook and counts it as a run", async () => {
+    const regenerateFrame = vi.fn(async () => null);
+    const onRunStart = vi.fn();
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={vi.fn()}
+        entry="studio"
+        args={{ brandId: BRAND }}
+        design={runState({ generations: frames, set, regenerateFrame })}
+        onRunStart={onRunStart}
+      />,
+      withKoImagery(true),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    onRunStart.mockClear();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Regenerate frame 1" }),
+    );
+    expect(regenerateFrame).toHaveBeenCalledWith("f0", undefined);
+    expect(onRunStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds Start over while a frame regenerates", async () => {
+    await openResults(
+      runState({
+        generations: frames,
+        set,
+        frameActions: new Set([regenKey("f2")]),
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Start over" })).toBeDisabled();
   });
 });

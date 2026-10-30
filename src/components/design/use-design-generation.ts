@@ -1,6 +1,20 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import {
+  readSequenceProgress,
+  type SequenceProgress,
+} from "@/components/design/sequence/progress";
+import {
+  buildSet,
+  type DesignSet,
+  readyFrames,
+} from "@/components/design/sequence/set-model";
+import {
+  type FrameSetState,
+  useFrameSet,
+} from "@/components/design/sequence/use-frame-set";
+import type { SequenceJobResult } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { type JobStage, pollGenerationJob } from "@/lib/generation/poll-job";
 
@@ -17,6 +31,9 @@ export interface GenerateArgs {
   /** A generation id: the job makes exactly one new direction to take that
    *  one's place. Requires `image`. */
   regenerateOf?: string;
+  /** How many frames a carousel or presentation brief should become. The
+   *  server clamps it; ignored for single-image formats. */
+  frames?: number;
 }
 
 /** `none` is a text-led design with no image, the second choice while
@@ -33,10 +50,13 @@ export type DesignImageChoice =
  */
 export type GenerationStage = "starting" | "running" | "fetching";
 
-interface JobResult {
+interface DirectionsJobResult {
+  kind?: undefined;
   generationIds: string[];
   failed: string[];
 }
+
+type JobResult = DirectionsJobResult | SequenceJobResult;
 
 export interface DesignGenerationState {
   /** Resolves to the designs that rendered; empty on failure or when a newer
@@ -59,7 +79,18 @@ export interface DesignGenerationState {
   failedCount: number;
   /** Those rows' ids, so a failed direction can be regenerated in its slot. */
   failedIds: string[];
+  /** Every rendered design, in order; for a set, its rendered frames. */
   generations: SerializedGeneration[];
+  /** Set when the run made a carousel or presentation: every frame, in
+   *  index order, rendered or not. Null for single designs. */
+  set: DesignSet | null;
+  /** Set while a sequence job reports where it is. */
+  sequenceProgress: SequenceProgress | null;
+  /** Replaces one frame of `set` in place; see useFrameSet. */
+  regenerateFrame: FrameSetState["regenerateFrame"];
+  /** `regen:${generationId}` for every frame regenerating. */
+  frameActions: FrameSetState["actingOn"];
+  frameErrors: FrameSetState["frameErrors"];
   reset: () => void;
 }
 
@@ -79,6 +110,10 @@ export function useDesignGeneration(): DesignGenerationState {
     total: number;
   } | null>(null);
   const [jobStage, setJobStage] = useState<JobStage | null>(null);
+  const [sequenceProgress, setSequenceProgress] =
+    useState<SequenceProgress | null>(null);
+  const frameSet = useFrameSet();
+  const loadSet = frameSet.load;
   const [failedIds, setFailedIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [generations, setGenerations] = useState<SerializedGeneration[]>([]);
@@ -91,7 +126,11 @@ export function useDesignGeneration(): DesignGenerationState {
   /* What the last job actually produced. A failure AFTER this is set is a
      display failure: the designs exist, so retrying must re-read them rather
      than generate again and bill the user for duplicates. */
-  const lastRun = useRef<{ args: GenerateArgs; ids: string[] } | null>(null);
+  const lastRun = useRef<{
+    args: GenerateArgs;
+    ids: string[];
+    sequence: SequenceJobResult | null;
+  } | null>(null);
 
   const reset = useCallback(() => {
     runId.current += 1;
@@ -104,7 +143,9 @@ export function useDesignGeneration(): DesignGenerationState {
     setPartial(null);
     setFailedIds([]);
     setGenerations([]);
-  }, []);
+    setSequenceProgress(null);
+    loadSet(null);
+  }, [loadSet]);
 
   /* Reads exactly the rows a job produced and puts them on screen. Separate
      from `generate` so a retry after a DISPLAY failure can call it without
@@ -148,18 +189,78 @@ export function useDesignGeneration(): DesignGenerationState {
     [],
   );
 
+  /* A set is read back the same way, failed frames included: the viewer
+     shows a frame that did not render in its place, with a retry, rather
+     than a shorter carousel. */
+  const loadSequence = useCallback(
+    async (
+      brandId: string,
+      result: SequenceJobResult,
+      run: number,
+    ): Promise<SerializedGeneration[]> => {
+      const ids = [...result.generationIds, ...result.failed];
+      const listRes = await fetch(
+        `/api/design/generations?brandId=${brandId}&ids=${ids.join(",")}`,
+      );
+      if (!listRes.ok) throw new Error(await readError(listRes));
+      const { generations: rows } = (await listRes.json()) as {
+        generations: SerializedGeneration[];
+      };
+      if (runId.current !== run) return [];
+
+      const set = buildSet(brandId, rows, {
+        setId: result.setId,
+        kind: result.sequenceKind,
+        frameCount: result.frameCount,
+      });
+      const rendered = set ? readyFrames(set) : [];
+      if (!set || rendered.length === 0) {
+        throw new Error(
+          `That ${result.sequenceKind} could not be generated. Please try again.`,
+        );
+      }
+
+      loadSet(set);
+      setGenerations(rendered);
+      const shown = new Set(rendered.map((g) => g.id));
+      setFailedIds(ids.filter((id) => !shown.has(id)));
+      setPartial(
+        rendered.length < result.frameCount
+          ? `${rendered.length} of ${result.frameCount} frames came back. Retry the missing ones from their place in the ${result.sequenceKind}.`
+          : null,
+      );
+      return rendered;
+    },
+    [loadSet],
+  );
+
+  const readBack = useCallback(
+    (
+      brandId: string,
+      ids: string[],
+      sequence: SequenceJobResult | null,
+      run: number,
+    ) =>
+      sequence
+        ? loadSequence(brandId, sequence, run)
+        : loadByIds(brandId, ids, run),
+    [loadByIds, loadSequence],
+  );
+
   const generate = useCallback(
     async (args: GenerateArgs): Promise<SerializedGeneration[]> => {
       const run = ++runId.current;
       /* Recorded before anything can fail, with no ids yet: a failure from here
        until the poll returns means nothing was produced, so a retry is a real
        re-run rather than a re-read. */
-      lastRun.current = { args, ids: [] };
+      lastRun.current = { args, ids: [], sequence: null };
       setPending(true);
       setError(null);
       setPartial(null);
       setFailedIds([]);
       setGenerations([]);
+      setSequenceProgress(null);
+      loadSet(null);
       setProgressLabel("Starting…");
       setStage("starting");
       setProgress(null);
@@ -180,6 +281,7 @@ export function useDesignGeneration(): DesignGenerationState {
             setStage("running");
             setProgress({ done: p.done, total: p.total });
             if (p.stage) setJobStage(p.stage);
+            setSequenceProgress(readSequenceProgress(p));
           },
         });
         if (runId.current !== run) return [];
@@ -189,7 +291,7 @@ export function useDesignGeneration(): DesignGenerationState {
          result, which reads as "nothing happened". */
         if (result.generationIds.length === 0) {
           throw new Error(
-            "That design could not be generated. Please try again.",
+            `That ${result.kind === "sequence" ? result.sequenceKind : "design"} could not be generated. Please try again.`,
           );
         }
 
@@ -199,10 +301,16 @@ export function useDesignGeneration(): DesignGenerationState {
          this run's rows out of the window, the filter emptied, and a
          successful generation rendered "No designs yet" while the designs sat
          in Design Studio. Addressing the rows removes the whole class. */
-        lastRun.current = { args, ids: result.generationIds };
+        const sequence = result.kind === "sequence" ? result : null;
+        lastRun.current = { args, ids: result.generationIds, sequence };
         setStage("fetching");
         setProgressLabel("Getting your designs ready…");
-        return await loadByIds(args.brandId, result.generationIds, run);
+        return await readBack(
+          args.brandId,
+          result.generationIds,
+          sequence,
+          run,
+        );
       } catch (err) {
         if (runId.current !== run) return [];
         setError(
@@ -216,10 +324,11 @@ export function useDesignGeneration(): DesignGenerationState {
           setStage(null);
           setProgress(null);
           setJobStage(null);
+          setSequenceProgress(null);
         }
       }
     },
-    [],
+    [loadSet, readBack],
   );
 
   /**
@@ -246,7 +355,7 @@ export function useDesignGeneration(): DesignGenerationState {
     setProgressLabel("Fetching your designs…");
     setStage("fetching");
     try {
-      await loadByIds(last.args.brandId, last.ids, run);
+      await readBack(last.args.brandId, last.ids, last.sequence, run);
     } catch (err) {
       if (runId.current !== run) return;
       setError(
@@ -261,7 +370,7 @@ export function useDesignGeneration(): DesignGenerationState {
         setJobStage(null);
       }
     }
-  }, [generate, loadByIds]);
+  }, [generate, readBack]);
 
   return {
     generate,
@@ -276,6 +385,11 @@ export function useDesignGeneration(): DesignGenerationState {
     failedCount: failedIds.length,
     failedIds,
     generations,
+    set: frameSet.set,
+    sequenceProgress,
+    regenerateFrame: frameSet.regenerateFrame,
+    frameActions: frameSet.actingOn,
+    frameErrors: frameSet.frameErrors,
     reset,
   };
 }

@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { frameRow, frameRows } from "@/components/design/sequence/fixtures";
 import { withKoImagery } from "@/lib/testing/ko-imagery";
 import { DesignStudioClient } from "./design-studio-client";
 
@@ -17,6 +18,11 @@ const design = {
   failedCount: 0,
   failedIds: [] as string[],
   generations: [] as unknown[],
+  set: null,
+  sequenceProgress: null,
+  regenerateFrame: vi.fn(),
+  frameActions: new Set<string>(),
+  frameErrors: {},
   generate,
   retry: vi.fn(),
   reset,
@@ -220,6 +226,70 @@ describe("DesignStudioClient history grid", () => {
     expect(screen.queryByRole("link", { name: /preview/i })).toBeNull();
     expect(
       screen.getByRole("button", { name: /preview/i }),
+    ).toBeInTheDocument();
+  });
+});
+
+/* KOOS-AI-002: a carousel is one thing in the history, not five designs. */
+describe("DesignStudioClient history grid with sets", () => {
+  const frames = frameRows(5);
+  const cards = () =>
+    screen
+      .getAllByRole("button")
+      .filter((b) =>
+        /^(Preview|Open)/.test(b.getAttribute("aria-label") ?? ""),
+      );
+
+  it("shows a set as one card with its slide count, and singles as before", () => {
+    renderStudio([
+      generation({ id: "s1", headline: "Older post" }),
+      ...frames,
+      generation({ id: "s2", headline: "Newer post" }),
+    ]);
+    expect(cards().map((c) => c.getAttribute("aria-label"))).toEqual([
+      "Preview Older post",
+      "Open carousel, 5 slides: The launch",
+      "Preview Newer post",
+    ]);
+    const setCard = screen.getByRole("button", { name: /^Open carousel/ });
+    expect(within(setCard).getByText("5 slides")).toBeInTheDocument();
+    expect(setCard.querySelector("img")).toHaveAttribute(
+      "src",
+      expect.stringContaining("f0.png"),
+    );
+  });
+
+  it("opens the set viewer for a set card", async () => {
+    renderStudio(frames);
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Open carousel/ }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByRole("heading", { name: "Your 5-slide carousel" }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("tab")).toHaveLength(5);
+  });
+
+  it("does not refresh after only looking at a set", async () => {
+    renderStudio(frames);
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Open carousel/ }),
+    );
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says on the card when a frame failed", () => {
+    const withFailure = [...frames];
+    withFailure[2] = frameRow(2, { status: "failed", url: null });
+    renderStudio(withFailure);
+    expect(
+      screen.getByRole("button", {
+        name: "Open carousel, 5 slides: The launch. 1 didn't render",
+      }),
     ).toBeInTheDocument();
   });
 });

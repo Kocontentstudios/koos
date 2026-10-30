@@ -3,9 +3,15 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DesignEntry } from "@/components/design/design-analytics";
+import type { SequenceProgress } from "@/components/design/sequence/progress";
+import { setHeading } from "@/components/design/sequence/set-heading";
+import type { DesignSet } from "@/components/design/sequence/set-model";
+import { SetProgress } from "@/components/design/sequence/set-progress";
+import { SetViewer } from "@/components/design/sequence/set-viewer";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import type { FrameEdits } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
@@ -57,6 +63,19 @@ export type DirectionsView =
       regenerateError: { slot: number; message: string } | null;
       sendingId: string | null;
       sendNotices: Record<string, SendNotice>;
+    }
+  | {
+      step: "set-progress";
+      progress: SequenceProgress;
+      stage: GenerationStage | null;
+    }
+  | {
+      step: "set-results";
+      set: DesignSet;
+      source: ImageSource | null;
+      /** `regen:${generationId}` for every frame regenerating. */
+      frameActions: ReadonlySet<string>;
+      frameErrors: Readonly<Record<number, string>>;
     };
 
 export interface DirectionsHandlers {
@@ -72,6 +91,10 @@ export interface DirectionsHandlers {
   onChooseAnotherImage: () => void;
   onRegenerate: (slot: number) => void;
   onSendToTeam: (generation: SerializedGeneration) => void;
+  onRegenerateFrame: (
+    generationId: string,
+    edits?: FrameEdits,
+  ) => Promise<SerializedGeneration | null>;
   onDone: () => void;
 }
 
@@ -85,9 +108,12 @@ const CHOOSE_TITLE: Record<DirectionsEntry, string> = {
  *  The results width keeps the base 1rem gutter each side: a bare
  *  sm:max-w-5xl replaces it and ran the card edge to edge at 640-1024px. */
 export function dialogWidthFor(view: DirectionsView): string {
-  return view.step === "results"
-    ? "sm:max-w-[min(64rem,calc(100%-2rem))]"
-    : "sm:max-w-xl";
+  if (view.step === "results") return "sm:max-w-[min(64rem,calc(100%-2rem))]";
+  /* One frame large, not two side by side: wider only spreads the rail. */
+  if (view.step === "set-results") {
+    return "sm:max-w-[min(48rem,calc(100%-2rem))]";
+  }
+  return "sm:max-w-xl";
 }
 
 function Header({
@@ -315,6 +341,31 @@ export function DirectionsFlowView({
           onChangeImage={handlers.onBackToChoice}
         />
       );
+
+    case "set-progress":
+      return <SetProgress progress={view.progress} stage={view.stage} />;
+
+    case "set-results": {
+      const heading = setHeading(view.set);
+      return (
+        <>
+          <Header title={heading.title} description={heading.description} />
+          <SetViewer
+            set={view.set}
+            actingOn={view.frameActions}
+            frameErrors={view.frameErrors}
+            onRegenerateFrame={handlers.onRegenerateFrame}
+          />
+          <ResultsFooter
+            source={view.source}
+            designsOnScreen
+            regenerating={view.frameActions.size > 0}
+            onStartOver={handlers.onBackToChoice}
+            onDone={handlers.onDone}
+          />
+        </>
+      );
+    }
 
     case "results": {
       const ready = view.slots.filter((slot) => slot.generation).length;

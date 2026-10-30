@@ -44,6 +44,7 @@ const HANDLERS: DirectionsHandlers = {
   onChooseAnotherImage: noop,
   onRegenerate: noop,
   onSendToTeam: noop,
+  onRegenerateFrame: async () => null,
   onDone: noop,
 };
 

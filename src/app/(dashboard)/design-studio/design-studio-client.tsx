@@ -7,6 +7,12 @@ import { useId, useState } from "react";
 import { DesignCard } from "@/components/design/design-card";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import { DesignDirectionsDialog } from "@/components/design/directions/design-directions-dialog";
+import { SetCard } from "@/components/design/sequence/set-card";
+import {
+  type DesignSet,
+  groupGallery,
+} from "@/components/design/sequence/set-model";
+import { SetViewerDialog } from "@/components/design/sequence/set-viewer-dialog";
 import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,6 +49,7 @@ export function DesignStudioClient({
   /* A card from the history opens the design preview with just that design,
      so saving always happens behind a preview of what is being saved. */
   const [viewing, setViewing] = useState<SerializedGeneration | null>(null);
+  const [viewingSet, setViewingSet] = useState<DesignSet | null>(null);
   /* Recorded when a run starts, not inferred from state at close: a second
      generation that fails clears the first one's results, so reading
      `generations` on the way out would skip the refresh and leave the designs
@@ -77,6 +84,9 @@ export function DesignStudioClient({
       </div>
     );
   }
+
+  /* A carousel's frames fold into one card; single designs are untouched. */
+  const items = groupGallery(brandId, history);
 
   return (
     <div className="mx-auto flex w-full max-w-[960px] flex-col gap-8">
@@ -146,20 +156,28 @@ export function DesignStudioClient({
         <h2 className="mb-3 font-display text-[18px] font-bold text-foreground">
           Your designs
         </h2>
-        {history.length === 0 ? (
+        {items.length === 0 ? (
           <p className="text-[14px] text-[var(--text-muted)]">
             Nothing yet. Generate your first design above, or start one from a
             chat brief or a calendar item.
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {history.map((generation) => (
-              <DesignCard
-                key={generation.id}
-                generation={generation}
-                onOpen={setViewing}
-              />
-            ))}
+            {items.map((item) =>
+              item.type === "set" ? (
+                <SetCard
+                  key={item.set.setId}
+                  set={item.set}
+                  onOpen={setViewingSet}
+                />
+              ) : (
+                <DesignCard
+                  key={item.generation.id}
+                  generation={item.generation}
+                  onOpen={setViewing}
+                />
+              ),
+            )}
           </div>
         )}
       </section>
@@ -189,6 +207,14 @@ export function DesignStudioClient({
           aspectRatio,
         }}
         design={design}
+      />
+
+      <SetViewerDialog
+        set={viewingSet}
+        onClose={(changed) => {
+          setViewingSet(null);
+          if (changed) router.refresh();
+        }}
       />
 
       <DesignPreviewModal
