@@ -52,6 +52,7 @@ function direction(
     },
     imageSource: "upload",
     editable: true,
+    frame: null,
     ...overrides,
   };
 }

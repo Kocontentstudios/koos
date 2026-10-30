@@ -1025,6 +1025,33 @@ export async function listDesignGenerationsForBrand(
 }
 
 /**
+ * Every row of one carousel or presentation (KOOS-AI-002), in frame order and
+ * oldest first within a frame, superseded and failed rows included: the
+ * caller picks the live frame with liveFrames(). Brand-scoped so a guessed
+ * set id reads nothing.
+ */
+export async function listSetFrames(brandId: string, setId: string) {
+  return db
+    .select()
+    .from(designGenerations)
+    .where(
+      and(
+        eq(designGenerations.brandId, brandId),
+        eq(designGenerations.setId, setId),
+      ),
+    )
+    .orderBy(designGenerations.frameIndex, designGenerations.createdAt);
+}
+
+/** Points a replaced frame at the row that replaced it. */
+export async function supersedeFrame(id: string, replacedBy: string) {
+  await db
+    .update(designGenerations)
+    .set({ supersededBy: replacedBy })
+    .where(eq(designGenerations.id, id));
+}
+
+/**
  * Every row of one set of directions, newest first. A set is the pair one job
  * produced plus any regenerated replacements, keyed by the id stored in
  * `rationale.set`; the brand filter keeps a guessed set id from reaching

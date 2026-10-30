@@ -14,6 +14,7 @@ import type { AspectRatio } from "@/lib/ai/image/types";
 import type { DesignContext } from "@/lib/design/context";
 import { resolveDesignFormat } from "@/lib/design/formats";
 import type { DesignSpec } from "@/lib/design/spec";
+import type { BriefFact } from "@/lib/jobs/directions/brief-facts";
 
 export const SEQUENCE_KINDS = ["carousel", "presentation"] as const;
 export type SequenceKind = (typeof SEQUENCE_KINDS)[number];
@@ -118,6 +119,11 @@ export interface PlanSequenceInput {
 
 export interface PlanSequenceResult {
   plan: PlannedSequence;
+  /** The brief's facts the plan was held to, so the job checks the same
+   *  facts against what was actually drawn (set-level coverage, H5). */
+  facts: BriefFact[];
+  /** What the brief offers, in its words; the hook must name it. */
+  offering: string | null;
   /** Problems still standing after the one repair pass; the job decides
    *  which are fatal. Empty when the plan passed. */
   problems: SequenceProblem[];

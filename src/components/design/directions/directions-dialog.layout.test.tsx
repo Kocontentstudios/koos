@@ -69,6 +69,7 @@ function generation(id: string, title: string): SerializedGeneration {
     direction: { title, reasons: ["Headline leads the eye"] },
     imageSource: "upload",
     editable: true,
+    frame: null,
   };
 }
 

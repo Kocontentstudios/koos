@@ -1,5 +1,7 @@
 import type { designGenerations } from "@/lib/db/schema";
 import { readRationale } from "@/lib/design/direction-rationale";
+import type { SerializedFrame } from "@/lib/design/sequence/contract";
+import { serializedFrameOf } from "@/lib/design/sequence/frames";
 import type { DesignSpec } from "@/lib/design/spec";
 import { getSignedReadUrl, publicUrl } from "@/lib/storage";
 
@@ -25,6 +27,8 @@ export interface SerializedGeneration {
   imageSource: "upload" | "ko" | "none" | null;
   /** Whether a layer document exists to edit. Old rows have none. */
   editable: boolean;
+  /** Which carousel or presentation frame this is; null on single designs. */
+  frame: SerializedFrame | null;
 }
 
 /** Signed URLs are minted per request rather than stored, so a gallery link
@@ -70,5 +74,6 @@ export async function serializeGeneration(
     direction: directionOf(row.rationale),
     imageSource: row.imageSource ?? null,
     editable: row.document !== null && row.document !== undefined,
+    frame: serializedFrameOf(row),
   };
 }
