@@ -23,11 +23,12 @@ import type { FrameBeat } from "./contract";
 const ANNOUNCEMENT =
   /\b(?:is|are|'s)\s+(?:here|back|live|now available|available now)\b[.!]?\s*$|^\s*(?:introducing|meet|presenting|announcing|new|now)\b|\b(?:arrived|arrives|landed|lands|dropped)\b|\bjust\s+in\b|\bnew\s+(?:in|arrival|arrivals|stock)\b|\bnow\s+(?:available|open|in stock)\b|\b(?:out now|in stores?|back in stock)\b|\bfinally\b/i;
 
-/* What a strong hook does instead, in the words that moved the judge in the
-   blind read of both variants ("Still invoicing on paper?", "Steeped 18
-   hours, poured cold", "Can your teen bake real sourdough?"). */
+/* What a strong hook does instead. Round 4's judge marked down every
+   question any competitor could ask ("Still doing laundry yourself?") and
+   every mood line, and asked each time for the brief's specific: the
+   steeping time, the price, the number of students. */
 export const HOOK_CRAFT =
-  "make the headline the reason to swipe (a question the customer is already asking, the brief's boldest specific, or a before-and-after) and put the name in the subheadline";
+  "build the headline on the most concrete thing the brief gives (a figure, how it is made, who makes it, what it changes for the reader), said straight, as a question that holds it or as a before-and-after, and name the offering in the headline or the subheadline";
 
 /* Content words a headline and its subheadline may share before the second
    line reads as the first said again; the brand's name is free. */
@@ -49,32 +50,39 @@ function echoedWords(hook: FrameBeat, brandName: string): string[] {
    two frames, each marked down by the judge as one point made twice. */
 const HOOK_PREVIEW_WORDS = 2;
 
-/** Later frames whose point the hook already spends, by the content words
- *  they share beyond the brand's and the offering's names. */
+/** Zero-based indexes of the later frames whose point the hook already
+ *  spends, by the content words they share beyond the brand's and the
+ *  offering's names. */
+export function previewedFrames(
+  frames: readonly FrameBeat[],
+  offering: string | null,
+  brandName = "",
+): number[] {
+  const [hook, ...later] = frames;
+  if (!hook) return [];
+  const free = namesFree(brandName, offering);
+  const hookWords = contentStems(`${hook.headline} ${hook.subheadline}`, free);
+  return later.flatMap((beat, i) => {
+    /* The later frame restating the hook's headline is that frame's
+       headline-repeat (validateSequence), not the hook's fault. */
+    if (isNearDuplicateHeadline(hook.headline, beat.headline, free)) return [];
+    const shared = [
+      ...contentStems(`${beat.headline} ${beat.subheadline}`, free),
+    ].filter((s) => hookWords.has(s));
+    return shared.length >= HOOK_PREVIEW_WORDS ? [i + 1] : [];
+  });
+}
+
+/** The hook's faults for the later frames it previews. */
 export function hookPreviews(
   frames: readonly FrameBeat[],
   offering: string | null,
   brandName = "",
 ): string[] {
-  const [hook, ...later] = frames;
-  if (!hook) return [];
-  const free = namesFree(brandName, offering);
-  const hookWords = contentStems(`${hook.headline} ${hook.subheadline}`, free);
-  const faults: string[] = [];
-  later.forEach((beat, i) => {
-    /* The later frame restating the hook's headline is that frame's
-       headline-repeat (validateSequence), not the hook's fault. */
-    if (isNearDuplicateHeadline(hook.headline, beat.headline, free)) return;
-    const shared = [
-      ...contentStems(`${beat.headline} ${beat.subheadline}`, free),
-    ].filter((s) => hookWords.has(s));
-    if (shared.length >= HOOK_PREVIEW_WORDS) {
-      faults.push(
-        `the hook already says what frame ${i + 2} ("${beat.headline}") is for; leave that point to it and give the hook its own reason to swipe`,
-      );
-    }
-  });
-  return faults;
+  return previewedFrames(frames, offering, brandName).map(
+    (i) =>
+      `the hook already says what frame ${i + 1} ("${frames[i].headline}") is for; leave that point to it and give the hook its own reason to swipe`,
+  );
 }
 
 /* An offering read as a name ("cold brew", "Ledgerly") may be said on any

@@ -8,11 +8,11 @@ on some frame, and copy that a harsh reader says earns the swipe, carries
 the action and never repeats itself.
 
 ```
-pnpm eval:design-sequence                         # 6 briefs x N in {3, 5, 8}
-pnpm eval:design-sequence --kind carousel --n 5   # the 4 carousels at 5 frames
+pnpm eval:design-sequence                         # 10 tuning briefs x N in {3, 5, 8}
+pnpm eval:design-sequence --kind carousel --n 5   # the 7 tuning carousels at 5 frames
 pnpm eval:design-sequence --case event            # one brief, every N
 pnpm eval:design-sequence --no-judge              # deterministic lane only
-pnpm eval:design-sequence --set held-out          # the 4 held-out briefs x N
+pnpm eval:design-sequence --set held-out          # the 4 held-out briefs x N, aggregate only
 pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
 ```
 
@@ -23,11 +23,14 @@ SigV4 keys are used. Each run makes 5 to 8 planner calls, never more than
 outline, two copy drafts in parallel, and the one edit pass (the problems
 code found, the hook in three angles and the editor's own review of which
 frames repeat another, in a single call); when needed, the outline re-ask,
-the draft choice and the hook choice. Plus one judge call. A full run is
-18 planner runs, three at a time, and takes about 10 minutes. Each run
+the draft choice and the hook choice. Plus one judge call. A full tuning run is
+30 planner runs, three at a time, and takes about 12 minutes; the
+held-out set is 12 more. Each run
 also prints the copy faults the planner could not get rewritten
-(`PlannedSequenceResult.faults`), and the report keeps them per run, so a
-flat hook or a line said twice is counted, never silent. Run it before
+(`PlannedSequenceResult.faults`), the words no source vouches for that
+shipped (`invented`) and the brief facts code had to write into a footer
+itself (`factsDrawn`), and the report keeps them per run, so a flat hook,
+a line said twice or an invented claim is counted, never silent. Run it before
 shipping a change to `src/lib/design/sequence/` or
 `src/lib/ai/prompts/design-sequence.ts`, and nightly. It is not part of
 `pnpm test`. Nothing is rendered, uploaded or stored. The JSON report, with
@@ -39,15 +42,25 @@ every plan and every judge reason, lands in
 Two sets, scored and reported separately against the same frozen
 thresholds:
 
-- **Tuning** (`SEQUENCE_EVAL_CASES`, the default): the six briefs rounds 1
-  to 3 read to change the prompt.
+- **Tuning** (`SEQUENCE_EVAL_CASES`, the default): ten briefs whose runs
+  are read to change the planner and the prompt. Seven carousels (a cafe,
+  a textile store, a SaaS launch, a teen baking class, a pepper sauce
+  restock, a laundry pickup service, a dental clinic offer) and three
+  presentations (a seed pitch deck, a sponsorship deck, a fundraising
+  deck). The last four were the round-4 held-out set; the round-4 critic
+  found their runs had been read to tune `points.ts` and a label, so they
+  moved here.
 - **Held out** (`SEQUENCE_HELD_OUT_CASES`, `--set held-out`): four briefs
-  written on 2026-10-30, after the round-3 critic found the prompt quoting
-  tuning-set hooks word for word. A pepper sauce restock (two facts, so
-  thin at N=8), a laundry pickup service (text-led), a dental clinic
-  offer and a fundraising deck. Nobody reads their runs to change the
-  prompt; they measure whether the planner generalises. The report goes
-  to `qa-reports/eval/design-sequence.held-out.json`.
+  written for round 5: a tailor's alterations offer and an office car wash
+  (both thin, the car wash text-led), a WAEC maths crash course with six
+  facts, and a coworking membership deck. The runner prints only their
+  aggregate; plans, faults and judge reasons go to
+  `qa-reports/eval/design-sequence.held-out.json`, which whoever tunes the
+  planner does not open. They measure whether the planner generalises.
+  They were written by the round-5 builder, not by the critic, which is
+  weaker than a critic-written set; a critic can add its own briefs to
+  this list at any time and the gates below cover them on the day they
+  are added.
 
 `prompt-leak.test.ts` (gate lane) fails if any distinctive phrase of
 either set (the offering, title, brand name, every labelled fact, every
@@ -58,13 +71,13 @@ not a fixture. The phrases are computed from `cases.ts`, so a new fixture
 is covered the day it is added.
 
 Every brand profile carries `overview`, `offer`, `values`,
-`differentiators`, `targetAudience` and `primaryGoal`, the fields a thin
-brief may borrow points from (`profilePoints` in
-`src/lib/design/sequence/points.ts`), so that path is measured live.
+`differentiators`, `targetAudience` and `primaryGoal`. A thin brief may
+borrow points from the first five, clause by clause (`profilePoints` in
+`src/lib/design/sequence/points.ts`), so that path is measured live. The
+goal is never a point and never licenses a claim (`sequenceLedger`): it
+is what the business wants, not what is true.
 
-`cases.ts` holds four carousels (a cafe, a textile store, a SaaS launch, a
-teen baking class) and two presentations (a seed pitch deck and a
-sponsorship deck). Each case's facts and offering are labelled by hand, in
+Each case's facts and offering are labelled by hand, in
 the brief's own words. Coverage is measured against those labels, never
 against the brief reader the planner uses, so a reader miss shows up as a
 coverage miss. `cases.test.ts` checks that every label appears in its brief
@@ -111,6 +124,55 @@ anyone edits them.
   failed) is reported as "not measured". It never counts as a pass.
 
 ## Results so far
+
+### Round 5 (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
+
+Logs and JSON reports in `/tmp/feat-multiframe/critique/u1r5/`
+(`eval-tuning-{a,b,c}`, `eval-heldout-{a,b,c}`). Run a was the first
+pass of this round (before brief points, the later frame's preview fix
+and the audience drop); b and c are two runs of the code as committed.
+
+Changes: the goal is no longer a point or a source the ledger trusts; the
+profile's own words license a frame that makes a profile point
+(`sequenceLedger`), so a regenerate of that frame is no longer refused;
+`invented` and `factsDrawn` on `PlannedSequenceResult`, recorded by the
+job; profile fields read clause by clause and the audience dropped as a
+point; the brief's own non-fact points numbered (B1...) and every middle
+frame built on a cited source of its own, with a frame built on nothing
+asked for again; a carousel hook carries no date, place or contact; a
+bare date, day, time or place frame is a fault like a bare price; the
+price check finds the amount in any words; a fact the copy still leaves
+out is written as a footer line in the brief's words (`withFactsDrawn`).
+
+| Run | set | coverage | hook | last action | non-repetitive |
+|---|---|---|---|---|---|
+| a | tuning | 1.0 | 3.77 | 4.97 | 3.23 |
+| a | held out | 0.917 | 3.67 | 4.83 | 3.33 |
+| b | tuning | 1.0 | 3.67 | 4.90 | 3.13 |
+| b | held out | 1.0 | 3.50 | 4.92 | 3.67 |
+| c | tuning | 1.0 | 3.53 | 4.97 | 3.30 |
+| c | held out | 1.0 | 3.67 | 5.00 | 3.25 |
+
+**Both sets still fail the frozen hook and non-repetition thresholds.**
+The deterministic gates hold on runs b and c (coverage 1.0 on all 84
+runs); run a's held-out miss was not looked into, since that would mean
+reading a held-out run. Non-repetition has not moved past 3.2 to 3.7 in
+three rounds, which is the stall rule's signal: what the judge reads as
+repetition is two frames on one theme (provenance and craft, origin and
+roasting, two credentials), which no word-overlap check sees and the one
+edit pass does not fix. Hook previews (the hook spending a later frame's
+point) were left on 17 of 30 tuning runs in both a and b, with the later
+frame asked to move as well as the hook.
+
+Deterministic evidence from runs a and b: 0 and 2 price-placement faults
+left in 30 tuning runs, 0 stat-highlight frames without a figure, 1 and 0
+bare-fact frames left.
+
+Text-led sets still alternate hero-center and the centred card: a third
+text-led composition needs a new builder in
+`src/lib/design/document/builders/` and a new `DESIGN_LAYOUTS` value,
+outside the planner.
+
 
 ### Round 4 (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
 

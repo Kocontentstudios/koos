@@ -64,6 +64,12 @@ export const outlineFrameSchema = z.object({
     .array(z.number().int())
     .max(12)
     .describe("The numbers of the brief facts this frame states; [] for none."),
+  briefPoint: z
+    .number()
+    .int()
+    .describe(
+      "The number of the brief point (B) this frame is built on, or 0 for none.",
+    ),
   profilePoint: z
     .number()
     .int()

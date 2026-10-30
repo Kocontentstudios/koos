@@ -19,6 +19,10 @@
  * --set tuning (the default) runs the briefs earlier rounds tuned the
  * prompt against; --set held-out runs the briefs it was never tuned on,
  * scored and reported on their own, against the same frozen thresholds.
+ * A held-out run prints its aggregate only: the plans, faults and judge
+ * reasons go to the report file, so whoever tunes the planner from this
+ * terminal never reads the briefs it is measured on (round-4 critic,
+ * HIGH 4).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -65,6 +69,10 @@ const onlyN = flag("--n");
 const onlyKind = flag("--kind");
 const withJudge = !args.includes("--no-judge");
 const set = flag("--set") ?? "tuning";
+const printRuns = set !== "held-out";
+/* The planner's own trace (design.sequence.planned) carries the plan's
+   faults and invented words; a held-out run keeps it off the terminal. */
+if (!printRuns) console.info = () => {};
 if (set !== "tuning" && set !== "held-out") {
   console.error(`--set is tuning or held-out, not ${set}`);
   process.exit(1);
@@ -147,6 +155,10 @@ interface RunRecord {
   /** Copy faults the planner could not get rewritten (plan.ts copyFaults):
    *  a flat hook or a line said twice that ships, counted, not hidden. */
   faults: string[];
+  /** Words no source vouches for that shipped (PlannedSequenceResult). */
+  invented: string[];
+  /** Facts code wrote into a footer because the copy left them out. */
+  factsDrawn: string[];
   ms: number;
   error?: string;
 }
@@ -181,8 +193,14 @@ async function worker() {
         modelCalls: result.modelCalls,
         repaired: result.repaired,
         faults: result.faults.map((f) => `frame ${f.frame + 1}: ${f.detail}`),
+        invented: result.invented.map((i) => `frame ${i.frame + 1}: ${i.text}`),
+        factsDrawn: result.factsDrawn,
         ms: Date.now() - started,
       });
+      if (!printRuns) {
+        console.log(`run ${records.length} of ${jobs.length} done`);
+        continue;
+      }
       const marks = [
         score.count,
         score.roles,
@@ -201,6 +219,12 @@ async function worker() {
       for (const fault of result.faults) {
         console.log(`  fault: frame ${fault.frame + 1}: ${fault.detail}`);
       }
+      for (const made of result.invented) {
+        console.log(`  invented: frame ${made.frame + 1}: ${made.text}`);
+      }
+      for (const drawn of result.factsDrawn) {
+        console.log(`  fact drawn by code: ${drawn}`);
+      }
       if (score.uncovered.length > 0) {
         console.log(`  uncovered: ${score.uncovered.join(" | ")}`);
       }
@@ -214,10 +238,15 @@ async function worker() {
         modelCalls: 0,
         repaired: false,
         faults: [],
+        invented: [],
+        factsDrawn: [],
         ms: Date.now() - started,
         error: String(err),
       });
-      console.error(`${c.id} N=${n}: planner threw`, err);
+      console.error(
+        printRuns ? `${c.id} N=${n}: planner threw` : "a run threw",
+        printRuns ? err : (err as Error)?.name,
+      );
     }
   }
 }
@@ -256,9 +285,11 @@ writeFileSync(
   ),
 );
 console.log(`\nset: ${set}`, agg);
-console.log(
-  `copy faults left: ${records.reduce((n, r) => n + r.faults.length, 0)} across ${records.filter((r) => r.faults.length > 0).length} of ${records.length} runs`,
-);
+const across = (key: "faults" | "invented" | "factsDrawn") =>
+  `${records.reduce((n, r) => n + r[key].length, 0)} across ${records.filter((r) => r[key].length > 0).length} of ${records.length} runs`;
+console.log(`copy faults left: ${across("faults")}`);
+console.log(`invented words shipped: ${across("invented")}`);
+console.log(`facts drawn by code: ${across("factsDrawn")}`);
 console.log(`report: ${reportPath}`);
 if (failed.length > 0) {
   console.error(`FAIL\n- ${failed.join("\n- ")}`);

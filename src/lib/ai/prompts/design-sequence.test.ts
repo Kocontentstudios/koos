@@ -237,7 +237,7 @@ describe("buildSequenceEditPrompt", () => {
 
   it("asks for the hook in every angle, held to what code found and its names", () => {
     expect(prompt).toContain(`Frame 1, ${HOOK_VERSIONS} versions`);
-    expect(prompt).toContain("a question the customer is already asking");
+    expect(prompt).toContain("a question that holds it");
     expect(prompt).toContain("that no later frame is about");
     expect(prompt).toContain("a before-and-after");
     expect(prompt).toContain(
@@ -360,7 +360,7 @@ describe("buildSequenceChoicePrompt", () => {
   });
 
   it("holds them to the opening, one point per frame and the action", () => {
-    expect(prompt).toContain("a question the customer is already asking");
+    expect(prompt).toContain("a question any brand could ask");
     expect(prompt).toContain("no idea, detail or phrase given twice");
     expect(prompt).toContain("ends on one clear action");
     expect(prompt).toContain("Answer with the draft's number.");
@@ -407,6 +407,8 @@ describe("buildHookChoicePrompt", () => {
     expect(flagged).toContain(
       "A version with a fault listed loses to one without.",
     );
-    expect(flagged).toContain("put the name in the subheadline");
+    expect(flagged).toContain(
+      "name the offering in the headline or the subheadline",
+    );
   });
 });

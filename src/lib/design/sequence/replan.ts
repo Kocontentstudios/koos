@@ -82,7 +82,8 @@ const USER_REASON: Record<RegenerateProblemKind, string> = {
   "repeats-frame": "Every new version repeated another frame's headline.",
   "drops-fact": "Every new version left out a detail only this frame gives.",
   "drops-offering": "Every new version stopped saying what is on offer.",
-  invented: "Every new version added a detail the brief does not give.",
+  invented:
+    "Every new version added a detail neither the brief nor the brand profile gives.",
   role: "Every new version broke this frame's job in the set.",
   "flat-hook": "Every new opening was a label, not a reason to swipe.",
   "hook-preview": "Every new opening gave away a later frame's point.",

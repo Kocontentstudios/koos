@@ -272,7 +272,7 @@ describe("hookFaults", () => {
       ),
     ).toEqual([
       expect.stringContaining(
-        "is only the name of what is offered; make the headline the reason to swipe",
+        "is only the name of what is offered; build the headline on the most concrete thing",
       ),
     ]);
   });
@@ -287,7 +287,9 @@ describe("hookFaults", () => {
       "hand-dyed indigo adire",
     );
     expect(faults).toEqual([expect.stringContaining("announces the offering")]);
-    expect(faults[0]).toContain("put the name in the subheadline");
+    expect(faults[0]).toContain(
+      "name the offering in the headline or the subheadline",
+    );
   });
 
   it("names a subheadline that says its headline again", () => {

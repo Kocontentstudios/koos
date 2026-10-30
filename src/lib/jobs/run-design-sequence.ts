@@ -188,6 +188,11 @@ export interface SequenceCheckpoint {
     modelCalls: number;
     repaired: boolean;
     problems: SequenceProblem[];
+    /** Words the planner shipped that no source vouches for, as
+     *  "frame N: words". Absent on checkpoints written before it existed. */
+    invented?: string[];
+    /** Brief facts the planner wrote into a footer itself. */
+    factsDrawn?: string[];
   };
   /** Frames that finished, delivered or failed, with what they carried, so a
    *  later slice neither renders them again nor loses their record. */
@@ -1146,6 +1151,8 @@ async function planSet({
       modelCalls: planned.modelCalls,
       repaired: planned.repaired,
       problems: planned.problems,
+      invented: planned.invented.map((i) => `frame ${i.frame + 1}: ${i.text}`),
+      factsDrawn: planned.factsDrawn,
     },
     frames: {},
     startedAt,
@@ -1259,6 +1266,8 @@ async function billFrames({
         planModelCalls: state.planned.modelCalls,
         planRepaired: state.planned.repaired,
         planProblems: state.planned.problems.map((p) => p.rule),
+        planInvented: state.planned.invented ?? [],
+        planFactsDrawn: state.planned.factsDrawn ?? [],
       },
     });
   }

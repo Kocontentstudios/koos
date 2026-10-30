@@ -327,6 +327,9 @@ function planned(plan: PlannedSequence, over: Record<string, unknown> = {}) {
     facts: [],
     offering: null,
     problems: [],
+    faults: [],
+    invented: [],
+    factsDrawn: [],
     modelCalls: 1,
     repaired: false,
     ...over,
@@ -602,6 +605,20 @@ describe("billing and traces", () => {
         jobFailed: false,
       });
     }
+  });
+
+  it("records what the planner shipped unvouched and what it wrote in itself (round-4 critic, HIGH 2)", async () => {
+    planSequence.mockResolvedValue(
+      planned(planOf(3), {
+        invented: [{ frame: 1, text: "gone" }],
+        factsDrawn: ["5pm to 9pm"],
+      }),
+    );
+    await run(3);
+    expect(db.usage[0].metadata).toMatchObject({
+      planInvented: ["frame 2: gone"],
+      planFactsDrawn: ["5pm to 9pm"],
+    });
   });
 
   it("bills each frame as it lands, before the set completes", async () => {

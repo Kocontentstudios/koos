@@ -141,17 +141,18 @@ export interface OutlinePromptInput {
   /** The brand profile's points (profilePoints): a second source of
    *  points, for a brief with fewer of its own than there are frames. */
   profilePoints?: readonly ProfilePoint[];
+  /** The brief's own points besides its facts (briefPoints). */
+  briefPoints?: readonly string[];
   /** Points of a previous outline that said the same thing twice. */
   repeated?: string[];
+  /** Points of a previous outline built on no source while one was left. */
+  unsourced?: string[];
 }
 
 const PROFILE_LABEL: Record<ProfilePoint["field"], string> = {
   differentiators: "what sets it apart",
   offer: "its offer",
   values: "its values",
-  targetAudience: "who it is for: speak to them, never describe them",
-  primaryGoal:
-    "the brand's own aim: a reason to act, never a claim that it already happens",
   overview: "what it is",
 };
 
@@ -160,6 +161,22 @@ export function profilePointList(points: readonly ProfilePoint[]): string {
   return points
     .map((p, i) => `P${i + 1}. (${PROFILE_LABEL[p.field]}) "${p.text}"`)
     .join("\n");
+}
+
+/* Round 4's judge marked a set down wherever two frames drew on one source
+   (the hook's slow steep and frame 2's steeping time; two frames on who it
+   is for). Each frame is built on a source of its own, named, so the
+   outline spends sources rather than restating them. */
+function sourcesBlock(
+  points: readonly string[],
+  noun: string,
+  hasProfile: boolean,
+): string {
+  const listed =
+    points.length > 0
+      ? `\nThe brief's own points besides its facts, numbered:\n${points.map((p, i) => `B${i + 1}. "${p}"`).join("\n")}`
+      : "";
+  return `Build each ${noun} on a source of its own and cite it: a brief point (its number in "briefPoint"), one or more of the brief's facts (in "facts")${hasProfile ? ', or, once those are spent, a profile point (in "profilePoint")' : ""}; "briefPoint" is 0 on a ${noun} built on no brief point. No source is used by two ${noun}s, and no ${noun} restates a point another ${noun} was built on. The hook takes the most concrete source the brief has (a figure, how it is made, who makes it, what it changes for the reader, or for a deck what is asked for and what it buys), and no later ${noun} makes that point again.${listed}`;
 }
 
 /* Oluwaseyi's ruling (2026-10-30): a brief with fewer points than frames
@@ -188,7 +205,9 @@ export function buildOutlinePrompt(
     imageSource,
     imageAttached,
     profilePoints = [],
+    briefPoints = [],
     repeated = [],
+    unsourced = [],
   }: OutlinePromptInput,
 ): string {
   const noun = frameNoun(kind);
@@ -203,17 +222,21 @@ export function buildOutlinePrompt(
     `First, lay out the arc of the ${kind}: exactly ${frameCount} ${noun}s, in order. Do not write any copy yet.`,
     `- ${Noun} 1 is the hook${offering ? `: it is about "${offering}"` : ""}. ${Noun} ${last} is the call to action.${frameCount > 2 ? ` ${Noun}s 2 to ${last - 1} carry one point each, each a different point, ordered so the story builds.` : ""}
 - "title": what the ${noun} is about in 2 to ${t.title.words} words ("The price", "Where to find us").
-- "point": the one thing it tells the viewer, as a plain sentence for the writer. Each point is a different reason to care, drawn from the brief: what it is, what the reader gets from it, how it is made or why it is different, what it costs, when and where, how to act. Two ${noun}s never share a point, and the hook's point is the sharpest reason the brief gives to keep going, never "it is here" or "it is new".
+- "point": the one thing it tells the viewer, as a plain sentence for the writer. Each point is a different reason to care, drawn from the brief: what it is, what the reader gets from it, how it is made or why it is different, what it costs, when and where, how to act. Two ${noun}s never share a point, and the hook's point is the most concrete reason the brief gives to keep going, never "it is here", "it is new" or a mood.
 - "beat": the kind of point. "promise" (what the reader gets, said boldly), "benefit", "proof" (how it is made, who makes it, why it is different), "detail" (what is included), "how-it-works", "audience" (who it is for), ${kind === "carousel" ? "" : '"price", '}"when-where", "scarcity" (only a limit the brief itself states), "action" (how to act: the last ${noun}). No two ${noun}s share a beat.
 - Points come from the brief first, then from the brand profile's numbered points below. Never a claim neither gives ("Africa's leading", "loss is highest here", "loved by thousands"), never the same point twice and never an invented one.
 - "layout": the composition. Neighbouring ${noun}s never share a layout.
 - "showsImage": whether the ${noun} shows the set's image.
 - The shared brand frame, chosen once for every ${noun}: "palette" from the brand colours, "logoPlacement", "logoFree", "logoFreeQuote", "backgroundTreatment" and "footerStyle" ("bar" or "text" when any ${noun} has contact, place or date lines to show, "none" otherwise).`,
     factsBlock,
+    sourcesBlock(briefPoints, noun, profilePoints.length > 0),
     profileBlock(profilePoints, noun, kind),
     outlineImageBlock(imageSource, imageAttached),
     repeated.length > 0
       ? `Your last outline made the same point twice: ${repeated.map((p) => `"${p}"`).join(", ")}. Give every ${noun} its own point.`
+      : null,
+    unsourced.length > 0
+      ? `Your last outline built these ${noun}s on no source while some were left unused: ${unsourced.map((p) => `"${p}"`).join(", ")}. Build each on an unused fact, brief point or profile point, and cite it.`
       : null,
   ]
     .filter(Boolean)
@@ -230,12 +253,14 @@ export interface OutlinedFrame {
   /** The brand-profile point this frame makes, when its point is not the
    *  brief's. */
   profilePoint?: string | null;
+  /** The brief point (briefPoints) this frame is built on. */
+  briefPoint?: string | null;
   layout: string;
   showsImage: boolean;
 }
 
 const ROLE_BRIEF: Record<FrameRole, string> = {
-  hook: `HOOK: earns the swipe. The headline is the reason to swipe, the stake for the target audience in their terms: a question the customer is already asking about the problem the offering solves (a bicycle repair shop's "Still walking your bike to work?"), the brief's boldest specific turned into a reason to care, in the brief's words and only when no later frame is about that specific, or a before-and-after (the old way they know, against what the offering changes). Whichever angle, the headline carries something only this offering has (its name, a detail or figure from the brief, its place): a question or promise any competitor could post word for word is flat. A claim keeps the brief's own measure: never sharper, rounder or faster than the brief says. The subheadline then names the offering, by its own name when the brief gives one (a product, app, event or package name), and adds what the headline does not say; it never restates the headline or reuses its words. Never the offering's name alone, and never "X is here", "has arrived", "Introducing", "Just in" or "New in": a label or an announcement gives no reason to swipe, so make the headline the pull and put the name in the subheadline. Do not spend the point a later frame makes. No button.`,
+  hook: `HOOK: earns the swipe. The headline is built on the most concrete thing the outline gave this frame (a figure, a duration, how it is made, who makes it, the place, or for a deck what is asked for and what it buys), said in the target audience's terms, so it could only be about this offering. Say it straight, as a question that holds it, or as a before-and-after that holds it; a question or promise without it ("Still doing it yourself?", "Ready for something better?") is flat, because any competitor could post it word for word. A claim keeps the brief's own measure: never sharper, rounder or faster than the brief says. Name the offering, by its own name when the brief gives one (a product, app, event or package name), in the headline or the subheadline; the subheadline adds what the headline does not say and never restates it or reuses its words. Never the offering's name alone, the name with where to find it, or "X is here", "has arrived", "Introducing", "Just in" or "New in": a label or an announcement gives no reason to swipe. Do not spend the point a later frame makes. No button.`,
   body: 'ONE POINT: the headline says this frame\'s point, in words no other frame uses. A subheadline only when it adds a detail from the brief or the brand profile that no other frame gives, or says what the headline\'s fact means for the reader; otherwise "". Never the headline again in other words, a reassurance the brief does not give ("No card needed", "Worth every penny") or a phrase another frame used. No button.',
   cta: 'ACTION: the headline tells the reader what they get by acting, in words no earlier frame used; the footer holds how to act; the button ("cta") is the action itself, starting with a verb ("Book your seat", "Order on WhatsApp"). It does not recap facts earlier frames gave.',
 };
@@ -258,7 +283,7 @@ const COPY_RULES = (kind: SequenceKind) => {
 - "footerLines": up to 3 lines of at most ${t.footerLine.chars} characters each, for contact, place, date and booking details. Leave it empty on a frame with none.
 - "cta": the last frame's button, at most ${t.cta.words} words and ${t.cta.chars} characters.
 
-Only the brief's facts. Every number, price, time, day, date, count, place, contact and claim must be written in the brief or the brand profile, and a number written as a word counts ("one message", "two weeks"); a detail the brief did not give is left out, never guessed. State each fact a frame must carry in the brief's own words ("₦4,500 a slice", not "from ₦4,500"), each time, price, date or count in a field of its own, and a phone number never on the same line as a time (a time beside a phone number reads as part of it). Never "now", "only", "fresh", "today", "limited" or "new" unless the brief says it, and no scarcity, urgency or praise the brief does not give ("they go fast", "before it's gone", "award-winning").
+Only the brief's facts. Every number, price, time, day, date, count, place, contact and claim must be written in the brief or the brand profile, and a number written as a word counts ("one message", "two weeks"); a detail the brief did not give is left out, never guessed. State each fact a frame must carry in the brief's own words ("₦4,500 a slice", not "from ₦4,500"), each time, price, date or count in a field of its own, and a phone number never on the same line as a time (a time beside a phone number reads as part of it). Never "now", "only", "fresh", "today", "limited" or "new" unless the brief says it, and no scarcity, urgency or praise the brief does not give ("they go fast", "before it's gone", "award-winning"). Never promise the reader a perk, reward, recognition or result that neither the brief nor the brand profile offers (their name on something, a gift, a guaranteed outcome), and never state what the brand hopes will happen as if it already does: the brand's goal is why it is posting, not something true to say.
 ${kind === "carousel" ? `A price is stated on the last ${frameNoun(kind)} only, beside the action.\n` : ""}Say everything once. A frame states the facts it must state and no others; no fact appears on two frames, or twice on one frame (in the subheadline and again in the footer). A subheadline never restates its own headline. No two headlines or subheadlines share their idea or their words beyond the offering's name. The offering is named on the first frame; later frames may name it again only where the point needs it.
 One voice: the frames sound like one brand speaking in order, not ${frameNoun(kind)}s written by strangers.`;
 };
@@ -336,6 +361,9 @@ function frameLines(
         f.profilePoint
           ? `  its point is the brand profile's, so say it in the profile's measure and add nothing to it: "${f.profilePoint}"`
           : null,
+        f.briefPoint
+          ? `  built on the brief's words, in their measure: "${f.briefPoint}"`
+          : null,
         leavesTo(frames, f, noun),
         f.facts.length > 0
           ? `  must state, in these words: ${f.facts.map((x) => `"${x}"`).join(", ")}`
@@ -396,7 +424,7 @@ function beatLines(
  *  meets it. Shared by the edit pass and both choices so a hook is
  *  written and picked for the same reasons. */
 function openingTest(noun: string): string {
-  return `gives a concrete reason to see the next ${noun} (a question the customer is already asking, a tension they feel, or the brief's boldest specific, in the customer's terms) and says what is on offer, rather than a label, an announcement, a mood or a line any brand could post; its second line adds what its first does not`;
+  return `gives a concrete reason to see the next ${noun}, built on something only this offering has (a figure, how it is made, who makes it, what it changes for the reader, in the customer's terms), and says what is on offer, rather than a label, an announcement, a mood, a question any brand could ask or a line any brand could post; its second line adds what its first does not`;
 }
 
 /* What makes a frame earn its place, as the edit pass reads the set. The
@@ -466,7 +494,7 @@ export function buildSequenceEditPrompt(
     hookProblems.length > 0
       ? `${Noun} 1 as it stands cannot go out:\n${hookProblems.map((p) => `- ${p}`).join("\n")}`
       : `The opening decides whether anyone sees the rest, so write versions that could open stronger than ${noun} 1 does now.`;
-  const hookAsk = `- ${Noun} 1, ${HOOK_VERSIONS} versions, each from a different angle: one a question the customer is already asking, one the brief's boldest specific that no later ${noun} is about, one a before-and-after. No version uses a detail, number or phrase a later ${noun} gives: that ${noun} would then repeat the hook. ${ROLE_BRIEF.hook}${
+  const hookAsk = `- ${Noun} 1, ${HOOK_VERSIONS} versions, each on the most concrete thing the brief gives that no later ${noun} is about, from a different angle: one said straight, one a question that holds it, one a before-and-after that holds it. No version uses a detail, number or phrase a later ${noun} gives: that ${noun} would then repeat the hook. ${ROLE_BRIEF.hook}${
     names.length > 0
       ? ` Each version names ${names.map((n) => `"${n}"`).join(" and ")}, in these words.`
       : ""

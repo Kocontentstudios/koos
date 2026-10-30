@@ -53,14 +53,27 @@ import {
   type SequenceKind,
   type SequenceProblem,
 } from "./contract";
-import { hookFaults, hookPreviews, unnamedOnHook } from "./hook";
+import { withFactsDrawn } from "./coverage";
+import {
+  hookFaults,
+  hookPreviews,
+  previewedFrames,
+  unnamedOnHook,
+} from "./hook";
 import { withFigureLayout } from "./layouts";
 import {
   type OutlineSettlement,
   repeatedPoints,
   settleOutline,
 } from "./outline";
-import { factOnlyFrames, misplacedPrices, profilePoints } from "./points";
+import {
+  briefPoints,
+  factOnlyFrames,
+  misplacedPrices,
+  profilePoints,
+  profileStatements,
+  statesPrice,
+} from "./points";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, sequenceRepeats, withoutRepeats } from "./repeats";
 import {
@@ -144,6 +157,15 @@ export interface PlanSequenceDeps {
  *  is counted rather than silent. */
 export interface PlannedSequenceResult extends PlanSequenceResult {
   faults: FrameRepeat[];
+  /** Words on a frame that neither the brief nor the brand vouches for
+   *  (inventedOn), by zero-based frame, after the edit pass. Held to the
+   *  ledger a regenerate is refused on, so planning and regenerating apply
+   *  one standard; the set still ships, since the words are drawable, and
+   *  the job records the count (round-4 critic, HIGH 2). */
+  invented: { frame: number; text: string }[];
+  /** Brief facts the copy left out that code wrote onto a frame's footer
+   *  in the brief's own words (withFactsDrawn). */
+  factsDrawn: string[];
 }
 
 /** The facts a set is held to, read exactly as draftDirections reads them
@@ -156,20 +178,29 @@ export function sequenceFacts(
   return withVenueOrBrand(coverFactsOf(read), brandName);
 }
 
-/** What the brief and brand vouch for, as the directions path builds it:
- *  the brief and its title first, then the brand profile and memory. */
+/**
+ * What the brief and brand vouch for. Unlike a single design's ledger, the
+ * profile's statements (profileStatements) license what the brief does:
+ * a thin brief's frame makes a profile point by decision (Oluwaseyi,
+ * 2026-10-30), and round 4 refused "Hand-stitched soles" taken word for
+ * word from the brand's differentiators because method claims were the
+ * brief's alone. The goal licenses nothing: it is what the business wants,
+ * not what is true (round-4 critic, HIGH 3).
+ */
 export function sequenceLedger(
   context: DesignContext,
   memorySummary: string,
 ): FactLedger {
+  const brand = context.brandSummary;
+  const statements = profileStatements(brand);
+  const goal = brand.primaryGoal?.trim();
+  const rest = brandFacts(brand).filter(
+    (source) =>
+      source?.trim() !== goal && !statements.includes(source?.trim() ?? ""),
+  );
   return factLedger(
-    [
-      context.briefText,
-      context.title,
-      ...brandFacts(context.brandSummary),
-      memorySummary,
-    ],
-    2,
+    [context.briefText, context.title, ...statements, ...rest, memorySummary],
+    2 + statements.length,
   );
 }
 
@@ -263,6 +294,16 @@ export function repairFixes(
     plan.kind,
   )) {
     add(repeat.frame, repeat.detail);
+  }
+  /* The hook's preview is one point on two frames, and either may give it
+     up: round 5's first run left the fault on 17 of 30 tuning runs while
+     only the hook was asked to move, so the later frame is asked too and code keeps
+     whichever version leaves the set with fewer faults. */
+  for (const frame of previewedFrames(plan.frames, offering, brandName)) {
+    add(
+      frame,
+      `it makes the point the hook opens on ("${plan.frames[0].headline}"); give this frame a point of its own`,
+    );
   }
   const lastBeat = plan.frames[last];
   for (const price of misplacedFacts(plan.frames, facts, plan.kind)) {
@@ -476,7 +517,7 @@ export function misplacedFacts(
   return facts.filter(
     (f) =>
       f.kind === "price" &&
-      frames.some((beat) => beat.role !== "cta" && factStated(f, beat)),
+      frames.some((beat) => beat.role !== "cta" && statesPrice(f, beat)),
   );
 }
 
@@ -687,6 +728,7 @@ export async function planSequence(
   const offeringIndex = facts.findIndex((f) => f.kind === "product");
   const names = hookNames(context, offering);
   const profile = profilePoints(context.brandSummary, briefText);
+  const ownPoints = briefPoints(briefText, facts);
   const shared = contentStems(
     [context.brandSummary.name, offering].filter(Boolean).join(" "),
   );
@@ -793,9 +835,11 @@ export async function planSequence(
     factKinds: facts.map((f) => f.kind),
     factTexts: facts.map((f) => f.text),
     profilePointCount: profile.length,
+    briefPointCount: ownPoints.length,
     priceWithAction: kind === "carousel",
+    whereWhenOffHook: kind === "carousel",
   };
-  const askOutline = (repeated: string[]) =>
+  const askOutline = (repeated: string[], unsourced: string[] = []) =>
     ask(
       outlineResponseSchema(frameCount),
       (attached) =>
@@ -808,7 +852,9 @@ export async function planSequence(
           imageSource,
           imageAttached: attached,
           profilePoints: profile,
+          briefPoints: ownPoints,
           repeated,
+          unsourced,
         }),
       OUTLINE_MAX_OUTPUT_TOKENS,
       frameCount,
@@ -818,17 +864,24 @@ export async function planSequence(
   const repeatsIn = (settled: OutlineSettlement) => [
     ...new Set([
       ...repeatedPoints(settled.frames, shared),
-      ...settled.profileReused.map((i) => settled.frames[i].point),
+      ...[...settled.profileReused, ...settled.briefReused].map(
+        (i) => settled.frames[i].point,
+      ),
     ]),
   ];
+  const unsourcedIn = (settled: OutlineSettlement) =>
+    settled.unsourced.map((i) => settled.frames[i].point);
+  const outlineFaults = (settled: OutlineSettlement) =>
+    repeatsIn(settled).length + unsourcedIn(settled).length;
   const repeated = repeatsIn(outline);
+  const unsourced = unsourcedIn(outline);
   let outlineAskedAgain = false;
-  if (repeated.length > 0) {
+  if (repeated.length + unsourced.length > 0) {
     outlineAskedAgain = true;
     try {
-      const again = await askOutline(repeated);
+      const again = await askOutline(repeated, unsourced);
       const settled = settleOutline(again, outlineOptions);
-      if (repeatsIn(settled).length < repeated.length) {
+      if (outlineFaults(settled) < outlineFaults(outline)) {
         outlineAnswer = again;
         outline = settled;
       }
@@ -850,6 +903,8 @@ export async function planSequence(
               frame.profilePoint === null
                 ? null
                 : profile[frame.profilePoint].text,
+            briefPoint:
+              frame.briefPoint === null ? null : ownPoints[frame.briefPoint],
           })),
           offering,
           imageSource,
@@ -1026,7 +1081,8 @@ export async function planSequence(
     console.error("sequence edit pass failed; keeping the draft", err);
   }
 
-  plan = { ...plan, frames: plan.frames.map(withFigureLayout) };
+  const filled = withFactsDrawn(plan, facts, factsByFrame);
+  plan = { ...filled.plan, frames: filled.plan.frames.map(withFigureLayout) };
   const problems = validateSequence(plan, rules);
   const invented = plan.frames.flatMap((beat, frame) =>
     inventedOn(beat, ledger).map((text) => ({ frame, text })),
@@ -1047,6 +1103,9 @@ export async function planSequence(
     profilePoints: profile.length,
     profilePointsUsed: outline.frames.filter((f) => f.profilePoint !== null)
       .length,
+    briefPoints: ownPoints.length,
+    briefPointsUsed: outline.frames.filter((f) => f.briefPoint !== null).length,
+    unsourced: outline.unsourced.length,
     layoutsChanged: outline.layoutsChanged,
     outlineAskedAgain,
     drafts: drafts.length,
@@ -1058,6 +1117,7 @@ export async function planSequence(
     hook,
     problems: problems.map((p) => p.rule),
     invented,
+    factsDrawn: filled.drawn,
     faults: faults.map((f) => f.detail),
     imageSeen,
     readAvailable: read.available,
@@ -1070,6 +1130,8 @@ export async function planSequence(
     offering,
     problems,
     faults,
+    invented,
+    factsDrawn: filled.drawn,
     modelCalls,
     repaired: copyKey(plan.frames) !== copyKey(draft.frames),
   };

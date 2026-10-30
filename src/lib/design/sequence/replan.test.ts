@@ -382,7 +382,7 @@ describe("replanFrame without edits: the round-2 critic's probes", () => {
     );
     expect(err).toBeInstanceOf(FrameReplanError);
     expect((err as FrameReplanError).message).toBe(
-      "KO couldn't rewrite this frame to fit the set. Every new version added a detail the brief does not give. The frame is unchanged. Try again, or edit its words.",
+      "KO couldn't rewrite this frame to fit the set. Every new version added a detail neither the brief nor the brand profile gives. The frame is unchanged. Try again, or edit its words.",
     );
     expect((err as FrameReplanError).reasons).toContain("invented");
     expect((err as FrameReplanError).problems).toContain(

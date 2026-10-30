@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { factLedger } from "@/lib/jobs/directions/claims";
 import { CAFE_BRIEF, CAFE_RULES, cafePlan, withFrame } from "./fixtures";
-import { hookScore, planScore } from "./plan";
+import { hookScore, planScore, repairFixes } from "./plan";
 
 const ledger = factLedger([CAFE_BRIEF, "Kiln Coffee"], 2);
 /* The fixture with its price moved beside the action, as a carousel's
@@ -42,7 +42,11 @@ describe("planScore", () => {
 
   it("weighs a name the hook must carry and drops as much as a fact the set drops", () => {
     const unnamed = score(clean(), ["cold brew", "Kiln Coffee"]);
-    const uncovered = score(withFrame(clean(), 2, { subheadline: "" }));
+    /* A subheadline that drops the hours, so the frame is not also a bare
+       date (factOnlyFrames). */
+    const uncovered = score(
+      withFrame(clean(), 2, { subheadline: "Come as early as you like" }),
+    );
     expect(unnamed).toBe(uncovered);
   });
 });
@@ -70,5 +74,28 @@ describe("hookScore", () => {
     /* planScore still counts the shared phrase, so the drafts and the edit
        pass are asked to fix it; the hook choice leaves it to the editor. */
     expect(score(pull)).toBeGreaterThan(0);
+  });
+});
+
+describe("repairFixes", () => {
+  it("asks the later frame as well as the hook when the hook previews its point (round 5)", () => {
+    /* "Pour" and "carry" are frame 4's ("Pour one at our Yaba bar", "Sit
+       in with a glass, or carry yours out"). */
+    const previewing = withFrame(clean(), 0, {
+      headline: "Why not carry it out?",
+      subheadline: "Our cold brew, poured over ice",
+    });
+    const fixes = repairFixes(previewing, [], {
+      facts: CAFE_RULES.facts,
+      factsByFrame: [[0], [], [2, 3], [4], [1, 5]],
+      ledger,
+      offering: "cold brew",
+    });
+    expect(fixes.find((f) => f.index === 0)?.problems).toEqual([
+      expect.stringContaining("the hook already says what frame 4"),
+    ]);
+    expect(fixes.find((f) => f.index === 3)?.problems).toEqual([
+      expect.stringContaining("it makes the point the hook opens on"),
+    ]);
   });
 });

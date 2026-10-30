@@ -22,6 +22,8 @@ export interface SettledOutlineFrame {
   /** Zero-based index into the brand profile's points (profilePoints),
    *  or null when the frame's point is the brief's. */
   profilePoint: number | null;
+  /** Zero-based index into the brief's own points (briefPoints), or null. */
+  briefPoint: number | null;
   layout: DesignSpec["layout"];
   showsImage: boolean;
 }
@@ -34,10 +36,21 @@ export interface OutlineSettlement {
   /** Frames that cited a profile point an earlier frame already made:
    *  the citation is dropped and the frame's point counts as repeated. */
   profileReused: number[];
+  /** Frames that cited a brief point an earlier frame was built on. */
+  briefReused: number[];
+  /** Middle frames built on no source (no fact, brief point or profile
+   *  point) while one was left unused: a frame with nothing of its own to
+   *  say restates a neighbour or pads (round-4 critic, LOW 8: "Exactly what
+   *  you want at lunch."). Empty when every source is spent. */
+  unsourced: number[];
 }
 
-type OutlineFrameIn = Omit<OutlineAnswer["frames"][number], "profilePoint"> & {
+type OutlineFrameIn = Omit<
+  OutlineAnswer["frames"][number],
+  "profilePoint" | "briefPoint"
+> & {
   profilePoint?: number;
+  briefPoint?: number;
 };
 
 /**
@@ -54,6 +67,12 @@ type OutlineFrameIn = Omit<OutlineAnswer["frames"][number], "profilePoint"> & {
  *    it answers what acting costs, and a middle frame holding only the
  *    price read as "a receipt stub where a slide should be" (round-2
  *    critic, every five-frame carousel);
+ *  - with `whereWhenOffHook` (a carousel of three frames or more), the
+ *    hook carries no date, day, time, place or contact: round 3 and 4's
+ *    cafe hook "Cold brew at our Yaba bar" was the name and where, which
+ *    the judge scored 3 at every N and called "purely locational
+ *    housekeeping", and it survived the edit pass because a version that
+ *    dropped the venue lost the coverage the outline had put there;
  *  - a brand-profile point (a thin brief's second source) is a middle
  *    frame's, and made once: the hook and the action have the brief's
  *    jobs, and a second frame citing one point is that point twice;
@@ -65,16 +84,20 @@ export function settleOutline(
   {
     factCount,
     profilePointCount = 0,
+    briefPointCount = 0,
     offeringFact,
     hasImage,
     recentLayouts = [],
     factKinds = [],
     factTexts = [],
     priceWithAction = false,
+    whereWhenOffHook = false,
   }: {
     factCount: number;
     /** How many brand-profile points the outline was offered. */
     profilePointCount?: number;
+    /** How many brief points (briefPoints) the outline was offered. */
+    briefPointCount?: number;
     /** Each fact's kind, by index, so a fact left unplaced finds the
      *  frame whose point it belongs to. */
     factKinds?: readonly CoverKind[];
@@ -87,24 +110,34 @@ export function settleOutline(
     recentLayouts?: readonly string[];
     /** Every price goes on the last frame, beside the action. */
     priceWithAction?: boolean;
+    /** The hook states no logistics; they go where homeFor puts them. */
+    whereWhenOffHook?: boolean;
   },
 ): OutlineSettlement {
   const count = answer.frames.length;
   const owned = new Set<number>(offeringFact === null ? [] : [offeringFact]);
-  const profileUsed = new Set<number>();
-  const profileReused: number[] = [];
-  const profileOf = (cited: number | undefined, i: number): number | null => {
-    const n = (cited ?? 0) - 1;
-    const role = roleOf(i, count);
-    if (!Number.isInteger(n) || n < 0 || n >= profilePointCount) return null;
-    if (role !== "body") return null;
-    if (profileUsed.has(n)) {
-      profileReused.push(i);
-      return null;
-    }
-    profileUsed.add(n);
-    return n;
+  /* Each source makes one frame's point; a second frame citing it is that
+     point twice, so the citation is dropped and the frame is named. A
+     profile point is a middle frame's only; a brief point may be the
+     hook's too. */
+  const citer = (available: number, bodyOnly: boolean) => {
+    const used = new Set<number>();
+    const reused: number[] = [];
+    const of = (cited: number | undefined, i: number): number | null => {
+      const n = (cited ?? 0) - 1;
+      if (!Number.isInteger(n) || n < 0 || n >= available) return null;
+      if (bodyOnly && roleOf(i, count) !== "body") return null;
+      if (used.has(n)) {
+        reused.push(i);
+        return null;
+      }
+      used.add(n);
+      return n;
+    };
+    return { of, used, reused };
   };
+  const profile = citer(profilePointCount, true);
+  const brief = citer(briefPointCount, false);
   const frames = answer.frames.map((frame, i) => {
     const facts = frame.facts
       .map((n) => n - 1)
@@ -118,7 +151,8 @@ export function settleOutline(
       title: frame.title.trim(),
       point: frame.point.trim(),
       facts,
-      profilePoint: profileOf(frame.profilePoint, i),
+      profilePoint: profile.of(frame.profilePoint, i),
+      briefPoint: brief.of(frame.briefPoint, i),
       layout: frame.layout,
       showsImage: hasImage && (i === 0 || frame.showsImage),
     };
@@ -134,6 +168,12 @@ export function settleOutline(
       frame.facts = frame.facts.filter((n) => !isPrice(n));
       lastFrame.facts.push(...prices);
     }
+  }
+  const hook = frames[0];
+  if (whereWhenOffHook && hook && count >= 3) {
+    hook.facts = hook.facts.filter(
+      (n) => n === offeringFact || !WHERE_WHEN.has(factKinds[n] as CoverKind),
+    );
   }
   const placed = new Set(frames.flatMap((f) => f.facts));
   const factsPlaced: number[] = [];
@@ -158,8 +198,35 @@ export function settleOutline(
     if (frame.layout !== layouts[i]) layoutsChanged += 1;
     frame.layout = layouts[i];
   });
-  return { frames, factsPlaced, layoutsChanged, profileReused };
+  const spare =
+    profile.used.size < profilePointCount || brief.used.size < briefPointCount;
+  const unsourced = spare
+    ? frames.flatMap((frame, i) =>
+        frame.role === "body" &&
+        frame.facts.length === 0 &&
+        frame.profilePoint === null &&
+        frame.briefPoint === null
+          ? [i]
+          : [],
+      )
+    : [];
+  return {
+    frames,
+    factsPlaced,
+    layoutsChanged,
+    profileReused: profile.reused,
+    briefReused: brief.reused,
+    unsourced,
+  };
 }
+
+const WHERE_WHEN = new Set<CoverKind>([
+  "date",
+  "day",
+  "time",
+  "place",
+  "contact",
+]);
 
 /* The beats a fact of each kind is the point of. */
 const BEATS_FOR: Partial<Record<CoverKind, readonly FrameBeatKind[]>> = {

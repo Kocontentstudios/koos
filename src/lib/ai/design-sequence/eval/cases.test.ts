@@ -27,11 +27,11 @@ const cafe = SEQUENCE_EVAL_CASES.find((c) => c.id === "cafe");
 if (!cafe) throw new Error("no cafe case");
 
 describe("SEQUENCE_EVAL_CASES", () => {
-  it("covers four carousels and two presentations", () => {
+  it("covers seven carousels and three presentations", () => {
     const kinds = SEQUENCE_EVAL_CASES.map((c) => c.kind);
-    expect(kinds.filter((k) => k === "carousel")).toHaveLength(4);
-    expect(kinds.filter((k) => k === "presentation")).toHaveLength(2);
-    expect(new Set(SEQUENCE_EVAL_CASES.map((c) => c.id)).size).toBe(6);
+    expect(kinds.filter((k) => k === "carousel")).toHaveLength(7);
+    expect(kinds.filter((k) => k === "presentation")).toHaveLength(3);
+    expect(new Set(SEQUENCE_EVAL_CASES.map((c) => c.id)).size).toBe(10);
   });
 
   it("runs each at frame counts every kind allows", () => {
@@ -76,6 +76,14 @@ describe("SEQUENCE_EVAL_CASES", () => {
 
   it("keeps a held-out set of at least three briefs, apart from the tuning set", () => {
     expect(SEQUENCE_HELD_OUT_CASES.length).toBeGreaterThanOrEqual(3);
+    /* Round-4 critic, HIGH 4: the set read in round 4 is tuning now, and
+       the held-out briefs are new ones. */
+    expect(SEQUENCE_HELD_OUT_CASES.map((c) => c.id)).toEqual([
+      "tailor",
+      "car-wash",
+      "exam-prep",
+      "cowork-deck",
+    ]);
     const tuning = new Set(SEQUENCE_EVAL_CASES.map((c) => c.id));
     const brands = new Set(SEQUENCE_EVAL_CASES.map((c) => c.brand.name));
     for (const c of SEQUENCE_HELD_OUT_CASES) {

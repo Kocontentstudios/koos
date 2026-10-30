@@ -6,17 +6,16 @@ import type {
 import type { BriefFactKind } from "@/lib/jobs/directions/brief-facts";
 
 /**
- * Fixture briefs for the sequence planner eval (KOOS-AI-002): four
- * carousels (a cafe, a textile store, a SaaS launch, an event) and two
- * presentations, each run at 3, 5 and 8 frames. Facts are labelled by hand
+ * Fixture briefs for the sequence planner eval (KOOS-AI-002), each run at
+ * 3, 5 and 8 frames. Facts are labelled by hand
  * in the brief's own words, so coverage is measured against the labels and
  * never against the brief reader the planner itself uses.
  *
- * SEQUENCE_EVAL_CASES is the tuning set: rounds 1 to 3 read its runs to
- * change the prompt. SEQUENCE_HELD_OUT_CASES was written on 2026-10-30,
- * after the round-3 critic found the prompt quoting tuning-set hooks, and
- * is never read to change the prompt: its score is reported on its own
- * (--set held-out), as the measure of whether the planner generalises.
+ * SEQUENCE_EVAL_CASES is the tuning set: seven carousels and three
+ * presentations whose runs are read to change the planner and the prompt.
+ * SEQUENCE_HELD_OUT_CASES is never read that way: its score is reported on
+ * its own (--set held-out), as the measure of whether the planner
+ * generalises.
  * No phrase of either set may appear in the prompt (prompt-leak.test.ts).
  * Every brand profile carries the fields a thin brief may borrow points
  * from (profilePoints), so that path is measured, not only unit-tested.
@@ -261,15 +260,8 @@ export const SEQUENCE_EVAL_CASES: SequenceEvalCase[] = [
       { kind: "contact", text: "partners@lagosdesignweek.ng" },
     ],
   },
-];
-
-/**
- * Briefs the prompt was never tuned on. Two are thin on purpose (the
- * pepper sauce gives two facts, the laundry service four, at up to eight
- * frames), so a set has to borrow points from the brand profile rather
- * than repeat the brief's. One is text-led, one a presentation.
- */
-export const SEQUENCE_HELD_OUT_CASES: SequenceEvalCase[] = [
+  /* Held out in round 4, read by its builder to tune points.ts and a
+     label, so tuning from round 5 on (round-4 critic, HIGH 4). */
   {
     id: "pepper-sauce",
     kind: "carousel",
@@ -404,6 +396,159 @@ export const SEQUENCE_HELD_OUT_CASES: SequenceEvalCase[] = [
       { kind: "price", text: "₦6,000,000" },
       { kind: "quantity", text: "30 laptops" },
       { kind: "contact", text: "hello@ikorodu-codeclub.org" },
+    ],
+  },
+];
+
+/**
+ * Briefs written on 2026-10-30 for round 5, after the round-4 critic found
+ * the previous held-out set had been read to tune the planner. Nothing in
+ * the planner or the prompt has been changed with their runs in view: the
+ * runner prints only their aggregate (run.mts, --set held-out), and the
+ * plans go to a report file nobody tuning the planner reads. Two are thin
+ * on purpose (the tailor gives four facts, the car wash four, at up to
+ * eight frames), one is text-led, one is a presentation.
+ */
+export const SEQUENCE_HELD_OUT_CASES: SequenceEvalCase[] = [
+  {
+    id: "tailor",
+    kind: "carousel",
+    brand: {
+      name: "Stitchwell",
+      overview: "Tailoring and alterations studio in Wuse 2, Abuja",
+      targetAudience:
+        "Office workers in Wuse and Maitama who buy their clothes off the rack",
+      tone: "Neat, friendly, precise",
+      offer: "Alterations, repairs and made-to-measure shirts",
+      values: "Clothes should fit the person wearing them, not the hanger",
+      differentiators:
+        "Every garment is pinned on you before a stitch is cut; all work is done in our own workroom",
+      primaryGoal: "Turn one-off alteration customers into regulars",
+      primaryColor: "#3F2A1D",
+      secondaryColor: "#F3E9DC",
+    },
+    hasLogo: true,
+    imageSource: "ko",
+    request: {
+      title: "Trouser hemming",
+      designType: "Instagram carousel",
+      platform: "Instagram",
+      aspectRatio: "4:5",
+      briefText:
+        "Alterations at Stitchwell, Wuse 2. Trousers hemmed for ₦3,000, ready in 3 days. Drop off at Plot 12 Aminu Kano Crescent. Call 0805 111 2233.",
+    },
+    offering: "Alterations",
+    facts: [
+      { kind: "price", text: "₦3,000" },
+      { kind: "condition", text: "ready in 3 days" },
+      { kind: "place", text: "Plot 12 Aminu Kano Crescent" },
+      { kind: "contact", text: "Call 0805 111 2233" },
+    ],
+  },
+  {
+    id: "car-wash",
+    kind: "carousel",
+    brand: {
+      name: "Shine Mobile",
+      overview:
+        "Mobile car wash that comes to office car parks in Port Harcourt",
+      targetAudience: "Office workers in GRA Phase 2 who drive to work",
+      tone: "Upbeat, practical",
+      offer: "Exterior wash and interior vacuum at your parking spot",
+      values: "Your lunch break belongs to you, not to your car",
+      differentiators:
+        "A waterless wash that leaves no puddles in the car park; every washer is trained and insured",
+      primaryGoal: "Sign up whole offices for a weekly wash",
+      primaryColor: "#0B3D2E",
+      secondaryColor: "#E7F6EF",
+    },
+    hasLogo: true,
+    imageSource: "none",
+    request: {
+      title: "Car wash at your office",
+      designType: "Instagram carousel",
+      platform: "Instagram",
+      aspectRatio: "1:1",
+      briefText:
+        "We come to your office car park in GRA Phase 2 and wash your car while you work. ₦6,000 a wash, interior included. Book on WhatsApp 0816 404 5050.",
+    },
+    offering: "wash your car",
+    facts: [
+      { kind: "place", text: "GRA Phase 2" },
+      { kind: "price", text: "₦6,000 a wash" },
+      { kind: "offer", text: "interior included" },
+      { kind: "contact", text: "WhatsApp 0816 404 5050" },
+    ],
+  },
+  {
+    id: "exam-prep",
+    kind: "carousel",
+    brand: {
+      name: "Bright Path Tutors",
+      overview: "Small-group tutoring centre in Bodija, Ibadan",
+      targetAudience: "Parents of SS3 students preparing for WAEC",
+      tone: "Encouraging, clear, serious about results",
+      offer: "Maths, English and science tutoring in small groups",
+      values: "Every student understands the method, not just the answer",
+      differentiators:
+        "Taught by teachers who mark WAEC scripts; past-paper practice under exam conditions every session",
+      primaryGoal: "Fill every seat before the January term",
+      primaryColor: "#1E3A5F",
+      secondaryColor: "#FFF7E0",
+    },
+    hasLogo: true,
+    imageSource: "ko",
+    request: {
+      title: "WAEC maths crash course",
+      designType: "Instagram carousel",
+      platform: "Instagram",
+      aspectRatio: "4:5",
+      briefText:
+        "WAEC maths crash course for SS3 students. Six Saturdays from 10 January, 9am to 12pm, at 4 Awolowo Avenue, Bodija. ₦40,000 for the full course. 15 seats. Register at brightpath.ng.",
+    },
+    offering: "WAEC maths crash course",
+    facts: [
+      { kind: "date", text: "10 January" },
+      { kind: "time", text: "9am to 12pm" },
+      { kind: "place", text: "4 Awolowo Avenue, Bodija" },
+      { kind: "price", text: "₦40,000 for the full course" },
+      { kind: "quantity", text: "15 seats" },
+      { kind: "contact", text: "brightpath.ng" },
+    ],
+  },
+  {
+    id: "cowork-deck",
+    kind: "presentation",
+    brand: {
+      name: "Udi Hills Cowork",
+      overview: "Coworking space in Independence Layout, Enugu",
+      targetAudience: "Founders and team leads of small Enugu companies",
+      tone: "Confident, plain, warm",
+      offer: "Dedicated desks, private offices and meeting rooms",
+      values: "Small teams deserve a proper office without a long lease",
+      differentiators:
+        "Fibre internet with a backup line, and solar power so work never stops for an outage",
+      primaryGoal: "Sign five-person teams to monthly team plans",
+      primaryColor: "#2B2D42",
+      secondaryColor: "#EDF2F4",
+    },
+    hasLogo: true,
+    imageSource: "none",
+    request: {
+      title: "Team plans at Udi Hills Cowork",
+      designType: "Membership presentation",
+      platform: "Email to founders",
+      aspectRatio: "16:9",
+      briefText:
+        "Membership deck for teams at Udi Hills Cowork, Enugu. 80 desks, fibre internet and backup power. Team plan ₦450,000 a month for 5 desks. Book a tour: hello@udihillscowork.ng.",
+    },
+    offering: "Udi Hills Cowork",
+    facts: [
+      { kind: "place", text: "Enugu" },
+      { kind: "quantity", text: "80 desks" },
+      { kind: "price", text: "₦450,000 a month" },
+      { kind: "quantity", text: "5 desks" },
+      { kind: "contact", text: "hello@udihillscowork.ng" },
     ],
   },
 ];

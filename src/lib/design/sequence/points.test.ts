@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { FrameBeat } from "./contract";
 import { beatOf, CAFE_FACTS, cafePlan, fact } from "./fixtures";
-import { factOnlyFrames, misplacedPrices, profilePoints } from "./points";
+import {
+  briefPoints,
+  factOnlyFrames,
+  misplacedPrices,
+  priceAmounts,
+  profileClauses,
+  profilePoints,
+} from "./points";
 
 const priceFrame = (over: Partial<FrameBeat> = {}) =>
   beatOf({ headline: "₦2,500 a Bottle", subheadline: "", ...over });
@@ -13,7 +20,7 @@ describe("factOnlyFrames", () => {
       {
         frame: 1,
         detail: expect.stringContaining(
-          'its headline only gives "₦2,500 a bottle", a receipt line',
+          'its headline only gives "₦2,500 a bottle", a bare detail',
         ),
       },
     ]);
@@ -48,18 +55,33 @@ describe("factOnlyFrames", () => {
     ).toEqual([]);
   });
 
-  it("leaves the hook, the action frame, and where and when to their own checks", () => {
+  it("leaves the hook and the action frame to their own checks", () => {
     expect(
       factOnlyFrames(
-        [
-          priceFrame({ role: "hook" }),
-          beatOf({ headline: "Pour one at our Yaba bar" }),
-          beatOf({ headline: "Saturday 15 November" }),
-          priceFrame({ role: "cta", cta: "Reserve" }),
-        ],
+        [priceFrame({ role: "hook" }), priceFrame({ role: "cta", cta: "Go" })],
         CAFE_FACTS,
       ),
     ).toEqual([]);
+  });
+
+  it('names a bare date or venue frame (round-4 critic: "Launches on 3 March")', () => {
+    const facts = [fact("date", "3 March"), ...CAFE_FACTS];
+    const frames = [
+      beatOf({ role: "hook", headline: "Still chasing payment?" }),
+      beatOf({ headline: "Launches on 3 March" }),
+      beatOf({ headline: "Saturday 15 November" }),
+      beatOf({ headline: "Pour one at our Yaba bar" }),
+      beatOf({ role: "cta", headline: "Sign up", cta: "Sign up" }),
+    ];
+    expect(factOnlyFrames(frames, facts).map((f) => f.frame)).toEqual([
+      1, 2, 3,
+    ]);
+    const said = frames.map((beat, i) =>
+      i === 0 || i === 4
+        ? beat
+        : { ...beat, subheadline: "The first invoice takes a minute" },
+    );
+    expect(factOnlyFrames(said, facts)).toEqual([]);
   });
 });
 
@@ -70,31 +92,52 @@ describe("profilePoints", () => {
     values: "Patience over shortcuts",
     differentiators: "Beans from the Mambilla Plateau, roasted each week",
     targetAudience: "Students in Yaba",
-    primaryGoal: "",
+    primaryGoal: "Make the bar a weekend habit",
   };
 
-  it("lists the profile's statements, what sets the brand apart first", () => {
+  it("lists the profile's statements clause by clause, what sets the brand apart first, never the goal or the audience", () => {
     expect(profilePoints(brand, "Launch our cold brew.")).toEqual([
-      {
-        field: "differentiators",
-        text: "Beans from the Mambilla Plateau, roasted each week",
-      },
+      { field: "differentiators", text: "Beans from the Mambilla Plateau" },
+      { field: "differentiators", text: "roasted each week" },
       { field: "offer", text: "Specialty coffee and cold brew" },
       { field: "values", text: "Patience over shortcuts" },
-      { field: "targetAudience", text: "Students in Yaba" },
       { field: "overview", text: "Coffee bar in Yaba, Lagos" },
     ]);
   });
 
   it("leaves out a field the brief already says, and one another field says", () => {
     const points = profilePoints(
-      { ...brand, overview: "Students in Yaba" },
+      { ...brand, overview: "Specialty coffee, cold brew too" },
       "Patience over shortcuts, every glass.",
     );
     expect(points.map((p) => p.field)).toEqual([
       "differentiators",
+      "differentiators",
       "offer",
-      "targetAudience",
+    ]);
+  });
+
+  it("reads a clause too short to stand with the one before it", () => {
+    expect(
+      profileClauses(
+        "Full-grain leather, hand-stitched soles, free resole in year one",
+      ),
+    ).toEqual([
+      "Full-grain leather",
+      "hand-stitched soles",
+      "free resole in year one",
+    ]);
+    expect(profileClauses("Coffee bar in Yaba, Lagos")).toEqual([
+      "Coffee bar in Yaba, Lagos",
+    ]);
+    expect(
+      profileClauses(
+        "Kano hibiscus; dates, no refined sugar. Made at ledgerly.app daily.",
+      ),
+    ).toEqual([
+      "Kano hibiscus, dates",
+      "no refined sugar",
+      "Made at ledgerly.app daily",
     ]);
   });
 });
@@ -111,6 +154,36 @@ describe("misplacedPrices", () => {
     ]);
   });
 
+  it("finds the amount in any words around it (round-4 critic, MEDIUM 6)", () => {
+    const pair = [fact("price", "₦32,000 a pair")];
+    const said = (headline: string) =>
+      misplacedPrices(
+        [
+          beatOf({ role: "hook", headline: "Shoes that outlast you" }),
+          beatOf({ headline }),
+          beatOf({ role: "cta", headline: "Order", cta: "Order" }),
+        ],
+        pair,
+        "carousel",
+      ).map((f) => f.frame);
+    for (const headline of [
+      "₦32,000 a pair",
+      "Priced at ₦32,000",
+      "Just ₦32,000",
+      "₦32,000 for a pair",
+      "₦32,000 this December",
+      "Only N32,000",
+      "32,000 naira, resoled free",
+      "₦32k a pair",
+    ]) {
+      expect(said(headline), headline).toEqual([1]);
+    }
+    expect(said("Full-grain leather, 2 colours")).toEqual([]);
+    expect([...priceAmounts(fact("price", "₦8,000 for a 10kg bag"))]).toEqual([
+      "8000",
+    ]);
+  });
+
   it("leaves a price on the action frame, and a deck's prices, alone", () => {
     const frames = cafePlan().frames.map((beat, i) => {
       if (i === 1) return { ...beat, headline: "Chilled and ready to carry" };
@@ -119,6 +192,22 @@ describe("misplacedPrices", () => {
     expect(misplacedPrices(frames, CAFE_FACTS, "carousel")).toEqual([]);
     expect(
       misplacedPrices(cafePlan().frames, CAFE_FACTS, "presentation"),
+    ).toEqual([]);
+  });
+});
+
+describe("briefPoints", () => {
+  it("lists what the brief says beyond its facts, clause by clause", () => {
+    const brief =
+      "Launch our cold brew at our Yaba bar. It is steeped for 18 hours and served over ice. ₦2,500 a bottle. WhatsApp 0803 555 0142 to reserve a bottle.";
+    expect(briefPoints(brief, CAFE_FACTS)).toEqual([
+      "It is steeped for 18 hours and served over ice",
+    ]);
+  });
+
+  it("is empty for a brief that is only facts", () => {
+    expect(
+      briefPoints("₦2,500 a bottle. Saturday 15 November.", CAFE_FACTS),
     ).toEqual([]);
   });
 });

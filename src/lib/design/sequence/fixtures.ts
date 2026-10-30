@@ -76,6 +76,7 @@ export function cafePlan(over: Partial<PlannedSequence> = {}): PlannedSequence {
       beatOf({
         title: "The place",
         headline: "Pour one at our Yaba bar",
+        subheadline: "Sit in with a glass, or carry yours out",
         layout: "split-left",
         showsImage: true,
         backgroundPrompt: "a sunlit bar counter with cold brew glasses",

@@ -36,9 +36,11 @@ const context = (over: Record<string, unknown> = {}) =>
     title: "Cold brew launch",
     briefText: CAFE_BRIEF,
     designType: "Instagram carousel",
+    /* No profile statement, so a frame built on nothing has no unused
+       source to be asked for (settleOutline unsourced) and the call
+       counts below stay the plan's own. */
     brandSummary: {
       name: "Kiln Coffee",
-      overview: "Coffee bar in Yaba, Lagos",
       tone: "Warm",
     },
     ...over,
@@ -140,7 +142,7 @@ const copyFrames = () => [
   },
   {
     headline: "Pour one at our Yaba bar",
-    subheadline: "",
+    subheadline: "Sit in with a glass, or carry yours out",
     footerLines: [],
     backgroundPrompt: "a sunlit bar counter",
   },
@@ -232,6 +234,23 @@ describe("planSequence", () => {
       "8am to 2pm",
       "WhatsApp 0803 555 0142",
     ]);
+  });
+
+  it("returns what no rewrite took out of the set as invented, by frame (round-4 critic, HIGH 2)", async () => {
+    const claimed = copyFrames();
+    claimed[1] = { ...claimed[1], subheadline: "Gone by noon, every week" };
+    answer({ copy: () => copy(claimed) });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(result.invented.map((i) => i.frame)).toContain(1);
+    expect(result.invented.map((i) => i.text.toLowerCase())).toContain("gone");
+    expect(result.invented.every((i) => i.frame === 1)).toBe(true);
+  });
+
+  it("returns an empty invented list for a set the ledger vouches for", async () => {
+    answer({});
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(result.invented).toEqual([]);
+    expect(result.factsDrawn).toEqual([]);
   });
 
   it("asks for the outline before any copy, then the copy to it", async () => {
@@ -335,7 +354,7 @@ describe("planSequence", () => {
     expect(result.modelCalls).toBe(5);
   });
 
-  it("keeps the first copy where a rewrite would leave more problems, and returns what stands", async () => {
+  it("keeps the first copy where a rewrite would leave more problems, then writes the fact it still lacks in the brief's words (round-4 critic, MEDIUM 5)", async () => {
     const broken = copyFrames();
     broken[4] = { ...broken[4], footerLines: ["₦2,500 a bottle"] };
     answer({
@@ -359,14 +378,12 @@ describe("planSequence", () => {
     expect(result.plan.frames[4].headline).toBe(
       "Reserve a bottle before Saturday",
     );
-    expect(result.repaired).toBe(false);
-    expect(result.problems).toEqual([
-      {
-        frame: null,
-        rule: "fact-uncovered",
-        detail: 'no frame states "WhatsApp 0803 555 0142"',
-      },
+    expect(result.plan.frames[4].footerLines).toEqual([
+      "₦2,500 a bottle",
+      "WhatsApp 0803 555 0142",
     ]);
+    expect(result.factsDrawn).toEqual(["WhatsApp 0803 555 0142"]);
+    expect(result.problems).toEqual([]);
   });
 
   it("ignores a rewrite of a frame it did not ask about", async () => {
@@ -1037,7 +1054,9 @@ describe("planSequence: the edit pass and its limits", () => {
       generateObject.mock.calls.map(([o]) => o).find(isChoice),
     );
     expect(choice).toContain("A version with a fault listed loses");
-    expect(choice).toContain("put the name in the subheadline");
+    expect(choice).toContain(
+      "name the offering in the headline or the subheadline",
+    );
   });
 
   it("puts a carousel's price on the action frame, and a deck's where the outline put it", async () => {
@@ -1221,9 +1240,10 @@ describe("planSequence: the round-3 critic's findings", () => {
         "A second source, used only once the brief's own points are spent",
       );
       expect(asked).toContain(
-        'P1. (what sets it apart) "Beans from the Mambilla Plateau, roasted each week"',
+        'P1. (what sets it apart) "Beans from the Mambilla Plateau"',
       );
-      expect(asked).toContain('P2. (its values) "Patience over shortcuts"');
+      expect(asked).toContain('P2. (what sets it apart) "roasted each week"');
+      expect(asked).toContain('P3. (its values) "Patience over shortcuts"');
     });
 
     it("hands the cited point to the copy writer, and the ledger accepts it", async () => {
@@ -1246,17 +1266,46 @@ describe("planSequence: the round-3 critic's findings", () => {
         generateObject.mock.calls.map(([o]) => o).find(isCopy),
       );
       expect(copyPrompt).toContain(
-        `its point is the brand profile's, so say it in the profile's measure and add nothing to it: "Beans from the Mambilla Plateau, roasted each week"`,
+        `its point is the brand profile's, so say it in the profile's measure and add nothing to it: "Beans from the Mambilla Plateau"`,
       );
       expect(result.plan.frames).toHaveLength(5);
       expect(console.info).toHaveBeenCalledWith(
         "design.sequence.planned",
         expect.objectContaining({
           invented: [],
-          profilePoints: 3,
+          profilePoints: 4,
           profilePointsUsed: 1,
         }),
       );
+    });
+
+    it("asks the outline again for a middle frame built on nothing while a profile point is unused (round-4 critic, LOW 8)", async () => {
+      /* Frame 2 was built on the price, which a carousel gives on the
+         action frame, so it is left with no source of its own. */
+      let outlines = 0;
+      answer({
+        outline: () => {
+          outlines += 1;
+          return outline(
+            outlines === 1
+              ? OUTLINE_FRAMES
+              : OUTLINE_FRAMES.map((f, i) =>
+                  i === 1 ? { ...f, beat: "proof", profilePoint: 1 } : f,
+                ),
+          );
+        },
+      });
+      const result = await planSequence(input({ context: profiled() }), {
+        briefReader: reader,
+      });
+      expect(outlines).toBe(2);
+      const again = promptOf(
+        generateObject.mock.calls.map(([o]) => o).filter(isOutline)[1],
+      );
+      expect(again).toContain(
+        'Your last outline built these frames on no source while some were left unused: "A bottle costs the price"',
+      );
+      expect(result.plan.frames).toHaveLength(5);
     });
 
     it("asks the outline again when two frames make one profile point", async () => {

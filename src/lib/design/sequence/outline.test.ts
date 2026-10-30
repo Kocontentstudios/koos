@@ -12,6 +12,7 @@ const frame = (over: Partial<OutlineFrame> = {}): OutlineFrame => ({
   point: "Something the viewer learns",
   facts: [],
   profilePoint: 0,
+  briefPoint: 0,
   layout: "hero-center",
   showsImage: false,
   ...over,
@@ -369,5 +370,102 @@ describe("settleOutline: a carousel's price", () => {
   it("leaves a deck's price where the outline put it", () => {
     const settled = settleOutline(answer, options);
     expect(settled.frames[1].facts).toEqual([1]);
+  });
+});
+
+describe("settleOutline: where and when on a carousel hook", () => {
+  /* 0 the offering, 1 a place, 2 a date, 3 a count, 4 a contact. */
+  const kinds = ["product", "place", "date", "quantity", "contact"] as const;
+  const options = {
+    factCount: 5,
+    offeringFact: 0,
+    hasImage: false,
+    factKinds: [...kinds],
+  };
+  const answer = {
+    frames: [
+      frame({ facts: [2, 3, 4, 5] }),
+      frame({ beat: "when-where" }),
+      frame({ beat: "proof" }),
+      frame({ beat: "action" }),
+    ],
+  };
+
+  it('takes the place, date and contact off the hook (round-4 critic: "Cold brew at our Yaba bar")', () => {
+    const settled = settleOutline(answer, {
+      ...options,
+      whereWhenOffHook: true,
+    });
+    expect(settled.frames[0].facts).toEqual([0, 3]);
+    expect(settled.frames[1].facts).toEqual([1, 2]);
+    expect(settled.frames[3].facts).toEqual([4]);
+  });
+
+  it("leaves a deck's title slide its date and venue, and a two-frame set its hook", () => {
+    expect(settleOutline(answer, options).frames[0].facts).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
+    const two = settleOutline(
+      { frames: [frame({ facts: [2] }), frame({ facts: [5] })] },
+      { ...options, whereWhenOffHook: true },
+    );
+    expect(two.frames[0].facts).toContain(1);
+  });
+});
+
+describe("settleOutline: every middle frame on a source of its own", () => {
+  const options = {
+    factCount: 2,
+    offeringFact: 0,
+    hasImage: false,
+    briefPointCount: 2,
+    profilePointCount: 1,
+  };
+
+  it("keeps each brief point's first citation and names the frame that cites it again", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ briefPoint: 1 }),
+          frame({ beat: "proof", briefPoint: 1 }),
+          frame({ beat: "benefit", briefPoint: 2 }),
+          frame({ beat: "action", facts: [2] }),
+        ],
+      },
+      options,
+    );
+    expect(settled.frames.map((f) => f.briefPoint)).toEqual([0, null, 1, null]);
+    expect(settled.briefReused).toEqual([1]);
+  });
+
+  it("names a middle frame built on nothing while a source is left (round-4 critic, LOW 8)", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ briefPoint: 1 }),
+          frame({ beat: "proof" }),
+          frame({ beat: "benefit", profilePoint: 1 }),
+          frame({ beat: "action", facts: [2] }),
+        ],
+      },
+      options,
+    );
+    expect(settled.unsourced).toEqual([1]);
+  });
+
+  it("names none once every source is spent", () => {
+    const settled = settleOutline(
+      {
+        frames: [
+          frame({ briefPoint: 1 }),
+          frame({ beat: "proof", briefPoint: 2 }),
+          frame({ beat: "benefit", profilePoint: 1 }),
+          frame({ beat: "audience" }),
+          frame({ beat: "action", facts: [2] }),
+        ],
+      },
+      options,
+    );
+    expect(settled.unsourced).toEqual([]);
   });
 });

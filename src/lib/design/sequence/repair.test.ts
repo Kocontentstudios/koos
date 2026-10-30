@@ -15,6 +15,7 @@ const outlineFrame = (over: Record<string, unknown> = {}) => ({
   point: "Something the viewer learns",
   facts: [],
   profilePoint: 0,
+  briefPoint: 0,
   layout: "hero-center",
   showsImage: false,
   ...over,
