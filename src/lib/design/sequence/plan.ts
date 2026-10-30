@@ -3,10 +3,9 @@ import type { z } from "zod";
 import {
   buildFrameCopyPrompt,
   buildHookChoicePrompt,
-  buildHookRewritePrompt,
   buildOutlinePrompt,
   buildSequenceChoicePrompt,
-  buildSequenceRepairPrompt,
+  buildSequenceEditPrompt,
   buildSequenceSystemPrompt,
   type FrameFix,
   HOOK_VERSIONS,
@@ -51,21 +50,23 @@ import {
   PRESENTATION_ASPECT,
   type SequenceProblem,
 } from "./contract";
-import { hookFaults, hookPreviews } from "./hook";
+import { hookFaults, hookPreviews, unnamedOnHook } from "./hook";
 import {
   type OutlineSettlement,
   repeatedPoints,
   settleOutline,
 } from "./outline";
+import { factOnlyFrames } from "./points";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, sequenceRepeats, withoutRepeats } from "./repeats";
 import {
   type CopyAnswer,
   copyResponseSchema,
+  type EditAnswer,
+  editResponseSchema,
   type FrameRewrite,
   type OutlineAnswer,
   outlineResponseSchema,
-  rewriteResponseSchema,
 } from "./schema";
 import {
   factsUncovered,
@@ -78,8 +79,25 @@ import {
 /** N frames of copy plus the shared brand frame. */
 const COPY_MAX_OUTPUT_TOKENS = 8000;
 const OUTLINE_MAX_OUTPUT_TOKENS = 3000;
-const HOOK_MAX_OUTPUT_TOKENS = 2000;
 const CHOICE_MAX_OUTPUT_TOKENS = 600;
+
+/* The brief read, the outline and its one re-ask, two drafts, the draft
+   choice, the edit pass and the hook choice are eight calls when every
+   optional step runs; most plans make six. One more covers a single
+   schema retry. Past that an optional step is skipped rather than the
+   wait growing (round-2 critic: up to four attempts per logical call made
+   a plan cost 24 to 33 s). A second edit pass (a re-read of the edited
+   set) was measured in round 3 and moved nothing (non-repetition 3.61 to
+   3.50 over the full matrix), so there is one. */
+export const MAX_MODEL_CALLS = 9;
+
+/** Thrown in place of a call past MAX_MODEL_CALLS. */
+export class ModelBudgetError extends Error {
+  constructor() {
+    super(`planSequence: past its ${MAX_MODEL_CALLS} model calls`);
+    this.name = "ModelBudgetError";
+  }
+}
 
 /** The words a set of frames draws, for telling versions apart. */
 function copyKey(frames: readonly FrameBeat[]): string {
@@ -256,12 +274,15 @@ const tidyLines = (lines: readonly string[]) =>
 /** A frame with the model's rewrite in place of its words. Role, layout,
  *  image and scene are kept: the rewrite is of copy only. */
 export function withRewrite(beat: FrameBeat, rewrite: FrameRewrite): FrameBeat {
+  /* The action frame's button is the set's only one (H3): a rewrite that
+     leaves it empty keeps the button it had (round-2 critic, probe P1). */
+  const cta = beat.role === "cta" ? rewrite.cta.trim() || beat.cta : "";
   return {
     ...beat,
     title: rewrite.title.trim(),
     headline: rewrite.headline.trim(),
     subheadline: rewrite.subheadline.trim(),
-    cta: beat.role === "cta" ? rewrite.cta.trim() : "",
+    cta,
     footerLines: tidyLines(rewrite.footerLines),
   };
 }
@@ -271,6 +292,21 @@ export function withRewrite(beat: FrameBeat, rewrite: FrameRewrite): FrameBeat {
    twice: a rewrite that trades the first for the second is an
    improvement, never the reverse. */
 const MAJOR = 3;
+
+/* A brief fact no frame states, or a hook that does not say what is on
+   offer, fails the set's coverage (H5), which an invented claim does not:
+   round 3's partner deck traded "one room" for a hook naming nothing, and
+   the eval lost the run. Coverage is never the price of another fix. */
+const COVERAGE_WEIGHT = 2 * MAJOR;
+const COVERAGE_RULES = new Set<SequenceProblem["rule"]>([
+  "fact-uncovered",
+  "offering-unnamed",
+]);
+
+function problemWeight(problem: SequenceProblem): number {
+  if (isWordBudgetProblem(problem)) return 1;
+  return COVERAGE_RULES.has(problem.rule) ? COVERAGE_WEIGHT : MAJOR;
+}
 
 /** How far a plan is from passing, for choosing between the model's
  *  answers. 0 is a plan with nothing left to fix. */
@@ -283,7 +319,7 @@ export function planScore(
   }: { rules: SequenceRules; ledger: FactLedger; names?: readonly string[] },
 ): number {
   const problems = validateSequence(plan, rules).reduce(
-    (n, p) => n + (isWordBudgetProblem(p) ? 1 : MAJOR),
+    (n, p) => n + problemWeight(p),
     0,
   );
   const invented = plan.frames.reduce(
@@ -298,8 +334,73 @@ export function planScore(
     names,
     brandName,
   ).length;
-  const hook = hookCopyFaults(plan.frames, rules.offering, names, brandName);
-  return problems + invented + faults + hook.length * (HOOK_WEIGHT - 1);
+  const hook = hookCopyFaults(
+    plan.frames,
+    rules.offering,
+    names,
+    brandName,
+    rules.facts,
+  );
+  /* A name the hook must carry (the brand, when the brief makes it the
+     subject) weighs what the offering does: the judge's first test is
+     whether the opening says what is on offer. */
+  const unnamed = plan.frames[0]
+    ? unnamedOnHook(plan.frames[0], rules.offering, names).length
+    : 0;
+  return (
+    problems +
+    invented +
+    faults +
+    hook.length * (HOOK_WEIGHT - 1) +
+    unnamed * (COVERAGE_WEIGHT - HOOK_WEIGHT)
+  );
+}
+
+/**
+ * How far a version of the hook is from standing, for choosing between
+ * versions: the contract rules, invented claims and what is wrong with the
+ * opening itself (an announcement, a label, an echo, a missing name).
+ * Unlike planScore it leaves out the soft faults (a phrase another frame
+ * shares, a later point previewed): round 3 measured code choosing on
+ * those, and it kept preferring a flat label ("Cold brew at our Yaba
+ * bar", judged 2) over a pull that shared a word with frame 2. Counting a
+ * previewed point once was measured too (full-e: hook 4.11 to 3.94). What
+ * is left tied goes to the editor, with every fault listed beside each
+ * version, who weighs them as taste.
+ */
+export function hookScore(
+  plan: PlannedSequence,
+  {
+    rules,
+    ledger,
+    names = [],
+  }: { rules: SequenceRules; ledger: FactLedger; names?: readonly string[] },
+): number {
+  const hook = plan.frames[0];
+  if (!hook) return 0;
+  const problems = validateSequence(plan, rules).reduce(
+    (n, p) => n + problemWeight(p),
+    0,
+  );
+  const invented = plan.frames.reduce(
+    (n, beat) => n + inventedOn(beat, ledger).length * MAJOR,
+    0,
+  );
+  const brandName = rules.brandName ?? "";
+  const faults = hookFaults(
+    hook,
+    rules.offering,
+    names,
+    brandName,
+    rules.facts,
+  );
+  const unnamed = unnamedOnHook(hook, rules.offering, names).length;
+  return (
+    problems +
+    invented +
+    faults.length * HOOK_WEIGHT +
+    unnamed * (COVERAGE_WEIGHT - HOOK_WEIGHT)
+  );
 }
 
 /* A hook that gives no reason to swipe loses the whole set, a line said
@@ -316,19 +417,21 @@ export function hookCopyFaults(
   offering: string | null,
   names: readonly string[] = [],
   brandName = "",
+  facts: readonly BriefFact[] = [],
 ): FrameRepeat[] {
   const hook = frames[0];
   if (!hook) return [];
   return [
-    ...hookFaults(hook, offering, names, brandName),
+    ...hookFaults(hook, offering, names, brandName, facts),
     ...hookPreviews(frames, offering, brandName),
   ].map((detail) => ({ frame: 0, detail }));
 }
 
 /** What a rewrite can improve that is not a contract rule: a fact or
- *  phrase said twice (repeats.ts), a hook that gives no reason to swipe
- *  (hook.ts). Drawable, so never fatal; asked for in the repair pass and
- *  counted against a rewrite. */
+ *  phrase said twice (repeats.ts), a middle frame that is only a fact
+ *  (points.ts), a hook that gives no reason to swipe (hook.ts). Drawable,
+ *  so never fatal; asked for in the edit pass and counted against a
+ *  rewrite. */
 export function copyFaults(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],
@@ -338,21 +441,28 @@ export function copyFaults(
 ): FrameRepeat[] {
   return [
     ...sequenceRepeats(frames, facts, offering, brandName),
-    ...hookCopyFaults(frames, offering, names, brandName),
+    ...factOnlyFrames(frames, facts),
+    ...hookCopyFaults(frames, offering, names, brandName, facts),
   ];
 }
 
 /**
- * The one repair pass's answers, kept frame by frame only where they leave
- * the set with fewer problems than before. Code chooses between the
- * model's two answers; it never writes a word of either.
+ * The edit pass's answers, kept frame by frame only where they leave the
+ * set with fewer problems than before. A frame the editor's own review
+ * named (`reviewed`) keeps a version that leaves no more problems than
+ * before, since what it fixes (one point made twice in other words) is
+ * what code cannot count; a version that breaks a rule, drops a fact or
+ * adds a fault still loses. Code chooses between the model's answers; it
+ * never writes a word of any.
  */
 export function applyRewrites(
   plan: PlannedSequence,
   rewrites: readonly FrameRewrite[],
   asked: ReadonlySet<number>,
   score: (plan: PlannedSequence) => number,
+  reviewed: ReadonlySet<number> = new Set(),
 ): { plan: PlannedSequence; kept: number } {
+  const changed = new Set<number>();
   let current = plan;
   let currentScore = score(plan);
   let kept = 0;
@@ -362,11 +472,19 @@ export function applyRewrites(
     const frames = current.frames.map((beat, i) =>
       i === index ? withRewrite(beat, rewrite) : beat,
     );
+    if (copyKey([frames[index]]) === copyKey([current.frames[index]])) {
+      continue;
+    }
     const candidate = { ...current, frames };
     const candidateScore = score(candidate);
-    if (candidateScore < currentScore) {
+    const firstForReviewed = reviewed.has(index) && !changed.has(index);
+    if (
+      candidateScore < currentScore ||
+      (firstForReviewed && candidateScore === currentScore)
+    ) {
       current = candidate;
       currentScore = candidateScore;
+      changed.add(index);
       kept += 1;
     }
   }
@@ -435,14 +553,15 @@ export function assemblePlan(
  *  3. COPY_DRAFTS calls, in parallel, write every frame's copy to that
  *     outline, and one goes on (choose.ts): the one with the fewest
  *     problems, else the editor's pick among those tied.
- *  4. validateSequence and the copy checks name what to fix, and the
- *     frames named are asked for once. A rewrite is kept only where it
- *     leaves fewer problems.
- *  5. The hook is written again on its own, in HOOK_VERSIONS angles, told
- *     what code finds wrong with it (hookCopyFaults); it and its versions
- *     go through the same choice as the drafts.
+ *  4. The one repair pass, as an editor's read of the set
+ *     (buildSequenceEditPrompt): the problems code found, by frame, the
+ *     hook in HOOK_VERSIONS angles, and the editor's own review of which
+ *     frames repeat another. A rewrite is kept only where it leaves fewer
+ *     problems (or, on a frame the review named, no more); the hook's
+ *     versions go through the same choice as the drafts.
  *  What stands is returned for the job to judge, and the copy faults no
- *  rewrite fixed with it (PlannedSequenceResult.faults).
+ *  rewrite fixed with it (PlannedSequenceResult.faults). At most
+ *  MAX_MODEL_CALLS calls, the brief read included.
  */
 export async function planSequence(
   input: PlanSequenceInput,
@@ -492,6 +611,7 @@ export async function planSequence(
     image !== null &&
     image.bytes.byteLength <= ART_DIRECTOR_IMAGE_MAX_BYTES;
   let imageSeen = false;
+  let imageRefused = false;
 
   async function askOnce<S extends z.ZodTypeAny>(
     schema: S,
@@ -500,6 +620,7 @@ export async function planSequence(
     maxOutputTokens: number,
     count: number | undefined,
   ): Promise<z.infer<S>> {
+    if (modelCalls >= MAX_MODEL_CALLS) throw new ModelBudgetError();
     modelCalls += 1;
     const { object } = await generateObject({
       model: getModel("strategy"),
@@ -563,14 +684,18 @@ export async function planSequence(
         );
       }
     };
-    if (!showImage) return once(false);
+    /* Once refused, the photograph is not sent again: each later call
+       would otherwise pay for the refusal before asking without it. */
+    if (!showImage || imageRefused) return once(false);
     try {
       const answer = await once(true);
       imageSeen = true;
       return answer;
     } catch (err) {
+      if (err instanceof ModelBudgetError) throw err;
       console.error("sequence planner could not take the photograph", err);
       imageSeen = false;
+      imageRefused = true;
       return once(false);
     }
   }
@@ -581,6 +706,7 @@ export async function planSequence(
     hasImage,
     recentLayouts: input.recentLayouts,
     factKinds: facts.map((f) => f.kind),
+    priceWithAction: kind === "carousel",
   };
   const askOutline = (repeated: string[]) =>
     ask(
@@ -657,21 +783,26 @@ export async function planSequence(
   const factsByFrame = outline.frames.map((f) => f.facts);
   const score = (candidate: PlannedSequence) =>
     planScore(candidate, { rules, ledger, names });
+  const tidied = (frames: readonly FrameBeat[]) =>
+    withoutRepeats(frames, facts, offering, factsByFrame);
+  const openingScore = (candidate: PlannedSequence) =>
+    hookScore(candidate, { rules, ledger, names });
 
   const cleaned = drafts.map((draft) => ({
     ...draft,
-    frames: withoutRepeats(draft.frames, facts, offering),
+    frames: tidied(draft.frames),
   }));
   /**
-   * One of `options`: the only one with the fewest problems, else the
-   * editor's pick among those tied for fewest, shown in a shuffled order.
-   * The editor failing keeps the first of them.
+   * One of `options`: the only one lowest on `measure` (planScore unless
+   * given), else the editor's pick among those tied, shown in a shuffled
+   * order. The editor failing keeps the first of them.
    */
   async function editorChoice(
     options: readonly PlannedSequence[],
     buildPrompt: (shown: PlannedSequence[]) => string,
+    measure: (option: PlannedSequence) => number = score,
   ): Promise<EditorChoice> {
-    const scores = options.map(score);
+    const scores = options.map(measure);
     const tied = distinctCopy(options, leastProblems(scores));
     if (tied.length === 1) return { index: tied[0], by: "code", scores };
     const order = shownOrder(tied.length);
@@ -700,7 +831,8 @@ export async function planSequence(
       drafts: shown.map((d) => d.frames),
     }),
   );
-  let plan = cleaned[choice.index];
+  const draft = cleaned[choice.index];
+  let plan = draft;
   const fixes = repairFixes(plan, validateSequence(plan, rules), {
     facts,
     factsByFrame,
@@ -709,88 +841,75 @@ export async function planSequence(
     names,
     brandName,
   });
-  let repaired = false;
-  if (fixes.length > 0) {
-    try {
-      const answer = await ask(
-        rewriteResponseSchema,
-        () =>
-          buildSequenceRepairPrompt(context, {
-            kind,
-            frames: plan.frames,
-            fixes,
-          }),
-        COPY_MAX_OUTPUT_TOKENS,
-      );
-      const applied = applyRewrites(
-        plan,
-        answer.frames,
-        new Set(fixes.map((f) => f.index)),
-        score,
-      );
-      plan = {
-        ...applied.plan,
-        frames: withoutRepeats(applied.plan.frames, facts, offering),
-      };
-      repaired = applied.kept > 0;
-    } catch (err) {
-      console.error("sequence repair pass failed; keeping the first copy", err);
-    }
-  }
-
-  const hookProblems = () => [
-    ...validateSequence(plan, rules)
-      .filter((p) => p.frame === 0 && p.rule === "offering-unnamed")
-      .map((p) => p.detail),
-    ...hookCopyFaults(plan.frames, offering, names, brandName).map(
-      (f) => f.detail,
-    ),
-  ];
-  /* Always asked, not only when code finds a fault: the opening decides
-     whether anyone sees the rest, and a hook with no fault code can name
-     can still be flat (round 2: "Send an invoice in seconds", hook 2/5). */
-  const hookAsked = hookProblems();
-  const hookBefore = copyKey([plan.frames[0]]);
+  const hookAsked = fixes.find((f) => f.index === 0)?.problems ?? [];
+  const bodyFixes = fixes.filter((f) => f.index !== 0);
+  let review: EditAnswer["review"] = [];
+  let kept = 0;
   let hook: EditorChoice | null = null;
   try {
     const answer = await ask(
-      rewriteResponseSchema,
+      editResponseSchema,
       () =>
-        buildHookRewritePrompt(context, {
+        buildSequenceEditPrompt(context, {
           kind,
           frames: plan.frames,
-          problems: hookAsked,
-          mustState: (factsByFrame[0] ?? []).map((n) => facts[n].text),
+          fixes: bodyFixes,
+          hookProblems: hookAsked,
+          mustState: factsByFrame.map((owned) =>
+            owned.map((n) => facts[n].text),
+          ),
           names,
         }),
-      HOOK_MAX_OUTPUT_TOKENS,
+      COPY_MAX_OUTPUT_TOKENS,
     );
-    const current = plan;
+    review = answer.review.filter(
+      (note) => note.frame >= 2 && note.frame <= frameCount,
+    );
+    const reviewed = new Set(review.map((note) => note.frame - 1));
+    const applied = applyRewrites(
+      plan,
+      answer.frames.filter((rewrite) => rewrite.frame !== 1),
+      new Set([...bodyFixes.map((f) => f.index), ...reviewed]),
+      score,
+      reviewed,
+    );
+    kept = applied.kept;
+    const current = { ...applied.plan, frames: tidied(applied.plan.frames) };
+    plan = current;
     const versions = [
       current,
-      ...answer.frames.slice(0, HOOK_VERSIONS).map((v) => ({
-        ...current,
-        frames: withoutRepeats(
-          current.frames.map((beat, i) =>
-            i === 0
-              ? { ...withRewrite(beat, { ...v, frame: 1 }), title: beat.title }
-              : beat,
+      ...answer.frames
+        .filter((rewrite) => rewrite.frame === 1)
+        .slice(0, HOOK_VERSIONS)
+        .map((v) => ({
+          ...current,
+          frames: tidied(
+            current.frames.map((beat, i) =>
+              i === 0 ? { ...withRewrite(beat, v), title: beat.title } : beat,
+            ),
           ),
-          facts,
-          offering,
-        ),
-      })),
+        })),
     ];
-    hook = await editorChoice(versions, (shown) =>
-      buildHookChoicePrompt(context, {
-        kind,
-        frames: current.frames,
-        hooks: shown.map((v) => v.frames[0]),
-      }),
-    );
-    plan = versions[hook.index];
+    if (versions.length > 1) {
+      hook = await editorChoice(
+        versions,
+        (shown) =>
+          buildHookChoicePrompt(context, {
+            kind,
+            frames: current.frames,
+            hooks: shown.map((v) => v.frames[0]),
+            faults: shown.map((v) =>
+              hookCopyFaults(v.frames, offering, names, brandName, facts).map(
+                (f) => f.detail,
+              ),
+            ),
+          }),
+        openingScore,
+      );
+      plan = versions[hook.index];
+    }
   } catch (err) {
-    console.error("sequence hook versions failed; keeping the hook", err);
+    console.error("sequence edit pass failed; keeping the draft", err);
   }
 
   const problems = validateSequence(plan, rules);
@@ -808,7 +927,8 @@ export async function planSequence(
     drafts: drafts.length,
     draft: choice,
     repairAsked: fixes.length,
-    repaired,
+    review,
+    rewritesKept: kept,
     hookAsked,
     hook,
     problems: problems.map((p) => p.rule),
@@ -826,6 +946,6 @@ export async function planSequence(
     problems,
     faults,
     modelCalls,
-    repaired: repaired || copyKey([plan.frames[0]]) !== hookBefore,
+    repaired: copyKey(plan.frames) !== copyKey(draft.frames),
   };
 }

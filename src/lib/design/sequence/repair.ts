@@ -1,5 +1,5 @@
 import { DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
-import { POINT_MAX, SCENE_MAX } from "./schema";
+import { POINT_MAX, REVIEW_NOTE_MAX, SCENE_MAX } from "./schema";
 
 /**
  * Rescues a planner answer that is complete but malformed, so the user gets
@@ -105,6 +105,18 @@ function repairedFrame(value: unknown): unknown {
   return frame;
 }
 
+/* An editor's note is never drawn, so shortening one loses nothing. */
+function repairedNote(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const note = { ...(value as Record<string, unknown>) };
+  if (typeof note.fails === "string" && note.fails.length > REVIEW_NOTE_MAX) {
+    note.fails = clampWords(note.fails, REVIEW_NOTE_MAX);
+  }
+  return note;
+}
+
 /** The first `count - 1` frames and the last, when one too many came. */
 function counted(frames: unknown[], count: number | undefined): unknown[] {
   if (count === undefined || frames.length <= count || count < 1) {
@@ -139,6 +151,13 @@ export async function repairSequenceText({
   if ("logoFree" in answer) answer.logoFree = asBoolean(answer.logoFree);
   if (typeof answer.cta === "string" && answer.cta.length > DRAFT_LIMITS.cta) {
     answer.cta = clampWords(answer.cta, DRAFT_LIMITS.cta);
+  }
+  if ("review" in answer) {
+    answer.review = parsedArray(answer.review);
+    if (answer.review === null) answer.review = [];
+    if (Array.isArray(answer.review)) {
+      answer.review = answer.review.map(repairedNote);
+    }
   }
   answer.frames = parsedArray(answer.frames);
   if (Array.isArray(answer.frames)) {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { CAFE_FACTS, cafePlan, withFrame } from "./fixtures";
+import type { FrameBeat } from "./contract";
+import { beatOf, CAFE_FACTS, cafePlan, fact, withFrame } from "./fixtures";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
-import { sequenceRepeats, withoutRecap, withoutRepeats } from "./repeats";
+import {
+  sequenceRepeats,
+  withoutFactWords,
+  withoutRecap,
+  withoutRepeats,
+} from "./repeats";
 
 const details = (plan = cafePlan()) =>
   sequenceRepeats(plan.frames, CAFE_FACTS, "cold brew");
@@ -338,6 +344,7 @@ describe("hookFaults: announcements", () => {
     "New hand-dyed indigo adire arrived",
     "Cold brew, out now",
     "Adire back in stock",
+    "Cold Brew, Finally at Kiln",
   ])(
     "names a headline that announces without the word 'here': %s",
     (headline) => {
@@ -396,5 +403,204 @@ describe("namesFree", () => {
     );
     expect(described.has("naira")).toBe(false);
     expect(described.has("ledgerly")).toBe(true);
+  });
+});
+
+/* The round-2 critic's event run (u1r2c/eval-n5.json), as the planner
+   left it: frame 5 gave frame 4's date, time and address again. */
+const EVENT_FACTS = [
+  fact("date", "Saturday 22 November"),
+  fact("time", "10am to 1pm"),
+  fact("place", "9 Bourdillon Road, Ikoyi"),
+  fact("price", "₦25,000 per person"),
+  fact("offer", "apron and starter to take home"),
+  fact("quantity", "12 places"),
+  fact("contact", "WhatsApp 0812 345 6789"),
+];
+const eventFrames = (): FrameBeat[] => [
+  beatOf({
+    role: "hook",
+    headline: "One Saturday. A proper sourdough loaf.",
+    subheadline: "Teen sourdough baking class · With head baker Tunde Okafor.",
+  }),
+  beatOf({
+    headline: "Taught by our own head baker",
+    subheadline: "Every class runs in our working kitchen — not a hired venue.",
+  }),
+  beatOf({
+    headline: "Yours to keep, yours to grow",
+    subheadline:
+      "Apron and starter to take home — the learning carries on after the class.",
+  }),
+  beatOf({
+    headline: "₦25,000 per person",
+    subheadline:
+      "Only 12 places. Saturday 22 November, 10am to 1pm — 9 Bourdillon Road, Ikoyi.",
+  }),
+  beatOf({
+    role: "cta",
+    headline: "Secure your teen's place",
+    cta: "Book on WhatsApp",
+    footerLines: [
+      "WhatsApp 0812 345 6789",
+      "9 Bourdillon Road, Ikoyi",
+      "Saturday 22 November · 10am–1pm",
+    ],
+  }),
+];
+
+describe("withoutRecap: the round-2 event run", () => {
+  /* Fact indexes in EVENT_FACTS: frame 4 owns the date and time. */
+  const DATE_AND_TIME_ON_4 = [[], [], [4], [0, 1, 5], [2, 3, 6]];
+  const logisticsOn4 = () => {
+    const frames = eventFrames();
+    frames[3] = {
+      ...frames[3],
+      subheadline: "Only 12 places.",
+      footerLines: ["Saturday 22 November", "10am to 1pm"],
+    };
+    return frames;
+  };
+
+  it("says the date, time and address once, on the action frame", () => {
+    const frames = withoutRecap(eventFrames(), EVENT_FACTS);
+    expect(frames[3].subheadline).toBe("Only 12 places.");
+    expect(frames[4]).toEqual(eventFrames()[4]);
+    expect(
+      sequenceRepeats(frames, EVENT_FACTS, "Teen sourdough baking class").map(
+        (r) => r.detail,
+      ),
+    ).not.toContainEqual(expect.stringContaining("again"));
+  });
+
+  it("keeps a fact on the frame the outline gave it, dropping only its words elsewhere", () => {
+    const frames = logisticsOn4();
+    frames[4] = {
+      ...frames[4],
+      footerLines: [
+        "Saturday 22 November · 10am to 1pm · 9 Bourdillon Road, Ikoyi",
+        "WhatsApp 0812 345 6789",
+      ],
+    };
+    expect(
+      withoutRecap(frames, EVENT_FACTS, DATE_AND_TIME_ON_4)[4].footerLines,
+    ).toEqual(["9 Bourdillon Road, Ikoyi", "WhatsApp 0812 345 6789"]);
+  });
+
+  it("drops a repeated fact from a later subheadline, keeping the rest of it", () => {
+    const frames = logisticsOn4();
+    frames[4] = {
+      ...frames[4],
+      subheadline: "Saturday 22 November, 10am to 1pm. Bring your teen hungry.",
+    };
+    expect(
+      withoutRecap(frames, EVENT_FACTS, DATE_AND_TIME_ON_4)[4].subheadline,
+    ).toBe("Bring your teen hungry.");
+  });
+
+  it("never leaves words leaning on the fact it dropped", () => {
+    const frames = logisticsOn4();
+    frames[4] = {
+      ...frames[4],
+      subheadline: "Book before Saturday 22 November",
+    };
+    expect(
+      withoutRecap(frames, EVENT_FACTS, DATE_AND_TIME_ON_4)[4].subheadline,
+    ).toBe("Book before Saturday 22 November");
+  });
+
+  it("never cuts a headline, nor leaves a line that cannot stand alone", () => {
+    const frames = eventFrames();
+    frames[3] = {
+      ...frames[3],
+      headline: "Saturday 22 November",
+      subheadline: "",
+    };
+    const kept = withoutRecap(frames, EVENT_FACTS);
+    expect(kept[3].headline).toBe("Saturday 22 November");
+    /* "10am–1pm" alone is a bare time (isFragment), so the line stays. */
+    expect(kept[4].footerLines).toContain("Saturday 22 November · 10am–1pm");
+  });
+});
+
+describe("withoutFactWords", () => {
+  const date = fact("date", "Saturday 22 November");
+
+  it("drops the fact and the mark that joined it", () => {
+    expect(withoutFactWords("Saturday 22 November · 10am to 1pm", date)).toBe(
+      "10am to 1pm",
+    );
+    expect(withoutFactWords("10am to 1pm, Saturday 22 November", date)).toBe(
+      "10am to 1pm",
+    );
+    expect(withoutFactWords("Saturday 22 November", date)).toBe("");
+  });
+
+  it("refuses a fact not written whole, or a rest that leans on it", () => {
+    expect(withoutFactWords("Sat 22 November · 10am", date)).toBeNull();
+    expect(withoutFactWords("Come on Saturday 22 November", date)).toBeNull();
+    expect(withoutFactWords("Saturday 22 Novembers", date)).toBeNull();
+  });
+});
+
+describe("sequenceRepeats: numbers inside brief facts", () => {
+  it("never charges two facts that share a digit as one number said twice", () => {
+    const facts = [
+      fact("date", "3 March"),
+      fact("offer", "Free for your first 3 months"),
+    ];
+    const frames = [
+      beatOf({ role: "hook", headline: "Still chasing payment?" }),
+      beatOf({ headline: "Launches on 3 March" }),
+      beatOf({
+        role: "cta",
+        headline: "Free for your first 3 months",
+        cta: "Sign up free",
+      }),
+    ];
+    expect(
+      sequenceRepeats(frames, facts, "Ledgerly").map((r) => r.detail),
+    ).not.toContainEqual(expect.stringContaining("gives 3 again"));
+  });
+
+  it("still charges a number no fact holds, said on two frames", () => {
+    const frames = [
+      beatOf({ role: "hook", headline: "18 hours for one bottle" }),
+      beatOf({ headline: "18 hours. Not a minute less." }),
+    ];
+    expect(sequenceRepeats(frames, CAFE_FACTS, "cold brew")).toContainEqual({
+      frame: 1,
+      detail: expect.stringContaining("gives 18 again"),
+    });
+  });
+});
+
+describe("hookFaults: a name and a place is still a label", () => {
+  const hook = cafePlan().frames[0];
+
+  it("names a headline that is only the offering and where it is (round 3, judged 2)", () => {
+    expect(
+      hookFaults(
+        { ...hook, headline: "Cold brew at our Yaba bar" },
+        "cold brew",
+        [],
+        "Kiln Coffee",
+        CAFE_FACTS,
+      ),
+    ).toContainEqual(
+      expect.stringContaining("is only the name of what is offered"),
+    );
+  });
+
+  it("passes a headline that adds its own pull to the place", () => {
+    expect(
+      hookFaults(
+        { ...hook, headline: "Your Saturday ritual, at our Yaba bar" },
+        "cold brew",
+        [],
+        "Kiln Coffee",
+        CAFE_FACTS,
+      ),
+    ).not.toContainEqual(expect.stringContaining("only the name"));
   });
 });

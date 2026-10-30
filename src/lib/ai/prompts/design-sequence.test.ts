@@ -9,15 +9,15 @@ import {
   buildFrameCopyPrompt,
   buildFrameRegeneratePrompt,
   buildHookChoicePrompt,
-  buildHookRewritePrompt,
   buildOutlinePrompt,
   buildSequenceChoicePrompt,
-  buildSequenceRepairPrompt,
+  buildSequenceEditPrompt,
   buildSequenceSystemPrompt,
   factList,
   HOOK_VERSIONS,
   hookNames,
   REGENERATE_VERSIONS,
+  REPAIR_VERSIONS,
 } from "./design-sequence";
 
 const context = directionsContext({
@@ -75,6 +75,18 @@ describe("buildOutlinePrompt", () => {
   it("says when a brief has no facts, so none are invented", () => {
     const prompt = buildOutlinePrompt(context, { ...outlineInput, facts: [] });
     expect(prompt).toContain("The brief gives no hard facts");
+  });
+
+  it("puts a carousel's price beside the action, and gives it no beat of its own", () => {
+    const prompt = buildOutlinePrompt(context, outlineInput);
+    expect(prompt).toContain("so it sits on frame 5 beside the action");
+    expect(prompt).not.toContain('"price", "when-where"');
+    const deck = buildOutlinePrompt(context, {
+      ...outlineInput,
+      kind: "presentation",
+    });
+    expect(deck).toContain("sits on slide 5 beside how to act");
+    expect(deck).toContain('"price", "when-where"');
   });
 
   it("briefs a presentation as a deck, never as one title slide", () => {
@@ -148,29 +160,125 @@ describe("buildFrameCopyPrompt", () => {
     expect(prompt).toContain('"headline": at most 7 words');
     expect(prompt).toContain("Only the brief's facts");
   });
-});
 
-describe("buildSequenceRepairPrompt", () => {
-  it("lists the set, then only the frames to fix with their problems", () => {
-    const prompt = buildSequenceRepairPrompt(context, {
+  it("tells each frame which points other frames own", () => {
+    const outlined = (role: "hook" | "body" | "cta", title: string) => ({
+      role,
+      title,
+      point: `About ${title}`,
+      facts: [],
+      layout: "hero-center",
+      showsImage: false,
+    });
+    const prompt = buildFrameCopyPrompt(context, {
       kind: "carousel",
-      frames: cafePlan().frames,
-      fixes: [
-        {
-          index: 3,
-          problems: ["the headline says what frame 1 says"],
-          mustState: ["our Yaba bar"],
-        },
+      offering: "cold brew",
+      imageSource: "none",
+      aspectRatio: "4:5",
+      frames: [
+        outlined("hook", "The opener"),
+        outlined("body", "The steep"),
+        outlined("body", "The beans"),
+        outlined("cta", "Reserve"),
       ],
     });
-    expect(prompt).toContain('frame 1 (hook): title "The launch"');
-    expect(prompt).toContain(
-      "frame 4:\n  - the headline says what frame 1 says",
+    const blocks = prompt.split("\n\n");
+    const block = (n: number) =>
+      blocks.find((b) => b.startsWith(`frame ${n} (`)) ?? "";
+    expect(block(1)).toContain(
+      'leaves to the other frames, so says nothing of: "The steep", "The beans"',
     );
+    expect(block(2)).toContain('so says nothing of: "The beans"');
+    expect(block(2)).not.toContain('"The opener"');
+    expect(block(4)).toContain(
+      'so says nothing of: "The opener", "The steep", "The beans"',
+    );
+  });
+});
+
+describe("buildSequenceEditPrompt", () => {
+  const plan = cafePlan();
+  const prompt = buildSequenceEditPrompt(context, {
+    kind: "carousel",
+    frames: plan.frames,
+    fixes: [
+      {
+        index: 3,
+        problems: ["the headline says what frame 1 says"],
+        mustState: ["our Yaba bar"],
+      },
+    ],
+    hookProblems: [
+      'the hook\'s headline "Cold brew is here" announces the offering',
+    ],
+    mustState: [["cold brew"], ["₦2,500 a bottle"], [], ["our Yaba bar"], []],
+    names: ["cold brew", "Kiln Coffee"],
+  });
+
+  it("lists every frame with what it must state and the problems code found", () => {
+    expect(prompt).toContain('frame 1 (hook): title "The launch"');
+    expect(prompt).toContain('frame 5 (cta): title "Reserve yours"');
     expect(prompt).toContain(
-      'It must still state, in these words: "our Yaba bar"',
+      '  must state, in these words: "our Yaba bar"\n  problem: the headline says what frame 1 says',
     );
     expect(prompt).not.toContain("Target aspect ratio");
+  });
+
+  it("reads the set as an editor would, on the judge's three tests", () => {
+    expect(prompt).toContain("You are the editor.");
+    expect(prompt).toContain("1. Frame 1 gives a concrete reason");
+    expect(prompt).toContain("said in other words still counts");
+    expect(prompt).toContain(
+      "no frame that only gives a fact without what it means for the reader",
+    );
+    expect(prompt).toContain("3. Frame 5 carries one clear action");
+    expect(prompt).toContain('In "review", list every frame after frame 1');
+  });
+
+  it("asks for the hook in every angle, held to what code found and its names", () => {
+    expect(prompt).toContain(`Frame 1, ${HOOK_VERSIONS} versions`);
+    expect(prompt).toContain("a question the customer is already asking");
+    expect(prompt).toContain("that no later frame is about");
+    expect(prompt).toContain("a before-and-after");
+    expect(prompt).toContain(
+      'Each version names "cold brew" and "Kiln Coffee", in these words.',
+    );
+    expect(prompt).toContain(
+      '- the hook\'s headline "Cold brew is here" announces the offering',
+    );
+  });
+
+  it("asks for versions of the frames listed and the frames the review names, and no other", () => {
+    expect(prompt).toContain(
+      `every frame your review names, ${REPAIR_VERSIONS} versions each`,
+    );
+    expect(prompt).toContain("- No other frame.");
+  });
+
+  it("still asks for a stronger hook when code finds nothing wrong", () => {
+    const clean = buildSequenceEditPrompt(context, {
+      kind: "carousel",
+      frames: plan.frames,
+      fixes: [],
+      hookProblems: [],
+      mustState: [],
+      names: ["cold brew"],
+    });
+    expect(clean).not.toContain("cannot go out");
+    expect(clean).toContain("could open stronger than frame 1 does now");
+  });
+
+  it("speaks of slides in a deck", () => {
+    const deck = buildSequenceEditPrompt(context, {
+      kind: "presentation",
+      frames: plan.frames,
+      fixes: [],
+      hookProblems: [],
+      mustState: [],
+      names: [],
+    });
+    expect(deck).toContain("Slide 1, 3 versions");
+    expect(deck).toContain("button on slide 5 only");
   });
 });
 
@@ -190,48 +298,6 @@ describe("buildFrameRegeneratePrompt", () => {
     expect(prompt).toContain('frame 2 (body): title "The price"');
     expect(prompt).toContain('Each version names "cold brew"');
     expect(prompt).toContain('"cta" is ""');
-  });
-});
-
-describe("buildHookRewritePrompt", () => {
-  const prompt = buildHookRewritePrompt(context, {
-    kind: "carousel",
-    frames: cafePlan().frames,
-    problems: [
-      'the hook\'s headline "Cold brew is here" announces the offering',
-    ],
-    mustState: ["cold brew"],
-    names: ["cold brew", "Kiln Coffee"],
-  });
-
-  it("shows the later frames, never the hook as one to keep", () => {
-    expect(prompt).not.toContain("frame 1 (hook): title");
-    expect(prompt).toContain('frame 2 (body): title "The price"');
-    expect(prompt).toContain("No version says what a later frame says.");
-  });
-
-  it("names what is wrong and asks for one version per angle", () => {
-    expect(prompt).toContain(
-      '- the hook\'s headline "Cold brew is here" announces the offering',
-    );
-    expect(prompt).toContain(
-      `Write ${HOOK_VERSIONS} different versions of frame 1`,
-    );
-    expect(prompt).toContain("a question the customer is already asking");
-    expect(prompt).toContain("a before-and-after");
-    expect(prompt).toContain("put the name in the subheadline");
-  });
-
-  it("holds every version to the names and facts the hook carries", () => {
-    expect(prompt).toContain(
-      'Each version names "cold brew" and "Kiln Coffee" in its headline or subheadline',
-    );
-    expect(prompt).toContain(
-      'Each version states, in these words: "cold brew"',
-    );
-    expect(prompt).toContain(
-      'each with "frame" set to 1, the title "The launch"',
-    );
   });
 });
 
@@ -277,20 +343,6 @@ describe("factList", () => {
   });
 });
 
-describe("buildHookRewritePrompt with nothing code can name", () => {
-  it("still asks for versions that could open stronger", () => {
-    const prompt = buildHookRewritePrompt(context, {
-      kind: "carousel",
-      frames: cafePlan().frames,
-      problems: [],
-      mustState: [],
-      names: ["cold brew"],
-    });
-    expect(prompt).not.toContain("It cannot go out");
-    expect(prompt).toContain("could open stronger than it does");
-  });
-});
-
 describe("buildSequenceChoicePrompt", () => {
   const plan = cafePlan();
   const other = plan.frames.map((f, i) =>
@@ -333,5 +385,28 @@ describe("buildHookChoicePrompt", () => {
   it("asks for the opening that does not spend a later frame's point", () => {
     expect(prompt).toContain("does not spend a point a later frame makes");
     expect(prompt).toContain("Answer with the version's number.");
+  });
+
+  it("carries the hook craft and the faults code found, so taste never overrides them", () => {
+    const flagged = buildHookChoicePrompt(context, {
+      kind: "carousel",
+      frames: plan.frames,
+      hooks: [
+        { ...plan.frames[0], headline: "Cold brew is here." },
+        { ...plan.frames[0], headline: "Still rushing?" },
+      ],
+      faults: [
+        ['the hook\'s headline "Cold brew is here." announces the offering'],
+        [],
+      ],
+    });
+    expect(flagged).toContain('1. headline "Cold brew is here."');
+    expect(flagged).toContain(
+      '   fault: the hook\'s headline "Cold brew is here." announces the offering',
+    );
+    expect(flagged).toContain(
+      "A version with a fault listed loses to one without.",
+    );
+    expect(flagged).toContain("put the name in the subheadline");
   });
 });

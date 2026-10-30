@@ -3,7 +3,9 @@ import { DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
 import { repairSequenceFor, repairSequenceText } from "./repair";
 import {
   copyResponseSchema,
+  editResponseSchema,
   outlineResponseSchema,
+  REVIEW_NOTE_MAX,
   rewriteResponseSchema,
 } from "./schema";
 
@@ -236,5 +238,46 @@ describe("the planner's answer schemas", () => {
           .success,
       ).toBe(false);
     }
+  });
+});
+
+describe("repairSequenceText: the edit pass's review", () => {
+  it("parses a review sent as a string and shortens a note past its limit", async () => {
+    const answer = {
+      review: JSON.stringify([{ frame: 3, fails: "x ".repeat(200) }]),
+      frames: [
+        {
+          frame: 1,
+          title: "The launch",
+          headline: "Why rush a Saturday?",
+          subheadline: "",
+          footerLines: [],
+          cta: "",
+        },
+      ],
+    };
+    const fixed = await repairSequenceText({ text: JSON.stringify(answer) });
+    const parsed = editResponseSchema.safeParse(JSON.parse(fixed ?? "{}"));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.review[0].fails.length).toBeLessThanOrEqual(
+      REVIEW_NOTE_MAX,
+    );
+  });
+
+  it("requires the review, so an answer without one is asked again", () => {
+    expect(
+      editResponseSchema.safeParse({
+        frames: [
+          {
+            frame: 1,
+            title: "t",
+            headline: "h",
+            subheadline: "",
+            footerLines: [],
+            cta: "",
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });

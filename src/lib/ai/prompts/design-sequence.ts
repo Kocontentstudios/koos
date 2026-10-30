@@ -8,6 +8,7 @@ import type {
   SequenceImageSource,
   SequenceKind,
 } from "@/lib/design/sequence/contract";
+import { HOOK_CRAFT } from "@/lib/design/sequence/hook";
 import type { BriefFact } from "@/lib/jobs/directions/brief-facts";
 import { inBrief } from "@/lib/jobs/directions/brief-read";
 import { COPY_LIMITS, COPY_TARGETS } from "@/lib/jobs/directions/schema";
@@ -117,6 +118,17 @@ function outlineImageBlock(
   return 'Imagery: KO paints a separate text-free image for each frame that shows one ("showsImage": true), all in one photographic style. The first frame shows one. Give roughly half the frames an image and the rest a text-led layout (hero-center, stat-highlight or quote-card), so the set has rhythm.';
 }
 
+/* Round-2 critic: every five-frame carousel spent a body frame on a bare
+   price ("₦2,500 a Bottle", empty subheadline), which the judge called "a
+   receipt stub where a slide should be". Canva and Predis fold the price
+   into the action frame. A deck's ask is its close, but a price that is
+   how the business earns is a slide's point. */
+function priceRule(kind: SequenceKind, last: number): string {
+  return kind === "presentation"
+    ? `The amount asked for (a raise, a package's price) sits on slide ${last} beside how to act. Any other price is the point of the slide about how the business earns, with what it means for the audience.`
+    : `A price answers "what does acting cost", so it sits on frame ${last} beside the action. It gets a frame of its own only when the brief makes the price itself the news (free, a discount), and then that frame's point is what it buys, never the figure alone.`;
+}
+
 export interface OutlinePromptInput {
   kind: SequenceKind;
   frameCount: number;
@@ -147,7 +159,7 @@ export function buildOutlinePrompt(
   const last = frameCount;
   const factsBlock =
     facts.length > 0
-      ? `The brief's facts, numbered. Every one is carried by exactly one ${noun}; list each ${noun}'s fact numbers in "facts". Put each fact where it is that ${noun}'s point (a price on the ${noun} about the price), and the ways to act (contact, booking, link) on ${noun} ${last}. A fact is given once in the whole ${kind}: a second ${noun} repeating it is a ${noun} with nothing new to say.\n${factList(facts)}`
+      ? `The brief's facts, numbered. Every one is carried by exactly one ${noun}; list each ${noun}'s fact numbers in "facts". Put each fact where it is that ${noun}'s point, and the ways to act (contact, booking, link) on ${noun} ${last}. ${priceRule(kind, last)} A fact is given once in the whole ${kind}: a second ${noun} repeating it is a ${noun} with nothing new to say.\n${factList(facts)}`
       : `The brief gives no hard facts (no price, date, place or contact): leave every "facts" list empty and invent none.`;
   return [
     requestBlock(context, kind, frameCount, aspectRatio),
@@ -155,7 +167,7 @@ export function buildOutlinePrompt(
     `- ${Noun} 1 is the hook${offering ? `: it is about "${offering}"` : ""}. ${Noun} ${last} is the call to action.${frameCount > 2 ? ` ${Noun}s 2 to ${last - 1} carry one point each, each a different point, ordered so the story builds.` : ""}
 - "title": what the ${noun} is about in 2 to ${t.title.words} words ("The price", "Where to find us").
 - "point": the one thing it tells the viewer, as a plain sentence for the writer. Each point is a different reason to care, drawn from the brief: what it is, what the reader gets from it, how it is made or why it is different, what it costs, when and where, how to act. Two ${noun}s never share a point, and the hook's point is the sharpest reason the brief gives to keep going, never "it is here" or "it is new".
-- "beat": the kind of point. "promise" (what the reader gets, said boldly), "benefit", "proof" (how it is made, who makes it, why it is different), "detail" (what is included), "how-it-works", "audience" (who it is for), "price", "when-where", "scarcity" (only a limit the brief itself states), "action" (how to act: the last ${noun}). No two ${noun}s share a beat.
+- "beat": the kind of point. "promise" (what the reader gets, said boldly), "benefit", "proof" (how it is made, who makes it, why it is different), "detail" (what is included), "how-it-works", "audience" (who it is for), ${kind === "carousel" ? "" : '"price", '}"when-where", "scarcity" (only a limit the brief itself states), "action" (how to act: the last ${noun}). No two ${noun}s share a beat.
 - Points come only from the brief and the brand profile above (its offer, audience, values and what sets it apart). Never a claim neither gives ("Africa's leading", "loss is highest here", "loved by thousands"). With more ${noun}s than the brief has points, a ${noun} shows one detail of the offering in a few words, never the same point twice and never an invented one.
 - "layout": the composition. Neighbouring ${noun}s never share a layout.
 - "showsImage": whether the ${noun} shows the set's image.
@@ -182,7 +194,7 @@ export interface OutlinedFrame {
 }
 
 const ROLE_BRIEF: Record<FrameRole, string> = {
-  hook: `HOOK: earns the swipe. The headline is the reason to swipe, the stake for the target audience in their terms: a question the customer is already asking ("Can your teen bake real sourdough?"), the brief's boldest specific turned into a reason to care ("18 hours for one bottle"), or a before-and-after (the old way they know, against what the offering changes). A claim keeps the brief's own measure: never sharper, rounder or faster than the brief says. The subheadline then names the offering, by its own name when the brief gives one (a product, app, event or package name), and adds what the headline does not say; it never restates the headline or reuses its words. Never the offering's name alone, and never "X is here", "has arrived", "Introducing", "Just in" or "New in": a label or an announcement gives no reason to swipe, so make the headline the pull and put the name in the subheadline. Do not spend the point a later frame makes. No button.`,
+  hook: `HOOK: earns the swipe. The headline is the reason to swipe, the stake for the target audience in their terms: a question the customer is already asking ("Can your teen bake real sourdough?"), the brief's boldest specific turned into a reason to care ("18 hours for one bottle") when no later frame is about that specific, or a before-and-after (the old way they know, against what the offering changes). A claim keeps the brief's own measure: never sharper, rounder or faster than the brief says. The subheadline then names the offering, by its own name when the brief gives one (a product, app, event or package name), and adds what the headline does not say; it never restates the headline or reuses its words. Never the offering's name alone, and never "X is here", "has arrived", "Introducing", "Just in" or "New in": a label or an announcement gives no reason to swipe, so make the headline the pull and put the name in the subheadline. Do not spend the point a later frame makes. No button.`,
   body: 'ONE POINT: the headline says this frame\'s point, in words no other frame uses. A subheadline only when it adds a detail from the brief or the brand profile that no other frame gives; otherwise "". Never the headline again in other words, a reassurance the brief does not give ("No card needed", "Worth every hour") or a phrase another frame used. No button.',
   cta: 'ACTION: the headline tells the reader what they get by acting, in words no earlier frame used; the footer holds how to act; the button ("cta") is the action itself, starting with a verb ("Book your seat", "Order on WhatsApp"). It does not recap facts earlier frames gave.',
 };
@@ -205,7 +217,7 @@ const COPY_RULES = (kind: SequenceKind) => {
 - "footerLines": up to 3 lines of at most ${t.footerLine.chars} characters each, for contact, place, date and booking details. Leave it empty on a frame with none.
 - "cta": the last frame's button, at most ${t.cta.words} words and ${t.cta.chars} characters.
 
-Only the brief's facts. Every number, price, time, day, date, count, place, contact and claim must be written in the brief or the brand profile; a detail the brief did not give is left out, never guessed. State each fact a frame must carry in the brief's own words ("₦4,500 a slice", not "from ₦4,500"), each time, price, date or count in a field of its own, and a phone number never on the same line as a time (a time beside a phone number reads as part of it). Never "now", "only", "fresh", "today", "limited" or "new" unless the brief says it, and no scarcity, urgency or praise the brief does not give ("they go fast", "before it's gone", "award-winning").
+Only the brief's facts. Every number, price, time, day, date, count, place, contact and claim must be written in the brief or the brand profile, and a number written as a word counts ("one message", "two weeks"); a detail the brief did not give is left out, never guessed. State each fact a frame must carry in the brief's own words ("₦4,500 a slice", not "from ₦4,500"), each time, price, date or count in a field of its own, and a phone number never on the same line as a time (a time beside a phone number reads as part of it). Never "now", "only", "fresh", "today", "limited" or "new" unless the brief says it, and no scarcity, urgency or praise the brief does not give ("they go fast", "before it's gone", "award-winning").
 Say everything once. A frame states the facts it must state and no others; no fact appears on two frames, or twice on one frame (in the subheadline and again in the footer). A subheadline never restates its own headline. No two headlines or subheadlines share their idea or their words beyond the offering's name. The offering is named on the first frame; later frames may name it again only where the point needs it.
 One voice: the frames sound like one brand speaking in order, not ${frameNoun(kind)}s written by strangers.`;
 };
@@ -241,6 +253,27 @@ export function hookNames(
   return names;
 }
 
+/* The points a frame's copy keeps off, because another frame owns them:
+   round 3's judge kept finding a subheadline drifting into a neighbour's
+   point ("No heat, no rush" under the beans frame, after the process
+   frame). The hook's own opener is not a body frame's to avoid, and the
+   action frame owns no point a frame before it could spend. */
+function leavesTo(
+  frames: readonly OutlinedFrame[],
+  frame: OutlinedFrame,
+  noun: string,
+): string | null {
+  const owners = frames.filter(
+    (other) =>
+      other !== frame &&
+      other.role !== "cta" &&
+      !(frame.role === "body" && other.role === "hook"),
+  );
+  return owners.length > 0
+    ? `  leaves to the other ${noun}s, so says nothing of: ${owners.map((o) => `"${o.title}"`).join(", ")}`
+    : null;
+}
+
 function frameLines(
   frames: readonly OutlinedFrame[],
   noun: string,
@@ -259,12 +292,7 @@ function frameLines(
               .map((n) => `"${n}"`)
               .join(", ")}`
           : null,
-        f.role === "hook" && frames.length > 1
-          ? `  leaves to later ${noun}s: ${frames
-              .slice(1)
-              .map((later) => `"${later.title}"`)
-              .join(", ")}`
-          : null,
+        leavesTo(frames, f, noun),
         f.facts.length > 0
           ? `  must state, in these words: ${f.facts.map((x) => `"${x}"`).join(", ")}`
           : "  must state: nothing beyond its point",
@@ -297,67 +325,112 @@ export interface FrameFix {
   mustState: string[];
 }
 
+function beatLine(f: FrameBeat, index: number, noun: string): string {
+  return [
+    `${noun} ${index + 1} (${f.role}): title "${f.title}"`,
+    `  headline: "${f.headline}"`,
+    `  subheadline: ${f.subheadline ? `"${f.subheadline}"` : "(none)"}`,
+    `  footer lines: ${f.footerLines.length > 0 ? f.footerLines.map((l) => `"${l}"`).join(", ") : "(none)"}`,
+    f.role === "cta" ? `  button: "${f.cta}"` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function beatLines(
   frames: readonly FrameBeat[],
   noun: string,
   only?: ReadonlySet<number>,
 ): string {
   return frames
-    .map((f, i) =>
-      only && !only.has(i)
-        ? null
-        : [
-            `${noun} ${i + 1} (${f.role}): title "${f.title}"`,
-            `  headline: "${f.headline}"`,
-            `  subheadline: ${f.subheadline ? `"${f.subheadline}"` : "(none)"}`,
-            `  footer lines: ${f.footerLines.length > 0 ? f.footerLines.map((l) => `"${l}"`).join(", ") : "(none)"}`,
-            f.role === "cta" ? `  button: "${f.cta}"` : null,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-    )
+    .map((f, i) => (only && !only.has(i) ? null : beatLine(f, i, noun)))
     .filter(Boolean)
     .join("\n\n");
 }
 
-/** The one repair pass: the frames that break a rule, with the rule named,
- *  rewritten by the model. Code never writes the copy itself. */
-export function buildSequenceRepairPrompt(
-  context: DesignContext,
-  {
-    kind,
-    frames,
-    fixes,
-  }: { kind: SequenceKind; frames: readonly FrameBeat[]; fixes: FrameFix[] },
-): string {
-  const noun = frameNoun(kind);
-  const asked = fixes
-    .map((fix) =>
-      [
-        `${noun} ${fix.index + 1}:`,
-        ...fix.problems.map((p) => `  - ${p}`),
-        fix.mustState.length > 0
-          ? `  It must still state, in these words: ${fix.mustState.map((x) => `"${x}"`).join(", ")}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    )
-    .join("\n");
-  return [
-    requestBlock(context, kind, frames.length, null),
-    `The ${kind} so far:\n\n${beatLines(frames, noun)}`,
-    `These ${noun}s cannot go out as they are. Rewrite each one so it fixes every problem listed and keeps its point, its role and its place in the story, in ${REPAIR_VERSIONS} different versions:\n${asked}`,
-    COPY_RULES(kind),
-    `Return ${REPAIR_VERSIONS} entries in "frames" per ${noun} listed above, each with "frame" set to its number, its title, headline, subheadline and footer lines. "cta" is the button on the last ${noun} only, and "" on every other.`,
-  ].join("\n\n");
-}
-
 /** What the editor holds an opening frame to, in the order a viewer
- *  meets it. Shared by both choices so a draft and a hook are picked for
- *  the same reasons. */
+ *  meets it. Shared by the edit pass and both choices so a hook is
+ *  written and picked for the same reasons. */
 function openingTest(noun: string): string {
   return `gives a concrete reason to see the next ${noun} (a question the customer is already asking, a tension they feel, or the brief's boldest specific, in the customer's terms) and says what is on offer, rather than a label, an announcement, a mood or a line any brand could post; its second line adds what its first does not`;
+}
+
+/* What makes a frame earn its place, as the edit pass reads the set. The
+   eval's judge kept finding what no word count sees: two frames making one
+   point in different words ("every piece is its own" on the hook and "No
+   two pieces are the same" on frame 3), a price standing alone as a
+   receipt line, and generic payoffs any brand could post. */
+function buildsTest(noun: string): string {
+  return `every ${noun} makes its own point in its own words: no idea, claim, detail or phrase another ${noun} already gives (said in other words still counts), no ${noun} that says one thing in its headline and again in its subheadline, no ${noun} that only gives a fact without what it means for the reader, and no line any brand could post ("premier", "effortless", "moves the industry", "hands-on")`;
+}
+
+export interface EditPassInput {
+  kind: SequenceKind;
+  frames: readonly FrameBeat[];
+  /** The frames code found problems on, with the problems named. */
+  fixes: FrameFix[];
+  /** What code finds wrong with the hook (hookCopyFaults). */
+  hookProblems: string[];
+  /** The brief's words for every fact each frame must state, by index. */
+  mustState: readonly string[][];
+  /** What the hook names, in these words (hookNames). */
+  names: readonly string[];
+}
+
+/**
+ * The one repair pass, as an editor's read of the whole set: the problems
+ * code found, by frame; the hook in HOOK_VERSIONS angles every time (the
+ * opening decides whether anyone sees the rest, and a hook code finds no
+ * fault in can still be flat); and the editor's own review of which frames
+ * repeat another, which code cannot see. Code chooses between what comes
+ * back and never writes a word of it.
+ */
+export function buildSequenceEditPrompt(
+  context: DesignContext,
+  { kind, frames, fixes, hookProblems, mustState, names }: EditPassInput,
+): string {
+  const noun = frameNoun(kind);
+  const Noun = noun === "slide" ? "Slide" : "Frame";
+  const last = frames.length;
+  const listed = frames
+    .map((f, i) => {
+      const facts = mustState[i] ?? [];
+      const fix = fixes.find((x) => x.index === i);
+      return [
+        beatLine(f, i, noun),
+        facts.length > 0
+          ? `  must state, in these words: ${facts.map((x) => `"${x}"`).join(", ")}`
+          : null,
+        ...(fix?.problems ?? []).map((p) => `  problem: ${p}`),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n");
+  const hookIssues =
+    hookProblems.length > 0
+      ? `${Noun} 1 as it stands cannot go out:\n${hookProblems.map((p) => `- ${p}`).join("\n")}`
+      : `The opening decides whether anyone sees the rest, so write versions that could open stronger than ${noun} 1 does now.`;
+  const hookAsk = `- ${Noun} 1, ${HOOK_VERSIONS} versions, each from a different angle: one a question the customer is already asking, one the brief's boldest specific that no later ${noun} is about, one a before-and-after. No version uses a detail, number or phrase a later ${noun} gives: that ${noun} would then repeat the hook. ${ROLE_BRIEF.hook}${
+    names.length > 0
+      ? ` Each version names ${names.map((n) => `"${n}"`).join(" and ")}, in these words.`
+      : ""
+  } ${hookIssues}`;
+  return [
+    requestBlock(context, kind, frames.length, null),
+    `The ${kind} so far, with what each ${noun} must state and every problem code found:\n\n${listed}`,
+    `You are the editor. Read the ${kind} in order, as the viewer will, and hold it to three tests:
+1. ${Noun} 1 ${openingTest(noun)}.
+2. ${buildsTest(noun)}.
+3. ${Noun} ${last} carries one clear action and how to take it, and recaps nothing an earlier ${noun} gave.`,
+    `In "review", list every ${noun} after ${noun} 1 that fails test 2 or 3: its number, and what it repeats (name the other ${noun}) or lacks. Be as hard as a creative director who cuts any ${noun} that does not earn its place, but list only a real failure; [] when there is none.`,
+    `In "frames":
+${hookAsk}
+- Every other ${noun} with a problem listed above, and every ${noun} your review names, ${REPAIR_VERSIONS} versions each. A version fixes every problem, keeps the ${noun}'s role and the facts it must state, and says it in words no other ${noun} uses. A ${noun} that repeated another takes a new point: the one thing the brief or the brand profile gives (its offer, audience, values, what sets it apart) that no ${noun} says yet, with a title for that point. Never a point neither gives.
+- No other ${noun}.`,
+    COPY_RULES(kind),
+    `Each entry in "frames" has "frame" set to its number, its title, headline, subheadline and footer lines. "cta" is the button on ${noun} ${last} only, and "" on every other.`,
+  ].join("\n\n");
 }
 
 /** Drafts of the whole set, numbered from 1, as the editor chooses
@@ -386,10 +459,14 @@ export function buildHookChoicePrompt(
     kind,
     frames,
     hooks,
+    faults = [],
   }: {
     kind: SequenceKind;
     frames: readonly FrameBeat[];
     hooks: readonly FrameBeat[];
+    /** What code finds wrong with each version, in the order shown
+     *  (hookCopyFaults), so the editor's taste never overrides it. */
+    faults?: readonly (readonly string[])[];
   },
 ): string {
   const noun = frameNoun(kind);
@@ -398,16 +475,18 @@ export function buildHookChoicePrompt(
     requestBlock(context, kind, frames.length, null),
     `The ${noun}s after the opening one:\n\n${beatLines(frames, noun, later)}`,
     `Versions of ${noun} 1:\n\n${hooks
-      .map(
-        (h, i) =>
+      .map((h, i) =>
+        [
           `${i + 1}. headline "${h.headline}"${h.subheadline ? `, subheadline "${h.subheadline}"` : ""}`,
+          ...(faults[i] ?? []).map((f) => `   fault: ${f}`),
+        ].join("\n"),
       )
       .join("\n")}`,
-    `You are the editor choosing how this ${kind} opens. Choose the version that ${openingTest(noun)}, and that does not spend a point a later ${noun} makes. Prefer the one that claims only what the brief gives, in the brief's own measure. Answer with the version's number.`,
+    `You are the editor choosing how this ${kind} opens. Choose the version that ${openingTest(noun)}, and that does not spend a point a later ${noun} makes. A strong opening does this: ${HOOK_CRAFT}. A version with a fault listed loses to one without. Prefer the one that claims only what the brief gives, in the brief's own measure. Answer with the version's number.`,
   ].join("\n\n");
 }
 
-/** Versions of each frame the repair pass asks for. A rewrite that fixes
+/** Versions of each frame the edit pass rewrites. A rewrite that fixes
  *  one problem often makes another (a fact dropped, a neighbour echoed),
  *  and is then refused; a second version in the same call is a second
  *  chance at no extra wait. Code keeps whichever leaves fewer problems. */
@@ -453,49 +532,6 @@ export function buildFrameRegeneratePrompt(
     .join("\n\n");
 }
 
-/** Versions of the hook the planner asks for, one per angle, for the
+/** Versions of the hook the edit pass asks for, one per angle, for the
  *  editor to choose from beside the hook the draft has. */
 export const HOOK_VERSIONS = 3;
-
-export interface HookPromptInput {
-  kind: SequenceKind;
-  frames: readonly FrameBeat[];
-  /** What is wrong with the hook as it stands (hookFaults). */
-  problems: string[];
-  /** The brief's words for every fact the hook must state. */
-  mustState: string[];
-  /** What the hook names, in these words (hookNames). */
-  names: readonly string[];
-}
-
-/** The hook alone, written again against the rest of the set, from
- *  HOOK_VERSIONS different angles. */
-export function buildHookRewritePrompt(
-  context: DesignContext,
-  { kind, frames, problems, mustState, names }: HookPromptInput,
-): string {
-  const noun = frameNoun(kind);
-  const hook = frames[0];
-  const later = new Set(frames.map((_, i) => i).filter((i) => i > 0));
-  return [
-    requestBlock(context, kind, frames.length, null),
-    `The ${noun}s after the hook, which stay as they are:\n\n${beatLines(frames, noun, later)}`,
-    `The hook (${noun} 1) says now: headline "${hook.headline}"${hook.subheadline ? `, subheadline "${hook.subheadline}"` : ""}.${
-      problems.length > 0
-        ? ` It cannot go out:\n${problems.map((p) => `- ${p}`).join("\n")}`
-        : ` The opening decides whether anyone sees the rest, so write versions that could open stronger than it does.`
-    }`,
-    `Write ${HOOK_VERSIONS} different versions of ${noun} 1, each from a different angle: one a question the customer is already asking, one the brief's boldest specific, one a before-and-after. ${ROLE_BRIEF.hook}`,
-    names.length > 0
-      ? `Each version names ${names.map((n) => `"${n}"`).join(" and ")} in its headline or subheadline, in these words.`
-      : null,
-    mustState.length > 0
-      ? `Each version states, in these words: ${mustState.map((x) => `"${x}"`).join(", ")}.`
-      : null,
-    `No version says what a later ${noun} says.`,
-    COPY_RULES(kind),
-    `Return the ${HOOK_VERSIONS} versions as the entries in "frames", each with "frame" set to 1, the title "${hook.title}", its headline, subheadline and footer lines, and "cta" "".`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}

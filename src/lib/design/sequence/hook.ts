@@ -1,3 +1,4 @@
+import type { BriefFact } from "@/lib/jobs/directions/brief-facts";
 import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
 import {
   contentStems,
@@ -8,7 +9,7 @@ import type { FrameBeat } from "./contract";
 /**
  * Hooks that give no reason to swipe, in the shapes the eval's judge marked
  * down every time: an announcement ("Cold brew is here", "Hand-dyed indigo
- * adire is here"), the offering's name standing as the whole headline
+ * adire is here", "Cold Brew, Finally at Kiln"), the offering's name standing as the whole headline
  * ("Teen sourdough baking class"), and a subheadline that says the headline
  * again ("Invoice in naira or dollars in seconds" over "send an invoice in
  * naira or dollars in under a minute").
@@ -20,7 +21,7 @@ import type { FrameBeat } from "./contract";
  */
 
 const ANNOUNCEMENT =
-  /\b(?:is|are|'s)\s+(?:here|back|live|now available|available now)\b[.!]?\s*$|^\s*(?:introducing|meet|presenting|announcing|new|now)\b|\b(?:arrived|arrives|landed|lands|dropped)\b|\bjust\s+in\b|\bnew\s+(?:in|arrival|arrivals|stock)\b|\bnow\s+(?:available|open|in stock)\b|\b(?:out now|in stores?|back in stock)\b/i;
+  /\b(?:is|are|'s)\s+(?:here|back|live|now available|available now)\b[.!]?\s*$|^\s*(?:introducing|meet|presenting|announcing|new|now)\b|\b(?:arrived|arrives|landed|lands|dropped)\b|\bjust\s+in\b|\bnew\s+(?:in|arrival|arrivals|stock)\b|\bnow\s+(?:available|open|in stock)\b|\b(?:out now|in stores?|back in stock)\b|\bfinally\b/i;
 
 /* What a strong hook does instead, in the words that moved the judge in the
    blind read of both variants ("Still invoicing on paper?", "Steeped 18
@@ -96,6 +97,18 @@ export function namesFree(
   ]);
 }
 
+/** The names in `names` the hook leaves out, beyond the offering (which
+ *  is validateSequence's offering-unnamed). */
+export function unnamedOnHook(
+  hook: FrameBeat,
+  offering: string | null,
+  names: readonly string[],
+): string[] {
+  return names.filter(
+    (name) => name !== offering && !copyNamesOffering(hook, name),
+  );
+}
+
 /** `names`: what else the hook must name beyond the offering (the brand,
  *  when the brief makes it the subject: hookNames in the prompt). The
  *  offering itself is validateSequence's offering-unnamed. */
@@ -104,19 +117,28 @@ export function hookFaults(
   offering: string | null,
   names: readonly string[] = [],
   brandName = "",
+  facts: readonly BriefFact[] = [],
 ): string[] {
-  const faults: string[] = [];
-  for (const name of names) {
-    if (name !== offering && !copyNamesOffering(hook, name)) {
-      faults.push(
-        `the hook does not name "${name}"; put it in the subheadline in these words`,
-      );
-    }
-  }
+  const faults = unnamedOnHook(hook, offering, names).map(
+    (name) =>
+      `the hook does not name "${name}"; put it in the subheadline in these words`,
+  );
   const named = contentStems(offering ?? "");
+  /* The name and where to find it is still a label: round 3's cafe hook
+     "Cold brew at our Yaba bar" scored 2, "purely locational
+     housekeeping". */
+  const labelWords = new Set([
+    ...named,
+    ...contentStems(brandName),
+    ...facts
+      .filter((f) => f.kind === "place")
+      .flatMap((f) => [...contentStems(f.text)]),
+  ]);
   const said = contentStems(hook.headline);
   const nameAlone =
-    named.size > 0 && said.size > 0 && [...said].every((s) => named.has(s));
+    named.size > 0 &&
+    [...said].some((s) => named.has(s)) &&
+    [...said].every((s) => labelWords.has(s));
   if (ANNOUNCEMENT.test(hook.headline)) {
     faults.push(
       `the hook's headline "${hook.headline}" announces the offering, which gives no reason to swipe; ${HOOK_CRAFT}`,

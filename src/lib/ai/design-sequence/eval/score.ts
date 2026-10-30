@@ -5,7 +5,11 @@ import {
   factsUncovered,
   validateSequence,
 } from "@/lib/design/sequence/validate";
-import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
+import {
+  type BriefFact,
+  needsFor,
+  withVenueOrBrand,
+} from "@/lib/jobs/directions/brief-facts";
 import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
 import { SEQUENCE_EVAL_THRESHOLDS, type SequenceEvalCase } from "./cases";
 
@@ -36,8 +40,17 @@ export interface RunScore {
   problems: string[];
 }
 
+/** The case's hand labels, needing what a design must show to state
+ *  them. A venue the brief calls "our Yaba bar" is stated by the brand's
+ *  name and the area, exactly as the directions path and the job's
+ *  drawn-copy check read it (withVenueOrBrand): round 3's cafe set ended on
+ *  "Kiln Coffee, Yaba", which the product counts and a bare label did not.
+ *  The rule is deterministic, so this is still not the planner's reader. */
 export function labelledFacts(c: SequenceEvalCase): BriefFact[] {
-  return c.facts.map((f) => ({ ...f, needs: needsFor(f.kind, f.text) }));
+  return withVenueOrBrand(
+    c.facts.map((f) => ({ ...f, needs: needsFor(f.kind, f.text) })),
+    c.brand.name,
+  );
 }
 
 function rolesHold(plan: PlannedSequence): boolean {

@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import {
   buildFrameRegeneratePrompt,
   buildSequenceSystemPrompt,
+  hookNames,
   REGENERATE_VERSIONS,
 } from "@/lib/ai/prompts/design-sequence";
 import { getModel } from "@/lib/ai/provider";
@@ -28,10 +29,16 @@ import type {
   PlannedSequence,
   ReplanFrameInput,
 } from "./contract";
+import { hookFaults, hookPreviews } from "./hook";
 import { inventedOn, sequenceFacts, sequenceLedger, withRewrite } from "./plan";
 import { repairSequenceFor } from "./repair";
 import { type FrameRewrite, rewriteResponseSchema } from "./schema";
-import { copyLimitProblems, factsUncovered, frameCopy } from "./validate";
+import {
+  copyLimitProblems,
+  factsUncovered,
+  frameCopy,
+  roleProblems,
+} from "./validate";
 
 /** A user's edit that cannot be drawn. The message is shown to them as is. */
 export class FrameEditError extends Error {
@@ -44,12 +51,23 @@ export class FrameEditError extends Error {
   }
 }
 
+/** What kept a version out, in the user's terms: the problems are
+ *  written for the model ("it states "one", which the brief does not
+ *  give"), and a refused paid regenerate should say why (round-2 critic,
+ *  finding 8). */
+export function replanReason(problems: readonly string[]): string | null {
+  const first = problems[0]?.trim();
+  if (!first) return null;
+  return first.replace(/^it\b/, "the new version");
+}
+
 /** A model rewrite none of whose versions could stand beside its set.
  *  The frame on show is kept. */
 export class FrameReplanError extends Error {
   constructor(readonly problems: string[]) {
+    const reason = replanReason(problems);
     super(
-      "KO couldn't write a different version of this frame that fits the rest of the set. The frame is unchanged; try again or edit its words.",
+      `KO couldn't write a different version of this frame that fits the rest of the set${reason ? `: ${reason}` : ""}. The frame is unchanged; try again or edit its words.`,
     );
     this.name = "FrameReplanError";
   }
@@ -115,8 +133,10 @@ export function applyFrameEdits(beat: FrameBeat, edits: FrameEdits): FrameBeat {
 
 /** What stops a rewritten frame standing beside its set: a limit, a
  *  headline another frame (or the frame it replaces) already says, a brief
- *  fact the set stated that it no longer does, an invented fact, or a hook
- *  that stopped naming the offering. */
+ *  fact the set stated that it no longer does, an invented fact, a set
+ *  left without its one button, or a hook that stopped naming the
+ *  offering or gives no reason to swipe (hookFaults, and a later frame's
+ *  point it now spends). */
 export function regenerateProblems(
   plan: PlannedSequence,
   index: number,
@@ -126,15 +146,19 @@ export function regenerateProblems(
     offering,
     invented,
     brandName,
+    names = [],
   }: {
     facts: readonly BriefFact[];
     offering: string | null;
     invented: string[];
     brandName: string;
+    /** What the hook names (hookNames). */
+    names?: readonly string[];
   },
 ): string[] {
   const before = plan.frames[index];
   const frames = plan.frames.map((beat, i) => (i === index ? next : beat));
+  const roleBefore = new Set(roleProblems(plan.frames).map((p) => p.detail));
   const ignore = contentStems(brandName);
   /* Hard limits only: a headline a word over the format's budget is still
      drawn, and failing a paid regenerate over it would cost the user more
@@ -171,6 +195,16 @@ export function regenerateProblems(
   }
   for (const made of invented) {
     problems.push(`it states "${made}", which the brief does not give`);
+  }
+  for (const role of roleProblems(frames)) {
+    if (!roleBefore.has(role.detail)) problems.push(role.detail);
+  }
+  if (index === 0) {
+    problems.push(...hookFaults(next, offering, names, brandName, facts));
+    const previewed = new Set(hookPreviews(plan.frames, offering, brandName));
+    for (const preview of hookPreviews(frames, offering, brandName)) {
+      if (!previewed.has(preview)) problems.push(preview);
+    }
   }
   return problems;
 }
@@ -288,6 +322,7 @@ export async function replanFrame(
         offering,
         invented: inventedOn(next, ledger),
         brandName: context.brandSummary.name,
+        names: hookNames(context, offering),
       }),
     };
   };

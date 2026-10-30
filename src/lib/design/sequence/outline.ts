@@ -40,6 +40,10 @@ export interface OutlineSettlement {
  *    so set-level coverage (H5) is planned before it is written;
  *  - the offering is the hook's to name (offeringFact), and only the
  *    hook's to be held to;
+ *  - with `priceWithAction` (a carousel), a price is the action frame's:
+ *    it answers what acting costs, and a middle frame holding only the
+ *    price read as "a receipt stub where a slide should be" (round-2
+ *    critic, every five-frame carousel);
  *  - with no image no frame shows one, and with one the hook does;
  *  - layouts are settled by settleFrameLayouts.
  */
@@ -51,6 +55,7 @@ export function settleOutline(
     hasImage,
     recentLayouts = [],
     factKinds = [],
+    priceWithAction = false,
   }: {
     factCount: number;
     /** Each fact's kind, by index, so a fact left unplaced finds the
@@ -60,6 +65,8 @@ export function settleOutline(
     offeringFact: number | null;
     hasImage: boolean;
     recentLayouts?: readonly string[];
+    /** Every price goes on the last frame, beside the action. */
+    priceWithAction?: boolean;
   },
 ): OutlineSettlement {
   const count = answer.frames.length;
@@ -82,12 +89,27 @@ export function settleOutline(
     };
   });
   if (offeringFact !== null && frames[0]) frames[0].facts.unshift(offeringFact);
+  const lastFrame = frames[count - 1];
+  if (priceWithAction && lastFrame) {
+    const isPrice = (n: number) =>
+      factKinds[n] === "price" && n !== offeringFact;
+    for (const frame of frames) {
+      if (frame === lastFrame) continue;
+      const prices = frame.facts.filter(isPrice);
+      frame.facts = frame.facts.filter((n) => !isPrice(n));
+      lastFrame.facts.push(...prices);
+    }
+  }
   const placed = new Set(frames.flatMap((f) => f.facts));
   const factsPlaced: number[] = [];
   for (let n = 0; n < factCount; n += 1) {
     if (placed.has(n)) continue;
     factsPlaced.push(n);
-    frames[homeFor(frames, factKinds[n])]?.facts.push(n);
+    const home =
+      priceWithAction && factKinds[n] === "price"
+        ? count - 1
+        : homeFor(frames, factKinds[n]);
+    frames[home]?.facts.push(n);
   }
   const layouts = settleFrameLayouts(frames, recentLayouts);
   let layoutsChanged = 0;

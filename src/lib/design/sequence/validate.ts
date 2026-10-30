@@ -108,7 +108,8 @@ export function copyLimitProblems(
   return problems;
 }
 
-function roleProblems(frames: readonly FrameBeat[]): SequenceProblem[] {
+/** The hook-first, cta-last and cta-only-last rules alone. */
+export function roleProblems(frames: readonly FrameBeat[]): SequenceProblem[] {
   const problems: SequenceProblem[] = [];
   const last = frames.length - 1;
   if (frames[0] && frames[0].role !== "hook") {

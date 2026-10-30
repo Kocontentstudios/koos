@@ -20,6 +20,7 @@ const t = COPY_TARGETS;
 
 export const POINT_MAX = 200;
 export const SCENE_MAX = 400;
+export const REVIEW_NOTE_MAX = 300;
 
 /**
  * The kinds of point a frame can make. Asked for so that "different
@@ -154,3 +155,22 @@ export type FrameRewrite = z.infer<typeof frameRewriteSchema>;
 export const rewriteResponseSchema = z.object({
   frames: z.array(frameRewriteSchema).min(1).max(20),
 });
+
+/** The edit pass's answer: the editor's read of which frames repeat
+ *  another or lack a point, then the versions it wrote. */
+export const editResponseSchema = z.object({
+  review: z
+    .array(
+      z.object({
+        frame: z.number().int().describe("The failing frame's number."),
+        fails: z
+          .string()
+          .max(REVIEW_NOTE_MAX)
+          .describe("What it repeats (naming the other frame) or lacks."),
+      }),
+    )
+    .max(20),
+  frames: z.array(frameRewriteSchema).min(1).max(40),
+});
+
+export type EditAnswer = z.infer<typeof editResponseSchema>;

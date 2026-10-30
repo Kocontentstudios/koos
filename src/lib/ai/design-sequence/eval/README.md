@@ -16,17 +16,20 @@ pnpm eval:design-sequence --no-judge              # deterministic lane only
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
-SigV4 keys are used. Each run makes 5 to 9 planner calls (brief read,
-outline, two copy drafts in parallel, hook versions, and when needed the
-outline re-ask, the draft or hook choice and the repair pass), plus one
-judge call. A full run is 18 planner runs, three at a time, and takes
-about 10 minutes. Each run also prints the copy faults the planner could
-not get rewritten (`PlannedSequenceResult.faults`), and the report keeps
-them per run, so a flat hook or a line said twice is counted, never
-silent. Run it before shipping a change to
-`src/lib/design/sequence/` or `src/lib/ai/prompts/design-sequence.ts`, and
-nightly. It is not part of `pnpm test`. Nothing is rendered, uploaded or
-stored. The JSON report, with every plan and every judge reason, lands in
+SigV4 keys are used. Each run makes 5 to 8 planner calls, never more than
+`MAX_MODEL_CALLS` (9, the brief read included): the brief read, the
+outline, two copy drafts in parallel, and the one edit pass (the problems
+code found, the hook in three angles and the editor's own review of which
+frames repeat another, in a single call); when needed, the outline re-ask,
+the draft choice and the hook choice. Plus one judge call. A full run is
+18 planner runs, three at a time, and takes about 10 minutes. Each run
+also prints the copy faults the planner could not get rewritten
+(`PlannedSequenceResult.faults`), and the report keeps them per run, so a
+flat hook or a line said twice is counted, never silent. Run it before
+shipping a change to `src/lib/design/sequence/` or
+`src/lib/ai/prompts/design-sequence.ts`, and nightly. It is not part of
+`pnpm test`. Nothing is rendered, uploaded or stored. The JSON report, with
+every plan and every judge reason, lands in
 `qa-reports/eval/design-sequence.json` (gitignored).
 
 ## Fixtures
@@ -37,7 +40,10 @@ sponsorship deck). Each case's facts and offering are labelled by hand, in
 the brief's own words. Coverage is measured against those labels, never
 against the brief reader the planner uses, so a reader miss shows up as a
 coverage miss. `cases.test.ts` checks that every label appears in its brief
-word for word.
+word for word. A venue the brief calls "our Yaba bar" is read the way the
+directions path and the job's drawn-copy check read it (`withVenueOrBrand`):
+the brand's name and the area state it. That rule is deterministic, so the
+labels are still not the planner's reader.
 
 ## What it scores
 
@@ -78,52 +84,43 @@ anyone edits them.
 
 ## Results so far
 
-The latest numbers come from round 2 of the revision (2026-10-30, Bedrock
-`us.anthropic.claude-sonnet-4-6`), three full runs on the pipeline as
-committed or one change from it. Logs and JSON reports are in
-`/tmp/feat-multiframe/critique/u1r2/` (`eval-full-a`, `-b`, `-c`).
+Round 3 of the revision (2026-10-30, Bedrock
+`us.anthropic.claude-sonnet-4-6`). Logs and JSON reports are in
+`/tmp/feat-multiframe/critique/u1r3/` (`eval-full-a` to `-e`, and
+`eval-n5-a`, `-b` for the four carousels at N=5).
 
-| Run | count | roles | palette | layouts | coverage | hook | last action | non-repetitive |
-|---|---|---|---|---|---|---|---|---|
-| All 18 runs, full-a | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.78 | 4.94 | 3.61 |
-| All 18 runs, full-b (3 drafts, slack 2: reverted) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.78 | 5.00 | 3.44 |
-| All 18 runs, full-c (as committed) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 3.72 | 4.94 | 3.22 |
+| Run | change | coverage | hook | last action | non-repetitive |
+|---|---|---|---|---|---|
+| full-a | one edit pass (repair + hook + editor review), price on the action frame, fact-only frames, recap by owner | 0.944 | 4.06 | 4.89 | 3.39 |
+| full-b | review may give a repeated frame a new point; labels read venues as the product does | 0.944 | 3.94 | 4.83 | 3.61 |
+| full-c | a second edit pass (re-read): measured, moved nothing, removed | 1.0 | 3.83 | 4.89 | 3.50 |
+| full-d | coverage weighs double; the hook chosen on its own faults, not other frames' | 1.0 | **4.11** | 4.83 | 3.72 |
+| full-e | a hook that spends a later frame's point counts once, below a label: reverted | 0.944 | 3.94 | 5.00 | 3.61 |
 
-**The eval still fails its frozen judge thresholds.** The deterministic
-lane now holds on every run, coverage included: the SaaS "Ledgerly" miss is
-gone because the hook is held to every name it must carry and asked for
-again on its own when it misses one. The judge's hook average moved from
-3.50 to 3.72 to 3.78 and its non-repetition average from 3.31 to between
-3.22 and 3.61. Run-to-run swings on the same code are about 0.4, so the
-non-repetition change is inside the noise.
+**As committed, the code is full-d's.** Its run holds every deterministic
+check (coverage 1.0) and passes the hook threshold (4.11 against 4.0), but
+**non-repetition still fails its frozen threshold (3.72 against 4.0)**.
+Full-e, one change from it, also missed one fact on one run (the partner
+deck's venue, split across two footer lines by the model): a coverage miss
+the planner's own reader did not see, so the eval caught it as designed.
 
-The judge is not the problem. A calibration run
-(`/tmp/feat-multiframe/critique/u1r2/judge-calibration.json`) put a
-hand-written textile set through the frozen judge three times and got
-5/5/5 each time, with the same reasons. A hand-written SaaS set that made
-the reminder point on two frames got 2 for non-repetition three times out
-of three. The judge is strict and consistent; the planner's copy is not yet
-at that level.
+What moved the numbers, so the next attempt builds on it:
 
-The low scores cluster in two places:
+- **The hook was being chosen by code on faults of other frames.** A
+  version sharing a word with frame 2 lost to a flat label ("Cold brew at
+  our Yaba bar", judged 2). `hookScore` holds a version to the contract,
+  invented claims and its own faults only; the rest is listed for the
+  editor. Hook 3.83 to 4.11.
+- **Coverage now outweighs an invented claim.** The partner deck traded
+  "one room" for a hook naming nothing and lost the run.
+- **One edit pass, not two.** A second read of the edited set cost a call
+  and moved non-repetition from 3.61 to 3.50, inside the noise.
 
-- **Thin briefs stretched to 8 frames, and the decks.** The sponsorship
-  deck has 4 facts and scores 2 or 3 for non-repetition at every N. The
-  frames past the brief's real points get marked as filler. The planner is
-  told never to invent a point, and code never writes one.
-- **Hook subheadlines that only name the offering**, such as "Teen
-  sourdough baking class with head baker Tunde Okafor" under "Can your teen
-  bake real sourdough?". The judge gives that 3 or 4. Code catches
-  announcements in either line, a subheadline echoing its headline, a name
-  the hook leaves out, and a hook that spends a later frame's point
-  (`hook.ts`). What remains is taste, and the editor's choice between
-  versions (`choose.ts`) has not moved it past 3.8.
-
-What did not help, so the next attempt does not repeat it: an editor call
-that wrote notes for the repair pass (non-repetition 3.25 to 3.5 on the
-carousels at N=5, and it asked for scarcity the brief never gave), and
-three drafts with the editor choosing among any within two faults of the
-best (full-b above).
+What still holds non-repetition under 4: five- and eight-frame carousels
+where two middle frames make neighbouring points from a thin brief (the
+cafe's process and its serve, the textile store's sourcing and its craft),
+and the judge reads them as one point told twice. Short sets (N=3) score
+4 to 5. Run-to-run swing on the same code is about 0.3.
 
 Earlier rounds, kept so later runs can be compared against them:
 
@@ -135,3 +132,4 @@ Earlier rounds, kept so later runs can be compared against them:
 | 9 | phone/time rule, hook subheadline rule | 3.76 | 3.65 | 0.889 |
 | 11 | hook must name the brand when it is the subject | 3.50 | 3.31 | 0.944 |
 | R2 | venue facts as the directions read them, hook versions every run, two drafts and an editor's choice, cross-frame recap drops, phrase, action and hook-preview checks | 3.78 | 3.61 | 1.0 |
+| R2 full-a to -c (as delivered) | the round-2 pipeline, three full runs | 3.72 to 3.78 | 3.22 to 3.61 | 1.0 |

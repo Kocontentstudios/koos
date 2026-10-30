@@ -13,7 +13,13 @@ import {
   judgeScores,
   repairJudgeText,
 } from "./judge";
-import { aggregate, failures, type RunScore, scoreRun } from "./score";
+import {
+  aggregate,
+  failures,
+  labelledFacts,
+  type RunScore,
+  scoreRun,
+} from "./score";
 
 const cafe = SEQUENCE_EVAL_CASES.find((c) => c.id === "cafe");
 if (!cafe) throw new Error("no cafe case");
@@ -196,5 +202,26 @@ describe("repairJudgeText", () => {
     expect(
       await repairJudgeText({ text: JSON.stringify(verdict("Fine.")) }),
     ).toBeNull();
+  });
+});
+
+describe("labelledFacts", () => {
+  it("reads a venue the brief calls ours as the brand's name and area, as the product does", () => {
+    const plan = withFrame(cafePlan(), 3, {
+      headline: "Find Kiln Coffee, Yaba",
+      subheadline: "",
+    });
+    const facts = labelledFacts(cafe);
+    const venue = facts.find((f) => f.kind === "place");
+    expect(venue?.text).toBe("our Yaba bar");
+    expect(scoreRun(cafe, 5, plan).uncovered).not.toContain("our Yaba bar");
+  });
+
+  it("still misses a venue no frame names", () => {
+    const plan = withFrame(cafePlan(), 3, {
+      headline: "Find us on Saturday",
+      subheadline: "",
+    });
+    expect(scoreRun(cafe, 5, plan).uncovered).toContain("our Yaba bar");
   });
 });

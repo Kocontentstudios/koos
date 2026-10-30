@@ -239,3 +239,45 @@ describe("homeFor", () => {
     );
   });
 });
+
+describe("settleOutline: a carousel's price", () => {
+  /* 0 the offering, 1 a price, 2 a date, 3 a contact. */
+  const kinds = ["product", "price", "date", "contact"] as const;
+  const options = {
+    factCount: 4,
+    offeringFact: 0,
+    hasImage: false,
+    factKinds: [...kinds],
+  };
+  /* Fact numbers in an answer are 1-based, as the prompt lists them. */
+  const answer = {
+    frames: [
+      frame(),
+      frame({ beat: "detail", facts: [2] }),
+      frame({ beat: "when-where", facts: [3] }),
+      frame({ beat: "action", facts: [4] }),
+    ],
+  };
+
+  it("moves every price to the action frame, beside how to act", () => {
+    const settled = settleOutline(answer, {
+      ...options,
+      priceWithAction: true,
+    });
+    expect(settled.frames.map((f) => f.facts)).toEqual([[0], [], [2], [3, 1]]);
+  });
+
+  it("places an unplaced price there too, never on a middle frame", () => {
+    const settled = settleOutline(
+      { frames: answer.frames.map((f) => ({ ...f, facts: [] })) },
+      { ...options, priceWithAction: true },
+    );
+    expect(settled.frames[3].facts).toContain(1);
+    expect(settled.frames.slice(1, 3).flatMap((f) => f.facts)).not.toContain(1);
+  });
+
+  it("leaves a deck's price where the outline put it", () => {
+    const settled = settleOutline(answer, options);
+    expect(settled.frames[1].facts).toEqual([1]);
+  });
+});

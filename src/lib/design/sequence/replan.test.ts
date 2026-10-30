@@ -5,13 +5,16 @@ vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
-import { CAFE_BRIEF, cafePlan } from "./fixtures";
+import { CAFE_BRIEF, CAFE_RULES, cafePlan, fact } from "./fixtures";
 import {
   applyFrameEdits,
   FrameEditError,
   FrameReplanError,
+  regenerateProblems,
   replanFrame,
+  replanReason,
 } from "./replan";
+import { validateSequence } from "./validate";
 
 const context = directionsContext({
   title: "Cold brew launch",
@@ -284,5 +287,122 @@ describe("replanFrame without edits", () => {
     await expect(
       replanFrame({ context, plan, index: 7 }, { briefReader: reader }),
     ).rejects.toThrow(RangeError);
+  });
+});
+
+describe("replanFrame without edits: the round-2 critic's probes", () => {
+  const plan = cafePlan();
+  const held = {
+    briefReader: reader,
+    facts: [
+      fact("price", "₦2,500 a bottle"),
+      fact("date", "Saturday 15 November"),
+      fact("time", "8am to 2pm"),
+      fact("contact", "WhatsApp 0803 555 0142"),
+    ],
+    offering: "cold brew",
+  };
+
+  it("P1: a rewrite of the action frame with an empty button keeps the set's button", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        frame: 5,
+        title: "Reserve yours",
+        headline: "Your Saturday ritual starts here",
+        subheadline: "",
+        footerLines: ["WhatsApp 0803 555 0142"],
+        cta: "",
+      }),
+    );
+    const { beat } = await replanFrame({ context, plan, index: 4 }, held);
+    expect(beat.role).toBe("cta");
+    expect(beat.cta).toBe(plan.frames[4].cta);
+    const frames = plan.frames.map((f, i) => (i === 4 ? beat : f));
+    expect(
+      validateSequence(
+        { ...plan, frames },
+        { ...CAFE_RULES, facts: held.facts },
+      ).map((p) => p.rule),
+    ).not.toContain("cta-last");
+  });
+
+  it("P1: regenerateProblems names an action frame left without its button", () => {
+    const next = { ...plan.frames[4], cta: "" };
+    expect(
+      regenerateProblems(plan, 4, next, {
+        facts: held.facts,
+        offering: "cold brew",
+        invented: [],
+        brandName: "Kiln Coffee",
+      }),
+    ).toContain("the last frame has no button");
+  });
+
+  it("P2: refuses a hook that announces the offering", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        frame: 1,
+        title: "The launch",
+        headline: "Cold brew is here",
+        subheadline: "At Kiln Coffee",
+      }),
+    );
+    const err = await replanFrame({ context, plan, index: 0 }, held).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FrameReplanError);
+    expect((err as FrameReplanError).problems).toContainEqual(
+      expect.stringContaining("announces the offering"),
+    );
+  });
+
+  it("P2: keeps a hook that gives a reason to swipe", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        frame: 1,
+        title: "The launch",
+        headline: "Why rush a Saturday?",
+        subheadline: "Kiln's cold brew, poured over ice",
+      }),
+    );
+    const { beat } = await replanFrame({ context, plan, index: 0 }, held);
+    expect(beat.headline).toBe("Why rush a Saturday?");
+  });
+
+  it("says why a regenerate was refused, in words the user can read", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        headline: "Your Saturday ritual starts with one message",
+        subheadline: "₦2,500 a bottle",
+      }),
+    );
+    const err = await replanFrame({ context, plan, index: 1 }, held).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FrameReplanError);
+    expect((err as FrameReplanError).message).toContain(
+      'the new version states "one", which the brief does not give',
+    );
+    expect((err as FrameReplanError).message).toContain(
+      "The frame is unchanged",
+    );
+  });
+
+  it("tells the model a number written as a word is a number", async () => {
+    generateObject.mockResolvedValue(rewrite());
+    await replanFrame({ context, plan, index: 1 }, held);
+    const prompt = generateObject.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain(
+      'a number written as a word counts ("one message"',
+    );
+  });
+});
+
+describe("replanReason", () => {
+  it("reads the first problem as the user would", () => {
+    expect(
+      replanReason(['it states "one", which the brief does not give']),
+    ).toBe('the new version states "one", which the brief does not give');
+    expect(replanReason([])).toBeNull();
   });
 });
