@@ -8,7 +8,6 @@ import type {
   SequenceImageSource,
   SequenceKind,
 } from "@/lib/design/sequence/contract";
-import { HOOK_CRAFT } from "@/lib/design/sequence/hook";
 import type { ProfilePoint } from "@/lib/design/sequence/points";
 import type { BriefFact } from "@/lib/jobs/directions/brief-facts";
 import { inBrief } from "@/lib/jobs/directions/brief-read";
@@ -421,8 +420,7 @@ function beatLines(
 }
 
 /** What the editor holds an opening frame to, in the order a viewer
- *  meets it. Shared by the edit pass and both choices so a hook is
- *  written and picked for the same reasons. */
+ *  meets it. */
 function openingTest(noun: string): string {
   return `gives a concrete reason to see the next ${noun}, built on something only this offering has (a figure, how it is made, who makes it, what it changes for the reader, in the customer's terms), and says what is on offer, rather than a label, an announcement, a mood, a question any brand could ask or a line any brand could post; its second line adds what its first does not`;
 }
@@ -450,6 +448,8 @@ export interface EditPassInput {
   /** Brand-profile points no frame makes yet, for a frame that needs a
    *  new point. */
   spareProfilePoints?: readonly ProfilePoint[];
+  /** What the editor who graded the drafts found said twice in this one. */
+  editorNotes?: string | null;
 }
 
 /**
@@ -470,6 +470,7 @@ export function buildSequenceEditPrompt(
     mustState,
     names,
     spareProfilePoints = [],
+    editorNotes = null,
   }: EditPassInput,
 ): string {
   const noun = frameNoun(kind);
@@ -502,6 +503,9 @@ export function buildSequenceEditPrompt(
   return [
     requestBlock(context, kind, frames.length, null),
     `The ${kind} so far, with what each ${noun} must state and every problem code found:\n\n${listed}`,
+    editorNotes
+      ? `A creative director who read it found these ${noun}s making one point twice: ${editorNotes}\nEach is a real failure of test 2: list it in "review" and fix it.`
+      : null,
     `You are the editor. Read the ${kind} in order, as the viewer will, and hold it to three tests:
 1. ${Noun} 1 ${openingTest(noun)}.
 2. ${buildsTest(noun)}.
@@ -516,60 +520,49 @@ ${hookAsk}
     } Never a point neither gives.
 - No other ${noun}.`,
     COPY_RULES(kind),
-    `Each entry in "frames" has "frame" set to its number, its title, headline, subheadline and footer lines. "cta" is the button on ${noun} ${last} only, and "" on every other.`,
-  ].join("\n\n");
+    `Each entry in "frames" has "frame" set to its number, its title, headline, subheadline and footer lines. The title is the ${noun}'s name as the client reads it on its card, 2 to ${t.title.words} words, never a version label or a point's number. "cta" is the button on ${noun} ${last} only, and "" on every other.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
-/** Drafts of the whole set, numbered from 1, as the editor chooses
- *  between them (sequence/choose.ts). It picks; it rewrites nothing. */
-export function buildSequenceChoicePrompt(
-  context: DesignContext,
-  { kind, drafts }: { kind: SequenceKind; drafts: readonly FrameBeat[][] },
-): string {
-  const noun = frameNoun(kind);
-  return [
-    requestBlock(context, kind, drafts[0].length, null),
-    ...drafts.map((d, i) => `Draft ${i + 1}:\n\n${beatLines(d, noun)}`),
-    `You are the editor choosing which draft of this ${kind} goes out. Read each in order, as a viewer would, and choose the one that:
-1. opens on a ${noun} that ${openingTest(noun)};
-2. makes its own point on every ${noun}, so that read in order the ${kind} builds, with no idea, detail or phrase given twice and no ${noun} that adds nothing;
-3. ends on one clear action and how to take it.
-Prefer the draft that says only what the brief and brand profile give, in the brief's own measure. Answer with the draft's number.`,
-  ].join("\n\n");
-}
-
-/** Versions of the opening frame, numbered from 1, against the rest of the
- *  set as it stands, for the editor to choose one. */
-export function buildHookChoicePrompt(
+/**
+ * Whole versions of the set, numbered from 1, for the editor to grade
+ * rather than pick: a reason first (what each makes twice), then a score
+ * for the opening, the build and the close. Code keeps the highest graded
+ * among those with the fewest broken rules (choose.ts gradedIndex). The
+ * editor writes no word of any version.
+ */
+export function buildSetGradePrompt(
   context: DesignContext,
   {
     kind,
-    frames,
-    hooks,
+    versions,
     faults = [],
   }: {
     kind: SequenceKind;
-    frames: readonly FrameBeat[];
-    hooks: readonly FrameBeat[];
-    /** What code finds wrong with each version, in the order shown
-     *  (hookCopyFaults), so the editor's taste never overrides it. */
+    versions: readonly (readonly FrameBeat[])[];
+    /** What code finds wrong with each version, in the order shown. */
     faults?: readonly (readonly string[])[];
   },
 ): string {
   const noun = frameNoun(kind);
-  const later = new Set(frames.map((_, i) => i).filter((i) => i > 0));
+  const Noun = noun === "slide" ? "Slide" : "Frame";
+  const last = versions[0]?.length ?? 0;
   return [
-    requestBlock(context, kind, frames.length, null),
-    `The ${noun}s after the opening one:\n\n${beatLines(frames, noun, later)}`,
-    `Versions of ${noun} 1:\n\n${hooks
-      .map((h, i) =>
-        [
-          `${i + 1}. headline "${h.headline}"${h.subheadline ? `, subheadline "${h.subheadline}"` : ""}`,
-          ...(faults[i] ?? []).map((f) => `   fault: ${f}`),
-        ].join("\n"),
-      )
-      .join("\n")}`,
-    `You are the editor choosing how this ${kind} opens. Choose the version that ${openingTest(noun)}, and that does not spend a point a later ${noun} makes. A strong opening does this: ${HOOK_CRAFT}. A version with a fault listed loses to one without. Prefer the one that claims only what the brief gives, in the brief's own measure. Answer with the version's number.`,
+    requestBlock(context, kind, last, null),
+    ...versions.map((frames, i) =>
+      [
+        `Version ${i + 1}:\n\n${beatLines(frames, noun)}`,
+        ...(faults[i] ?? []).map((f) => `fault code found: ${f}`),
+      ].join("\n"),
+    ),
+    `You are the creative director deciding which version of this ${kind} goes out. You are hard to impress: work that is generic, safe or says a thing twice scores 3 or less, and a 5 is work you would post unchanged over what a template tool would make for this brief. Read each version in order, as the viewer will, and grade it on its own words.
+For each version, first write in "repeats" every pair of ${noun}s a reader would say make one point, or share a phrase, naming both ${noun}s ("2 and 3: both say it is made by hand"). Two ${noun}s on one quality from two sides count; a subheadline that makes the next ${noun}'s point counts; a closing ${noun} that restates the one before it counts. Write "none" only when there is none. Then score from 1 to 5:
+- "hook": ${Noun} 1. 5 when it names what is on offer and gives a concrete reason to see the next ${noun} that only this offering could claim; 3 when it names it but is flat or generic, or its second line says its first again; 1 when it is unclear what it is about.
+- "builds": 5 when every ${noun} makes its own point in its own words, so read in order the ${kind} builds; 3 when two ${noun}s say much the same or reuse phrasing; 1 when it is one message cut into pieces.
+- "action": ${Noun} ${last}. 5 when it gives one clear action and how to take it; 3 when the how is missing or the action is vague; 1 when there is none.
+A fault code found is real: weigh it. One entry in "grades" per version, with "version" set to its number.`,
   ].join("\n\n");
 }
 

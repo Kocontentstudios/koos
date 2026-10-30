@@ -27,7 +27,22 @@ const isCopy = (o: unknown) => promptOf(o).includes("Now write the copy");
 const isEdit = (o: unknown) =>
   promptOf(o).includes('In "review", list every frame after frame 1');
 const isChoice = (o: unknown) =>
-  promptOf(o).includes("You are the editor choosing");
+  promptOf(o).includes("deciding which version of this");
+const versionsShown = (o: unknown) =>
+  (promptOf(o).match(/^Version \d+:/gm) ?? []).length;
+/** A grade that scores every version shown alike, so code's tie-break
+ *  decides; `totals` gives version n (as shown) its hook score. */
+const gradeOf = (o: unknown, hooks: number[] = []) => ({
+  object: {
+    grades: Array.from({ length: versionsShown(o) }, (_, i) => ({
+      version: i + 1,
+      repeats: "none",
+      hook: hooks[i] ?? 3,
+      builds: 3,
+      action: 3,
+    })),
+  },
+});
 type Rewrites = { object: { frames: unknown[] } };
 const noVersions = (): Rewrites => ({ object: { frames: [] } });
 
@@ -197,7 +212,7 @@ function answer(handlers: {
         },
       };
     }
-    if (isChoice(o) && handlers.choice) return handlers.choice(o);
+    if (isChoice(o)) return (handlers.choice ?? gradeOf)(o);
     throw new Error(`unexpected call: ${promptOf(o).slice(0, 80)}`);
   });
 }
@@ -223,8 +238,9 @@ describe("planSequence", () => {
     ]);
     expect(result.problems).toEqual([]);
     expect(result.repaired).toBe(false);
-    /* Brief read, outline, two drafts (alike, so no choice), hook. */
-    expect(result.modelCalls).toBe(5);
+    /* Brief read, outline, three drafts (alike, so no grade), and the edit
+       pass. */
+    expect(result.modelCalls).toBe(6);
     expect(result.offering).toBe("cold brew");
     expect(result.facts.map((f) => f.text)).toEqual([
       "cold brew",
@@ -237,13 +253,32 @@ describe("planSequence", () => {
   });
 
   it("returns what no rewrite took out of the set as invented, by frame (round-4 critic, HIGH 2)", async () => {
+    /* In the headline, which no cut may take. */
     const claimed = copyFrames();
-    claimed[1] = { ...claimed[1], subheadline: "Gone by noon, every week" };
+    claimed[1] = { ...claimed[1], headline: "Gone by noon, every week" };
     answer({ copy: () => copy(claimed) });
     const result = await planSequence(input(), { briefReader: reader });
     expect(result.invented.map((i) => i.frame)).toContain(1);
     expect(result.invented.map((i) => i.text.toLowerCase())).toContain("gone");
     expect(result.invented.every((i) => i.frame === 1)).toBe(true);
+  });
+
+  it("cuts a subheadline that carries a term no source gives, rather than ship it (round-5 critic, HIGH 3)", async () => {
+    const claimed = copyFrames();
+    claimed[3] = {
+      ...claimed[3],
+      subheadline: "Pay when you collect. No hidden charges.",
+    };
+    answer({ copy: () => copy(claimed) });
+    const result = await planSequence(input(), { briefReader: reader });
+    expect(result.plan.frames[3].subheadline).toBe("");
+    expect(result.invented).toEqual([]);
+    expect(console.info).toHaveBeenCalledWith(
+      "design.sequence.planned",
+      expect.objectContaining({
+        cuts: expect.arrayContaining([expect.objectContaining({ frame: 3 })]),
+      }),
+    );
   });
 
   it("returns an empty invented list for a set the ledger vouches for", async () => {
@@ -258,8 +293,11 @@ describe("planSequence", () => {
     await planSequence(input(), { briefReader: reader });
     const calls = generateObject.mock.calls.map(([o]) => o);
     expect(isOutline(calls[0])).toBe(true);
-    expect(isCopy(calls[1])).toBe(true);
-    const copyPrompt = promptOf(calls[1]);
+    expect(calls.filter(isOutline)).toHaveLength(1);
+    expect(calls.filter(isCopy)).toHaveLength(3);
+    const firstCopy = calls.findIndex(isCopy);
+    expect(firstCopy).toBeGreaterThan(0);
+    const copyPrompt = promptOf(calls[firstCopy]);
     expect(copyPrompt).toContain(
       'must state, in these words: "WhatsApp 0803 555 0142", "₦2,500 a bottle"',
     );
@@ -350,8 +388,8 @@ describe("planSequence", () => {
     expect(asked).toContain('  must state, in these words: "our Yaba bar"');
     expect(result.problems).toEqual([]);
     expect(result.repaired).toBe(true);
-    /* The brief read, the outline, two drafts and the one edit pass. */
-    expect(result.modelCalls).toBe(5);
+    /* The brief read, the outline, three drafts and the one edit pass. */
+    expect(result.modelCalls).toBe(6);
   });
 
   it("keeps the first copy where a rewrite would leave more problems, then writes the fact it still lacks in the brief's words (round-4 critic, MEDIUM 5)", async () => {
@@ -489,8 +527,8 @@ describe("planSequence", () => {
     });
     const result = await planSequence(input(), { briefReader: reader });
     expect(result.plan.frames).toHaveLength(5);
-    /* The brief read, the outline twice, two drafts and the edit pass. */
-    expect(result.modelCalls).toBe(6);
+    /* The brief read, the outline twice, three drafts and the edit pass. */
+    expect(result.modelCalls).toBe(7);
   });
 
   it("shows the planner an upload, and plans without it if the provider refuses", async () => {
@@ -648,7 +686,9 @@ describe("planSequence", () => {
     expect(result.plan.frames[0].role).toBe("hook");
     expect(result.faults).toEqual([]);
     expect(result.repaired).toBe(true);
-    expect(result.modelCalls).toBe(5);
+    /* Only one version opens without a fault, so code takes it with no
+       grade. */
+    expect(result.modelCalls).toBe(6);
   });
 
   it("returns the hook's faults when no version fixes them, instead of hiding them", async () => {
@@ -686,12 +726,12 @@ describe("planSequence", () => {
       "design.sequence.planned",
       expect.objectContaining({
         hookAsked: [expect.stringContaining("announces the offering")],
-        hook: expect.objectContaining({ index: 0, by: "code" }),
+        final: expect.objectContaining({ index: 0, by: "code" }),
       }),
     );
   });
 
-  it("keeps a hook no version beats, and asks the editor only between versions code cannot tell apart", async () => {
+  it("grades whole sets under each opening code cannot tell apart, and keeps the one graded highest", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.99);
     const hookVersion = (headline: string, subheadline: string) => ({
       frame: 1,
@@ -713,13 +753,18 @@ describe("planSequence", () => {
           ],
         },
       }),
-      choice: () => ({ object: { choice: 2, why: "It pulls harder." } }),
+      choice: (o) => gradeOf(o, [3, 5]),
     });
     const result = await planSequence(input(), { briefReader: reader });
     const choiceCall = generateObject.mock.calls.map(([o]) => o).find(isChoice);
     const shown = promptOf(choiceCall);
-    expect(shown).toContain('1. headline "Your Saturday, slowed down"');
-    expect(shown).toContain('2. headline "Slow mornings, cold glasses"');
+    /* random 0.99 keeps the written order: the draft, then the new
+       opening; the announcing version is never graded. */
+    expect(versionsShown(choiceCall)).toBe(2);
+    expect(
+      shown.indexOf('headline: "Your Saturday, slowed down"'),
+    ).toBeLessThan(shown.indexOf("Version 2:"));
+    expect(shown).toContain('headline: "Slow mornings, cold glasses"');
     expect(shown).not.toContain("Cold brew is here");
     expect(result.plan.frames[0].headline).toBe("Slow mornings, cold glasses");
     expect(result.plan.frames[0].title).toBe("The launch");
@@ -746,21 +791,22 @@ describe("planSequence", () => {
     );
   });
 
-  it("asks the editor between clean drafts and maps its pick back through the shuffle", async () => {
+  it("grades clean drafts and maps the highest graded back through the shuffle", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const second = copyFrames();
     second[4] = { ...second[4], headline: "Hold a bottle for yourself" };
     answer({
-      copy: (draft) => (draft === 1 ? copy() : copy(second)),
-      choice: () => ({ object: { choice: 1, why: "Builds better." } }),
+      copy: (draft) => (draft === 2 ? copy(second) : copy()),
+      choice: (o) => gradeOf(o, [5, 3]),
     });
     const result = await planSequence(input(), { briefReader: reader });
     const asked = promptOf(
       generateObject.mock.calls.map(([o]) => o).find(isChoice),
     );
-    /* random 0 swaps the two, so draft 1 as shown is the second written. */
+    /* The third draft says what the first does, so two are graded;
+       random 0 swaps them, so version 1 as shown is the second written. */
     expect(asked.indexOf("Hold a bottle for yourself")).toBeLessThan(
-      asked.indexOf("Draft 2:"),
+      asked.indexOf("Version 2:"),
     );
     expect(result.plan.frames[4].headline).toBe("Hold a bottle for yourself");
   });
@@ -845,7 +891,7 @@ describe("planSequence", () => {
     });
     const result = await planSequence(input(), { briefReader: reader });
     expect(outlineAsks).toBe(2);
-    expect(copyAsks).toBe(2);
+    expect(copyAsks).toBe(3);
     expect(result.plan.frames).toHaveLength(5);
     expect(result.plan.logoPlacement).toBe("top-left");
     expect(result.plan.frames.map((f) => f.headline)).not.toContain(
@@ -860,7 +906,7 @@ describe("planSequence", () => {
     await planSequence(input(), { briefReader: reader });
     expect(console.info).toHaveBeenCalledWith(
       "design.sequence.planned",
-      expect.objectContaining({ kind: "carousel", frames: 5, modelCalls: 5 }),
+      expect.objectContaining({ kind: "carousel", frames: 5, modelCalls: 6 }),
     );
   });
 });
@@ -881,8 +927,8 @@ describe("planSequence: the edit pass and its limits", () => {
     const result = await planSequence(input(), { briefReader: reader });
     const calls = generateObject.mock.calls.map(([o]) => o);
     expect(calls.filter(isEdit)).toHaveLength(1);
-    expect(calls).toHaveLength(4);
-    expect(result.modelCalls).toBe(5);
+    expect(calls).toHaveLength(5);
+    expect(result.modelCalls).toBe(6);
   });
 
   it("never makes more than MAX_MODEL_CALLS calls, however often answers fail", async () => {
@@ -911,9 +957,9 @@ describe("planSequence: the edit pass and its limits", () => {
       },
     });
     const result = await planSequence(input(), { briefReader: reader });
-    /* The brief read, four outline asks and four draft asks spend the
-       budget, so the optional edit pass is skipped rather than the wait
-       growing. */
+    /* The brief read, four outline asks and five draft asks (three, two
+       of them asked again) spend the budget, so the optional edit pass is
+       skipped rather than the wait growing. */
     expect(result.modelCalls).toBe(MAX_MODEL_CALLS);
     expect(generateObject.mock.calls.length + 1).toBe(MAX_MODEL_CALLS);
     expect(generateObject.mock.calls.map(([o]) => o).some(isEdit)).toBe(false);
@@ -1034,7 +1080,7 @@ describe("planSequence: the edit pass and its limits", () => {
     );
   });
 
-  it("shows the hook editor the faults code found on each version", async () => {
+  it("shows the editor the faults code found on each version it grades", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.99);
     answer({
       hook: () => ({
@@ -1042,21 +1088,20 @@ describe("planSequence: the edit pass and its limits", () => {
           frames: [
             rewriteOf(1, {
               headline: "Slow mornings, cold glasses",
-              subheadline: "Kiln's cold brew, over ice",
+              subheadline:
+                "Kiln's cold brew. Sit in with a glass, or carry yours out.",
             }),
           ],
         },
       }),
-      choice: () => ({ object: { choice: 1, why: "It pulls." } }),
     });
     await planSequence(input(), { briefReader: reader });
-    const choice = promptOf(
+    const grade = promptOf(
       generateObject.mock.calls.map(([o]) => o).find(isChoice),
     );
-    expect(choice).toContain("A version with a fault listed loses");
-    expect(choice).toContain(
-      "name the offering in the headline or the subheadline",
-    );
+    expect(grade).toContain("fault code found: frame 1: the hook already says");
+    expect(grade).toContain("A fault code found is real: weigh it.");
+    expect(grade).toContain('write in "repeats" every pair of frames');
   });
 
   it("puts a carousel's price on the action frame, and a deck's where the outline put it", async () => {

@@ -8,9 +8,7 @@ import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import {
   buildFrameCopyPrompt,
   buildFrameRegeneratePrompt,
-  buildHookChoicePrompt,
   buildOutlinePrompt,
-  buildSequenceChoicePrompt,
   buildSequenceEditPrompt,
   buildSequenceSystemPrompt,
   factList,
@@ -339,76 +337,6 @@ describe("factList", () => {
   it("numbers facts from 1 with their kind", () => {
     expect(factList(CAFE_FACTS.slice(0, 2))).toBe(
       '1. (product) "cold brew"\n2. (price) "₦2,500 a bottle"',
-    );
-  });
-});
-
-describe("buildSequenceChoicePrompt", () => {
-  const plan = cafePlan();
-  const other = plan.frames.map((f, i) =>
-    i === 0 ? { ...f, headline: "Slow mornings, cold glasses" } : f,
-  );
-  const prompt = buildSequenceChoicePrompt(context, {
-    kind: "carousel",
-    drafts: [plan.frames, other],
-  });
-
-  it("numbers every draft in full", () => {
-    expect(prompt).toContain("Draft 1:");
-    expect(prompt).toContain("Draft 2:");
-    expect(prompt).toContain('headline: "Slow mornings, cold glasses"');
-  });
-
-  it("holds them to the opening, one point per frame and the action", () => {
-    expect(prompt).toContain("a question any brand could ask");
-    expect(prompt).toContain("no idea, detail or phrase given twice");
-    expect(prompt).toContain("ends on one clear action");
-    expect(prompt).toContain("Answer with the draft's number.");
-  });
-});
-
-describe("buildHookChoicePrompt", () => {
-  const plan = cafePlan();
-  const prompt = buildHookChoicePrompt(context, {
-    kind: "carousel",
-    frames: plan.frames,
-    hooks: [plan.frames[0], { ...plan.frames[0], headline: "Still rushing?" }],
-  });
-
-  it("shows the rest of the set and the numbered versions", () => {
-    expect(prompt).toContain('frame 2 (body): title "The price"');
-    expect(prompt).not.toContain("frame 1 (hook): title");
-    expect(prompt).toContain('1. headline "Your Saturday, slowed down"');
-    expect(prompt).toContain('2. headline "Still rushing?"');
-  });
-
-  it("asks for the opening that does not spend a later frame's point", () => {
-    expect(prompt).toContain("does not spend a point a later frame makes");
-    expect(prompt).toContain("Answer with the version's number.");
-  });
-
-  it("carries the hook craft and the faults code found, so taste never overrides them", () => {
-    const flagged = buildHookChoicePrompt(context, {
-      kind: "carousel",
-      frames: plan.frames,
-      hooks: [
-        { ...plan.frames[0], headline: "Cold brew is here." },
-        { ...plan.frames[0], headline: "Still rushing?" },
-      ],
-      faults: [
-        ['the hook\'s headline "Cold brew is here." announces the offering'],
-        [],
-      ],
-    });
-    expect(flagged).toContain('1. headline "Cold brew is here."');
-    expect(flagged).toContain(
-      '   fault: the hook\'s headline "Cold brew is here." announces the offering',
-    );
-    expect(flagged).toContain(
-      "A version with a fault listed loses to one without.",
-    );
-    expect(flagged).toContain(
-      "name the offering in the headline or the subheadline",
     );
   });
 });

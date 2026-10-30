@@ -1,4 +1,5 @@
 import { DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
+import { GRADE_NOTE_MAX } from "./choose";
 import { POINT_MAX, REVIEW_NOTE_MAX, SCENE_MAX } from "./schema";
 
 /**
@@ -125,6 +126,20 @@ function repairedNote(value: unknown): unknown {
   return note;
 }
 
+function repairedGrade(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const grade = { ...(value as Record<string, unknown>) };
+  if (
+    typeof grade.repeats === "string" &&
+    grade.repeats.length > GRADE_NOTE_MAX
+  ) {
+    grade.repeats = clampWords(grade.repeats, GRADE_NOTE_MAX);
+  }
+  return grade;
+}
+
 /** The first `count - 1` frames and the last, when one too many came. */
 function counted(frames: unknown[], count: number | undefined): unknown[] {
   if (count === undefined || frames.length <= count || count < 1) {
@@ -166,6 +181,14 @@ export async function repairSequenceText({
     if (Array.isArray(answer.review)) {
       answer.review = answer.review.map(repairedNote);
     }
+  }
+  if ("grades" in answer) {
+    answer.grades = parsedArray(answer.grades);
+    if (Array.isArray(answer.grades)) {
+      answer.grades = answer.grades.map(repairedGrade);
+    }
+    const repaired = JSON.stringify(answer);
+    return repaired === JSON.stringify(parsed) ? null : repaired;
   }
   answer.frames = parsedArray(answer.frames);
   if (Array.isArray(answer.frames)) {

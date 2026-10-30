@@ -511,3 +511,67 @@ describe("applyFrameEdits: what an edit uncovers (round-3 critic, finding 7)", (
     ).toBe("stat-highlight");
   });
 });
+
+describe("replanFrame: one fact twice on one frame (round-5 critic, MEDIUM 7)", () => {
+  const facts = [
+    fact("price", "₦2,500 a bottle"),
+    fact("contact", "WhatsApp 0803 555 0142"),
+  ];
+
+  it("drops the footer line that repeats the copy above, so the regenerate stands", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({
+        frame: 5,
+        title: "Reserve yours",
+        headline: "Your bottle, held for you",
+        subheadline: "₦2,500 a bottle, on WhatsApp 0803 555 0142.",
+        footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
+        cta: "Message us",
+      }),
+    );
+    const plan = cafePlan();
+    const result = await replanFrame(
+      { context, plan, index: 4 },
+      { briefReader: reader, facts, offering: "cold brew" },
+    );
+    expect(result.beat.subheadline).toBe(
+      "₦2,500 a bottle, on WhatsApp 0803 555 0142.",
+    );
+    expect(result.beat.footerLines).toEqual([]);
+  });
+
+  it("names a fact said twice on the frame as its own problem", () => {
+    const plan = cafePlan();
+    const next = {
+      ...plan.frames[4],
+      subheadline: "₦2,500 a bottle",
+      headline: "₦2,500 a bottle, held for you",
+    };
+    const problems = regenerateProblems(plan, 4, next, {
+      facts,
+      offering: "cold brew",
+      invented: [],
+      brandName: "Kiln Coffee",
+    });
+    expect(problems.map((p) => p.kind)).toContain("fact-twice");
+    expect(replanReason(problems.filter((p) => p.kind === "fact-twice"))).toBe(
+      "Every new version gave the same detail twice.",
+    );
+  });
+
+  it("cleans a planner label off the title a regenerate keeps (round-5 critic, HIGH 1)", async () => {
+    generateObject.mockResolvedValue(rewrite());
+    const plan = cafePlan();
+    const labelled = {
+      ...plan,
+      frames: plan.frames.map((b, i) =>
+        i === 1 ? { ...b, title: "The price — Version A" } : b,
+      ),
+    };
+    const result = await replanFrame(
+      { context, plan: labelled, index: 1 },
+      { briefReader: reader },
+    );
+    expect(result.beat.title).toBe("The price");
+  });
+});

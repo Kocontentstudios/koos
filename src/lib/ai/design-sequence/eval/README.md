@@ -18,12 +18,13 @@ pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
-SigV4 keys are used. Each run makes 5 to 8 planner calls, never more than
-`MAX_MODEL_CALLS` (9, the brief read included): the brief read, the
-outline, two copy drafts in parallel, and the one edit pass (the problems
+SigV4 keys are used. Each run makes 6 to 9 planner calls, never more than
+`MAX_MODEL_CALLS` (10, the brief read included): the brief read, the
+outline, three copy drafts in parallel, the one edit pass (the problems
 code found, the hook in three angles and the editor's own review of which
 frames repeat another, in a single call); when needed, the outline re-ask,
-the draft choice and the hook choice. Plus one judge call. A full tuning run is
+the grade of the drafts and the final grade of the edited set against its
+new openings and the draft. Plus one judge call. A full tuning run is
 30 planner runs, three at a time, and takes about 12 minutes; the
 held-out set is 12 more. Each run
 also prints the copy faults the planner could not get rewritten
@@ -97,6 +98,7 @@ against the `frameSpec` output the renderer would draw:
 | `roles` | Hook first, cta last, body between, and a button on the last frame only |
 | `paletteShared` | Every frame's spec has the same palette, logo, treatment and aspect, with at most one footer style. A presentation is 16:9 |
 | `layoutVariety` | No frame uses its neighbour's layout or composition |
+| `titleClean` | Every frame's title reads as its name on the card: no "version A" label or point id leaked from the planner (`title.ts`) |
 | `factCoverage` | Every labelled fact is stated on at least one frame (`factStated`), and the hook names the labelled offering |
 
 The judge lives in `judge.ts`. It is a text judge on the same model path. It
@@ -113,9 +115,10 @@ scores three things from 1 to 5:
 
 These were written on 2026-10-30, before the first run, from rubric H13.
 They are frozen in `SEQUENCE_EVAL_THRESHOLDS`, and `cases.test.ts` fails if
-anyone edits them.
+anyone edits them. `titleClean` was added in round 6 as a new 1.0 gate;
+no threshold has been lowered.
 
-- `count`, `roles`, `paletteShared`, `layoutVariety` and `factCoverage`:
+- `count`, `roles`, `paletteShared`, `layoutVariety`, `titleClean` and `factCoverage`:
   **1.0**, meaning every run. The planner enforces or repairs each of these,
   so a single miss is a bug.
 - `judgeHook`, `judgeLastAction` and `judgeNonRepetitive`: an average of
@@ -124,6 +127,53 @@ anyone edits them.
   failed) is reported as "not measured". It never counts as a pass.
 
 ## Results so far
+
+### Round 6 (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
+
+Logs and JSON reports in `/tmp/feat-multiframe/critique/u1r6/`: `tuning-{c,d}`
+and `heldout-{c,d}` are the code as committed; `exp1` to `exp4` are the
+approach experiments below; `pre-guard/` is the committed approach before
+the cut was barred from fact-bearing lines.
+
+Changes: frame titles are cleaned of draft labels and point ids and a
+rewrite never replaces a clean title with a labelled one (`title.ts`,
+metric `titleClean`, added this round as a 1.0 gate); commercial terms no
+source gives (payment terms, "no hidden charges", "no obligation",
+subscriptions, service scope, "proven", credentials) count as invented
+(`commercial.ts`); three drafts, graded whole by an editor who names what
+each says twice before scoring it (`buildSetGradePrompt`, `gradedIndex`),
+among the versions lowest on `hardScore` (rules, invented words, a name
+the hook must carry, a flat opening); the grade's notes on the chosen
+draft go to the edit pass; a final grade between the edited set, the
+edited set under its strongest new openings and the draft; a deterministic
+cut of a subheadline sentence or footer line still at fault
+(`withFaultsCut`), never a headline, a button, or a line that states a
+fact, figure or name; a fact said twice on one frame refuses a regenerate
+(`fact-twice`) after the repeated footer line is dropped; one idea
+headlined twice is a copy fault; a brief count whose words lean on a
+pronoun is not redrawn when a frame already gives its figure.
+
+| Run | set | coverage | titleClean | hook | last action | non-repetitive |
+|---|---|---|---|---|---|---|
+| exp1: one outline, 3 drafts graded | tuning | 1.0 | n/a | 3.53 | 5.00 | 3.30 |
+| exp3: 3 outlines, one draft each | tuning | 1.0 | 1.0 | 3.53 | 4.80 | 3.07 |
+| exp4: drafts graded with no hard gate | tuning | 0.933 | 1.0 | 3.50 | 4.93 | 3.10 |
+| c | tuning | 1.0 | 1.0 | 3.40 | 4.93 | 3.10 |
+| c | held out | 0.833 | 1.0 | 3.17 | 4.83 | 3.17 |
+| d | tuning | 1.0 | 1.0 | 3.53 | 4.97 | 3.40 |
+| d | held out | 0.917 | 1.0 | 3.67 | 4.92 | 3.75 |
+
+**Both sets still fail the frozen hook and non-repetition thresholds, and
+the held-out set misses the coverage gate.** No approach this round moved
+either judge average outside the run-to-run noise (about 0.15 on a
+30-run mean): grading whole drafts, writing each draft to its own outline,
+and grading with no hard gate all landed between 3.07 and 3.40 on
+non-repetition. This is the fourth round without movement, so the stall
+rule applies. The held-out coverage misses are the hook naming the
+offering in other words than the label ("Maths crash course" for "WAEC
+maths crash course", "hemmed" for "Alterations") and "3 days" without
+"ready"; round 5's run a had the same kind of miss.
+
 
 ### Round 5 (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
 

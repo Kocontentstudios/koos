@@ -109,6 +109,7 @@ describe("SEQUENCE_EVAL_CASES", () => {
       roles: 1,
       paletteShared: 1,
       layoutVariety: 1,
+      titleClean: 1,
       factCoverage: 1,
       judgeHook: 4,
       judgeLastAction: 4,
@@ -125,6 +126,7 @@ describe("scoreRun", () => {
       roles: true,
       paletteShared: true,
       layoutVariety: true,
+      titleClean: true,
       factCoverage: true,
       uncovered: [],
       offeringOnHook: true,
@@ -145,6 +147,13 @@ describe("scoreRun", () => {
       5,
       withFrame(cafePlan(), 4, { footerLines: [] }),
     );
+    expect(
+      scoreRun(
+        cafe,
+        5,
+        withFrame(cafePlan(), 2, { title: "Roasted in-house — version A" }),
+      ).titleClean,
+    ).toBe(false);
     expect(dropped.factCoverage).toBe(false);
     expect(dropped.uncovered).toEqual(["WhatsApp 0803 555 0142"]);
     const unnamed = scoreRun(

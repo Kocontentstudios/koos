@@ -206,6 +206,7 @@ async function worker() {
         score.roles,
         score.paletteShared,
         score.layoutVariety,
+        score.titleClean,
         score.factCoverage,
       ]
         .map((ok) => (ok ? "ok" : "FAIL"))
@@ -263,6 +264,7 @@ const scores = records.map(
       roles: false,
       paletteShared: false,
       layoutVariety: false,
+      titleClean: false,
       factCoverage: false,
       uncovered: [],
       offeringOnHook: false,

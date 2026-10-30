@@ -1,6 +1,7 @@
 import type { PlannedSequence } from "@/lib/design/sequence/contract";
 import { PRESENTATION_ASPECT } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
+import { isCleanTitle } from "@/lib/design/sequence/title";
 import {
   factsUncovered,
   validateSequence,
@@ -31,6 +32,9 @@ export interface RunScore {
   paletteShared: boolean;
   /** No frame in its neighbour's layout or composition. */
   layoutVariety: boolean;
+  /** Every frame's title reads as its name on the card: no version label
+   *  or source id leaked from the planner (title.ts). */
+  titleClean: boolean;
   /** Every labelled fact on at least one frame, and the offering named on
    *  the hook. */
   factCoverage: boolean;
@@ -107,6 +111,7 @@ export function scoreRun(
     roles: rolesHold(plan),
     paletteShared: sharedSystem(plan, c),
     layoutVariety: !problems.some((p) => p.rule === "layout-repeat"),
+    titleClean: plan.frames.every((beat) => isCleanTitle(beat.title)),
     factCoverage: uncovered.length === 0 && offeringOnHook,
     uncovered,
     offeringOnHook,
@@ -124,6 +129,7 @@ export interface Aggregate {
   roles: number;
   paletteShared: number;
   layoutVariety: number;
+  titleClean: number;
   factCoverage: number;
   /** Null when no run was judged. */
   judgeHook: number | null;
@@ -150,6 +156,7 @@ export function aggregate(
     roles: share(runs, (r) => r.roles),
     paletteShared: share(runs, (r) => r.paletteShared),
     layoutVariety: share(runs, (r) => r.layoutVariety),
+    titleClean: share(runs, (r) => r.titleClean),
     factCoverage: share(runs, (r) => r.factCoverage),
     judgeHook: mean(judged.map((j) => j.hook)),
     judgeLastAction: mean(judged.map((j) => j.lastAction)),
@@ -170,6 +177,7 @@ export function failures(
     "roles",
     "paletteShared",
     "layoutVariety",
+    "titleClean",
     "factCoverage",
   ] as const) {
     if (agg[key] < thresholds[key]) {

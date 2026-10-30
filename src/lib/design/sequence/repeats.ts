@@ -264,6 +264,42 @@ function actionPreviews(
   return out;
 }
 
+/* Two headlines built on the same words are one idea headlined twice even
+   when the near-duplicate check (validateSequence) passes them: round 5's
+   SaaS set headlined late payments on three frames ("Late payments?
+   Ledgerly chases them." and "Late payment? Handled."). Any two frames,
+   not only neighbours, since the reader remembers the headline. */
+const IDEA_STEMS = 2;
+
+function headlineIdeaRepeats(
+  frames: readonly FrameBeat[],
+  facts: readonly BriefFact[],
+  free: ReadonlySet<string>,
+): FrameRepeat[] {
+  const factStems = new Set(facts.flatMap((f) => [...contentStems(f.text)]));
+  const ignore = new Set([...free, ...factStems]);
+  const out: FrameRepeat[] = [];
+  frames.forEach((beat, j) => {
+    const mine = contentStems(beat.headline, ignore);
+    for (let i = 0; i < j; i += 1) {
+      if (isNearDuplicateHeadline(frames[i].headline, beat.headline, free)) {
+        continue;
+      }
+      const shared = [...contentStems(frames[i].headline, ignore)].filter((s) =>
+        mine.has(s),
+      );
+      if (shared.length >= IDEA_STEMS) {
+        out.push({
+          frame: j,
+          detail: `its headline "${beat.headline}" is built on the words of frame ${i + 1}'s "${frames[i].headline}", one idea headlined twice; give this frame a different point`,
+        });
+        return;
+      }
+    }
+  });
+  return out;
+}
+
 export function sequenceRepeats(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],
@@ -286,6 +322,9 @@ export function sequenceRepeats(
       (r) => !factFrames.has(r.frame) && !lineFrames.has(r.frame),
     ),
     ...actionPreviews(frames, free),
+    ...headlineIdeaRepeats(frames, facts, free).filter(
+      (r) => !lineFrames.has(r.frame),
+    ),
   ];
 }
 
@@ -340,7 +379,7 @@ const LEADING_JOINERS = new RegExp(`^[${JOINER}.!?]+`);
 /* A word that leans on what was dropped: "Reserve before" alone, "on, 10am
    to 1pm". Such a remainder is refused rather than rewritten. */
 const LEANING =
-  /^(?:on|at|from|by|in|for|to|and|or|until|till|before|after|this|every|the|of|with)$/i;
+  /^(?:on|at|from|by|in|for|to|and|or|until|till|before|after|this|every|the|of|with|across|near|around|into|onto|inside|within|throughout|over|under|beside|serving|covering|including)$/i;
 const SENTENCE_END = /[.!?]$/;
 
 function joined(left: string, gap: string, right: string): string | null {
@@ -382,6 +421,9 @@ export function withoutFactWords(text: string, fact: BriefFact): string | null {
     before.slice(left.length) || (after.match(LEADING_JOINERS)?.[0] ?? "");
   const rest = joined(left.trim(), gap, right);
   if (rest === null) return null;
+  /* One word left is never a line: round 6 shipped "Serving" from
+     "Serving Lekki Phase 1" with the place dropped. */
+  if (rest !== "" && rest.split(/\s+/).length < 2) return null;
   return rest === "" || /[\p{L}\p{N}]/u.test(rest) ? rest : null;
 }
 
@@ -512,4 +554,23 @@ export function withoutRecap(
       !next.some((beat) => factStated(fact, frameCopy(beat))),
   );
   return lost ? [...frames] : next;
+}
+
+/** The facts one frame gives in two of its fields (the subheadline and
+ *  again in a footer line): read as the frame saying it twice. */
+export function factsTwiceInFrame(
+  beat: FrameBeat,
+  facts: readonly BriefFact[],
+): BriefFact[] {
+  const fields = [
+    beat.headline,
+    beat.subheadline,
+    beat.cta,
+    ...beat.footerLines,
+  ].filter((text) => text.trim());
+  return facts.filter(
+    (fact) =>
+      fact.kind !== "product" &&
+      fields.filter((text) => factStated(fact, text)).length > 1,
+  );
 }

@@ -4,11 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildFrameCopyPrompt,
   buildFrameRegeneratePrompt,
-  buildHookChoicePrompt,
   buildOutlinePrompt,
-  buildSequenceChoicePrompt,
   buildSequenceEditPrompt,
   buildSequenceSystemPrompt,
+  buildSetGradePrompt,
 } from "@/lib/ai/prompts/design-sequence";
 import { HOOK_CRAFT } from "@/lib/design/sequence/hook";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
@@ -97,8 +96,7 @@ describe("the sequence prompt never quotes an eval fixture", () => {
           mustState: [[], [], []],
           names: ["bike servicing"],
         }),
-        buildSequenceChoicePrompt(context, { kind, drafts: [frames, frames] }),
-        buildHookChoicePrompt(context, { kind, frames, hooks: [frames[0]] }),
+        buildSetGradePrompt(context, { kind, versions: [frames, frames] }),
         buildFrameRegeneratePrompt(context, {
           kind,
           frames,

@@ -1,5 +1,11 @@
-import { type BriefFact, factStated } from "@/lib/jobs/directions/brief-facts";
+import {
+  type BriefFact,
+  drawnText,
+  factStated,
+  numbersIn,
+} from "@/lib/jobs/directions/brief-facts";
 import { COPY_LIMITS, DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
+import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { copyLimitProblems, factsUncovered, frameCopy } from "./validate";
 
@@ -7,6 +13,42 @@ import { copyLimitProblems, factsUncovered, frameCopy } from "./validate";
    never a footer line: a name in small print under a headline about
    something else does not say what is on offer. */
 const NOT_A_FOOTER_LINE = new Set<BriefFact["kind"]>(["product"]);
+
+/* A count or a condition the copy already gives in its own words, whose
+   brief wording leans on a word outside it ("31 estates use them"), is
+   not drawn: on its own line the pronoun points at nothing, and it is the
+   third time the set says the figure (round-5 critic, MEDIUM 6). A brief
+   line that reads on its own is still drawn, and a price, date, time,
+   place or contact always is, since the reader acts on it. */
+const LEANS_OUTSIDE = /\b(?:them|it|they|these|those|this|that|its|their)\b/i;
+const RESTATABLE = new Set<BriefFact["kind"]>([
+  "quantity",
+  "offer",
+  "condition",
+  "age",
+]);
+
+/** Whether a frame already gives the figures of a fact whose own words
+ *  cannot stand on a line alone. */
+export function restatedFigure(
+  fact: BriefFact,
+  frames: readonly FrameBeat[],
+): boolean {
+  if (!RESTATABLE.has(fact.kind) || !LEANS_OUTSIDE.test(fact.text)) {
+    return false;
+  }
+  const figures = [...numbersIn(fact.text)];
+  if (figures.length === 0) return false;
+  const words = [...contentStems(fact.text.replace(/[\d,.]+/g, " "))];
+  return frames.some((beat) => {
+    const text = drawnText(frameCopy(beat));
+    const given = numbersIn(text);
+    const stems = contentStems(text);
+    return (
+      figures.every((n) => given.has(n)) && words.some((w) => stems.has(w))
+    );
+  });
+}
 
 /** The frames a missing fact may be written onto, best first: the frame
  *  the outline gave it, then the action frame (where how and when to act
@@ -52,12 +94,17 @@ export function withFactsDrawn(
   plan: PlannedSequence,
   facts: readonly BriefFact[],
   owners: readonly number[][],
-): { plan: PlannedSequence; drawn: string[] } {
+): { plan: PlannedSequence; drawn: string[]; restated: string[] } {
   let frames = plan.frames;
   const drawn: string[] = [];
+  const restated: string[] = [];
   for (const fact of factsUncovered(frames, facts)) {
     const line = fact.text.trim();
     if (NOT_A_FOOTER_LINE.has(fact.kind) || !line) continue;
+    if (restatedFigure(fact, frames)) {
+      restated.push(line);
+      continue;
+    }
     if (line.length > COPY_LIMITS.footerLine) continue;
     const index = facts.indexOf(fact);
     const owner = owners.findIndex((owned) => owned.includes(index));
@@ -71,5 +118,9 @@ export function withFactsDrawn(
       break;
     }
   }
-  return { plan: drawn.length > 0 ? { ...plan, frames } : plan, drawn };
+  return {
+    plan: drawn.length > 0 ? { ...plan, frames } : plan,
+    drawn,
+    restated,
+  };
 }

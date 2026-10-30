@@ -3,6 +3,7 @@ import type { FrameBeat } from "./contract";
 import { beatOf, CAFE_FACTS, cafePlan, fact, withFrame } from "./fixtures";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import {
+  factsTwiceInFrame,
   sequenceRepeats,
   withoutFactWords,
   withoutRecap,
@@ -604,5 +605,54 @@ describe("hookFaults: a name and a place is still a label", () => {
         CAFE_FACTS,
       ),
     ).not.toContainEqual(expect.stringContaining("only the name"));
+  });
+});
+
+describe("factsTwiceInFrame (round-5 critic, MEDIUM 7)", () => {
+  it("finds a fact one frame gives in two fields", () => {
+    const beat = beatOf({
+      role: "cta",
+      headline: "Reserve yours",
+      subheadline: "₦2,500 a bottle, on WhatsApp 0803 555 0142.",
+      footerLines: ["₦2,500 a bottle", "WhatsApp 0803 555 0142"],
+    });
+    expect(factsTwiceInFrame(beat, CAFE_FACTS).map((f) => f.text)).toEqual([
+      "₦2,500 a bottle",
+      "WhatsApp 0803 555 0142",
+    ]);
+    expect(factsTwiceInFrame({ ...beat, subheadline: "" }, CAFE_FACTS)).toEqual(
+      [],
+    );
+  });
+});
+
+describe("sequenceRepeats: one idea headlined twice (round-5 critic, MEDIUM 5)", () => {
+  it("names a later headline built on an earlier one's words", () => {
+    const plan = withFrame(
+      withFrame(cafePlan(), 1, {
+        headline: "Late payments? We chase them.",
+      }),
+      3,
+      { headline: "Late payment reminders, sent for you" },
+    );
+    const found = sequenceRepeats(plan.frames, CAFE_FACTS, "cold brew");
+    expect(found).toContainEqual({
+      frame: 3,
+      detail: expect.stringContaining("one idea headlined twice"),
+    });
+  });
+
+  it("leaves headlines that share one word", () => {
+    const plan = withFrame(cafePlan(), 1, {
+      headline: "Never chase a client again",
+    });
+    const found = sequenceRepeats(
+      withFrame(plan, 3, { headline: "We chase so you rest" }).frames,
+      CAFE_FACTS,
+      "cold brew",
+    );
+    expect(
+      found.some((r) => r.detail.includes("one idea headlined twice")),
+    ).toBe(false);
   });
 });

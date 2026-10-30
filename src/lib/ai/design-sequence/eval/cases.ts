@@ -564,6 +564,7 @@ export const SEQUENCE_EVAL_THRESHOLDS = {
   roles: 1,
   paletteShared: 1,
   layoutVariety: 1,
+  titleClean: 1,
   factCoverage: 1,
   judgeHook: 4,
   judgeLastAction: 4,

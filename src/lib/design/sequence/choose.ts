@@ -1,41 +1,23 @@
 import { z } from "zod";
 
 /**
- * Choosing between versions the model wrote: two drafts of the whole set's
- * copy, or several versions of its hook. Latent work on purpose: what
- * separates them is whether the hook pulls and whether the frames build,
- * which eval rounds 1 to 11 showed no word count can tell (the judge's hook
- * and non-repetition averages held between 3.2 and 3.8 whatever code
- * checked). Choosing writes no word of any version: code may choose, never
- * invent.
+ * Choosing between whole versions of the set the model wrote: its drafts,
+ * then the edited set under each new opening. Latent work
+ * on purpose: whether a hook pulls and whether the frames build is what no
+ * word count can tell, so the editor grades each version rather than
+ * naming a favourite. Choosing writes no word of any version.
  *
- * Code still decides first. Only versions tied for the fewest problems
- * (planScore) go to the editor: a version that breaks a rule, invents a
- * fact or repeats a line another does not loses without a model call.
+ * Code still decides first: only the versions with the fewest hard
+ * problems (plan.ts hardScore) are graded, so a version that breaks a
+ * rule, drops a fact or invents a term never wins on taste.
  */
 
-/* Two, not three: round 2 measured three drafts with the editor choosing
-   among any within two faults of the best, and the full matrix's
-   non-repetition average fell (3.61 to 3.44) while copy faults left rose
-   (18 to 24). A fault code can name is one the judge marks down too. */
-export const COPY_DRAFTS = 2;
-
-export function choiceResponseSchema(count: number) {
-  return z.object({
-    why: z
-      .string()
-      .max(800)
-      .describe("One or two sentences: what the chosen one does better."),
-    choice: z
-      .number()
-      .int()
-      .min(1)
-      .max(count)
-      .describe("The number of the one that goes out."),
-  });
-}
-
-export type ChoiceAnswer = z.infer<ReturnType<typeof choiceResponseSchema>>;
+/* Three drafts, graded whole (gradedIndex). Round 2 measured three with
+   the editor picking among any within two faults of the best and lost
+   ground; there the editor named a favourite without reading for repeats,
+   and versions with more faults were eligible. Here only the versions
+   tied on what code can measure are graded, each read for repeats first. */
+export const COPY_DRAFTS = 3;
 
 /** The indexes of the versions tied for the fewest problems, in order. */
 export function leastProblems(scores: readonly number[]): number[] {
@@ -58,8 +40,84 @@ export function shownOrder(count: number, random = Math.random): number[] {
   return order;
 }
 
-/** The written index of the version the editor numbered `choice`
- *  (1-based, in the order shown). */
-export function chosenIndex(choice: number, order: readonly number[]): number {
-  return order[choice - 1] ?? order[0];
+/* Room for an eight-frame set's every pair; a note cut short would fail
+   the whole grade over its length. */
+export const GRADE_NOTE_MAX = 1500;
+
+/** The editor's read of each version shown: the points it finds made
+ *  twice, then a score for the opening, the build and the close. */
+export function gradeResponseSchema(count: number) {
+  return z.object({
+    grades: z
+      .array(
+        z.object({
+          version: z.number().int().describe("The version's number, as shown."),
+          repeats: z
+            .string()
+            .max(GRADE_NOTE_MAX)
+            .describe(
+              'Every pair of frames that make one point or share a phrase, named by number with a few words each, or "none".',
+            ),
+          hook: z.number().int().min(1).max(5),
+          builds: z.number().int().min(1).max(5),
+          action: z.number().int().min(1).max(5),
+        }),
+      )
+      .min(count)
+      .max(count),
+  });
+}
+
+export type GradeAnswer = z.infer<ReturnType<typeof gradeResponseSchema>>;
+
+/** The editor's scores by written index (the order `shownOrder` gave),
+ *  null for a version it did not grade. */
+export function gradesByIndex(
+  answer: GradeAnswer,
+  order: readonly number[],
+): (number | null)[] {
+  const totals: (number | null)[] = order.map(() => null);
+  for (const grade of answer.grades) {
+    const index = order[grade.version - 1];
+    if (index === undefined || totals[index] !== null) continue;
+    totals[index] = grade.hook + grade.builds + grade.action;
+  }
+  return totals;
+}
+
+/**
+ * The version that goes out. Code decides what it can measure: only the
+ * versions with the fewest broken rules, invented words and missing facts
+ * (`hard`) are eligible. Among those the editor's grade decides, since
+ * whether a hook pulls and a set builds is what no count of words can tell;
+ * a tie, or a version the editor did not grade, goes to the fewest copy
+ * faults code found (`soft`), then the first written.
+ */
+export function gradedIndex(
+  hard: readonly number[],
+  soft: readonly number[],
+  grades: readonly (number | null)[],
+): number {
+  const eligible = leastProblems(hard);
+  return eligible.reduce((best, i) => {
+    const [gi, gb] = [grades[i] ?? -1, grades[best] ?? -1];
+    if (gi !== gb) return gi > gb ? i : best;
+    return soft[i] < soft[best] ? i : best;
+  });
+}
+
+/** The editor's "repeats" note for each version, by written index; null
+ *  for one it did not grade or found none in. */
+export function notesByIndex(
+  answer: GradeAnswer,
+  order: readonly number[],
+): (string | null)[] {
+  const notes: (string | null)[] = order.map(() => null);
+  for (const grade of answer.grades) {
+    const index = order[grade.version - 1];
+    const note = grade.repeats.trim();
+    if (index === undefined || notes[index] !== null) continue;
+    if (note && !/^none\b/i.test(note)) notes[index] = note;
+  }
+  return notes;
 }

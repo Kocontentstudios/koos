@@ -34,7 +34,9 @@ import { withFigureLayout } from "./layouts";
 import { inventedOn, sequenceFacts, sequenceLedger, withRewrite } from "./plan";
 import { misplacedPrices } from "./points";
 import { repairSequenceFor } from "./repair";
+import { factsTwiceInFrame, withoutRepeats } from "./repeats";
 import { type FrameRewrite, rewriteResponseSchema } from "./schema";
+import { settledTitle } from "./title";
 import {
   copyLimitProblems,
   factsUncovered,
@@ -66,6 +68,7 @@ export type RegenerateProblemKind =
   | "flat-hook"
   | "hook-preview"
   | "price-placement"
+  | "fact-twice"
   | "nothing-back";
 
 export interface RegenerateProblem {
@@ -88,6 +91,7 @@ const USER_REASON: Record<RegenerateProblemKind, string> = {
   "flat-hook": "Every new opening was a label, not a reason to swipe.",
   "hook-preview": "Every new opening gave away a later frame's point.",
   "price-placement": "Every new version moved the price off the last frame.",
+  "fact-twice": "Every new version gave the same detail twice.",
   "nothing-back": "No new version came back.",
 };
 
@@ -192,7 +196,13 @@ export function applyFrameEdits(
       "cta",
     );
   }
-  const next = withFigureLayout({ ...beat, headline, subheadline, cta });
+  const next = withFigureLayout({
+    ...beat,
+    title: settledTitle(beat.title, beat.title),
+    headline,
+    subheadline,
+    cta,
+  });
   const frames = plan.frames.map((b, i) => (i === index ? next : b));
   const before = new Set(factsUncovered(plan.frames, facts));
   return {
@@ -287,6 +297,9 @@ export function regenerateProblems(
     if (fault.frame === index && !priced.has(fault.detail)) {
       add("price-placement", fault.detail);
     }
+  }
+  for (const fact of factsTwiceInFrame(next, facts)) {
+    add("fact-twice", `it gives "${fact.text}" twice on one frame`);
   }
   if (index === 0) {
     for (const fault of hookFaults(next, offering, names, brandName, facts)) {
@@ -410,10 +423,18 @@ export async function replanFrame(
 
   const judge = (rewrite: FrameRewrite) => {
     /* Same point, so the same title on its card. */
-    const next = withFigureLayout({
-      ...withRewrite(beat, rewrite),
-      title: beat.title,
-    });
+    /* A footer line that repeats the copy above is dropped, as a planned
+       set's is (withoutRepeats); code drops, it never writes. */
+    const [next] = withoutRepeats(
+      [
+        withFigureLayout({
+          ...withRewrite(beat, rewrite),
+          title: settledTitle(beat.title, beat.title),
+        }),
+      ],
+      facts,
+      offering,
+    );
     return {
       next,
       problems: regenerateProblems(plan, index, next, {

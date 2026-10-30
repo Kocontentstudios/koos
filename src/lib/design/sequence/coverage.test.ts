@@ -38,6 +38,7 @@ describe("withFactsDrawn (round-4 critic, MEDIUM 5: a known fact-uncovered shipp
     expect(withFactsDrawn(plan, CAFE_FACTS, OWNERS)).toEqual({
       plan,
       drawn: [],
+      restated: [],
     });
     const unnamed = withFrame(plan, 0, { subheadline: "Slow and strong" });
     expect(
@@ -48,5 +49,34 @@ describe("withFactsDrawn (round-4 critic, MEDIUM 5: a known fact-uncovered shipp
   it("writes nothing it cannot draw", () => {
     const long = fact("offer", `${"a very long offer ".repeat(5)}today`);
     expect(withFactsDrawn(cafePlan(), [long], [[1]]).drawn).toEqual([]);
+  });
+});
+
+describe("withFactsDrawn: a count the copy already gives (round-5 critic, MEDIUM 6)", () => {
+  const estates = fact("quantity", "31 estates use them");
+  const facts = [...CAFE_FACTS, estates];
+  const owners = [...OWNERS.slice(0, 4), [4, 6], [5]];
+
+  it("does not write a brief fragment that leans on words outside it when a frame already gives its figure", () => {
+    const plan = withFrame(cafePlan(), 3, {
+      subheadline: "31 estates already pour it",
+    });
+    const {
+      plan: filled,
+      drawn,
+      restated,
+    } = withFactsDrawn(plan, facts, owners);
+    expect(drawn).toEqual([]);
+    expect(restated).toEqual(["31 estates use them"]);
+    expect(filled).toBe(plan);
+  });
+
+  it("still writes a count whose words read on their own", () => {
+    const rooms = fact("quantity", "14 cold rooms");
+    const plan = withFrame(cafePlan(), 3, {
+      subheadline: "14 rooms and counting",
+    });
+    const { drawn } = withFactsDrawn(plan, [...CAFE_FACTS, rooms], owners);
+    expect(drawn).toEqual(["14 cold rooms"]);
   });
 });
