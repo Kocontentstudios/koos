@@ -1,0 +1,283 @@
+import { describe, expect, it } from "vitest";
+import { DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
+import { repairSequenceFor, repairSequenceText } from "./repair";
+import {
+  copyResponseSchema,
+  editResponseSchema,
+  outlineResponseSchema,
+  REVIEW_NOTE_MAX,
+  rewriteResponseSchema,
+} from "./schema";
+
+const outlineFrame = (over: Record<string, unknown> = {}) => ({
+  beat: "detail",
+  title: "A point",
+  point: "Something the viewer learns",
+  facts: [],
+  layout: "hero-center",
+  showsImage: false,
+  ...over,
+});
+
+const outlineAnswer = (over: Record<string, unknown> = {}) => ({
+  palette: { background: "#111111", foreground: "#FFFFFF", accent: "#D9822B" },
+  logoPlacement: "top-left",
+  logoFree: false,
+  logoFreeQuote: "",
+  backgroundTreatment: "solid",
+  footerStyle: "none",
+  frames: [
+    outlineFrame({ beat: "promise" }),
+    outlineFrame({ beat: "price" }),
+    outlineFrame({ beat: "action" }),
+  ],
+  ...over,
+});
+
+const copyFrame = (headline: string) => ({
+  headline,
+  subheadline: "",
+  footerLines: [],
+  backgroundPrompt: "",
+});
+
+async function repaired(value: unknown, count?: number): Promise<unknown> {
+  const text = await repairSequenceText({
+    text: JSON.stringify(value),
+    count,
+  });
+  return text === null ? null : JSON.parse(text);
+}
+
+describe("repairSequenceText", () => {
+  it("unquotes enums the model quoted twice, and the empty logo quote", async () => {
+    const answer = outlineAnswer({
+      logoPlacement: '"top-left"',
+      backgroundTreatment: '"solid"',
+      footerStyle: '"none"',
+      logoFreeQuote: '""',
+      frames: [
+        outlineFrame({ beat: '"promise"', layout: '"hero-center"' }),
+        outlineFrame({ beat: "price" }),
+        outlineFrame({ beat: "action" }),
+      ],
+    });
+    expect(outlineResponseSchema(3).safeParse(answer).success).toBe(false);
+    const fixed = await repaired(answer, 3);
+    expect(outlineResponseSchema(3).safeParse(fixed).success).toBe(true);
+    expect(fixed).toMatchObject({
+      logoPlacement: "top-left",
+      logoFreeQuote: "",
+      frames: [{ beat: "promise", layout: "hero-center" }, {}, {}],
+    });
+  });
+
+  it("parses frames sent as a JSON string, and string booleans", async () => {
+    const answer = outlineAnswer({
+      logoFree: "false",
+      frames: JSON.stringify([
+        outlineFrame({ showsImage: "true", facts: "[1]" }),
+        outlineFrame({ beat: "price" }),
+        outlineFrame({ beat: "action" }),
+      ]),
+    });
+    const fixed = await repaired(answer, 3);
+    const parsed = outlineResponseSchema(3).safeParse(fixed);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.frames[0]).toMatchObject({
+      showsImage: true,
+      facts: [1],
+    });
+  });
+
+  it("never unquotes copy: a headline in quotation marks keeps them", async () => {
+    const fixed = (await repaired(
+      {
+        frames: [copyFrame('"Worth the wait"'), copyFrame("B"), copyFrame("C")],
+        cta: '"Book now"',
+      },
+      3,
+    )) as { frames: { headline: string }[]; cta: string } | null;
+    expect(fixed).toBeNull();
+  });
+
+  it("shortens a field past its parse limit at a word boundary, for the validator to name", async () => {
+    const long = `${"word ".repeat(40)}end`;
+    const fixed = (await repaired(
+      {
+        frames: [copyFrame(long), copyFrame("B"), copyFrame("C")],
+        cta: "Book now",
+      },
+      3,
+    )) as { frames: { headline: string }[] };
+    const headline = fixed.frames[0].headline;
+    expect(headline.length).toBeLessThanOrEqual(DRAFT_LIMITS.headline);
+    expect(headline.endsWith("word")).toBe(true);
+    expect(copyResponseSchema(3).safeParse(fixed).success).toBe(true);
+  });
+
+  it("keeps the first frames and the last when one too many came", async () => {
+    const fixed = (await repaired(
+      {
+        frames: [
+          copyFrame("Hook"),
+          copyFrame("Point"),
+          copyFrame("Point again"),
+          copyFrame("Act"),
+        ],
+        cta: "Book now",
+      },
+      3,
+    )) as { frames: { headline: string }[] };
+    expect(fixed.frames.map((f) => f.headline)).toEqual([
+      "Hook",
+      "Point",
+      "Act",
+    ]);
+    expect(copyResponseSchema(3).safeParse(fixed).success).toBe(true);
+  });
+
+  it("leaves too few frames to fail: a missing frame is not invented", async () => {
+    const answer = {
+      frames: [copyFrame("Hook"), copyFrame("Act")],
+      cta: "Book now",
+    };
+    expect(await repaired(answer, 3)).toBeNull();
+  });
+
+  it("leaves a rewrite's frames uncounted", async () => {
+    const fixed = (await repairSequenceFor()({
+      text: JSON.stringify({
+        frames: JSON.stringify([
+          {
+            frame: 1,
+            title: "The launch",
+            headline: "A",
+            subheadline: "",
+            footerLines: [],
+            cta: "",
+          },
+          {
+            frame: 1,
+            title: "The launch",
+            headline: "B",
+            subheadline: "",
+            footerLines: [],
+            cta: "",
+          },
+        ]),
+      }),
+    })) as string;
+    const parsed = rewriteResponseSchema.safeParse(JSON.parse(fixed));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.frames).toHaveLength(2);
+  });
+
+  it("gives up on text that is not JSON, and on a correct answer", async () => {
+    expect(await repairSequenceText({ text: "{ truncated" })).toBeNull();
+    expect(await repaired(outlineAnswer(), 3)).toBeNull();
+  });
+
+  it("leaves an off-list enum to fail rather than guess one", async () => {
+    const fixed = await repaired(
+      outlineAnswer({ logoPlacement: '"somewhere"' }),
+      3,
+    );
+    expect(outlineResponseSchema(3).safeParse(fixed).success).toBe(false);
+  });
+});
+
+const without = (value: Record<string, unknown>, key: string) =>
+  Object.fromEntries(Object.entries(value).filter(([k]) => k !== key));
+
+describe("the planner's answer schemas", () => {
+  /* Bedrock compiles each optional property into a grammar union (spec.ts),
+     so every field the model answers is required, with "" or [] for none. */
+  it("require every field of the outline", () => {
+    const outline = outlineAnswer();
+    expect(outlineResponseSchema(3).safeParse(outline).success).toBe(true);
+    for (const key of Object.keys(outline)) {
+      expect(
+        outlineResponseSchema(3).safeParse(without(outline, key)).success,
+      ).toBe(false);
+    }
+    for (const key of Object.keys(outlineFrame())) {
+      const frames = outline.frames.map((f, i) =>
+        i === 0 ? without(f, key) : f,
+      );
+      expect(
+        outlineResponseSchema(3).safeParse({ ...outline, frames }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("require every field of the copy and of a rewrite", () => {
+    const frame = copyFrame("Hook");
+    for (const key of Object.keys(frame)) {
+      expect(
+        copyResponseSchema(1).safeParse({
+          frames: [without(frame, key)],
+          cta: "",
+        }).success,
+      ).toBe(false);
+    }
+    const rewrite = {
+      frame: 1,
+      title: "The launch",
+      headline: "A",
+      subheadline: "",
+      footerLines: [],
+      cta: "",
+    };
+    expect(rewriteResponseSchema.safeParse({ frames: [rewrite] }).success).toBe(
+      true,
+    );
+    for (const key of Object.keys(rewrite)) {
+      expect(
+        rewriteResponseSchema.safeParse({ frames: [without(rewrite, key)] })
+          .success,
+      ).toBe(false);
+    }
+  });
+});
+
+describe("repairSequenceText: the edit pass's review", () => {
+  it("parses a review sent as a string and shortens a note past its limit", async () => {
+    const answer = {
+      review: JSON.stringify([{ frame: 3, fails: "x ".repeat(200) }]),
+      frames: [
+        {
+          frame: 1,
+          title: "The launch",
+          headline: "Why rush a Saturday?",
+          subheadline: "",
+          footerLines: [],
+          cta: "",
+        },
+      ],
+    };
+    const fixed = await repairSequenceText({ text: JSON.stringify(answer) });
+    const parsed = editResponseSchema.safeParse(JSON.parse(fixed ?? "{}"));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.review[0].fails.length).toBeLessThanOrEqual(
+      REVIEW_NOTE_MAX,
+    );
+  });
+
+  it("requires the review, so an answer without one is asked again", () => {
+    expect(
+      editResponseSchema.safeParse({
+        frames: [
+          {
+            frame: 1,
+            title: "t",
+            headline: "h",
+            subheadline: "",
+            footerLines: [],
+            cta: "",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
