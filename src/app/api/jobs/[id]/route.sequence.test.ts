@@ -12,6 +12,7 @@ const claimStaleGenerationJob = vi.fn();
 const updateGenerationJob = vi.fn();
 const resumeCalendarJob = vi.fn();
 const resumeDesignSequenceJob = vi.fn();
+const settleSequenceJobOnFailure = vi.fn();
 const after = vi.fn();
 
 vi.mock("next/server", () => ({ after: (fn: () => void) => after(fn) }));
@@ -31,6 +32,8 @@ vi.mock("@/lib/jobs/run-generation", () => ({
 }));
 vi.mock("@/lib/jobs/run-design-sequence", () => ({
   resumeDesignSequenceJob: (job: unknown) => resumeDesignSequenceJob(job),
+  settleSequenceJobOnFailure: (job: unknown, reason: string) =>
+    settleSequenceJobOnFailure(job, reason),
 }));
 
 import {
@@ -82,6 +85,7 @@ beforeEach(() => {
   checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b1" } });
   resumeCalendarJob.mockResolvedValue(undefined);
   resumeDesignSequenceJob.mockResolvedValue(undefined);
+  settleSequenceJobOnFailure.mockResolvedValue(undefined);
 });
 
 describe("GET /api/jobs/[id] resuming a set of frames", () => {
@@ -127,6 +131,83 @@ describe("GET /api/jobs/[id] resuming a set of frames", () => {
 
     expect(await res.json()).toMatchObject({ status: "failed" });
     expect(resumeDesignSequenceJob).not.toHaveBeenCalled();
+  });
+
+  it("settles the set of a sequence job failed with its resumes spent", async () => {
+    const spent = job({
+      result: { resumeCount: MAX_RESUMES, checkpoint: { setId: "set-1" } },
+      updatedAt: new Date(Date.now() - CALENDAR_STALE_MS - 1000),
+    });
+    getGenerationJobById.mockResolvedValue(spent);
+
+    await pollAndRunDeferred();
+
+    expect(updateGenerationJob).toHaveBeenCalledWith(JOB_ID, {
+      status: "failed",
+      error: "Generation stalled. Please try again.",
+    });
+    expect(settleSequenceJobOnFailure).toHaveBeenCalledWith(
+      spent,
+      "Generation stalled. Please try again.",
+    );
+  });
+
+  it("settles the set when access is revoked before a resume", async () => {
+    const paused = job();
+    getGenerationJobById.mockResolvedValue(paused);
+    checkBrandAccess.mockResolvedValue({
+      ok: false,
+      status: 403,
+      error: "No access",
+    });
+
+    await pollAndRunDeferred();
+
+    expect(resumeDesignSequenceJob).not.toHaveBeenCalled();
+    expect(settleSequenceJobOnFailure).toHaveBeenCalledWith(
+      paused,
+      "No access",
+    );
+  });
+
+  it("settles the set when access is revoked between the claim and the resume", async () => {
+    const paused = job();
+    getGenerationJobById.mockResolvedValue(paused);
+    claimPausedGenerationJob.mockResolvedValue(paused);
+    checkBrandAccess
+      .mockResolvedValueOnce({ ok: true, brand: { id: "b1" } })
+      .mockResolvedValue({ ok: false, status: 403, error: "No access" });
+
+    await pollAndRunDeferred();
+
+    expect(resumeDesignSequenceJob).not.toHaveBeenCalled();
+    expect(settleSequenceJobOnFailure).toHaveBeenCalledWith(
+      paused,
+      "No access",
+    );
+  });
+
+  it("settles nothing for a calendar or single design job it fails", async () => {
+    getGenerationJobById.mockResolvedValue(
+      job({
+        kind: "calendar",
+        input: { strategyId: "s1" },
+        result: { resumeCount: MAX_RESUMES },
+        updatedAt: new Date(Date.now() - CALENDAR_STALE_MS - 1000),
+      }),
+    );
+    await pollAndRunDeferred();
+    getGenerationJobById.mockResolvedValue(
+      job({
+        input: { briefId: null, attachments: [] },
+        result: {},
+        updatedAt: new Date(Date.now() - DEFAULT_STALE_MS - 1000),
+      }),
+    );
+    await pollAndRunDeferred();
+
+    expect(updateGenerationJob).toHaveBeenCalledTimes(2);
+    expect(settleSequenceJobOnFailure).not.toHaveBeenCalled();
   });
 
   it("still fails, never resumes, a single design job that went silent", async () => {

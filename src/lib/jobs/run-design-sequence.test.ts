@@ -46,6 +46,8 @@ const loadBestLogo = vi.fn();
 const supersedeFrame = vi.fn();
 const replaceDesignSetBeat = vi.fn();
 const getPlateAdapter = vi.fn();
+const paletteForCutout = vi.fn();
+const judgeAndCorrect = vi.fn();
 
 vi.mock("@/lib/design/sequence/plan", () => ({
   planSequence: (input: unknown) => planSequence(input),
@@ -82,6 +84,15 @@ vi.mock("@/lib/design/sequence/frame-spec", async () => {
     },
   };
 });
+vi.mock("./directions/craft", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  paletteForCutout: (spec: unknown, facts: unknown) =>
+    paletteForCutout(spec, facts),
+}));
+vi.mock("@/lib/design/quality/judge", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  judgeAndCorrect: (args: unknown) => judgeAndCorrect(args),
+}));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 vi.mock("@/lib/ai/memory", () => ({ buildMemoryBlock: async () => "" }));
 vi.mock("@/lib/ai/image", () => ({
@@ -187,14 +198,24 @@ vi.mock("@/lib/design/render/logo", async (importOriginal) => ({
 }));
 
 const {
+  FrameBusyError,
   FrameTargetError,
+  frameCorrectionKeeps,
+  framesTextLedMessage,
+  frameToReplace,
   generateSequenceWork,
   heldByNeighbours,
   regenerateFrameWork,
   renderWaves,
   SequencePlanError,
   setFactsMissing,
+  settleSetOnFailure,
 } = await import("./run-design-sequence");
+const craft =
+  await vi.importActual<typeof import("./directions/craft")>(
+    "./directions/craft",
+  );
+const { LOGO_NOT_LEGIBLE } = await import("@/lib/design/logo-contrast");
 const { JobPausedError } = await import("./run-generation");
 const { MultiFrameDisabledError } = await import(
   "@/lib/design/multi-frame-flag"
@@ -204,6 +225,7 @@ const { BRAND_ID, designPng, directionsContext } = await import(
 );
 type PlannedSequence = import("@/lib/design/sequence/contract").PlannedSequence;
 type FrameBeat = import("@/lib/design/sequence/contract").FrameBeat;
+type DesignSpec = import("@/lib/design/spec").DesignSpec;
 
 const PALETTE = {
   background: "#FFF4E6",
@@ -347,6 +369,8 @@ beforeEach(() => {
   createNotification.mockResolvedValue(undefined);
   lookAtPhoto.mockResolvedValue(null);
   getPlateAdapter.mockReturnValue(null);
+  paletteForCutout.mockImplementation(craft.paletteForCutout);
+  judgeAndCorrect.mockResolvedValue(null);
   loadDesignImage.mockImplementation(async () => ({
     bytes: Buffer.from(UPLOADED_PHOTO),
     contentType: "image/png",
@@ -942,6 +966,488 @@ describe("regenerating one frame (H9)", () => {
     process.env.FEATURE_MULTI_FRAME = "";
     await expect(regenerate(rows[1].id)).rejects.toBeInstanceOf(
       MultiFrameDisabledError,
+    );
+  });
+});
+
+const TURNED = {
+  background: PALETTE.foreground,
+  foreground: PALETTE.background,
+  accent: PALETTE.accent,
+};
+
+const completedLines = () =>
+  logSpy.mock.calls
+    .map(([line]: unknown[]) => String(line))
+    .filter((line: string) => line.startsWith("design.sequence.completed "))
+    .map((line: string) =>
+      JSON.parse(line.slice("design.sequence.completed ".length)),
+    );
+
+function rendered(input: { doc: unknown }, over: Record<string, unknown> = {}) {
+  return {
+    bytes: designPng(1080, 1350),
+    contentType: "image/png",
+    width: 1080,
+    height: 1350,
+    document: input.doc,
+    logoFault: null,
+    brandFontFault: null,
+    ...over,
+  };
+}
+
+function regenerateWith(
+  id: string,
+  runtime = runtimeWith().runtime,
+  edits?: Record<string, string>,
+) {
+  return regenerateFrameWork(
+    {
+      context: carouselContext(),
+      userId: "u1",
+      sessionId: "s1",
+      generationId: id,
+      edits,
+    },
+    runtime as never,
+  );
+}
+
+const keepBeat = async (input: { plan: PlannedSequence; index: number }) => ({
+  beat: input.plan.frames[input.index],
+  modelCalls: 1,
+});
+
+/* A first slice that pauses once `delivered` frames have rendered. */
+async function pausedAfter(
+  delivered: number,
+  frames: number,
+  image: Record<string, unknown> = { source: "none" },
+) {
+  const checkpoint: Record<string, unknown> = {};
+  let renders = 0;
+  rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => {
+    renders += 1;
+    return rendered(input);
+  });
+  await expect(
+    run(
+      frames,
+      image,
+      runtimeWith(checkpoint, () => renders >= delivered).runtime,
+    ),
+  ).rejects.toBeInstanceOf(JobPausedError);
+  return checkpoint;
+}
+
+describe("one palette for a set whose cut-out turns it (H2)", () => {
+  beforeEach(() => {
+    paletteForCutout.mockImplementation((spec: { palette: object }) => ({
+      ...spec,
+      palette: TURNED,
+    }));
+  });
+
+  it("draws and writes every frame in the turned palette, not the plan's", async () => {
+    await run(4, { source: "upload", key: UPLOAD_KEY });
+    const rows = frameRows();
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row.status).toBe("succeeded");
+      expect(row.spec.palette).toEqual(TURNED);
+    }
+    expect(paletteForCutout).toHaveBeenCalledWith(
+      { palette: PALETTE },
+      expect.anything(),
+    );
+  });
+
+  it("keeps a regenerated frame on the palette the set was drawn in", async () => {
+    await run(3, { source: "upload", key: UPLOAD_KEY });
+    const target = frameRows()[1];
+    /* Measured again, the photo would no longer turn the palette: the
+       frame must still match the frames beside it. */
+    paletteForCutout.mockImplementation(craft.paletteForCutout);
+    replanFrame.mockImplementation(keepBeat);
+    const outcome = await regenerateWith(target.id);
+    expect(db.rows.get(outcome.result.generationId)?.spec.palette).toEqual(
+      TURNED,
+    );
+  });
+});
+
+describe("a set that fails for good is settled (H7)", () => {
+  it("bills the frames an earlier slice delivered when a later slice cannot build its kit", async () => {
+    const checkpoint = await pausedAfter(2, 5, {
+      source: "upload",
+      key: UPLOAD_KEY,
+    });
+    const delivered = frameRows().filter((r) => r.status === "succeeded");
+    expect(delivered.length).toBeGreaterThan(0);
+    expect(delivered.length).toBeLessThan(5);
+    expect(db.usage).toHaveLength(0);
+
+    loadDesignImage.mockRejectedValue(new Error("The upload is gone."));
+    await expect(
+      run(
+        5,
+        { source: "upload", key: UPLOAD_KEY },
+        runtimeWith(checkpoint).runtime,
+      ),
+    ).rejects.toThrow("The upload is gone.");
+
+    const rows = frameRows();
+    expect(rows.filter((r) => r.status === "pending")).toEqual([]);
+    for (const row of rows.filter((r) => r.status === "failed")) {
+      expect(row.error).toBe("The upload is gone.");
+    }
+    expect(db.usage.map((u) => u.metadata.generationId)).toEqual(
+      delivered.map((r) => r.id),
+    );
+    expect(db.usage[0].metadata).toMatchObject({
+      setId: rows[0].setId,
+      jobFailed: true,
+      delivered: delivered.length,
+      failed: 5 - delivered.length,
+    });
+    expect(completedLines()).toEqual([
+      expect.objectContaining({
+        setId: rows[0].setId,
+        requested: 5,
+        delivered: delivered.length,
+        failed: 5 - delivered.length,
+      }),
+    ]);
+  });
+
+  it("never bills a frame twice when a failed set is settled again", async () => {
+    const checkpoint = await pausedAfter(1, 4);
+    const settle = () =>
+      settleSetOnFailure({
+        brandId: BRAND_ID,
+        userId: "u1",
+        requested: 4,
+        checkpoint,
+        reason: "Generation stalled. Please try again.",
+      });
+    await settle();
+    const billed = db.usage.length;
+    expect(billed).toBe(
+      frameRows().filter((r) => r.status === "succeeded").length,
+    );
+    await settle();
+    expect(db.usage).toHaveLength(billed);
+    expect(frameRows().some((r) => r.status === "pending")).toBe(false);
+  });
+
+  it("writes the trace line when every frame fails", async () => {
+    rasterizeDocument.mockRejectedValue(new Error("render worker crashed"));
+    await expect(run(3)).rejects.toThrow("render worker crashed");
+    expect(completedLines()).toEqual([
+      expect.objectContaining({
+        setId: frameRows()[0].setId,
+        requested: 3,
+        delivered: 0,
+        failed: 3,
+      }),
+    ]);
+  });
+
+  it("writes the trace line when the plan is refused", async () => {
+    planSequence.mockResolvedValue(
+      planned(planOf(3), {
+        problems: [{ frame: 2, rule: "cta-last", detail: "no action" }],
+      }),
+    );
+    await expect(run(3)).rejects.toBeInstanceOf(SequencePlanError);
+    expect(completedLines()).toEqual([
+      expect.objectContaining({
+        setId: null,
+        requested: 3,
+        delivered: 0,
+        failed: 3,
+      }),
+    ]);
+  });
+
+  it("leaves no set and no rows when the kit cannot be built", async () => {
+    loadDesignImage
+      .mockResolvedValueOnce({
+        bytes: Buffer.from(UPLOADED_PHOTO),
+        contentType: "image/png",
+        width: 600,
+        height: 600,
+      })
+      .mockRejectedValue(new Error("The upload is gone."));
+    const checkpoint: Record<string, unknown> = {};
+    await expect(
+      run(
+        3,
+        { source: "upload", key: UPLOAD_KEY },
+        runtimeWith(checkpoint).runtime,
+      ),
+    ).rejects.toThrow("The upload is gone.");
+    expect(db.sets.size).toBe(0);
+    expect(db.rows.size).toBe(0);
+    expect(completedLines()).toEqual([
+      expect.objectContaining({
+        setId: checkpoint.setId,
+        delivered: 0,
+        failed: 3,
+      }),
+    ]);
+  });
+});
+
+describe("checkpoint writes", () => {
+  it("never overlap, so the last one carries every finished frame", async () => {
+    const checkpoint: Record<string, unknown> = {};
+    const { runtime } = runtimeWith(checkpoint);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const landed: string[][] = [];
+    let writes = 0;
+    runtime.saveCheckpoint = vi.fn(async (partial: Record<string, unknown>) => {
+      const snapshot = structuredClone(partial);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      writes += 1;
+      /* Earlier writes take longer, so unqueued ones would land out of
+         order. */
+      await new Promise((resolve) => setTimeout(resolve, 30 / writes));
+      Object.assign(checkpoint, snapshot);
+      if (snapshot.frames) {
+        landed.push(Object.keys(snapshot.frames as object).sort());
+      }
+      inFlight -= 1;
+    });
+    await run(4, { source: "none" }, runtime);
+    expect(maxInFlight).toBe(1);
+    expect(landed.at(-1)).toEqual(["0", "1", "2", "3"]);
+    expect(Object.keys(checkpoint.frames as object).sort()).toEqual([
+      "0",
+      "1",
+      "2",
+      "3",
+    ]);
+  });
+});
+
+describe("the judge's correction on a frame (W2)", () => {
+  const verdict = {
+    scores: {},
+    weakest: "integration",
+    seriousFailure: false,
+    symptom: "weak-hierarchy",
+    change: { field: "logoPlacement", value: "bottom-left" },
+    reason: "x",
+    sawImage: true,
+  };
+
+  beforeEach(() => {
+    loadBestLogo.mockResolvedValue({
+      logo: {
+        bytes: designPng(200, 50),
+        contentType: "image/png",
+        darkest: 0.02,
+        lightest: 0.1,
+        aspect: 4,
+      },
+      fault: null,
+    });
+    replanFrame.mockImplementation(keepBeat);
+  });
+
+  async function setWithUnreadableMark() {
+    await run(3);
+    const target = frameRows()[1];
+    rasterizeDocument
+      .mockImplementationOnce(async (input: { doc: unknown }) =>
+        rendered(input, { logoFault: LOGO_NOT_LEGIBLE }),
+      )
+      .mockImplementation(async (input: { doc: unknown }) => rendered(input));
+    return target;
+  }
+
+  it("takes a move of the mark to another corner", async () => {
+    const target = await setWithUnreadableMark();
+    let movedTo = "";
+    judgeAndCorrect.mockImplementation(async (args: { spec: DesignSpec }) => {
+      movedTo =
+        args.spec.logoPlacement === "bottom-left"
+          ? "bottom-right"
+          : "bottom-left";
+      return {
+        corrected: true,
+        spec: { ...args.spec, logoPlacement: movedTo },
+        verdict,
+        applied: { field: "logoPlacement", from: "", to: movedTo },
+      };
+    });
+    const before = rasterizeDocument.mock.calls.length;
+    const outcome = await regenerateWith(target.id);
+    const fresh = db.rows.get(outcome.result.generationId) as Row;
+    expect(judgeAndCorrect).toHaveBeenCalledTimes(1);
+    expect(rasterizeDocument.mock.calls.length - before).toBe(2);
+    expect(fresh.status).toBe("succeeded");
+    expect(fresh.spec.logoPlacement).toBe(movedTo);
+    expect(fresh.spec.palette).toEqual(PALETTE);
+  });
+
+  it("refuses a correction to the set's palette or the frame's copy", async () => {
+    for (const change of [
+      { palette: TURNED },
+      { headline: "A headline the judge wrote" },
+      { footerStyle: "bar" },
+      { logoPlacement: "none" },
+    ]) {
+      db.rows.clear();
+      db.sets.clear();
+      judgeAndCorrect.mockReset();
+      const target = await setWithUnreadableMark();
+      judgeAndCorrect.mockImplementation(
+        async (args: { spec: DesignSpec }) => ({
+          corrected: true,
+          spec: { ...args.spec, ...change },
+          verdict,
+          applied: { field: "palette", from: "", to: "" },
+        }),
+      );
+      const before = rasterizeDocument.mock.calls.length;
+      const outcome = await regenerateWith(target.id);
+      const fresh = db.rows.get(outcome.result.generationId) as Row;
+      expect(judgeAndCorrect).toHaveBeenCalledTimes(1);
+      expect(rasterizeDocument.mock.calls.length - before).toBe(1);
+      expect(fresh.spec.palette).toEqual(PALETTE);
+      expect(headlineOf(fresh)).toBe("Butter from one farm");
+      expect(fresh.spec.logoPlacement).not.toBe("none");
+    }
+  });
+
+  it("asks no judge once the slice is out of time", async () => {
+    const target = await setWithUnreadableMark();
+    await regenerateWith(target.id, runtimeWith({}, () => true).runtime);
+    expect(judgeAndCorrect).not.toHaveBeenCalled();
+  });
+
+  it("frameCorrectionKeeps allows only where the mark sits", async () => {
+    const { designSpecOf } = await import("./directions/schema");
+    const { draftOf } = await import("./directions/fixtures");
+    const spec = designSpecOf(
+      draftOf({ logoPlacement: "top-right" }) as Parameters<
+        typeof designSpecOf
+      >[0],
+    );
+    expect(
+      frameCorrectionKeeps(spec, { ...spec, logoPlacement: "bottom-left" }),
+    ).toBe(true);
+    expect(frameCorrectionKeeps(spec, { ...spec, palette: TURNED })).toBe(
+      false,
+    );
+    expect(frameCorrectionKeeps(spec, { ...spec, cta: "Buy" })).toBe(false);
+    expect(frameCorrectionKeeps(spec, { ...spec, footerLines: ["x"] })).toBe(
+      false,
+    );
+    expect(frameCorrectionKeeps(spec, { ...spec, logoPlacement: "none" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("which frame a regenerate replaces (H9)", () => {
+  const row = (over: Partial<Row>): Row =>
+    ({
+      id: "r",
+      brandId: BRAND_ID,
+      setId: "set",
+      frameIndex: 1,
+      frameCount: 3,
+      supersededBy: null,
+      status: "succeeded",
+      createdAt: new Date(1),
+      ...over,
+    }) as Row;
+
+  it("resolves a superseded id to the frame on show", () => {
+    const old = row({ id: "old", supersededBy: "new" });
+    const onShow = row({ id: "new", createdAt: new Date(2) });
+    expect(frameToReplace([old, onShow] as never, old as never).id).toBe("new");
+  });
+
+  it("refuses a frame its set is still drawing", () => {
+    const drawing = row({ id: "drawing", status: "pending" });
+    expect(() => frameToReplace([drawing] as never, drawing as never)).toThrow(
+      FrameBusyError,
+    );
+  });
+
+  it("redraws a failed frame, and lets another regenerate in flight land after", () => {
+    const failed = row({ id: "failed", status: "failed" });
+    expect(frameToReplace([failed] as never, failed as never).id).toBe(
+      "failed",
+    );
+    const onShow = row({ id: "on-show" });
+    const inFlight = row({
+      id: "in-flight",
+      status: "pending",
+      createdAt: new Date(3),
+    });
+    expect(
+      frameToReplace([onShow, inFlight] as never, onShow as never).id,
+    ).toBe("on-show");
+  });
+
+  it("refuses a regenerate of a frame still pending in the set job", async () => {
+    const checkpoint = await pausedAfter(1, 4);
+    expect(checkpoint.setId).toBeTruthy();
+    const pending = frameRows().find((r) => r.status === "pending") as Row;
+    replanFrame.mockImplementation(keepBeat);
+    await expect(regenerateWith(pending.id)).rejects.toBeInstanceOf(
+      FrameBusyError,
+    );
+    expect(replanFrame).not.toHaveBeenCalled();
+    expect(db.rows.get(pending.id)?.supersededBy).toBeNull();
+  });
+});
+
+describe("telling the user which frames lost their image", () => {
+  it("names the photo for an upload and does not ask for one", () => {
+    const message = framesTextLedMessage({
+      kind: "carousel",
+      frames: 2,
+      of: 6,
+      cause: "photo-fits-none",
+      subject: null,
+    });
+    expect(message).toBe(
+      "2 frames of this 6-frame carousel were laid out with words only: your photo couldn't be shown whole and clear of the words on them at this size. Regenerate them to try another layout, or upload a photo with more room around the subject.",
+    );
+    expect(message).not.toContain("upload your own photo");
+  });
+
+  it("tells an image service that returned nothing from imagery turned down", () => {
+    expect(
+      framesTextLedMessage({
+        kind: "presentation",
+        frames: 1,
+        of: 5,
+        cause: "unavailable",
+        subject: "croissants",
+      }),
+    ).toBe(
+      "One frame of this 5-frame presentation was laid out with words only: KO's image service didn't return an image just now, so none could be used. Regenerate it to try new imagery, or upload your own photo.",
+    );
+    expect(
+      framesTextLedMessage({
+        kind: "carousel",
+        frames: 1,
+        of: 4,
+        cause: "rejected",
+        subject: "croissants",
+      }),
+    ).toBe(
+      "One frame of this 4-frame carousel was laid out with words only: the images KO made of the croissants couldn't be used: they showed the wrong thing, painted made-up writing or a face, or left no room to show the subject whole. Regenerate it to try new imagery, or upload your own photo.",
     );
   });
 });

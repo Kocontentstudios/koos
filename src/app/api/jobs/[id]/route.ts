@@ -27,6 +27,23 @@ const RESUME_ERROR = "Generation could not be resumed. Please try again.";
 type ClaimedJob = NonNullable<
   Awaited<ReturnType<typeof claimPausedGenerationJob>>
 >;
+type PolledJob = NonNullable<Awaited<ReturnType<typeof getGenerationJobById>>>;
+
+/**
+ * Fails a job for good. A set of frames that already delivered some of
+ * them is settled too (KOOS-AI-002 H7): the frames on show are billed and
+ * the ones never drawn are marked failed, since no slice will come back to
+ * them.
+ */
+async function failJob(job: PolledJob | ClaimedJob, error: string) {
+  await updateGenerationJob(job.id, { status: "failed", error });
+  if (job.kind === "design_render" && isSequenceJobInput(job.input)) {
+    const { settleSequenceJobOnFailure } = await import(
+      "@/lib/jobs/run-design-sequence"
+    );
+    await settleSequenceJobOnFailure(job, error);
+  }
+}
 
 /* The poll checked access before claiming, but a revoke can land between that
    check and this callback; checking again here, after the claim and right
@@ -38,10 +55,7 @@ async function resumeIfStillAllowed(claimed: ClaimedJob, userId: string) {
     "manage_content",
   );
   if (!access.ok) {
-    await updateGenerationJob(claimed.id, {
-      status: "failed",
-      error: access.error,
-    });
+    await failJob(claimed, access.error);
     return;
   }
   await resumeClaimedJob(claimed);
@@ -134,10 +148,7 @@ export async function GET(
       return Response.json({ error: access.error }, { status: access.status });
     }
     if (!access.ok) {
-      await updateGenerationJob(job.id, {
-        status: "failed",
-        error: access.error,
-      });
+      await failJob(job, access.error);
       return Response.json({
         status: "failed",
         kind: job.kind,
@@ -173,10 +184,7 @@ export async function GET(
   }
 
   if (action === "fail") {
-    await updateGenerationJob(job.id, {
-      status: "failed",
-      error: STALLED_ERROR,
-    });
+    await failJob(job, STALLED_ERROR);
     return Response.json({
       status: "failed",
       kind: job.kind,

@@ -10,6 +10,7 @@ const regenerateFrameWork = vi.fn();
 const checkDesignQuota = vi.fn();
 const resolveDesignProviders = vi.fn();
 const checkRateLimit = vi.fn();
+const listSetFrames = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/auth/require-verified-email", () => ({
@@ -26,6 +27,8 @@ vi.mock("@/lib/db/queries", () => ({
   createGenerationJob: (data: unknown) => createGenerationJob(data),
   getDesignGenerationById: (id: string) => getDesignGenerationById(id),
   getDesignSet: (brandId: string, id: string) => getDesignSet(brandId, id),
+  listSetFrames: (brandId: string, setId: string) =>
+    listSetFrames(brandId, setId),
 }));
 vi.mock("@/lib/ai/image", () => ({
   resolveDesignProviders: () => resolveDesignProviders(),
@@ -39,16 +42,23 @@ vi.mock("@/lib/design/quota", () => ({
   quotaExceeded: () => new Response(null, { status: 429 }),
 }));
 vi.mock("@/lib/storage", () => ({ isStorageConfigured: () => true }));
-vi.mock("@/lib/jobs/run-design-sequence", () => ({
-  contextRequestOf: (value: Record<string, unknown> | null) => ({
-    briefId: value?.briefId ?? null,
-    calendarItemId: null,
-    attachments: [],
-    freeform: value?.freeform ?? null,
-    aspectRatio: null,
-  }),
-  regenerateFrameWork: (...args: unknown[]) => regenerateFrameWork(...args),
-}));
+vi.mock("@/lib/jobs/run-design-sequence", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/jobs/run-design-sequence")>();
+  return {
+    FrameBusyError: actual.FrameBusyError,
+    FrameTargetError: actual.FrameTargetError,
+    frameToReplace: actual.frameToReplace,
+    contextRequestOf: (value: Record<string, unknown> | null) => ({
+      briefId: value?.briefId ?? null,
+      calendarItemId: null,
+      attachments: [],
+      freeform: value?.freeform ?? null,
+      aspectRatio: null,
+    }),
+    regenerateFrameWork: (...args: unknown[]) => regenerateFrameWork(...args),
+  };
+});
 vi.mock("@/lib/jobs/run-generation", () => ({
   executeGenerationJob: (
     _id: string,
@@ -75,6 +85,9 @@ function frameRow(over: Record<string, unknown> = {}) {
     frameCount: 4,
     imageSource: "upload",
     rationale: { title: "The price", reasons: [], role: "body" },
+    status: "succeeded",
+    supersededBy: null,
+    createdAt: new Date(1_000),
     ...over,
   };
 }
@@ -111,6 +124,9 @@ beforeEach(() => {
   checkDesignQuota.mockResolvedValue({ ok: true });
   createGenerationJob.mockResolvedValue({ id: "job-9" });
   regenerateFrameWork.mockResolvedValue({ result: {} });
+  listSetFrames.mockImplementation(async () => [
+    await getDesignGenerationById(FRAME_ID),
+  ]);
 });
 
 afterEach(() => {
@@ -238,6 +254,60 @@ describe("POST /api/design/generations/[id]/regenerate-frame", () => {
       }),
     );
     expect((await post({ edits: { cta: "Order now" } })).status).toBe(202);
+  });
+
+  it("refuses to strip the button off the last frame", async () => {
+    getDesignGenerationById.mockResolvedValue(
+      frameRow({
+        frameIndex: 3,
+        rationale: { title: "Order", reasons: [], role: "cta" },
+      }),
+    );
+    for (const cta of ["", "   "]) {
+      const res = await post({ edits: { cta } });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "The last frame needs a button.",
+      });
+    }
+    expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 while the set is still drawing the frame", async () => {
+    getDesignGenerationById.mockResolvedValue(frameRow({ status: "pending" }));
+    const res = await post({});
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "This frame is still being drawn. Try again once it has finished.",
+    });
+    expect(createGenerationJob).not.toHaveBeenCalled();
+    expect(checkDesignQuota).not.toHaveBeenCalled();
+  });
+
+  it("redraws the frame on show when asked with a superseded id", async () => {
+    const LIVE_ID = "66666666-6666-4666-8666-666666666666";
+    getDesignGenerationById.mockResolvedValue(
+      frameRow({ supersededBy: LIVE_ID }),
+    );
+    listSetFrames.mockResolvedValue([
+      frameRow({ supersededBy: LIVE_ID }),
+      frameRow({ id: LIVE_ID, createdAt: new Date(2_000) }),
+    ]);
+    const res = await post({});
+    expect(res.status).toBe(202);
+    expect(listSetFrames).toHaveBeenCalledWith(BRAND_ID, SET_ID);
+    expect(createGenerationJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: { regenerateFrame: LIVE_ID, edits: null },
+      }),
+    );
+    expect(regenerateFrameWork.mock.calls[0][0].generationId).toBe(LIVE_ID);
+  });
+
+  it("redraws a frame that failed", async () => {
+    getDesignGenerationById.mockResolvedValue(frameRow({ status: "failed" }));
+    expect((await post({})).status).toBe(202);
+    expect(regenerateFrameWork.mock.calls[0][0].generationId).toBe(FRAME_ID);
   });
 
   it("refuses edits it cannot draw as typed", async () => {

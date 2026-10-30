@@ -130,7 +130,19 @@ const MAX_SLICES = 10;
 export async function executeGenerationJob(
   jobId: string,
   work: (runtime: JobRuntime) => Promise<JobOutcome>,
-  { softDeadlineMs }: { softDeadlineMs?: number } = {},
+  {
+    softDeadlineMs,
+    onSliceCeiling,
+  }: {
+    softDeadlineMs?: number;
+    /** Called once the job is failed at the slice ceiling, with the last
+     *  checkpoint: the work never sees that failure, so anything it holds
+     *  half-done is settled here (a set's delivered frames, KOOS-AI-002). */
+    onSliceCeiling?: (
+      checkpoint: Record<string, unknown>,
+      error: string,
+    ) => Promise<void>;
+  } = {},
 ): Promise<void> {
   const row = await getGenerationJobById(jobId);
   const prior = (row?.result ?? {}) as {
@@ -191,10 +203,17 @@ export async function executeGenerationJob(
         console.error(
           `generation job ${jobId}: hit the ${MAX_SLICES}-slice ceiling without finishing`,
         );
-        await updateGenerationJob(jobId, {
-          status: "failed",
-          error: "Generation is taking longer than expected. Please try again.",
-        }).catch(() => {});
+        const error =
+          "Generation is taking longer than expected. Please try again.";
+        await updateGenerationJob(jobId, { status: "failed", error }).catch(
+          () => {},
+        );
+        await onSliceCeiling?.(state.checkpoint, error).catch((settleErr) => {
+          console.error(
+            `generation job ${jobId}: settling at the slice ceiling failed`,
+            settleErr,
+          );
+        });
         return;
       }
       // Positive evidence the job is ready to continue NOW. Without this the

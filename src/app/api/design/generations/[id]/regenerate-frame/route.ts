@@ -8,6 +8,7 @@ import {
   createGenerationJob,
   getDesignGenerationById,
   getDesignSet,
+  listSetFrames,
 } from "@/lib/db/queries";
 import { DesignContextError, resolveDesignContext } from "@/lib/design/context";
 import {
@@ -21,6 +22,9 @@ import { serializedFrameOf } from "@/lib/design/sequence/frames";
 import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
 import {
   contextRequestOf,
+  FrameBusyError,
+  FrameTargetError,
+  frameToReplace,
   regenerateFrameWork,
   type SequenceContextRequest,
 } from "@/lib/jobs/run-design-sequence";
@@ -152,9 +156,32 @@ export async function POST(
       { status: 400 },
     );
   }
+  /* And the last frame always carries it: an empty button would leave the
+     set with no action to take. */
+  if (frame.role === "cta" && parsed.edits?.cta === "") {
+    return Response.json(
+      { error: "The last frame needs a button." },
+      { status: 400 },
+    );
+  }
   const set = await getDesignSet(generation.brandId, frame.setId);
   if (!set) {
     return Response.json({ error: "Design not found" }, { status: 404 });
+  }
+  let target: ReturnType<typeof frameToReplace>;
+  try {
+    target = frameToReplace(
+      await listSetFrames(generation.brandId, frame.setId),
+      generation,
+    );
+  } catch (err) {
+    if (err instanceof FrameBusyError) {
+      return Response.json({ error: err.message }, { status: 409 });
+    }
+    if (err instanceof FrameTargetError) {
+      return Response.json({ error: "Design not found" }, { status: 404 });
+    }
+    throw err;
   }
 
   if (generation.imageSource === "ko") {
@@ -201,7 +228,7 @@ export async function POST(
     kind: "design_render",
     userId: dbUser.id,
     brandId: generation.brandId,
-    input: { regenerateFrame: generation.id, edits: parsed.edits ?? null },
+    input: { regenerateFrame: target.id, edits: parsed.edits ?? null },
   });
 
   const sessionId = await getAnalyticsSessionId();
@@ -212,7 +239,7 @@ export async function POST(
           context,
           userId: dbUser.id,
           sessionId,
-          generationId: generation.id,
+          generationId: target.id,
           edits: parsed.edits,
         },
         runtime,

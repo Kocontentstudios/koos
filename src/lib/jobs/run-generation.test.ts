@@ -227,6 +227,39 @@ describe("executeGenerationJob", () => {
       .mock.calls.filter(([, patch]) => patch.result?.paused);
     expect(pausedCalls).toHaveLength(0);
   });
+
+  it("settles the work's half-done state once the slice ceiling fails the job", async () => {
+    getGenerationJobById.mockResolvedValue({
+      id: "job-1",
+      result: { sliceCount: 9, paused: true, checkpoint: { setId: "set-1" } },
+    });
+    const onSliceCeiling = vi.fn().mockResolvedValue(undefined);
+    await executeGenerationJob(
+      "job-1",
+      async (runtime) => {
+        await runtime.saveCheckpoint({ frames: { "0": "done" } });
+        throw new JobPausedError();
+      },
+      { onSliceCeiling },
+    );
+    expect(onSliceCeiling).toHaveBeenCalledTimes(1);
+    expect(onSliceCeiling).toHaveBeenCalledWith(
+      { setId: "set-1", frames: { "0": "done" } },
+      "Generation is taking longer than expected. Please try again.",
+    );
+  });
+
+  it("never settles a slice that only paused", async () => {
+    const onSliceCeiling = vi.fn().mockResolvedValue(undefined);
+    await executeGenerationJob(
+      "job-1",
+      async () => {
+        throw new JobPausedError();
+      },
+      { softDeadlineMs: 1, onSliceCeiling },
+    );
+    expect(onSliceCeiling).not.toHaveBeenCalled();
+  });
 });
 
 describe("generateCalendarWork", () => {
