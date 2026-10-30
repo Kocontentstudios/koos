@@ -1,9 +1,16 @@
-import { countDesignGenerationsForWorkspace } from "@/lib/db/queries";
+import {
+  countDesignGenerationsForWorkspace,
+  countReservedDesignUnitsForWorkspace,
+} from "@/lib/db/queries";
+import { ABANDONED_SET_MS } from "@/lib/jobs/stale";
+import { multiFrameEnabled } from "./multi-frame-flag";
 
 export const DEFAULT_MONTHLY_QUOTA = 200;
 
 export interface QuotaVerdict {
   ok: boolean;
+  /** Units billed this month, plus the units sets still being drawn are
+   *  owed (they bill frame by frame as each lands). */
   used: number;
   limit: number;
   /** Units this request needs: one per design, one per frame of a set. */
@@ -38,10 +45,18 @@ export async function checkDesignQuota(
   requested = 1,
 ): Promise<QuotaVerdict> {
   const limit = resolveMonthlyQuota();
-  const used = await countDesignGenerationsForWorkspace(
-    workspaceId,
-    monthStart(now),
-  );
+  const [billed, reserved] = await Promise.all([
+    countDesignGenerationsForWorkspace(workspaceId, monthStart(now)),
+    /* Only sets reserve units, and sets exist only with the flag on; off,
+       the check is the one query it has always been. */
+    multiFrameEnabled()
+      ? countReservedDesignUnitsForWorkspace(
+          workspaceId,
+          new Date(now.getTime() - ABANDONED_SET_MS),
+        )
+      : 0,
+  ]);
+  const used = billed + reserved;
   return {
     ok: used + requested <= limit,
     used,

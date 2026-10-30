@@ -10,6 +10,7 @@ const resolveDesignContext = vi.fn();
 const listSetFrames = vi.fn();
 const updateDesignGeneration = vi.fn();
 const recordUsageEvent = vi.fn();
+const annotateSetUsage = vi.fn(async (..._args: unknown[]) => {});
 
 vi.mock("@/lib/db/queries", () => ({
   updateGenerationJob: (id: string, patch: unknown) =>
@@ -20,6 +21,7 @@ vi.mock("@/lib/db/queries", () => ({
     updateDesignGeneration(id, patch),
   listBilledSetGenerations: async () => [],
   recordUsageEvent: (event: unknown) => recordUsageEvent(event),
+  annotateSetUsage: (...args: unknown[]) => annotateSetUsage(...args),
 }));
 vi.mock("@/lib/analytics/posthog-server", () => ({
   captureServerEvent: vi.fn(),
@@ -215,9 +217,13 @@ describe("a set whose job fails for good (H7)", () => {
           frameIndex: 0,
           frameCount: 4,
           generationId: "frame-0",
-          jobFailed: true,
         }),
       }),
+    );
+    expect(annotateSetUsage).toHaveBeenCalledWith(
+      "b1",
+      SET_ID,
+      expect.objectContaining({ jobFailed: true, delivered: 1, failed: 3 }),
     );
     const lines = vi
       .mocked(console.log)

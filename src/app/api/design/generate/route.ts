@@ -264,6 +264,16 @@ export async function POST(req: Request) {
     );
   }
 
+  /* Sets bill frame by frame and reserve the rest; one nobody will resume
+     is settled first, so its unbilled frames stop holding the units this
+     request is checked against. */
+  if (multiFrameEnabled()) {
+    const { sweepAbandonedDesignSets } = await import(
+      "@/lib/jobs/run-design-sequence"
+    );
+    await sweepAbandonedDesignSets(access.brand.workspaceId);
+  }
+
   const quota = await checkDesignQuota(access.brand.workspaceId);
   if (!quota.ok) return quotaExceeded(quota);
 
@@ -291,9 +301,11 @@ export async function POST(req: Request) {
     image && regenerateOf == null && multiFrameEnabled()
       ? sequenceKindOf(context.designType)
       : null;
+  const askedFrames = frames ?? context.slides;
   const sequence = sequenceKind
     ? {
-        frames: clampFrameCount(sequenceKind, frames ?? context.slides),
+        frames: clampFrameCount(sequenceKind, askedFrames),
+        asked: askedFrames ?? null,
         contextRequest: {
           briefId: briefId ?? null,
           calendarItemId: calendarItemId ?? null,
@@ -326,7 +338,7 @@ export async function POST(req: Request) {
       ...(image ? { image, regenerateOf: regenerateOf ?? null } : {}),
       ...(sequence
         ? {
-            sequence: { frames: sequence.frames },
+            sequence: { frames: sequence.frames, asked: sequence.asked },
             freeform: freeform ?? null,
             aspectRatio: aspectRatio ?? null,
           }
@@ -362,5 +374,16 @@ export async function POST(req: Request) {
       : executeGenerationJob(job.id, work),
   );
 
+  if (sequenceKind && sequence) {
+    const { frameCountNotice } = await import("@/lib/jobs/run-design-sequence");
+    return Response.json(
+      {
+        jobId: job.id,
+        frames: sequence.frames,
+        notice: frameCountNotice(sequenceKind, sequence.frames, sequence.asked),
+      },
+      { status: 202 },
+    );
+  }
   return Response.json({ jobId: job.id }, { status: 202 });
 }

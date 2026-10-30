@@ -13,6 +13,9 @@ const generateDesignWork = vi.fn();
 const executeGenerationJob = vi.fn();
 const checkDesignQuota = vi.fn();
 const countDesignGenerationsForWorkspace = vi.fn();
+const countReservedDesignUnitsForWorkspace = vi.fn();
+const sweepAbandonedDesignSets = vi.fn();
+const frameCountNotice = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/rate-limit", () => ({
@@ -26,6 +29,14 @@ vi.mock("@/lib/db/queries", () => ({
   getDesignGenerationById: vi.fn(),
   countDesignGenerationsForWorkspace: (workspaceId: string, since: Date) =>
     countDesignGenerationsForWorkspace(workspaceId, since),
+  countReservedDesignUnitsForWorkspace: (workspaceId: string, since: Date) =>
+    countReservedDesignUnitsForWorkspace(workspaceId, since),
+}));
+vi.mock("@/lib/jobs/run-design-sequence", () => ({
+  sweepAbandonedDesignSets: (workspaceId: string) =>
+    sweepAbandonedDesignSets(workspaceId),
+  frameCountNotice: (kind: string, frames: number, asked: number | null) =>
+    frameCountNotice(kind, frames, asked),
 }));
 vi.mock("@/lib/auth/require-verified-email", () => ({
   requireVerifiedEmail: () => null,
@@ -108,6 +119,12 @@ beforeEach(() => {
     brand: { id: BRAND_ID, workspaceId: "w1" },
   });
   countDesignGenerationsForWorkspace.mockResolvedValue(0);
+  countReservedDesignUnitsForWorkspace.mockResolvedValue(0);
+  sweepAbandonedDesignSets.mockResolvedValue(0);
+  frameCountNotice.mockImplementation(
+    (kind: string, frames: number, asked: number | null) =>
+      asked === frames ? null : `${kind}:${frames}:${asked}`,
+  );
   createGenerationJob.mockResolvedValue({ id: "job-1" });
   generateDesignWork.mockResolvedValue({ result: {} });
   contextOf("Instagram carousel", 4);
@@ -127,7 +144,7 @@ describe("design generate route, sets of frames", () => {
       attachments: [],
       image: UPLOAD,
       regenerateOf: null,
-      sequence: { frames: 4 },
+      sequence: { frames: 4, asked: 4 },
       freeform: "Croissant week",
       aspectRatio: null,
     });
@@ -145,28 +162,28 @@ describe("design generate route, sets of frames", () => {
 
   it("takes the request's frame count over the brief's", async () => {
     await post({ image: UPLOAD, frames: 7 });
-    expect(jobInput().sequence).toEqual({ frames: 7 });
+    expect(jobInput().sequence).toEqual({ frames: 7, asked: 7 });
   });
 
   it("clamps the count to what one job delivers", async () => {
     await post({ image: UPLOAD, frames: 40 });
-    expect(jobInput().sequence).toEqual({ frames: 10 });
+    expect(jobInput().sequence).toEqual({ frames: 10, asked: 40 });
     vi.clearAllMocks();
     createGenerationJob.mockResolvedValue({ id: "job-2" });
     await post({ image: UPLOAD, frames: 1 });
-    expect(jobInput().sequence).toEqual({ frames: 2 });
+    expect(jobInput().sequence).toEqual({ frames: 2, asked: 1 });
   });
 
   it("falls back to the format's default count when nothing gives one", async () => {
     contextOf("Instagram carousel", null);
     await post({ image: UPLOAD });
-    expect(jobInput().sequence).toEqual({ frames: 5 });
+    expect(jobInput().sequence).toEqual({ frames: 5, asked: null });
   });
 
   it("builds a presentation as a set too", async () => {
     contextOf("Pitch deck", 30);
     await post({ image: { source: "none" } });
-    expect(jobInput().sequence).toEqual({ frames: 12 });
+    expect(jobInput().sequence).toEqual({ frames: 12, asked: 30 });
   });
 
   it("refuses a frame count that is not a whole positive number", async () => {
@@ -196,6 +213,44 @@ describe("design generate route, sets of frames", () => {
     expect(createGenerationJob).not.toHaveBeenCalled();
   });
 
+  it("counts the frames a set still in flight is owed, so two sets cannot share the last units", async () => {
+    process.env.DESIGN_GENERATION_MONTHLY_QUOTA = "10";
+    countDesignGenerationsForWorkspace.mockResolvedValue(3);
+    countReservedDesignUnitsForWorkspace.mockResolvedValue(4);
+    const res = await post({ image: UPLOAD, frames: 7 });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ used: 7, requested: 7 });
+    expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("settles the workspace's abandoned sets before any quota check", async () => {
+    const order: string[] = [];
+    sweepAbandonedDesignSets.mockImplementation(async () => {
+      order.push("sweep");
+      return 0;
+    });
+    checkDesignQuota.mockImplementation(() => order.push("quota"));
+    await post({ image: UPLOAD, frames: 4 });
+    expect(sweepAbandonedDesignSets).toHaveBeenCalledWith("w1");
+    expect(order[0]).toBe("sweep");
+    expect(order.slice(1)).toEqual(["quota", "quota"]);
+  });
+
+  it("tells the client the size of the set, and why when it was clamped", async () => {
+    const clamped = await post({ image: UPLOAD, frames: 40 });
+    expect(await clamped.json()).toEqual({
+      jobId: "job-1",
+      frames: 10,
+      notice: "carousel:10:40",
+    });
+    const asked = await post({ image: UPLOAD, frames: 6 });
+    expect(await asked.json()).toEqual({
+      jobId: "job-1",
+      frames: 6,
+      notice: null,
+    });
+  });
+
   it("lets a set through when the workspace can pay for every frame", async () => {
     process.env.DESIGN_GENERATION_MONTHLY_QUOTA = "10";
     countDesignGenerationsForWorkspace.mockResolvedValue(3);
@@ -215,6 +270,9 @@ describe("design generate route, what stays a single design", () => {
     expect(executeGenerationJob).toHaveBeenCalledWith("job-1", undefined);
     expect(checkDesignQuota).toHaveBeenCalledTimes(1);
     expect(checkDesignQuota).toHaveBeenCalledWith("w1");
+    expect(sweepAbandonedDesignSets).not.toHaveBeenCalled();
+    expect(countReservedDesignUnitsForWorkspace).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ jobId: "job-1" });
   });
 
   it("builds no set for a single-image format", async () => {

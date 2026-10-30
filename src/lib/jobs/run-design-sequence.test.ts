@@ -32,6 +32,8 @@ const db = {
   sets: new Map<string, Record<string, unknown>>(),
   usage: [] as { metadata: Record<string, unknown>; [k: string]: unknown }[],
   clock: 0,
+  /** recordUsageEvent calls to fail, as a killed slice's would. */
+  billFailures: 0,
 };
 
 const planSequence = vi.fn();
@@ -48,6 +50,7 @@ const replaceDesignSetBeat = vi.fn();
 const getPlateAdapter = vi.fn();
 const paletteForCutout = vi.fn();
 const judgeAndCorrect = vi.fn();
+const failAbandonedDesignJobs = vi.fn();
 
 vi.mock("@/lib/design/sequence/plan", () => ({
   planSequence: (input: unknown) => planSequence(input),
@@ -153,8 +156,31 @@ vi.mock("@/lib/db/queries", () => ({
       .filter((u) => u.metadata.setId === setId)
       .map((u) => u.metadata.generationId as string),
   recordUsageEvent: async (event: { metadata: Record<string, unknown> }) => {
+    if (db.billFailures > 0) {
+      db.billFailures -= 1;
+      throw new Error("connection reset");
+    }
     db.usage.push(event);
   },
+  annotateSetUsage: async (
+    _brandId: string,
+    setId: string,
+    patch: Record<string, unknown>,
+  ) => {
+    for (const u of db.usage) {
+      if (u.metadata.setId === setId && u.metadata.regenerateOf == null) {
+        u.metadata = { ...u.metadata, ...patch };
+      }
+    }
+  },
+  failPendingGeneration: async (id: string, error: string) => {
+    const row = db.rows.get(id);
+    if (row?.status === "pending") {
+      db.rows.set(id, { ...row, status: "failed", error } as Row);
+    }
+  },
+  failAbandonedDesignJobs: (...args: unknown[]) =>
+    failAbandonedDesignJobs(...args),
   createNotification: (input: unknown) => createNotification(input),
   listDesignGenerationsForBrand: async () => [],
   updateGenerationJob: vi.fn(),
@@ -209,8 +235,12 @@ const {
   renderWaves,
   SequencePlanError,
   setFactsMissing,
+  settleFrameJobOnFailure,
   settleSetOnFailure,
+  sweepAbandonedDesignSets,
+  ABANDONED_SET_ERROR,
 } = await import("./run-design-sequence");
+const { ABANDONED_SET_MS } = await import("./stale");
 const craft =
   await vi.importActual<typeof import("./directions/craft")>(
     "./directions/craft",
@@ -361,6 +391,7 @@ beforeEach(() => {
   db.sets.clear();
   db.usage.length = 0;
   db.clock = 0;
+  db.billFailures = 0;
   planSequence.mockImplementation(async (input: { frameCount: number }) =>
     planned(planOf(input.frameCount)),
   );
@@ -553,19 +584,79 @@ describe("billing and traces", () => {
     await run(4);
     const rows = frameRows();
     expect(db.usage).toHaveLength(4);
-    for (const [i, usage] of db.usage.entries()) {
-      expect(usage).toMatchObject({
+    for (const row of rows) {
+      const usage = db.usage.filter((u) => u.metadata.generationId === row.id);
+      expect(usage).toHaveLength(1);
+      expect(usage[0]).toMatchObject({
         userId: "u1",
         brandId: BRAND_ID,
         kind: "design_generated",
       });
-      expect(usage.metadata).toMatchObject({
-        setId: rows[i].setId,
-        frameIndex: i,
+      expect(usage[0].metadata).toMatchObject({
+        setId: row.setId,
+        frameIndex: row.frameIndex,
         frameCount: 4,
-        generationId: rows[i].id,
+        generationId: row.id,
+        delivered: 4,
+        failed: 0,
+        jobFailed: false,
       });
     }
+  });
+
+  it("bills each frame as it lands, before the set completes", async () => {
+    const billedWhenDrawn: number[] = [];
+    rasterizeDocument.mockImplementation(async (input: { doc: unknown }) => {
+      billedWhenDrawn.push(db.usage.length);
+      return {
+        bytes: designPng(1080, 1350),
+        contentType: "image/png",
+        width: 1080,
+        height: 1350,
+        document: input.doc,
+        logoFault: null,
+        brandFontFault: null,
+      };
+    });
+    await run(3);
+    expect(billedWhenDrawn[billedWhenDrawn.length - 1]).toBe(2);
+  });
+
+  it("keeps the trace line and event to one each when a completed slice is resumed", async () => {
+    const checkpoint: Record<string, unknown> = {};
+    await run(3, { source: "none" }, runtimeWith(checkpoint).runtime);
+    expect(checkpoint.completed).toBe(true);
+    const outcome = await run(
+      3,
+      { source: "none" },
+      runtimeWith(checkpoint).runtime,
+    );
+    const lines = logSpy.mock.calls
+      .map(([line]: unknown[]) => String(line))
+      .filter((line: string) => line.startsWith("design.sequence.completed "));
+    expect(lines).toHaveLength(1);
+    expect(
+      captureServerEvent.mock.calls.filter(
+        ([e]) => (e as { event: string }).event === "design_sequence_generated",
+      ),
+    ).toHaveLength(1);
+    expect(outcome.result.generationIds).toEqual(frameRows().map((r) => r.id));
+  });
+
+  it("tells the user when the count asked for was clamped", async () => {
+    const { runtime, progress } = runtimeWith();
+    await generateSequenceWork(
+      {
+        context: carouselContext(),
+        userId: "u1",
+        sessionId: "s1",
+        request: { image: { source: "none" }, frames: 10, asked: 14 },
+      },
+      runtime as never,
+    );
+    expect(progress[0].label).toBe(
+      "Planning 10 frames… You asked for 14 frames; a carousel holds at most 10, so this one has 10.",
+    );
   });
 
   it("logs one design.sequence.completed line with the outcome", async () => {
@@ -682,7 +773,11 @@ describe("resuming a set past the slice deadline (H8)", () => {
     const deliveredFirst = frameRows().filter((r) => r.status === "succeeded");
     expect(deliveredFirst.length).toBeGreaterThan(0);
     expect(deliveredFirst.length).toBeLessThan(5);
-    expect(db.usage).toHaveLength(0);
+    /* A paused slice has already paid for what it put on show: a set no
+       poll ever resumes is not free (H7). */
+    expect(db.usage.map((u) => u.metadata.generationId).sort()).toEqual(
+      deliveredFirst.map((r) => r.id).sort(),
+    );
     expect(checkpoint.setId).toBe(frameRows()[0].setId);
     expect(checkpoint.plan).toBeTruthy();
 
@@ -1086,7 +1181,7 @@ describe("a set that fails for good is settled (H7)", () => {
     const delivered = frameRows().filter((r) => r.status === "succeeded");
     expect(delivered.length).toBeGreaterThan(0);
     expect(delivered.length).toBeLessThan(5);
-    expect(db.usage).toHaveLength(0);
+    expect(db.usage).toHaveLength(delivered.length);
 
     loadDesignImage.mockRejectedValue(new Error("The upload is gone."));
     await expect(
@@ -1102,8 +1197,8 @@ describe("a set that fails for good is settled (H7)", () => {
     for (const row of rows.filter((r) => r.status === "failed")) {
       expect(row.error).toBe("The upload is gone.");
     }
-    expect(db.usage.map((u) => u.metadata.generationId)).toEqual(
-      delivered.map((r) => r.id),
+    expect(db.usage.map((u) => u.metadata.generationId).sort()).toEqual(
+      delivered.map((r) => r.id).sort(),
     );
     expect(db.usage[0].metadata).toMatchObject({
       setId: rows[0].setId,
@@ -1119,6 +1214,24 @@ describe("a set that fails for good is settled (H7)", () => {
         failed: 5 - delivered.length,
       }),
     ]);
+  });
+
+  it("bills at settlement a delivered frame its slice could not bill", async () => {
+    db.billFailures = 1;
+    const checkpoint = await pausedAfter(1, 4);
+    const delivered = frameRows().filter((r) => r.status === "succeeded");
+    expect(delivered.length).toBeGreaterThan(0);
+    expect(db.usage).toHaveLength(delivered.length - 1);
+    await settleSetOnFailure({
+      brandId: BRAND_ID,
+      userId: "u1",
+      requested: 4,
+      checkpoint,
+      reason: "Generation stalled. Please try again.",
+    });
+    expect(db.usage.map((u) => u.metadata.generationId).sort()).toEqual(
+      delivered.map((r) => r.id).sort(),
+    );
   });
 
   it("never bills a frame twice when a failed set is settled again", async () => {
@@ -1449,5 +1562,107 @@ describe("telling the user which frames lost their image", () => {
     ).toBe(
       "One frame of this 4-frame carousel was laid out with words only: the images KO made of the croissants couldn't be used: they showed the wrong thing, painted made-up writing or a face, or left no room to show the subject whole. Regenerate it to try new imagery, or upload your own photo.",
     );
+  });
+});
+
+describe("a frame regenerate's own job (H11)", () => {
+  function regenerateOn(
+    id: string,
+    runtime: ReturnType<typeof runtimeWith>["runtime"],
+    edits?: Record<string, string>,
+  ) {
+    return regenerateFrameWork(
+      {
+        context: carouselContext(),
+        userId: "u1",
+        sessionId: "s1",
+        generationId: id,
+        edits,
+      },
+      runtime as never,
+    );
+  }
+
+  it("says it is rewriting only when no copy was typed", async () => {
+    await run(3);
+    replanFrame.mockImplementation(keepBeat);
+    const typed = runtimeWith();
+    await regenerateOn(frameRows()[1].id, typed.runtime, {
+      headline: "Butter from one farm",
+    });
+    expect(typed.progress[0].label).toBe("Setting your copy on frame 2…");
+    const rewritten = runtimeWith();
+    await regenerateOn(frameRows()[0].id, rewritten.runtime);
+    expect(rewritten.progress[0].label).toBe("Rewriting frame 1…");
+  });
+
+  it("checkpoints its new row, so a stalled job fails the row it left pending", async () => {
+    await run(3);
+    replanFrame.mockImplementation(keepBeat);
+    const target = frameRows()[1].id;
+    const checkpoint: Record<string, unknown> = {};
+    /* The render never finishes, as in a job killed mid-render: the row is
+       left to whoever fails the job. */
+    rasterizeDocument.mockImplementation(
+      () => new Promise(() => {}) as Promise<never>,
+    );
+    void regenerateOn(target, runtimeWith(checkpoint).runtime);
+    await vi.waitFor(() => expect(checkpoint.rowId).toBeTruthy());
+    const rowId = checkpoint.rowId as string;
+    expect(db.rows.get(rowId)?.status).toBe("pending");
+
+    await settleFrameJobOnFailure(
+      {
+        userId: "u1",
+        brandId: BRAND_ID,
+        input: { regenerateFrame: target, edits: null },
+        result: { checkpoint },
+      },
+      "Generation stalled. Please try again.",
+    );
+    expect(db.rows.get(rowId)).toMatchObject({
+      status: "failed",
+      error: "Generation stalled. Please try again.",
+    });
+    expect(db.rows.get(target)?.supersededBy).toBeNull();
+    expect(db.usage.some((u) => u.metadata.generationId === rowId)).toBe(false);
+  });
+});
+
+describe("sweeping sets nobody will resume (H7, H11)", () => {
+  it("fails and settles every abandoned set job the query hands back", async () => {
+    const checkpoint = await pausedAfter(1, 4);
+    const delivered = frameRows().filter((r) => r.status === "succeeded");
+    failAbandonedDesignJobs.mockResolvedValue([
+      {
+        id: "job-1",
+        userId: "u1",
+        brandId: BRAND_ID,
+        kind: "design_render",
+        input: { sequence: { frames: 4 }, image: { source: "none" } },
+        result: { checkpoint },
+      },
+    ]);
+    const now = Date.now();
+    expect(await sweepAbandonedDesignSets("w1", now)).toBe(1);
+    expect(failAbandonedDesignJobs).toHaveBeenCalledWith(
+      "w1",
+      new Date(now - ABANDONED_SET_MS),
+      ABANDONED_SET_ERROR,
+    );
+    const rows = frameRows();
+    expect(rows.filter((r) => r.status === "pending")).toEqual([]);
+    for (const row of rows.filter((r) => r.status === "failed")) {
+      expect(row.error).toBe(ABANDONED_SET_ERROR);
+    }
+    expect(db.usage.map((u) => u.metadata.generationId).sort()).toEqual(
+      delivered.map((r) => r.id).sort(),
+    );
+    expect(db.usage[0].metadata).toMatchObject({ jobFailed: true });
+  });
+
+  it("never throws into the request it runs in", async () => {
+    failAbandonedDesignJobs.mockRejectedValue(new Error("db down"));
+    await expect(sweepAbandonedDesignSets("w1")).resolves.toBe(0);
   });
 });

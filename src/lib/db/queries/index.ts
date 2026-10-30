@@ -1109,6 +1109,122 @@ export async function listBilledSetGenerations(
 }
 
 /**
+ * Writes what only the whole set knows (coverage across frames, how many
+ * failed) onto the usage rows its job billed frame by frame. A regenerated
+ * frame's row describes its own job, so it is left as it was.
+ */
+export async function annotateSetUsage(
+  brandId: string,
+  setId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  await db
+    .update(usageEvents)
+    .set({
+      metadata: sql`coalesce(${usageEvents.metadata}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+    })
+    .where(
+      and(
+        eq(usageEvents.brandId, brandId),
+        eq(usageEvents.kind, "design_generated"),
+        sql`${usageEvents.metadata}->>'setId' = ${setId}`,
+        sql`${usageEvents.metadata}->>'regenerateOf' is null`,
+      ),
+    );
+}
+
+/* A design job that bills frame by frame: a set (input.sequence) or one
+   frame of a set drawn again (input.regenerateFrame). */
+const billsFramesSql = sql`(${generationJobs.input}->'sequence' is not null or ${generationJobs.input}->'regenerateFrame' is not null)`;
+
+/**
+ * Quota units promised to sets still being drawn in a workspace, not yet
+ * billed: a set's requested frames less the frames it has settled (a
+ * delivered frame is billed as it lands, a failed one is free), and one for
+ * a frame regenerate. Without it two carousels started together each pass
+ * the up-front check against the same remaining units. A job silent since
+ * before `activeSince` is abandoned and reserves nothing.
+ */
+export async function countReservedDesignUnitsForWorkspace(
+  workspaceId: string,
+  activeSince: Date,
+): Promise<number> {
+  const settledFrames = sql`(
+    select count(distinct ${designGenerations.frameIndex})
+    from ${designGenerations}
+    where ${designGenerations.brandId} = ${generationJobs.brandId}
+      and ${designGenerations.setId}::text = ${generationJobs.result}->'checkpoint'->>'setId'
+      and ${designGenerations.status} <> 'pending'
+  )`;
+  const [row] = await db
+    .select({
+      reserved: sql<string | null>`sum(
+        case when ${generationJobs.input}->'regenerateFrame' is not null then 1
+        else greatest(0, coalesce((${generationJobs.input}->'sequence'->>'frames')::int, 0) - ${settledFrames})
+        end
+      )`,
+    })
+    .from(generationJobs)
+    .innerJoin(brands, eq(generationJobs.brandId, brands.id))
+    .where(
+      and(
+        eq(brands.workspaceId, workspaceId),
+        eq(generationJobs.kind, "design_render"),
+        inArray(generationJobs.status, ["pending", "running"]),
+        gte(generationJobs.updatedAt, activeSince),
+        billsFramesSql,
+      ),
+    );
+  return Number(row?.reserved ?? 0);
+}
+
+/**
+ * Fails, atomically, the frame-billing design jobs of a workspace silent
+ * since before `silentBefore`: no worker heartbeats them and no poll came
+ * back to resume them. Only the caller that fails a job gets it back, so its
+ * set is settled once even when two requests sweep together.
+ */
+export async function failAbandonedDesignJobs(
+  workspaceId: string,
+  silentBefore: Date,
+  error: string,
+) {
+  return db
+    .update(generationJobs)
+    .set({ status: "failed", error, updatedAt: new Date() })
+    .where(
+      and(
+        eq(generationJobs.kind, "design_render"),
+        inArray(generationJobs.status, ["pending", "running"]),
+        lt(generationJobs.updatedAt, silentBefore),
+        billsFramesSql,
+        inArray(
+          generationJobs.brandId,
+          db
+            .select({ id: brands.id })
+            .from(brands)
+            .where(eq(brands.workspaceId, workspaceId)),
+        ),
+      ),
+    )
+    .returning();
+}
+
+/** Fails a regenerated frame's row its job left pending. A row that has
+ *  already landed or failed keeps its status. */
+export async function failPendingGeneration(id: string, error: string) {
+  await db
+    .update(designGenerations)
+    .set({ status: "failed", error })
+    .where(
+      and(
+        eq(designGenerations.id, id),
+        eq(designGenerations.status, "pending"),
+      ),
+    );
+}
+
+/**
  * Every row of one set of directions, newest first. A set is the pair one job
  * produced plus any regenerated replacements, keyed by the id stored in
  * `rationale.set`; the brand filter keeps a guessed set id from reaching

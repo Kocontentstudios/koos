@@ -12,7 +12,7 @@ const claimStaleGenerationJob = vi.fn();
 const updateGenerationJob = vi.fn();
 const resumeCalendarJob = vi.fn();
 const resumeDesignSequenceJob = vi.fn();
-const settleSequenceJobOnFailure = vi.fn();
+const settleFrameJobOnFailure = vi.fn();
 const after = vi.fn();
 
 vi.mock("next/server", () => ({ after: (fn: () => void) => after(fn) }));
@@ -32,8 +32,8 @@ vi.mock("@/lib/jobs/run-generation", () => ({
 }));
 vi.mock("@/lib/jobs/run-design-sequence", () => ({
   resumeDesignSequenceJob: (job: unknown) => resumeDesignSequenceJob(job),
-  settleSequenceJobOnFailure: (job: unknown, reason: string) =>
-    settleSequenceJobOnFailure(job, reason),
+  settleFrameJobOnFailure: (job: unknown, reason: string) =>
+    settleFrameJobOnFailure(job, reason),
 }));
 
 import {
@@ -85,7 +85,7 @@ beforeEach(() => {
   checkBrandAccess.mockResolvedValue({ ok: true, brand: { id: "b1" } });
   resumeCalendarJob.mockResolvedValue(undefined);
   resumeDesignSequenceJob.mockResolvedValue(undefined);
-  settleSequenceJobOnFailure.mockResolvedValue(undefined);
+  settleFrameJobOnFailure.mockResolvedValue(undefined);
 });
 
 describe("GET /api/jobs/[id] resuming a set of frames", () => {
@@ -146,7 +146,7 @@ describe("GET /api/jobs/[id] resuming a set of frames", () => {
       status: "failed",
       error: "Generation stalled. Please try again.",
     });
-    expect(settleSequenceJobOnFailure).toHaveBeenCalledWith(
+    expect(settleFrameJobOnFailure).toHaveBeenCalledWith(
       spent,
       "Generation stalled. Please try again.",
     );
@@ -164,10 +164,7 @@ describe("GET /api/jobs/[id] resuming a set of frames", () => {
     await pollAndRunDeferred();
 
     expect(resumeDesignSequenceJob).not.toHaveBeenCalled();
-    expect(settleSequenceJobOnFailure).toHaveBeenCalledWith(
-      paused,
-      "No access",
-    );
+    expect(settleFrameJobOnFailure).toHaveBeenCalledWith(paused, "No access");
   });
 
   it("settles the set when access is revoked between the claim and the resume", async () => {
@@ -181,9 +178,27 @@ describe("GET /api/jobs/[id] resuming a set of frames", () => {
     await pollAndRunDeferred();
 
     expect(resumeDesignSequenceJob).not.toHaveBeenCalled();
-    expect(settleSequenceJobOnFailure).toHaveBeenCalledWith(
-      paused,
-      "No access",
+    expect(settleFrameJobOnFailure).toHaveBeenCalledWith(paused, "No access");
+  });
+
+  it("settles a stalled frame regenerate, so its new row does not stay pending", async () => {
+    const stalled = job({
+      input: { regenerateFrame: "frame-1", edits: null },
+      result: { checkpoint: { rowId: "frame-1b" } },
+      updatedAt: new Date(Date.now() - DEFAULT_STALE_MS - 1000),
+    });
+    getGenerationJobById.mockResolvedValue(stalled);
+
+    await pollAndRunDeferred();
+
+    expect(claimStaleGenerationJob).not.toHaveBeenCalled();
+    expect(updateGenerationJob).toHaveBeenCalledWith(JOB_ID, {
+      status: "failed",
+      error: "Generation stalled. Please try again.",
+    });
+    expect(settleFrameJobOnFailure).toHaveBeenCalledWith(
+      stalled,
+      "Generation stalled. Please try again.",
     );
   });
 
@@ -207,7 +222,7 @@ describe("GET /api/jobs/[id] resuming a set of frames", () => {
     await pollAndRunDeferred();
 
     expect(updateGenerationJob).toHaveBeenCalledTimes(2);
-    expect(settleSequenceJobOnFailure).not.toHaveBeenCalled();
+    expect(settleFrameJobOnFailure).not.toHaveBeenCalled();
   });
 
   it("still fails, never resumes, a single design job that went silent", async () => {

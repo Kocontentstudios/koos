@@ -42,7 +42,7 @@ describe("generateDesignWork dispatch", () => {
         userId: "u1",
         sessionId: "s1",
         directions: { image: { source: "none" }, regenerateOf: null },
-        sequence: { frames: 6, contextRequest: CONTEXT_REQUEST },
+        sequence: { frames: 6, asked: 14, contextRequest: CONTEXT_REQUEST },
       },
       runtime,
     );
@@ -52,7 +52,7 @@ describe("generateDesignWork dispatch", () => {
         context,
         userId: "u1",
         sessionId: "s1",
-        request: { image: { source: "none" }, frames: 6 },
+        request: { image: { source: "none" }, frames: 6, asked: 14 },
         contextRequest: CONTEXT_REQUEST,
       },
       runtime,

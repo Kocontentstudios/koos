@@ -27,6 +27,7 @@ import {
   frameToReplace,
   regenerateFrameWork,
   type SequenceContextRequest,
+  sweepAbandonedDesignSets,
 } from "@/lib/jobs/run-design-sequence";
 import { executeGenerationJob } from "@/lib/jobs/run-generation";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
@@ -208,6 +209,7 @@ export async function POST(
     );
   }
 
+  await sweepAbandonedDesignSets(access.brand.workspaceId);
   const quota = await checkDesignQuota(access.brand.workspaceId);
   if (!quota.ok) return quotaExceeded(quota);
 

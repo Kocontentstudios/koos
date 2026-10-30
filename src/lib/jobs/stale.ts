@@ -25,8 +25,22 @@ export const DEFAULT_STALE_MS = 4 * 60 * 1000;
 export const SEQUENCE_SLICE_BUDGET_MS = 210_000;
 /** Resume attempts before the job genuinely fails. */
 export const MAX_RESUMES = 3;
+/** A set's job silent this long has no worker (it heartbeats every ~20s)
+ *  and no poller (a watched pause resumes within seconds), so nothing will
+ *  come back to it: the next sweep fails and settles it, and it stops
+ *  reserving quota. Well past one slice, so a live slice is never swept. */
+export const ABANDONED_SET_MS = 10 * 60 * 1000;
 
 export type StaleAction = "none" | "resume" | "fail";
+
+/** A job that draws one frame of a set again (KOOS-AI-002). */
+export function isRegenerateFrameJobInput(input: unknown): boolean {
+  return (
+    !!input &&
+    typeof input === "object" &&
+    typeof (input as { regenerateFrame?: unknown }).regenerateFrame === "string"
+  );
+}
 
 export function isSequenceJobInput(input: unknown): boolean {
   if (!input || typeof input !== "object") return false;

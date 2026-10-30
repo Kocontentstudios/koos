@@ -11,6 +11,7 @@ const checkDesignQuota = vi.fn();
 const resolveDesignProviders = vi.fn();
 const checkRateLimit = vi.fn();
 const listSetFrames = vi.fn();
+const sweepAbandonedDesignSets = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/auth/require-verified-email", () => ({
@@ -57,6 +58,8 @@ vi.mock("@/lib/jobs/run-design-sequence", async (importOriginal) => {
       aspectRatio: null,
     }),
     regenerateFrameWork: (...args: unknown[]) => regenerateFrameWork(...args),
+    sweepAbandonedDesignSets: (...args: unknown[]) =>
+      sweepAbandonedDesignSets(...args),
   };
 });
 vi.mock("@/lib/jobs/run-generation", () => ({
@@ -181,6 +184,21 @@ describe("POST /api/design/generations/[id]/regenerate-frame", () => {
     expect(res.status).toBe(429);
     expect(checkDesignQuota).toHaveBeenCalledWith("w1");
     expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("settles the workspace's abandoned sets before checking quota", async () => {
+    const order: string[] = [];
+    sweepAbandonedDesignSets.mockImplementation(async () => {
+      order.push("sweep");
+      return 0;
+    });
+    checkDesignQuota.mockImplementation(async () => {
+      order.push("quota");
+      return { ok: true };
+    });
+    await post({});
+    expect(sweepAbandonedDesignSets).toHaveBeenCalledWith("w1");
+    expect(order).toEqual(["sweep", "quota"]);
   });
 
   it("is not there with the flag off", async () => {

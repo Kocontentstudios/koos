@@ -10,6 +10,7 @@ import {
 import { resumeCalendarJob } from "@/lib/jobs/run-generation";
 import {
   isPausedForResume,
+  isRegenerateFrameJobInput,
   isResumableJob,
   isSequenceJobInput,
   resolveStaleAction,
@@ -30,18 +31,21 @@ type ClaimedJob = NonNullable<
 type PolledJob = NonNullable<Awaited<ReturnType<typeof getGenerationJobById>>>;
 
 /**
- * Fails a job for good. A set of frames that already delivered some of
- * them is settled too (KOOS-AI-002 H7): the frames on show are billed and
- * the ones never drawn are marked failed, since no slice will come back to
- * them.
+ * Fails a job for good. What a design job that bills frames left behind is
+ * settled too (KOOS-AI-002 H7): a set's frames on show are billed and the
+ * ones never drawn are marked failed, and a frame regenerate's new row is
+ * marked failed, since nothing will come back to them.
  */
 async function failJob(job: PolledJob | ClaimedJob, error: string) {
   await updateGenerationJob(job.id, { status: "failed", error });
-  if (job.kind === "design_render" && isSequenceJobInput(job.input)) {
-    const { settleSequenceJobOnFailure } = await import(
+  if (
+    job.kind === "design_render" &&
+    (isSequenceJobInput(job.input) || isRegenerateFrameJobInput(job.input))
+  ) {
+    const { settleFrameJobOnFailure } = await import(
       "@/lib/jobs/run-design-sequence"
     );
-    await settleSequenceJobOnFailure(job, error);
+    await settleFrameJobOnFailure(job, error);
   }
 }
 

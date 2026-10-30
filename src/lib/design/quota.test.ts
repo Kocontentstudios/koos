@@ -1,12 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // quota.ts imports the queries barrel, which constructs the db client at
 // import time and throws without DATABASE_URL.
 vi.mock("@/lib/db/queries", () => ({
   countDesignGenerationsForWorkspace: vi.fn(),
+  countReservedDesignUnitsForWorkspace: vi.fn(),
 }));
 
-import { countDesignGenerationsForWorkspace } from "@/lib/db/queries";
+import {
+  countDesignGenerationsForWorkspace,
+  countReservedDesignUnitsForWorkspace,
+} from "@/lib/db/queries";
+import { ABANDONED_SET_MS } from "@/lib/jobs/stale";
 import {
   checkDesignQuota,
   DEFAULT_MONTHLY_QUOTA,
@@ -101,5 +106,48 @@ describe("checkDesignQuota with a requested count", () => {
     expect(quotaMessage(verdict, "presentation")).toMatch(
       /^This presentation needs 5 designs; this workspace has none left this month\./,
     );
+  });
+});
+
+/* KOOS-AI-002: a set bills frame by frame as each lands, so the units its
+   frames still to come are owed count as used until they land or fail;
+   otherwise two sets started together both pass on the same units (H7). */
+describe("checkDesignQuota with sets in flight", () => {
+  const now = new Date("2026-10-14T09:30:00Z");
+
+  afterEach(() => {
+    process.env.FEATURE_MULTI_FRAME = "";
+  });
+
+  it("counts the units running sets are owed when sets are on", async () => {
+    process.env.FEATURE_MULTI_FRAME = "1";
+    vi.mocked(countDesignGenerationsForWorkspace).mockResolvedValue(
+      DEFAULT_MONTHLY_QUOTA - 14,
+    );
+    vi.mocked(countReservedDesignUnitsForWorkspace).mockResolvedValue(7);
+    expect(await checkDesignQuota("w1", now, 7)).toMatchObject({
+      ok: true,
+      used: DEFAULT_MONTHLY_QUOTA - 7,
+    });
+    vi.mocked(countReservedDesignUnitsForWorkspace).mockResolvedValue(8);
+    expect((await checkDesignQuota("w1", now, 7)).ok).toBe(false);
+  });
+
+  it("asks only about sets still heard from", async () => {
+    process.env.FEATURE_MULTI_FRAME = "1";
+    vi.mocked(countDesignGenerationsForWorkspace).mockResolvedValue(0);
+    vi.mocked(countReservedDesignUnitsForWorkspace).mockResolvedValue(0);
+    await checkDesignQuota("w1", now);
+    expect(countReservedDesignUnitsForWorkspace).toHaveBeenCalledWith(
+      "w1",
+      new Date(now.getTime() - ABANDONED_SET_MS),
+    );
+  });
+
+  it("is the one query it always was with sets off", async () => {
+    vi.mocked(countReservedDesignUnitsForWorkspace).mockClear();
+    vi.mocked(countDesignGenerationsForWorkspace).mockResolvedValue(5);
+    expect((await checkDesignQuota("w1", now)).used).toBe(5);
+    expect(countReservedDesignUnitsForWorkspace).not.toHaveBeenCalled();
   });
 });

@@ -341,7 +341,11 @@ export async function generateDesignWork(
     directions?: DirectionsRequest;
     /** Set by the route only with FEATURE_MULTI_FRAME on, for a carousel or
      *  presentation brief with an image choice. */
-    sequence?: { frames: number; contextRequest?: SequenceContextRequest };
+    sequence?: {
+      frames: number;
+      asked?: number | null;
+      contextRequest?: SequenceContextRequest;
+    };
   },
   runtime: JobRuntime,
 ): Promise<{ resultId?: string; result: unknown }> {
@@ -354,6 +358,7 @@ export async function generateDesignWork(
         request: {
           image: args.directions.image,
           frames: args.sequence.frames,
+          asked: args.sequence.asked ?? null,
         },
         contextRequest: args.sequence.contextRequest,
       },

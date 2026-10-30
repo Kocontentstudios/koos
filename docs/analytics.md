@@ -126,15 +126,28 @@ switch from variants to directions.
 A set of frames (KOOS-AI-002) writes one `design_generated` usage row per
 delivered frame, so a seven-frame carousel costs seven quota units and a frame
 that failed costs none. Each row's metadata carries `setId`, `frameIndex`,
-`frameCount` and `generationId`, plus the frame's own `faults`, and the set's:
-`setFactsMissing` (brief facts no delivered frame states), `setFaults`,
-`delivered`, `failed` and the plan's `planModelCalls`, `planRepaired` and
-`planProblems`. The rows are written once, when the set completes; a resumed
-slice checks `generationId` against the rows already written, so no frame is
-billed twice. A regenerated frame writes one more row with `regenerateOf`.
-The job also logs one line, `design.sequence.completed {"setId", "requested",
-"delivered", "failed", "ms"}`, for the logs where neither PostHog nor Postgres
-is to hand.
+`frameCount` and `generationId`, plus the frame's own `faults` and the plan's
+`planModelCalls`, `planRepaired` and `planProblems`. Each row is written as
+its frame lands, so a slice that pauses and is never resumed (the tab was
+closed) has still paid for every frame it put on show. When the set ends,
+however it ends, any delivered frame a killed slice could not bill is billed
+through the same `generationId` gate, so no frame is billed twice, and the
+set's outcome is merged onto its frames' rows: `setFactsMissing` (brief facts
+no delivered frame states), `setFaults`, `hookNamesOffering`, `delivered`,
+`failed`, `jobFailed`. A regenerated frame writes one more row with
+`regenerateOf`, which the set's outcome leaves alone. The job also logs one
+line, `design.sequence.completed {"setId", "requested", "delivered",
+"failed", "factsMissing", "ms"}`, for the logs where neither PostHog nor
+Postgres is to hand. The completing slice checkpoints `completed: true`
+before it rings the bell, logs or captures, so a resumed slice never reports
+a set twice.
+
+The up-front quota check (`checkDesignQuota`) counts, besides billed rows,
+the units sets in flight are still owed: a set's requested frames less the
+frames it has settled, and one per frame regenerate. A frame-billing job
+silent for `ABANDONED_SET_MS` (10 minutes) reserves nothing and is failed
+and settled by the sweep the generate and regenerate-frame routes run
+before their quota check (`design job … abandoned; settled by the sweep`).
 
 The pre-existing `usage_events` DB table keeps recording independently. A
 directions job writes one `design_generated` usage row (one quota unit) whose

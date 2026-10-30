@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  ABANDONED_SET_MS,
   CALENDAR_STALE_MS,
   DEFAULT_STALE_MS,
   isPausedForResume,
+  isRegenerateFrameJobInput,
   isResumableJob,
   isSequenceJobInput,
   MAX_RESUMES,
   resolveStaleAction,
   resumeCountFrom,
+  SEQUENCE_SLICE_BUDGET_MS,
   staleMsFor,
 } from "./stale";
 
@@ -157,6 +160,26 @@ describe("resumable design jobs", () => {
     expect(
       resolveStaleAction({ ...silent, resumeCount: MAX_RESUMES }, NOW),
     ).toBe("fail");
+  });
+
+  it("reads a frame regenerate by its target id", () => {
+    expect(
+      isRegenerateFrameJobInput({ regenerateFrame: "f1", edits: null }),
+    ).toBe(true);
+    expect(isRegenerateFrameJobInput({ regenerateOf: "f1" })).toBe(false);
+    expect(isRegenerateFrameJobInput({ regenerateFrame: 3 })).toBe(false);
+    expect(isRegenerateFrameJobInput(null)).toBe(false);
+  });
+
+  /* The sweep must never take a set a live slice or a watching poller
+     still holds: the worker beats every 20s within a 300s invocation, and
+     a poller resumes within CALENDAR_STALE_MS of the last beat. */
+  it("calls a set abandoned only well past a slice and every resume window", () => {
+    expect(ABANDONED_SET_MS).toBeGreaterThan(300_000);
+    expect(ABANDONED_SET_MS).toBeGreaterThan(
+      SEQUENCE_SLICE_BUDGET_MS + CALENDAR_STALE_MS * 2,
+    );
+    expect(ABANDONED_SET_MS).toBeGreaterThan(DEFAULT_STALE_MS);
   });
 
   it("keeps a single design job on the long fail-only window", () => {

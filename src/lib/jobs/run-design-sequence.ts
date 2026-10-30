@@ -5,9 +5,12 @@ import type { AspectRatio } from "@/lib/ai/image/types";
 import { buildMemoryBlock } from "@/lib/ai/memory";
 import { captureServerEvent } from "@/lib/analytics/posthog-server";
 import {
+  annotateSetUsage,
   createDesignGeneration,
   createDesignSet,
   createNotification,
+  failAbandonedDesignJobs,
+  failPendingGeneration,
   getDesignGenerationById,
   getDesignSet,
   listBilledSetGenerations,
@@ -116,7 +119,12 @@ import {
   JobPausedError,
   type JobRuntime,
 } from "./run-generation";
-import { SEQUENCE_SLICE_BUDGET_MS } from "./stale";
+import {
+  ABANDONED_SET_MS,
+  isRegenerateFrameJobInput,
+  isSequenceJobInput,
+  SEQUENCE_SLICE_BUDGET_MS,
+} from "./stale";
 
 type GenerationRow = typeof designGenerations.$inferSelect;
 type Palette = DesignSpec["palette"];
@@ -142,6 +150,9 @@ const MAX_FRAME_CONCURRENCY = 2;
 export interface SequenceRequest {
   image: DirectionsImage;
   frames: number;
+  /** The count the request or brief asked for before FRAME_BOUNDS clamped
+   *  it into `frames`, so the user is told when the set is not that size. */
+  asked?: number | null;
 }
 
 /** What the context of a set was resolved from: kept on the job for a
@@ -158,7 +169,13 @@ export interface SequenceContextRequest {
 export interface SequenceJobInput extends SequenceContextRequest {
   image: DirectionsImage;
   regenerateOf: null;
-  sequence: { frames: number };
+  sequence: { frames: number; asked?: number | null };
+}
+
+/** A frame regenerate's generation_jobs.input. */
+export interface RegenerateFrameJobInput {
+  regenerateFrame: string;
+  edits: FrameEdits | null;
 }
 
 /** What a sequence job parks in its checkpoint between slices. */
@@ -176,6 +193,10 @@ export interface SequenceCheckpoint {
    *  later slice neither renders them again nor loses their record. */
   frames: Record<string, FrameRecord>;
   startedAt: number;
+  /** Set once the completing slice has billed the set and before it tells
+   *  anyone: a slice resumed after this point returns the result without
+   *  ringing the bell, writing the trace or sending the event again. */
+  completed?: boolean;
 }
 
 interface FrameRecord {
@@ -745,6 +766,24 @@ async function notifyFramesTextLed(userId: string, message: string) {
   });
 }
 
+/**
+ * Why a set is not the size asked for, or null when it is: FRAME_BOUNDS
+ * holds a carousel or deck to what reads as one, and a brief asking for
+ * twelve slides should not find ten without being told.
+ */
+export function frameCountNotice(
+  kind: SequenceKind,
+  frames: number,
+  asked: number | null | undefined,
+): string | null {
+  if (asked == null || !Number.isFinite(asked)) return null;
+  const wanted = Math.round(asked);
+  if (wanted === frames) return null;
+  return wanted > frames
+    ? `You asked for ${wanted} frames; a ${kind} holds at most ${frames}, so this one has ${frames}.`
+    : `You asked for ${wanted} frames; a ${kind} needs at least ${frames}, so this one has ${frames}.`;
+}
+
 function pendingFrames(
   live: readonly GenerationRow[],
   checkpoint: Pick<SequenceCheckpoint, "frames">,
@@ -814,7 +853,14 @@ export async function generateSequenceWork(
   try {
     state = resumedState(runtime.checkpoint);
     if (!state) {
-      report(0, `Planning ${frameCount} frames…`, "brief");
+      const notice = frameCountNotice(kind, frameCount, request.asked);
+      report(
+        0,
+        notice
+          ? `Planning ${frameCount} frames… ${notice}`
+          : `Planning ${frameCount} frames…`,
+        "brief",
+      );
       state = await planSet({
         context,
         kind,
@@ -825,7 +871,15 @@ export async function generateSequenceWork(
       });
       await runtime.saveCheckpoint({ ...state });
     }
-    const { setId, plan } = state;
+    const set = state;
+    const { setId, plan } = set;
+    if (set.completed) {
+      return setResult(
+        set,
+        liveFrames(await listSetFrames(brandId, setId)),
+        source,
+      );
+    }
 
     const { kit, logoFault, logoIsWhatWeAreDesigning } = await buildKit({
       context,
@@ -941,6 +995,32 @@ export async function generateSequenceWork(
             outOfTime: () => runtime.shouldPause(),
           });
           if (outcome.layout) drawnLayouts.set(index, outcome.layout);
+          /* Billed as it lands, not when the set completes: a slice that
+             pauses and is never resumed (the tab was closed) still pays for
+             the frames it put on show (H7). */
+          if (outcome.record.status === "succeeded") {
+            await billFrames({
+              userId,
+              brandId,
+              state: set,
+              frames: [
+                {
+                  id: outcome.rowId,
+                  frameIndex: index,
+                  provider: providerOf(kit),
+                  imageSource: source,
+                  source: context.source,
+                  layout: outcome.layout,
+                  record: outcome.record,
+                },
+              ],
+            }).catch((err) => {
+              console.error(
+                `design frame ${outcome.rowId} could not be billed yet`,
+                err,
+              );
+            });
+          }
           outcomes.push(outcome);
           settledCount += 1;
           frames[String(index)] = outcome.record;
@@ -953,19 +1033,6 @@ export async function generateSequenceWork(
     const unfinished = pending.filter((i) => !frames[String(i)]);
     if (unfinished.length > 0) throw new JobPausedError();
 
-    /* Once per set, on the slice that completes it: a fault in the brand's
-       own files is the same on every frame and every slice. */
-    await notifyBrandAssetFaults(userId, {
-      font: kit.fonts.fault
-        ? [kit.fonts.fault]
-        : outcomes
-            .map((o) => o.brandFontFault)
-            .filter((f): f is string => Boolean(f)),
-      logo: [logoFault, ...outcomes.map((o) => o.logoFault)].filter(
-        (f): f is string => Boolean(f),
-      ),
-    });
-
     report(frameCount, "Checking the set…", "checks");
     return await completeSet({
       context,
@@ -973,10 +1040,17 @@ export async function generateSequenceWork(
       sessionId,
       kind,
       source,
-      state,
+      state: set,
       kit,
+      logoFault,
       logoIsWhatWeAreDesigning,
       outcomes,
+      markCompleted: async () => {
+        /* Locally too: a throw past this point is settled from `set`, and
+           must not report the set a second time. */
+        set.completed = true;
+        await runtime.saveCheckpoint({ completed: true });
+      },
     });
   } catch (err) {
     if (err instanceof JobPausedError) throw err;
@@ -1008,6 +1082,7 @@ function resumedState(
     planned: saved.planned,
     frames: { ...(saved.frames ?? {}) },
     startedAt: saved.startedAt,
+    completed: saved.completed === true,
   };
 }
 
@@ -1110,13 +1185,92 @@ function setCoverage(
   return { missing, hookNamesOffering, setFaults };
 }
 
+/** A delivered frame as its usage row describes it. */
+interface FrameToBill {
+  id: string;
+  frameIndex: number | null;
+  provider: string;
+  imageSource: GenerationRow["imageSource"];
+  source: GenerationRow["source"];
+  layout: string | null;
+  record: FrameRecord | undefined;
+}
+
+function frameToBill(
+  row: GenerationRow,
+  state: Pick<SequenceCheckpoint, "frames">,
+): FrameToBill {
+  return {
+    id: row.id,
+    frameIndex: row.frameIndex,
+    provider: row.provider,
+    imageSource: row.imageSource,
+    source: row.source,
+    layout: (row.spec as Partial<DesignSpec> | null)?.layout ?? null,
+    record: state.frames[String(row.frameIndex)],
+  };
+}
+
 /**
  * One usage row per delivered frame not billed yet. One usage row is one
  * quota unit (countDesignGenerationsForWorkspace): a set costs one unit per
- * frame delivered, and a frame billed by an earlier slice, or by a failed
- * set's settlement, is never billed again.
+ * frame delivered. A frame is billed as it lands; the set's end bills again
+ * through the same gate only what a killed slice could not, so a frame is
+ * never billed twice.
  */
-async function billDeliveredFrames({
+async function billFrames({
+  userId,
+  brandId,
+  state,
+  frames,
+}: {
+  userId: string;
+  brandId: string;
+  state: Pick<SequenceCheckpoint, "setId" | "plan" | "facts" | "planned">;
+  frames: readonly FrameToBill[];
+}): Promise<void> {
+  const { setId, plan } = state;
+  const billed = new Set(await listBilledSetGenerations(brandId, setId));
+  for (const frame of frames) {
+    if (billed.has(frame.id)) continue;
+    const { record } = frame;
+    await recordUsageEvent({
+      userId,
+      brandId,
+      kind: "design_generated",
+      metadata: {
+        setId,
+        frameIndex: frame.frameIndex,
+        frameCount: plan.frames.length,
+        generationId: frame.id,
+        generationIds: [frame.id],
+        sequenceKind: plan.kind,
+        role: plan.frames[frame.frameIndex ?? 0]?.role ?? null,
+        layout: frame.layout,
+        renderers: [`composite:${frame.provider}`],
+        imageSource: frame.imageSource,
+        imageCalls: record?.imageCalls ?? 0,
+        plateCheck: record?.plateCheck ?? null,
+        textLed: record?.textLed ?? false,
+        source: frame.source,
+        faults: record?.faults ?? [],
+        qualityFaults: (record?.faults.length ?? 0) > 0 ? 1 : 0,
+        briefFacts: state.facts.length,
+        planModelCalls: state.planned.modelCalls,
+        planRepaired: state.planned.repaired,
+        planProblems: state.planned.problems.map((p) => p.rule),
+      },
+    });
+  }
+}
+
+/**
+ * The set's end, however it ended: bills any delivered frame its slice
+ * could not, then writes what only the whole set knows onto every frame's
+ * usage row. The annotation is a record, not a charge, so a failure to
+ * write it is logged and the set still settles.
+ */
+async function billSet({
   userId,
   brandId,
   state,
@@ -1131,47 +1285,26 @@ async function billDeliveredFrames({
   coverage: ReturnType<typeof setCoverage>;
   jobFailed: boolean;
 }): Promise<void> {
-  const { setId, plan, facts } = state;
-  const frameCount = plan.frames.length;
-  const billed = new Set(await listBilledSetGenerations(brandId, setId));
-  for (const row of delivered) {
-    if (billed.has(row.id)) continue;
-    const record: FrameRecord | undefined =
-      state.frames[String(row.frameIndex)];
-    await recordUsageEvent({
-      userId,
-      brandId,
-      kind: "design_generated",
-      metadata: {
-        setId,
-        frameIndex: row.frameIndex,
-        frameCount,
-        generationId: row.id,
-        generationIds: [row.id],
-        sequenceKind: plan.kind,
-        role: plan.frames[row.frameIndex ?? 0]?.role ?? null,
-        layout: (row.spec as Partial<DesignSpec> | null)?.layout ?? null,
-        renderers: [`composite:${row.provider}`],
-        imageSource: row.imageSource,
-        imageCalls: record?.imageCalls ?? 0,
-        plateCheck: record?.plateCheck ?? null,
-        textLed: record?.textLed ?? false,
-        source: row.source,
-        faults: record?.faults ?? [],
-        qualityFaults: (record?.faults.length ?? 0) > 0 ? 1 : 0,
-        setFaults: coverage.setFaults,
-        briefFacts: facts.length,
-        setFactsMissing: coverage.missing.map((f) => f.text),
-        hookNamesOffering: coverage.hookNamesOffering,
-        delivered: delivered.length,
-        failed: frameCount - delivered.length,
-        jobFailed,
-        planModelCalls: state.planned.modelCalls,
-        planRepaired: state.planned.repaired,
-        planProblems: state.planned.problems.map((p) => p.rule),
-      },
-    });
-  }
+  await billFrames({
+    userId,
+    brandId,
+    state,
+    frames: delivered.map((row) => frameToBill(row, state)),
+  });
+  const frameCount = state.plan.frames.length;
+  await annotateSetUsage(brandId, state.setId, {
+    setFaults: coverage.setFaults,
+    setFactsMissing: coverage.missing.map((f) => f.text),
+    hookNamesOffering: coverage.hookNamesOffering,
+    delivered: delivered.length,
+    failed: frameCount - delivered.length,
+    jobFailed,
+  }).catch((err) => {
+    console.error(
+      `design set ${state.setId} usage could not be annotated`,
+      err,
+    );
+  });
 }
 
 /** The set's one trace line (H14), written however the set ended. */
@@ -1180,6 +1313,8 @@ function logSequenceCompleted(trace: {
   requested: number;
   delivered: number;
   failed: number;
+  /** The brief's facts no delivered frame states, measured on drawn copy. */
+  factsMissing: number;
   ms: number;
 }) {
   console.log(`design.sequence.completed ${JSON.stringify(trace)}`);
@@ -1222,6 +1357,7 @@ export async function settleSetOnFailure({
         requested: frameCount,
         delivered: 0,
         failed: frameCount,
+        factsMissing: 0,
         ms,
       });
       return;
@@ -1238,7 +1374,19 @@ export async function settleSetOnFailure({
     );
     const delivered = live.filter((r) => r.status === "succeeded");
     const coverage = setCoverage(state, delivered);
-    await billDeliveredFrames({
+    /* A set its completing slice already reported was told about once; a
+       failure after that (the job's success write was lost) only makes sure
+       of the bill. */
+    if (state.completed) {
+      await billFrames({
+        userId,
+        brandId,
+        state,
+        frames: delivered.map((row) => frameToBill(row, state)),
+      });
+      return;
+    }
+    await billSet({
       userId,
       brandId,
       state,
@@ -1252,6 +1400,7 @@ export async function settleSetOnFailure({
       requested: frameCount,
       delivered: delivered.length,
       failed,
+      factsMissing: coverage.missing.length,
       ms,
     });
     await captureServerEvent({
@@ -1294,6 +1443,65 @@ export async function settleSequenceJobOnFailure(
   });
 }
 
+/** Fails the row a frame regenerate was drawing when its job is failed
+ *  from outside. The frame on show was never superseded, so it stays. */
+export async function settleRegenerateJobOnFailure(
+  job: { result?: unknown },
+  reason: string,
+): Promise<void> {
+  const rowId = (checkpointOf(job.result) as { rowId?: unknown } | null)?.rowId;
+  if (typeof rowId !== "string") return;
+  await failPendingGeneration(rowId, reason.slice(0, 500)).catch((err) => {
+    console.error(`design frame ${rowId} could not be marked failed`, err);
+  });
+}
+
+/** Settles whatever a design job that bills frames left behind: a set, or
+ *  one frame being drawn again. Anything else has nothing to settle. */
+export async function settleFrameJobOnFailure(
+  job: { userId: string; brandId: string; input: unknown; result?: unknown },
+  reason: string,
+): Promise<void> {
+  if (isSequenceJobInput(job.input)) {
+    await settleSequenceJobOnFailure(job, reason);
+  } else if (isRegenerateFrameJobInput(job.input)) {
+    await settleRegenerateJobOnFailure(job, reason);
+  }
+}
+
+export const ABANDONED_SET_ERROR =
+  "This set stopped before every frame was drawn. The frames it finished are kept and charged; redraw any missing frame on its own.";
+
+/**
+ * Fails and settles a workspace's sets that nothing will come back to
+ * (ABANDONED_SET_MS): only the poll route resumes a set, so one whose tab
+ * was closed would otherwise sit with pending frames and reserved quota
+ * forever. Its delivered frames were billed as they landed; this bills any
+ * a killed slice missed and fails the rest. Run before a workspace's quota
+ * is checked, so the units the set no longer needs are free again. Never
+ * throws: a sweep that fails leaves the request it rides on unharmed.
+ */
+export async function sweepAbandonedDesignSets(
+  workspaceId: string,
+  now = Date.now(),
+): Promise<number> {
+  try {
+    const failed = await failAbandonedDesignJobs(
+      workspaceId,
+      new Date(now - ABANDONED_SET_MS),
+      ABANDONED_SET_ERROR,
+    );
+    for (const job of failed) {
+      console.log(`design job ${job.id} abandoned; settled by the sweep`);
+      await settleFrameJobOnFailure(job, ABANDONED_SET_ERROR);
+    }
+    return failed.length;
+  } catch (err) {
+    console.error(`abandoned design sets of ${workspaceId} not swept`, err);
+    return 0;
+  }
+}
+
 /** The checkpoint executeGenerationJob parks in a running job's result. */
 function checkpointOf(result: unknown): Partial<SequenceCheckpoint> | null {
   if (!result || typeof result !== "object") return null;
@@ -1311,8 +1519,10 @@ async function completeSet({
   source,
   state,
   kit,
+  logoFault,
   logoIsWhatWeAreDesigning,
   outcomes,
+  markCompleted,
 }: {
   context: DesignContext;
   userId: string;
@@ -1321,15 +1531,17 @@ async function completeSet({
   source: SequenceImageSource;
   state: SequenceCheckpoint;
   kit: FrameKit;
+  logoFault: string | null;
   logoIsWhatWeAreDesigning: boolean;
   outcomes: FrameOutcome[];
+  /** Checkpoints that the set is billed and about to be reported. */
+  markCompleted: () => Promise<void>;
 }): Promise<{ resultId?: string; result: SequenceJobResult }> {
   const brandId = context.brand.id;
   const { setId, plan } = state;
   const frameCount = plan.frames.length;
   const live = liveFrames(await listSetFrames(brandId, setId));
   const delivered = live.filter((r) => r.status === "succeeded");
-  const failed = live.filter((r) => r.status === "failed").map((r) => r.id);
 
   /* Thrown to the work's catch, which settles the set: its rows are
      already failed, and the trace line records the whole set failing. */
@@ -1347,13 +1559,29 @@ async function completeSet({
   }
 
   const coverage = setCoverage(state, delivered);
-  await billDeliveredFrames({
+  await billSet({
     userId,
     brandId,
     state,
     delivered,
     coverage,
     jobFailed: false,
+  });
+  /* Everything below tells someone; at most once, so a resume of a slice
+     killed past this point returns the result without telling them again. */
+  await markCompleted();
+
+  /* Once per set: a fault in the brand's own files is the same on every
+     frame and every slice. */
+  await notifyBrandAssetFaults(userId, {
+    font: kit.fonts.fault
+      ? [kit.fonts.fault]
+      : outcomes
+          .map((o) => o.brandFontFault)
+          .filter((f): f is string => Boolean(f)),
+    logo: [logoFault, ...outcomes.map((o) => o.logoFault)].filter(
+      (f): f is string => Boolean(f),
+    ),
   });
 
   const recordOf = (row: GenerationRow): FrameRecord | undefined =>
@@ -1402,6 +1630,7 @@ async function completeSet({
     requested: frameCount,
     delivered: delivered.length,
     failed: frameCount - delivered.length,
+    factsMissing: coverage.missing.length,
     ms,
   });
   const records = Object.values(state.frames);
@@ -1430,16 +1659,27 @@ async function completeSet({
     },
   });
 
-  const generationIds = delivered.map((r) => r.id);
+  return setResult(state, live, source);
+}
+
+/** The job's result, read off the set's frames on show. */
+function setResult(
+  state: Pick<SequenceCheckpoint, "setId" | "plan">,
+  live: readonly GenerationRow[],
+  source: SequenceImageSource,
+): { resultId?: string; result: SequenceJobResult } {
+  const generationIds = live
+    .filter((r) => r.status === "succeeded")
+    .map((r) => r.id);
   return {
     resultId: generationIds[0],
     result: {
       kind: "sequence",
-      setId,
-      sequenceKind: kind,
-      frameCount,
+      setId: state.setId,
+      sequenceKind: state.plan.kind,
+      frameCount: state.plan.frames.length,
       generationIds,
-      failed,
+      failed: live.filter((r) => r.status === "failed").map((r) => r.id),
       imageSource: source,
     },
   };
@@ -1487,6 +1727,7 @@ export async function resumeDesignSequenceJob(job: {
   }
   const image = input.image;
   const frames = input.sequence.frames;
+  const asked = input.sequence.asked ?? null;
   await executeGenerationJob(
     job.id,
     (runtime) =>
@@ -1495,7 +1736,7 @@ export async function resumeDesignSequenceJob(job: {
           context,
           userId: job.userId,
           sessionId: null,
-          request: { image, frames },
+          request: { image, frames, asked },
           contextRequest,
         },
         runtime,
@@ -1578,7 +1819,14 @@ export async function regenerateFrameWork(
     label: string,
     stage: "brief" | "render" | "checks",
   ) => runtime.reportProgress({ stage, done, total: 2, label });
-  report(0, `Rewriting frame ${index + 1}…`, "brief");
+  const edited = Boolean(edits && Object.keys(edits).length > 0);
+  report(
+    0,
+    edited
+      ? `Setting your copy on frame ${index + 1}…`
+      : `Rewriting frame ${index + 1}…`,
+    "brief",
+  );
 
   const { beat, modelCalls } = await replanFrame({
     context,
@@ -1635,6 +1883,9 @@ export async function regenerateFrameWork(
     frameIndex: index,
     frameCount,
   });
+  /* So a job failed from outside (stalled, swept) can fail this row too,
+     rather than leave it pending in the set's history. */
+  await runtime.saveCheckpoint({ rowId: row.id });
   report(1, `Drawing frame ${index + 1} of ${frameCount}…`, "render");
   const outcome = await renderFrame(kit, {
     rowId: row.id,
@@ -1685,7 +1936,7 @@ export async function regenerateFrameWork(
       regenerateOf: target.id,
       sequenceKind: kind,
       role: beat.role,
-      edited: Boolean(edits && Object.keys(edits).length > 0),
+      edited,
       modelCalls,
       renderers: [`composite:${providerOf(kit)}`],
       imageSource: source,
@@ -1706,7 +1957,7 @@ export async function regenerateFrameWork(
       set_id: setId,
       frame_index: index,
       kind,
-      edited: Boolean(edits && Object.keys(edits).length > 0),
+      edited,
       image_source: source,
       quality_faults: outcome.record.faults.length > 0 ? 1 : 0,
     },
