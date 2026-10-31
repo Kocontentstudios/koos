@@ -563,6 +563,44 @@ describe("the hand-off", () => {
     expect(button).toHaveAttribute("aria-busy", "true");
   });
 
+  it("freezes the outline while the run is being started, so no edit is lost", async () => {
+    const { onGenerate, rerender } = await ready(plannedOutline(5));
+    const title = () =>
+      within(cards()[1]).getByRole("textbox", { name: "Title, slide 2" });
+    await userEvent.click(generateButton());
+    expect(onGenerate).toHaveBeenCalledTimes(1);
+    rerender(<Harness onGenerate={onGenerate} starting />);
+
+    expect(title()).toHaveAttribute("readonly");
+    expect(
+      within(cards()[1]).getByRole("textbox", { name: "Point, slide 2" }),
+    ).toHaveAttribute("readonly");
+    await userEvent.type(title(), " typed late");
+    expect(title()).toHaveValue("The fabric");
+
+    for (const name of [
+      /^Delete slide 2/,
+      /^Add a slide before the last/,
+      /^Re-plan$/,
+    ]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    }
+    for (const replace of screen.queryAllByRole("button", {
+      name: /^Replace with my own point/,
+    })) {
+      expect(replace).toHaveAttribute("aria-disabled", "true");
+    }
+    expect(
+      screen.getByRole("combobox", { name: "Number of slides" }),
+    ).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Starting…" }));
+    expect(onGenerate).toHaveBeenCalledTimes(1);
+    expect(cards()).toHaveLength(5);
+  });
+
   it("goes back without generating", async () => {
     const onBack = vi.fn();
     const { onGenerate } = await ready(plannedOutline(5), { onBack });

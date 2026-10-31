@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  ChevronDown,
   Plus,
   RotateCw,
   Sparkles,
@@ -174,6 +175,7 @@ function OutlineFieldInput({
   field,
   slideName,
   showProblem,
+  locked,
   onEdit,
 }: {
   base: string;
@@ -181,6 +183,7 @@ function OutlineFieldInput({
   field: OutlineField;
   slideName: string;
   showProblem: boolean;
+  locked: boolean;
   onEdit: (value: string) => void;
 }) {
   const id = fieldId(base, point.id, field);
@@ -193,6 +196,7 @@ function OutlineFieldInput({
     id,
     value,
     maxLength: limit,
+    readOnly: locked,
     "aria-invalid": problem ? true : undefined,
     "aria-describedby": problem ? `${problemId} ${countId}` : countId,
   };
@@ -254,12 +258,14 @@ function WeakCallout({
   point,
   reason,
   slideName,
+  locked,
   onReplace,
 }: {
   base: string;
   point: OutlinePoint;
   reason: string;
   slideName: string;
+  locked: boolean;
   onReplace: (value: string) => void;
 }) {
   const [replacing, setReplacing] = useState(false);
@@ -296,7 +302,7 @@ function WeakCallout({
           aria-label={`Replace the point on ${slideName}`}
           onSubmit={(e) => {
             e.preventDefault();
-            if (own.trim() && !problem) onReplace(own);
+            if (own.trim() && !problem && !locked) onReplace(own);
           }}
         >
           <label
@@ -311,8 +317,8 @@ function WeakCallout({
             rows={2}
             className="min-h-14 scroll-my-2"
             {...REVEAL_ON_FOCUS}
-            {...REVEAL_ON_FOCUS}
             value={own}
+            readOnly={locked}
             maxLength={FIELD_LIMITS.point}
             placeholder="Something true about your business, in one sentence"
             aria-invalid={problem ? true : undefined}
@@ -345,7 +351,7 @@ function WeakCallout({
             <Button
               type="submit"
               size="sm"
-              disabled={!own.trim() || problem !== null}
+              disabled={locked || !own.trim() || problem !== null}
               focusableWhenDisabled
             >
               Use my point
@@ -359,6 +365,8 @@ function WeakCallout({
           variant="secondary"
           size="sm"
           className="self-start"
+          disabled={locked}
+          focusableWhenDisabled
           onClick={() => setReplacing(true)}
           aria-label={`Replace with my own point, ${slideName}`}
         >
@@ -375,6 +383,7 @@ function PointCard({
   point,
   index,
   showProblems,
+  locked,
   onEdit,
   onRemove,
 }: {
@@ -383,6 +392,7 @@ function PointCard({
   point: OutlinePoint;
   index: number;
   showProblems: boolean;
+  locked: boolean;
   onEdit: (field: OutlineField, value: string) => void;
   onRemove: () => void;
 }) {
@@ -396,7 +406,7 @@ function PointCard({
     <li
       aria-labelledby={headingId}
       data-point={point.id}
-      className="flex flex-col gap-3 rounded-xl border bg-surface-1 p-4"
+      className="flex flex-col gap-3 rounded-xl border bg-[var(--surface-container-low)] p-4"
       style={{
         borderColor: reason
           ? "var(--status-pending-fg)"
@@ -429,7 +439,7 @@ function PointCard({
             variant="icon"
             size="icon-sm"
             onClick={onRemove}
-            disabled={!removable}
+            disabled={locked || !removable}
             focusableWhenDisabled
             aria-label={`Delete ${slideName}${point.title.trim() ? `, ${point.title.trim()}` : ""}`}
             title={
@@ -448,6 +458,7 @@ function PointCard({
         field="title"
         slideName={slideName}
         showProblem={showProblems}
+        locked={locked}
         onEdit={(value) => onEdit("title", value)}
       />
       <OutlineFieldInput
@@ -456,6 +467,7 @@ function PointCard({
         field="point"
         slideName={slideName}
         showProblem={showProblems}
+        locked={locked}
         onEdit={(value) => onEdit("point", value)}
       />
       {reason ? (
@@ -464,6 +476,7 @@ function PointCard({
           point={point}
           reason={reason}
           slideName={slideName}
+          locked={locked}
           onReplace={(value) => {
             onEdit("point", value);
             document.getElementById(fieldId(base, point.id, "point"))?.focus();
@@ -474,15 +487,24 @@ function PointCard({
   );
 }
 
+/* The base layer gives every select 12px of vertical padding; at 44px that
+   leaves no room for the number, so the padding is cleared here and the
+   spec's 0 14px applies. The native chevron is replaced so it matches the
+   spec's 16px muted arrow in both themes. */
+export const COUNT_SELECT_CLASS =
+  "h-11 w-24 appearance-none rounded-[10px] border border-input bg-transparent py-0 pr-9 pl-3.5 text-[14px] leading-normal text-foreground focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30";
+
 function CountControl({
   base,
   draft,
   replanning,
+  locked,
   onReplan,
 }: {
   base: string;
   draft: OutlineDraft;
   replanning: number | null;
+  locked: boolean;
   onReplan: (count: number) => void;
 }) {
   const current = draft.points.length;
@@ -548,25 +570,35 @@ function CountControl({
         >
           Number of slides
         </label>
-        <select
-          id={selectId}
-          value={count}
-          onChange={(e) => setCount(Number(e.target.value))}
-          className="h-8 rounded-lg border border-input bg-transparent px-2 text-[13px] text-foreground focus-visible:focus-outline dark:bg-input/30"
-        >
-          {countOptions(draft.kind).map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            id={selectId}
+            value={count}
+            disabled={locked}
+            onChange={(e) => setCount(Number(e.target.value))}
+            className={COUNT_SELECT_CLASS}
+          >
+            {countOptions(draft.kind).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-[var(--text-muted)]"
+          />
+        </div>
       </div>
       <Button
         ref={replanRef}
         type="button"
         variant="secondary"
+        className="h-11"
         loading={replanning !== null}
         loadingText={`Re-planning ${slideCount(replanning ?? count)}…`}
+        disabled={locked}
+        focusableWhenDisabled
         onClick={() => (draft.edited ? setConfirming(true) : onReplan(count))}
       >
         <RotateCw aria-hidden="true" />
@@ -630,6 +662,7 @@ function ReadyOutline({
   }
 
   function generate() {
+    if (starting) return;
     const problems = draftProblems(draft);
     if (problems.length > 0) {
       setShowProblems(true);
@@ -651,7 +684,10 @@ function ReadyOutline({
   return (
     <>
       <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div
+          data-testid="outline-count-row"
+          className="flex flex-wrap items-end justify-between gap-3 pr-8 max-sm:pr-14 [@media(hover:none)]:pr-14"
+        >
           <p className="text-[13px] text-[var(--text-secondary)]">
             <span className="font-semibold text-foreground">
               {slideCount(count)}
@@ -664,6 +700,7 @@ function ReadyOutline({
             base={base}
             draft={draft}
             replanning={replanning}
+            locked={starting}
             onReplan={outline.replan}
           />
         </div>
@@ -702,6 +739,7 @@ function ReadyOutline({
               point={point}
               index={index}
               showProblems={showProblems}
+              locked={starting}
               onEdit={(field, value) => outline.edit(point.id, field, value)}
               onRemove={() => remove(point, index)}
             />
@@ -713,7 +751,7 @@ function ReadyOutline({
               className="w-full justify-center border border-dashed"
               style={{ borderColor: "var(--border-control)" }}
               onClick={add}
-              disabled={!canAdd(draft)}
+              disabled={starting || !canAdd(draft)}
               focusableWhenDisabled
               aria-describedby={canAdd(draft) ? undefined : `${base}-add-limit`}
             >
@@ -737,6 +775,7 @@ function ReadyOutline({
               point={action}
               index={count - 1}
               showProblems={showProblems}
+              locked={starting}
               onEdit={(field, value) => outline.edit(action.id, field, value)}
               onRemove={() => {}}
             />

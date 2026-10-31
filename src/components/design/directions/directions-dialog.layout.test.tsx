@@ -342,3 +342,83 @@ describe("directions dialog results width", () => {
     },
   );
 });
+
+/* O3-ui round 1: a bare <select> inherits the base layer's 12px top and
+   bottom padding, and in a 32px box that left 6px for the number, so the
+   count read "-". jsdom computes no CSS; only a real layout sees it. */
+describe("outline step count control", () => {
+  const outline = VIEWS.find(([name]) => name === "outline")?.[1];
+  if (!outline) throw new Error("outline view missing");
+
+  it.each([
+    [390, "light"],
+    [390, "dark"],
+    [1440, "light"],
+    [1440, "dark"],
+  ] as const)(
+    "is the spec's 44px select with room for its number at %ipx, %s",
+    async (width, theme) => {
+      const markup = dialogMarkup(outline);
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      try {
+        await page.setContent(pageHtml(markup, await appCssFor(markup), theme));
+        await page.evaluate(() => document.fonts.ready);
+        const box = await page
+          .getByRole("combobox", { name: "Number of slides" })
+          .evaluate((el) => {
+            const select = el as HTMLSelectElement;
+            const style = getComputedStyle(select);
+            const fontSize = Number.parseFloat(style.fontSize);
+            return {
+              height: select.getBoundingClientRect().height,
+              textRoom:
+                select.clientHeight -
+                Number.parseFloat(style.paddingTop) -
+                Number.parseFloat(style.paddingBottom),
+              needed: fontSize * 1.2,
+              shown: select.selectedOptions[0]?.textContent,
+              textFits: select.scrollWidth <= select.clientWidth,
+            };
+          });
+        expect(box.height).toBe(44);
+        expect(box.textRoom).toBeGreaterThanOrEqual(box.needed);
+        expect(box.shown).toBe("5");
+        expect(box.textFits).toBe(true);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  /* The dialog's close button sits over the scroll box, so a row that can
+     reach the top of the view keeps the same right gutter the heading has. */
+  it.each([390, 768, 1440])(
+    "keeps the count row clear of the close button at %ipx",
+    async (width) => {
+      const markup = dialogMarkup(outline);
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      try {
+        await page.setContent(
+          pageHtml(markup, await appCssFor(markup), "dark"),
+        );
+        const gutters = await page.evaluate(() => {
+          const row = document.querySelector<HTMLElement>(
+            "[data-testid=outline-count-row]",
+          );
+          const heading = document
+            .querySelector("h2")
+            ?.closest<HTMLElement>("div");
+          if (!row || !heading) throw new Error("outline not rendered");
+          return {
+            row: getComputedStyle(row).paddingRight,
+            heading: getComputedStyle(heading).paddingRight,
+          };
+        });
+        expect(Number.parseFloat(gutters.row)).toBeGreaterThanOrEqual(32);
+        expect(gutters.row).toBe(gutters.heading);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+});

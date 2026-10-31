@@ -13,7 +13,7 @@ user: one card in the history, one viewer, one ZIP or PDF.
 | `set-viewer.tsx` | Stage (`set-stage.tsx`, with a failed frame's retry on the frame), filmstrip (`frame-rail.tsx`), the viewer's one `role="status"` region, the selected frame's actions (edit, regenerate, download this frame) and inline editor (`frame-editor.tsx`), whole-set downloads (`set-downloads.tsx`). |
 | `outline-model.ts` | Pure: the outline the user edits before generating (`OutlineDraft`). Hook first and action last by construction, add and delete within `FRAME_BOUNDS`, `OUTLINE_LIMITS` held as typed, the client mirror of the server's empty/too-long/markup rules, overlap reasons renumbered after an edit, brief facts a deletion leaves unstated, `toApproved` for the generate body. |
 | `use-outline.ts` | `POST /api/design/outline`: idle, loading, empty, error (429 says when to try again) and ready. A re-plan keeps the draft on screen until the new one lands; the latest request wins. |
-| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete body points, re-plan at a chosen count (asks first when edited), "Generate N slides · N units". |
+| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete body points, re-plan at a chosen count (a 44px native select with its own chevron, since the base layer's 12px select padding hides the number; asks first when edited), "Generate N slides · N units". Its geometry is checked in Chromium by `directions-dialog.layout.test.tsx`. |
 | `set-progress.tsx` | The wait for a whole set in the directions dialog. |
 | `set-card.tsx`, `set-viewer-dialog.tsx` | The history grid's card (aspect box and skeleton until the cover is in; "k of N" while building; a stated failure when no frame rendered), the placeholder card for a set job with no row yet, and the dialog a card opens. |
 
@@ -33,8 +33,9 @@ presentation, choosing the image does not start the run. The dialog moves to
 the outline step (`outline-step.tsx`), plans the outline once, and keeps the
 user's draft until the dialog closes, so going back to change the image never
 loses an edit. Generate sends `approvedOutline` (`toApproved`) with the run;
-the outline stays on screen, its button busy, while `/api/design/generate` is
-answering (`posting`), then the set's own wait takes over. A run that fails
+the outline stays on screen, read-only with its button busy, while
+`/api/design/generate` is answering (`posting`), so nothing typed then is
+lost, and the set's own wait opens already knowing the approved count. A run that fails
 offers "Edit outline", and a refused outline names the slide
 (`Invalid outline. Slide 2: …`). Flag off, or a single design, there is no
 outline step and no outline request (O7). The API contract is

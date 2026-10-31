@@ -770,6 +770,23 @@ describe("a run from an approved outline", () => {
     );
   });
 
+  it("opens the set's wait on the approved count, before the job reports", async () => {
+    pollGenerationJob.mockImplementation(() => new Promise(() => {}));
+    const hook = renderHook(() => useDesignGeneration());
+    act(() => {
+      void hook.result.current.generate(
+        { ...ARGS, approvedOutline: OUTLINE },
+        CAROUSEL,
+      );
+    });
+    expect(hook.result.current.sequenceProgress).toEqual({
+      kind: "carousel",
+      frameCount: 3,
+      phase: "plan",
+      done: 0,
+    });
+  });
+
   it("is posting only until the server answers the generate request", async () => {
     let answer: (r: Response) => void = () => {};
     fetchMock.mockImplementationOnce(

@@ -471,7 +471,10 @@ export function useDesignGeneration(): LiveDesignGeneration {
       /* A known set opens on its own wait, not the directions one, before
          the job's first report arrives. */
       const seeded = options.sequenceKind
-        ? plannedProgress(options.sequenceKind)
+        ? plannedProgress(
+            options.sequenceKind,
+            args.approvedOutline?.points.length ?? null,
+          )
         : null;
       /* Recorded before anything can fail, with no job yet: a failure before
        the POST returns means nothing was started, so a retry is a real
