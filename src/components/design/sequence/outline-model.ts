@@ -5,6 +5,7 @@ import {
   OUTLINE_LIMITS,
   type OutlinePoint,
   type OutlineSource,
+  type OutlineWeak,
   type PlannedOutline,
   type SequenceKind,
 } from "@/lib/design/sequence/contract";
@@ -24,6 +25,18 @@ export interface OutlineDraft {
   edited: boolean;
   /** Feeds the id of the next point the user adds. */
   nextId: number;
+  /** Each planner point as it arrived, by id. Source, facts and flags are
+   *  worked out against it on every change, so undoing an edit (or a
+   *  delete) brings them back rather than leaving them lost. */
+  planned: Record<string, OutlinePoint>;
+  /** Deleted points, newest last, for undo. */
+  removed: RemovedPoint[];
+}
+
+export interface RemovedPoint {
+  point: OutlinePoint;
+  /** Where it sat when it was deleted. */
+  index: number;
 }
 
 export type OutlineField = "title" | "point";
@@ -46,13 +59,16 @@ function withRoles(points: OutlinePoint[]): OutlinePoint[] {
 }
 
 export function draftFrom(planned: PlannedOutline): OutlineDraft {
+  const points = withRoles(planned.points);
   return {
     kind: planned.kind,
-    points: withRoles(planned.points),
+    points,
     facts: planned.facts,
     offering: planned.offering,
     edited: false,
     nextId: 1,
+    planned: Object.fromEntries(points.map((p) => [p.id, p])),
+    removed: [],
   };
 }
 
@@ -62,15 +78,17 @@ const normalised = (text: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
+/** Same words in the same order: a full stop, a capital or a double space
+ *  does not change what the slide claims. */
+export function sameClaim(a: string, b: string): boolean {
+  return normalised(a) === normalised(b);
+}
+
 /** Whether the user's own words still carry a brief fact. Loose on purpose:
  *  it only decides which facts the UI warns are no longer stated. */
 export function statesFact(text: string, fact: string): boolean {
   const needle = normalised(fact);
   return needle.length > 0 && normalised(text).includes(needle);
-}
-
-function factsIn(draft: OutlineDraft, title: string, point: string): string[] {
-  return draft.facts.filter((fact) => statesFact(`${title} ${point}`, fact));
 }
 
 /* A textarea lets the user type a newline, and a control character is
@@ -80,6 +98,82 @@ function plainLine(value: string, field: OutlineField): string {
   return value.replace(/[\r\n\t]+/g, " ").slice(0, FIELD_LIMITS[field]);
 }
 
+/* Two letters or fewer is grammar ("in", "is", "of"), never the claim. */
+function claimWords(text: string): string[] {
+  return normalised(text)
+    .split(" ")
+    .filter((word) => word.length > 2);
+}
+
+/** Whether `point` still makes `earlier`'s point: it states a brief fact the
+ *  earlier one states, or it holds every word of the earlier claim. The
+ *  server's overlap test (claimsOverlap) is fact-based; this keeps the flag
+ *  while that basis is still on screen. */
+function stillRepeats(point: OutlinePoint, earlier: OutlinePoint): boolean {
+  if (point.facts.some((fact) => earlier.facts.includes(fact))) return true;
+  const words = new Set(claimWords(point.point));
+  const earlierWords = claimWords(earlier.point);
+  return earlierWords.length > 0 && earlierWords.every((w) => words.has(w));
+}
+
+/* A fact the planner tied to a point stays tied while its words are on the
+   slide. One it found only in the old title goes once that title does; one
+   it read into the point's paraphrase stays while the claim is unchanged. */
+function factsFor(
+  draft: OutlineDraft,
+  point: OutlinePoint,
+  planned: OutlinePoint | undefined,
+): string[] {
+  if (planned?.title === point.title && planned.point === point.point) {
+    return planned.facts;
+  }
+  const shown = `${point.title} ${point.point}`;
+  const literal = draft.facts.filter((fact) => statesFact(shown, fact));
+  if (!planned || !sameClaim(planned.point, point.point)) return literal;
+  const kept = planned.facts.filter(
+    (fact) => statesFact(shown, fact) || !statesFact(planned.title, fact),
+  );
+  return [...kept, ...literal.filter((fact) => !kept.includes(fact))];
+}
+
+/** Who a point's claim belongs to and which brief facts it states, against
+ *  the planner's version. The title only names the claim, so it never moves
+ *  the source (OUTLINE.md: profile-fill never sits on a "user" point). */
+function settlePoint(draft: OutlineDraft, point: OutlinePoint): OutlinePoint {
+  const planned = draft.planned[point.id];
+  const source =
+    planned && sameClaim(planned.point, point.point) ? planned.source : "user";
+  return { ...point, source, facts: factsFor(draft, point, planned) };
+}
+
+function settleFlag(
+  draft: OutlineDraft,
+  points: OutlinePoint[],
+  point: OutlinePoint,
+): OutlineWeak | null {
+  const planned = draft.planned[point.id];
+  const weak = planned?.weak ?? null;
+  if (!weak) return null;
+  if (weak.kind !== "overlap") {
+    return sameClaim(planned.point, point.point) ? weak : null;
+  }
+  const earlier = points.find((p) => p.id === weak.overlapsWith);
+  if (!earlier) return null;
+  const untouched =
+    sameClaim(planned.point, point.point) &&
+    sameClaim(draft.planned[earlier.id]?.point ?? "", earlier.point);
+  return untouched || stillRepeats(point, earlier) ? weak : null;
+}
+
+/** Sources and facts first, since an overlap is judged on facts. */
+function settle(draft: OutlineDraft, points: OutlinePoint[]): OutlinePoint[] {
+  const settled = points.map((point) => settlePoint(draft, point));
+  return settled.map((point) => {
+    const weak = settleFlag(draft, settled, point);
+    return point.weak === weak ? point : { ...point, weak };
+  });
+}
+
 export function editPoint(
   draft: OutlineDraft,
   id: string,
@@ -87,24 +181,12 @@ export function editPoint(
   value: string,
 ): OutlineDraft {
   const text = plainLine(value, field);
-  let changed = false;
-  const points = draft.points.map((point) => {
-    if (point.id !== id || point[field] === text) return point;
-    changed = true;
-    /* The point is the claim; the title only names it. So a retitle keeps
-       who the claim came from and any flag on it, and only new words in the
-       point make it the user's (OUTLINE.md: profile-fill never sits on a
-       "user" point). */
-    if (field === "title") return { ...point, title: text };
-    return {
-      ...point,
-      point: text,
-      source: "user" as OutlineSource,
-      weak: null,
-      facts: factsIn(draft, point.title, text),
-    };
-  });
-  return changed ? { ...draft, points, edited: true } : draft;
+  const target = draft.points.find((point) => point.id === id);
+  if (!target || target[field] === text) return draft;
+  const points = draft.points.map((point) =>
+    point.id === id ? { ...point, [field]: text } : point,
+  );
+  return { ...draft, points: settle(draft, points), edited: true };
 }
 
 export function canAdd(draft: OutlineDraft): boolean {
@@ -179,14 +261,49 @@ export function movePoint(
 
 export function removePoint(draft: OutlineDraft, id: string): OutlineDraft {
   if (!canRemove(draft, id)) return draft;
-  const points = draft.points
-    .filter((p) => p.id !== id)
-    .map((p) =>
-      p.weak?.kind === "overlap" && p.weak.overlapsWith === id
-        ? { ...p, weak: null }
-        : p,
-    );
-  return { ...draft, points: withRoles(points), edited: true };
+  const index = draft.points.findIndex((p) => p.id === id);
+  const points = draft.points.filter((p) => p.id !== id);
+  return {
+    ...draft,
+    points: settle(draft, withRoles(points)),
+    edited: true,
+    removed: [...draft.removed, { point: draft.points[index], index }],
+  };
+}
+
+export function lastRemoved(draft: OutlineDraft): RemovedPoint | null {
+  return draft.removed.at(-1) ?? null;
+}
+
+/** Undo needs room: a restore past the kind's maximum would be refused. */
+export function canRestore(draft: OutlineDraft): boolean {
+  return draft.removed.length > 0 && canAdd(draft);
+}
+
+/** Puts the newest deleted point back where it was, or as near as the hook
+ *  and the action allow after other edits. */
+export function restoreRemoved(draft: OutlineDraft): {
+  draft: OutlineDraft;
+  index: number | null;
+} {
+  const last = lastRemoved(draft);
+  if (!last || !canRestore(draft)) return { draft, index: null };
+  const removed = draft.removed.slice(0, -1);
+  if (draft.points.some((p) => p.id === last.point.id)) {
+    return { draft: { ...draft, removed }, index: null };
+  }
+  const index = Math.min(Math.max(last.index, 1), draft.points.length - 1);
+  const points = [...draft.points];
+  points.splice(index, 0, last.point);
+  return {
+    draft: {
+      ...draft,
+      points: settle(draft, withRoles(points)),
+      edited: true,
+      removed,
+    },
+    index,
+  };
 }
 
 /**

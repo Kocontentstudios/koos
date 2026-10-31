@@ -11,9 +11,9 @@ user: one card in the history, one viewer, one ZIP or PDF.
 | `set-jobs.ts` | The set and frame jobs this browser started and has not seen end, with what it knew at the start: the kind the dialog expected, a frame job's set (localStorage, every access guarded). |
 | `use-set-watch.ts` | Design Studio's watcher: polls the open jobs (which resumes a set past its slice), reads pending frames again, adds what a finished job made, says which sets have stalled (`stalledSets`) and which jobs still need a placeholder card (`placeholderJobs`). |
 | `set-viewer.tsx` | Stage (`set-stage.tsx`, with a failed frame's retry on the frame), filmstrip (`frame-rail.tsx`), the viewer's one `role="status"` region, the selected frame's actions (edit, regenerate, download this frame) and inline editor (`frame-editor.tsx`), whole-set downloads (`set-downloads.tsx`). |
-| `outline-model.ts` | Pure: the outline the user edits before generating (`OutlineDraft`). Hook first and action last by construction, add and delete within `FRAME_BOUNDS`, `OUTLINE_LIMITS` held as typed, the client mirror of the server's empty/too-long/markup rules, overlap reasons renumbered after an edit, brief facts a deletion leaves unstated, `toApproved` for the generate body. |
+| `outline-model.ts` | Pure: the outline the user edits before generating (`OutlineDraft`). Hook first and action last by construction, add and delete within `FRAME_BOUNDS`, `OUTLINE_LIMITS` held as typed, the client mirror of the server's empty/too-long/markup rules, source, facts and flags settled against the planner's points after every edit (a punctuation-only edit changes nothing), undo for deletes, overlap reasons renumbered after an edit, brief facts a deletion or retitle leaves unstated, `toApproved` for the generate body. |
 | `use-outline.ts` | `POST /api/design/outline`: idle, loading, empty, error (429 says when to try again) and ready. A re-plan keeps the draft on screen until the new one lands; the latest request wins. |
-| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete and reorder body points, re-plan at a chosen count (a 44px native select with its own chevron, since the base layer's 12px select padding hides the number; asks first when edited), "Generate N slides · N units". Its geometry is checked in Chromium by `directions-dialog.layout.test.tsx`. |
+| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete (with undo) and reorder body points, 44px targets on a phone, re-plan at a chosen count (a 44px native select with its own chevron, since the base layer's 12px select padding hides the number; asks first when edited), "Generate N slides · N units". Its geometry is checked in Chromium by `directions-dialog.layout.test.tsx`. |
 | `set-progress.tsx` | The wait for a whole set in the directions dialog. |
 | `set-card.tsx`, `set-viewer-dialog.tsx` | The history grid's card (aspect box and skeleton until the cover is in; "k of N" while building; a stated failure when no frame rendered), the placeholder card for a set job with no row yet, and the dialog a card opens. |
 
@@ -46,14 +46,34 @@ offers "Edit outline", and a refused outline names the slide
 outline step and no outline request (O7). The API contract is
 `src/lib/design/sequence/OUTLINE.md`.
 
-Weak flags are the server's (`flagOutline`). The client never invents one: it
-clears a flag when the user rewrites that point's words, drops an overlap whose
-earlier point was deleted, and says an overlap's slide number from where the
-earlier point sits now.
+Weak flags are the server's (`flagOutline`). The client never invents one.
+The draft keeps each planner point as it arrived (`planned`), and after every
+change works source, facts and flags out against it (`settle`), so they
+follow what is on screen:
 
-Source follows the claim, not the title. Rewriting a point's words makes it
-`"user"` and clears its flag; a retitle keeps the planner's source and flag,
-so "Written by you" never sits beside "Taken from your brand profile".
+- Source follows the claim, not the title. A point is `"user"` only while its
+  words differ from the planner's (`sameClaim`: case, punctuation and spacing
+  don't count). Appending "!" keeps "From your brand profile" and its flag;
+  typing the planner's words back restores both. A retitle never moves it.
+- Filler and profile-fill hold while the claim is unchanged.
+- Overlap holds while the point still states a brief fact the earlier point
+  states, or holds every word of the earlier claim. It goes when the earlier
+  point is deleted or rewritten away, and comes back if that is undone.
+- Facts: a fact the planner tied to an unchanged point stays while its words
+  are on the slide; one only the old title stated goes with the title, so the
+  "No slide says … any more" warning shows.
+- Overlap reasons name the earlier slide by where it sits now.
+
+Deleting a body point leaves an "Undo" row where the card was (not numbered),
+and focus moves to it. Undo puts the newest deletion back at its place with
+its source and flag, newest first, and is held at the kind's maximum with a
+note saying why. A re-plan clears it.
+
+On a phone (below `sm`, or any `hover: none` screen) every control in the
+step is a 44px target (UI spec 11.3): move and delete grow to 44x44 with 8px
+between them and wrap under the card heading when the row is too narrow, and
+the `size="sm"` buttons grow to 44px tall. The count line sits above the count
+control at every width, so the pending note never reflows the row.
 
 Body points move up and down (hook and action stay put); the move is
 announced and focus follows the moved card's button. A count chosen in the

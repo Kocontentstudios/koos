@@ -3,8 +3,16 @@ import type { Browser } from "playwright";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { plannedOutline } from "@/components/design/sequence/fixtures";
-import { draftFrom } from "@/components/design/sequence/outline-model";
+import {
+  draftFrom,
+  removePoint,
+} from "@/components/design/sequence/outline-model";
+import {
+  TOUCH_HEIGHT,
+  TOUCH_SQUARE,
+} from "@/components/design/sequence/outline-step";
 import type { OutlineController } from "@/components/design/sequence/use-outline";
+import { Button } from "@/components/ui/button";
 import { DIALOG_CONTENT_CLASS } from "@/components/ui/dialog";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import {
@@ -91,7 +99,18 @@ const OUTLINE: OutlineController = {
   edit: noop,
   add: () => null,
   remove: noop,
+  restore: () => null,
   reset: noop,
+};
+
+const OUTLINE_AFTER_DELETE: OutlineController = {
+  ...OUTLINE,
+  state: {
+    status: "ready",
+    draft: removePoint(draftFrom(plannedOutline(6)), "p2"),
+    replanning: null,
+    replanError: null,
+  },
 };
 
 const VIEWS: [string, DirectionsView][] = [
@@ -423,50 +442,155 @@ describe("outline step count control", () => {
     },
   );
 
-  /* O3-ui round 3 added move up and down beside delete; three icon buttons
-     must stay inside the card and clear of its heading on a phone. */
+  /* UI spec 11.3: every tap target is at least 44px on a phone. Every
+     control the step renders is measured, with a deleted slide so Undo is
+     on screen, and move and delete must sit at least 8px apart. */
   it.each([320, 390])(
-    "keeps each card's move and delete buttons inside the card at %ipx",
+    "gives every control a 44px target, apart and inside its card, at %ipx",
     async (width) => {
-      const markup = dialogMarkup(outline);
+      const markup = dialogMarkup({
+        step: "outline",
+        outline: OUTLINE_AFTER_DELETE,
+        starting: false,
+      });
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       try {
         await page.setContent(
           pageHtml(markup, await appCssFor(markup), "light"),
         );
         await page.evaluate(() => document.fonts.ready);
-        const problems = await page.evaluate(() =>
-          [...document.querySelectorAll<HTMLElement>("li[data-point]")].flatMap(
-            (card) => {
-              const box = card.getBoundingClientRect();
-              const heading = card.querySelector("h3")?.getBoundingClientRect();
-              const buttons = [
-                ...card.querySelectorAll<HTMLElement>(
-                  "button[aria-label^='Move'], button[aria-label^='Delete']",
-                ),
-              ].map((b) => b.getBoundingClientRect());
-              return buttons.flatMap((b, i) => {
-                const out =
-                  b.left < box.left || b.right > box.right
-                    ? [`${card.dataset.point} button ${i} outside the card`]
-                    : [];
-                const overlaps =
-                  heading &&
-                  b.left < heading.right &&
-                  b.right > heading.left &&
-                  b.top < heading.bottom &&
-                  b.bottom > heading.top
-                    ? [`${card.dataset.point} button ${i} over the heading`]
-                    : [];
-                return [...out, ...overlaps];
-              });
-            },
-          ),
+        const report = await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(
+            "[data-testid=scroller]",
+          );
+          if (!scroller) throw new Error("scroller not rendered");
+          const name = (el: Element) =>
+            (el.getAttribute("aria-label") ?? el.textContent ?? "")
+              .trim()
+              .slice(0, 40);
+          const controls = [
+            ...document.querySelectorAll<HTMLElement>(
+              "button, input, select, textarea",
+            ),
+          ];
+          const small = controls.flatMap((el) => {
+            const r = el.getBoundingClientRect();
+            return r.height < 44 || r.width < 44
+              ? [`${name(el)}: ${r.width}x${r.height}`]
+              : [];
+          });
+          const outside = [
+            ...document.querySelectorAll<HTMLElement>("li[data-point]"),
+          ].flatMap((card) => {
+            const box = card.getBoundingClientRect();
+            return [...card.querySelectorAll("button")].flatMap((b) => {
+              const r = b.getBoundingClientRect();
+              return r.left < box.left || r.right > box.right
+                ? [`${name(b)} outside its card`]
+                : [];
+            });
+          });
+          const icons = [
+            ...document.querySelectorAll<HTMLElement>(
+              "li[data-point] button[aria-label^='Move'], li[data-point] button[aria-label^='Delete']",
+            ),
+          ].map((b) => ({ name: name(b), r: b.getBoundingClientRect() }));
+          const crowded = icons.flatMap((a, i) =>
+            icons.slice(i + 1).flatMap((b) => {
+              const apart =
+                Math.max(b.r.left - a.r.right, a.r.left - b.r.right) >= 8 ||
+                Math.max(b.r.top - a.r.bottom, a.r.top - b.r.bottom) >= 8;
+              return apart ? [] : [`${a.name} / ${b.name}`];
+            }),
+          );
+          const overflow = scroller.scrollWidth > scroller.clientWidth;
+          return {
+            small,
+            outside,
+            crowded,
+            overflow,
+            icons: icons.length,
+            undo: document.querySelectorAll("[data-testid=undo-delete]").length,
+          };
+        });
+        expect(report.small).toEqual([]);
+        expect(report.outside).toEqual([]);
+        expect(report.crowded).toEqual([]);
+        expect(report.overflow).toBe(false);
+        expect(report.icons).toBeGreaterThan(0);
+        expect(report.undo).toBe(1);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  /* The confirm's and the replace form's buttons only render after a press,
+     which static markup can't make; outline-step.test.tsx checks they carry
+     these classes, and this checks the classes reach 44px over size="sm". */
+  it.each([
+    [390, true],
+    [1440, false],
+  ] as const)(
+    "lifts size=sm and icon-sm buttons to 44px on a phone only (%ipx)",
+    async (width, phone) => {
+      const markup = renderToStaticMarkup(
+        <div>
+          <Button size="sm" className={TOUCH_HEIGHT}>
+            Keep my edits
+          </Button>
+          <Button size="icon-sm" className={TOUCH_SQUARE} aria-label="Move">
+            x
+          </Button>
+        </div>,
+      );
+      const page = await browser.newPage({ viewport: { width, height: 600 } });
+      try {
+        await page.setContent(
+          pageHtml(markup, await appCssFor(markup), "light"),
         );
-        expect(problems).toEqual([]);
-        expect(
-          await page.locator("button[aria-label^='Move']").count(),
-        ).toBeGreaterThan(0);
+        const sizes = await page.evaluate(() =>
+          [...document.querySelectorAll("button")].map((b) => {
+            const r = b.getBoundingClientRect();
+            return [r.width, r.height];
+          }),
+        );
+        if (phone) {
+          expect(sizes[0][1]).toBe(44);
+          expect(sizes[1]).toEqual([44, 44]);
+        } else {
+          expect(sizes[0][1]).toBe(28);
+          expect(sizes[1]).toEqual([28, 28]);
+        }
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  /* Side by side, the row jumped to stacked when the pending note came in;
+     stacked at every width, it has nothing to jump to. */
+  it.each([768, 1280])(
+    "stacks the count line over the count control at %ipx",
+    async (width) => {
+      const markup = dialogMarkup(outline);
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      try {
+        await page.setContent(
+          pageHtml(markup, await appCssFor(markup), "dark"),
+        );
+        const stacked = await page.evaluate(() => {
+          const row = document.querySelector<HTMLElement>(
+            "[data-testid=outline-count-row]",
+          );
+          const [line, control] = row ? [...row.children] : [];
+          if (!line || !control) throw new Error("count row not rendered");
+          return (
+            control.getBoundingClientRect().top >=
+            line.getBoundingClientRect().bottom
+          );
+        });
+        expect(stacked).toBe(true);
       } finally {
         await page.close();
       }

@@ -10,8 +10,9 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Undo2,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { useEscapeLayer } from "@/components/design/directions/escape-layer";
 import {
   FlowDescription,
@@ -33,11 +34,13 @@ import {
   canAdd,
   canMove,
   canRemove,
+  canRestore,
   countOptions,
   draftProblems,
   FIELD_LIMITS,
   fieldProblem,
   generateLabel,
+  lastRemoved,
   type MoveDirection,
   type OutlineDraft,
   type OutlineField,
@@ -49,6 +52,12 @@ import {
 } from "./outline-model";
 import { kindNoun, roleLabel, slideCount } from "./set-model";
 import type { OutlineController } from "./use-outline";
+
+/* UI spec 11.3: every tap target is at least 44px on a phone. The same
+   media queries as the dialog's own close button, so a touch tablet wider
+   than sm gets them too. */
+export const TOUCH_HEIGHT = "max-sm:h-11 [@media(hover:none)]:h-11";
+export const TOUCH_SQUARE = "max-sm:size-11 [@media(hover:none)]:size-11";
 
 const FIELD_LABELS: Record<OutlineField, string> = {
   title: "Title",
@@ -65,7 +74,12 @@ function Footer({ children }: { children: React.ReactNode }) {
 
 function BackButton({ onBack }: { onBack: () => void }) {
   return (
-    <Button type="button" variant="ghost" onClick={onBack}>
+    <Button
+      type="button"
+      variant="ghost"
+      className={TOUCH_HEIGHT}
+      onClick={onBack}
+    >
       <ArrowLeft aria-hidden="true" />
       Back
     </Button>
@@ -180,6 +194,7 @@ function OutlineProblemPanel({
       </div>
       <Button
         type="button"
+        className={TOUCH_HEIGHT}
         onClick={onRetry}
         disabled={waiting}
         focusableWhenDisabled
@@ -272,7 +287,7 @@ function OutlineFieldInput({
       {field === "title" ? (
         <Input
           {...shared}
-          className={cn(locked && LOCKED_FIELD_CLASS)}
+          className={cn(TOUCH_HEIGHT, locked && LOCKED_FIELD_CLASS)}
           placeholder="Two to four words"
           onChange={(e) => onEdit(e.target.value)}
         />
@@ -391,6 +406,7 @@ function WeakCallout({
               type="button"
               variant="ghost"
               size="sm"
+              className={TOUCH_HEIGHT}
               onClick={() => setReplacing(false)}
             >
               Cancel
@@ -398,6 +414,7 @@ function WeakCallout({
             <Button
               type="submit"
               size="sm"
+              className={TOUCH_HEIGHT}
               disabled={locked || !own.trim() || problem !== null}
               focusableWhenDisabled
             >
@@ -411,7 +428,7 @@ function WeakCallout({
           type="button"
           variant="secondary"
           size="sm"
-          className="self-start"
+          className={cn("self-start", TOUCH_HEIGHT)}
           disabled={locked}
           focusableWhenDisabled
           onClick={() => setReplacing(true)}
@@ -462,7 +479,9 @@ function PointCard({
           : "var(--border-control)",
       }}
     >
-      <div className="flex items-center justify-between gap-2">
+      {/* Wraps so three 44px buttons drop under the heading on a narrow
+          phone instead of squeezing it. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3
           id={headingId}
           aria-label={`Slide ${index + 1} · ${role}, ${sourceLabel(point.source)}`}
@@ -483,7 +502,7 @@ function PointCard({
           </span>
         </h3>
         {point.role === "body" ? (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1 max-sm:gap-2 [@media(hover:none)]:gap-2">
             {(["up", "down"] as const).map((direction) => (
               <Button
                 key={direction}
@@ -491,6 +510,7 @@ function PointCard({
                 type="button"
                 variant="icon"
                 size="icon-sm"
+                className={TOUCH_SQUARE}
                 onClick={() => onMove(direction)}
                 disabled={locked || !canMove(draft, point.id, direction)}
                 focusableWhenDisabled
@@ -507,6 +527,7 @@ function PointCard({
               type="button"
               variant="icon"
               size="icon-sm"
+              className={TOUCH_SQUARE}
               onClick={onRemove}
               disabled={locked || !removable}
               focusableWhenDisabled
@@ -552,6 +573,62 @@ function PointCard({
             document.getElementById(fieldId(base, point.id, "point"))?.focus();
           }}
         />
+      ) : null}
+    </li>
+  );
+}
+
+/* Not numbered: it stands where the deleted card was, and the slides after
+   it already took their new numbers. */
+function UndoRow({
+  id,
+  removed,
+  slide,
+  canUndo,
+  limitNote,
+  onUndo,
+}: {
+  id: string;
+  removed: OutlinePoint;
+  slide: number;
+  canUndo: boolean;
+  limitNote: string | null;
+  onUndo: () => void;
+}) {
+  const title = removed.title.trim();
+  const noteId = `${id}-note`;
+  return (
+    <li
+      data-testid="undo-delete"
+      className="flex list-none flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed px-4 py-2"
+      style={{ borderColor: "var(--border-control)" }}
+    >
+      <p className="text-[13px] text-[var(--text-secondary)]">
+        Deleted slide {slide}
+        {title ? `, “${title}”` : ""}.
+      </p>
+      <Button
+        id={id}
+        type="button"
+        variant="secondary"
+        size="sm"
+        className={TOUCH_HEIGHT}
+        onClick={onUndo}
+        disabled={!canUndo}
+        focusableWhenDisabled
+        aria-label={`Undo deleting slide ${slide}${title ? `, ${title}` : ""}`}
+        aria-describedby={limitNote ? noteId : undefined}
+      >
+        <Undo2 aria-hidden="true" />
+        Undo
+      </Button>
+      {limitNote ? (
+        <p
+          id={noteId}
+          className="basis-full text-[11px] text-[var(--text-muted)]"
+        >
+          {limitNote}
+        </p>
       ) : null}
     </li>
   );
@@ -616,6 +693,7 @@ function CountControl({
             type="button"
             variant="ghost"
             size="sm"
+            className={TOUCH_HEIGHT}
             ref={keepRef}
             onClick={() => setConfirming(false)}
           >
@@ -624,6 +702,7 @@ function CountControl({
           <Button
             type="button"
             size="sm"
+            className={TOUCH_HEIGHT}
             onClick={() => {
               setConfirming(false);
               onReplan(count);
@@ -729,13 +808,24 @@ function ReadyOutline({
   const noun = kindNoun(draft.kind);
   const { max } = FRAME_BOUNDS[draft.kind];
 
+  /* Focus lands on Undo, which takes the card's place: the delete sits
+     beside small move buttons, so the way back is where the thumb already
+     is, and a screen reader hears what went and how to get it back. */
   function remove(point: OutlinePoint, index: number) {
-    const next = draft.points[index + 1];
     outline.remove(point.id);
     setAnnouncement(
-      `Slide ${index + 1} deleted. ${slideCount(count - 1)} in the outline.`,
+      `Slide ${index + 1} deleted. ${slideCount(count - 1)} in the outline. Undo brings it back.`,
     );
-    if (next) setFocusTarget(fieldId(base, next.id, "title"));
+    setFocusTarget(undoId);
+  }
+
+  function undo() {
+    const id = outline.restore();
+    if (!id) return;
+    setAnnouncement(
+      `Slide ${undoAt + 1} is back. ${slideCount(count + 1)} in the outline.`,
+    );
+    setFocusTarget(fieldId(base, id, "title"));
   }
 
   function move(point: OutlinePoint, index: number, direction: MoveDirection) {
@@ -778,13 +868,32 @@ function ReadyOutline({
 
   const action = draft.points[count - 1];
   const before = draft.points.slice(0, count - 1);
+  const removed = lastRemoved(draft);
+  const undoId = `${base}-undo`;
+  const undoAt = removed ? Math.min(Math.max(removed.index, 1), count - 1) : -1;
+  const undoRow = removed ? (
+    <UndoRow
+      id={undoId}
+      removed={removed.point}
+      slide={removed.index + 1}
+      canUndo={canRestore(draft) && !starting}
+      limitNote={
+        canAdd(draft)
+          ? null
+          : `${max} slides is the most one ${noun} can hold. Delete one to bring this back.`
+      }
+      onUndo={undo}
+    />
+  ) : null;
 
   return (
     <>
       <div className="flex flex-col gap-3">
+        {/* Stacked at every width, so the pending note and the longer
+            Re-plan label never reflow the row. */}
         <div
           data-testid="outline-count-row"
-          className="flex flex-wrap items-end justify-between gap-3 pr-8 max-sm:pr-14 [@media(hover:none)]:pr-14"
+          className="flex flex-col items-start gap-2 pr-8 max-sm:pr-14 [@media(hover:none)]:pr-14"
         >
           <p className="text-[13px] text-[var(--text-secondary)]">
             <span className="font-semibold text-foreground">
@@ -830,24 +939,30 @@ function ReadyOutline({
           className="flex flex-col gap-2"
         >
           {before.map((point, index) => (
-            <PointCard
-              key={point.id}
-              base={base}
-              draft={draft}
-              point={point}
-              index={index}
-              showProblems={showProblems}
-              locked={starting}
-              onEdit={(field, value) => outline.edit(point.id, field, value)}
-              onRemove={() => remove(point, index)}
-              onMove={(direction) => move(point, index, direction)}
-            />
+            <Fragment key={point.id}>
+              {index === undoAt ? undoRow : null}
+              <PointCard
+                base={base}
+                draft={draft}
+                point={point}
+                index={index}
+                showProblems={showProblems}
+                locked={starting}
+                onEdit={(field, value) => outline.edit(point.id, field, value)}
+                onRemove={() => remove(point, index)}
+                onMove={(direction) => move(point, index, direction)}
+              />
+            </Fragment>
           ))}
+          {undoAt === before.length ? undoRow : null}
           <li className="list-none">
             <Button
               type="button"
               variant="ghost"
-              className="w-full justify-center border border-dashed"
+              className={cn(
+                "w-full justify-center border border-dashed",
+                TOUCH_HEIGHT,
+              )}
               style={{ borderColor: "var(--border-control)" }}
               onClick={add}
               disabled={starting || !canAdd(draft)}
@@ -889,6 +1004,7 @@ function ReadyOutline({
         <BackButton onBack={onBack} />
         <Button
           type="button"
+          className={TOUCH_HEIGHT}
           onClick={generate}
           loading={starting}
           loadingText="Starting…"

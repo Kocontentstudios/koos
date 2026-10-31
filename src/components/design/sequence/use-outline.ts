@@ -15,6 +15,7 @@ import {
   type OutlineDraft,
   type OutlineField,
   removePoint,
+  restoreRemoved,
 } from "./outline-model";
 
 /** The context fields POST /api/design/outline shares with generate. */
@@ -54,6 +55,8 @@ export interface OutlineController {
   /** Returns the new point's id, or null at the bound. */
   add: () => string | null;
   remove: (id: string) => void;
+  /** Brings back the newest deleted point; returns its id, or null. */
+  restore: () => string | null;
   move: (id: string, direction: MoveDirection) => void;
   reset: () => void;
 }
@@ -273,6 +276,17 @@ export function useOutline(
     [update],
   );
 
+  const restore = useCallback((): string | null => {
+    let restored: string | null = null;
+    update((draft) => {
+      const result = restoreRemoved(draft);
+      if (result.index !== null)
+        restored = result.draft.points[result.index].id;
+      return result.draft;
+    });
+    return restored;
+  }, [update]);
+
   const move = useCallback(
     (id: string, direction: MoveDirection) =>
       update((draft) => movePoint(draft, id, direction)),
@@ -294,6 +308,7 @@ export function useOutline(
     edit,
     add,
     remove,
+    restore,
     move,
     reset,
   };

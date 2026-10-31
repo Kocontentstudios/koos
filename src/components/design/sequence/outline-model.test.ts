@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { FRAME_BOUNDS, OUTLINE_LIMITS } from "@/lib/design/sequence/contract";
+import {
+  FRAME_BOUNDS,
+  OUTLINE_LIMITS,
+  type PlannedOutline,
+} from "@/lib/design/sequence/contract";
 import { plannedOutline } from "./fixtures";
 import {
   addPoint,
   canAdd,
   canMove,
   canRemove,
+  canRestore,
   countOptions,
   draftFrom,
   draftProblems,
   editPoint,
   fieldProblem,
   generateLabel,
+  lastRemoved,
   movePoint,
   removePoint,
+  restoreRemoved,
+  sameClaim,
   sourceLabel,
   statesFact,
   toApproved,
@@ -136,6 +144,160 @@ describe("editPoint", () => {
   });
 });
 
+/* Slide 3 makes slide 2's point: both state "Abeokuta". */
+function withOverlap(): PlannedOutline {
+  const planned = plannedOutline(5);
+  planned.points[2] = {
+    ...planned.points[2],
+    title: "Local cotton",
+    point: "Our cotton is woven in Abeokuta, Nigeria.",
+    facts: ["Abeokuta"],
+    weak: {
+      kind: "overlap",
+      reason: "Says the same as point 2.",
+      overlapsWith: "p2",
+    },
+  };
+  return planned;
+}
+
+describe("an edit that changes no words", () => {
+  it("compares claims by their words, not punctuation, case or spacing", () => {
+    expect(sameClaim("Our cotton.", "  our   COTTON!  ")).toBe(true);
+    expect(sameClaim("Our cotton.", "Our linen.")).toBe(false);
+  });
+
+  it.each([
+    ["punctuation", "We have tailored for Lagos families since 1998.!"],
+    ["whitespace", "We have tailored for Lagos families since 1998.   "],
+    ["case", "we have tailored for lagos families since 1998"],
+  ])(
+    "keeps the source and a profile-fill flag after a %s-only edit",
+    (_, text) => {
+      const draft = editPoint(
+        draftFrom(plannedOutline(5)),
+        "p4",
+        "point",
+        text,
+      );
+      expect(draft.points[3]).toMatchObject({
+        point: text,
+        source: "profile",
+        weak: { kind: "profile-fill" },
+      });
+      expect(weakCount(draft)).toBe(2);
+      expect(draft.edited).toBe(true);
+    },
+  );
+
+  it("keeps an overlap flag after a punctuation-only edit", () => {
+    const draft = editPoint(
+      draftFrom(withOverlap()),
+      "p3",
+      "point",
+      "Our cotton is woven in Abeokuta, Nigeria.!",
+    );
+    expect(draft.points[2]).toMatchObject({
+      source: "brief",
+      weak: { kind: "overlap", overlapsWith: "p2" },
+    });
+  });
+
+  it("brings the source and flag back when a rewrite is undone by typing", () => {
+    const start = draftFrom(plannedOutline(5));
+    const rewritten = editPoint(start, "p4", "point", "Linen for the heat.");
+    expect(rewritten.points[3]).toMatchObject({ source: "user", weak: null });
+    const back = editPoint(rewritten, "p4", "point", start.points[3].point);
+    expect(back.points[3]).toMatchObject({
+      source: "profile",
+      weak: { kind: "profile-fill" },
+    });
+  });
+});
+
+describe("an overlap flag after a rewrite", () => {
+  it("stays while the point still states the earlier point's fact", () => {
+    const draft = editPoint(
+      draftFrom(withOverlap()),
+      "p3",
+      "point",
+      "Hand-loomed in Abeokuta by our weavers.",
+    );
+    expect(draft.points[2]).toMatchObject({
+      source: "user",
+      weak: { kind: "overlap" },
+    });
+  });
+
+  it("stays while the point still holds every word of the earlier claim", () => {
+    const planned = withOverlap();
+    planned.points[2].facts = [];
+    const draft = editPoint(
+      draftFrom(planned),
+      "p3",
+      "point",
+      "Truly, every piece is woven in Abeokuta from Nigerian cotton.",
+    );
+    expect(draft.points[2].weak?.kind).toBe("overlap");
+  });
+
+  it("goes once the shared fact goes", () => {
+    const draft = editPoint(
+      draftFrom(withOverlap()),
+      "p3",
+      "point",
+      "Every shirt is cut to your measurements.",
+    );
+    expect(draft.points[2]).toMatchObject({ source: "user", weak: null });
+  });
+
+  it("goes when the earlier point is rewritten so they no longer match", () => {
+    const draft = editPoint(
+      draftFrom(withOverlap()),
+      "p2",
+      "point",
+      "Every seam is finished by hand.",
+    );
+    expect(draft.points[2].weak).toBeNull();
+    expect(draft.points[2].source).toBe("brief");
+  });
+});
+
+describe("facts after a retitle", () => {
+  it("drops a fact the old title alone stated, so the warning can show", () => {
+    const planned = plannedOutline(5);
+    planned.points[4] = {
+      ...planned.points[4],
+      title: "Lekki store",
+      point: "Visit us from 10am.",
+      facts: ["Lekki store"],
+    };
+    const draft = editPoint(draftFrom(planned), "p5", "title", "Come by");
+    expect(draft.points[4].facts).toEqual([]);
+    expect(unstatedFacts(draft)).toEqual(["Lekki store"]);
+    expect(draft.points[4].source).toBe("brief");
+  });
+
+  it("keeps a fact the planner read into an unchanged point's paraphrase", () => {
+    const planned = plannedOutline(5);
+    planned.points[1] = {
+      ...planned.points[1],
+      point: "Woven by hand in the city of looms.",
+      facts: ["Abeokuta"],
+    };
+    const draft = editPoint(draftFrom(planned), "p2", "title", "Hand woven");
+    expect(draft.points[1].facts).toEqual(["Abeokuta"]);
+    expect(unstatedFacts(draft)).toEqual([]);
+  });
+
+  it("picks up a fact the user types into a title", () => {
+    const start = removePoint(draftFrom(plannedOutline(5)), "p2");
+    expect(unstatedFacts(start)).toEqual(["Abeokuta"]);
+    const draft = editPoint(start, "p3", "title", "From Abeokuta");
+    expect(unstatedFacts(draft)).toEqual([]);
+  });
+});
+
 describe("addPoint", () => {
   it("adds a blank body point just before the action", () => {
     const { draft, id } = addPoint(draftFrom(plannedOutline(5)));
@@ -229,6 +391,83 @@ describe("removePoint", () => {
     };
     const draft = removePoint(draftFrom(planned), "p2");
     expect(draft.points.find((p) => p.id === "p4")?.weak).toBeNull();
+  });
+});
+
+describe("restoreRemoved", () => {
+  it("puts the newest deleted point back where it was, as it was", () => {
+    const start = draftFrom(plannedOutline(5));
+    const removed = removePoint(start, "p3");
+    expect(lastRemoved(removed)).toMatchObject({ index: 2 });
+    const { draft, index } = restoreRemoved(removed);
+    expect(index).toBe(2);
+    expect(draft.points).toEqual(start.points);
+    expect(draft.removed).toEqual([]);
+    expect(draft.edited).toBe(true);
+  });
+
+  it("undoes several deletes newest first", () => {
+    const start = draftFrom(plannedOutline(6));
+    let draft = removePoint(removePoint(start, "p2"), "p4");
+    draft = restoreRemoved(draft).draft;
+    expect(draft.points.map((p) => p.id)).toEqual([
+      "p1",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+    ]);
+    draft = restoreRemoved(draft).draft;
+    expect(draft.points.map((p) => p.id)).toEqual(
+      start.points.map((p) => p.id),
+    );
+    expect(restoreRemoved(draft)).toEqual({ draft, index: null });
+  });
+
+  it("keeps the action last when the outline shrank since the delete", () => {
+    let draft = removePoint(draftFrom(plannedOutline(6)), "p5");
+    draft = removePoint(draft, "p4");
+    draft = { ...draft, removed: draft.removed.slice(0, 1) };
+    const restored = restoreRemoved(draft);
+    expect(restored.index).toBe(3);
+    expect(restored.draft.points.map((p) => p.role)).toEqual([
+      "hook",
+      "body",
+      "body",
+      "body",
+      "cta",
+    ]);
+  });
+
+  it("will not restore past the kind's maximum", () => {
+    let draft = removePoint(
+      draftFrom(plannedOutline(FRAME_BOUNDS.carousel.max)),
+      "p2",
+    );
+    draft = addPoint(draft).draft;
+    expect(canRestore(draft)).toBe(false);
+    expect(restoreRemoved(draft).index).toBeNull();
+    expect(restoreRemoved(draft).draft).toBe(draft);
+  });
+
+  it("brings back the overlap flag the delete dropped", () => {
+    const start = draftFrom(withOverlap());
+    const removed = removePoint(start, "p2");
+    expect(removed.points.find((p) => p.id === "p3")?.weak).toBeNull();
+    const { draft } = restoreRemoved(removed);
+    expect(draft.points.find((p) => p.id === "p3")?.weak?.kind).toBe("overlap");
+  });
+
+  it("keeps edits made to other points after the delete", () => {
+    let draft = removePoint(draftFrom(plannedOutline(5)), "p3");
+    draft = editPoint(draft, "p2", "title", "Woven here");
+    draft = restoreRemoved(draft).draft;
+    expect(draft.points[1].title).toBe("Woven here");
+    expect(draft.points[2].id).toBe("p3");
+  });
+
+  it("starts empty on a fresh plan", () => {
+    expect(draftFrom(plannedOutline(5)).removed).toEqual([]);
   });
 });
 

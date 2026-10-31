@@ -9,7 +9,7 @@ import {
   type SequenceKind,
 } from "@/lib/design/sequence/contract";
 import { BRAND, plannedOutline } from "./fixtures";
-import { OutlineStep } from "./outline-step";
+import { OutlineStep, TOUCH_HEIGHT } from "./outline-step";
 import { useOutline } from "./use-outline";
 
 type Answer =
@@ -343,6 +343,40 @@ describe("editing", () => {
     expect(onGenerate.mock.calls[0]?.[0].points[3].source).toBe("user");
   });
 
+  it("keeps the source and the flag through an edit that changes no words", async () => {
+    const { onGenerate } = await ready();
+    const card = cards()[3];
+    const point = within(card).getByRole("textbox", { name: "Point, slide 4" });
+    await userEvent.type(point, "!");
+    expect(point).toHaveValue(
+      "We have tailored for Lagos families since 1998.!",
+    );
+    expect(within(card).getByRole("heading")).toHaveTextContent(
+      "From your brand profile",
+    );
+    expect(card.querySelector("[data-weak=profile-fill]")).not.toBeNull();
+    expect(screen.getByText(/2 may be weak/)).toBeInTheDocument();
+    await userEvent.type(point, "   ");
+    expect(card.querySelector("[data-weak=profile-fill]")).not.toBeNull();
+    await userEvent.click(generateButton());
+    expect(onGenerate.mock.calls[0]?.[0].points[3].source).toBe("profile");
+  });
+
+  it("brings the flag back when a rewrite is typed back to the planner's words", async () => {
+    await ready();
+    const card = cards()[2];
+    const point = within(card).getByRole("textbox", { name: "Point, slide 3" });
+    await userEvent.clear(point);
+    await userEvent.type(point, "Cut to fit.");
+    expect(card.querySelector("[data-weak]")).toBeNull();
+    await userEvent.clear(point);
+    await userEvent.type(point, "For young professionals in Lagos");
+    expect(card.querySelector("[data-weak=filler]")).not.toBeNull();
+    expect(within(card).getByRole("heading")).toHaveTextContent(
+      "From your brief",
+    );
+  });
+
   it("names each field and card without stray spaces", async () => {
     await ready();
     expect(
@@ -434,6 +468,20 @@ describe("editing", () => {
     expect(own).toHaveAttribute("aria-invalid", "true");
   });
 
+  it("gives the replace form's buttons a 44px target on a phone", async () => {
+    await ready();
+    const open = within(cards()[2]).getByRole("button", {
+      name: "Replace with my own point, slide 3",
+    });
+    expect(open).toHaveClass(...TOUCH_HEIGHT.split(" "));
+    await userEvent.click(open);
+    for (const name of ["Cancel", "Use my point"]) {
+      expect(within(cards()[2]).getByRole("button", { name })).toHaveClass(
+        ...TOUCH_HEIGHT.split(" "),
+      );
+    }
+  });
+
   it("cancels a replacement and gives focus back", async () => {
     await ready();
     const open = within(cards()[2]).getByRole("button", {
@@ -468,26 +516,132 @@ describe("deleting and adding", () => {
     ).toBeEnabled();
   });
 
-  it("deletes a point, counts it off the button, and moves focus on", async () => {
+  it("deletes a point, counts it off the button, and puts Undo in its place", async () => {
     const { onGenerate } = await ready();
     await userEvent.click(
       screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
     );
     expect(cards()).toHaveLength(4);
     expect(generateButton()).toHaveTextContent("Generate 4 slides · 4 units");
-    expect(
-      within(cards()[2]).getByRole("textbox", { name: "Title, slide 3" }),
-    ).toHaveFocus();
+    const undo = screen.getByRole("button", {
+      name: "Undo deleting slide 3, Who it's for",
+    });
+    expect(undo).toHaveFocus();
+    const row = screen.getByTestId("undo-delete");
+    expect(row).toHaveTextContent("Deleted slide 3, “Who it's for”.");
+    expect(row.previousElementSibling).toBe(cards()[1]);
+    expect(row.nextElementSibling).toBe(cards()[2]);
     expect(
       within(cards()[2]).getByRole("textbox", { name: "Title, slide 3" }),
     ).toHaveValue("Our story");
     expect(
-      screen.getByText("Slide 3 deleted. 4 slides in the outline."),
+      screen.getByText(
+        "Slide 3 deleted. 4 slides in the outline. Undo brings it back.",
+      ),
     ).toBeInTheDocument();
     await userEvent.click(generateButton());
     expect(
       onGenerate.mock.calls[0]?.[0].points.map((p: { id: string }) => p.id),
     ).toEqual(["p1", "p2", "p4", "p5"]);
+  });
+
+  it("undoes a delete: same place, same source and flag, focus on its title", async () => {
+    const { onGenerate } = await ready();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Undo deleting slide 3/ }),
+    );
+    expect(cards()).toHaveLength(5);
+    expect(screen.queryByTestId("undo-delete")).toBeNull();
+    const title = within(cards()[2]).getByRole("textbox", {
+      name: "Title, slide 3",
+    });
+    expect(title).toHaveValue("Who it's for");
+    expect(title).toHaveFocus();
+    expect(within(cards()[2]).getByRole("heading")).toHaveTextContent(
+      "From your brief",
+    );
+    expect(cards()[2].querySelector("[data-weak=filler]")).not.toBeNull();
+    expect(screen.getByText(/2 may be weak/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Slide 3 is back. 5 slides in the outline."),
+    ).toBeInTheDocument();
+    await userEvent.click(generateButton());
+    expect(
+      onGenerate.mock.calls[0]?.[0].points.map((p: { id: string }) => p.id),
+    ).toEqual(["p1", "p2", "p3", "p4", "p5"]);
+  });
+
+  it("undoes deletes newest first, then offers nothing", async () => {
+    await ready();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 2, The fabric" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Our story" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Undo deleting slide 3, Our story" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Undo deleting slide 2, The fabric" }),
+    );
+    expect(
+      cards().map(
+        (card) =>
+          (
+            within(card).getByRole("textbox", {
+              name: /^Title/,
+            }) as HTMLInputElement
+          ).value,
+      ),
+    ).toEqual([
+      "The launch",
+      "The fabric",
+      "Who it's for",
+      "Our story",
+      "Come Saturday",
+    ]);
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
+  });
+
+  it("holds Undo at the kind's maximum and says why", async () => {
+    await ready(plannedOutline(FRAME_BOUNDS.carousel.max));
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Delete slide 2/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Add a slide before the last" }),
+    );
+    const undo = screen.getByRole("button", { name: /^Undo deleting slide 2/ });
+    expect(undo).toHaveAttribute("aria-disabled", "true");
+    expect(undo).toHaveAccessibleDescription(
+      "10 slides is the most one carousel can hold. Delete one to bring this back.",
+    );
+    await userEvent.click(undo);
+    expect(cards()).toHaveLength(FRAME_BOUNDS.carousel.max);
+  });
+
+  it("drops the undo once a re-plan replaces the outline", async () => {
+    await ready();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 2, The fabric" }),
+    );
+    answers.push(outlineAnswer(plannedOutline(4)));
+    await userEvent.click(screen.getByRole("button", { name: "Re-plan" }));
+    for (const name of ["Keep my edits", "Re-plan"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass(
+        ...TOUCH_HEIGHT.split(" "),
+      );
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Re-plan" }));
+    await waitFor(() => expect(screen.queryByTestId("undo-delete")).toBeNull());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      within(cards()[1]).getByRole("textbox", { name: "Title, slide 2" }),
+    ).toHaveValue("The fabric");
   });
 
   it("warns which brief facts a deletion leaves unstated", async () => {
