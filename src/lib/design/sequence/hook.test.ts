@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { beatOf } from "./fixtures";
-import { hookFaults, hookPreviews, namesFree, withoutArrival } from "./hook";
+import {
+  hookFaults,
+  hookPreviews,
+  isLabelHeadline,
+  namesFree,
+  withoutArrival,
+} from "./hook";
 
 describe("withoutArrival", () => {
   const free = namesFree("Ata Kitchen", "scotch bonnet sauce");
@@ -122,5 +128,59 @@ describe("hookFaults: devices and labels", () => {
     expect(faults("Most patients leave 6 to 8 shades lighter.")).not.toMatch(
       /only names/,
     );
+  });
+});
+
+describe("isLabelHeadline: a rule on what is left, not a word list", () => {
+  const labels = new Set([
+    ...contentStems("scotch bonnet pepper sauce"),
+    ...contentStems("Ata Kitchen"),
+    ...contentStems("laundry pickup FreshFold Lekki Phase 1"),
+  ]);
+  it.each([
+    "Scotch bonnet pepper sauce, restocked",
+    "FreshFold laundry pickup: Monday to Wednesday",
+    "Ata Kitchen pepper sauce",
+  ])("reads %s as a label", (headline) => {
+    expect(isLabelHeadline(headline, labels)).toBe(true);
+  });
+  it.each([
+    "We wash your car while you work",
+    "About 30 scotch bonnets in every jar",
+    "Why rush a Saturday?",
+    "Pepper sauce that heats a whole pot",
+    "Your weekend back from the laundry basket",
+  ])("reads %s as a reason", (headline) => {
+    expect(isLabelHeadline(headline, labels)).toBe(false);
+  });
+});
+
+describe("hookFaults: a hook never ships as a headline alone", () => {
+  it("names a hook with no subheadline", () => {
+    const faults = hookFaults(
+      beatOf({
+        role: "hook",
+        headline: "About 30 scotch bonnets in every jar",
+        subheadline: "",
+      }),
+      "scotch bonnet pepper sauce",
+    );
+    expect(faults).toContainEqual(
+      expect.stringContaining("the hook has a headline and nothing under it"),
+    );
+  });
+
+  it("names a label headline, whatever the status word", () => {
+    const faults = hookFaults(
+      beatOf({
+        role: "hook",
+        headline: "Scotch bonnet pepper sauce, restocked",
+        subheadline: "Small-batch heat from Ata Kitchen, made in Ibadan.",
+      }),
+      "scotch bonnet pepper sauce",
+      [],
+      "Ata Kitchen",
+    );
+    expect(faults).toContainEqual(expect.stringContaining("is a label"));
   });
 });

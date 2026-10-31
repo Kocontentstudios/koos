@@ -95,7 +95,8 @@ settled in code (`shipGate` in `gate.ts`): unsourced words cut, a priced
 or repeated headline set to the frame's own claim, a broken or missing
 subheadline set to its claim (or, under a bare fact, the rest of the
 brief's sentence on it), a removed point's sentence cut, the hook's names
-written on it as the brief's own sentence where one fits, and any
+written on it as the brief's own sentence where one fits, a hook left with
+a headline alone given its stake (`hookStake`, never an empty line), and any
 brief fact still missing drawn in the brief's words. Plus one judge call. A full tuning run is
 30 planner runs, three at a time, and takes about 12 minutes; the
 held-out set is 12 more. Each run

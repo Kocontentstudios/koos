@@ -711,6 +711,8 @@ async function planSequenceOnce(
     brandName,
     offering,
     ...brandFacts(context.brandSummary),
+    /* The owner's own points spell their names ("Kaduna and Jos"). */
+    ...stated,
   ];
   const settle = (frames: readonly FrameBeat[]) =>
     withConsistentCasing(

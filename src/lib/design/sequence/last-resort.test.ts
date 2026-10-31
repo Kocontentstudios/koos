@@ -71,14 +71,15 @@ describe("plainVersions", () => {
     );
   });
 
-  it("only cuts a subheadline on the hook or the action, never a middle frame", () => {
-    const cut = (role: "hook" | "body") =>
+  it("only cuts a subheadline on the action, never the hook or a middle frame", () => {
+    const cut = (role: "hook" | "body" | "cta") =>
       plainVersions(
         beatOf({ role, subheadline: "FreshFold." }),
         "",
         "carousel",
       ).some((v) => v.change.subheadline === "");
-    expect(cut("hook")).toBe(true);
+    expect(cut("cta")).toBe(true);
+    expect(cut("hook")).toBe(false);
     expect(cut("body")).toBe(false);
   });
 });

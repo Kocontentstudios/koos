@@ -276,3 +276,47 @@ export function misplacedPrices(
       }));
   });
 }
+
+/* Words that only say a price is a price: what it is for is the rest. */
+const PRICE_WORDS = new Set([
+  ...contentStems(
+    "cost costs costing price priced prices pay pays paid only just from each per every charge charged fee",
+  ),
+]);
+
+/**
+ * Frames that give a brief price without what the brief says it is for:
+ * "Tune-ups cost ₦12,000" written as "Your service costs ₦12,000" widens
+ * one service's price to every service. Read on the whole frame, so a
+ * bare "₦3,000" footer under "Trouser hems" keeps its scope.
+ */
+export function pricesWithoutScope(
+  frames: readonly FrameBeat[],
+  facts: readonly BriefFact[],
+  briefText: string,
+  free: ReadonlySet<string> = new Set(),
+): FrameRepeat[] {
+  const sentences = briefText.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return facts.flatMap((price) => {
+    if (price.kind !== "price" || priceAmounts(price).size === 0) return [];
+    const scope = new Set(
+      sentences
+        .filter((s) => textStatesPrice(price, s))
+        .flatMap((s) => [...contentStems(s, free)])
+        .filter((w) => !PRICE_WORDS.has(w) && !/^\d/.test(w)),
+    );
+    if (scope.size === 0) return [];
+    return frames.flatMap((beat, frame) => {
+      const copy = drawnText(frameCopy(beat));
+      if (!textStatesPrice(price, copy)) return [];
+      const said = contentStems(copy, free);
+      if ([...scope].some((w) => said.has(w))) return [];
+      return [
+        {
+          frame,
+          detail: `it gives the price "${price.text}" without what the brief says it is for; say it as the brief does`,
+        },
+      ];
+    });
+  });
+}

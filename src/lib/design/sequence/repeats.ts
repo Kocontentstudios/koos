@@ -514,6 +514,19 @@ function factKeepers(
   });
 }
 
+/* What a cut leaves must still read as the brief's words, not a piece of
+   them: "powered. By 2028: 25,000." from "9,800 homes powered. By 2028:
+   25,000 homes." opens mid-sentence and ends on a bare count. */
+export function readsWhole(text: string): boolean {
+  const line = text.trim();
+  return (
+    !/^\p{Ll}[\p{L}'-]*(?=\s|[,;:!?]|\.(?:\s|$)|$)/u.test(line) &&
+    !/[.!?]\s+\p{Ll}/u.test(line) &&
+    !/[:,]\s*[\d][\d,.]*[.!?]?$/u.test(line) &&
+    !/[:,;]$/.test(line)
+  );
+}
+
 /**
  * Each fact said once, where it belongs: a frame other than the fact's
  * keeper (factKeepers) loses the fact's words from its subheadline and
@@ -542,7 +555,8 @@ export function withoutRecap(
       const keep = facts.filter(
         (fact) => !again.includes(fact) && factStated(fact, asLine(text)),
       );
-      return withoutRepeatedFacts(text, again, keep);
+      const rest = withoutRepeatedFacts(text, again, keep);
+      return rest === "" || readsWhole(rest) ? rest : text;
     };
     const footerLines = beat.footerLines.map(trimmed).filter(Boolean);
     const subheadline = beat.subheadline ? trimmed(beat.subheadline) : "";

@@ -4,6 +4,7 @@ import { beatOf, CAFE_FACTS, cafePlan, fact, withFrame } from "./fixtures";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import {
   factsTwiceInFrame,
+  readsWhole,
   sequenceRepeats,
   withoutFactWords,
   withoutRecap,
@@ -708,5 +709,25 @@ describe("sequenceRepeats: one idea headlined twice", () => {
     expect(
       found.some((r) => r.detail.includes("one idea headlined twice")),
     ).toBe(false);
+  });
+});
+
+describe("readsWhole: a cut never leaves a piece of a sentence", () => {
+  it.each([
+    "powered. By 2028: 25,000.",
+    "By 2028: 25,000.",
+    "Open daily. from 9am",
+    "Book now:",
+  ])("refuses %s", (text) => {
+    expect(readsWhole(text)).toBe(false);
+  });
+  it.each([
+    "By 2028: 25,000 homes.",
+    "ibrahim@lumoragrid.ng",
+    "₦4,500 a month",
+    "Plot 12 Aminu Kano Crescent",
+    "crownandcoil.ng",
+  ])("keeps %s", (text) => {
+    expect(readsWhole(text)).toBe(true);
   });
 });

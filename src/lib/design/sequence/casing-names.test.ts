@@ -159,3 +159,28 @@ describe("casing a name's first word and a camel-case word", () => {
     expect(upperFirst("")).toBe("");
   });
 });
+
+describe("sentenceCased: places and the owner's own names", () => {
+  it("keeps a country the sources only give as its people's", () => {
+    expect(
+      sentenceCased("Built For Nigeria", [
+        "Invoicing for Nigerian freelancers billing clients abroad.",
+      ]),
+    ).toBe("Built for Nigeria");
+  });
+
+  it("keeps the places an owner's point names", () => {
+    expect(
+      sentenceCased("20 Rooms In Kaduna And Jos", [
+        "Farmlink rents solar cold rooms in Kano.",
+        "The raise opens 20 more rooms in Kaduna and Jos",
+      ]),
+    ).toBe("20 rooms in Kaduna and Jos");
+  });
+
+  it("does not take a longer word for a name's stem", () => {
+    expect(sentenceCased("Lagos Freelancers Billing", ["Lagos"])).toBe(
+      "Lagos freelancers billing",
+    );
+  });
+});

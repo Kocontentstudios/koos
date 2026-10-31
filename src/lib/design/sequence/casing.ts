@@ -235,10 +235,31 @@ function toSentence(
       sentenceStart = /[.!?:]$/.test(token);
       if (held.has(at)) return capitalised(token);
       const tail = afterHyphens(token, own);
-      if (first || own.has(bare(token))) return tail;
+      if (first || own.has(bare(token)) || namesPlace(bare(token), own)) {
+        return tail;
+      }
       return lowered(tail, own);
     })
     .join("");
+}
+
+/* A place's name the sources only give as its people's ("Nigerian",
+   "Ghanaian", "Kenyan"): "Built for Nigeria" keeps its capital. */
+const DEMONYM_ENDING = /^(?:n|an|ian|ese)$/;
+const NAME_STEM_MIN = 4;
+
+function namesPlace(word: string, names: ReadonlySet<string>): boolean {
+  if (word.length < NAME_STEM_MIN) return false;
+  for (const name of names) {
+    if (
+      name.length > word.length &&
+      name.startsWith(word) &&
+      DEMONYM_ENDING.test(name.slice(word.length))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 const capitalised = (token: string) =>

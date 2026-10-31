@@ -186,7 +186,7 @@ export function plainVersions(
       });
     }
   }
-  if (beat.role !== "body" && beat.subheadline.trim()) {
+  if (beat.role === "cta" && beat.subheadline.trim()) {
     versions.push({
       change: { subheadline: "" },
       what: "its subheadline cut",

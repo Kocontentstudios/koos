@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { factLedger } from "@/lib/jobs/directions/claims";
 import {
+  actionRecaps,
   bareNameSubheadlines,
   blockingFaults,
   COVERAGE,
@@ -23,6 +24,7 @@ import {
   CAFE_BRIEF,
   CAFE_FACTS,
   cafePlan,
+  fact,
   withFrame,
 } from "./fixtures";
 import { namesFree } from "./hook";
@@ -343,5 +345,30 @@ describe("setFaults: a price mid-story", () => {
       (f) => f.frame === 3 && /gives the price/.test(f.detail),
     );
     expect(found.every((f) => f.weight < MAJOR)).toBe(true);
+  });
+});
+
+describe("actionRecaps: the close says how to act, not a middle frame again", () => {
+  const offer = fact("offer", "Free for your first 3 months");
+  const frames = [
+    beatOf({ role: "hook", headline: "Invoice in under a minute" }),
+    beatOf({ headline: "Free for your first 3 months, no card" }),
+    beatOf({ headline: "Reminders go out on time" }),
+    beatOf({ role: "cta", headline: "Free for your first 3 months" }),
+  ];
+
+  it("names an action headline that leads on a middle frame's offer, as minor", () => {
+    const [fault] = actionRecaps(frames, [offer]);
+    expect(fault).toMatchObject({ frame: 3, field: "headline" });
+    expect(fault.detail).toContain("frame 2");
+    expect(blockingFaults([fault])).toEqual([]);
+  });
+
+  it("lets the action give the price, the place and the contact again", () => {
+    const price = fact("price", "₦3,500 a jar");
+    const priced = frames.map((b, i) =>
+      i === 1 || i === 3 ? { ...b, headline: "Yours for ₦3,500 a jar" } : b,
+    );
+    expect(actionRecaps(priced, [price])).toEqual([]);
   });
 });

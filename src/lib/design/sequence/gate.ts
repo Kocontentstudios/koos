@@ -9,18 +9,21 @@ import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { withoutStatement } from "./cuts";
 import {
   actionWords,
+  blockingFaults,
   type FaultRules,
   type Flag,
+  faultScore,
   flaggedFaults,
   headlineGrammar,
   headlinePrices,
   logisticsFree,
   pointRepeats,
   restatesHeadline,
+  setFaults,
   stillSays,
   subheadlineGrammar,
 } from "./faults";
-import { echoesHeadline, namesFree, previewedFrames } from "./hook";
+import { echoesHeadline, hookFaults, namesFree, previewedFrames } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
 import { textStatesPrice } from "./points";
@@ -364,10 +367,10 @@ class Gate {
           const own = this.claimAs(frame, "subheadline");
           if (oneWord && !own) return;
           /* A hook's lone sentence often carries its names: in its place
-             go the names alone, never an empty line. */
+             goes its stake (hookStake), never an empty line. */
           const claim =
             own ??
-            (frame === 0 ? this.hookLine({ ...beat, subheadline: "" }) : null);
+            (frame === 0 ? this.hookStake({ ...beat, subheadline: "" }) : null);
           const done = this.set(
             frame,
             { subheadline: claim ?? "" },
@@ -550,7 +553,9 @@ class Gate {
   withWholeSubheadlines() {
     this.frames.forEach((beat, frame) => {
       if (subheadlineGrammar(beat.subheadline) === null) return;
-      const claim = this.claimAs(frame, "subheadline");
+      const claim =
+        this.claimAs(frame, "subheadline") ??
+        (frame === 0 ? this.hookStake({ ...beat, subheadline: "" }) : null);
       this.set(
         frame,
         { subheadline: claim ?? "" },
@@ -769,7 +774,7 @@ class Gate {
     const subheadline =
       kept.length > 0
         ? asSentence(kept.join(" "))
-        : (this.hookLine({ ...hook, subheadline: "" }) ?? "");
+        : (this.hookStake({ ...hook, subheadline: "" }) ?? "");
     this.set(0, { subheadline }, "price cut from the hook's subheadline");
   }
 
@@ -788,7 +793,7 @@ class Gate {
     const subheadline =
       kept.length > 0
         ? asSentence(kept.join(" "))
-        : (this.hookLine({ ...hook, subheadline: "" }) ?? "");
+        : (this.hookStake({ ...hook, subheadline: "" }) ?? "");
     if (subheadline === hook.subheadline) return;
     this.set(0, { subheadline }, "hook subheadline echoing its headline cut");
   }
@@ -828,6 +833,53 @@ class Gate {
   hookLine(hook: FrameBeat): string | null {
     const bare = this.namesLine(hook);
     if (!bare) return null;
+    return this.sourcedHookSentence(hook) ?? bare;
+  }
+
+  /** What goes under a hook's headline that has nothing under it: the
+   *  brief's or profile's own sentence that gives the names the hook
+   *  leaves out and no later frame's point, else the hook's angle, else
+   *  the names alone. A hook never ships as a headline alone: the second
+   *  line is where the reader learns what the claim does for them. */
+  hookStake(hook: FrameBeat): string | null {
+    const bare = { ...hook, subheadline: "" };
+    const sentence = this.sourcedHookSentence(bare);
+    if (sentence) return sentence;
+    const { brandName, offering } = this.rules;
+    const angle = this.claimAs(0, "subheadline");
+    if (
+      angle &&
+      !echoesHeadline({ ...bare, subheadline: angle }, brandName, offering)
+    ) {
+      const named = this.namesLine({ ...bare, subheadline: angle });
+      const joined = named ? `${named} ${angle}` : angle;
+      const line = joined.length <= COPY_LIMITS.subheadline ? joined : angle;
+      if (this.clearsMore(bare, line)) return line;
+    }
+    const names = this.namesLine(bare);
+    return names && this.clearsMore(bare, names) ? names : null;
+  }
+
+  /** Whether `line` under the hook leaves the set with fewer blocking
+   *  faults than the hook with nothing under it: a second line that
+   *  spends a later frame's point moves the fault, it does not clear it. */
+  private clearsMore(bare: FrameBeat, line: string): boolean {
+    const score = (hook: FrameBeat) =>
+      faultScore(
+        blockingFaults(
+          setFaults(
+            {
+              ...this.plan,
+              frames: this.frames.map((b, i) => (i === 0 ? hook : b)),
+            },
+            this.rules,
+          ),
+        ),
+      );
+    return score({ ...bare, subheadline: line }) < score(bare);
+  }
+
+  private sourcedHookSentence(hook: FrameBeat): string | null {
     const { offering, names, facts } = this.rules;
     const wanted = [offering, ...names].filter(
       (n): n is string =>
@@ -858,18 +910,34 @@ class Gate {
       }
       if (textsOverlap(line, hook.headline, this.free)) continue;
       if (echoesHeadline(beat, this.rules.brandName, offering)) continue;
-      const later = this.frames
-        .slice(1)
-        .some((other) =>
-          textsOverlap(
-            line,
-            `${other.headline} ${other.subheadline}`,
-            this.free,
-          ),
-        );
-      if (!later) return line;
+      if (
+        hookFaults(beat, offering, names, this.rules.brandName, facts).some(
+          (f) => f.startsWith("the hook's subheadline"),
+        )
+      ) {
+        continue;
+      }
+      /* The test the set is held to (hookPreviews): a sentence that
+         spends a later frame's point moves the fault, it does not clear it. */
+      const later =
+        previewedFrames(
+          this.frames.map((b, n) => (n === 0 ? beat : b)),
+          offering,
+          this.rules.brandName,
+          actionWords(this.free, facts, this.rules.atAction),
+        ).length > 0;
+      if (!later && this.clearsMore(hook, line)) return line;
     }
-    return bare;
+    return null;
+  }
+
+  /** A hook left with a headline alone given its stake (hookStake). */
+  withHookStake() {
+    const hook = this.frames[0];
+    if (hook?.role !== "hook" || hook.subheadline.trim()) return;
+    const stake = this.hookStake(hook);
+    if (stake)
+      this.set(0, { subheadline: stake }, "the hook's stake written under it");
   }
 
   /** The hook with every name it must give (the offering, and the brand
@@ -880,7 +948,7 @@ class Gate {
     const named = hook
       ? hook.subheadline
         ? this.namesLine(hook)
-        : this.hookLine(hook)
+        : this.hookStake(hook)
       : null;
     if (!hook || !named) return;
     const joined = hook.subheadline ? `${named} ${hook.subheadline}` : named;
@@ -912,6 +980,7 @@ export function shipGate(plan: PlannedSequence, rules: GateRules): GateResult {
   gate.withSubheadlinesUnderBareHeadlines();
   gate.withNamesOnHook();
   gate.withoutUnsourced();
+  gate.withHookStake();
   return { plan: { ...plan, frames: gate.frames }, applied: gate.applied };
 }
 

@@ -1,6 +1,7 @@
 import {
   aboveRepeatsBy,
   type BriefFact,
+  type CoverKind,
   factStated,
   isFragment,
 } from "@/lib/jobs/directions/brief-facts";
@@ -11,7 +12,12 @@ import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
-import { factOnlyFrames, misplacedPrices, statesPrice } from "./points";
+import {
+  factOnlyFrames,
+  misplacedPrices,
+  pricesWithoutScope,
+  statesPrice,
+} from "./points";
 import { releasedFaults, removedFaults } from "./removed";
 import { sequenceRepeats } from "./repeats";
 import { titleProblems } from "./title";
@@ -318,6 +324,52 @@ export function pointRepeats(
   });
 }
 
+/* What the action may give again because acting needs it; an offer, a
+   condition or a count a middle frame was about is that frame's point. */
+const ACTION_RESTATES = new Set<CoverKind>([
+  "price",
+  "date",
+  "day",
+  "time",
+  "place",
+  "contact",
+  "product",
+  "person",
+]);
+
+/**
+ * The action frame whose headline leads on a fact a middle frame's
+ * headline already made its point ("Start free, no card required" then
+ * "Free for your first 3 months"): read in order, the close says that
+ * frame again instead of saying how to act. Asked of the fix call, never
+ * blocking: code has no plainer close to put in its place.
+ */
+export function actionRecaps(
+  frames: readonly FrameBeat[],
+  facts: readonly BriefFact[],
+): CopyFault[] {
+  const last = frames.length - 1;
+  const action = frames[last];
+  if (action?.role !== "cta" || last < 2) return [];
+  for (const fact of facts) {
+    if (ACTION_RESTATES.has(fact.kind)) continue;
+    if (!factStated(fact, action.headline)) continue;
+    const k = frames.findIndex(
+      (b, i) => i > 0 && i < last && factStated(fact, b.headline),
+    );
+    if (k < 0) continue;
+    return [
+      {
+        frame: last,
+        field: "headline",
+        detail: `its headline says again what frame ${k + 1} ("${frames[k].headline}") was about; the last frame's headline says how to act, in words no earlier frame used`,
+        weight: MINOR,
+      },
+    ];
+  }
+  return [];
+}
+
 /* Content words of another frame's claim, beyond the frame's own claim,
    past which its copy is making that frame's point. */
 const STRAY_WORDS = 2;
@@ -453,7 +505,7 @@ function ruleFaults(plan: PlannedSequence, rules: FaultRules): CopyFault[] {
    offering's name standing alone, a name it must carry and leaves out, a
    second line that only says the first again. */
 const FLAT_HOOK =
-  /announces the offering|only the name|does not name|says what its headline says|a device any competitor|only names the offering and where/;
+  /announces the offering|only the name|does not name|says what its headline says|a device any competitor|only names the offering and where|is a label|the hook has a headline and nothing under it/;
 
 /** Every fault of a written set (see the module comment). */
 export function setFaults(
@@ -505,14 +557,17 @@ export function setFaults(
     ...selfReferences(frames),
     ...contactOnHook(frames, facts),
     ...pointRepeats(frames, facts, free),
+    ...actionRecaps(frames, facts),
     ...claimStrays(frames, rules.claims ?? [], logisticsFree(free, facts)),
     ...headlinePrices(frames, facts, kind, rules.atAction),
     ...(hook
       ? hookFaults(hook, offering, names, brandName, facts).map((detail) => ({
           frame: 0,
-          field: detail.startsWith("the hook's subheadline")
-            ? ("subheadline" as const)
-            : ("headline" as const),
+          field:
+            detail.startsWith("the hook's subheadline") ||
+            detail.startsWith("the hook has a headline")
+              ? ("subheadline" as const)
+              : ("headline" as const),
           detail,
           weight: FLAT_HOOK.test(detail) ? MAJOR : MINOR,
         }))
@@ -556,6 +611,9 @@ export function setFaults(
       ),
     ].map((f) => ({ ...f, breach: true as const })),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
+    ...pricesWithoutScope(frames, facts, rules.briefText ?? "", free).map(
+      minor,
+    ),
     ...factOnlyFrames(frames, facts).map(minor),
     /* A price dropped mid-story has no job there and reads as the close
        come early; only the owner's own point may carry one. */
@@ -632,7 +690,7 @@ export function bareNameSubheadlines(
       {
         frame,
         field: "subheadline" as const,
-        detail: `the subheadline "${text}" gives only a name; write one sentence that says something about this frame's claim, or leave it empty`,
+        detail: `the subheadline "${text}" gives only a name; write one sentence that says something about this frame's claim${beat.role === "cta" ? ", or leave it empty" : ""}`,
         weight: MAJOR,
       },
     ];

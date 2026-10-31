@@ -9,7 +9,13 @@ import { type BriefFact, factStated } from "@/lib/jobs/directions/brief-facts";
 import type { BriefReader } from "@/lib/jobs/directions/brief-read";
 import { COPY_TARGETS } from "@/lib/jobs/directions/schema";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
-import { type ArcFrame, type ArcPoint, pointPool, settleArc } from "./arc";
+import {
+  type ArcFrame,
+  type ArcPoint,
+  pointPool,
+  settleArc,
+  sparePoints,
+} from "./arc";
 import { sentenceCased, upperFirst } from "./casing";
 import {
   OUTLINE_LIMITS,
@@ -20,7 +26,11 @@ import {
   PRESENTATION_ASPECT,
 } from "./contract";
 import { EMPTY_POINT } from "./outline-arc";
-import { flagOutline, genericProfile } from "./outline-flags";
+import {
+  flagOutline,
+  genericProfile,
+  type OutlineFlagContext,
+} from "./outline-flags";
 import { signPoint } from "./outline-sign";
 import { profileStatements } from "./points";
 import {
@@ -340,7 +350,7 @@ export function hookSource(
   return shared(briefText) >= shared(profile.join(" ")) ? "brief" : "profile";
 }
 
-interface PlacedPoint {
+export interface PlacedPoint {
   text: string;
   source: OutlineSource;
   role: OutlinePoint["role"];
@@ -443,6 +453,62 @@ export function withEveryFactPlaced(
  * the outline and the planner agree on what a point is. No copy, no
  * render, no quota.
  */
+/**
+ * The drafted points with every body point that makes another's point
+ * (flagOutline "overlap") given a spare point from the pool in its place:
+ * an outline that says one thing twice is the planner's fault, never the
+ * owner's to find. A point is swapped only when the spare overlaps no
+ * point, and only when nothing it alone states (a brief fact) would leave
+ * the set. A point no spare can replace keeps its flag.
+ */
+export function withOverlapsSwapped(
+  drafts: readonly PlacedPoint[],
+  spares: readonly ArcPoint[],
+  ctx: OutlineFlagContext,
+): { points: PlacedPoint[]; swapped: number[] } {
+  const points = [...drafts];
+  const left = [...spares];
+  const swapped: number[] = [];
+  const flags = (list: readonly PlacedPoint[]) =>
+    flagOutline(
+      list.map((p, i) => ({
+        id: `p${i + 1}`,
+        role: p.role,
+        title: "",
+        point: p.text,
+        source: p.source,
+        facts: [],
+      })),
+      ctx,
+    );
+  const onlyHere = (i: number) =>
+    ctx.facts.some(
+      (f) =>
+        factStated(f, points[i].text) &&
+        !points.some((p, k) => k !== i && factStated(f, p.text)),
+    );
+  for (let i = 1; i < points.length - 1; i += 1) {
+    if (flags(points)[i].weak?.kind !== "overlap" || onlyHere(i)) continue;
+    const pick = left.findIndex((spare) => {
+      const next = points.map((p, k) =>
+        k === i
+          ? { text: spare.text, source: SOURCE_OF[spare.source], role: p.role }
+          : p,
+      );
+      return flags(next).every((f) => f.weak?.kind !== "overlap");
+    });
+    if (pick < 0) continue;
+    const [spare] = left.splice(pick, 1);
+    points[i] = {
+      text: clipped(spare.text, OUTLINE_LIMITS.pointChars),
+      source: SOURCE_OF[spare.source],
+      role: points[i].role,
+    };
+    swapped.push(i);
+  }
+  return { points, swapped };
+}
+
 export async function planOutline(
   input: PlanOutlineInput,
   { briefReader }: PlanOutlineDeps = {},
@@ -538,15 +604,27 @@ export async function planOutline(
     if (planned[i] === EMPTY_POINT) return "user";
     return fromPool ? SOURCE_OF[fromPool.source] : "brief";
   });
-  const placed = withEveryFactPlaced(
-    planned.map((text, i) => ({
-      text,
-      source: plannedSources[i],
-      role: arc.frames[i].role,
-    })),
+  const flagContext: OutlineFlagContext = {
+    kind,
     facts,
-    brief.briefText,
+    free,
+    audience: context.brandSummary.targetAudience,
+    genericProfile: genericProfile(context.brandSummary),
+  };
+  const unique = withOverlapsSwapped(
+    withEveryFactPlaced(
+      planned.map((text, i) => ({
+        text,
+        source: plannedSources[i],
+        role: arc.frames[i].role,
+      })),
+      facts,
+      brief.briefText,
+    ),
+    sparePoints(arc, pool, facts, free).map((i) => pool[i]),
+    flagContext,
   );
+  const placed = unique.points;
   const texts = placed.map((p) => p.text);
   const titles = outlineTitles(answer.frames, arc.frames, texts, free);
   const points: Omit<OutlinePoint, "weak">[] = arc.frames.map((frame, i) => {
@@ -571,13 +649,7 @@ export async function planOutline(
       }),
     };
   });
-  const flagged = flagOutline(points, {
-    kind,
-    facts,
-    free,
-    audience: context.brandSummary.targetAudience,
-    genericProfile: genericProfile(context.brandSummary),
-  });
+  const flagged = flagOutline(points, flagContext);
   const outline: PlannedOutline = {
     kind,
     frameCount,
@@ -595,6 +667,7 @@ export async function planOutline(
       filler: count("filler"),
       profileFill: count("profile-fill"),
     },
+    overlapsSwapped: unique.swapped.length,
     modelCalls,
     ms,
   });

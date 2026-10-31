@@ -219,6 +219,46 @@ function concreteBeyond(
   return own.length >= CONCRETE_WORDS;
 }
 
+const WEEKDAY_OR_MONTH =
+  /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*$|^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*$/;
+
+/* A reader's reason needs a subject acting on them ("We wash your car
+   while you work") or a question put to them; without either, a single
+   word beside the names is a status ("restocked", "just landed", "now
+   open"), whatever the word. */
+const ADDRESSES_READER = /\b(?:you|your|yours|we|our|us)\b/i;
+
+/**
+ * A headline that is a label: past the offering's and brand's names, the
+ * places and the schedule (days, months, the brief's dates and times), it
+ * keeps at most one word of its own and no figure, and speaks to no one.
+ * A rule on what is left, not a list of announcement words, so "Pepper
+ * sauce, restocked" and "Laundry pickup: Monday to Wednesday" read as the
+ * labels they are while "We wash your car while you work" does not.
+ */
+export function isLabelHeadline(
+  headline: string,
+  labelWords: ReadonlySet<string>,
+  facts: readonly BriefFact[] = [],
+): boolean {
+  if (
+    /\p{N}/u.test(headline) ||
+    ADDRESSES_READER.test(headline) ||
+    /\?\s*$/.test(headline)
+  ) {
+    return false;
+  }
+  const schedule = new Set(
+    facts
+      .filter((f) => f.kind === "date" || f.kind === "time" || f.kind === "day")
+      .flatMap((f) => [...contentStems(f.text)]),
+  );
+  const own = [...contentStems(headline)].filter(
+    (s) => !labelWords.has(s) && !schedule.has(s) && !WEEKDAY_OR_MONTH.test(s),
+  );
+  return own.length <= 1;
+}
+
 /** `names`: what else the hook must name beyond the offering (the brand,
  *  when the brief makes it the subject: hookNames in the prompt). The
  *  offering itself is validateSequence's offering-unnamed. */
@@ -259,6 +299,15 @@ export function hookFaults(
   } else if (nameAlone) {
     faults.push(
       `the hook's headline "${hook.headline}" is only the name of what is offered; ${HOOK_CRAFT}`,
+    );
+  } else if (isLabelHeadline(hook.headline, labelWords, facts)) {
+    faults.push(
+      `the hook's headline "${hook.headline}" is a label: past the names, the place and the schedule it gives no reason to swipe; ${HOOK_CRAFT}`,
+    );
+  }
+  if (!hook.subheadline.trim()) {
+    faults.push(
+      "the hook has a headline and nothing under it; the subheadline is one whole sentence on what the reader gets because of the headline's claim, naming the offering if the headline does not",
     );
   }
   /* A before-and-after with no figure in it is a device any competitor

@@ -1251,7 +1251,82 @@ function holdsWithOfferVerb(phrase: string, part: string): boolean {
   });
 }
 
+/* One word between a count's number and its qualified noun leaves how
+   many alone ("14 solar cold rooms" is 14 cold rooms); a second ("14 farmers rent
+   cold rooms"), a joining word ("14 towns with cold rooms") or a plural
+   ("14 farms' cold rooms") makes the number count something else. */
+const JOINING_WORDS = new Set(
+  "with in of for and or per from at to across by on into than about".split(
+    " ",
+  ),
+);
+const countsOtherThing = (word: string) =>
+  JOINING_WORDS.has(word.toLowerCase()) || /[^s]s'?$/i.test(word);
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The ways `text` can say a count fact once the copy's own wording is
+ * undone: a modifier between the number and the fact's noun dropped
+ * ("14 solar cold rooms" as "14 cold rooms"), and a count written as a
+ * compound ("9,800-home networks" as "9,800 homes"). The number and the
+ * noun are always the fact's own, in its order, so no other count reads
+ * as this one.
+ */
+function countWordings(fact: BriefFact, text: string): string[] {
+  const m = /^(?:\D*?\s)?([\d][\d,.]*)\s+(\p{L}[\p{L}'-]*)(\s+\p{L})?/u.exec(
+    fact.text,
+  );
+  if (!m) return [];
+  const [, number, noun, qualified] = m;
+  const wordings: string[] = [];
+  const modifier = new RegExp(
+    `(^|[^\\d.,])(${escaped(number)})\\s+([\\p{L}][\\p{L}'-]*)\\s+(${escaped(noun)}\\b)`,
+    "giu",
+  );
+  /* Only a count whose noun the brief already qualifies ("cold rooms")
+     takes a word more: "20 parking spots" is not the brief's "20 spots",
+     but "14 solar cold rooms" are still its cold rooms. */
+  if (qualified) {
+    const dropped = text.replace(modifier, (all, lead, n, word, head) =>
+      countsOtherThing(word) || word.toLowerCase() === noun.toLowerCase()
+        ? all
+        : `${lead}${n} ${head}`,
+    );
+    if (dropped !== text) wordings.push(dropped);
+  }
+  for (const singular of new Set([
+    noun.replace(/s$/i, ""),
+    noun.replace(/es$/i, ""),
+  ])) {
+    if (singular === noun || singular.length < 2) continue;
+    const compound = new RegExp(
+      `(^|[^\\d.,])(${escaped(number)})-(${escaped(singular)})\\b`,
+      "giu",
+    );
+    const opened = text.replace(compound, `$1$2 ${noun}`);
+    if (opened !== text) wordings.push(opened);
+  }
+  return wordings;
+}
+
 function statedIn(
+  fact: BriefFact,
+  part: CopyPart,
+  design: readonly (readonly CopyToken[])[],
+): boolean {
+  if (statedAsWritten(fact, part, design)) return true;
+  if (fact.kind !== "quantity") return false;
+  return countWordings(fact, part.text).some((text) =>
+    statedAsWritten(
+      fact,
+      { text, line: part.line === part.text ? text : part.line },
+      design,
+    ),
+  );
+}
+
+function statedAsWritten(
   fact: BriefFact,
   part: CopyPart,
   design: readonly (readonly CopyToken[])[],

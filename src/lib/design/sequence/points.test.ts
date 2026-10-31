@@ -6,6 +6,7 @@ import {
   factOnlyFrames,
   misplacedPrices,
   priceAmounts,
+  pricesWithoutScope,
   profileClauses,
   profilePoints,
 } from "./points";
@@ -222,5 +223,36 @@ describe("briefPoints", () => {
     expect(
       briefPoints("₦2,500 a bottle. Saturday 15 November.", CAFE_FACTS),
     ).toEqual([]);
+  });
+});
+
+describe("pricesWithoutScope: a price keeps what the brief says it is for", () => {
+  const price = fact("price", "₦12,000");
+  const brief = "Fixit Hub tune-ups cost ₦12,000. We fix punctures and brakes.";
+  const free = new Set(["fixit", "hub"]);
+
+  it("names a frame that widens a tune-up's price to every service", () => {
+    const frames = [
+      beatOf({ role: "cta", headline: "Your service costs ₦12,000" }),
+    ];
+    expect(pricesWithoutScope(frames, [price], brief, free)).toEqual([
+      {
+        frame: 0,
+        detail: expect.stringContaining(
+          '"₦12,000" without what the brief says',
+        ),
+      },
+    ]);
+  });
+
+  it("reads the whole frame, so a bare footer under its item keeps its scope", () => {
+    const frames = [
+      beatOf({
+        role: "cta",
+        headline: "Book a tune-up today",
+        footerLines: ["₦12,000"],
+      }),
+    ];
+    expect(pricesWithoutScope(frames, [price], brief, free)).toEqual([]);
   });
 });

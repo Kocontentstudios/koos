@@ -113,6 +113,15 @@ const INSTRUCTION = [
   /* The same orders in the other languages a Nigerian owner's tools may
      produce: French, Spanish, Portuguese, German, Italian. */
   /\b(?:ignore[zr]?|oublie[zr]?|ignora|olvida|esque[cç]a|ignoriere|vergiss)\b[^.!?]{0,40}\b(?:consignes?|instructions?|instrucciones|instru[cç][oõ]es|anweisungen|istruzioni)\b/iu,
+  /* The class, not its examples: a sentence about the set's own parts
+     (slides, headlines, footers, "everywhere") that also says what to
+     write there is an order to the writer, whatever its words. A reader's
+     line names a slide or a headline without telling anyone to write. */
+  /(?=[^.!?;]*\b(?:slides?|frames?|headlines?|subheadlines?|footers?|titles?|captions?|buttons?|fields?|everywhere|anywhere)\b)(?=[^.!?;]*\b(?:say|says|write|copy|put|print|mention|repeat|replace)\b)[^.!?;]*/i,
+  /* Words that speak to whoever writes the set, or to what it was given. */
+  /\b(?:note|message|memo)\s+to\s+(?:the\s+)?(?:copy\s*writer|writer|designer|model|ai|assistant|bot)\b/i,
+  /\b(?:disregard|ignore|forget|override|bypass)\s+(?:the|this|that|your)\s+(?:brief|prompt|outline|profile|context|copy)\b(?=\s*(?:[.!?,;:]|$)|\s+(?:and|then|above|entirely|completely)\b)/i,
+  /(?:^|[.!?]\s*)(?:override|instructions?|directive|command)\s*:/i,
 ];
 
 /* A link scheme that runs code or carries a document is never copy. */

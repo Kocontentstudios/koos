@@ -52,7 +52,10 @@ const paletteForCutout = vi.fn();
 const judgeAndCorrect = vi.fn();
 const failAbandonedDesignJobs = vi.fn();
 
-vi.mock("@/lib/design/sequence/plan", () => ({
+vi.mock("@/lib/design/sequence/plan", async (importOriginal) => ({
+  SequenceShipRefusedError: (
+    await importOriginal<typeof import("@/lib/design/sequence/plan")>()
+  ).SequenceShipRefusedError,
   planSequence: (input: unknown) => planSequence(input),
 }));
 vi.mock("@/lib/design/sequence/replan", () => ({
@@ -240,6 +243,7 @@ const {
   sweepAbandonedDesignSets,
   ABANDONED_SET_ERROR,
 } = await import("./run-design-sequence");
+const { SequenceShipRefusedError } = await import("@/lib/design/sequence/plan");
 const { ABANDONED_SET_MS } = await import("./stale");
 const craft =
   await vi.importActual<typeof import("./directions/craft")>(
@@ -555,6 +559,31 @@ describe("a set of frames", () => {
       }),
     );
     await expect(run(3)).rejects.toBeInstanceOf(SequencePlanError);
+    expect(db.rows.size).toBe(0);
+    expect(db.usage).toHaveLength(0);
+  });
+
+  it("turns a planner refusal into a plan error naming the slide, before any row or charge", async () => {
+    planSequence.mockRejectedValue(
+      new SequenceShipRefusedError([
+        {
+          frame: 1,
+          detail: "it makes frame 1's point again in other words",
+        },
+      ]),
+    );
+    const err = await run(3).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SequencePlanError);
+    expect((err as InstanceType<typeof SequencePlanError>).problems).toEqual([
+      {
+        frame: 1,
+        rule: "blocking-fault",
+        detail: "it makes frame 1's point again in other words",
+      },
+    ]);
+    expect((err as Error).message).toBe(
+      "We couldn't write slide 2 of this carousel without repeating another slide or going beyond your brief. Change point 2 in the outline, or try again.",
+    );
     expect(db.rows.size).toBe(0);
     expect(db.usage).toHaveLength(0);
   });

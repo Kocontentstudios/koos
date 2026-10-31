@@ -369,3 +369,70 @@ describe("shipGate: a carousel's price waits for the action", () => {
     expect(gated.frames[0].subheadline).toBe("Our cold brew, served over ice.");
   });
 });
+
+describe("shipGate: the hook keeps a second line", () => {
+  const away = (plan: ReturnType<typeof cafePlan>) =>
+    withFrame(plan, 3, {
+      headline: "Roasted in-house each week",
+      subheadline: "Every batch is roasted at the bar the week you drink it.",
+    });
+
+  it("writes the brief's own sentence under a hook left with a headline alone", () => {
+    const plan = away(
+      withFrame(cafePlan(), 0, {
+        headline: "Slow-steeped for a slower Saturday",
+        subheadline: "",
+      }),
+    );
+    const { plan: gated, applied } = shipGate(
+      plan,
+      rules({
+        briefText: CAFE_BRIEF,
+        claims: ["", "", "", "Roasted in-house each week", ""],
+      }),
+    );
+    expect(gated.frames[0].subheadline).toBe(
+      "Launch our cold brew at our Yaba bar.",
+    );
+    expect(applied).toContain("frame 1: the hook's names written on it");
+    expect(
+      setFaults(gated, rules()).filter((f) =>
+        f.detail.includes("the hook has a headline and nothing under it"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("writes the hook's angle when the brief has no sentence left for it", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      headline: "Your Saturday, slowed down",
+      subheadline: "",
+    });
+    const angled = rules({
+      claims: ["Cold brew steeped for 18 hours", "", "", "", ""],
+      ledger: factLedger(
+        [CAFE_BRIEF, "Kiln Coffee", PROFILE, "Cold brew steeped for 18 hours"],
+        2,
+      ),
+    });
+    const { plan: gated } = shipGate(plan, angled);
+    expect(gated.frames[0].subheadline).toBe("Cold brew steeped for 18 hours.");
+  });
+
+  it("puts the stake, not an empty line, in place of a lone unsourced sentence", () => {
+    const plan = away(
+      withFrame(cafePlan(), 0, {
+        headline: "Slow-steeped for a slower Saturday",
+        subheadline: "Voted the best coffee in Lagos.",
+      }),
+    );
+    const flagged = rules({
+      briefText: CAFE_BRIEF,
+      unsourced: [
+        { kind: "unsourced", frame: 0, text: "Voted the best coffee in Lagos" },
+      ],
+    });
+    const { plan: gated } = shipGate(plan, flagged);
+    expect(gated.frames[0].subheadline).not.toMatch(/Voted/);
+    expect(gated.frames[0].subheadline.trim()).not.toBe("");
+  });
+});

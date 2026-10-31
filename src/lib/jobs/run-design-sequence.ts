@@ -230,11 +230,34 @@ export class SequencePlanError extends Error {
     kind: SequenceKind,
     readonly problems: SequenceProblem[],
   ) {
-    super(
-      `We couldn't plan this ${kind} as a set that keeps to your brief. Try again, or add more detail to the brief.`,
-    );
+    super(planErrorMessage(kind, problems));
     this.name = "SequencePlanError";
   }
+}
+
+/* A refusal the owner can act on names the slide whose point to change
+   in the outline; a set broken as a whole has no slide to name. */
+function planErrorMessage(
+  kind: SequenceKind,
+  problems: readonly SequenceProblem[],
+): string {
+  const slides = [
+    ...new Set(
+      problems.flatMap((p) =>
+        p.rule === "blocking-fault" && p.frame !== null ? [p.frame + 1] : [],
+      ),
+    ),
+  ].sort((a, b) => a - b);
+  if (slides.length === 0) {
+    return `We couldn't plan this ${kind} as a set that keeps to your brief. Try again, or add more detail to the brief.`;
+  }
+  const listed =
+    slides.length === 1
+      ? `${slides[0]}`
+      : `${slides.slice(0, -1).join(", ")} and ${slides.at(-1)}`;
+  const noun = slides.length === 1 ? "slide" : "slides";
+  const points = slides.length === 1 ? "point" : "points";
+  return `We couldn't write ${noun} ${listed} of this ${kind} without repeating another slide or going beyond your brief. Change ${points} ${listed} in the outline, or try again.`;
 }
 
 /** The frame asked for is gone, not this brand's, or not a frame. */

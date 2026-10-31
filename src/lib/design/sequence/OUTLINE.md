@@ -136,6 +136,12 @@ to about 60%.
    set. Only then is
    a slide left to the owner (`EMPTY_POINT`), with source `"user"`: it is
    theirs to write, never "brief".
+2b. No point repeats another (`withOverlapsSwapped`). A body point
+   `flagOutline` would flag `overlap` is given the next spare pool point
+   (one the arc left unused that overlaps no point) in its place, unless
+   it alone states a brief fact. The owner is never handed an outline
+   that says one thing twice; a point no spare can replace keeps its
+   flag. The trace counts them (`overlapsSwapped`).
 3. Titles follow their points (`outlineTitles`). The arc's title is kept
    when it is 4 words or fewer and about its point (`titleFits`); else
    `pointTitle` takes a whole phrase of 2 to 4 of the point's own words: a
@@ -233,8 +239,15 @@ On the set path:
      receive markup or a template.
    - `injection`: words written to the model, not the reader ("ignore all
      earlier instructions", "system prompt", "you are now", "write X on
-     every slide"). Narrow on purpose: "Ignore the queue, book online" is
-     copy.
+     every slide"). Read as a class, not a list: a sentence that names the
+     set's own parts (slides, frames, headlines, footers, titles, buttons,
+     "everywhere", "anywhere") and also says what to write there (say,
+     write, copy, put, print, mention, repeat, replace); words addressed to
+     the writer ("Note to the copywriter"); an order to drop what the
+     writer was given ("Disregard the brief."); a directive label
+     ("Override:"). Narrow on purpose: "Ignore the queue, book online",
+     "Every frame includes a free fitting" and "Each slide of your ride
+     matters" are copy.
 2. Sources are recomputed, never trusted: a signed, unedited point keeps
    its planned source; otherwise a point whose words the brief holds is
    `"brief"`, the profile's `"profile"`, anything else `"user"`. A `"user"`
@@ -370,12 +383,29 @@ carrying a blocking fault after that is planned afresh, up to
 `SHIP_ATTEMPTS` (3) times, the brief read once; the set with the fewest
 is kept. With any left, `planSequence` throws `SequenceShipRefusedError`
 (`onBlocked: "refuse"`, the default, which production uses), and the job
-turns it into the same plain `SequencePlanError` a broken rule gets
-(rule `blocking-fault`), before any frame is rendered or billed. Each
+turns it into a `SequencePlanError` (rule `blocking-fault`) before any
+frame is rendered or billed, whose message names the slides and the
+outline points to change ("We couldn't write slide 2 of this carousel
+without repeating another slide or going beyond your brief. Change point
+2 in the outline, or try again."). Each
 fresh plan logs `design.sequence.replanned`. The eval passes
 `onBlocked: "report"` so it can still score the set, and prints what is
 left as "blocking faults left (production refuses these sets before any
 render)"; the panel counts it against the zero-fault gate.
+
+The hook never ships as a headline alone, and never as a label. Both
+are blocking (`hookFaults`): a hook with an empty subheadline, and a
+headline that past the offering's and brand's names, the places and the
+schedule (weekdays, months, the brief's dates and times) keeps at most
+one word of its own, with no figure, no question and no "you", "your",
+"we" or "our" (`isLabelHeadline`: "Scotch bonnet pepper sauce,
+restocked", "FreshFold laundry pickup: Monday to Wednesday"). A rule on
+what is left, not a list of announcement words. The gate never empties
+the hook's subheadline to clear another fault: in its place goes its
+stake (`hookStake`), the brief's or profile's own sentence that names
+what the hook leaves out and spends no later frame's point, else the
+hook's angle, else the names, each kept only where the set ends with
+fewer blocking faults than the hook with nothing under it.
 
 Two blocking faults name broken copy the gate used to pass: a line cut on a verb or preposition
 still waiting for its object ("Ironclad Gym's monthly membership
