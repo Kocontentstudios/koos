@@ -1,7 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BRAND, frameRows, SET } from "@/components/design/sequence/fixtures";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BRAND,
+  frameRows,
+  plannedOutline,
+  SET,
+} from "@/components/design/sequence/fixtures";
 import { buildSet } from "@/components/design/sequence/set-model";
 import {
   FRAME_STILL_RUNNING,
@@ -11,6 +16,7 @@ import type {
   DesignGenerationState,
   LiveDesignGeneration,
 } from "@/components/design/use-design-generation";
+import { sequenceKindOf } from "@/lib/design/sequence/contract";
 import { KoImageryProvider } from "./ko-imagery-context";
 import { MultiFrameProvider } from "./multi-frame-context";
 
@@ -41,6 +47,7 @@ function runState(
     frameActions: new Set(),
     frameErrors: {},
     framesStillRunning: new Set(),
+    posting: false,
     reset: vi.fn(),
     ...overrides,
   };
@@ -88,12 +95,30 @@ async function openWith(
   await userEvent.click(
     screen.getByRole("button", { name: /let ko create the imagery/i }),
   );
+  const kind = multiFrame ? sequenceKindOf(designType) : null;
+  if (kind) await approveOutline();
 }
+
+/** A set stops at its outline; this approves it as planned. */
+async function approveOutline() {
+  await screen.findByRole("list", { name: /^Outline/ });
+  await userEvent.click(
+    screen.getByRole("button", { name: /^Generate \d+ slides · \d+ units$/ }),
+  );
+}
+
+const outlineFetch = vi.fn(async (url: string, _init?: RequestInit) =>
+  url === "/api/design/outline"
+    ? Response.json({ outline: plannedOutline(5) })
+    : Response.json({ error: "unexpected" }, { status: 500 }),
+);
 
 beforeEach(() => {
   vi.clearAllMocks();
   slotRun = runState();
+  vi.stubGlobal("fetch", outlineFetch);
 });
+afterEach(() => vi.unstubAllGlobals());
 
 /* H6: the run is told a kind only when FEATURE_MULTI_FRAME is on, so a
    flag-off carousel brief and every single design start exactly as before:
@@ -103,7 +128,23 @@ describe("what the dialog tells the run", () => {
     const design = runState();
     await openWith(design);
     expect(design.generate).toHaveBeenCalledWith(
-      { brandId: BRAND, briefId: "brief-1", image: { source: "ko" } },
+      {
+        brandId: BRAND,
+        briefId: "brief-1",
+        image: { source: "ko" },
+        approvedOutline: {
+          kind: "carousel",
+          points: plannedOutline(5).points.map(
+            ({ id, role, title, point, source }) => ({
+              id,
+              role,
+              title,
+              point,
+              source,
+            }),
+          ),
+        },
+      },
       { sequenceKind: "carousel" },
     );
   });
@@ -122,6 +163,21 @@ describe("what the dialog tells the run", () => {
     expect(vi.mocked(design.generate).mock.calls[0]).toEqual([
       { brandId: BRAND, briefId: "brief-1", image: { source: "ko" } },
     ]);
+  });
+
+  /* O7: flag off, the outline step is never shown and its route never
+     asked. */
+  it("shows no outline step and asks no outline route with the flag off", async () => {
+    await openWith(runState(), { multiFrame: false });
+    expect(screen.queryByRole("list", { name: /^Outline/ })).toBeNull();
+    expect(outlineFetch).not.toHaveBeenCalled();
+  });
+
+  it("shows no outline step for a single design, flag on", async () => {
+    const design = runState();
+    await openWith(design, { designType: "Instagram post" });
+    expect(outlineFetch).not.toHaveBeenCalled();
+    expect(design.generate).toHaveBeenCalledTimes(1);
   });
 
   it("tells a single design's run nothing, sets on or off", async () => {
@@ -310,5 +366,171 @@ describe("DesignDirectionsDialog with a set of frames", () => {
     await userEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
     expect(keepWaitingOnFrame).toHaveBeenCalledWith(0);
     expect(regenerateFrame).not.toHaveBeenCalled();
+  });
+});
+
+/* O3/O6: the outline is the step between the image and the run. Nothing is
+   generated until it is approved, and its edits survive a change of image. */
+describe("the outline step in the dialog", () => {
+  it("plans the outline after the image is chosen and generates nothing yet", async () => {
+    const design = runState();
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={vi.fn()}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={design}
+        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
+      />,
+      flags(true),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Plan your carousel" }),
+    ).toBeInTheDocument();
+    await screen.findByRole("list", { name: /^Outline/ });
+    expect(outlineFetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(outlineFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      brandId: BRAND,
+      briefId: "brief-1",
+    });
+    expect(design.generate).not.toHaveBeenCalled();
+  });
+
+  it("sends the edited outline, and counts the approval as a run", async () => {
+    const design = runState();
+    const onRunStart = vi.fn();
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={vi.fn()}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={design}
+        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
+        onRunStart={onRunStart}
+      />,
+      flags(true),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    await screen.findByRole("list", { name: /^Outline/ });
+    expect(onRunStart).not.toHaveBeenCalled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Generate 4 slides · 4 units" }),
+    );
+    expect(onRunStart).toHaveBeenCalledTimes(1);
+    const sent = vi.mocked(design.generate).mock.calls[0]?.[0];
+    expect(sent?.approvedOutline?.points.map((p) => p.id)).toEqual([
+      "p1",
+      "p2",
+      "p4",
+      "p5",
+    ]);
+  });
+
+  it("keeps the outline's edits when the user goes back to change the image", async () => {
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={vi.fn()}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={runState()}
+        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
+      />,
+      flags(true),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    await screen.findByRole("list", { name: /^Outline/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Generate 4 slides · 4 units" }),
+    ).toBeInTheDocument();
+    expect(outlineFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the outline on screen, with the button busy, while the server takes the run", async () => {
+    await openWith(
+      runState({ pending: true, posting: true, stage: "starting" }),
+    );
+    expect(screen.getByRole("list", { name: /^Outline/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Starting…" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+  });
+
+  it("offers the way back to the outline when its run fails", async () => {
+    const design = runState({
+      error: "Invalid outline. Slide 2: The title is empty.",
+    });
+    await openWith(design);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Slide 2: The title is empty.");
+    await userEvent.click(
+      within(alert).getByRole("button", { name: "Edit outline" }),
+    );
+    expect(design.reset).toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Generate 5 slides · 5 units" }),
+    ).toBeInTheDocument();
+    expect(outlineFetch).toHaveBeenCalledTimes(1);
+  });
+
+  async function clickBeside() {
+    const backdrop = document.querySelector('[data-slot="dialog-overlay"]');
+    if (!backdrop) throw new Error("no backdrop");
+    await userEvent.click(backdrop);
+  }
+
+  async function openOutline(onOpenChange: () => void) {
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={onOpenChange}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={runState()}
+        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
+      />,
+      flags(true),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    await screen.findByRole("list", { name: /^Outline/ });
+  }
+
+  it("closes on a click beside it while the outline is untouched", async () => {
+    const onOpenChange = vi.fn();
+    await openOutline(onOpenChange);
+    await clickBeside();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not throw edits away on a click beside it", async () => {
+    const onOpenChange = vi.fn();
+    await openOutline(onOpenChange);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    await clickBeside();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 });

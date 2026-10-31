@@ -723,3 +723,99 @@ describe("a frame regenerate that outlives the poll", () => {
     expect(setJobsFor(BRAND)).toEqual([]);
   });
 });
+
+/* O4: the approved outline rides on the generate body as the user left it;
+   the wait for the server to take it is its own signal. */
+describe("a run from an approved outline", () => {
+  const OUTLINE = {
+    kind: "carousel" as const,
+    points: [
+      {
+        id: "p1",
+        role: "hook" as const,
+        title: "The launch",
+        point: "Opens Saturday.",
+        source: "brief" as const,
+      },
+      {
+        id: "u-1",
+        role: "body" as const,
+        title: "Free fitting",
+        point: "Every order is fitted free.",
+        source: "user" as const,
+      },
+      {
+        id: "p5",
+        role: "cta" as const,
+        title: "Book",
+        point: "Book at Lekki.",
+        source: "brief" as const,
+      },
+    ],
+  };
+
+  it("posts the outline with the run's request", async () => {
+    const hook = renderHook(() => useDesignGeneration());
+    await act(async () => {
+      await hook.result.current.generate(
+        { ...ARGS, approvedOutline: OUTLINE },
+        CAROUSEL,
+      );
+    });
+    const call = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes("/api/design/generate"),
+    );
+    expect(JSON.parse(String(call?.[1]?.body)).approvedOutline).toEqual(
+      OUTLINE,
+    );
+  });
+
+  it("is posting only until the server answers the generate request", async () => {
+    let answer: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((r) => {
+          answer = r;
+        }),
+    );
+    pollGenerationJob.mockImplementationOnce(() => new Promise(() => {}));
+    const hook = renderHook(() => useDesignGeneration());
+    act(() => {
+      void hook.result.current.generate(
+        { ...ARGS, approvedOutline: OUTLINE },
+        CAROUSEL,
+      );
+    });
+    expect(hook.result.current.posting).toBe(true);
+    expect(hook.result.current.pending).toBe(true);
+    await act(async () => answer(respond({ jobId: "job-1" }, 202)));
+    await waitFor(() => expect(hook.result.current.posting).toBe(false));
+    expect(hook.result.current.pending).toBe(true);
+  });
+
+  it("says which slide the server refused, not only that it refused", async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      respond(
+        {
+          error: "Invalid outline",
+          problems: [
+            { point: 1, rule: "markup", detail: "The point holds markup." },
+          ],
+        },
+        400,
+      ),
+    );
+    const hook = renderHook(() => useDesignGeneration());
+    await act(async () => {
+      await hook.result.current.generate(
+        { ...ARGS, approvedOutline: OUTLINE },
+        CAROUSEL,
+      );
+    });
+    expect(hook.result.current.error).toBe(
+      "Invalid outline. Slide 2: The point holds markup.",
+    );
+    expect(hook.result.current.posting).toBe(false);
+    expect(hook.result.current.pending).toBe(false);
+  });
+});

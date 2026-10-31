@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trackImageChoice } from "@/components/design/design-analytics";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import {
@@ -10,13 +10,20 @@ import {
   type TicketContext,
 } from "@/components/design/send-to-team";
 import {
+  type OutlineRequest,
+  useOutline,
+} from "@/components/design/sequence/use-outline";
+import {
   type DesignGenerationState,
   type DesignImageChoice,
   type GenerateArgs,
   useDesignGeneration,
 } from "@/components/design/use-design-generation";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { sequenceKindOf } from "@/lib/design/sequence/contract";
+import {
+  type ApprovedOutline,
+  sequenceKindOf,
+} from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
 import type { DirectionSlot, SendNotice } from "./direction-results";
@@ -34,14 +41,15 @@ import { useKoImageryOffered } from "./ko-imagery-context";
 import { useMultiFrameOffered } from "./multi-frame-context";
 import { useDesignImageUpload } from "./use-design-image-upload";
 
-type Step = "choose" | "upload" | "run";
+type Step = "choose" | "upload" | "outline" | "run";
 
 export interface DesignDirectionsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entry: DirectionsEntry;
-  /** Everything a run needs except the image, which this dialog chooses. */
-  args: Omit<GenerateArgs, "image" | "regenerateOf">;
+  /** Everything a run needs except the image and, for a set, the outline,
+   *  which this dialog chooses. */
+  args: Omit<GenerateArgs, "image" | "regenerateOf" | "approvedOutline">;
   /** Owned by the caller when it also needs the results (Design Studio's
    *  history grid); created here otherwise. */
   design: DesignGenerationState;
@@ -118,6 +126,31 @@ export function DesignDirectionsDialog({
   const expectedKind = multiFrame
     ? sequenceKindOf(ticketContext?.designType)
     : null;
+  const {
+    brandId,
+    briefId,
+    calendarItemId,
+    attachments,
+    freeform,
+    aspectRatio,
+  } = args;
+  const outlineRequest = useMemo<OutlineRequest>(
+    () => ({
+      brandId,
+      briefId,
+      calendarItemId,
+      attachments,
+      freeform,
+      aspectRatio,
+    }),
+    [brandId, briefId, calendarItemId, attachments, freeform, aspectRatio],
+  );
+  /* Only a set the server is certain to build gets an outline step; the
+     kind passed when there is none is never read. */
+  const outline = useOutline(expectedKind ?? "carousel", outlineRequest);
+  /* Set when the run on screen was started from an approved outline, so
+     its error offers the way back to that outline. */
+  const [fromOutline, setFromOutline] = useState(false);
 
   function run(runArgs: GenerateArgs) {
     if (expectedKind) {
@@ -137,6 +170,10 @@ export function DesignDirectionsDialog({
     setSendNotices({});
   }
 
+  /* A carousel or presentation stops at its outline first: the user
+     approves the points before any copy is written or unit spent. The
+     outline already on screen is kept, so changing the image never throws
+     the user's edits away. */
   function start(image: DesignImageChoice) {
     trackImageChoice(image.source, entry);
     lastImage.current = image;
@@ -146,10 +183,23 @@ export function DesignDirectionsDialog({
         ? upload.state.image.name
         : null,
     );
+    if (expectedKind) {
+      setStep("outline");
+      return;
+    }
+    launch(image);
+  }
+
+  function launch(image: DesignImageChoice, approvedOutline?: ApprovedOutline) {
     clearRunState();
+    setFromOutline(approvedOutline !== undefined);
     setStep("run");
     onRunStart?.();
-    run({ ...args, image });
+    run(
+      approvedOutline
+        ? { ...args, image, approvedOutline }
+        : { ...args, image },
+    );
   }
 
   /* "Use this image" pressed mid-upload continues on its own the moment the
@@ -247,6 +297,8 @@ export function DesignDirectionsDialog({
       setStep("choose");
       setWaitingOnUpload(false);
       upload.clear();
+      outline.reset();
+      setFromOutline(false);
       clearRunState();
     }
     onOpenChange(next);
@@ -278,6 +330,16 @@ export function DesignDirectionsDialog({
       }
     },
     onBackToChoice: backToChoice,
+    onGenerateOutline: (approved) => {
+      const image = lastImage.current;
+      if (image) launch(image, approved);
+    },
+    onEditOutline: fromOutline
+      ? () => {
+          design.reset();
+          setStep("outline");
+        }
+      : undefined,
     onRetryGeneration: () => void design.retry(),
     onChooseAnotherImage: () => {
       design.reset();
@@ -331,62 +393,69 @@ export function DesignDirectionsDialog({
     );
   }
 
+  /* The outline stays on screen while the server takes the run, so its
+     Generate button shows that wait. */
+  const outlineHandingOff =
+    step === "run" && fromOutline && design.pending && design.posting === true;
+
   const view: DirectionsView =
-    step === "choose"
-      ? { step: "choose" }
-      : step === "upload"
-        ? {
-            step: "upload",
-            upload: upload.state,
-            waitingOnUpload:
-              waitingOnUpload &&
-              (upload.state.status === "preparing" ||
-                upload.state.status === "uploading"),
-          }
-        : design.pending && design.sequenceProgress
+    step === "outline" || outlineHandingOff
+      ? { step: "outline", outline, starting: outlineHandingOff }
+      : step === "choose"
+        ? { step: "choose" }
+        : step === "upload"
           ? {
-              step: "set-progress",
-              progress: design.sequenceProgress,
-              stage: design.stage,
-              source: source ?? "none",
+              step: "upload",
+              upload: upload.state,
+              waitingOnUpload:
+                waitingOnUpload &&
+                (upload.state.status === "preparing" ||
+                  upload.state.status === "uploading"),
             }
-          : design.pending
+          : design.pending && design.sequenceProgress
             ? {
-                step: "progress",
-                source: source ?? "none",
+                step: "set-progress",
+                progress: design.sequenceProgress,
                 stage: design.stage,
-                jobStage: design.jobStage,
-                progress: design.progress,
+                source: source ?? "none",
               }
-            : design.error && design.stillRunning
-              ? { step: "still-running", message: design.error }
-              : design.error
-                ? {
-                    step: "error",
-                    source: source ?? "none",
-                    message: design.error,
-                    unusableImage: isUnusableImageError(design.error),
-                  }
-                : design.set
+            : design.pending
+              ? {
+                  step: "progress",
+                  source: source ?? "none",
+                  stage: design.stage,
+                  jobStage: design.jobStage,
+                  progress: design.progress,
+                }
+              : design.error && design.stillRunning
+                ? { step: "still-running", message: design.error }
+                : design.error
                   ? {
-                      step: "set-results",
-                      set: design.set,
-                      source,
-                      frameActions: design.frameActions ?? NO_FRAME_ACTIONS,
-                      frameErrors: design.frameErrors ?? {},
-                      framesStillRunning:
-                        design.framesStillRunning ?? NO_FRAMES_WAITING,
+                      step: "error",
+                      source: source ?? "none",
+                      message: design.error,
+                      unusableImage: isUnusableImageError(design.error),
                     }
-                  : {
-                      step: "results",
-                      slots,
-                      source,
-                      imageName,
-                      regeneratingSlot,
-                      regenerateError,
-                      sendingId,
-                      sendNotices,
-                    };
+                  : design.set
+                    ? {
+                        step: "set-results",
+                        set: design.set,
+                        source,
+                        frameActions: design.frameActions ?? NO_FRAME_ACTIONS,
+                        frameErrors: design.frameErrors ?? {},
+                        framesStillRunning:
+                          design.framesStillRunning ?? NO_FRAMES_WAITING,
+                      }
+                    : {
+                        step: "results",
+                        slots,
+                        source,
+                        imageName,
+                        regeneratingSlot,
+                        regenerateError,
+                        sendingId,
+                        sendNotices,
+                      };
 
   /* A click beside the dialog is usually a slip, and closing resets the
      flow; it may only dismiss when nothing would be thrown away. Escape and
@@ -397,7 +466,12 @@ export function DesignDirectionsDialog({
     (view.step === "results" &&
       view.regeneratingSlot === null &&
       view.sendingId === null) ||
-    (view.step === "set-results" && view.frameActions.size === 0);
+    (view.step === "set-results" && view.frameActions.size === 0) ||
+    (view.step === "outline" &&
+      !view.starting &&
+      !(
+        view.outline.state.status === "ready" && view.outline.state.draft.edited
+      ));
 
   return (
     <Dialog

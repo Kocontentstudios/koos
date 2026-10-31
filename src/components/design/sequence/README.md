@@ -11,6 +11,9 @@ user: one card in the history, one viewer, one ZIP or PDF.
 | `set-jobs.ts` | The set and frame jobs this browser started and has not seen end, with what it knew at the start: the kind the dialog expected, a frame job's set (localStorage, every access guarded). |
 | `use-set-watch.ts` | Design Studio's watcher: polls the open jobs (which resumes a set past its slice), reads pending frames again, adds what a finished job made, says which sets have stalled (`stalledSets`) and which jobs still need a placeholder card (`placeholderJobs`). |
 | `set-viewer.tsx` | Stage (`set-stage.tsx`, with a failed frame's retry on the frame), filmstrip (`frame-rail.tsx`), the viewer's one `role="status"` region, the selected frame's actions (edit, regenerate, download this frame) and inline editor (`frame-editor.tsx`), whole-set downloads (`set-downloads.tsx`). |
+| `outline-model.ts` | Pure: the outline the user edits before generating (`OutlineDraft`). Hook first and action last by construction, add and delete within `FRAME_BOUNDS`, `OUTLINE_LIMITS` held as typed, the client mirror of the server's empty/too-long/markup rules, overlap reasons renumbered after an edit, brief facts a deletion leaves unstated, `toApproved` for the generate body. |
+| `use-outline.ts` | `POST /api/design/outline`: idle, loading, empty, error (429 says when to try again) and ready. A re-plan keeps the draft on screen until the new one lands; the latest request wins. |
+| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete body points, re-plan at a chosen count (asks first when edited), "Generate N slides · N units". |
 | `set-progress.tsx` | The wait for a whole set in the directions dialog. |
 | `set-card.tsx`, `set-viewer-dialog.tsx` | The history grid's card (aspect box and skeleton until the cover is in; "k of N" while building; a stated failure when no frame rendered), the placeholder card for a set job with no row yet, and the dialog a card opens. |
 
@@ -22,6 +25,25 @@ Outside this folder:
 | `src/lib/design/sequence/progress-mark.ts` | The mark a set or frame job puts on its progress. |
 | `src/lib/design/sequence/open-set-jobs.ts`, `.server.ts`, `src/app/api/design/set-jobs/route.ts` | `GET /api/design/set-jobs?brandId=`: the caller's open set and frame jobs for the brand, found by that mark or, without it, by the job's input and checkpoint. |
 | `src/lib/design/generation-ids.ts` | `MAX_GENERATION_IDS`, the route's by-id limit, and `chunkIds`, which the watcher reads with. |
+
+## The outline step
+
+With FEATURE_MULTI_FRAME on and a ticket whose design type is a carousel or
+presentation, choosing the image does not start the run. The dialog moves to
+the outline step (`outline-step.tsx`), plans the outline once, and keeps the
+user's draft until the dialog closes, so going back to change the image never
+loses an edit. Generate sends `approvedOutline` (`toApproved`) with the run;
+the outline stays on screen, its button busy, while `/api/design/generate` is
+answering (`posting`), then the set's own wait takes over. A run that fails
+offers "Edit outline", and a refused outline names the slide
+(`Invalid outline. Slide 2: …`). Flag off, or a single design, there is no
+outline step and no outline request (O7). The API contract is
+`src/lib/design/sequence/OUTLINE.md`.
+
+Weak flags are the server's (`flagOutline`). The client never invents one: it
+clears a flag when the user rewrites that point's words, drops an overlap whose
+earlier point was deleted, and says an overlap's slide number from where the
+earlier point sits now.
 
 `use-design-generation.ts` composes `useFrameSet`: a job result with
 `kind: "sequence"` loads its frames by id and exposes them as `set`.

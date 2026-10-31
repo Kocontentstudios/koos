@@ -132,6 +132,9 @@ export interface GenerationErrorProps {
   onUseKoImagery: () => void;
   onNoImage: () => void;
   onChangeImage: () => void;
+  /** A run from an approved outline goes back to that outline, edits kept,
+   *  rather than starting again from the image. */
+  onEditOutline?: () => void;
 }
 
 export function GenerationError({
@@ -144,6 +147,7 @@ export function GenerationError({
   onUseKoImagery,
   onNoImage,
   onChangeImage,
+  onEditOutline,
 }: GenerationErrorProps) {
   const Icon = unusableImage ? ImageOff : TriangleAlert;
   /* The server's sentence opens with the heading's words and closes with the
@@ -193,9 +197,15 @@ export function GenerationError({
               <RotateCw aria-hidden="true" />
               Try again
             </Button>
-            <Button type="button" variant="secondary" onClick={onChangeImage}>
-              {startOverLabel(source)}
-            </Button>
+            {onEditOutline ? (
+              <Button type="button" variant="secondary" onClick={onEditOutline}>
+                Edit outline
+              </Button>
+            ) : (
+              <Button type="button" variant="secondary" onClick={onChangeImage}>
+                {startOverLabel(source)}
+              </Button>
+            )}
           </>
         )}
       </div>

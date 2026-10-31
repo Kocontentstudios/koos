@@ -2,6 +2,9 @@
 import type { Browser } from "playwright";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { plannedOutline } from "@/components/design/sequence/fixtures";
+import { draftFrom } from "@/components/design/sequence/outline-model";
+import type { OutlineController } from "@/components/design/sequence/use-outline";
 import { DIALOG_CONTENT_CLASS } from "@/components/ui/dialog";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import {
@@ -73,7 +76,25 @@ function generation(id: string, title: string): SerializedGeneration {
   };
 }
 
+const OUTLINE: OutlineController = {
+  kind: "carousel",
+  state: {
+    status: "ready",
+    draft: draftFrom(plannedOutline(5)),
+    replanning: null,
+    replanError: null,
+  },
+  ensure: noop,
+  retry: noop,
+  replan: noop,
+  edit: noop,
+  add: () => null,
+  remove: noop,
+  reset: noop,
+};
+
 const VIEWS: [string, DirectionsView][] = [
+  ["outline", { step: "outline", outline: OUTLINE, starting: false }],
   ["choice", { step: "choose" }],
   [
     "upload preview",
@@ -169,7 +190,7 @@ async function clippedOutlines(view: DirectionsView, width: number) {
       const top = box.top + scroller.clientTop - scroller.scrollTop;
       const left = box.left + scroller.clientLeft;
       const controls = scroller.querySelectorAll<HTMLElement>(
-        "button, a[href], [tabindex='0']",
+        "button, a[href], [tabindex='0'], input, textarea, select",
       );
       return [...controls].flatMap((el) => {
         const r = el.getBoundingClientRect();
@@ -208,12 +229,22 @@ async function outlinesClippedWhileTabbing(
       .locator("[data-testid=scroller]")
       .evaluate(
         (scroller) =>
-          scroller.querySelectorAll("button, a[href], [tabindex='0']").length,
+          scroller.querySelectorAll(
+            "button, a[href], [tabindex='0'], input, textarea, select",
+          ).length,
       );
     const clipped: string[] = [];
     let scrolled = false;
     for (let stop = 0; stop < stops; stop++) {
       await page.keyboard.press("Tab");
+      /* Static markup carries no handlers; this is what REVEAL_ON_FOCUS
+         does on focus in the app. */
+      await page.evaluate(() => {
+        const el = document.activeElement;
+        if (el?.hasAttribute("data-reveal-on-focus")) {
+          el.scrollIntoView({ block: "nearest" });
+        }
+      });
       const result = await page.evaluate((reach) => {
         const scroller = document.querySelector<HTMLElement>(
           "[data-testid=scroller]",
@@ -257,29 +288,32 @@ describe.each(VIEWS)("directions dialog, %s", (_name, view) => {
   );
 });
 
-describe("directions dialog results, tabbing through a scrolled list", () => {
-  const results = VIEWS.find(([name]) => name === "results")?.[1];
-  if (!results) throw new Error("results view missing");
+describe.each(["results", "outline"])(
+  "directions dialog %s, tabbing through a scrolled list",
+  (viewName) => {
+    const results = VIEWS.find(([name]) => name === viewName)?.[1];
+    if (!results) throw new Error(`${viewName} view missing`);
 
-  it.each([
-    [390, 700],
-    [768, 600],
-    [768, 900],
-    [1024, 700],
-    [1440, 700],
-  ])(
-    "keeps the focused outline inside the scroll box at %ipx x %ipx",
-    async (width, height) => {
-      const { clipped, scrolled } = await outlinesClippedWhileTabbing(
-        results,
-        width,
-        height,
-      );
-      expect(scrolled).toBe(true);
-      expect(clipped).toEqual([]);
-    },
-  );
-});
+    it.each([
+      [390, 700],
+      [768, 600],
+      [768, 900],
+      [1024, 700],
+      [1440, 700],
+    ])(
+      "keeps the focused outline inside the scroll box at %ipx x %ipx",
+      async (width, height) => {
+        const { clipped, scrolled } = await outlinesClippedWhileTabbing(
+          results,
+          width,
+          height,
+        );
+        expect(scrolled).toBe(true);
+        expect(clipped).toEqual([]);
+      },
+    );
+  },
+);
 
 /* Round 5: at 640-1024px the results width replaced the base 2rem gutter
    and the popup ran from 0 to the viewport's edge. */
