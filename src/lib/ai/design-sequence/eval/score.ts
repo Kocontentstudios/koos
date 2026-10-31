@@ -90,10 +90,13 @@ function sharedSystem(plan: PlannedSequence, c: SequenceEvalCase): boolean {
   );
 }
 
+/** `released`: facts the owner took out of the approved outline
+ *  (lanes.ts factsTakenOut), which no frame need state. */
 export function scoreRun(
   c: SequenceEvalCase,
   frames: number,
   plan: PlannedSequence,
+  released: readonly string[] = [],
 ): RunScore {
   const facts = labelledFacts(c);
   const problems = validateSequence(plan, {
@@ -102,8 +105,11 @@ export function scoreRun(
     offering: c.offering,
     hasImage: c.imageSource !== "none",
     brandName: c.brand.name,
+    released,
   });
-  const uncovered = factsUncovered(plan.frames, facts).map((f) => f.text);
+  const uncovered = factsUncovered(plan.frames, facts, released).map(
+    (f) => f.text,
+  );
   const hook = plan.frames[0];
   const offeringOnHook = Boolean(hook && copyNamesOffering(hook, c.offering));
   return {

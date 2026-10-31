@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import {
   type ApprovedOutline,
   type ApprovedOutlinePoint,
@@ -35,16 +34,71 @@ const ID = /^[a-z0-9-]{1,40}$/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
 const MARKUP = /[<>`]|\{\{|\}\}|[\u0000-\u0008\u000b-\u001f\u007f]/;
 
+/* Direction-override and isolate marks reorder what a reader sees
+   against what the server reads, so "11pm" can display as "mp11". */
+const BIDI = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+
+/* Invisible characters that split a word without changing how it looks
+   ("ig\u200bnore"). The zero-width joiner stays: emoji sequences use it. */
+const INVISIBLE = /[\u00ad\u200b\u200c\u2060-\u2064\ufeff]/g;
+
+/* Cyrillic and Greek letters drawn like Latin ones. A word that mixes them
+   with Latin letters is spelled to look like one word and read as
+   another: "Іgnore" with a Cyrillic І passes a check for "ignore". */
+const LOOKALIKE: Record<string, string> = {
+  а: "a",
+  в: "b",
+  е: "e",
+  к: "k",
+  м: "m",
+  н: "h",
+  о: "o",
+  р: "p",
+  с: "c",
+  т: "t",
+  у: "y",
+  х: "x",
+  і: "i",
+  ј: "j",
+  ѕ: "s",
+  ԁ: "d",
+  ӏ: "l",
+  ɡ: "g",
+  α: "a",
+  ε: "e",
+  ι: "i",
+  κ: "k",
+  ν: "v",
+  ο: "o",
+  ρ: "p",
+  τ: "t",
+  υ: "u",
+  χ: "x",
+};
+const LOOKALIKES = new RegExp(`[${Object.keys(LOOKALIKE).join("")}]`, "giu");
+const MIXED_SCRIPT =
+  /(?=[\p{L}]*\p{Script=Latin})(?=[\p{L}]*[\p{Script=Cyrillic}\p{Script=Greek}])[\p{L}]+/u;
+
+const unmasked = (text: string) =>
+  text
+    .normalize("NFKC")
+    .replace(INVISIBLE, "")
+    .replace(LOOKALIKES, (ch) => LOOKALIKE[ch.toLowerCase()] ?? ch);
+
 /* Words addressed to the model rather than the reader: an outline point
    is copy a frame states, so a sentence telling the writer what to do is
    refused, not drawn (O4). Narrow on purpose: "Ignore the queue, book
-   online" is copy; "ignore all earlier instructions" is not. */
+   online" and "Forget everything you know about laundry" are copy;
+   "ignore all earlier instructions" and "disregard what you were told"
+   are not. */
 const INSTRUCTION = [
   /\b(?:ignore|disregard|forget|override|bypass)\b[^.!?]{0,40}\b(?:instructions?|prompts?|rules|guidelines|directions|system)\b/i,
+  /\b(?:ignore|disregard|forget)\b[^.!?]{0,40}\b(?:you\s+(?:were|have\s+been|was)\s+(?:told|given|asked|shown)|(?:said|written|given)\s+(?:above|before|earlier)|(?:earlier|previous|prior|above)\s+(?:text|messages?|context|content|points?))\b/i,
   /\b(?:system|developer)\s+(?:prompt|message|instructions?)\b/i,
   /\byou\s+are\s+now\b|\bact\s+as\s+(?:an?|the)\s+(?:ai|assistant|model|language)\b/i,
   /\b(?:new|updated|real)\s+instructions?\b/i,
   /\b(?:write|put|add|print|say)\b[^.!?]{0,60}\bon\s+(?:every|each|all)\s+(?:slides?|frames?)\b/i,
+  /(?:^|[.!?]\s*)(?:assistant|system|developer|user|human|ai|model)\s*:/i,
 ];
 
 /* Generous caps so a hostile body fails on its own rules, not on a
@@ -69,34 +123,34 @@ const outlineSchema = z.object({
     .max(RAW_POINTS_MAX),
 });
 
-const flat = (text: string) => text.replace(/\s+/g, " ").trim();
+const flat = (text: string) =>
+  text.replace(INVISIBLE, "").replace(/\s+/g, " ").trim();
 
-/* Share of a point's content words its source must hold for the point to
-   be the source's: the planner's own points restate a clause or join two,
-   so they keep most words but not every one. */
-const SOURCE_SHARE = 0.8;
+const plain = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 
+/* Only words the source gives as they are: a point the owner edited keeps
+   most of the brief's words, and a share test read "open 5am to 11pm"
+   over the brief's "5am to 10pm" as the brief's, so the owner's corrected
+   hours were written back to the brief's. */
 function heldBy(point: string, source: string): boolean {
-  if (!source.trim()) return false;
-  if (flat(source).toLowerCase().includes(flat(point).toLowerCase())) {
-    return true;
-  }
-  const stems = [...contentStems(point)];
-  if (stems.length === 0) return false;
-  const theirs = contentStems(source);
-  return (
-    stems.filter((s) => theirs.has(s)).length / stems.length >= SOURCE_SHARE
-  );
+  const words = plain(point);
+  return words.length > 0 && ` ${plain(source)} `.includes(` ${words} `);
 }
 
-/** Where a point's words come from, recomputed on the server: the brief,
- *  else the profile, else the owner, whose words then count as stated. */
+/** Where an unsigned point's words come from, recomputed on the server:
+ *  the brief when it gives them word for word, else the profile, else the
+ *  owner, whose words then count as stated. */
 export function outlineSourceOf(
   point: string,
   ctx: Pick<OutlineValidateContext, "briefText" | "profileStatements">,
 ): OutlineSource {
   if (heldBy(point, ctx.briefText)) return "brief";
-  if (heldBy(point, ctx.profileStatements.join("\n"))) return "profile";
+  if (ctx.profileStatements.some((s) => heldBy(point, s))) return "profile";
   return "user";
 }
 
@@ -144,7 +198,7 @@ function textProblems(
   /* NFKC folds fullwidth and small-form brackets ("＜script＞", "﹤") to
      the ASCII ones the check refuses. */
   const folded = raw.normalize("NFKC");
-  if (MARKUP.test(folded)) {
+  if (MARKUP.test(folded) || BIDI.test(folded)) {
     return [
       {
         point: i,
@@ -153,7 +207,16 @@ function textProblems(
       },
     ];
   }
-  if (INSTRUCTION.some((pattern) => pattern.test(folded))) {
+  if (MIXED_SCRIPT.test(folded.replace(INVISIBLE, ""))) {
+    return [
+      {
+        point: i,
+        rule: "injection",
+        detail: `the ${field} spells a word in two alphabets; type it again in one`,
+      },
+    ];
+  }
+  if (INSTRUCTION.some((pattern) => pattern.test(unmasked(raw)))) {
     return [
       {
         point: i,
@@ -187,8 +250,9 @@ function textProblems(
  * Every source is recomputed, never read from the client: a point whose
  * signature still matches its words keeps the source it was planned with
  * (the planner's own wording is never the owner's); any other point is
- * "brief" when the brief holds its words, "profile" when the profile does,
- * else "user", which copy treats as stated.
+ * "brief" when the brief gives its words as they are, "profile" when a
+ * profile statement does, else "user", which copy treats as stated: an
+ * edit of one figure makes the point the owner's.
  */
 export function validateApprovedOutline(
   raw: unknown,
@@ -263,7 +327,12 @@ export function validateApprovedOutline(
           point,
           source:
             signedSource(
-              { kind: ctx.kind, briefText: ctx.briefText, point },
+              {
+                kind: ctx.kind,
+                briefText: ctx.briefText,
+                role: p.role,
+                point,
+              },
               p.sig,
             ) ?? outlineSourceOf(point, ctx),
         };

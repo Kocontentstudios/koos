@@ -3,6 +3,7 @@ import {
   contentStems,
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
+import { upperFirst } from "./casing";
 import type { FrameBeat } from "./contract";
 
 /**
@@ -317,8 +318,7 @@ function clausesOf(text: string): string[] {
   return [whole, ...parts];
 }
 
-const capitalised = (text: string) =>
-  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+const capitalised = upperFirst;
 
 /** The opening words of a headline that fit on a card and end on a word
  *  a phrase can end on, longest first: "Taught by teachers" and "Taught

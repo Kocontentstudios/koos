@@ -86,8 +86,8 @@ the profile source alone is not a flag: the UI already shows `source`.
 | kind | When | Example reason |
 |---|---|---|
 | `overlap` | The point makes an earlier point's point (`claimsOverlap` over the brief facts, `namesFree` words ignored). `overlapsWith` is the earlier point's id. | "Says the same as point 2. Give this slide a different point." |
-| `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else); a point of three words or fewer ("Six Saturdays", "₦150 per kWh", "Ngozi Ade"); or the prompt left where nothing was found (`EMPTY_POINT`). | "Only says when it happens. Add what the reader gets." |
-| `profile-fill` | A body point drawn from the profile's statements of what the brand is, sells or believes (`genericProfile`: overview, offer, values). Never on a `"user"` point, never on one drawn from `differentiators`. | "Taken from your brand profile: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer." |
+| `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else); a point of three words or fewer ("Six Saturdays", "₦150 per kWh", "Ngozi Ade"); or the prompt left where nothing was found (`EMPTY_POINT`, checked before overlap and never named as the earlier point another overlaps). A bare figure the reader weighs (a quantity, offer, condition or age with a number: "Only 12 places", "Ready in 3 days") is not filler. | "Only says when it happens. Add what the reader gets." |
+| `profile-fill` | A body point drawn from the profile because the brief ran out that states what the brand is, sells or believes (`genericProfile`: overview, offer, values). Never on a `"user"` point, never on one drawn from `differentiators`: a concrete profile fact ("Beans from the Mambilla Plateau") shows its `source` and is not flagged. | "Taken from your brand profile because the brief ran out: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer." |
 
 Only body points are flagged, plus a hook that only names the offer (no
 figure, under three words of its own): "Names the offer but gives no reason
@@ -96,8 +96,16 @@ and swapping it for another point would leave the set with no action.
 
 The eval prints flag recall (every frame the judge scores 2 or lower for
 repetition in lane AUTO should be flagged; at least 0.8), the flag rate
-(flagged body points of all body points) and precision (flagged points the
-judge scored 3 or lower).
+(flagged body points of all body points), precision at the same bar as
+recall (flagged body points the judge scored 2 or lower) and the same
+share among unflagged body points, so a flag that discriminates shows
+precision well above it.
+
+Calibration (274 judged lane AUTO body points from four earlier runs): concrete
+profile points scored 2 or lower 8 of 79 times (10%), generic ones 25 of 88
+(28%), bare scarcity or turnaround figures 0 of 12. Unflagging the first and
+the last keeps recall at 53 of 61 (0.87) and drops the flag rate from 93%
+to about 60%.
 
 ## How the planner builds an outline (`planOutline`)
 
@@ -116,11 +124,23 @@ judge scored 3 or lower).
    facts the action frame carries that it leaves out, each in the brief's
    own short sentence where it has one ("We are raising $750,000."), else
    bare (`actionPoint`).
-3. Titles follow their points (`outlineTitles`), in sentence case with the
-   brief's names kept (`sentenceCased`: camel-case names like "FreshFold"
-   and "WhatsApp", "M-Pesa", and a person a sentence opens on, "Contact
-   Ngozi Ade", keep their capitals), cut at a word to
-   `OUTLINE_LIMITS.titleChars`.
+3. Titles follow their points (`outlineTitles`). The arc's title is kept
+   when it is 4 words or fewer and about its point (`titleFits`); else
+   `pointTitle` takes a whole phrase of 2 to 4 of the point's own words: a
+   run in its first clause (a comma inside "1,200" does not end it) that
+   starts and ends on a word of its own, with a joining word or the
+   clause's edge on either side, the brand's names that open it left out,
+   "is" and "are" dropped, the run on the clause's subject first ("Coach on
+   the floor", "Cracked iPhone screen", "Revenue grew 3x"). An empty slide
+   is titled "Add a point". Titles are in sentence case with the brief's
+   names kept (`sentenceCased`: camel-case names like "FreshFold",
+   "WhatsApp" and "iPhone", "M-Pesa", a person a sentence opens on, and
+   the first word of a name used alone, "Join Ironclad today" for
+   "Ironclad Gym"), and cut at a whole word to `OUTLINE_LIMITS.titleChars`
+   with no ellipsis (`titleWithin`).
+   The offering is refused when the read's phrase ends on a pronoun
+   ("replaces it"), and is never widened over half of the brand's name
+   ("Hub" of "Fixit Hub"; `settledOffering`).
 4. Each point is signed (`signPoint`), then `flagOutline`, then the trace
    line.
 
@@ -131,9 +151,14 @@ judge scored 3 or lower).
    a hook angle above all, are never the owner's: before signing, a client
    that sent the outline back untouched turned "hemmed to your exact length"
    into an owner fact the copy was then forced to keep.
-2. Any other point is `"brief"` when the brief holds its words verbatim or
-   80% of its content words, else `"profile"` by the same test against the
-   profile's statements (`outlineSourceOf`), else `"user"`.
+2. Any other point is `"brief"` when the brief gives its words as they are
+   (case and punctuation aside), else `"profile"` when one profile
+   statement does (`outlineSourceOf`), else `"user"`. There is no share of
+   words: an owner who corrects one figure ("open 5am to 11pm" over the
+   brief's "5am to 10pm") has written their own point, and a share test
+   read it as the brief's and wrote the brief's hours back.
+3. The signature covers the role too, so a planned body point moved into
+   the hook's slot is read again.
 
 A `"user"` point is added to the ledger (`sequenceLedger(..., stated)`) and
 the title sources, so copy may say it. The key is `OUTLINE_SIGNING_SECRET`,
@@ -252,8 +277,28 @@ removed (`removedPoints`). Then:
 - the ship gate cuts such a sentence, or sets such a headline to the
   frame's claim (`withoutRemoved`).
 
-A hard brief fact a removed point carried is still drawn on some frame,
-since H5 outranks the deletion. The eval counts replaced points that leak
+When the owner edits the outline (a `"user"` point, or a planned id
+missing: ids are planned in order and the hook and action cannot go),
+`releasedFacts` names the brief facts no approved point states that a
+deleted or replaced point carried, or whose figure the owner's words
+correct. H5 asks every brief fact on some frame and O5 says nothing removed
+appears; the approved outline is the owner's decision, so O5 wins:
+
+- a released fact is not asked of any frame (`factsUncovered`,
+  `validateSequence`, the gate's `keepsCoverage`) and is never drawn by
+  code (`withFactsDrawn`), nor is a drawn line put where it would make a
+  removed point;
+- a frame that states a released fact is a blocking fault
+  (`releasedFaults`), and the gate drops it from a footer, a subheadline
+  or a headline (`withoutRemoved`);
+- `removedFaults` reads every line a reader sees (`linesOf`): headline,
+  subheadline sentences, footer items and the button;
+- the result lists `factsReleased`, so the outline UI can warn which hard
+  facts a deletion leaves unstated before Generate.
+
+An outline approved untouched releases nothing and removes nothing: the
+planner's unused pool points are spare, not taken out, and H5 holds in
+full. The eval counts replaced points that leak
 (lane APPROVED, `deletedLeaks`) and runs a deletion probe on every outline:
 the first body point deleted, the rest sent back signed, and any frame that
 still makes it counted (`withPointDeleted`, "deleted points said anyway").
@@ -270,3 +315,24 @@ fault worse than the best one. A failed second draft or pick leaves the
 first draft and its fewest-fault opening.
 
 Response unchanged: `202 {jobId, frames, notice}`.
+
+### Nothing that must not ship ships
+
+After the gate, coverage, titles and casing, `lastResort`
+(`last-resort.ts`) rewrites in code every frame still carrying a blocking
+fault from its own point (the approved words): the point split into a
+headline and a sentence (a subjectless second half given "It" or
+"They"), the point under its headline, the frame's title over its point,
+the point as the headline, or a hook's or action's subheadline cut. A
+version is kept only where the whole set ends with fewer blocking faults,
+titles and casing settled again after each. What still blocks after that
+is returned as `refused`; with `onBlocked: "refuse"` `planSequence` throws
+`SequenceShipRefusedError` instead. The default is "report": on the live
+eval about half the sets still carry a blocking fault after the last
+resort, so refusing would fail about half of all jobs. Turning refusal on
+is a product decision left open for the owner.
+
+Two blocking faults name broken copy the gate used to pass: a line cut on a verb or preposition
+still waiting for its object ("Ironclad Gym's monthly membership
+includes"), and a subheadline that gives only names ("FreshFold.", "Fixit
+Hub.").

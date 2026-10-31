@@ -8,6 +8,7 @@ import {
   contentStems,
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
+import { upperFirst } from "./casing";
 import type { FrameRole, SequenceKind } from "./contract";
 import { isStatFigure, settleFrameLayouts } from "./layouts";
 import {
@@ -232,8 +233,7 @@ function makesAPoint(
   );
 }
 
-const capitalisedFirst = (text: string) =>
-  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+const capitalisedFirst = upperFirst;
 
 /* The part of a sentence on the far side of `fact` from the ask: "We are
    raising $1.2M seed to build 14 more grids" says what the money builds
@@ -258,7 +258,7 @@ function besideAsk(sentence: string, ask: BriefFact): string | null {
  * The brief's facts that are a point on their own, each in the sentence
  * the brief gives it in: "Customers pay ₦150 per kWh against ₦420 for
  * diesel" is one point, where its two prices alone were two bare slides
- * that only made sense together (O1 round-1 critic, HIGH 3 and 4). A
+ * that only made sense together. A
  * sentence that is the action ("Contact Ngozi Ade, ngozi@…") gives no
  * point: the person named there is how to act, not a slide. A sentence
  * that also holds the ask gives the part beside it. A fact no sentence
@@ -309,7 +309,7 @@ export function factPoints({
       text?.toLowerCase().includes(facts[n].text.toLowerCase()) ?? false;
     /* Every fact the sentence gives word for word is this point's,
        "by end of 2027" with "14 more grids", so code never draws it onto
-       another slide (O1 round-1 critic, MEDIUM 9). */
+       another slide. */
     const held = facts.flatMap((f, n) =>
       f.kind !== "product" && f.kind !== "contact" && holds(n) ? [n] : [],
     );
@@ -512,7 +512,7 @@ const OFF_HOOK = new Set<CoverKind>(["time", "place", "contact"]);
    November: launch day"), so a carousel's hook carries it beside its
    reason, and the action frame says how to act on it. Days of the week
    alone ("Tuesday to Saturday") are opening days, the action's to give:
-   on the hook they read as store hours (outline round 2 judge, textile). */
+   on the hook they read as store hours. */
 const HOOK_NEWS = new Set<CoverKind>(["date"]);
 
 /**

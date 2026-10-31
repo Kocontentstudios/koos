@@ -44,13 +44,26 @@ numbers are printed:
   the share code had flagged weak. It must be at least 0.8; the frames it
   missed are printed on a tuning run.
 - **Flag rate and precision**: flagged body points of all body points in
-  lane AUTO, and of the flagged ones, the share the judge scored 3 or lower
-  for repetition. Recall alone is met by flagging everything; a flag on
-  most points tells the owner nothing.
-- **Removed points leaked** (APPROVED): a frame whose headline or
-  subheadline still makes a point the owner replaced (`textsOverlap`,
-  where and when ignored, since the action frame gives them), and not its
-  own approved point.
+  lane AUTO; of the flagged ones, the share the judge scored 2 or lower
+  for repetition, the bar recall is read at; and the same share among the
+  unflagged ones. Recall alone is met by flagging everything; a flag
+  discriminates when precision is well above the unflagged share.
+- **Removed points leaked** (APPROVED): a frame where any line a reader
+  sees (headline, subheadline sentence, footer item, button; `linesOf`)
+  still makes a point the owner replaced (`textsOverlap`, where and when
+  ignored, since the action frame gives them), and not its own approved
+  point.
+- **Facts the owner took out** (APPROVED): a fixture fact a replaced point
+  stated that no approved point states (`factsTakenOut`, read from the
+  harness's own edits, never from the planner) is not asked of any frame
+  by `factCoverage`: the owner's outline outranks H5 (O5). Lane AUTO makes
+  no edits, so it is held to every fact.
+- **Blocking faults left**: production refuses a set that still carries a
+  fault that must not ship after code's last resort
+  (`SequenceShipRefusedError`); the eval asks `planSequence` to report
+  instead (`onBlocked: "report"`), so every set is still judged, and
+  prints how many sets production would refuse and how many frames code
+  rewrote from their own point.
 - **Deleted points said anyway**: on every outline that can lose a point,
   the first body point is deleted and the rest sent back signed
   (`withPointDeleted`), and the set is planned unjudged. Any frame that

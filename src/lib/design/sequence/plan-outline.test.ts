@@ -166,7 +166,7 @@ const plan = (
       recentLayouts: [],
       approvedOutline: outline,
     },
-    { briefReader: reader },
+    { briefReader: reader, onBlocked: "report" },
   );
 
 const prompts = (match: (o: unknown) => boolean) =>
@@ -220,5 +220,126 @@ describe("planSequence from an approved outline (O5)", () => {
   it("refuses an outline whose length is not the frame count", async () => {
     await expect(plan(OUTLINE, 5)).rejects.toThrow(/4 points for 5 frames/);
     expect(generateObject).not.toHaveBeenCalled();
+  });
+});
+
+/* The gym probe: the owner deleted the coach point, and the coverage step
+   drew it back word for word as a footer line on the action frame. */
+describe("planSequence after the owner deletes a point the brief states", () => {
+  const COACH = "A coach is on the floor at all hours to check your form";
+  const GYM =
+    "Ironclad Gym's monthly membership includes free towel service and a sauna after every session. A coach is on the floor at all hours to check your form. Monthly membership is ₦25,000. Your first week is free. Sign up at ironclad.ng/join.";
+  const gymReader = vi.fn(async () => ({
+    facts: [
+      {
+        kind: "offer",
+        text: "Free towel service and a sauna after every session",
+      },
+      { kind: "condition", text: COACH },
+      { kind: "price", text: "Monthly membership is ₦25,000" },
+      { kind: "offer", text: "Your first week is free" },
+      { kind: "contact", text: "ironclad.ng/join" },
+    ],
+    offering: { kind: "product", phrase: "monthly membership" },
+    people: [],
+  }));
+  const deleted: ApprovedOutline = {
+    kind: "carousel",
+    points: [
+      {
+        id: "p1",
+        role: "hook",
+        title: "After every session",
+        point: "Free towel service and a sauna after every session",
+        source: "brief",
+      },
+      {
+        id: "p2",
+        role: "body",
+        title: "Certified trainers",
+        point: "Every trainer is certified by the Nigeria Fitness Council",
+        source: "profile",
+      },
+      {
+        id: "p4",
+        role: "cta",
+        title: "Join Ironclad",
+        point:
+          "Sign up at ironclad.ng/join. Monthly membership is ₦25,000. Your first week is free.",
+        source: "brief",
+      },
+    ],
+  };
+  const gymCopy = {
+    frames: [
+      frame(
+        "A sauna after every session",
+        "Ironclad Gym's monthly membership comes with free towel service and a sauna.",
+      ),
+      frame(
+        "Trainers the Council certified",
+        "Every trainer is certified by the Nigeria Fitness Council before they coach.",
+      ),
+      frame(
+        "Your first week is free",
+        "Monthly membership is ₦25,000 after that.",
+        ["ironclad.ng/join", COACH],
+      ),
+    ],
+    cta: "Join at ironclad.ng/join",
+    otherHooks: [],
+  };
+
+  it("keeps the deleted point off every line, footer and button included, and does not ask for it", async () => {
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isArc(o))
+        return {
+          object: {
+            ...ARC,
+            frames: ARC.frames.slice(0, 2).concat(ARC.frames[3]),
+            spare: [],
+          },
+        };
+      if (isCopy(o)) return { object: gymCopy };
+      if (isAudit(o))
+        return { object: { repeats: [], unsourced: [], freshSpares: [] } };
+      return { object: { frames: [] } };
+    });
+    const result = await planSequence(
+      {
+        context: directionsContext({
+          title: "Ironclad membership",
+          briefText: GYM,
+          designType: "Instagram carousel",
+          brandSummary: {
+            name: "Ironclad Gym",
+            tone: "Plain",
+            differentiators:
+              "Every trainer is certified by the Nigeria Fitness Council",
+          },
+        }),
+        kind: "carousel",
+        frameCount: 3,
+        imageSource: "none",
+        image: null,
+        memorySummary: "",
+        recentLayouts: [],
+        approvedOutline: deleted,
+      },
+      { briefReader: gymReader, onBlocked: "report" },
+    );
+    expect(result.factsReleased).toEqual([COACH]);
+    expect(result.factsDrawn).not.toContain(COACH);
+    const said = result.plan.frames
+      .flatMap((b) => [b.headline, b.subheadline, b.cta, ...b.footerLines])
+      .join(" \n ")
+      .toLowerCase();
+    expect(said).not.toContain("coach is on the floor");
+    expect(result.problems.map((p) => p.detail)).not.toContain(
+      `no frame states "${COACH}"`,
+    );
+    expect(
+      result.refused.filter((f) => /owner took out/.test(f.detail)),
+    ).toEqual([]);
   });
 });

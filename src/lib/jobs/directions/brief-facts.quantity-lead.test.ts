@@ -7,9 +7,8 @@ const quantity = (text: string): BriefFact => ({
   needs: needsFor("quantity", text),
 });
 
-/* Arc round-4 critic, HIGH 2: a verb or a noun the allowlist did not name
-   in front of a count hid the fact, so code drew it again onto another
-   frame. */
+/* A verb or a noun an allowlist did not name in front of a count hid the
+   fact, so code drew it again onto another frame. */
 describe("factStated on a quantity in an ordinary sentence", () => {
   it.each([
     ["done in 20 minutes", "Heel replacement done in 20 minutes"],
@@ -55,5 +54,29 @@ describe("factStated on a quantity in an ordinary sentence", () => {
     ["2.1 million litres sold in 2025", "Aqualoop sold 2.1 million litres"],
   ])("%s is not stated by %s", (fact, copy) => {
     expect(factStated(quantity(fact), copy)).toBe(false);
+  });
+});
+
+/* A share after "to" and a group counted per teacher were read as
+   unstated, so code drew "12%" onto a frame whose neighbour's headline
+   already gave it. */
+describe("factStated on a share and on a group per unit", () => {
+  it.each([
+    ["12%", "Post-harvest loss dropped from 40% to 12%.", true],
+    ["12%", "Loss is down to 12%", true],
+    ["12%", "12% of tomatoes are lost", true],
+    ["12%", "We cut loss by 12%", true],
+    ["40%", "Post-harvest loss dropped from 40% to 12%.", false],
+    ["12%", "Up to 12% off", false],
+    ["12%", "Over 12% of farms", false],
+    ["12%", "12% to 15% of the crop", false],
+    ["12%", "112% growth", false],
+    ["Groups of 8 per teacher", "Every teacher takes groups of 8", true],
+    ["Groups of 8 per teacher", "Groups of 8 per teacher", true],
+    ["Groups of 8 per teacher", "Groups of 8", false],
+    ["Groups of 8 per teacher", "Every class takes groups of 8", false],
+    ["Groups of 8 per teacher", "Every teacher takes groups of 18", false],
+  ] as const)("%s in %j is %s", (text, copy, stated) => {
+    expect(factStated(quantity(text), copy)).toBe(stated);
   });
 });

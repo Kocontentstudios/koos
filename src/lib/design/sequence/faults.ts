@@ -11,7 +11,7 @@ import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
 import { factOnlyFrames, misplacedPrices, statesPrice } from "./points";
-import { removedFaults } from "./removed";
+import { releasedFaults, removedFaults } from "./removed";
 import { sequenceRepeats } from "./repeats";
 import { titleProblems } from "./title";
 import { frameCopy, isWordBudgetProblem, validateSequence } from "./validate";
@@ -74,6 +74,9 @@ export interface FaultRules {
   /** Points the owner took out of the approved outline (removedPoints):
    *  no frame may make one (O5). */
   removed?: readonly string[];
+  /** Brief facts the owner took out of the approved outline
+   *  (releasedFacts): no frame need state one, and none may. */
+  released?: readonly string[];
   /** The brief, whose own sentences the ship gate may set under a bare
    *  headline: words no reader can call invented. */
   briefText?: string;
@@ -179,6 +182,12 @@ export function selfReferences(frames: readonly FrameBeat[]): CopyFault[] {
   );
 }
 
+/* A line that ends on a verb or a preposition still waiting for its
+   object was cut, not written: "Ironclad Gym's monthly membership
+   includes". */
+const CUT_ON_VERB =
+  /\b(?:includes?|including|offers?|features?|provides?|covers?|brings?|gives?|means?|lets?|helps?|with|without|plus|like|such as|including)[.!]?$/i;
+
 const SUBJECTLESS =
   /^(?:is|are|was|were|has|have|had|will|would|can|could|does|do|did|gets?|makes?|means?|keeps?|comes?|goes?)\b/i;
 
@@ -189,6 +198,9 @@ const SUBJECTLESS =
 export function subheadlineGrammar(subheadline: string): string | null {
   const text = subheadline.trim();
   if (!text) return null;
+  if (CUT_ON_VERB.test(text)) {
+    return `the subheadline "${text}" stops before what it names; write it as a whole sentence`;
+  }
   if (/^\p{Ll}/u.test(text)) {
     return `the subheadline "${text}" starts mid-sentence; write it as a whole sentence that starts with a capital and names its own subject`;
   }
@@ -214,6 +226,9 @@ const SIGNPOST_WORDS = 4;
 export function headlineGrammar(headline: string): string | null {
   const text = headline.trim();
   if (!text) return null;
+  if (CUT_ON_VERB.test(text)) {
+    return `the headline "${text}" stops before what it names; write a line that says it whole`;
+  }
   if (/^\p{Ll}/u.test(text)) {
     return `the headline "${text}" starts lowercase, as if it continued another frame; write it as a line that stands on its own`;
   }
@@ -491,9 +506,21 @@ export function setFaults(
           },
     ),
     ...bareFrames(frames),
+    ...bareNameSubheadlines(frames, free),
     ...restatedSubheadlines(frames),
     ...ownerPointsChanged(frames, rules.owned ?? [], free),
-    ...removedFaults(frames, rules.removed ?? [], rules.claims ?? [], free),
+    ...removedFaults(
+      frames,
+      rules.removed ?? [],
+      rules.claims ?? [],
+      logisticsFree(free, facts),
+    ),
+    ...releasedFaults(
+      frames,
+      rules.facts,
+      rules.released ?? [],
+      rules.owned ?? [],
+    ),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
     ...factOnlyFrames(frames, facts).map(minor),
     ...misplacedPrices(frames, facts, kind).map(minor),
@@ -502,7 +529,7 @@ export function setFaults(
 
 /* Words any frame may say: the names, and the brief's logistics, which the
    action frame and its neighbours can both mention. */
-function logisticsFree(
+export function logisticsFree(
   free: ReadonlySet<string>,
   facts: readonly BriefFact[],
 ): Set<string> {
@@ -528,6 +555,28 @@ function logisticsFree(
    last frame is rewritten, never the hook that earned the swipe. */
 const recapsTheHook = (detail: string, count: number) =>
   detail.includes(`what frame ${count} (`);
+
+/** Frames whose subheadline gives only names ("FreshFold.", "Fixit
+ *  Hub.", "Alterations from Stitchwell."): a label left under a headline,
+ *  which says nothing a reader did not already have. */
+export function bareNameSubheadlines(
+  frames: readonly FrameBeat[],
+  free: ReadonlySet<string>,
+): CopyFault[] {
+  return frames.flatMap((beat, frame) => {
+    const text = beat.subheadline.trim();
+    if (!text || /\p{N}/u.test(text)) return [];
+    if (contentStems(text, free).size > 0) return [];
+    return [
+      {
+        frame,
+        field: "subheadline" as const,
+        detail: `the subheadline "${text}" gives only a name; write one sentence that says something about this frame's claim, or leave it empty`,
+        weight: MAJOR,
+      },
+    ];
+  });
+}
 
 /** Middle frames with a headline and nothing under it: read in order, a
  *  bare line lands as an unfinished thought between two frames that say
@@ -558,8 +607,7 @@ export function restatesHeadline(beat: FrameBeat): boolean {
 }
 
 /** Middle frames whose subheadline restates their headline. Blocking: a
- *  slide that says its point twice is what a reader marks as repetition
- *  (arc round-4 critic, HIGH 3). */
+ *  slide that says its point twice is what a reader marks as repetition. */
 export function restatedSubheadlines(
   frames: readonly FrameBeat[],
 ): CopyFault[] {

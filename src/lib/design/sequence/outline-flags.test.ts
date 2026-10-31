@@ -69,7 +69,6 @@ describe("flagOutline", () => {
     ["For students and young professionals in Yaba", /who it is for/],
     ["Saturday 15 November, 8am to 2pm", /when it happens/],
     ["At our Yaba bar", /where to find it/],
-    ["12 places", /Only gives "12 places"/],
   ])(
     "flags the filler point %s with a reason the owner can act on",
     (text, reason) => {
@@ -106,16 +105,57 @@ describe("flagOutline", () => {
     );
     expect(flagged.map((p) => p.weak?.kind ?? null)).toEqual([
       null,
-      "profile-fill",
+      null,
       "profile-fill",
       null,
       null,
     ]);
-    expect(flagged[1].weak?.reason).toMatch(/Keep it if it is true/);
     expect(flagged[2].weak?.reason).toMatch(/what the brand is or believes/);
   });
 
-  /* O1 round-1 critic, HIGH 3: bare facts were not flagged. */
+  /* Judged in lane AUTO, a scarcity or turnaround figure on its own slide
+     read as a reason, never as repetition; flagging it only spent an
+     owner fact on a point that was already fine. */
+  it.each(["Only 12 places", "12 places", "Ready in 3 days"])(
+    "leaves the figure a reader weighs, %s, unflagged",
+    (text) => {
+      const [, middle] = flagOutline(
+        [
+          point("hook", "Kiln cold brew is steeped for 18 hours"),
+          point("body", text),
+          point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
+        ],
+        {
+          ...ctx,
+          facts: [
+            ...FACTS,
+            fact("offer", "Ready in 3 days"),
+            fact("quantity", "Only 12 places"),
+          ],
+        },
+      );
+      expect(middle.weak).toBeNull();
+    },
+  );
+
+  it("checks for an empty point before overlap and never names one as the earlier point", () => {
+    const flagged = flagOutline(
+      [
+        point("hook", "Kiln cold brew is steeped for 18 hours"),
+        point("body", EMPTY_POINT),
+        point("body", EMPTY_POINT),
+        point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
+      ],
+      ctx,
+    );
+    expect(flagged.map((p) => p.weak?.reason ?? null)).toEqual([
+      null,
+      expect.stringMatching(/^Nothing in the brief or profile/),
+      expect.stringMatching(/^Nothing in the brief or profile/),
+      null,
+    ]);
+  });
+
   it.each(["Six Saturdays", "₦150 per kWh", "Ngozi Ade"])(
     "flags the bare point %s as filler",
     (text) => {
@@ -158,9 +198,15 @@ describe("flagOutline", () => {
         ),
         point("body", "Beans grown on the Mambilla Plateau by one cooperative"),
         point("body", "Specialty coffee bar in Yaba, Lagos", "profile"),
+        point("body", "Roasted in-house each week", "profile"),
         point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
       ],
-      ctx,
+      {
+        ...ctx,
+        genericProfile: genericProfile({
+          overview: "Specialty coffee bar in Yaba, Lagos",
+        }),
+      },
     ).filter((p) => p.role === "body" && p.weak);
     expect(flagged.map((p) => p.point)).toEqual([
       "Specialty coffee bar in Yaba, Lagos",

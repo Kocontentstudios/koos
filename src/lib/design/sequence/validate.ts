@@ -24,6 +24,9 @@ export interface SequenceRules {
   /** Words every frame may share without repeating itself: the brand's
    *  name ("Bread & Co." on two headlines is not one idea twice). */
   brandName?: string | null;
+  /** Brief facts the owner took out of the approved outline
+   *  (releasedFacts), by their text: no frame need state them. */
+  released?: readonly string[];
 }
 
 const MAX_FOOTER_LINES = DRAFT_LIMITS.footerLines;
@@ -205,9 +208,12 @@ function headlineProblems(
 export function factsUncovered(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],
+  released: readonly string[] = [],
 ): BriefFact[] {
   return facts.filter(
-    (fact) => !frames.some((beat) => factStated(fact, frameCopy(beat))),
+    (fact) =>
+      !released.includes(fact.text) &&
+      !frames.some((beat) => factStated(fact, frameCopy(beat))),
   );
 }
 
@@ -233,7 +239,7 @@ export function validateSequence(
   frames.forEach((beat, i) => {
     problems.push(...copyLimitProblems(beat, i, plan.kind));
   });
-  for (const fact of factsUncovered(frames, rules.facts)) {
+  for (const fact of factsUncovered(frames, rules.facts, rules.released)) {
     problems.push({
       frame: null,
       rule: "fact-uncovered",

@@ -7,8 +7,13 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { auditFlags } from "./audit";
 import type { PlannedSequence } from "./contract";
+import { subheadlineGrammar } from "./faults";
 import { CAFE_BRIEF } from "./fixtures";
-import { MAX_MODEL_CALLS, planSequence } from "./plan";
+import {
+  MAX_MODEL_CALLS,
+  planSequence,
+  SequenceShipRefusedError,
+} from "./plan";
 import { validateSequence } from "./validate";
 
 type Call = {
@@ -169,7 +174,7 @@ const plan = (over: Record<string, unknown> = {}) =>
       recentLayouts: [],
       ...over,
     },
-    { briefReader: reader },
+    { briefReader: reader, onBlocked: "report" },
   );
 
 const promptsOf = (match: (o: unknown) => boolean) =>
@@ -457,7 +462,9 @@ describe("planSequence: faults are fixed, not shipped", () => {
       },
     });
     const result = await plan();
-    expect(result.plan.frames[1].subheadline).toBe("");
+    const second = result.plan.frames[1];
+    expect(second.subheadline).not.toMatch(/^is roasted/);
+    expect(subheadlineGrammar(second.subheadline)).toBeNull();
     expect(promptsOf(isFix).length).toBeGreaterThan(0);
   });
 
@@ -565,6 +572,61 @@ describe("planSequence: faults are fixed, not shipped", () => {
     const result = await plan();
     expect(promptsOf(isFix).length).toBeGreaterThan(0);
     expect(result.plan.frames).toHaveLength(4);
+  });
+
+  /* The gate named "it has a headline and nothing under it" and the set
+     shipped with it anyway: a fault that must not ship is now rewritten
+     from the frame's own point in code, or the set is refused. */
+  it("rewrites a bare middle frame from its own point rather than ship it", async () => {
+    answer({
+      copy: {
+        ...COPY,
+        frames: [
+          COPY.frames[0],
+          copyFrame("Roasted in-house each week"),
+          ...COPY.frames.slice(2),
+        ],
+      },
+    });
+    const result = await plan();
+    expect(result.plan.frames[1].subheadline).not.toBe("");
+    expect(result.refused).toEqual([]);
+  });
+
+  it("refuses a set it cannot clear of a fault that must not ship", async () => {
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isArc(o)) return { object: { ...ARC, hookAngle: "" } };
+      if (isCopy(o)) {
+        return {
+          object: {
+            ...COPY,
+            frames: [
+              copyFrame("Cold brew is here", "Come and try it."),
+              ...COPY.frames.slice(1),
+            ],
+          },
+        };
+      }
+      throw new Error("provider down");
+    });
+    const run = (onBlocked: "refuse" | "report") =>
+      planSequence(
+        {
+          context: context(),
+          kind: "carousel",
+          frameCount: 4,
+          imageSource: "none",
+          image: null,
+          memorySummary: "",
+          recentLayouts: [],
+        },
+        { briefReader: reader, onBlocked },
+      );
+    const reported = await run("report");
+    expect(reported.refused.length).toBeGreaterThan(0);
+    await expect(run("refuse")).rejects.toBeInstanceOf(
+      SequenceShipRefusedError,
+    );
   });
 });
 
@@ -689,6 +751,7 @@ describe("planSequence: the audit", () => {
         recentLayouts: [],
       },
       {
+        onBlocked: "report",
         briefReader: async () => ({
           facts: [{ kind: "contact", text: "WhatsApp 0803 555 0142" }],
           offering: { kind: "product", phrase: "Investor deck" },
@@ -716,6 +779,7 @@ describe("planSequence: the audit", () => {
         recentLayouts: [],
       },
       {
+        onBlocked: "report",
         briefReader: async () => ({
           facts: [{ kind: "contact", text: "WhatsApp 0803 555 0142" }],
           offering: { kind: "product", phrase: "Deck chairs for patios" },

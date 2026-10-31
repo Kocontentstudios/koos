@@ -9,7 +9,7 @@ import { factStated } from "@/lib/jobs/directions/brief-facts";
 import type { BriefReader } from "@/lib/jobs/directions/brief-read";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { type ArcFrame, type ArcPoint, pointPool, settleArc } from "./arc";
-import { sentenceCased } from "./casing";
+import { sentenceCased, upperFirst } from "./casing";
 import {
   FRAME_BOUNDS,
   OUTLINE_LIMITS,
@@ -22,6 +22,7 @@ import {
 import { EMPTY_POINT } from "./outline-arc";
 import { flagOutline, genericProfile } from "./outline-flags";
 import { signPoint } from "./outline-sign";
+import { profileStatements } from "./points";
 import {
   failure,
   frameCountError,
@@ -147,22 +148,81 @@ export function actionPoint(brief: SequenceBrief): {
   };
 }
 
-/* Words a title may end on only when more follows. */
-const TRAILING =
-  /\s+(?:a|an|the|and|or|of|to|in|on|for|with|by|at|is|are|we|our|your|it|from|against)$/i;
-const TITLE_WORDS = 5;
+/* Words a title never starts or ends on: a phrase cut before or after
+   one of these is whole ("Coach on the floor"), one ending on it is not
+   ("A coach is on the"). */
+const JOINING = new Set(
+  "a an the and or of to in on for with by at from against into over under per than so but as if when while who which that this these those our your their its my his her we you they it is are was were be been".split(
+    " ",
+  ),
+);
+/* Dropped from a title as a card label drops them: "Tariffs are 40%
+   below diesel" titles as "Tariffs 40% below diesel". */
+const COPULA = new Set(["is", "are", "was", "were"]);
+const TITLE_WORDS = 4;
+const TITLE_MIN_WORDS = 2;
+const EMPTY_TITLE = "Add a point";
+const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
-/** A title made of a point's own opening words, cut at its first clause:
- *  "Customers pay ₦150 per kWh against…" is "Customers pay ₦150 per kWh". */
-export function pointTitle(point: string): string {
-  let title = point
-    .replace(/[.;:,(—–].*$/, "")
+/** `title` within `max` characters, cut at a whole word and never given
+ *  an ellipsis: a card title reads as a name, not as cut-off copy. */
+export function titleWithin(title: string, max: number): string {
+  const words = title.replace(/\s+/g, " ").trim().split(" ");
+  while (words.length > 1 && words.join(" ").length > max) words.pop();
+  while (words.length > 1 && JOINING.has(keyOf(words.at(-1) ?? ""))) {
+    words.pop();
+  }
+  return words.join(" ").slice(0, max);
+}
+
+/* A clause ends at a sentence mark, a dash or a comma that is not inside
+   a number ("1,200" stays whole). */
+const firstClause = (point: string) =>
+  point.split(/[.;:(—–!?]|,(?!\d)/)[0] ?? point;
+
+const keyOf = (word: string) =>
+  word.toLowerCase().replace(/[^\p{L}\p{N}'’-]/gu, "");
+
+/**
+ * A title of 2 to 4 of a point's own words that is a whole phrase: a run
+ * in its first clause that starts and ends on a word of its own, with a
+ * joining word or the clause's edge on either side; the one opening on
+ * the clause's subject first, else the longest, the earliest on a tie. The brand's own names opening the point are left
+ * out ("Fixit Hub replaces your cracked iPhone screen the same day" is
+ * "Cracked iPhone screen"), and so are "is" and "are". A point with no such
+ * run takes its opening words up to the last word of its own.
+ */
+export function pointTitle(
+  point: string,
+  free: ReadonlySet<string> = new Set(),
+): string {
+  let words = firstClause(point)
     .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, TITLE_WORDS)
-    .join(" ");
-  while (TRAILING.test(title)) title = title.replace(TRAILING, "");
-  return title || point.split(/\s+/).slice(0, TITLE_WORDS).join(" ");
+    .filter((w) => w && !COPULA.has(keyOf(w)));
+  const names = words.findIndex((w) => !free.has(keyOf(w)));
+  if (names > 0 && words.length - names >= TITLE_MIN_WORDS) {
+    words = words.slice(names);
+  }
+  const joining = (i: number) => JOINING.has(keyOf(words[i] ?? ""));
+  const subject = words.findIndex((_, i) => !joining(i));
+  /* The clause's own subject first: "Revenue grew 3x", never "2025 to
+     ₦210 million" from later in the same clause. */
+  const rank = ([start, end]: [number, number]) =>
+    (start === subject ? 10 : 0) + (end - start);
+  let best: [number, number] | null = null;
+  for (let start = 0; start < words.length; start += 1) {
+    if (joining(start) || (start > 0 && !joining(start - 1))) continue;
+    for (let end = start + TITLE_MIN_WORDS; end <= words.length; end += 1) {
+      if (end - start > TITLE_WORDS) break;
+      if (joining(end - 1)) continue;
+      if (end < words.length && !joining(end)) continue;
+      if (!best || rank([start, end]) > rank(best)) best = [start, end];
+    }
+  }
+  if (best) return upperFirst(words.slice(best[0], best[1]).join(" "));
+  const opening = words.slice(0, TITLE_WORDS);
+  while (opening.length > 1 && joining(opening.length - 1)) opening.pop();
+  return upperFirst(opening.join(" ") || point.trim());
 }
 
 /* Share of a title's own words its point must hold: "14 grids by 2027"
@@ -187,7 +247,7 @@ export function titleFits(
  * assigned; settleArc may then move a point to another frame, so a title
  * follows its point, and a title that still shares nothing with its point
  * is made from the point's own words. A user editing an outline whose
- * titles belong to other points edits nonsense (O1 round-1 critic, HIGH 4).
+ * titles belong to other points edits nonsense.
  */
 export function outlineTitles(
   answered: readonly Pick<ArcAnswer["frames"][number], "point" | "title">[],
@@ -209,11 +269,31 @@ export function outlineTitles(
       frame.point !== null &&
       poolIndex(answered[i]?.point) !== frame.point;
     const candidate = moved ? (titleOf.get(frame.point ?? -1) ?? "") : asked;
+    if (texts[i] === EMPTY_POINT) return EMPTY_TITLE;
     const title = cleanTitle(candidate);
-    return title && titleFits(title, texts[i], free)
+    return title &&
+      wordCount(title) <= TITLE_WORDS &&
+      titleFits(title, texts[i], free)
       ? title
-      : pointTitle(texts[i]);
+      : pointTitle(texts[i], free);
   });
+}
+
+/** Where the hook's angle comes from. The model writes it in its own
+ *  words from the whole brief, so the pool point it was assigned says
+ *  little: it is the brief's when it shares at least as many of its words
+ *  with the brief as with the profile. */
+export function hookSource(
+  point: string,
+  briefText: string,
+  profile: readonly string[],
+): Exclude<OutlineSource, "user"> {
+  const own = contentStems(point);
+  const shared = (text: string) => {
+    const theirs = contentStems(text);
+    return [...own].filter((s) => theirs.has(s)).length;
+  };
+  return shared(briefText) >= shared(profile.join(" ")) ? "brief" : "profile";
 }
 
 /**
@@ -317,26 +397,35 @@ export async function planOutline(
     return clipped(text, OUTLINE_LIMITS.pointChars);
   });
   const titles = outlineTitles(answer.frames, arc.frames, texts, free);
+  const profile = profileStatements(context.brandSummary);
   const points: Omit<OutlinePoint, "weak">[] = arc.frames.map((frame, i) => {
     const fromPool = frame.point === null ? null : pool[frame.point];
     const point = texts[i];
     const source: OutlineSource =
       i === last
         ? action.source
-        : fromPool
-          ? SOURCE_OF[fromPool.source]
-          : "brief";
+        : i === 0
+          ? hookSource(point, brief.briefText, profile)
+          : fromPool
+            ? SOURCE_OF[fromPool.source]
+            : "brief";
     return {
       id: `p${i + 1}`,
       role: frame.role,
-      title: clipped(
+      title: titleWithin(
         sentenceCased(titles[i], names),
         OUTLINE_LIMITS.titleChars,
       ),
       point,
       source,
       facts: facts.filter((f) => factStated(f, point)).map((f) => f.text),
-      sig: signPoint({ kind, briefText: brief.briefText, source, point }),
+      sig: signPoint({
+        kind,
+        briefText: brief.briefText,
+        role: frame.role,
+        source,
+        point,
+      }),
     };
   });
   const flagged = flagOutline(points, {

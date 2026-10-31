@@ -4,7 +4,7 @@ import {
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
-import type { OutlineSource, SequenceKind } from "./contract";
+import type { FrameRole, OutlineSource, SequenceKind } from "./contract";
 
 /**
  * Ties an approved outline to the outline the server planned (O4). The
@@ -12,9 +12,11 @@ import type { OutlineSource, SequenceKind } from "./contract";
  * owner's sentence, so text alone cannot tell them apart: a hook angle
  * the model wrote ("hemmed to your exact length") would be recomputed as
  * "user", counted as stated and kept by force. Each planned point carries
- * an HMAC over its kind, the brief, its source and its words; a point that
- * comes back with its signature intact keeps the source it was planned
- * with, and only words the owner changed become "user".
+ * an HMAC over its kind, the brief, its role, its source and its words; a
+ * point that comes back with its signature intact keeps the source it was
+ * planned with, and words the owner changed become "user". The role is
+ * signed so a planned body point moved into the hook's slot is read again
+ * rather than carried over.
  */
 
 const SIG_PREFIX = "o1.";
@@ -43,6 +45,7 @@ const flat = (text: string) => text.replace(/\s+/g, " ").trim();
 export interface SignedPointInput {
   kind: SequenceKind;
   briefText: string;
+  role: FrameRole;
   source: OutlineSource;
   point: string;
 }
@@ -51,12 +54,13 @@ export interface SignedPointInput {
 export function signPoint({
   kind,
   briefText,
+  role,
   source,
   point,
 }: SignedPointInput): string {
   const brief = createHash("sha256").update(flat(briefText)).digest("hex");
   const mac = createHmac("sha256", signingKey())
-    .update([kind, brief, source, flat(point)].join("\n"))
+    .update([kind, brief, role, source, flat(point)].join("\n"))
     .digest("base64url");
   return `${SIG_PREFIX}${mac}`;
 }

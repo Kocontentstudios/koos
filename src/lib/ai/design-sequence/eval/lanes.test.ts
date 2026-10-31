@@ -3,10 +3,11 @@ import type {
   OutlinePoint,
   PlannedOutline,
 } from "@/lib/design/sequence/contract";
-import { cafePlan } from "@/lib/design/sequence/fixtures";
+import { CAFE_FACTS, cafePlan, fact } from "@/lib/design/sequence/fixtures";
 import {
   approvedAsPlanned,
   deletedLeaks,
+  factsTakenOut,
   flagRecall,
   ownerTitle,
   withOwnerPoints,
@@ -130,6 +131,25 @@ describe("flagRecall", () => {
     ]);
     expect(tally).toMatchObject({ bodyFlagged: 2, bodyPoints: 3 });
     expect(tally.precision).toBeCloseTo(1 / 2);
+    expect(tally.unflaggedLow).toBe(0);
+  });
+
+  it("reads precision at the recall bar: a 3 is not a weak frame", () => {
+    const tally = flagRecall([
+      {
+        label: "cafe/5",
+        outline: OUTLINE,
+        frameScores: [
+          { frame: 1, repetition: 5 },
+          { frame: 2, repetition: 3 },
+          { frame: 3, repetition: 2 },
+          { frame: 4, repetition: 3 },
+          { frame: 5, repetition: 4 },
+        ],
+      },
+    ]);
+    expect(tally.precision).toBe(0);
+    expect(tally.unflaggedLow).toBe(1);
   });
 });
 
@@ -168,5 +188,50 @@ describe("deletedLeaks", () => {
     expect(deletedLeaks(plan, approved, edits)).toEqual([
       'frame 4 still says "Pour one at our Yaba bar, sit in with a glass"',
     ]);
+  });
+});
+
+describe("deletedLeaks in small print", () => {
+  it("reads footer items and the button, not only the headline", () => {
+    const plan = cafePlan();
+    const frames = plan.frames.map((b, i) =>
+      i === plan.frames.length - 1
+        ? {
+            ...b,
+            footerLines: [...b.footerLines, "Only 12 places this Saturday"],
+          }
+        : b,
+    );
+    const approved = approvedAsPlanned(OUTLINE);
+    const edits = [{ id: "p3", from: "Only 12 places this Saturday", to: "x" }];
+    expect(deletedLeaks({ ...plan, frames }, approved, edits)).toEqual([
+      `frame ${frames.length} still says "Only 12 places this Saturday"`,
+    ]);
+  });
+});
+
+describe("factsTakenOut", () => {
+  it("names a fact only a replaced point stated, and nothing in lane AUTO", () => {
+    const facts = [...CAFE_FACTS, fact("quantity", "Only 12 places")];
+    const approved = approvedAsPlanned(OUTLINE);
+    expect(factsTakenOut(facts, approved, [])).toEqual([]);
+    expect(
+      factsTakenOut(facts, approved, [
+        { id: "p3", from: "Only 12 places this Saturday", to: "x" },
+      ]),
+    ).toEqual(["Only 12 places"]);
+  });
+
+  it("keeps a fact another approved point still states", () => {
+    const approved = approvedAsPlanned(OUTLINE);
+    approved.points[1] = {
+      ...approved.points[1],
+      point: "Only 12 places left",
+    };
+    expect(
+      factsTakenOut([fact("quantity", "Only 12 places")], approved, [
+        { id: "p3", from: "Only 12 places this Saturday", to: "x" },
+      ]),
+    ).toEqual([]);
   });
 });

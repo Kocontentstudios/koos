@@ -53,7 +53,15 @@ function drawnFrom(point: string, statements: readonly string[]): boolean {
 /** A point as flagOutline reads it: its words, role and source. */
 type Draft = Omit<OutlinePoint, "weak" | "sig">;
 
+const isEmpty = (point: Pick<Draft, "point">) =>
+  point.point.trim() === EMPTY_POINT;
+
 const WHEN = new Set<CoverKind>(["date", "day", "time"]);
+
+/* A figure the reader weighs ("Only 12 places", "Ready in 3 days") is a
+   point a slide can carry on its own: scarcity and turnaround read as a
+   reason, not as a label. */
+const CONCRETE = new Set<CoverKind>(["quantity", "offer", "condition", "age"]);
 const WHERE = new Set<CoverKind>(["place", "contact"]);
 
 /* Words that only frame who or where ("Built for", "Located in"): a point
@@ -98,6 +106,9 @@ function fillerReason(
   }
   if (logistics.length > 0) {
     return "Only says where to find it. Add what the reader gets there.";
+  }
+  if (stated.some((f) => CONCRETE.has(f.kind) && /\p{N}/u.test(f.text))) {
+    return null;
   }
   const said = contentStems(point.point, ctx.free);
   if ([...said].some((s) => audience.has(s))) {
@@ -144,15 +155,19 @@ function labelHook(
  *  - overlap: the point makes an earlier point's point (claimsOverlap);
  *    overlapsWith names the earlier id;
  *  - filler: a body point whose only content is who it is for, when or
- *    where (audience, date, day, time, place), or one bare fact;
+ *    where (audience, date, day, time, place), or one bare fact, unless
+ *    that fact is a figure the reader weighs (CONCRETE);
  *  - filler also: a point of three words or fewer ("Six Saturdays"), a
  *    fact or a name with nothing said about it, and the prompt left on a
- *    frame nothing was found for (EMPTY_POINT);
+ *    frame nothing was found for (EMPTY_POINT), which is checked first
+ *    and is never the earlier point another overlaps;
  *  - profile-fill: a body point drawn from the profile because the brief
- *    ran out (Addendum A, O2). Its reason says which kind: a statement of
- *    what the brand is, sells or believes (genericProfile) repeats the
- *    hook and should go; a point of what sets the brand apart may stand
- *    if it is true of this offer. Never set on a "user" point.
+ *    ran out (Addendum A, O2) that states what the brand is, sells or
+ *    believes (genericProfile): it repeats the hook. A profile point of
+ *    what sets the brand apart ("Beans from the Mambilla Plateau") is a
+ *    fact the slide can carry; it shows its source and is not flagged, so
+ *    a flag still means something on a thin brief. Never set on a "user"
+ *    point.
  * The hook opens the set, so it repeats nothing and is never filler for
  * giving when or where; it is flagged only as a label (labelHook): no
  * figure and fewer than three words of its own beyond the names. The
@@ -184,9 +199,20 @@ export function flagOutline<P extends Draft>(
         : weak(null);
     }
     if (point.role !== "body") return weak(null);
+    if (isEmpty(point)) {
+      return weak({
+        kind: "filler",
+        reason:
+          "Nothing in the brief or profile was left for this slide. Write its point, or delete it.",
+      });
+    }
     const earlier = claims
       .slice(0, i)
-      .findIndex((c) => claimsOverlap(c, claims[i], ctx.facts, ctx.free));
+      .findIndex(
+        (c, k) =>
+          !isEmpty(points[k]) &&
+          claimsOverlap(c, claims[i], ctx.facts, ctx.free),
+      );
     if (earlier >= 0) {
       return weak({
         kind: "overlap",
@@ -194,22 +220,19 @@ export function flagOutline<P extends Draft>(
         overlapsWith: points[earlier].id,
       });
     }
-    if (point.point.trim() === EMPTY_POINT) {
-      return weak({
-        kind: "filler",
-        reason:
-          "Nothing in the brief or profile was left for this slide. Write its point, or delete it.",
-      });
-    }
     const stated = claims[i].facts.map((n) => ctx.facts[n]);
     const filler = fillerReason(point, stated, ctx);
     if (filler) return weak({ kind: "filler", reason: filler });
-    if (point.source !== "profile") return weak(null);
+    if (
+      point.source !== "profile" ||
+      !drawnFrom(point.point, ctx.genericProfile ?? [])
+    ) {
+      return weak(null);
+    }
     return weak({
       kind: "profile-fill",
-      reason: drawnFrom(point.point, ctx.genericProfile ?? [])
-        ? "Taken from your brand profile: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer."
-        : "Taken from your brand profile because the brief ran out. Keep it if it is true of this offer; otherwise replace it with something about this offer.",
+      reason:
+        "Taken from your brand profile because the brief ran out: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer.",
     });
   });
 }

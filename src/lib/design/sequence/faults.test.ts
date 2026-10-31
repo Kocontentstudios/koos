@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { factLedger } from "@/lib/jobs/directions/claims";
 import {
+  bareNameSubheadlines,
   blockingFaults,
   COVERAGE,
   type FaultRules,
@@ -16,7 +17,14 @@ import {
   subheadlineGrammar,
   titleFaults,
 } from "./faults";
-import { CAFE_BRIEF, CAFE_FACTS, cafePlan, withFrame } from "./fixtures";
+import {
+  beatOf,
+  CAFE_BRIEF,
+  CAFE_FACTS,
+  cafePlan,
+  withFrame,
+} from "./fixtures";
+import { namesFree } from "./hook";
 
 const rules: FaultRules = {
   frameCount: 5,
@@ -239,5 +247,53 @@ describe("headlineGrammar", () => {
     "15 seats per cohort",
   ])("passes %j", (headline) => {
     expect(headlineGrammar(headline)).toBeNull();
+  });
+});
+
+/* Shipped on delivered sets: a hook subheadline cut mid-sentence, and
+   subheadlines that were only the brand's name. */
+describe("lines cut before their object, and subheadlines of names alone", () => {
+  it.each([
+    "Ironclad Gym's monthly membership includes",
+    "Every session comes with",
+    "Your membership offers.",
+  ])("finds the cut subheadline %j", (text) => {
+    expect(subheadlineGrammar(text)).toMatch(/stops before what it names/);
+  });
+
+  it("finds a cut headline and leaves whole lines alone", () => {
+    expect(headlineGrammar("Membership includes")).toMatch(/stops before/);
+    expect(headlineGrammar("A sauna is included")).toBeNull();
+    expect(
+      subheadlineGrammar("Free towels and a sauna come with it."),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["FreshFold.", "FreshFold", "laundry pickup"],
+    ["Fixit Hub.", "Fixit Hub", null],
+    ["Alterations from Stitchwell.", "Stitchwell", "alterations"],
+  ] as const)("finds the bare-name subheadline %j", (text, brand, offering) => {
+    const faults = bareNameSubheadlines(
+      [
+        beatOf({
+          role: "hook",
+          headline: "Back by Wednesday",
+          subheadline: text,
+        }),
+      ],
+      namesFree(brand, offering),
+    );
+    expect(faults).toHaveLength(1);
+    expect(faults[0].weight).toBe(MAJOR);
+  });
+
+  it("leaves a subheadline that says something about the name", () => {
+    expect(
+      bareNameSubheadlines(
+        [beatOf({ subheadline: "FreshFold irons every shirt by hand." })],
+        namesFree("FreshFold", "laundry pickup"),
+      ),
+    ).toEqual([]);
   });
 });

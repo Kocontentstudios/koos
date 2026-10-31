@@ -21,14 +21,48 @@ const RESTATABLE = new Set<BriefFact["kind"]>([
 
 /** The frames a missing fact may be written onto, best first: the frame
  *  the arc gave it, then the action frame (where how and when to act
- *  is read), then the middle frames in order. Never the hook, whose job is
- *  the reason to swipe. */
-function homesFor(owner: number, frames: readonly FrameBeat[]): number[] {
+ *  is read), then the middle frames in order; a figure that is a reason
+ *  tries the middle frames before the action. Never the hook, whose job
+ *  is the reason to swipe. */
+function homesFor(
+  owner: number,
+  frames: readonly FrameBeat[],
+  fact: BriefFact,
+): number[] {
   const last = frames.length - 1;
   const bodies = frames.flatMap((beat, i) => (beat.role === "body" ? [i] : []));
-  const order = owner > 0 ? [owner, last, ...bodies] : [last, ...bodies];
+  /* A figure that is a reason (a tonnage, a margin) belongs to the middle
+     of the set: on the action frame three of them read as a stat dump
+     under the ask. */
+  const rest = AT_ACTION.has(fact.kind) ? [last, ...bodies] : [...bodies, last];
+  /* A frame whose footer already gives part of the fact ("60-minute
+     session" for "One 60-minute session") takes the whole in its place. */
+  const partly = frames.flatMap((beat, i) =>
+    givesPart(beat, fact.text) ? [i] : [],
+  );
+  const order = owner > 0 ? [owner, ...partly, ...rest] : [...partly, ...rest];
   return [...new Set(order)].filter((i) => i > 0 && i <= last);
 }
+
+const givesPart = (beat: FrameBeat, text: string) =>
+  beat.footerLines.some((line) =>
+    line.split(ITEM_BREAK).some((item) => {
+      const part = item.trim().toLowerCase();
+      return part.length > 0 && text.toLowerCase().includes(part);
+    }),
+  );
+
+/* What the reader acts on: read beside the button. */
+const AT_ACTION = new Set<BriefFact["kind"]>([
+  "contact",
+  "price",
+  "date",
+  "day",
+  "time",
+  "place",
+  "offer",
+  "condition",
+]);
 
 /* A count whose figures the frame's own headline or subheadline already
    gives would be on the frame twice ("5,000 more kits" under "The round
@@ -108,12 +142,19 @@ function fits(
  * stating the fact.
  *
  * `owners` holds each fact's planned frame by fact index (the arc's
- * factsByFrame); a fact with none goes to the action frame.
+ * factsByFrame); a fact with none goes to the action frame. A fact the
+ * owner took out of the approved outline (`released`, releasedFacts) is
+ * never drawn: the owner's outline outranks coverage (O5 over H5); nor is
+ * a line onto a frame where `refused` holds it (a line making a point the
+ * owner removed).
  */
 export function withFactsDrawn(
   plan: PlannedSequence,
   facts: readonly BriefFact[],
   owners: readonly number[][],
+  released: readonly string[] = [],
+  refused: (line: string, frame: number, fact: BriefFact) => boolean = () =>
+    false,
 ): { plan: PlannedSequence; drawn: string[]; restated: string[] } {
   let frames = plan.frames;
   const drawn: string[] = [];
@@ -126,7 +167,8 @@ export function withFactsDrawn(
     const line = fact.text.trim();
     const index = facts.indexOf(fact);
     const owner = owners.findIndex((owned) => owned.includes(index));
-    for (const home of homesFor(owner, frames)) {
+    for (const home of homesFor(owner, frames, fact)) {
+      if (refused(line, home, fact)) continue;
       const beat = frames[home];
       if (strict && givesFigures(beat, fact)) continue;
       const footers = joining
@@ -146,7 +188,7 @@ export function withFactsDrawn(
     }
     return false;
   };
-  for (const fact of factsUncovered(frames, facts)) {
+  for (const fact of factsUncovered(frames, facts, released)) {
     const line = fact.text.trim();
     if (NOT_A_FOOTER_LINE.has(fact.kind) || !line) continue;
     if (line.length > COPY_LIMITS.footerLine) continue;

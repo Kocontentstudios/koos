@@ -174,3 +174,23 @@ describe("withFactsDrawn: a figure the frame already gives", () => {
     expect(filled.frames[4].footerLines).not.toContain("40 kilos a week");
   });
 });
+
+/* The deck's action frame carried three code-drawn figures from earlier
+   slides as its footer: a figure that is a reason belongs mid-set. */
+describe("withFactsDrawn: where a reason's figure goes", () => {
+  it("draws a count with no planned frame onto a middle frame before the action", () => {
+    const facts = [
+      ...CAFE_FACTS,
+      fact("quantity", "3,400 tonnes sold in 2025"),
+    ];
+    const { plan: filled, drawn } = withFactsDrawn(cafePlan(), facts, [
+      ...OWNERS,
+      [],
+    ]);
+    expect(drawn).toEqual(["3,400 tonnes sold in 2025"]);
+    const at = filled.frames.findIndex((b) =>
+      b.footerLines.includes("3,400 tonnes sold in 2025"),
+    );
+    expect(filled.frames[at].role).toBe("body");
+  });
+});

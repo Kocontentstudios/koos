@@ -4,6 +4,8 @@ import type {
   PlannedOutline,
   PlannedSequence,
 } from "@/lib/design/sequence/contract";
+import { linesOf } from "@/lib/design/sequence/removed";
+import { type BriefFact, factStated } from "@/lib/jobs/directions/brief-facts";
 
 /**
  * The two lanes H13 scores (rubric Addendum A). Lane AUTO approves the
@@ -90,17 +92,16 @@ export interface RecallTally {
   missed: string[];
   /** Body points code flagged weak, of all body points scored. A flag on
    *  nearly every point passes recall by default and tells the owner
-   *  nothing (O1 round-1 critic, HIGH 3). */
+   *  nothing. */
   bodyFlagged: number;
   bodyPoints: number;
-  /** Of the flagged points the judge scored, the share it scored at or
-   *  below FLAG_PRECISION_SCORE: how often a flag is right. */
+  /** Of the flagged body points, the share the judge scored at or below
+   *  LOW_REPETITION: the same bar recall is read at. */
   precision: number | null;
+  /** Of the body points code left unflagged, the share the judge scored
+   *  that low: a flag discriminates when precision is well above it. */
+  unflaggedLow: number | null;
 }
-
-/* A point the judge scores 3 shares some of another frame's point or
-   wording (judge.ts): a flag on it is advice the owner can use. */
-export const FLAG_PRECISION_SCORE = 3;
 
 export interface RecallInput {
   label: string;
@@ -118,6 +119,7 @@ export function flagRecall(runs: readonly RecallInput[]): RecallTally {
   let bodyFlagged = 0;
   let bodyPoints = 0;
   let flaggedWeak = 0;
+  let unflaggedWeak = 0;
   const missed: string[] = [];
   for (const run of runs) {
     const scored = new Map<number, number>();
@@ -129,9 +131,12 @@ export function flagRecall(runs: readonly RecallInput[]): RecallTally {
       if (!point) continue;
       if (point.role === "body") {
         bodyPoints += 1;
+        const low = score <= LOW_REPETITION;
         if (point.weak) {
           bodyFlagged += 1;
-          if (score <= FLAG_PRECISION_SCORE) flaggedWeak += 1;
+          if (low) flaggedWeak += 1;
+        } else if (low) {
+          unflaggedWeak += 1;
         }
       }
       if (score > LOW_REPETITION) continue;
@@ -151,6 +156,10 @@ export function flagRecall(runs: readonly RecallInput[]): RecallTally {
     bodyFlagged,
     bodyPoints,
     precision: bodyFlagged === 0 ? null : flaggedWeak / bodyFlagged,
+    unflaggedLow:
+      bodyPoints === bodyFlagged
+        ? null
+        : unflaggedWeak / (bodyPoints - bodyFlagged),
   };
 }
 
@@ -173,7 +182,8 @@ export function withPointDeleted(
 }
 
 /** The replaced points a delivered frame still makes: what the owner
- *  took out and the set says anyway (O5). A frame whose own approved
+ *  took out and the set says anyway (O5), in any line a reader sees,
+ *  footer items and the button included. A frame whose own approved
  *  point shares those words is making its own point, not the removed
  *  one; words every frame may share (`free`) do not count. */
 export function deletedLeaks(
@@ -185,13 +195,31 @@ export function deletedLeaks(
   return edits.flatMap((edit) =>
     plan.frames.flatMap((beat, i) => {
       const own = approved.points[i]?.point ?? "";
-      const says = [beat.headline, beat.subheadline].some(
+      const says = linesOf(beat).some(
         (line) =>
-          line &&
-          textsOverlap(line, edit.from, free) &&
-          !textsOverlap(line, own, free),
+          textsOverlap(line, edit.from, free) && !textsOverlap(line, own, free),
       );
       return says ? [`frame ${i + 1} still says "${edit.from}"`] : [];
     }),
+  );
+}
+
+/**
+ * The fixture's facts the owner took out, read by the harness from its
+ * own edits and never from the planner: a fact a replaced or deleted
+ * point stated that no approved point states. H5 does not ask for these
+ * (O5 over H5); lane AUTO makes no edits, so it releases none.
+ */
+export function factsTakenOut(
+  facts: readonly BriefFact[],
+  approved: ApprovedOutline,
+  edits: readonly OwnerEdit[],
+): string[] {
+  return facts.flatMap((fact) =>
+    fact.kind !== "product" &&
+    edits.some((e) => factStated(fact, e.from)) &&
+    !approved.points.some((p) => factStated(fact, p.point))
+      ? [fact.text]
+      : [],
   );
 }

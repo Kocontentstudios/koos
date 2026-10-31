@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { nameRuns, sentenceCased, withConsistentCasing } from "./casing";
+import {
+  nameRuns,
+  sentenceCased,
+  upperFirst,
+  withConsistentCasing,
+} from "./casing";
 import { beatOf } from "./fixtures";
 import { isCutTitle } from "./title";
 
@@ -116,5 +121,41 @@ describe("sentenceCased keeps a name's own capitals", () => {
     ).frames;
     expect(frames[2].title).toBe("Book at FreshFold");
     expect(frames[2].headline).toBe("Book a pickup today");
+  });
+});
+
+/* "Join ironclad today" shipped as a CTA title beside "Ironclad Gym" in
+   the brief, and "IPhone screens are what we do" on a frame. */
+describe("casing a name's first word and a camel-case word", () => {
+  const GYM = [
+    "Ironclad Gym's monthly membership includes free towel service.",
+    "Ironclad Gym",
+  ];
+
+  it("keeps the first word of a brand name on its own", () => {
+    expect(sentenceCased("Join Ironclad today", GYM)).toBe(
+      "Join Ironclad today",
+    );
+    expect(sentenceCased("Train At Ironclad", GYM)).toBe("Train at Ironclad");
+  });
+
+  it("still lowers a later word of a name used on its own", () => {
+    expect(sentenceCased("Specialty Coffee, cold", ["Kiln Coffee"])).toBe(
+      "Specialty coffee, cold",
+    );
+    expect(
+      sentenceCased("Lagos Design festival", [
+        "We run Lagos Design Week every December.",
+      ]),
+    ).toBe("Lagos design festival");
+  });
+
+  it("never capitalises a word spelt with a capital after a small letter", () => {
+    expect(upperFirst("iPhone screens are what we do")).toBe(
+      "iPhone screens are what we do",
+    );
+    expect(upperFirst("eBay sellers")).toBe("eBay sellers");
+    expect(upperFirst("cracked iPhone screen")).toBe("Cracked iPhone screen");
+    expect(upperFirst("")).toBe("");
   });
 });

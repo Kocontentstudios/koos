@@ -95,14 +95,17 @@ export function properNouns(sources: readonly (string | null | undefined)[]) {
 /** Runs of two or more capitalised words in `sources` ("Bright Path",
  *  "Lagos Design Week"), each word bare and lowercased, and the words
  *  that are capitalised only inside such a run: "Coffee" in "Kiln
- *  Coffee" is part of a name, not a name on its own. */
+ *  Coffee" is part of a name, not a name on its own. A run's first word
+ *  is never only part of it: "Ironclad" names "Ironclad Gym". */
 export function nameRuns(sources: readonly (string | null | undefined)[]): {
   runs: string[][];
   runOnly: Set<string>;
+  heads: Set<string>;
 } {
   const runs: string[][] = [];
   const inRun = new Set<string>();
   const alone = new Set<string>();
+  const heads = new Set<string>();
   for (const source of sources) {
     const tokens = (source ?? "").split(/\s+/).filter(Boolean);
     const capped = (t: string | undefined) =>
@@ -113,6 +116,14 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
       if (run.length >= 2) {
         runs.push(run);
         for (const w of run) inRun.add(w);
+        /* A name's first word names it alone ("Join Ironclad today" for
+           "Ironclad Gym"), where a later one is the kind of thing it is
+           ("Coffee" in "Kiln Coffee"). A run that opens its sentence may
+           open on a verb ("Launch Week"), unless the run is the whole
+           source, as a brand name given on its own is. */
+        if (!runOpensSentence || run.length === tokens.length) {
+          heads.add(run[0]);
+        }
       }
       /* "Contact Ngozi Ade" opens its sentence, so its first word may be
          a verb: the name is also the run without it. Two words ("Kiln
@@ -138,7 +149,8 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
   }
   return {
     runs,
-    runOnly: new Set([...inRun].filter((w) => !alone.has(w))),
+    runOnly: new Set([...inRun].filter((w) => !alone.has(w) && !heads.has(w))),
+    heads,
   };
 }
 
@@ -230,7 +242,15 @@ function toSentence(
 }
 
 const capitalised = (token: string) =>
-  isWord(token) ? `${token[0].toUpperCase()}${token.slice(1)}` : token;
+  isWord(token) ? upperFirst(token) : token;
+
+/** `text` with its first letter capitalised, unless its first word is
+ *  spelt with a capital after a small letter: "iPhone" and "eBay" open a
+ *  sentence as they are, never as "IPhone". */
+export function upperFirst(text: string): string {
+  if (!text || /^\p{Ll}+\p{Lu}/u.test(text)) return text;
+  return `${text[0].toUpperCase()}${text.slice(1)}`;
+}
 
 function toTitle(headline: string): string {
   const tokens = headline.split(/(\s+)/);
@@ -242,7 +262,7 @@ function toTitle(headline: string): string {
       words += 1;
       if (!isWord(token) || /^\p{Lu}/u.test(token)) return token;
       if (!first && SMALL_WORDS.has(bare(token))) return token;
-      return `${token[0].toUpperCase()}${token.slice(1)}`;
+      return upperFirst(token);
     })
     .join("");
 }
@@ -254,8 +274,8 @@ export function withConsistentCasing(
   frames: readonly FrameBeat[],
   sources: readonly (string | null | undefined)[],
 ): { frames: FrameBeat[]; recased: number[]; style: HeadlineCase | null } {
-  const names = properNouns(sources);
-  const { runs, runOnly } = nameRuns(sources);
+  const { runs, runOnly, heads } = nameRuns(sources);
+  const names = new Set([...properNouns(sources), ...heads]);
   /* A name's words say nothing of the casing around them: "Pour one at
      Kiln Coffee" is sentence case. */
   const own = new Set([...names].filter((n) => !runOnly.has(n)));
@@ -298,6 +318,7 @@ export function sentenceCased(
   text: string,
   sources: readonly (string | null | undefined)[],
 ): string {
-  const { runs, runOnly } = nameRuns(sources);
-  return toSentence(text, properNouns(sources), runs, runOnly);
+  const { runs, runOnly, heads } = nameRuns(sources);
+  const names = new Set([...properNouns(sources), ...heads]);
+  return toSentence(text, names, runs, runOnly);
 }

@@ -1,4 +1,5 @@
 import { type BriefFact, isFragment } from "@/lib/jobs/directions/brief-facts";
+import { upperFirst } from "./casing";
 import type { FrameBeat } from "./contract";
 import { stillSays } from "./faults";
 import { withoutFactWords } from "./repeats";
@@ -12,8 +13,7 @@ const says = (field: string, text: string) =>
 
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
-const capitalised = (text: string) =>
-  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+const capitalised = upperFirst;
 
 /** `text` with the words of `statement` taken out where they stand whole
  *  and the rest still reads, else null. */
@@ -71,8 +71,8 @@ export function withoutStatement(
 
 /* Words that add a claim (freshness, timing, novelty) and nothing a
    sentence needs to stand: "Get your fresh bottle now" reads whole as
-   "Get your bottle". A regenerate refused twice over "fresh" and "now"
-   gave the user nothing (arc round-4 critic, MEDIUM 5). */
+   "Get your bottle". A regenerate refused over "fresh" and "now"
+   gives the user nothing. */
 const SOFT_WORDS = new Set([
   "fresh",
   "freshly",

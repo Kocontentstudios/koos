@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { outlineTitles, pointTitle, titleFits } from "./outline-plan";
+import { EMPTY_POINT } from "./outline-arc";
+import {
+  outlineTitles,
+  pointTitle,
+  titleFits,
+  titleWithin,
+} from "./outline-plan";
 
-/* O1 round-1 critic, HIGH 4: the deck probe (N=10) showed titles shifted
-   one point along after settleArc moved points: p4 "₦420 from diesel"
-   over "Revenue grew 3x…", p9 "Meet ngozi ade" over "Tariffs are 40%
-   below diesel". */
+/* The deck probe (N=10) showed titles shifted one point along after
+   settleArc moved points: p4 "₦420 from diesel" over "Revenue grew 3x…",
+   p9 "Meet ngozi ade" over "Tariffs are 40% below diesel". */
 describe("outlineTitles on the deck probe's shift", () => {
   const texts = [
     "Lumenfield powers 4,300 paying customers at 40% below diesel cost.",
@@ -57,8 +62,8 @@ describe("outlineTitles on the deck probe's shift", () => {
   it("remakes a title the arc wrote for another point, even unmoved", () => {
     const own = answered.map((f, i) => ({ ...f, point: i === 9 ? 0 : i + 1 }));
     const titles = outlineTitles(own, settled, texts);
-    expect(titles[3]).toBe("Revenue grew 3x in 2025");
-    expect(titles[8]).toBe("Tariffs are 40% below diesel");
+    expect(titles[3]).toBe("Revenue grew 3x");
+    expect(titles[8]).toBe("Tariffs 40% below diesel");
   });
 
   it("keeps the arc's title where the point did not move", () => {
@@ -81,9 +86,78 @@ describe("outlineTitles on the deck probe's shift", () => {
   it("makes a title from a point's opening words, whole", () => {
     expect(
       pointTitle("Customers pay ₦150 per kWh against ₦420 for diesel"),
-    ).toBe("Customers pay ₦150 per kWh");
+    ).toBe("Customers pay ₦150");
     expect(pointTitle("Tariffs are 40% below diesel")).toBe(
-      "Tariffs are 40% below diesel",
+      "Tariffs 40% below diesel",
     );
+  });
+});
+
+/* Outline titles shipped cut mid-phrase and mid-number: "Fixit Hub
+   replaces your cracked", "Fixed-price contracts protect 1", "A coach",
+   and the five-word "Strong bodies are built slowly". */
+describe("pointTitle keeps a whole phrase of 2 to 4 words", () => {
+  it.each([
+    [
+      "Fixit Hub replaces your cracked iPhone screen the same day.",
+      ["fixit", "hub"],
+      "Cracked iPhone screen",
+    ],
+    [
+      "Fixed-price contracts protect 1,200 Kaduna farmers and guarantee Harvestline's supply.",
+      [],
+      "Guarantee Harvestline's supply",
+    ],
+    [
+      "A coach is on the floor at all hours to check your form",
+      [],
+      "Coach on the floor",
+    ],
+    [
+      "Strong bodies are built slowly and safely",
+      [],
+      "Strong bodies built slowly",
+    ],
+    ["Revenue grew 3x in 2025 to ₦210 million", [], "Revenue grew 3x"],
+    ["Phone repair shop in Yaba, Lagos", [], "Phone repair shop"],
+    ["Only 12 places", [], "Only 12 places"],
+  ])("%s -> %s", (point, free, want) => {
+    const title = pointTitle(point, new Set(free));
+    expect(title).toBe(want);
+    const words = title.split(" ");
+    expect(words.length).toBeGreaterThanOrEqual(2);
+    expect(words.length).toBeLessThanOrEqual(4);
+    expect(title).not.toMatch(/\b\d+$|\b(?:the|a|your|and|is)$/i);
+  });
+
+  it("titles an empty slide as a prompt, and refuses a model title over 4 words", () => {
+    const titles = outlineTitles(
+      [
+        { point: 1, title: "Strong bodies are built slowly" },
+        { point: 2, title: "Anything" },
+        { point: 0, title: "Join today" },
+      ],
+      [
+        { point: 0, role: "hook" },
+        { point: 1, role: "body" },
+        { point: null, role: "cta" },
+      ],
+      [
+        "Strong bodies are built slowly and safely",
+        EMPTY_POINT,
+        "Join at ironclad.ng/join.",
+      ],
+    );
+    expect(titles.slice(0, 2)).toEqual([
+      "Strong bodies built slowly",
+      "Add a point",
+    ]);
+  });
+
+  it("cuts a long title at a whole word, with no ellipsis", () => {
+    expect(titleWithin("Every trainer certified nationally", 24)).toBe(
+      "Every trainer certified",
+    );
+    expect(titleWithin("Coach on the floor", 14)).toBe("Coach");
   });
 });

@@ -59,6 +59,7 @@ const {
   approvedAsPlanned,
   deletedLeaks,
   FLAG_RECALL_MIN,
+  factsTakenOut,
   flagRecall,
   withOwnerPoints,
   withPointDeleted,
@@ -75,7 +76,9 @@ const {
   SEQUENCE_HELD_OUT_CASES,
 } = await import("./cases");
 type SequenceEvalCase = import("./cases").SequenceEvalCase;
-const { aggregate, failures, scoreRun } = await import("./score");
+const { aggregate, failures, labelledFacts, scoreRun } = await import(
+  "./score"
+);
 type RunScore = import("./score").RunScore;
 type JudgeScores = import("./score").JudgeScores;
 const {
@@ -210,6 +213,14 @@ interface RunRecord {
   invented: string[];
   /** Facts code wrote into a footer because the copy left them out. */
   factsDrawn: string[];
+  /** Fixture facts the owner's edits took out (factsTakenOut), not asked
+   *  of any frame. */
+  released?: string[];
+  /** Faults that must not ship still on the set: production refuses such
+   *  a set (SequenceShipRefusedError); the eval scores it and counts it. */
+  refused?: string[];
+  /** Frames code rewrote from their own point (last-resort.ts). */
+  lastResort?: string[];
   ms: number;
   error?: string;
 }
@@ -279,17 +290,21 @@ async function runLane(
         `outline refused: ${valid.problems.map((p) => p.detail).join("; ")}`,
       );
     }
-    const result = await planSequence({
-      context: contextOf(c),
-      kind: c.kind,
-      frameCount: valid.outline.points.length,
-      imageSource: c.imageSource,
-      image: null,
-      memorySummary: "",
-      recentLayouts: [],
-      approvedOutline: valid.outline,
-    });
-    const score = scoreRun(c, n, result.plan);
+    const result = await planSequence(
+      {
+        context: contextOf(c),
+        kind: c.kind,
+        frameCount: valid.outline.points.length,
+        imageSource: c.imageSource,
+        image: null,
+        memorySummary: "",
+        recentLayouts: [],
+        approvedOutline: valid.outline,
+      },
+      { onBlocked: "report" },
+    );
+    const released = factsTakenOut(labelledFacts(c), valid.outline, edits);
+    const score = scoreRun(c, n, result.plan, released);
     const verdict = withJudge ? await judge(c, result.plan) : null;
     const leaks = deletedLeaks(
       result.plan,
@@ -311,6 +326,9 @@ async function runLane(
       faults: result.faults.map((f) => `frame ${f.frame + 1}: ${f.detail}`),
       invented: result.invented.map((i) => `frame ${i.frame + 1}: ${i.text}`),
       factsDrawn: result.factsDrawn,
+      released,
+      refused: result.refused.map((f) => `frame ${f.frame + 1}: ${f.detail}`),
+      lastResort: result.lastResort,
       ms: Date.now() - started,
     });
     if (!printRuns) {
@@ -343,6 +361,10 @@ async function runLane(
       console.log(`  fact drawn by code: ${drawn}`);
     }
     for (const leak of leaks) console.log(`  removed point leaked: ${leak}`);
+    for (const r of result.refused) {
+      console.log(`  would refuse: frame ${r.frame + 1}: ${r.detail}`);
+    }
+    for (const r of result.lastResort) console.log(`  last resort: ${r}`);
     if (score.uncovered.length > 0) {
       console.log(`  uncovered: ${score.uncovered.join(" | ")}`);
     }
@@ -378,16 +400,19 @@ async function runDeletion(
       profileStatements: profileStatements(c.brand),
     });
     if (!valid.ok) throw new Error("outline refused");
-    const result = await planSequence({
-      context: contextOf(c),
-      kind: c.kind,
-      frameCount: valid.outline.points.length,
-      imageSource: c.imageSource,
-      image: null,
-      memorySummary: "",
-      recentLayouts: [],
-      approvedOutline: valid.outline,
-    });
+    const result = await planSequence(
+      {
+        context: contextOf(c),
+        kind: c.kind,
+        frameCount: valid.outline.points.length,
+        imageSource: c.imageSource,
+        image: null,
+        memorySummary: "",
+        recentLayouts: [],
+        approvedOutline: valid.outline,
+      },
+      { onBlocked: "report" },
+    );
     const leaks = deletedLeaks(
       result.plan,
       valid.outline,
@@ -515,8 +540,16 @@ writeFileSync(
 );
 for (const lane of lanes) {
   const runs = records.filter((r) => r.lane === lane);
-  const across = (key: "faults" | "invented" | "factsDrawn" | "leaks") =>
-    `${runs.reduce((n, r) => n + r[key].length, 0)} across ${runs.filter((r) => r[key].length > 0).length} of ${runs.length} runs`;
+  const across = (
+    key:
+      | "faults"
+      | "invented"
+      | "factsDrawn"
+      | "leaks"
+      | "refused"
+      | "lastResort",
+  ) =>
+    `${runs.reduce((n, r) => n + (r[key]?.length ?? 0), 0)} across ${runs.filter((r) => (r[key]?.length ?? 0) > 0).length} of ${runs.length} runs`;
   console.log(
     `\nset: ${set}, lane ${lane}${lane === gatedLane ? " (gated)" : ""}`,
     byLane[lane],
@@ -524,6 +557,10 @@ for (const lane of lanes) {
   console.log(`copy faults left: ${across("faults")}`);
   console.log(`invented words shipped: ${across("invented")}`);
   console.log(`facts drawn by code: ${across("factsDrawn")}`);
+  console.log(
+    `blocking faults left (production refuses these sets): ${across("refused")}`,
+  );
+  console.log(`frames code rewrote from their point: ${across("lastResort")}`);
   if (lane === "approved") {
     console.log(
       `owner edits: ${runs.reduce((n, r) => n + r.edits.length, 0)}; removed points leaked: ${across("leaks")}`,
@@ -535,7 +572,7 @@ if (lanes.includes("auto") && withJudge) {
     `flag recall (AUTO frames the judge scored <= 2 for repetition that code flagged): ${recall.flagged} of ${recall.low}${recall.recall === null ? "" : ` = ${recall.recall.toFixed(2)}`}`,
   );
   console.log(
-    `flag rate: ${recall.bodyFlagged} of ${recall.bodyPoints} body points flagged; precision (flagged points the judge scored <= 3): ${recall.precision === null ? "n/a" : recall.precision.toFixed(2)}`,
+    `flag rate: ${recall.bodyFlagged} of ${recall.bodyPoints} body points flagged; precision (flagged body points the judge scored <= 2): ${recall.precision === null ? "n/a" : recall.precision.toFixed(2)}; unflagged body points scored <= 2: ${recall.unflaggedLow === null ? "n/a" : recall.unflaggedLow.toFixed(2)}`,
   );
   if (printRuns) for (const m of recall.missed) console.log(`  missed: ${m}`);
 }

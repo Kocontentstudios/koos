@@ -7,7 +7,7 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 import { needsFor } from "@/lib/jobs/directions/brief-facts";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { FRAME_BOUNDS, OUTLINE_LIMITS } from "./contract";
-import { actionPoint, clipped, planOutline } from "./outline-plan";
+import { actionPoint, clipped, hookSource, planOutline } from "./outline-plan";
 import { validateApprovedOutline } from "./outline-validate";
 
 const BRIEF =
@@ -112,7 +112,7 @@ describe("planOutline", () => {
     expect(outline.facts).toContain("Saturday 15 November");
   });
 
-  it("flags weak points in code: profile points and padding", async () => {
+  it("flags weak points in code: generic profile points and padding", async () => {
     generateObject.mockResolvedValue({
       object: arcAnswer([1, 2, 3, 4, 5, 6, 0]),
     });
@@ -124,7 +124,9 @@ describe("planOutline", () => {
       expect(p.weak?.reason).toMatch(/\.$/);
     }
     expect(
-      outline.points.filter((p) => p.source === "profile").every((p) => p.weak),
+      outline.points
+        .filter((p) => p.weak?.kind === "profile-fill")
+        .every((p) => p.source === "profile"),
     ).toBe(true);
   });
 
@@ -254,5 +256,32 @@ describe("clipped", () => {
   it("cuts at a word, never mid-word", () => {
     expect(clipped("one two three four", 12)).toBe("one two…");
     expect(clipped("short", 12)).toBe("short");
+  });
+});
+
+/* The thin phone-repair outline labelled a hook that restates the brief
+   as source "profile". */
+describe("hookSource", () => {
+  it("is the brief's when the hook says the brief's words", () => {
+    expect(
+      hookSource(
+        "Fixit Hub replaces your cracked iPhone screen the same day.",
+        "Cracked iPhone screen? Fixit Hub replaces it the same day for ₦45,000.",
+        [
+          "Phone repair shop in Yaba, Lagos",
+          "Every repair comes with a 90-day warranty",
+        ],
+      ),
+    ).toBe("brief");
+  });
+
+  it("is the profile's when the hook says the profile's words", () => {
+    expect(
+      hookSource(
+        "Every repair comes with a 90-day warranty",
+        "Cracked iPhone screen? Fixit Hub replaces it the same day.",
+        ["Every repair comes with a 90-day warranty"],
+      ),
+    ).toBe("profile");
   });
 });

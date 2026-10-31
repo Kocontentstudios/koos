@@ -19,21 +19,41 @@ import { sequenceFacts } from "./ledger";
 const NAMES_THE_PIECE =
   /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|presentation|carousel)$/iu;
 
+/* An offering is a thing the brand sells. A read ending on a pronoun
+   ("replaces it", from "Fixit Hub replaces it the same day") is a verb
+   phrase cut from a sentence about the offer: a hook told to name it says
+   "Hub replaces it". */
+const NOT_A_THING =
+  /\b(?:it|them|this|that|these|those|you|us|me|him|her|one)$/i;
+
+const isThing = (phrase: string | null | undefined) =>
+  Boolean(phrase?.trim()) && !NOT_A_THING.test(phrase?.trim() ?? "");
+
 /**
  * The offering widened over the names the brief writes in front of it:
  * a read of "maths crash course" from "WAEC maths crash course" left the
- * hook free to drop the exam it is for (O1 round-1 critic, MEDIUM 8). An
+ * hook free to drop the exam it is for. An
  * acronym always joins; a capitalised word joins only mid-sentence, so
- * "Our" or "Launch" opening a sentence never does.
+ * "Our" or "Launch" opening a sentence never does. A word of the brand's
+ * own name never joins: the hook names the brand on its own, and half of
+ * it ("Hub" of "Fixit Hub") is no name at all.
  */
 export function widenedOffering(
   offering: string | null,
   briefText: string,
+  brandName = "",
 ): string | null {
   if (!offering?.trim()) return offering;
   const at = briefText.toLowerCase().indexOf(offering.toLowerCase());
   if (at < 0) return offering;
   const before = briefText.slice(0, at).split(/(\s+)/);
+  const brandWords = new Set(
+    brandName
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+      .filter(Boolean),
+  );
   const words: string[] = [];
   for (let i = before.length - 1; i >= 0; i -= 1) {
     const token = before[i];
@@ -47,10 +67,27 @@ export function widenedOffering(
     const acronym = /^\p{Lu}[\p{Lu}\d]+$/u.test(token);
     const name = /^\p{Lu}[\p{L}\d-]*$/u.test(token) && !opensSentence;
     if (!acronym && !name) break;
+    if (brandWords.has(token.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""))) {
+      break;
+    }
     words.unshift(token);
   }
   const original = briefText.slice(at, at + offering.length);
   return words.length > 0 ? `${words.join(" ")} ${original}` : offering;
+}
+
+/** The offering a set names on its hook: the read's phrase widened over
+ *  the names before it, or null when the phrase names the piece itself or
+ *  is no thing at all. */
+export function settledOffering(
+  phrase: string | null,
+  briefText: string,
+  brandName: string,
+): string | null {
+  if (!phrase || NAMES_THE_PIECE.test(phrase.trim()) || !isThing(phrase)) {
+    return null;
+  }
+  return widenedOffering(phrase, briefText, brandName);
 }
 
 /** What a set is held to, read once from the brief. */
@@ -107,13 +144,15 @@ export async function readSequenceBrief(
   );
   const brandName = context.brandSummary.name;
   const facts = sequenceFacts(read, brandName, briefText).filter(
-    (f) => f.kind !== "product" || !NAMES_THE_PIECE.test(f.text.trim()),
+    (f) =>
+      f.kind !== "product" ||
+      (!NAMES_THE_PIECE.test(f.text.trim()) && isThing(f.text)),
   );
-  const readOffering = read.offering?.phrase ?? null;
-  const offering =
-    readOffering && NAMES_THE_PIECE.test(readOffering.trim())
-      ? null
-      : widenedOffering(readOffering, briefText);
+  const offering = settledOffering(
+    read.offering?.phrase ?? null,
+    briefText,
+    brandName,
+  );
   return {
     briefText,
     brandName,

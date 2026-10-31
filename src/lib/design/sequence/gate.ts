@@ -1,9 +1,10 @@
 import { formatRules } from "@/lib/design/formats";
-import { isFragment } from "@/lib/jobs/directions/brief-facts";
+import { factStated, isFragment } from "@/lib/jobs/directions/brief-facts";
 import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
 import { COPY_LIMITS, COPY_TARGETS } from "@/lib/jobs/directions/schema";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { textsOverlap } from "./arc";
+import { upperFirst } from "./casing";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { withoutStatement } from "./cuts";
 import {
@@ -12,6 +13,7 @@ import {
   flaggedFaults,
   headlineGrammar,
   headlinePrices,
+  logisticsFree,
   pointRepeats,
   restatesHeadline,
   stillSays,
@@ -21,7 +23,7 @@ import { echoesHeadline, namesFree, previewedFrames } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
 import { textStatesPrice } from "./points";
-import { removedSaidBy } from "./removed";
+import { removedSaidBy, unsayable } from "./removed";
 import { withoutFactWords } from "./repeats";
 import { factsUncovered, validateSequence } from "./validate";
 
@@ -56,8 +58,7 @@ export interface GateResult {
 
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
-const capitalised = (text: string) =>
-  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+const capitalised = upperFirst;
 
 /** `text` as one sentence: a capital first and a full stop last. */
 export function asSentence(text: string): string {
@@ -66,7 +67,7 @@ export function asSentence(text: string): string {
   return /[.!?]$/.test(flat) ? flat : `${flat}.`;
 }
 
-function fitsHeadline(text: string, kind: SequenceKind): boolean {
+export function fitsHeadline(text: string, kind: SequenceKind): boolean {
   return (
     text.length > 0 &&
     text.length <= COPY_LIMITS.headline &&
@@ -75,7 +76,7 @@ function fitsHeadline(text: string, kind: SequenceKind): boolean {
   );
 }
 
-function fitsSubheadline(text: string): boolean {
+export function fitsSubheadline(text: string): boolean {
   return (
     text.length > 0 &&
     text.length <= COPY_LIMITS.subheadline &&
@@ -86,6 +87,7 @@ function fitsSubheadline(text: string): boolean {
 }
 
 const SENTENCE_BREAK = /(?<=[.!?])\s+(?=\S)/;
+const FOOTER_ITEM = /\s+·\s+/;
 
 /* Where a claim of two parts divides: "steeped for 18 hours, then served
    over ice" is a headline and the sentence under it. */
@@ -166,7 +168,7 @@ class Gate {
     const named = (beats: readonly FrameBeat[]) =>
       names.filter((n) => beats[0] && copyNamesOffering(beats[0], n)).length;
     const undrawable = (beats: readonly FrameBeat[]) =>
-      factsUncovered(beats, this.rules.facts).filter(
+      factsUncovered(beats, this.rules.facts, this.rules.released).filter(
         (f) => f.kind === "product" || f.text.length > COPY_LIMITS.footerLine,
       ).length;
     return (
@@ -252,8 +254,8 @@ class Gate {
    *  it shares a word of the headline beyond the names, says something
    *  the headline does not, gives no contact and no price the action
    *  frame carries, and no other frame's copy says it. What a bare frame
-   *  takes when its claim cannot be split (O1 round-1 critic, HIGH 6:
-   *  "15 seats", "Six Saturdays" shipped alone). */
+   *  takes when its claim cannot be split ("15 seats", "Six Saturdays"
+   *  alone). */
   briefLine(frame: number): string | null {
     const beat = this.frames[frame];
     const briefText = this.rules.briefText ?? "";
@@ -660,18 +662,38 @@ class Gate {
     });
   }
 
-  /** A frame's lines that make a point the owner took out: its
-   *  subheadline's such sentences cut, else the line set to the frame's
-   *  own claim (O5). */
+  /** A frame's lines that make a point the owner took out, or state a
+   *  fact the owner took out (O5): footer items dropped, subheadline
+   *  sentences cut, else the line set to the frame's own claim. */
   withoutRemoved() {
     const removed = this.rules.removed ?? [];
-    if (removed.length === 0) return;
+    const released = unsayable(
+      this.rules.facts,
+      this.rules.released ?? [],
+      this.rules.owned ?? [],
+    );
+    if (removed.length === 0 && released.length === 0) return;
+    /* Where and when are every frame's to give: a removed point that
+       named the venue does not take the venue off the action frame. */
+    const sayable = logisticsFree(this.free, this.rules.facts);
     this.frames.forEach((beat, frame) => {
       const own = this.claims[frame] ?? "";
       const said = (line: string) =>
-        removedSaidBy(line, removed, own, this.free) !== null;
-      if (said(beat.subheadline)) {
-        const kept = beat.subheadline
+        removedSaidBy(line, removed, own, sayable) !== null ||
+        released.some((fact) => factStated(fact, line));
+      const footerLines = beat.footerLines
+        .map((line) =>
+          line
+            .split(FOOTER_ITEM)
+            .filter((item) => !said(item))
+            .join(" · "),
+        )
+        .filter((line) => line.trim());
+      if (footerLines.join("\n") !== beat.footerLines.join("\n")) {
+        this.set(frame, { footerLines }, "removed point cut from the footer");
+      }
+      if (said(this.frames[frame].subheadline)) {
+        const kept = this.frames[frame].subheadline
           .split(SENTENCE_BREAK)
           .filter((s) => !said(s));
         const subheadline =
@@ -799,8 +821,8 @@ class Gate {
 
   /** The brief's own sentence that gives every name `hook` leaves out
    *  ("Lumenfield runs 6 solar mini-grids in Benue…"), else namesLine: a
-   *  bare "Lumenfield." under a headline reads as a label left behind (O1
-   *  round-1 critic, HIGH 6). No price the action carries, no contact. */
+   *  bare "Lumenfield." under a headline reads as a label left behind.
+   *  No price the action carries, no contact. */
   hookLine(hook: FrameBeat): string | null {
     const bare = this.namesLine(hook);
     if (!bare) return null;

@@ -747,11 +747,11 @@ const labelled: Guard = ({ after }) =>
 const notToDo: Guard = ({ after }) => !word(after, "to");
 
 /* Words before a count that change how many it is: "Over 10 seats sold"
-   is more than ten (round-12 code critic, G15), "the first 20 customers"
+   is more than ten, "the first 20 customers"
    is not 20 customers. Any other word leaves the count as the brief gives
    it: an allowlist of verbs missed "This round deploys 60 more ATMs" and
    "Heel replacement done in 20 minutes", so code drew the fact a second
-   time onto another frame (arc round-4 critic, HIGH 2). "to" stays a
+   time onto another frame. "to" stays a
    plain lead for "Up to 16 places"; the spec records "close to 10 seats"
    as its residual. */
 const COUNT_CHANGERS = [
@@ -839,8 +839,44 @@ function participleFirst(core: readonly CopyToken[]): string | null {
   return moved.map((t) => t.text).join(" ");
 }
 
+/* A share has no word of its own, but its sentence names what it is a
+   share of: "Post-harvest loss dropped from 40% to 12%" states 12%. "from"
+   before it gives the value it moved away from, a count changer ("over
+   12%") or "up to" changes it, and "to" after it opens a range. */
+const shared: Guard = (around) =>
+  (startsClause(around) ||
+    (around.before?.kind === "word" &&
+      !word(around.before, ...COUNT_CHANGERS, "from") &&
+      !(word(around.before, "to") && word(around.beforeThat, "up")))) &&
+  !word(around.after, "to");
+
+const isShare = (tokens: readonly CopyToken[]) =>
+  tokens.length === 2 && isNumber(tokens[0]) && tokens[1].key === "%";
+
+/* "Groups of 8 per teacher" is stated by "Every teacher takes groups of
+   8": the unit a group is per may be said anywhere in the same field. */
+function perUnitForm(core: readonly CopyToken[]): FactForm | null {
+  const [group, of, n, per, ...unit] = core;
+  if (
+    group?.kind !== "word" ||
+    !word(of, "of") ||
+    !isNumber(n) ||
+    !word(per, ...PER) ||
+    unit.length !== 1 ||
+    unit[0].kind !== "word"
+  ) {
+    return null;
+  }
+  const unitKey = nounKey(unit[0].text);
+  const inField: Guard = (around) =>
+    counted(around) &&
+    around.field.some((t) => t.kind === "word" && nounKey(t.text) === unitKey);
+  return form(`${group.text} of ${n.text}`, inField);
+}
+
 function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   const hasWord = (ts: CopyToken[]) => ts.some((t) => t.kind === "word");
+  if (isShare(tokens)) return [form(own, shared)];
   if (!hasWord(tokens)) return [form(own, alone)];
   let core = tokens;
   while (core.length > 1 && word(core[0], ...COUNT_LEAD)) core = core.slice(1);
@@ -848,6 +884,8 @@ function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
     core = core.slice(0, -1);
   }
   const forms = [form(own, countedFor(own))];
+  const perUnit = perUnitForm(core);
+  if (perUnit) forms.push(perUnit);
   if (!hasWord(core) || !isNumber(core[0])) return forms;
   const [n, ...rest] = core.map((t) => t.text);
   const noun = rest.join(" ");

@@ -39,6 +39,7 @@ import {
 } from "./faults";
 import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
 import { shipGate, unsourcedOnSet } from "./gate";
+import { lastResort } from "./last-resort";
 import { withFigureLayout } from "./layouts";
 import { sequenceLedger } from "./ledger";
 import {
@@ -50,7 +51,13 @@ import {
 import { type Draft, settlePick } from "./pick";
 import { profileStatements } from "./points";
 import { failure, frameCountError, readSequenceBrief } from "./read";
-import { profileWithout, removedFromBrief, removedPoints } from "./removed";
+import {
+  profileWithout,
+  releasedFacts,
+  removedFromBrief,
+  removedPoints,
+  removedSaidBy,
+} from "./removed";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, withoutRepeats } from "./repeats";
 import {
@@ -67,6 +74,7 @@ import { settledTitle, type TitleRules, withSettledTitles } from "./title";
 import { validateSequence } from "./validate";
 
 const ARC_MAX_OUTPUT_TOKENS = 3000;
+const SAYABLE_KINDS = new Set(["date", "day", "time", "place", "contact"]);
 /** N frames of copy, the button and the other openings. */
 const COPY_MAX_OUTPUT_TOKENS = 8000;
 const AUDIT_MAX_OUTPUT_TOKENS = 2000;
@@ -89,6 +97,27 @@ export class ModelBudgetError extends Error {
 export interface PlanSequenceDeps {
   /** Reads the brief's facts, offering and people (brief-read.ts). */
   briefReader?: BriefReader;
+  /** What a set still carrying a fault that must not ship does: "refuse"
+   *  throws SequenceShipRefusedError; "report" (the default) returns it
+   *  with `refused` set. Report is the default because the live eval
+   *  finds a blocking fault left on about half the sets after the last
+   *  resort, and refusing them would fail half of all jobs: which way the
+   *  product goes is the owner's decision (OUTLINE.md). */
+  onBlocked?: "refuse" | "report";
+}
+
+/** Thrown in place of a set that still carries a fault that must not
+ *  ship after every repair, code's last resort included. */
+export class SequenceShipRefusedError extends Error {
+  constructor(readonly faults: readonly FrameRepeat[]) {
+    super(
+      `planSequence: refused to ship ${faults.length} blocking fault(s): ${faults
+        .map((f) => `frame ${f.frame + 1}: ${f.detail}`)
+        .join("; ")
+        .slice(0, 600)}`,
+    );
+    this.name = "SequenceShipRefusedError";
+  }
 }
 
 /** The contract's result, plus the copy faults no rewrite fixed: drawable,
@@ -103,6 +132,15 @@ export interface PlannedSequenceResult extends PlanSequenceResult {
   /** Brief facts the copy left out that code wrote onto a frame's footer
    *  in the brief's own words (withFactsDrawn). */
   factsDrawn: string[];
+  /** Brief facts the owner took out of the approved outline
+   *  (releasedFacts): not required on any frame, and kept off them. */
+  factsReleased: string[];
+  /** The faults that must not ship that are still on the set; only ever
+   *  non-empty with onBlocked "report". */
+  refused: FrameRepeat[];
+  /** "frame k: how code rewrote it" for every frame the last resort
+   *  rewrote from its own point. */
+  lastResort: string[];
 }
 
 type BrandFrame = Pick<
@@ -192,7 +230,10 @@ export function assemblePlan(
  */
 export async function planSequence(
   input: PlanSequenceInput,
-  { briefReader = readBriefWithModel }: PlanSequenceDeps = {},
+  {
+    briefReader = readBriefWithModel,
+    onBlocked = "report",
+  }: PlanSequenceDeps = {},
 ): Promise<PlannedSequenceResult> {
   const { context, kind, frameCount, imageSource, image } = input;
   const bounds = FRAME_BOUNDS[kind];
@@ -241,6 +282,9 @@ export async function planSequence(
     ? removedPoints(outline, planned, facts, free)
     : [];
   const removed = removedPool.map((p) => p.text);
+  const released = outline
+    ? releasedFacts(outline, planned, facts, free).map((n) => facts[n].text)
+    : [];
   /* Every prompt reads the profile without what the owner took out; the
      ledger still reads all of it, so a removed point is cut for being
      removed, not for being invented. */
@@ -407,7 +451,7 @@ export async function planSequence(
           imageSource,
           aspectRatio,
           approved: outline !== null,
-          removed: removedFromBrief(removedPool),
+          removed: [...removedFromBrief(removedPool), ...released],
           second,
         }),
       COPY_MAX_OUTPUT_TOKENS,
@@ -454,6 +498,7 @@ export async function planSequence(
     atAction,
     owned,
     removed,
+    released,
     briefText,
   };
   const arcTitles = arc.frames.map((f) => [f.title]);
@@ -614,18 +659,47 @@ export async function planSequence(
     await withSpares(blocking);
     gated.push(...gate());
   }
-  const filled = withFactsDrawn(plan, facts, owners);
+  const filled = withFactsDrawn(
+    plan,
+    facts,
+    owners,
+    released,
+    /* A when or where is every frame's to give, so it is drawn even
+       beside words a removed point shared: "our Yaba bar" is the
+       action's, whatever the owner did with "Specialty coffee bar in
+       Yaba". */
+    (line, frame, fact) =>
+      !SAYABLE_KINDS.has(fact.kind) &&
+      removedSaidBy(line, removed, arc.frames[frame]?.claim ?? "", free) !==
+        null,
+  );
+  const casingSources = [
+    briefText,
+    context.title,
+    brandName,
+    offering,
+    ...brandFacts(context.brandSummary),
+  ];
   const cased = withConsistentCasing(
     withSettledTitles(filled.plan.frames, titleRules, arcTitles),
-    [
-      briefText,
-      context.title,
-      brandName,
-      offering,
-      ...brandFacts(context.brandSummary),
-    ],
+    casingSources,
   );
   plan = { ...filled.plan, frames: cased.frames.map(withFigureLayout) };
+  const resorted = lastResort(
+    plan,
+    rules,
+    arc.frames.map((f) => f.claim),
+    (frames) =>
+      withConsistentCasing(
+        withSettledTitles(frames, titleRules, arcTitles),
+        casingSources,
+      ).frames.map(withFigureLayout),
+  );
+  plan = resorted.plan;
+  const refused = resorted.blocking.map((f) => ({
+    frame: f.frame,
+    detail: f.detail,
+  }));
 
   const problems = validateSequence(plan, rules);
   const invented = unsourcedOnSet(plan.frames, { ledger, unsourced });
@@ -655,12 +729,18 @@ export async function planSequence(
     problems: problems.map((p) => p.rule),
     invented,
     factsDrawn: filled.drawn,
+    factsReleased: released,
+    lastResort: resorted.applied,
+    refused: refused.length,
     faults: faults.map((f) => `frame ${f.frame + 1} ${f.field}: ${f.detail}`),
     imageSeen,
     readAvailable: brief.readAvailable,
     modelCalls,
     ms: Date.now() - started,
   });
+  if (refused.length > 0 && onBlocked === "refuse") {
+    throw new SequenceShipRefusedError(refused);
+  }
   return {
     plan,
     facts,
@@ -669,6 +749,9 @@ export async function planSequence(
     faults: faults.map((f) => ({ frame: f.frame, detail: f.detail })),
     invented,
     factsDrawn: filled.drawn,
+    factsReleased: released,
+    refused,
+    lastResort: resorted.applied,
     modelCalls,
     repaired: copyKey(plan.frames) !== copyKey(draft.frames),
   };

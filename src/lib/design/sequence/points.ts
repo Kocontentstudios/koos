@@ -5,6 +5,7 @@ import {
   numbersIn,
 } from "@/lib/jobs/directions/brief-facts";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
+import { upperFirst } from "./casing";
 import type { FrameBeat } from "./contract";
 import type { FrameRepeat } from "./repeats";
 import { frameCopy } from "./validate";
@@ -112,8 +113,7 @@ const JOINED = /^(?:and|but|plus)\s+/i;
    "Brings designers"). Alone, each half reads cut off. */
 const LIST_TAIL = /^[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+)?\s+(?:and|or|&)\s/iu;
 
-const capitalised = (text: string) =>
-  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+const capitalised = upperFirst;
 
 /** A field's statements, one per clause: "Full-grain leather, hand-stitched
  *  soles, free resole in year one" is three points a thin set can spend on
