@@ -22,6 +22,13 @@
  * Usage: pnpm eval:design-sequence [--set tuning|held-out] [--case <id>]
  *          [--n <3|5|8>] [--kind carousel|presentation] [--no-judge]
  *          [--lane auto|approved|both] [--no-deletes] [--report <path>]
+ *        pnpm eval:design-sequence --panel [--report <path>]
+ *
+ * --panel runs rubric Addendum B's calibration panel instead: the 8
+ * fixtures of the frozen reference (reference/expert.json) at its N, our
+ * sets planned in lane APPROVED, judged blind and shuffled together with
+ * the expert and floor sets, 3 passes each, and gated relative to expert
+ * (panel.ts panelGate).
  *
  * --set tuning (the default) runs the briefs the planner is tuned
  * against; --set held-out runs the briefs it was never tuned on,
@@ -65,6 +72,21 @@ const {
   withPointDeleted,
 } = await import("./lanes");
 const { FRAME_BOUNDS } = await import("../../../design/sequence/contract");
+const {
+  blockingFaults,
+  calibrationChecks,
+  PANEL_AXES,
+  PANEL_GROUPS,
+  PANEL_PASSES,
+  panelGate,
+  panelJobs,
+  parseReference,
+  REFERENCE_FILES,
+  summarizeGroup,
+} = await import("./panel");
+type PanelGroup = import("./panel").PanelGroup;
+type PanelSet = import("./panel").PanelSet;
+type PanelJudgment = import("./panel").PanelJudgment;
 type Lane = import("./lanes").Lane;
 type OwnerEdit = import("./lanes").OwnerEdit;
 type PlannedOutline =
@@ -90,6 +112,7 @@ const {
 } = await import("./judge");
 type PlannedSequence =
   import("../../../design/sequence/contract").PlannedSequence;
+type JudgedSet = import("./judge").JudgedSet;
 
 const args = process.argv.slice(2);
 const flag = (name: string) =>
@@ -98,6 +121,7 @@ const onlyCase = flag("--case");
 const onlyN = flag("--n");
 const onlyKind = flag("--kind");
 const withJudge = !args.includes("--no-judge");
+const panelMode = args.includes("--panel");
 /* An owner deleting a point is the other half of O5; it is measured on
    its own, unjudged, so the gated lanes stay as Addendum A defines them. */
 const withDeletes = !args.includes("--no-deletes");
@@ -111,7 +135,9 @@ const lanes: Lane[] =
 /* H13 is gated on lane APPROVED; a run of AUTO alone gates on AUTO. */
 const gatedLane: Lane = lanes.includes("approved") ? "approved" : "auto";
 const set = flag("--set") ?? "tuning";
-const printRuns = set !== "held-out";
+/* The panel holds two held-out fixtures: like a held-out run, it prints
+   only aggregates and keeps the planner's trace off the terminal. */
+const printRuns = set !== "held-out" && !panelMode;
 /* The planner's own trace (design.sequence.planned) carries the plan's
    faults and invented words; a held-out run keeps it off the terminal. */
 if (!printRuns) console.info = () => {};
@@ -121,9 +147,11 @@ if (set !== "tuning" && set !== "held-out") {
 }
 const reportPath =
   flag("--report") ??
-  (set === "held-out"
-    ? "qa-reports/eval/design-sequence.held-out.json"
-    : "qa-reports/eval/design-sequence.json");
+  (panelMode
+    ? "qa-reports/eval/design-sequence.panel.json"
+    : set === "held-out"
+      ? "qa-reports/eval/design-sequence.held-out.json"
+      : "qa-reports/eval/design-sequence.json");
 
 const cases = (
   set === "held-out" ? SEQUENCE_HELD_OUT_CASES : SEQUENCE_EVAL_CASES
@@ -163,7 +191,7 @@ function contextOf(c: SequenceEvalCase) {
 
 async function judge(
   c: SequenceEvalCase,
-  plan: PlannedSequence,
+  plan: JudgedSet,
 ): Promise<{
   scores: JudgeScores;
   why: Record<string, string>;
@@ -225,6 +253,161 @@ interface RunRecord {
   error?: string;
 }
 
+/* Three jobs at a time, each running its lanes in turn: enough to finish
+   in minutes without tripping the provider's rate limit. */
+const CONCURRENCY = 3;
+
+if (panelMode) process.exit(await runPanel());
+
+interface PanelOurs {
+  fixtureId: string;
+  set: PanelSet | null;
+  blocking: string[];
+  error?: string;
+}
+
+/** Rubric Addendum B's panel: our sets planned at the reference's N in
+ *  lane APPROVED, then every group's sets judged blind in one shuffled
+ *  order. Returns the exit code. */
+async function runPanel(): Promise<number> {
+  const reference = {
+    expert: parseReference(readFileSync(REFERENCE_FILES.expert, "utf8")),
+    floor: parseReference(readFileSync(REFERENCE_FILES.floor, "utf8")),
+  };
+  const allCases = [...SEQUENCE_EVAL_CASES, ...SEQUENCE_HELD_OUT_CASES];
+  const caseOf = (id: string) => {
+    const c = allCases.find((x) => x.id === id);
+    if (!c) throw new Error(`no fixture ${id}`);
+    return c;
+  };
+  const fixtureIds = reference.expert.map((s) => s.fixtureId);
+
+  const ours: PanelOurs[] = [];
+  let nextPlan = 0;
+  async function planWorker() {
+    while (nextPlan < reference.expert.length) {
+      const expert = reference.expert[nextPlan++];
+      const c = caseOf(expert.fixtureId);
+      const n = expert.frames.length;
+      try {
+        const planned = await planOutline({
+          context: contextOf(c),
+          kind: c.kind,
+          frameCount: n,
+          memorySummary: "",
+        });
+        const { result } = await planLane(c, "approved", planned.outline);
+        ours.push({
+          fixtureId: c.id,
+          set: { fixtureId: c.id, kind: c.kind, frames: result.plan.frames },
+          blocking: blockingFaults({
+            frameCount: n,
+            plannedFrames: result.plan.frames.length,
+            refused: result.refused,
+            problems: result.problems,
+          }),
+        });
+      } catch (err) {
+        ours.push({
+          fixtureId: c.id,
+          set: null,
+          blocking: [],
+          error: String(err),
+        });
+      }
+      console.log(`panel: planned ${ours.length} of ${fixtureIds.length}`);
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, planWorker));
+
+  const setsOf: Record<PanelGroup, Map<string, PanelSet>> = {
+    expert: new Map(reference.expert.map((s) => [s.fixtureId, s])),
+    floor: new Map(reference.floor.map((s) => [s.fixtureId, s])),
+    ours: new Map(
+      ours.flatMap((o) => (o.set ? [[o.fixtureId, o.set] as const] : [])),
+    ),
+  };
+  const jobs = panelJobs(fixtureIds, PANEL_PASSES, Math.random);
+  const judgments: (PanelJudgment & {
+    order: number;
+    why: Record<string, string> | null;
+  })[] = [];
+  let nextJudge = 0;
+  async function judgeWorker() {
+    while (nextJudge < jobs.length) {
+      const order = nextJudge++;
+      const job = jobs[order];
+      const set = setsOf[job.group].get(job.fixtureId);
+      const c = caseOf(job.fixtureId);
+      /* One retry: a transient provider error would otherwise drop a
+         judgment and skew the means. */
+      const verdict = set
+        ? ((await judge(c, set)) ?? (await judge(c, set)))
+        : null;
+      judgments.push({
+        ...job,
+        order,
+        scores: verdict?.scores ?? null,
+        why: verdict?.why ?? null,
+      });
+      console.log(`panel: judged ${judgments.length} of ${jobs.length}`);
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, judgeWorker));
+
+  const summary = Object.fromEntries(
+    PANEL_GROUPS.map((g) => [g, summarizeGroup(judgments, g)]),
+  ) as Record<PanelGroup, ReturnType<typeof summarizeGroup>>;
+  const blockingShipped = ours.reduce((n, o) => n + o.blocking.length, 0);
+  const planFailures = ours.filter((o) => !o.set).length;
+  const gate = panelGate({ summary, blockingFaultsShipped: blockingShipped });
+  if (planFailures > 0) {
+    gate.push({
+      name: "every set planned",
+      pass: false,
+      detail: `${planFailures} of ${fixtureIds.length} threw`,
+    });
+  }
+  const calibration = calibrationChecks(summary);
+
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeFileSync(
+    reportPath,
+    JSON.stringify(
+      { mode: "panel", summary, gate, calibration, ours, judgments },
+      null,
+      2,
+    ),
+  );
+
+  const cell = (x: number | null) => (x === null ? " n/a" : x.toFixed(2));
+  console.log(
+    `\npanel: ${fixtureIds.length} fixtures x ${PANEL_PASSES} passes, blind and shuffled`,
+  );
+  console.log(`group   ${PANEL_AXES.join("  ")}  (within-set sd)`);
+  for (const g of PANEL_GROUPS) {
+    const s = summary[g];
+    console.log(
+      `${g.padEnd(7)} ${PANEL_AXES.map((a) => cell(s.means[a])).join(" ")}  (${PANEL_AXES.map((a) => cell(s.withinSd[a])).join(" ")}) judged ${s.judged}, failed ${s.failed}`,
+    );
+  }
+  console.log(
+    `blocking faults shipped on our sets: ${blockingShipped} across ${ours.filter((o) => o.blocking.length > 0).length} of ${ours.length}`,
+  );
+  console.log("\njudge calibration (Addendum B acceptance of the judge):");
+  for (const c of calibration) {
+    console.log(`  ${c.pass ? "PASS" : "FAIL"} ${c.name}: ${c.detail}`);
+  }
+  console.log("\nAddendum B gate:");
+  for (const c of gate) {
+    console.log(`  ${c.pass ? "PASS" : "FAIL"} ${c.name}: ${c.detail}`);
+  }
+  console.log(`report: ${reportPath}`);
+  const passed = gate.every((c) => c.pass);
+  console.log(passed ? "PASS" : "FAIL");
+  return passed ? 0 : 1;
+}
+
 const records: RunRecord[] = [];
 const jobs = cases.flatMap((c) => counts.map((n) => ({ c, n })));
 const totalRuns = jobs.length * lanes.length;
@@ -266,6 +449,43 @@ function sharedWords(c: SequenceEvalCase): Set<string> {
   ]);
 }
 
+/** The set one lane delivers from the outline: AUTO approves it as
+ *  planned, APPROVED swaps each flagged point for the owner pool's next. */
+async function planLane(
+  c: SequenceEvalCase,
+  lane: Lane,
+  outline: PlannedOutline,
+) {
+  const { approved, edits } =
+    lane === "auto"
+      ? { approved: approvedAsPlanned(outline), edits: [] as OwnerEdit[] }
+      : withOwnerPoints(outline, OWNER_POOL[c.id] ?? []);
+  const valid = validateApprovedOutline(approved, {
+    kind: c.kind,
+    briefText: c.request.briefText,
+    profileStatements: profileStatements(c.brand),
+  });
+  if (!valid.ok) {
+    throw new Error(
+      `outline refused: ${valid.problems.map((p) => p.detail).join("; ")}`,
+    );
+  }
+  const result = await planSequence(
+    {
+      context: contextOf(c),
+      kind: c.kind,
+      frameCount: valid.outline.points.length,
+      imageSource: c.imageSource,
+      image: null,
+      memorySummary: "",
+      recentLayouts: [],
+      approvedOutline: valid.outline,
+    },
+    { onBlocked: "report" },
+  );
+  return { result, edits, valid };
+}
+
 async function runLane(
   c: SequenceEvalCase,
   n: number,
@@ -276,33 +496,7 @@ async function runLane(
   const label = `${c.id}/${n}`;
   const started = Date.now();
   try {
-    const { approved, edits } =
-      lane === "auto"
-        ? { approved: approvedAsPlanned(outline), edits: [] as OwnerEdit[] }
-        : withOwnerPoints(outline, OWNER_POOL[c.id] ?? []);
-    const valid = validateApprovedOutline(approved, {
-      kind: c.kind,
-      briefText: c.request.briefText,
-      profileStatements: profileStatements(c.brand),
-    });
-    if (!valid.ok) {
-      throw new Error(
-        `outline refused: ${valid.problems.map((p) => p.detail).join("; ")}`,
-      );
-    }
-    const result = await planSequence(
-      {
-        context: contextOf(c),
-        kind: c.kind,
-        frameCount: valid.outline.points.length,
-        imageSource: c.imageSource,
-        image: null,
-        memorySummary: "",
-        recentLayouts: [],
-        approvedOutline: valid.outline,
-      },
-      { onBlocked: "report" },
-    );
+    const { result, edits, valid } = await planLane(c, lane, outline);
     const released = factsTakenOut(labelledFacts(c), valid.outline, edits);
     const score = scoreRun(c, n, result.plan, released);
     const verdict = withJudge ? await judge(c, result.plan) : null;
@@ -435,9 +629,6 @@ async function runDeletion(
   }
 }
 
-/* Three jobs at a time, each running its lanes in turn: enough to finish
-   in minutes without tripping the provider's rate limit. */
-const CONCURRENCY = 3;
 let next = 0;
 async function worker() {
   while (next < jobs.length) {

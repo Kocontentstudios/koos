@@ -10,7 +10,9 @@ import {
   SEQUENCE_HELD_OUT_CASES,
 } from "./cases";
 import {
+  ACTION_DETAILS_ARE_NOT_REPETITION,
   buildJudgePrompt,
+  JUDGE_SYSTEM,
   judgeSchema,
   judgeScores,
   repairJudgeText,
@@ -215,6 +217,50 @@ describe("judge", () => {
     expect(prompt).toContain("Frame 1 of 5 (with image)");
     expect(prompt).toContain("button: Message us");
     expect(prompt).not.toContain("earns the swipe. Names");
+  });
+
+  it("does not count the action frame's details as repeating the hook (Addendum B)", () => {
+    const prompt = buildJudgePrompt(cafe, cafePlan());
+    const nonRep = prompt.indexOf('- "nonRepetitive":');
+    const frames = prompt.indexOf('Then "frames":');
+    const rule = prompt.indexOf(ACTION_DETAILS_ARE_NOT_REPETITION);
+    expect(rule).toBeGreaterThan(nonRep);
+    expect(rule).toBeLessThan(frames);
+    expect(ACTION_DETAILS_ARE_NOT_REPETITION).toContain(
+      "Repetition means two frames making the same point, or reusing phrasing.",
+    );
+    for (const detail of [
+      "price",
+      "date",
+      "time",
+      "place",
+      "contact",
+      "link",
+    ]) {
+      expect(ACTION_DETAILS_ARE_NOT_REPETITION).toContain(detail);
+    }
+    expect(prompt.slice(frames)).toContain(
+      "The last frame giving again what the reader needs to act does not lower its score.",
+    );
+  });
+
+  /* Addendum B allows the non-repetition fix and nothing else: the scale,
+     the system prompt and the hook and last-action criteria are pinned
+     word for word as calibrated at c6b487d. */
+  it("keeps the system prompt, the scale and the hook and last-action criteria as calibrated", () => {
+    expect(JUDGE_SYSTEM).toBe(
+      "You are a senior social media creative director reviewing a junior's work before it goes out. You are hard to impress: a 5 is work you would post unchanged and that would beat what Canva or Predis would produce for the same brief. Generic, safe or repetitive work scores 3 or less. Judge only what is written.",
+    );
+    const prompt = buildJudgePrompt(cafe, cafePlan());
+    expect(prompt).toContain(
+      "Score each from 1 to 5, with one sentence of why:\n" +
+        '- "hook": does the first frame earn the swipe? 5: names the offer and gives a concrete, specific reason to see more; 3: names it but is flat or generic; 1: unclear what it is about.\n' +
+        '- "lastAction": does the last frame carry the action? 5: one clear action with how to take it (the contact, place or link the brief gives); 3: an action without the how, or a vague one; 1: no action.\n' +
+        '- "nonRepetitive": does each frame move the story on? 5: every frame makes its own point in its own words, read in order it builds; 3: two frames say much the same or reuse phrasing; 1: one message cut into pieces.\n',
+    );
+    expect(prompt).toContain(
+      'Then "frames": one entry per frame, its number and "repetition" from 1 to 5: 5 makes a point no other frame makes, in its own words; 3 shares some of another frame\'s point or wording; 2 or less says what an earlier frame said, or adds nothing a reader needs.',
+    );
   });
 
   it("reads the three scores off a valid answer", () => {

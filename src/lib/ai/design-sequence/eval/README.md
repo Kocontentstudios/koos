@@ -16,6 +16,7 @@ pnpm eval:design-sequence --set held-out          # the 4 held-out briefs x N, a
 pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
 pnpm eval:design-sequence --lane approved         # one lane: auto, approved or both (default)
 pnpm eval:design-sequence --no-deletes            # skip the deletion probe
+pnpm eval:design-sequence --panel                 # rubric Addendum B's calibration panel and gate
 ```
 
 If `pnpm` stops to reinstall `node_modules` in a worktree without a TTY,
@@ -153,6 +154,42 @@ directions path and the job's drawn-copy check read it (`withVenueOrBrand`):
 the brand's name and the area state it. That rule is deterministic, so the
 labels are still not the planner's reader.
 
+## The calibration panel (`--panel`, rubric Addendum B)
+
+The judge gave model-written expert sets hook 3.58 and non-repetition
+3.42 (`/tmp/feat-multiframe/calibration/report.md`), so an absolute 4.0
+on those axes measured the judge, not the planner. `--panel` gates H13
+relative to a frozen expert reference instead:
+
+- **Reference** (`reference/expert.json`, `reference/floor.json`): 8
+  expert sets and 8 floor sets for pepper-sauce, saas, laundry, clinic,
+  pitch-deck, school-deck, tailor and car-wash, copied unedited from the
+  calibration. `reference.test.ts` pins each file's sha256
+  (`REFERENCE_SHA256` in `panel.ts`), so an edit fails the gate lane.
+  Builders may not edit either file; biome skips the folder so formatting
+  never rewrites them.
+- **Ours**: each fixture planned at the reference set's N, outline then
+  lane APPROVED, exactly as the main run plans it.
+- **Judging**: 3 groups x 8 sets x 3 passes = 72 judge calls, in one
+  shuffled order, with no group label in the prompt. A failed call is
+  retried once.
+- **Gate** (`panelGate`), per axis (hook, last action, non-repetition):
+  ours >= expert - 0.2; ours >= floor + 1.5; ours >= 4.0 wherever the
+  expert mean is 4.0 or higher. Plus zero blocking faults shipped on our
+  sets (`blockingFaults`: what `planSequence` reports and production
+  refuses, a fatal `validateSequence` rule the job refuses, a wrong
+  count) and every judgment measured. Each line prints PASS or FAIL; the
+  run exits 1 on any FAIL.
+- **Judge calibration** (`calibrationChecks`), printed, not gated:
+  expert - floor >= 1.5 on every axis and within-set sd <= 0.4 in every
+  group, Addendum B's acceptance test for the judge fix.
+
+Two of the fixtures are held out, so the panel prints only the group
+means and the gate; the sets, scores and reasons go to
+`qa-reports/eval/design-sequence.panel.json`. About 8 planner runs and 72
+judge calls. The full tuning and held-out matrices are still run and
+reported in both lanes beside it.
+
 ## What it scores
 
 The deterministic checks live in `score.ts` and run against the plan and
@@ -169,7 +206,12 @@ against the `frameSpec` output the renderer would draw:
 
 The judge lives in `judge.ts`. It is a text judge on the same model path. It
 sees the brief and the frames in order, never the planner's prompts, and
-scores three things from 1 to 5:
+scores three things from 1 to 5. Repetition means two frames making the
+same point or reusing phrasing; the last frame restating what the reader
+needs to act (price, date, time, place, contact, link) is not repetition
+of the hook (`ACTION_DETAILS_ARE_NOT_REPETITION`, Addendum B). Scores
+from before 2026-10-31 were taken without that rule and are not directly
+comparable.
 
 | Metric | Question |
 |---|---|
@@ -192,6 +234,11 @@ titles); no threshold has been lowered.
   **at least 4.0** over every judged run.
 - A judge score that was never measured (`--no-judge`, or every judge call
   failed) is reported as "not measured". It never counts as a pass.
+- Rubric Addendum B (2026-10-31) replaces the absolute 4.0 on hook and
+  non-repetition with the `--panel` gate for H13. The matrix runs still
+  print their 4.0 verdicts unchanged, so they stay comparable round to
+  round; they must not regress below c6b487d's numbers under the fixed
+  judge.
 
 ## Results so far
 
