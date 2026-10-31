@@ -55,6 +55,24 @@ describe("draftFrom", () => {
 });
 
 describe("editPoint", () => {
+  it("counts the draft unedited again once the words are back as planned", () => {
+    const start = draftFrom(plannedOutline(5));
+    const original = start.points[1].point;
+    const typed = editPoint(start, "p2", "point", `${original}x`);
+    expect(typed.edited).toBe(true);
+    const undone = editPoint(typed, "p2", "point", original);
+    expect(undone.edited).toBe(false);
+    expect(undone.points).toEqual(start.points);
+  });
+
+  it("still counts a draft edited while any one change remains", () => {
+    let draft = draftFrom(plannedOutline(5));
+    draft = editPoint(draft, "p2", "title", "Changed");
+    draft = editPoint(draft, "p3", "title", "Also changed");
+    draft = editPoint(draft, "p2", "title", plannedOutline(5).points[1].title);
+    expect(draft.edited).toBe(true);
+  });
+
   it("marks a point the user's once its words change, and the draft edited", () => {
     const draft = editPoint(
       draftFrom(plannedOutline(5)),
@@ -299,6 +317,13 @@ describe("facts after a retitle", () => {
 });
 
 describe("addPoint", () => {
+  it("counts the draft edited until the added point is deleted again", () => {
+    const start = draftFrom(plannedOutline(5));
+    const { draft, id } = addPoint(start);
+    expect(draft.edited).toBe(true);
+    expect(removePoint(draft, id ?? "").edited).toBe(false);
+  });
+
   it("adds a blank body point just before the action", () => {
     const { draft, id } = addPoint(draftFrom(plannedOutline(5)));
     expect(id).toBe("u-1");
@@ -403,7 +428,7 @@ describe("restoreRemoved", () => {
     expect(index).toBe(2);
     expect(draft.points).toEqual(start.points);
     expect(draft.removed).toEqual([]);
-    expect(draft.edited).toBe(true);
+    expect(draft.edited).toBe(false);
   });
 
   it("undoes several deletes newest first", () => {
@@ -620,7 +645,9 @@ describe("movePoint", () => {
     expect(ids(down)).toEqual(["p1", "p3", "p2", "p4", "p5"]);
     expect(roles(down)).toEqual(["hook", "body", "body", "body", "cta"]);
     expect(down.edited).toBe(true);
-    expect(ids(movePoint(down, "p2", "up"))).toEqual(ids(start));
+    const back = movePoint(down, "p2", "up");
+    expect(ids(back)).toEqual(ids(start));
+    expect(back.edited).toBe(false);
   });
 
   it("never moves the hook or the action, or a body point past them", () => {

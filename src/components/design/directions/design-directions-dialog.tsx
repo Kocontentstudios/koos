@@ -294,11 +294,16 @@ export function DesignDirectionsDialog({
   }
 
   /* Closing resets the flow, and an edited outline can't be got back: a new
-     plan costs another rate-limited call and says something different. */
-  const outlineEdited =
-    step === "outline" &&
+     plan costs another rate-limited call and says something different. The
+     outline outlives its own step (Back to change the image keeps it, and a
+     failed run offers Edit outline), so the guard follows the draft, not the
+     step. Once a run has the outline and is not failing, it is spent. */
+  const outlineStillNeeded =
+    step !== "run" || (fromOutline && !design.pending && !!design.error);
+  const outlineAtRisk =
     outline.state.status === "ready" &&
-    outline.state.draft.edited;
+    outline.state.draft.edited &&
+    outlineStillNeeded;
 
   function closeFlow() {
     setStep("choose");
@@ -323,8 +328,7 @@ export function DesignDirectionsDialog({
       details.cancel();
       return;
     }
-    /* Every way out (Escape, the X, Android's back gesture) asks first. */
-    if (outlineEdited) {
+    if (outlineAtRisk) {
       details?.cancel();
       setConfirmingDiscard(true);
       return;
@@ -487,15 +491,17 @@ export function DesignDirectionsDialog({
 
   /* A click beside the dialog is usually a slip, and closing resets the
      flow; it may only dismiss when nothing would be thrown away. An edited
-     outline is guarded on every path, so a slip there asks nothing. */
+     outline is guarded by the confirm on every other path, so a slip there
+     asks nothing. */
   const pointerDismissable =
-    view.step === "choose" ||
-    (view.step === "upload" && view.upload.status === "idle") ||
-    (view.step === "results" &&
-      view.regeneratingSlot === null &&
-      view.sendingId === null) ||
-    (view.step === "set-results" && view.frameActions.size === 0) ||
-    (view.step === "outline" && !view.starting && !outlineEdited);
+    !outlineAtRisk &&
+    (view.step === "choose" ||
+      (view.step === "upload" && view.upload.status === "idle") ||
+      (view.step === "results" &&
+        view.regeneratingSlot === null &&
+        view.sendingId === null) ||
+      (view.step === "set-results" && view.frameActions.size === 0) ||
+      (view.step === "outline" && !view.starting));
 
   return (
     <Dialog

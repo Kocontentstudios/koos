@@ -72,11 +72,20 @@ its source and flag, newest first, and is held at the kind's maximum with a
 note saying why. A re-plan clears it.
 
 Once the outline is edited, closing would lose work a new plan can't give
-back, so every way out of the dialog (Escape, the X, a tap beside it,
-Android's back gesture) opens `DiscardOutlineConfirm` instead: focus on "Keep
-editing", and Escape or a tap beside the question keeps the edits. Escape in
-"Replace with my own point" still closes only that form first. An untouched
-outline closes at once. The dialog's scroll box starts below the X, so no
+back, so Escape and the X open `DiscardOutlineConfirm` instead, and a tap
+beside the dialog does nothing: focus on "Keep editing", and Escape or a tap
+beside the question keeps the edits. The guard follows the draft, not the
+step: Back to change the image keeps the outline, and so does a failed run
+that offers "Edit outline", so both the image step (choose and upload) and
+that error are guarded too. It drops once a run that used the outline is
+pending or done. `draft.edited` compares the points with the plan, so an edit
+undone by hand, or a delete then Undo, closes at once like an untouched
+outline. Escape in "Replace with my own point" still closes only that form
+first.
+
+Not guarded: a browser back (Android's back gesture included). The dialog
+pushes no history entry, so back leaves the page, as it does from every other
+modal in the app. The dialog's scroll box starts below the X, so no
 field ever scrolls under it.
 
 On a phone (below `sm`, or any `hover: none` screen) every control in the

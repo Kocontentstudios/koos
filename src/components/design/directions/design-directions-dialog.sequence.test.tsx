@@ -543,8 +543,10 @@ describe("the outline step in the dialog", () => {
 describe("closing an edited outline", () => {
   function Controlled({
     onOpenChange,
+    design = runState(),
   }: {
     onOpenChange: (o: boolean) => void;
+    design?: DesignGenerationState;
   }) {
     const [open, setOpen] = useState(true);
     return (
@@ -556,22 +558,27 @@ describe("closing an edited outline", () => {
         }}
         entry="brief"
         args={{ brandId: BRAND, briefId: "brief-1" }}
-        design={runState()}
+        design={design}
         ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
       />
     );
   }
 
-  async function openEdited() {
+  const EDIT = "Hand-woven in Abeokuta by our own weavers";
+
+  async function openEdited(design?: DesignGenerationState) {
     const onOpenChange = vi.fn();
-    render(<Controlled onOpenChange={onOpenChange} />, flags(true));
+    render(
+      <Controlled onOpenChange={onOpenChange} design={design} />,
+      flags(true),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: /let ko create the imagery/i }),
     );
     await screen.findByRole("list", { name: /^Outline/ });
     const point = screen.getByRole("textbox", { name: "Point, slide 2" });
     await userEvent.clear(point);
-    await userEvent.type(point, "Hand-woven in Abeokuta by our own weavers");
+    await userEvent.type(point, EDIT);
     return { onOpenChange, point };
   }
 
@@ -705,5 +712,160 @@ describe("closing an edited outline", () => {
         ...TOUCH_HEIGHT.split(" "),
       );
     }
+  });
+
+  const anyCloseButton = () =>
+    within(screen.getAllByRole("dialog")[0]).getByRole("button", {
+      name: "Close",
+    });
+
+  async function clickTopBackdrop() {
+    const backdrops = document.querySelectorAll('[data-slot="dialog-overlay"]');
+    const top = backdrops[backdrops.length - 1];
+    if (!top) throw new Error("no backdrop");
+    await userEvent.click(top);
+  }
+
+  async function expectEditKept() {
+    await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(confirm()).toBeNull());
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    expect(
+      await screen.findByRole("textbox", { name: "Point, slide 2" }),
+    ).toHaveValue(EDIT);
+    expect(outlineFetch).toHaveBeenCalledTimes(1);
+  }
+
+  for (const [path, close] of [
+    ["Escape", () => userEvent.keyboard("{Escape}")],
+    ["the X", () => userEvent.click(anyCloseButton())],
+  ] as const) {
+    it(`asks before ${path} on the image step throws a kept outline away`, async () => {
+      const { onOpenChange } = await openEdited();
+      await userEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(screen.queryByRole("list", { name: /^Outline/ })).toBeNull();
+      await close();
+      expect(confirm()).toBeInTheDocument();
+      expect(onOpenChange).not.toHaveBeenCalled();
+      await expectEditKept();
+    });
+  }
+
+  it("ignores a tap beside the image step while it holds a kept outline", async () => {
+    const { onOpenChange } = await openEdited();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await clickTopBackdrop();
+    expect(confirm()).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    expect(
+      await screen.findByRole("textbox", { name: "Point, slide 2" }),
+    ).toHaveValue(EDIT);
+  });
+
+  it("asks before the upload step reached from Back throws the outline away", async () => {
+    const { onOpenChange } = await openEdited();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /use a specific image/i }),
+    );
+    await clickTopBackdrop();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(confirm()).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(confirm()).toBeNull());
+    await userEvent.click(anyCloseButton());
+    expect(confirm()).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("discards a kept outline from the image step only on Discard edits", async () => {
+    const { onOpenChange } = await openEdited();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard edits" }),
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  for (const [path, close] of [
+    ["Escape", () => userEvent.keyboard("{Escape}")],
+    ["the X", () => userEvent.click(anyCloseButton())],
+    ["a tap beside it", clickTopBackdrop],
+  ] as const) {
+    it(`keeps the outline behind a failed run's Edit outline from ${path}`, async () => {
+      const design = runState({
+        error: "Invalid outline. Slide 2: The title is empty.",
+      });
+      const { onOpenChange } = await openEdited(design);
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: /^Generate \d+ slides · \d+ units$/,
+        }),
+      );
+      const alert = screen.getByRole("alert");
+      expect(
+        within(alert).getByRole("button", { name: "Edit outline" }),
+      ).toBeInTheDocument();
+      await close();
+      expect(onOpenChange).not.toHaveBeenCalled();
+      if (path !== "a tap beside it") {
+        expect(confirm()).toBeInTheDocument();
+        await userEvent.click(
+          screen.getByRole("button", { name: "Keep editing" }),
+        );
+        await waitFor(() => expect(confirm()).toBeNull());
+      }
+      await userEvent.click(
+        within(screen.getByRole("alert")).getByRole("button", {
+          name: "Edit outline",
+        }),
+      );
+      expect(
+        screen.getByRole("textbox", { name: "Point, slide 2" }),
+      ).toHaveValue(EDIT);
+    });
+  }
+
+  it("closes at once after a run that used the edited outline succeeds", async () => {
+    const design = runState({
+      set: buildSet(BRAND, frameRows(5), { setId: SET, frameCount: 5 }),
+    });
+    const { onOpenChange } = await openEdited(design);
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Generate \d+ slides · \d+ units$/ }),
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(confirm()).toBeNull();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("closes at once when every edit was undone", async () => {
+    const onOpenChange = vi.fn();
+    render(<Controlled onOpenChange={onOpenChange} />, flags(true));
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    const point = await screen.findByRole("textbox", {
+      name: "Point, slide 2",
+    });
+    await userEvent.type(point, "x");
+    await userEvent.type(point, "{Backspace}");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Undo deleting/ }),
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(confirm()).toBeNull();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

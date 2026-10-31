@@ -21,7 +21,8 @@ export interface OutlineDraft {
   /** Every hard brief fact, in the brief's words (PlannedOutline.facts). */
   facts: string[];
   offering: string | null;
-  /** True once the user changed anything the planner gave. */
+  /** True while the points differ from what the planner gave, so typing a
+   *  letter and deleting it, or a delete then Undo, leaves it false. */
   edited: boolean;
   /** Feeds the id of the next point the user adds. */
   nextId: number;
@@ -29,6 +30,8 @@ export interface OutlineDraft {
    *  worked out against it on every change, so undoing an edit (or a
    *  delete) brings them back rather than leaving them lost. */
   planned: Record<string, OutlinePoint>;
+  /** The planner's point ids in its order. */
+  plannedOrder: string[];
   /** Deleted points, newest last, for undo. */
   removed: RemovedPoint[];
 }
@@ -68,8 +71,26 @@ export function draftFrom(planned: PlannedOutline): OutlineDraft {
     edited: false,
     nextId: 1,
     planned: Object.fromEntries(points.map((p) => [p.id, p])),
+    plannedOrder: points.map((p) => p.id),
     removed: [],
   };
+}
+
+function differsFromPlan(draft: OutlineDraft, points: OutlinePoint[]): boolean {
+  if (points.length !== draft.plannedOrder.length) return true;
+  return points.some((point, index) => {
+    const planned = draft.planned[point.id];
+    return (
+      draft.plannedOrder[index] !== point.id ||
+      planned === undefined ||
+      planned.title !== point.title ||
+      planned.point !== point.point
+    );
+  });
+}
+
+function withPoints(draft: OutlineDraft, points: OutlinePoint[]): OutlineDraft {
+  return { ...draft, points, edited: differsFromPlan(draft, points) };
 }
 
 const normalised = (text: string) =>
@@ -186,7 +207,7 @@ export function editPoint(
   const points = draft.points.map((point) =>
     point.id === id ? { ...point, [field]: text } : point,
   );
-  return { ...draft, points: settle(draft, points), edited: true };
+  return withPoints(draft, settle(draft, points));
 }
 
 export function canAdd(draft: OutlineDraft): boolean {
@@ -226,7 +247,7 @@ export function addPoint(draft: OutlineDraft): {
   const points = [...draft.points];
   points.splice(points.length - 1, 0, added);
   return {
-    draft: { ...draft, points: withRoles(points), edited: true, nextId },
+    draft: { ...withPoints(draft, withRoles(points)), nextId },
     id,
   };
 }
@@ -256,7 +277,7 @@ export function movePoint(
   const target = direction === "up" ? index - 1 : index + 1;
   const points = [...draft.points];
   [points[index], points[target]] = [points[target], points[index]];
-  return { ...draft, points, edited: true };
+  return withPoints(draft, points);
 }
 
 export function removePoint(draft: OutlineDraft, id: string): OutlineDraft {
@@ -264,9 +285,7 @@ export function removePoint(draft: OutlineDraft, id: string): OutlineDraft {
   const index = draft.points.findIndex((p) => p.id === id);
   const points = draft.points.filter((p) => p.id !== id);
   return {
-    ...draft,
-    points: settle(draft, withRoles(points)),
-    edited: true,
+    ...withPoints(draft, settle(draft, withRoles(points))),
     removed: [...draft.removed, { point: draft.points[index], index }],
   };
 }
@@ -297,9 +316,7 @@ export function restoreRemoved(draft: OutlineDraft): {
   points.splice(index, 0, last.point);
   return {
     draft: {
-      ...draft,
-      points: settle(draft, withRoles(points)),
-      edited: true,
+      ...withPoints(draft, settle(draft, withRoles(points))),
       removed,
     },
     index,
