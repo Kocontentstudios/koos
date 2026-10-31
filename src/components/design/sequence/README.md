@@ -13,7 +13,7 @@ user: one card in the history, one viewer, one ZIP or PDF.
 | `set-viewer.tsx` | Stage (`set-stage.tsx`, with a failed frame's retry on the frame), filmstrip (`frame-rail.tsx`), the viewer's one `role="status"` region, the selected frame's actions (edit, regenerate, download this frame) and inline editor (`frame-editor.tsx`), whole-set downloads (`set-downloads.tsx`). |
 | `outline-model.ts` | Pure: the outline the user edits before generating (`OutlineDraft`). Hook first and action last by construction, add and delete within `FRAME_BOUNDS`, `OUTLINE_LIMITS` held as typed, the client mirror of the server's empty/too-long/markup rules, overlap reasons renumbered after an edit, brief facts a deletion leaves unstated, `toApproved` for the generate body. |
 | `use-outline.ts` | `POST /api/design/outline`: idle, loading, empty, error (429 says when to try again) and ready. A re-plan keeps the draft on screen until the new one lands; the latest request wins. |
-| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete body points, re-plan at a chosen count (a 44px native select with its own chevron, since the base layer's 12px select padding hides the number; asks first when edited), "Generate N slides · N units". Its geometry is checked in Chromium by `directions-dialog.layout.test.tsx`. |
+| `outline-step.tsx` | The outline step in the directions dialog: one card per point (slide, role, source, title, point), weak flags as a callout with "Replace with my own point", add before the action, delete and reorder body points, re-plan at a chosen count (a 44px native select with its own chevron, since the base layer's 12px select padding hides the number; asks first when edited), "Generate N slides · N units". Its geometry is checked in Chromium by `directions-dialog.layout.test.tsx`. |
 | `set-progress.tsx` | The wait for a whole set in the directions dialog. |
 | `set-card.tsx`, `set-viewer-dialog.tsx` | The history grid's card (aspect box and skeleton until the cover is in; "k of N" while building; a stated failure when no frame rendered), the placeholder card for a set job with no row yet, and the dialog a card opens. |
 
@@ -28,8 +28,13 @@ Outside this folder:
 
 ## The outline step
 
-With FEATURE_MULTI_FRAME on and a ticket whose design type is a carousel or
-presentation, choosing the image does not start the run. The dialog moves to
+With FEATURE_MULTI_FRAME on and a design type that is a carousel or
+presentation, choosing the image does not start the run. The brief panel and
+the calendar drawer hand the dialog that type through `ticketContext`; Design
+Studio hands it `designType={primaryDesignType(attached options)}`, read from
+the `designType` each picker option now carries (`/api/design/context`), by
+the same precedence the server merges attachments with
+(`src/lib/design/attachments.ts`). The dialog moves to
 the outline step (`outline-step.tsx`), plans the outline once, and keeps the
 user's draft until the dialog closes, so going back to change the image never
 loses an edit. Generate sends `approvedOutline` (`toApproved`) with the run;
@@ -45,6 +50,17 @@ Weak flags are the server's (`flagOutline`). The client never invents one: it
 clears a flag when the user rewrites that point's words, drops an overlap whose
 earlier point was deleted, and says an overlap's slide number from where the
 earlier point sits now.
+
+Source follows the claim, not the title. Rewriting a point's words makes it
+`"user"` and clears its flag; a retitle keeps the planner's source and flag,
+so "Written by you" never sits beside "Taken from your brand profile".
+
+Body points move up and down (hook and action stay put); the move is
+announced and focus follows the moved card's button. A count chosen in the
+select is only a proposal until Re-plan: the button reads "Re-plan as N
+slides" and a note says the outline keeps its current count. After a 429,
+"Try again" stays disabled until `Retry-After` passes (30 s when the header
+is missing). While the run starts, the fields are read-only and dimmed.
 
 `use-design-generation.ts` composes `useFrameSet`: a job result with
 `kind: "sequence"` loads its frames by id and exposes them as `set`.

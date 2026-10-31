@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FlowChromeProvider } from "@/components/design/directions/flow-heading";
@@ -158,6 +158,52 @@ describe("planning the outline", () => {
     );
   });
 
+  it("holds Try again until the rate limit's wait has passed", async () => {
+    /* Only the clock and timeouts: faking setImmediate as well would hold
+       React's effects back until the clock is moved. */
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "Date"],
+      shouldAdvanceTime: true,
+    });
+    try {
+      answers.push(
+        Response.json(
+          { error: "Too many requests." },
+          { status: 429, headers: { "Retry-After": "600" } },
+        ),
+      );
+      render(<Harness onGenerate={vi.fn()} />);
+      const alert = await screen.findByRole("alert");
+      const retry = within(alert).getByRole("button", { name: "Try again" });
+      expect(retry).toHaveAttribute("aria-disabled", "true");
+      expect(retry).toHaveAccessibleDescription(/Try again in 10 minutes/);
+      retry.click();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        vi.advanceTimersByTime(600_000);
+      });
+      await waitFor(() =>
+        expect(retry).not.toHaveAttribute("aria-disabled", "true"),
+      );
+      answers.push(outlineAnswer());
+      retry.click();
+      await screen.findByRole("list", { name: /^Outline/ });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves Try again live after an error that is not a rate limit", async () => {
+    answers.push(Response.json({ error: "Planner down" }, { status: 503 }));
+    render(<Harness onGenerate={vi.fn()} />);
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).getByRole("button", { name: "Try again" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
+  });
+
   it("names a lost connection as one", async () => {
     answers.push(() => {
       throw new TypeError("Failed to fetch");
@@ -246,7 +292,7 @@ describe("the points", () => {
 });
 
 describe("editing", () => {
-  it("edits a title in place and sends it as the user's", async () => {
+  it("edits a title in place and keeps who the point came from", async () => {
     const { onGenerate } = await ready();
     const title = within(cards()[1]).getByRole("textbox", {
       name: "Title, slide 2",
@@ -254,13 +300,58 @@ describe("editing", () => {
     await userEvent.clear(title);
     await userEvent.type(title, "Woven here");
     expect(within(cards()[1]).getByRole("heading")).toHaveTextContent(
-      "Written by you",
+      "From your brief",
     );
     await userEvent.click(generateButton());
     expect(onGenerate.mock.calls[0]?.[0].points[1]).toMatchObject({
       title: "Woven here",
-      source: "user",
+      source: "brief",
     });
+  });
+
+  it("keeps the profile label and its flag together after a retitle", async () => {
+    const { onGenerate } = await ready();
+    const card = cards()[3];
+    const title = within(card).getByRole("textbox", { name: "Title, slide 4" });
+    await userEvent.clear(title);
+    await userEvent.type(title, "Since 1998");
+    const heading = within(card).getByRole("heading");
+    expect(heading).toHaveTextContent("From your brand profile");
+    expect(heading).not.toHaveTextContent("Written by you");
+    expect(card).toHaveTextContent("Taken from your brand profile");
+    await userEvent.click(generateButton());
+    expect(onGenerate.mock.calls[0]?.[0].points[3]).toEqual({
+      id: "p4",
+      role: "body",
+      title: "Since 1998",
+      point: "We have tailored for Lagos families since 1998.",
+      source: "profile",
+    });
+  });
+
+  it("calls a point the user's once its words are rewritten, and drops the flag", async () => {
+    const { onGenerate } = await ready();
+    const card = cards()[3];
+    const point = within(card).getByRole("textbox", { name: "Point, slide 4" });
+    await userEvent.clear(point);
+    await userEvent.type(point, "Linen cut for Lagos heat.");
+    expect(within(card).getByRole("heading")).toHaveTextContent(
+      "Written by you",
+    );
+    expect(card).not.toHaveTextContent("Taken from your brand profile");
+    await userEvent.click(generateButton());
+    expect(onGenerate.mock.calls[0]?.[0].points[3].source).toBe("user");
+  });
+
+  it("names each field and card without stray spaces", async () => {
+    await ready();
+    expect(
+      within(cards()[1]).getByRole("textbox", { name: "Title, slide 2" }),
+    ).toHaveAccessibleName("Title, slide 2");
+    expect(within(cards()[1]).getByRole("heading")).toHaveAccessibleName(
+      "Slide 2 · Point, From your brief",
+    );
+    expect(cards()[1]).toHaveAccessibleName("Slide 2 · Point, From your brief");
   });
 
   it("holds the limit in the field, not only on submit", async () => {
@@ -484,7 +575,117 @@ describe("deleting and adding", () => {
   });
 });
 
+describe("reordering", () => {
+  const order = () =>
+    cards().map(
+      (card) =>
+        (
+          within(card).getByRole("textbox", {
+            name: /^Title/,
+          }) as HTMLInputElement
+        ).value,
+    );
+
+  it("moves a body point down and up, keeping hook first and action last", async () => {
+    const { onGenerate } = await ready();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Move slide 2 down" }),
+    );
+    expect(order()).toEqual([
+      "The launch",
+      "Who it's for",
+      "The fabric",
+      "Our story",
+      "Come Saturday",
+    ]);
+    expect(
+      screen.getByText("Slide 2 moved down. It is now slide 3."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Move slide 3 down" }),
+    ).toHaveFocus();
+    await userEvent.click(generateButton());
+    expect(
+      onGenerate.mock.calls[0]?.[0].points.map(
+        (p: { id: string; role: string }) => `${p.id}:${p.role}`,
+      ),
+    ).toEqual(["p1:hook", "p3:body", "p2:body", "p4:body", "p5:cta"]);
+  });
+
+  it("will not move a point into the hook's or the action's place", async () => {
+    await ready();
+    expect(
+      screen.getByRole("button", { name: "Move slide 2 up" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Move slide 4 down" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.queryByRole("button", { name: /^Move slide 1/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Move slide 5/ }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Move slide 2 up" }),
+    );
+    expect(order()[0]).toBe("The launch");
+  });
+
+  it("moves by keyboard and keeps focus on the moved card's button", async () => {
+    await ready();
+    screen.getByRole("button", { name: "Move slide 4 up" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(order()[2]).toBe("Our story");
+    const moved = screen.getByRole("button", { name: "Move slide 3 up" });
+    expect(moved).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(order()[1]).toBe("Our story");
+    expect(
+      screen.getByRole("button", { name: "Move slide 2 up" }),
+    ).toHaveFocus();
+  });
+
+  it("re-says an overlap flag's slide number after a move", async () => {
+    const outline = plannedOutline(5);
+    outline.points[3] = {
+      ...outline.points[3],
+      source: "brief",
+      weak: {
+        kind: "overlap",
+        overlapsWith: "p2",
+        reason: "Says the same as slide 2.",
+      },
+    };
+    await ready(outline);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Move slide 2 down" }),
+    );
+    expect(cards()[3]).toHaveTextContent(
+      "Says the same as slide 3, “The fabric”.",
+    );
+  });
+});
+
 describe("changing the count", () => {
+  it("says a chosen count is not applied until Re-plan is pressed", async () => {
+    await ready();
+    const select = screen.getByRole("combobox", { name: "Number of slides" });
+    await userEvent.selectOptions(select, "4");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("count-pending")).toHaveTextContent(
+      "Not applied yet. The outline keeps 5 slides until you re-plan.",
+    );
+    expect(select).toHaveAccessibleDescription(/Not applied yet/);
+    expect(
+      screen.getByRole("button", { name: "Re-plan as 4 slides" }),
+    ).toBeInTheDocument();
+    expect(generateButton()).toHaveTextContent("Generate 5 slides · 5 units");
+    await userEvent.selectOptions(select, "5");
+    expect(screen.queryByTestId("count-pending")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-plan" })).toBeInTheDocument();
+  });
+
   it("re-plans at the chosen count and keeps the old outline on screen meanwhile", async () => {
     await ready();
     const pending = deferred();
@@ -493,7 +694,9 @@ describe("changing the count", () => {
       screen.getByRole("combobox", { name: "Number of slides" }),
       "7",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Re-plan" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Re-plan as 7 slides" }),
+    );
     expect(requestBody(1)).toEqual({
       brandId: BRAND,
       briefId: "brief-1",
@@ -523,7 +726,9 @@ describe("changing the count", () => {
       screen.getByRole("combobox", { name: "Number of slides" }),
       "4",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Re-plan" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Re-plan as 4 slides" }),
+    );
     expect(screen.getByText("Re-plan as 4 slides?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Keep my edits" })).toHaveFocus();
     await userEvent.click(
@@ -535,7 +740,9 @@ describe("changing the count", () => {
     ).toHaveValue("The fabric!");
 
     answers.push(outlineAnswer(plannedOutline(4)));
-    await userEvent.click(screen.getByRole("button", { name: "Re-plan" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Re-plan as 4 slides" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Re-plan" }));
     await waitFor(() => expect(cards()).toHaveLength(4));
     expect(requestBody(1).frames).toBe(4);
@@ -572,6 +779,13 @@ describe("the hand-off", () => {
     rerender(<Harness onGenerate={onGenerate} starting />);
 
     expect(title()).toHaveAttribute("readonly");
+    expect(title()).toHaveClass("opacity-60");
+    expect(
+      within(cards()[1]).getByRole("textbox", { name: "Point, slide 2" }),
+    ).toHaveClass("opacity-60");
+    expect(
+      screen.getByRole("button", { name: "Move slide 2 down" }),
+    ).toHaveAttribute("aria-disabled", "true");
     expect(
       within(cards()[1]).getByRole("textbox", { name: "Point, slide 2" }),
     ).toHaveAttribute("readonly");

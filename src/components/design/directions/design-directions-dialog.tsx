@@ -55,6 +55,10 @@ export interface DesignDirectionsDialogProps {
   design: DesignGenerationState;
   /** Carried into a design ticket when a direction is sent to the team. */
   ticketContext?: TicketContext;
+  /** The format the server will read from `args`, when the caller knows it
+   *  apart from a ticket (Design Studio, from its attached picker options).
+   *  Falls back to the ticket's. */
+  designType?: string | null;
   /** Fires whenever this dialog starts a billable run, including a single
    *  slot's regenerate, so the caller knows new designs may exist. */
   onRunStart?: () => void;
@@ -93,6 +97,7 @@ export function DesignDirectionsDialog({
   args,
   design,
   ticketContext,
+  designType,
   onRunStart,
 }: DesignDirectionsDialogProps) {
   const upload = useDesignImageUpload(args.brandId);
@@ -119,12 +124,13 @@ export function DesignDirectionsDialog({
   );
   const lastImage = useRef<DesignImageChoice | null>(null);
   const multiFrame = useMultiFrameOffered();
-  /* The brief and calendar entry points hand over the ticket's design type;
-     with FEATURE_MULTI_FRAME on, a carousel or presentation there is certain
-     to be built as a set. Otherwise the run is told nothing, exactly as
+  /* Studio hands over the attachments' design type and the brief and
+     calendar entry points the ticket's; with FEATURE_MULTI_FRAME on, a
+     carousel or presentation there is certain to be built as a set, so it
+     stops at the outline. Otherwise the run is told nothing, exactly as
      before, and learns it is a set from the job's own progress. */
   const expectedKind = multiFrame
-    ? sequenceKindOf(ticketContext?.designType)
+    ? sequenceKindOf(designType ?? ticketContext?.designType)
     : null;
   const {
     brandId,

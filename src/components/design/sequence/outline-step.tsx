@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   ChevronDown,
   Plus,
   RotateCw,
@@ -29,12 +31,14 @@ import {
 import { cn } from "@/lib/utils";
 import {
   canAdd,
+  canMove,
   canRemove,
   countOptions,
   draftProblems,
   FIELD_LIMITS,
   fieldProblem,
   generateLabel,
+  type MoveDirection,
   type OutlineDraft,
   type OutlineField,
   sourceLabel,
@@ -112,17 +116,40 @@ function OutlineLoading({
   );
 }
 
+/** True until `retryAt` passes, re-rendering once when it does. */
+function useWaitingUntil(retryAt: number | null): boolean {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (retryAt === null) return;
+    const rerender = () => setTick((n) => n + 1);
+    const left = retryAt - Date.now();
+    /* The effect can run late (a background tab, a slow commit); a wait that
+       already passed still has to re-render to drop the stale disabled. */
+    if (left <= 0) {
+      rerender();
+      return;
+    }
+    const timer = setTimeout(rerender, left);
+    return () => clearTimeout(timer);
+  }, [retryAt]);
+  return retryAt !== null && Date.now() < retryAt;
+}
+
 function OutlineProblemPanel({
   tone,
   title,
   message,
+  retryAt = null,
   onRetry,
 }: {
   tone: "error" | "empty";
   title: string;
   message: string;
+  retryAt?: number | null;
   onRetry: () => void;
 }) {
+  const messageId = useId();
+  const waiting = useWaitingUntil(retryAt);
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
@@ -144,11 +171,20 @@ function OutlineProblemPanel({
       </span>
       <div className="flex max-w-[440px] flex-col gap-1.5">
         <p className="text-[15px] font-semibold text-foreground">{title}</p>
-        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
+        <p
+          id={messageId}
+          className="text-[13px] leading-relaxed text-[var(--text-secondary)]"
+        >
           {message}
         </p>
       </div>
-      <Button type="button" onClick={onRetry}>
+      <Button
+        type="button"
+        onClick={onRetry}
+        disabled={waiting}
+        focusableWhenDisabled
+        aria-describedby={waiting ? messageId : undefined}
+      >
         <RotateCw aria-hidden="true" />
         Try again
       </Button>
@@ -165,8 +201,16 @@ export const REVEAL_ON_FOCUS = {
     e.currentTarget.scrollIntoView?.({ block: "nearest" }),
 } as const;
 
+/* While the run starts the fields are read-only; without this they looked
+   exactly as editable as before and swallowed keystrokes silently. */
+const LOCKED_FIELD_CLASS = "cursor-default opacity-60";
+
 function fieldId(base: string, pointId: string, field: OutlineField): string {
   return `${base}-${pointId}-${field}`;
+}
+
+function moveId(base: string, pointId: string, direction: MoveDirection) {
+  return `${base}-${pointId}-move-${direction}`;
 }
 
 function OutlineFieldInput({
@@ -197,6 +241,9 @@ function OutlineFieldInput({
     value,
     maxLength: limit,
     readOnly: locked,
+    /* aria-label rather than an sr-only span in the label: the span is laid
+       out as a block, so the name came out as "Title , slide 2". */
+    "aria-label": `${FIELD_LABELS[field]}, ${slideName}`,
     "aria-invalid": problem ? true : undefined,
     "aria-describedby": problem ? `${problemId} ${countId}` : countId,
   };
@@ -208,7 +255,6 @@ function OutlineFieldInput({
           className="text-[12px] font-semibold text-[var(--text-secondary)]"
         >
           {FIELD_LABELS[field]}
-          <span className="sr-only">, {slideName}</span>
         </label>
         <span
           id={countId}
@@ -226,6 +272,7 @@ function OutlineFieldInput({
       {field === "title" ? (
         <Input
           {...shared}
+          className={cn(locked && LOCKED_FIELD_CLASS)}
           placeholder="Two to four words"
           onChange={(e) => onEdit(e.target.value)}
         />
@@ -233,7 +280,7 @@ function OutlineFieldInput({
         <Textarea
           {...shared}
           rows={2}
-          className="min-h-14 scroll-my-2"
+          className={cn("min-h-14 scroll-my-2", locked && LOCKED_FIELD_CLASS)}
           {...REVEAL_ON_FOCUS}
           placeholder="What this slide tells the reader, in one sentence"
           /* A point is one sentence on one slide; Enter would only add a
@@ -315,7 +362,7 @@ function WeakCallout({
             ref={ownRef}
             id={ownId}
             rows={2}
-            className="min-h-14 scroll-my-2"
+            className={cn("min-h-14 scroll-my-2", locked && LOCKED_FIELD_CLASS)}
             {...REVEAL_ON_FOCUS}
             value={own}
             readOnly={locked}
@@ -386,6 +433,7 @@ function PointCard({
   locked,
   onEdit,
   onRemove,
+  onMove,
 }: {
   base: string;
   draft: OutlineDraft;
@@ -395,6 +443,7 @@ function PointCard({
   locked: boolean;
   onEdit: (field: OutlineField, value: string) => void;
   onRemove: () => void;
+  onMove: (direction: MoveDirection) => void;
 }) {
   const role = roleLabel(draft.kind, point.role);
   const slideName = `slide ${index + 1}`;
@@ -416,6 +465,7 @@ function PointCard({
       <div className="flex items-center justify-between gap-2">
         <h3
           id={headingId}
+          aria-label={`Slide ${index + 1} · ${role}, ${sourceLabel(point.source)}`}
           className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]"
         >
           <span className="font-semibold text-foreground">
@@ -429,27 +479,47 @@ function PointCard({
                 : "bg-[var(--status-draft-bg)] text-[var(--text-secondary)]",
             )}
           >
-            <span className="sr-only">, </span>
             {sourceLabel(point.source)}
           </span>
         </h3>
         {point.role === "body" ? (
-          <Button
-            type="button"
-            variant="icon"
-            size="icon-sm"
-            onClick={onRemove}
-            disabled={locked || !removable}
-            focusableWhenDisabled
-            aria-label={`Delete ${slideName}${point.title.trim() ? `, ${point.title.trim()}` : ""}`}
-            title={
-              removable
-                ? undefined
-                : `A ${kindNoun(draft.kind)} needs at least ${FRAME_BOUNDS[draft.kind].min} slides.`
-            }
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            {(["up", "down"] as const).map((direction) => (
+              <Button
+                key={direction}
+                id={moveId(base, point.id, direction)}
+                type="button"
+                variant="icon"
+                size="icon-sm"
+                onClick={() => onMove(direction)}
+                disabled={locked || !canMove(draft, point.id, direction)}
+                focusableWhenDisabled
+                aria-label={`Move ${slideName} ${direction}`}
+              >
+                {direction === "up" ? (
+                  <ArrowUp aria-hidden="true" />
+                ) : (
+                  <ArrowDown aria-hidden="true" />
+                )}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              variant="icon"
+              size="icon-sm"
+              onClick={onRemove}
+              disabled={locked || !removable}
+              focusableWhenDisabled
+              aria-label={`Delete ${slideName}${point.title.trim() ? `, ${point.title.trim()}` : ""}`}
+              title={
+                removable
+                  ? undefined
+                  : `A ${kindNoun(draft.kind)} needs at least ${FRAME_BOUNDS[draft.kind].min} slides.`
+              }
+            >
+              <Trash2 aria-hidden="true" />
+            </Button>
+          </div>
         ) : null}
       </div>
       <OutlineFieldInput
@@ -522,6 +592,11 @@ function CountControl({
   }, [confirming]);
   const selectId = `${base}-count`;
   const promptId = `${base}-count-prompt`;
+  const pendingId = `${base}-count-pending`;
+  /* The select only proposes a count; the outline and the Generate button
+     keep the applied one until Re-plan is pressed (WCAG 3.2.2), so the
+     proposal has to be said out loud or the screen contradicts itself. */
+  const pending = replanning === null && count !== current;
 
   if (confirming) {
     return (
@@ -576,6 +651,7 @@ function CountControl({
             value={count}
             disabled={locked}
             onChange={(e) => setCount(Number(e.target.value))}
+            aria-describedby={pending ? pendingId : undefined}
             className={COUNT_SELECT_CLASS}
           >
             {countOptions(draft.kind).map((n) => (
@@ -602,8 +678,18 @@ function CountControl({
         onClick={() => (draft.edited ? setConfirming(true) : onReplan(count))}
       >
         <RotateCw aria-hidden="true" />
-        Re-plan
+        {pending ? `Re-plan as ${slideCount(count)}` : "Re-plan"}
       </Button>
+      {pending ? (
+        <p
+          id={pendingId}
+          data-testid="count-pending"
+          className="basis-full text-[12px] text-[var(--status-pending-fg)]"
+        >
+          Not applied yet. The outline keeps {slideCount(current)} until you
+          re-plan.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -650,6 +736,18 @@ function ReadyOutline({
       `Slide ${index + 1} deleted. ${slideCount(count - 1)} in the outline.`,
     );
     if (next) setFocusTarget(fieldId(base, next.id, "title"));
+  }
+
+  function move(point: OutlinePoint, index: number, direction: MoveDirection) {
+    if (!canMove(draft, point.id, direction)) return;
+    outline.move(point.id, direction);
+    const to = direction === "up" ? index : index + 2;
+    setAnnouncement(
+      `Slide ${index + 1} moved ${direction}. It is now slide ${to}.`,
+    );
+    /* Reordering moves the card's DOM node, which drops focus in Chrome, so
+       it is put back on the same button in the card's new place. */
+    setFocusTarget(moveId(base, point.id, direction));
   }
 
   function add() {
@@ -742,6 +840,7 @@ function ReadyOutline({
               locked={starting}
               onEdit={(field, value) => outline.edit(point.id, field, value)}
               onRemove={() => remove(point, index)}
+              onMove={(direction) => move(point, index, direction)}
             />
           ))}
           <li className="list-none">
@@ -778,6 +877,7 @@ function ReadyOutline({
               locked={starting}
               onEdit={(field, value) => outline.edit(action.id, field, value)}
               onRemove={() => {}}
+              onMove={() => {}}
             />
           ) : null}
         </ol>
@@ -844,6 +944,7 @@ export function OutlineStep({
               tone="error"
               title="The outline didn't come through"
               message={state.message}
+              retryAt={state.retryAt}
               onRetry={outline.retry}
             />
           ) : state.status === "empty" ? (

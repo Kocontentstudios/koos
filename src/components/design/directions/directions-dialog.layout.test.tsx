@@ -87,6 +87,7 @@ const OUTLINE: OutlineController = {
   ensure: noop,
   retry: noop,
   replan: noop,
+  move: noop,
   edit: noop,
   add: () => null,
   remove: noop,
@@ -416,6 +417,56 @@ describe("outline step count control", () => {
         });
         expect(Number.parseFloat(gutters.row)).toBeGreaterThanOrEqual(32);
         expect(gutters.row).toBe(gutters.heading);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  /* O3-ui round 3 added move up and down beside delete; three icon buttons
+     must stay inside the card and clear of its heading on a phone. */
+  it.each([320, 390])(
+    "keeps each card's move and delete buttons inside the card at %ipx",
+    async (width) => {
+      const markup = dialogMarkup(outline);
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      try {
+        await page.setContent(
+          pageHtml(markup, await appCssFor(markup), "light"),
+        );
+        await page.evaluate(() => document.fonts.ready);
+        const problems = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>("li[data-point]")].flatMap(
+            (card) => {
+              const box = card.getBoundingClientRect();
+              const heading = card.querySelector("h3")?.getBoundingClientRect();
+              const buttons = [
+                ...card.querySelectorAll<HTMLElement>(
+                  "button[aria-label^='Move'], button[aria-label^='Delete']",
+                ),
+              ].map((b) => b.getBoundingClientRect());
+              return buttons.flatMap((b, i) => {
+                const out =
+                  b.left < box.left || b.right > box.right
+                    ? [`${card.dataset.point} button ${i} outside the card`]
+                    : [];
+                const overlaps =
+                  heading &&
+                  b.left < heading.right &&
+                  b.right > heading.left &&
+                  b.top < heading.bottom &&
+                  b.bottom > heading.top
+                    ? [`${card.dataset.point} button ${i} over the heading`]
+                    : [];
+                return [...out, ...overlaps];
+              });
+            },
+          ),
+        );
+        expect(problems).toEqual([]);
+        expect(
+          await page.locator("button[aria-label^='Move']").count(),
+        ).toBeGreaterThan(0);
       } finally {
         await page.close();
       }

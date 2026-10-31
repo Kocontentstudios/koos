@@ -91,12 +91,18 @@ export function editPoint(
   const points = draft.points.map((point) => {
     if (point.id !== id || point[field] === text) return point;
     changed = true;
-    const next = { ...point, [field]: text, source: "user" as OutlineSource };
-    /* A retitle leaves the point's claim as it was, so only new words in the
-       point itself answer a weak flag. */
-    return field === "point"
-      ? { ...next, weak: null, facts: factsIn(draft, next.title, text) }
-      : next;
+    /* The point is the claim; the title only names it. So a retitle keeps
+       who the claim came from and any flag on it, and only new words in the
+       point make it the user's (OUTLINE.md: profile-fill never sits on a
+       "user" point). */
+    if (field === "title") return { ...point, title: text };
+    return {
+      ...point,
+      point: text,
+      source: "user" as OutlineSource,
+      weak: null,
+      facts: factsIn(draft, point.title, text),
+    };
   });
   return changed ? { ...draft, points, edited: true } : draft;
 }
@@ -141,6 +147,34 @@ export function addPoint(draft: OutlineDraft): {
     draft: { ...draft, points: withRoles(points), edited: true, nextId },
     id,
   };
+}
+
+export type MoveDirection = "up" | "down";
+
+/** The hook opens and the action closes, so only a body point moves, and
+ *  only to another body point's place. */
+export function canMove(
+  draft: OutlineDraft,
+  id: string,
+  direction: MoveDirection,
+): boolean {
+  const index = draft.points.findIndex((p) => p.id === id);
+  if (index < 0 || draft.points[index].role !== "body") return false;
+  const target = direction === "up" ? index - 1 : index + 1;
+  return draft.points[target]?.role === "body";
+}
+
+export function movePoint(
+  draft: OutlineDraft,
+  id: string,
+  direction: MoveDirection,
+): OutlineDraft {
+  if (!canMove(draft, id, direction)) return draft;
+  const index = draft.points.findIndex((p) => p.id === id);
+  const target = direction === "up" ? index - 1 : index + 1;
+  const points = [...draft.points];
+  [points[index], points[target]] = [points[target], points[index]];
+  return { ...draft, points, edited: true };
 }
 
 export function removePoint(draft: OutlineDraft, id: string): OutlineDraft {

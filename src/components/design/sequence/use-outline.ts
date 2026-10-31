@@ -10,6 +10,8 @@ import {
   addPoint,
   draftFrom,
   editPoint,
+  type MoveDirection,
+  movePoint,
   type OutlineDraft,
   type OutlineField,
   removePoint,
@@ -24,7 +26,14 @@ export type OutlineRequest = Omit<
 export type OutlineState =
   | { status: "idle" }
   | { status: "loading"; count: number | null }
-  | { status: "error"; message: string; count: number | null }
+  | {
+      status: "error";
+      message: string;
+      count: number | null;
+      /** Epoch ms before which a retry would only spend another request
+       *  against the rate limit; null when it can be retried at once. */
+      retryAt: number | null;
+    }
   | { status: "empty"; count: number | null }
   | {
       status: "ready";
@@ -45,25 +54,44 @@ export interface OutlineController {
   /** Returns the new point's id, or null at the bound. */
   add: () => string | null;
   remove: (id: string) => void;
+  move: (id: string, direction: MoveDirection) => void;
   reset: () => void;
 }
 
-class OutlineFetchError extends Error {}
+class OutlineFetchError extends Error {
+  constructor(
+    message: string,
+    readonly retryAt: number | null = null,
+  ) {
+    super(message);
+  }
+}
 
 function minutes(seconds: number): string {
   const m = Math.max(1, Math.ceil(seconds / 60));
   return m === 1 ? "a minute" : `${m} minutes`;
 }
 
-async function failureOf(res: Response): Promise<string> {
+/* Without a usable Retry-After the wait is unknown, so a short floor still
+   stops a double press from spending two requests against the limit. */
+const UNKNOWN_RATE_LIMIT_WAIT_S = 30;
+
+async function failureOf(res: Response): Promise<OutlineFetchError> {
   if (res.status === 429) {
     const after = Number(res.headers.get("Retry-After"));
-    return Number.isFinite(after) && after > 0
-      ? `You've planned a lot of outlines this hour. Try again in ${minutes(after)}.`
-      : "You've planned a lot of outlines this hour. Try again shortly.";
+    const known = Number.isFinite(after) && after > 0;
+    const waitS = known ? after : UNKNOWN_RATE_LIMIT_WAIT_S;
+    return new OutlineFetchError(
+      known
+        ? `You've planned a lot of outlines this hour. Try again in ${minutes(after)}.`
+        : "You've planned a lot of outlines this hour. Try again shortly.",
+      Date.now() + waitS * 1000,
+    );
   }
   const body = (await res.json().catch(() => ({}))) as { error?: string };
-  return body.error ?? "KO couldn't plan this outline. Try again.";
+  return new OutlineFetchError(
+    body.error ?? "KO couldn't plan this outline. Try again.",
+  );
 }
 
 async function fetchOutline(
@@ -87,7 +115,7 @@ async function fetchOutline(
       "KO couldn't be reached. Check your connection and try again.",
     );
   }
-  if (!res.ok) throw new OutlineFetchError(await failureOf(res));
+  if (!res.ok) throw await failureOf(res);
   const body = (await res.json().catch(() => null)) as {
     outline?: PlannedOutline;
   } | null;
@@ -146,7 +174,12 @@ export function useOutline(
         );
       } catch (err) {
         if (controller.signal.aborted) return;
-        commit({ status: "error", message: messageOf(err), count });
+        commit({
+          status: "error",
+          message: messageOf(err),
+          count,
+          retryAt: err instanceof OutlineFetchError ? err.retryAt : null,
+        });
       }
     },
     [begin, commit],
@@ -158,6 +191,13 @@ export function useOutline(
 
   const retry = useCallback(() => {
     const current = stateRef.current;
+    if (
+      current.status === "error" &&
+      current.retryAt !== null &&
+      Date.now() < current.retryAt
+    ) {
+      return;
+    }
     const count =
       current.status === "error" || current.status === "empty"
         ? current.count
@@ -233,6 +273,12 @@ export function useOutline(
     [update],
   );
 
+  const move = useCallback(
+    (id: string, direction: MoveDirection) =>
+      update((draft) => movePoint(draft, id, direction)),
+    [update],
+  );
+
   const reset = useCallback(() => {
     inFlight.current?.abort();
     inFlight.current = null;
@@ -248,6 +294,7 @@ export function useOutline(
     edit,
     add,
     remove,
+    move,
     reset,
   };
 }

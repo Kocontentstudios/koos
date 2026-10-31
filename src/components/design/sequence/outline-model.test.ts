@@ -4,6 +4,7 @@ import { plannedOutline } from "./fixtures";
 import {
   addPoint,
   canAdd,
+  canMove,
   canRemove,
   countOptions,
   draftFrom,
@@ -11,6 +12,7 @@ import {
   editPoint,
   fieldProblem,
   generateLabel,
+  movePoint,
   removePoint,
   sourceLabel,
   statesFact,
@@ -45,18 +47,42 @@ describe("draftFrom", () => {
 });
 
 describe("editPoint", () => {
-  it("marks an edited point the user's and the draft edited", () => {
+  it("marks a point the user's once its words change, and the draft edited", () => {
     const draft = editPoint(
       draftFrom(plannedOutline(5)),
       "p2",
-      "title",
-      "Woven here",
+      "point",
+      "Woven by hand in our own workshop.",
     );
     expect(draft.points[1]).toMatchObject({
-      title: "Woven here",
+      point: "Woven by hand in our own workshop.",
       source: "user",
     });
     expect(draft.edited).toBe(true);
+  });
+
+  it("keeps the source and the flag on a retitled point, since its claim is unchanged", () => {
+    const start = draftFrom(plannedOutline(5));
+    const retitled = editPoint(start, "p4", "title", "Since 1998");
+    expect(retitled.points[3]).toMatchObject({
+      title: "Since 1998",
+      point: "We have tailored for Lagos families since 1998.",
+      source: "profile",
+      weak: { kind: "profile-fill" },
+    });
+    expect(retitled.edited).toBe(true);
+    expect(toApproved(retitled).points[3].source).toBe("profile");
+  });
+
+  it("never leaves a profile-fill flag on a point the user wrote", () => {
+    let draft = draftFrom(plannedOutline(5));
+    draft = editPoint(draft, "p4", "title", "Since 1998");
+    draft = editPoint(draft, "p4", "point", "Linen cut for Lagos heat.");
+    draft = editPoint(draft, "p4", "title", "Cut for the heat");
+    for (const point of draft.points) {
+      if (point.source === "user") expect(point.weak).toBeNull();
+    }
+    expect(draft.points[3].source).toBe("user");
   });
 
   it("clears a weak flag only when the point's own words change", () => {
@@ -315,7 +341,7 @@ describe("toApproved", () => {
       role: "body",
       title: "Woven here",
       point: "Every piece is woven in Abeokuta from Nigerian cotton.",
-      source: "user",
+      source: "brief",
     });
     expect(Object.keys(approved.points[0]).sort()).toEqual([
       "id",
@@ -343,5 +369,35 @@ describe("labels", () => {
     expect(countOptions("carousel")).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(countOptions("presentation")[0]).toBe(3);
     expect(countOptions("presentation").at(-1)).toBe(12);
+  });
+});
+
+describe("movePoint", () => {
+  const ids = (d: ReturnType<typeof draftFrom>) => d.points.map((p) => p.id);
+
+  it("swaps a body point with its neighbour and keeps every role in place", () => {
+    const start = draftFrom(plannedOutline(5));
+    const down = movePoint(start, "p2", "down");
+    expect(ids(down)).toEqual(["p1", "p3", "p2", "p4", "p5"]);
+    expect(roles(down)).toEqual(["hook", "body", "body", "body", "cta"]);
+    expect(down.edited).toBe(true);
+    expect(ids(movePoint(down, "p2", "up"))).toEqual(ids(start));
+  });
+
+  it("never moves the hook or the action, or a body point past them", () => {
+    const start = draftFrom(plannedOutline(5));
+    expect(canMove(start, "p1", "down")).toBe(false);
+    expect(canMove(start, "p5", "up")).toBe(false);
+    expect(canMove(start, "p2", "up")).toBe(false);
+    expect(canMove(start, "p4", "down")).toBe(false);
+    expect(canMove(start, "p2", "down")).toBe(true);
+    expect(canMove(start, "nope", "down")).toBe(false);
+    expect(movePoint(start, "p2", "up")).toBe(start);
+    expect(movePoint(start, "p1", "down")).toBe(start);
+  });
+
+  it("keeps who wrote each point when it moves", () => {
+    const moved = movePoint(draftFrom(plannedOutline(5)), "p4", "up");
+    expect(moved.points[2]).toMatchObject({ id: "p4", source: "profile" });
   });
 });

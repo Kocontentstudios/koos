@@ -59,12 +59,27 @@ const PRECEDENCE: AttachmentType[] = [
   "asset",
 ];
 
-export function sortByPrecedence(
-  attachments: ResolvedAttachment[],
-): ResolvedAttachment[] {
+export function sortByPrecedence<T extends { type: AttachmentType }>(
+  attachments: T[],
+): T[] {
   return [...attachments].sort(
     (a, b) => PRECEDENCE.indexOf(a.type) - PRECEDENCE.indexOf(b.type),
   );
+}
+
+/**
+ * The design type a set of attachments resolves to, by the same precedence
+ * the server merges them with. Exported so the Design Studio picker can tell,
+ * before anything is sent, that the run will be a carousel or presentation.
+ */
+export function primaryDesignType(
+  attachments: Pick<ResolvedAttachment, "type" | "designType">[],
+): string | null {
+  for (const attachment of sortByPrecedence(attachments)) {
+    const value = attachment.designType;
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
 }
 
 function firstDefined<K extends keyof ResolvedAttachment>(
@@ -138,7 +153,7 @@ export function mergeAttachments(input: {
     // The prompt is the user's ask, not a name, so a title only ever comes
     // from an attachment.
     title: ordered[0]?.label ?? null,
-    designType: firstDefined(ordered, "designType"),
+    designType: primaryDesignType(ordered),
     /* The same precedence as designType, so the count read belongs to the
        format read. */
     slides: firstCount(ordered),
