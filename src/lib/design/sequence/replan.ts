@@ -25,6 +25,7 @@ import {
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
 import type {
+  ApprovedOutline,
   FrameBeat,
   FrameEdits,
   PlannedSequence,
@@ -449,6 +450,11 @@ export interface ReplanFrameDeps {
   facts?: readonly BriefFact[];
   offering?: string | null;
   briefReader?: BriefReader;
+  /** The outline the set was generated from (design_sets.outline). Given,
+   *  a rewrite keeps the frame's approved point, and every approved point
+   *  counts as stated: the user's own words are a source, not an
+   *  invention. */
+  approvedOutline?: ApprovedOutline | null;
 }
 
 /** The facts and offering a frame's rewrite is held to, with the model
@@ -519,7 +525,11 @@ export async function replanFrame(
     context.brandSummary,
     Boolean(context.brand?.logoUrl),
   );
-  const ledger = sequenceLedger(context, "");
+  const approvedPoints = deps.approvedOutline?.points ?? [];
+  const ledger = sequenceLedger(
+    context,
+    approvedPoints.map((p) => p.point).join("\n"),
+  );
 
   /* Only the facts this frame states alone are its to keep: one stated on
      another frame too is still on the set if this frame drops it. */
@@ -547,6 +557,7 @@ export async function replanFrame(
         index,
         mustState,
         offering,
+        point: approvedPoints[index]?.point,
       }),
     });
     const own = object.frames.filter((f) => f.frame === index + 1);
