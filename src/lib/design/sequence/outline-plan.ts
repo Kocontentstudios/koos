@@ -244,6 +244,9 @@ export function pointTitle(
       if (end - start > TITLE_WORDS) break;
       if (joining(end - 1)) continue;
       if (end < words.length && !joining(end)) continue;
+      /* A run ending on a verb that wants its object ("Full tune-up
+         keeps") is a phrase cut, not a name. */
+      if (!isCleanTitle(words.slice(start, end).join(" "))) continue;
       if (!best || rank([start, end]) > rank(best)) best = [start, end];
     }
   }

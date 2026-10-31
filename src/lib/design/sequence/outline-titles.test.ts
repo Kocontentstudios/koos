@@ -6,6 +6,7 @@ import {
   titleFits,
   titleWithin,
 } from "./outline-plan";
+import { isCleanTitle } from "./title";
 
 /* The deck probe (N=10) showed titles shifted one point along after
    settleArc moved points: p4 "₦420 from diesel" over "Revenue grew 3x…",
@@ -168,5 +169,15 @@ describe("pointTitle never cuts a short clause after two words", () => {
     ["Phone repair shop in Yaba, Lagos", "Phone repair shop"],
   ])("%s -> %s", (point, want) => {
     expect(pointTitle(point)).toBe(want);
+  });
+});
+
+describe("pointTitle on a clause whose short run ends on a verb", () => {
+  it("never titles a point with a run cut before its verb's object", () => {
+    const title = pointTitle(
+      "A full tune-up keeps your bike rolling, and Pedal Doctor picks it up for free.",
+    );
+    expect(title).not.toBe("Full tune-up keeps");
+    expect(isCleanTitle(title)).toBe(true);
   });
 });
