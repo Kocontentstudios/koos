@@ -104,7 +104,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(new Blob(["png"]), { status: 200 })),
+    /* Bytes, not a Blob: under jsdom a Blob is jsdom's, and Node 22's
+       Response (CI) rejects it for lacking .stream(); Node 24 accepts it,
+       so the JPG tests passed locally and failed in CI. */
+    vi.fn(
+      async () =>
+        new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+          status: 200,
+        }),
+    ),
   );
   pngToJpeg.mockResolvedValue(new Blob(["jpeg"], { type: "image/jpeg" }));
 });
