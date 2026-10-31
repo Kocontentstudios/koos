@@ -49,6 +49,7 @@ import {
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { lookAtPhoto } from "@/lib/design/quality/plate-check";
 import type {
+  ApprovedOutline,
   FrameBeat,
   FrameEdits,
   PlannedSequence,
@@ -153,6 +154,9 @@ export interface SequenceRequest {
   /** The count the request or brief asked for before FRAME_BOUNDS clamped
    *  it into `frames`, so the user is told when the set is not that size. */
   asked?: number | null;
+  /** The outline the user approved, validated by the route; `frames` is its
+   *  points' length. Copy is written from it (planSequence). */
+  approvedOutline?: ApprovedOutline;
 }
 
 /** What the context of a set was resolved from: kept on the job for a
@@ -169,7 +173,13 @@ export interface SequenceContextRequest {
 export interface SequenceJobInput extends SequenceContextRequest {
   image: DirectionsImage;
   regenerateOf: null;
-  sequence: { frames: number; asked?: number | null };
+  /* The approved outline rides on the job so a slice that stops before
+     the plan is checkpointed re-plans from what the user approved. */
+  sequence: {
+    frames: number;
+    asked?: number | null;
+    approvedOutline?: ApprovedOutline;
+  };
 }
 
 /** A frame regenerate's generation_jobs.input. */

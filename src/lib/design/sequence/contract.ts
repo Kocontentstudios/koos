@@ -115,6 +115,11 @@ export interface PlanSequenceInput {
   image: { bytes: Uint8Array; contentType: string } | null;
   memorySummary: string;
   recentLayouts: string[];
+  /** The outline the user approved, already validated
+   *  (validateApprovedOutline): frameCount equals its points' length and
+   *  each frame states its own point only. Absent, the planner picks the
+   *  points itself. */
+  approvedOutline?: ApprovedOutline;
 }
 
 export interface PlanSequenceResult {
@@ -182,4 +187,104 @@ export interface SerializedFrame {
   count: number;
   role: FrameRole;
   title: string;
+}
+
+/* The outline step (rubric Addendum A): a carousel or presentation is
+   planned as N plain-words points the user approves or edits before any
+   copy is written or frame rendered. OUTLINE.md holds the API contract. */
+
+export const OUTLINE_SOURCES = ["brief", "profile", "user"] as const;
+export type OutlineSource = (typeof OUTLINE_SOURCES)[number];
+
+export const OUTLINE_WEAK_KINDS = [
+  "overlap",
+  "filler",
+  "profile-fill",
+] as const;
+export type OutlineWeakKind = (typeof OUTLINE_WEAK_KINDS)[number];
+
+/* Title sits a little past COPY_TARGETS.title (32) because the user types
+   it; the point matches ANGLE_MAX so a planned point always fits back in. */
+export const OUTLINE_LIMITS = {
+  titleChars: 40,
+  pointChars: 200,
+  idChars: 40,
+} as const;
+
+/* Planning an outline is one brief read and one model call, no render and
+   no quota, so its limit sits above design-generate's 15 an hour: a user
+   re-plans while choosing a count. */
+export const OUTLINE_RATE_LIMIT = { limit: 30, windowSeconds: 3600 } as const;
+
+/** Why code thinks a point will make a weak frame. Advisory: the user can
+ *  still generate with it. */
+export interface OutlineWeak {
+  kind: OutlineWeakKind;
+  /** One sentence the user can act on, in plain words. */
+  reason: string;
+  /** The id of the earlier point this one repeats; only on "overlap". */
+  overlapsWith?: string;
+}
+
+/** One frame's point, as the outline step shows it. */
+export interface OutlinePoint {
+  /** Stable across edits; the server mints "p1".."pN", the client mints
+   *  its own for a point the user adds. */
+  id: string;
+  role: FrameRole;
+  /** Two to four words, as FrameBeat.title. */
+  title: string;
+  /** What the frame says, as one plain sentence. */
+  point: string;
+  source: OutlineSource;
+  /** The brief facts this point states, in the brief's words. */
+  facts: string[];
+  weak: OutlineWeak | null;
+}
+
+/** What POST /api/design/outline answers with. */
+export interface PlannedOutline {
+  kind: SequenceKind;
+  /** Always points.length. */
+  frameCount: number;
+  /** In frame order: hook first, cta last. */
+  points: OutlinePoint[];
+  /** What the brief offers, in its words; the hook names it. */
+  offering: string | null;
+  /** Every hard brief fact, in the brief's words, so the UI can show
+   *  which ones a deletion leaves unstated. */
+  facts: string[];
+}
+
+/** One point as the client sends it back. `source` is advisory only: the
+ *  server recomputes it (validateApprovedOutline). */
+export type ApprovedOutlinePoint = Pick<
+  OutlinePoint,
+  "id" | "role" | "title" | "point" | "source"
+>;
+
+/** What POST /api/design/generate accepts as `approvedOutline`. */
+export interface ApprovedOutline {
+  kind: SequenceKind;
+  points: ApprovedOutlinePoint[];
+}
+
+export type OutlineRule =
+  | "shape"
+  | "kind"
+  | "count"
+  | "hook-first"
+  | "cta-last"
+  | "cta-only-last"
+  | "id"
+  | "id-repeat"
+  | "empty"
+  | "too-long"
+  | "markup";
+
+export interface OutlineProblem {
+  /** Zero-based point index; null for a problem of the outline as a whole. */
+  point: number | null;
+  rule: OutlineRule;
+  detail: string;
 }

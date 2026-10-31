@@ -32,6 +32,7 @@ import {
   EmojiBudgetError,
   RenderTimeoutError,
 } from "@/lib/design/render/satori-pool";
+import type { ApprovedOutline } from "@/lib/design/sequence/contract";
 import { type DesignSpec, designSpecSchema } from "@/lib/design/spec";
 import { detectImageType } from "@/lib/images/detect";
 import {
@@ -345,6 +346,7 @@ export async function generateDesignWork(
       frames: number;
       asked?: number | null;
       contextRequest?: SequenceContextRequest;
+      approvedOutline?: ApprovedOutline;
     };
   },
   runtime: JobRuntime,
@@ -359,6 +361,9 @@ export async function generateDesignWork(
           image: args.directions.image,
           frames: args.sequence.frames,
           asked: args.sequence.asked ?? null,
+          ...(args.sequence.approvedOutline
+            ? { approvedOutline: args.sequence.approvedOutline }
+            : {}),
         },
         contextRequest: args.sequence.contextRequest,
       },
