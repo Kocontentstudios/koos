@@ -4,6 +4,7 @@ import {
   contentStems,
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
+import { withConcepts } from "./concepts";
 import type { FrameBeat } from "./contract";
 
 /**
@@ -120,7 +121,7 @@ export function previewedFrames(
      the point it spends: "scotch bonnet pepper sauce" on the hook does not
      preview "About 30 scotch bonnets in every jar". */
   const hookWords = contentStems(
-    `${hook.headline} ${hook.subheadline}`,
+    withConcepts(`${hook.headline} ${hook.subheadline}`),
     new Set([...free, ...contentStems(offering ?? "")]),
   );
   const lastIndex = later.length - 1;
@@ -129,7 +130,10 @@ export function previewedFrames(
        headline-repeat (validateSequence), not the hook's fault. */
     if (isNearDuplicateHeadline(hook.headline, beat.headline, free)) return [];
     const shared = [
-      ...contentStems(`${beat.headline} ${beat.subheadline}`, free),
+      ...contentStems(
+        withConcepts(`${beat.headline} ${beat.subheadline}`),
+        free,
+      ),
     ].filter(
       (s) => hookWords.has(s) && !(i === lastIndex && actionFree.has(s)),
     );

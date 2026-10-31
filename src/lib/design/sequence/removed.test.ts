@@ -4,7 +4,14 @@ import { factLedger } from "@/lib/jobs/directions/claims";
 import type { ArcPoint } from "./arc";
 import type { ApprovedOutline } from "./contract";
 import { setFaults } from "./faults";
-import { CAFE_BRIEF, CAFE_FACTS, cafePlan, withFrame } from "./fixtures";
+import {
+  CAFE_BRIEF,
+  CAFE_FACTS,
+  CAFE_RULES,
+  cafePlan,
+  fact,
+  withFrame,
+} from "./fixtures";
 import { type GateRules, shipGate } from "./gate";
 import { namesFree } from "./hook";
 import {
@@ -242,5 +249,78 @@ describe("correctsFact reads the fact's kind", () => {
     ],
   ])("%s corrects %o", (text, fact) => {
     expect(correctsFact(text, fact)).toBe(true);
+  });
+});
+
+describe("a fact the owner took out with its point (O5 over H5)", () => {
+  it("still counts against a line that says the removed point", () => {
+    const facts = [
+      fact("quantity", "One 60-minute session"),
+      fact("price", "₦45,000 for December"),
+      fact("contact", "0701 234 9876"),
+    ];
+    const plan = cafePlan({
+      frames: cafePlan().frames.map((f, i) =>
+        i === 4
+          ? {
+              ...f,
+              headline: "Book your December session",
+              subheadline: "",
+              footerLines: ["₦45,000 for December", "One 60-minute session"],
+            }
+          : f,
+      ),
+    });
+    const rules = {
+      ...CAFE_RULES,
+      names: [],
+      facts,
+      ledger: factLedger([CAFE_BRIEF], 1),
+      removed: ["One 60-minute session."],
+      released: ["One 60-minute session"],
+      claims: [
+        "",
+        "",
+        "",
+        "",
+        "Call 0701 234 9876 to book. ₦45,000 for December.",
+      ],
+    };
+    const tookOut = (r: typeof rules) =>
+      setFaults(plan, r).filter(
+        (f) => f.frame === 4 && /the owner took out/.test(f.detail),
+      );
+    expect(tookOut(rules).length).toBeGreaterThan(0);
+  });
+});
+
+describe("a where the owner took out with a point", () => {
+  it("is still the action's to give", () => {
+    const facts = [
+      fact("place", "Plot 12 Aminu Kano Crescent, Wuse 2"),
+      fact("contact", "Call 0805 111 2233"),
+    ];
+    const plan = cafePlan({
+      frames: cafePlan().frames.map((f, i) =>
+        i === 4
+          ? {
+              ...f,
+              headline: "Drop off, collect in 3 days",
+              subheadline: "",
+              footerLines: ["Plot 12 Aminu Kano Crescent, Wuse 2"],
+            }
+          : f,
+      ),
+    });
+    const faults = setFaults(plan, {
+      ...CAFE_RULES,
+      names: [],
+      facts,
+      ledger: factLedger([CAFE_BRIEF], 1),
+      removed: ["Tailoring and alterations studio in Wuse 2, Abuja"],
+      released: ["Plot 12 Aminu Kano Crescent, Wuse 2"],
+      claims: ["", "", "", "", "Call 0805 111 2233 to drop off."],
+    }).filter((f) => /a point the owner took out/.test(f.detail));
+    expect(faults).toEqual([]);
   });
 });

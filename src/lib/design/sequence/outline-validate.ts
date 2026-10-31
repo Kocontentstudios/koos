@@ -122,7 +122,50 @@ const INSTRUCTION = [
   /\b(?:note|message|memo)\s+to\s+(?:the\s+)?(?:copy\s*writer|writer|designer|model|ai|assistant|bot)\b/i,
   /\b(?:disregard|ignore|forget|override|bypass)\s+(?:the|this|that|your)\s+(?:brief|prompt|outline|profile|context|copy)\b(?=\s*(?:[.!?,;:]|$)|\s+(?:and|then|above|entirely|completely)\b)/i,
   /(?:^|[.!?]\s*)(?:override|instructions?|directive|command)\s*:/i,
+  /* Whoever is told is named: "Writer: replace every price". */
+  /(?:^|[.!?]\s*)(?:writer|copy\s*writer|editor|designer|claude|chat\s*gpt|gpt)\s*[:,—–-]/i,
+  /* An order about the set as a whole, whatever its verb: a sentence
+     that opens on a verb telling someone to change, write or use
+     something (no subject of its own, as a reader's line has), and names
+     the piece, its slides, its prices or its brief. "Change your chain
+     every 3,000 km" names none of them; "Change all the prices to zero"
+     does. Frames are left out: a bike's frame is copy. */
+  /(?:^|[.!?;:]\s*)(?:(?:please|kindly|now|just)\s+)?(?:replace|change|rewrite|reword|remove|delete|swap|translate|retitle|headline|set|make|turn|use|announce|promote|pretend|treat|say|write|mention|add|put|insert|switch|update)\b(?=[^.!?;]*\b(?:slides?|pages?|carousel|deck|presentation|whole\s+set|entire\s+set|headlines?|captions?|prices?|brief|brand(?:'s)?\s+name)\b)/i,
+  /\byour\s+(?:job|task|role|goal|purpose|instructions?)\s+(?:now\s+)?(?:is|are|now)\b/i,
+  /\btreat\s+(?:this|that|the\s+following|these|the)\s+(?:line|point|text|slide|message|words?|following)?\s*as\b/i,
+  /* The brief itself named as a thing to set aside: "instead of the
+     brief", "your new brief:". "A brief chat" and "the brief appointment"
+     name a short thing, not the brief. */
+  /\b(?:the|this|that|your|my|our|new|real|whole)\s+brief\b(?!\s*\p{L})/iu,
+  /\b(?:never|don'?t|do\s+not)\s+(?:mention|name)\b/i,
+  /\bsay\b[^.!?]{0,40}\binstead\b|\bin\s+its\s+place\b/i,
+  /(?:^|[.!?]\s*)(?:every|each|all)\s+(?:the\s+)?(?:slides?|frames?|pages?|cards?)\s*[:—–]/i,
 ];
+
+/* A link the brief and the profile never give is not the owner's copy
+   to send readers to from an outline; it goes in the brief first. */
+const LINK =
+  /\bhttps?:\/\/[^\s)]+|\bwww\.[^\s)]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|ng|net|org|io|co|app|xyz|info|biz|shop|store|example|link|me)\b(?:\/[^\s)]*)?/gi;
+
+const hostOf = (link: string) =>
+  link
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[/?#]/)[0];
+
+/** The links in `point` that neither the brief nor the profile gives. */
+export function unsourcedLinks(
+  point: string,
+  ctx: Pick<OutlineValidateContext, "briefText" | "profileStatements">,
+): string[] {
+  const known = [ctx.briefText, ...ctx.profileStatements]
+    .join(" ")
+    .toLowerCase();
+  return [...point.matchAll(LINK)]
+    .map((m) => m[0])
+    .filter((link) => !known.includes(hostOf(link)));
+}
 
 /* A link scheme that runs code or carries a document is never copy. */
 const SCHEME = /\b(?:javascript|vbscript)\s*:|\b(?:data|file):\S/i;
@@ -141,7 +184,9 @@ const LEET: Record<string, string> = {
   $: "s",
 };
 const despaced = (text: string) =>
-  text.replace(/\b(?:\p{L}\s){2,}\p{L}\b/gu, (run) => run.replace(/\s/g, ""));
+  text.replace(/\b(?:\p{L}(?:\s|[.·*_-]\s?)){2,}\p{L}\b/gu, (run) =>
+    run.replace(/[\s.·*_-]/g, ""),
+  );
 const unleet = (text: string) =>
   text.replace(/[\p{L}0-9@$]*\p{L}[\p{L}0-9@$]*/gu, (word) =>
     /[0-9@$]/.test(word)
@@ -379,6 +424,14 @@ export function validateApprovedOutline(
       ...textProblems("title", p.title, i),
       ...textProblems("point", p.point, i),
     );
+    const links = unsourcedLinks(`${p.title} ${p.point}`, ctx);
+    if (links.length > 0) {
+      problems.push({
+        point: i,
+        rule: "link",
+        detail: `the point sends readers to ${links[0]}, which your brief and profile do not give; add it to the brief first`,
+      });
+    }
   });
   if (problems.length > 0) return { ok: false, problems };
   return {

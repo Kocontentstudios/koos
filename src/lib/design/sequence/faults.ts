@@ -8,10 +8,12 @@ import {
 import type { FactLedger } from "@/lib/jobs/directions/claims";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { textsOverlap } from "./arc";
+import { withConcepts } from "./concepts";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
+import { stopsMidPhrase } from "./phrase";
 import {
   factOnlyFrames,
   misplacedPrices,
@@ -105,7 +107,13 @@ export type Flag =
        *  frame is a new reading, which the call never saw. */
       headline: string;
     }
-  | { kind: "unsourced"; frame: number; text: string };
+  | { kind: "unsourced"; frame: number; text: string }
+  | {
+      kind: "restated";
+      frame: number;
+      /** The subheadline when it was read: a rewrite is a new reading. */
+      subheadline: string;
+    };
 
 const flatten = (text: string) =>
   text
@@ -141,6 +149,19 @@ export function flaggedFaults(
   return flagged.flatMap((flag): CopyFault[] => {
     const beat = frames[flag.frame];
     if (!beat) return [];
+    if (flag.kind === "restated") {
+      return beat.subheadline === flag.subheadline
+        ? [
+            {
+              frame: flag.frame,
+              field: "subheadline",
+              detail:
+                "its subheadline says its headline again in other words; write one sentence with a detail of this frame's claim that the headline leaves out",
+              weight: MINOR,
+            },
+          ]
+        : [];
+    }
     if (flag.kind === "unsourced") {
       return stillSays(beat, flag.text)
         ? [
@@ -217,7 +238,13 @@ export function selfReferences(frames: readonly FrameBeat[]): CopyFault[] {
    object was cut, not written: "Ironclad Gym's monthly membership
    includes". */
 const CUT_ON_VERB =
-  /\b(?:includes?|including|offers?|features?|provides?|covers?|brings?|gives?|means?|lets?|helps?|with|without|plus|like|such as|including)[.!]?$/i;
+  /\b(?:includes?|including|offers?|features?|provides?|covers?|brings?|gives?|gets?|means?|lets?|helps?|with|without|plus|like|such as|including)[.!]?$/i;
+
+/* An article with no noun after it is a phrase with its object cut out
+   ("Weekday bookings come with a added to your appointment"): the reader
+   sees the hole. */
+const ARTICLE_WITHOUT_NOUN =
+  /\b(?:a|an|An|the|The)\s+(?:a|an|the|and|or|of|to|in|on|for|with|by|at|from|is|are|was|were|be|added|included|given)\b|\b(?:a|an|the)\s*[,;:.!?]?$/;
 
 const SUBJECTLESS =
   /^(?:is|are|was|were|has|have|had|will|would|can|could|does|do|did|gets?|makes?|means?|keeps?|comes?|goes?)\b/i;
@@ -229,7 +256,11 @@ const SUBJECTLESS =
 export function subheadlineGrammar(subheadline: string): string | null {
   const text = subheadline.trim();
   if (!text) return null;
-  if (CUT_ON_VERB.test(text)) {
+  if (
+    CUT_ON_VERB.test(text) ||
+    ARTICLE_WITHOUT_NOUN.test(text) ||
+    stopsMidPhrase(text.replace(/[.!?]$/, ""))
+  ) {
     return `the subheadline "${text}" stops before what it names; write it as a whole sentence`;
   }
   if (/^\p{Ll}/u.test(text)) {
@@ -257,7 +288,11 @@ const SIGNPOST_WORDS = 4;
 export function headlineGrammar(headline: string): string | null {
   const text = headline.trim();
   if (!text) return null;
-  if (CUT_ON_VERB.test(text)) {
+  if (
+    CUT_ON_VERB.test(text) ||
+    ARTICLE_WITHOUT_NOUN.test(text) ||
+    stopsMidPhrase(text)
+  ) {
     return `the headline "${text}" stops before what it names; write a line that says it whole`;
   }
   if (/^\p{Ll}/u.test(text)) {
@@ -601,7 +636,7 @@ export function setFaults(
         frames,
         rules.removed ?? [],
         rules.claims ?? [],
-        logisticsFree(free, facts),
+        removalFree(free, facts),
       ),
       ...releasedFaults(
         frames,
@@ -648,6 +683,27 @@ export function logisticsFree(
           "product",
           "price",
         ].includes(f.kind),
+      )
+      .flatMap((f) => [...contentStems(f.text)]),
+  ]);
+}
+
+/* Where and when to act, and the names, are every frame's to say, so a
+   removed point that gave them leaks nothing when the action gives them.
+   A price, a product or a claim is not: the owner who took out "Gold
+   package ₦15,000,000 with naming on the main stage" took its words out.
+   A where or when stays free even when it left with its point: the action
+   still says where to go (releasedFaults holds the same rule). The frame's
+   own point still covers any words it shares. */
+export function removalFree(
+  free: ReadonlySet<string>,
+  facts: readonly BriefFact[],
+): Set<string> {
+  return new Set([
+    ...free,
+    ...facts
+      .filter((f) =>
+        ["date", "day", "time", "place", "contact"].includes(f.kind),
       )
       .flatMap((f) => [...contentStems(f.text)]),
   ]);
@@ -719,9 +775,16 @@ export function bareFrames(frames: readonly FrameBeat[]): CopyFault[] {
 /** Whether a middle frame's subheadline only says its headline again
  *  (aboveRepeatsBy): read in order, the frame makes one point twice. */
 export function restatesHeadline(beat: FrameBeat): boolean {
-  return (
-    beat.role === "body" &&
-    aboveRepeatsBy(frameCopy(beat)).some((r) => r.field === "headline")
+  if (beat.role !== "body") return false;
+  /* "Farmers pay nothing upfront" over "No upfront cost for farmers" is
+     one line said twice in other words (concepts.ts). */
+  const read = {
+    ...beat,
+    headline: withConcepts(beat.headline),
+    subheadline: withConcepts(beat.subheadline),
+  };
+  return [beat, read].some((b) =>
+    aboveRepeatsBy(frameCopy(b)).some((r) => r.field === "headline"),
   );
 }
 

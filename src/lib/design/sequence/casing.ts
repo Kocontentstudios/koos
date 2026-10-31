@@ -101,8 +101,11 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
   runs: string[][];
   runOnly: Set<string>;
   heads: Set<string>;
+  /** The runs that are a whole source: a name given on its own. */
+  named: string[][];
 } {
   const runs: string[][] = [];
+  const named: string[][] = [];
   const inRun = new Set<string>();
   const alone = new Set<string>();
   const heads = new Set<string>();
@@ -124,6 +127,7 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
         if (!runOpensSentence || run.length === tokens.length) {
           heads.add(run[0]);
         }
+        if (run.length === tokens.length) named.push(run);
       }
       /* "Contact Ngozi Ade" opens its sentence, so its first word may be
          a verb: the name is also the run without it. Two words ("Kiln
@@ -151,7 +155,18 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
     runs,
     runOnly: new Set([...inRun].filter((w) => !alone.has(w) && !heads.has(w))),
     heads,
+    named,
   };
+}
+
+/* A brand's name of three or more words is often given by its first two
+   ("Bright Path" of "Bright Path Academy", "Udi Hills" of "Udi Hills
+   Cowork"): those words are its name too. Only a name given on its own
+   counts: "Lagos Design" of "We run Lagos Design Week" names nothing. */
+export function leadingParts(named: readonly string[][]): string[][] {
+  return named.flatMap((run) =>
+    run.length < 3 ? [] : run.slice(2).map((_, k) => run.slice(0, k + 2)),
+  );
 }
 
 /** Indexes, among `words`, of every word inside a run of `runs`. */
@@ -295,7 +310,8 @@ export function withConsistentCasing(
   frames: readonly FrameBeat[],
   sources: readonly (string | null | undefined)[],
 ): { frames: FrameBeat[]; recased: number[]; style: HeadlineCase | null } {
-  const { runs, runOnly, heads } = nameRuns(sources);
+  const { runs: given, runOnly, heads, named } = nameRuns(sources);
+  const runs = [...given, ...leadingParts(named)];
   const names = new Set([...properNouns(sources), ...heads]);
   /* A name's words say nothing of the casing around them: "Pour one at
      Kiln Coffee" is sentence case. */
@@ -369,6 +385,15 @@ export function nameSpellings(
         if (!opensSentence || whole) {
           spelt.set(named[0].toLowerCase(), named[0]);
         }
+        const lead = parts.filter((w) => w !== "&");
+        if (whole && lead.length >= 3) {
+          for (let k = 2; k < lead.length; k += 1) {
+            const prefix = lead.slice(0, k).join(" ");
+            if (!spelt.has(prefix.toLowerCase())) {
+              spelt.set(prefix.toLowerCase(), prefix);
+            }
+          }
+        }
       } else if ((!opensSentence || whole) && !SMALL_WORDS.has(bare(phrase))) {
         spelt.set(phrase.toLowerCase(), phrase);
       }
@@ -410,7 +435,8 @@ export function sentenceCased(
   text: string,
   sources: readonly (string | null | undefined)[],
 ): string {
-  const { runs, runOnly, heads } = nameRuns(sources);
+  const { runs: given, runOnly, heads, named } = nameRuns(sources);
+  const runs = [...given, ...leadingParts(named)];
   const names = new Set([...properNouns(sources), ...heads]);
   return withNamesSpelt(
     toSentence(text, names, runs, runOnly),

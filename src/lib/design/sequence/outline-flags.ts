@@ -1,8 +1,10 @@
 import type { BriefFact, CoverKind } from "@/lib/jobs/directions/brief-facts";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { claimsOverlap } from "./arc";
+import { conceptsIn, withConcepts } from "./concepts";
 import type { OutlinePoint, OutlineWeak, SequenceKind } from "./contract";
 import { EMPTY_POINT, factsIn } from "./outline-arc";
+import { stopsMidPhrase } from "./phrase";
 
 export interface OutlineFlagContext {
   kind: SequenceKind;
@@ -172,10 +174,16 @@ export function echoesHook(
     );
   const theirs = figures(hook.point);
   if ([...figures(point.point)].some((n) => theirs.has(n))) return true;
-  const hookWords = contentStems(hook.point, ctx.free);
+  /* A condition the hook already promises ("learn to code for free") is
+     the hook's point whatever words a later slide says it in ("At no cost
+     to families"), as a shared figure is. */
+  const promised = conceptsIn(hook.point);
+  if ([...conceptsIn(point.point)].some((c) => promised.has(c))) return true;
+  const hookWords = contentStems(withConcepts(hook.point), ctx.free);
   return (
-    [...contentStems(point.point, ctx.free)].filter((w) => hookWords.has(w))
-      .length >= HOOK_ECHO_STEMS
+    [...contentStems(withConcepts(point.point), ctx.free)].filter((w) =>
+      hookWords.has(w),
+    ).length >= HOOK_ECHO_STEMS
   );
 }
 
@@ -218,6 +226,13 @@ export function flagOutline<P extends Draft>(
       ...point,
       weak: w,
     });
+    if (point.role !== "cta" && stopsMidPhrase(point.point)) {
+      return weak({
+        kind: "filler",
+        reason:
+          "Stops mid-sentence, so the slide would too. Finish the sentence or replace it.",
+      });
+    }
     if (point.role === "hook") {
       const stated = claims[i].facts.map((n) => ctx.facts[n]);
       return labelHook(point, stated, ctx)

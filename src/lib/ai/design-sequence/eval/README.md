@@ -109,7 +109,13 @@ shipping a change to `src/lib/design/sequence/` or
 `src/lib/ai/prompts/design-sequence.ts`, and nightly. It is not part of
 `pnpm test`. Nothing is rendered, uploaded or stored. The JSON report, with
 every plan and every judge reason, lands in
-`qa-reports/eval/design-sequence.json` (gitignored).
+`qa-reports/eval/design-sequence.json` (gitignored). Beside it,
+`<report>.snapshots.jsonl` holds what every last resort was handed
+(`PlanSequenceDeps.onLastResort`: the plan, the fault rules, the claims and
+the writers' alternates, Maps and Sets as `{$map}` and `{$set}`), so a
+change to `last-resort.ts` can be replayed on exactly the sets that
+needed it, with no model call:
+`npx tsx src/lib/ai/design-sequence/eval/replay.mts <report>.snapshots.jsonl [--show] [--frames]`.
 
 ## Fixtures
 

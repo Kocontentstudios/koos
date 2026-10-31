@@ -9,9 +9,11 @@ import {
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
 import { upperFirst } from "./casing";
+import { withConcepts } from "./concepts";
 import type { FrameRole, SequenceKind } from "./contract";
 import { withoutArrival } from "./hook";
 import { isStatFigure, settleFrameLayouts } from "./layouts";
+import { stopsMidPhrase } from "./phrase";
 import {
   briefPoints,
   type ProfilePoint,
@@ -141,8 +143,8 @@ export function textsOverlap(
 ): boolean {
   if (!a.trim() || !b.trim()) return false;
   if (isNearDuplicateHeadline(a, b, free)) return true;
-  const sa = contentStems(a, free);
-  const sb = contentStems(b, free);
+  const sa = contentStems(withConcepts(a), free);
+  const sb = contentStems(withConcepts(b), free);
   const smaller = Math.min(sa.size, sb.size);
   if (smaller === 0) return false;
   const shared = [...sa].filter((s) => sb.has(s)).length;
@@ -252,7 +254,11 @@ function besideAsk(sentence: string, ask: BriefFact): string | null {
       .replace(/\b(?:we\s+are|we're)\s+(?:raising|asking\s+for)\s*$/i, "")
       .trim(),
   );
-  return sides.find((side) => side.split(/\s+/).length >= 2) ?? null;
+  return (
+    sides.find(
+      (side) => side.split(/\s+/).length >= 2 && !stopsMidPhrase(side),
+    ) ?? null
+  );
 }
 
 /**
@@ -374,6 +380,7 @@ export function pointPool({
       })),
   ].filter(
     (c) =>
+      !stopsMidPhrase(c.text) &&
       !c.facts.some((n) => atAction.has(n)) &&
       (c.source === "profile" ||
         c.source === "value" ||

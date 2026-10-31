@@ -104,6 +104,21 @@ export interface PlanSequenceDeps {
    *  "report" returns the set with `refused` set, so the eval can score
    *  it and count it. */
   onBlocked?: "refuse" | "report";
+  /** Handed what code's last resort is about to repair, every time it
+   *  runs: the eval keeps it so a refused set can be replayed against a
+   *  changed last resort without paying for the model calls again. */
+  onLastResort?: (input: LastResortInput) => void;
+}
+
+/** Everything lastResort and the planner's settle step read. */
+export interface LastResortInput {
+  plan: PlannedSequence;
+  rules: FaultRules;
+  claims: string[];
+  alternates: AlternateCopy[][];
+  titleRules: TitleRules;
+  arcTitles: string[][];
+  casingSources: string[];
 }
 
 /** Thrown in place of a set that still carries a blocking fault after
@@ -237,6 +252,7 @@ export async function planSequence(
   {
     briefReader = readBriefWithModel,
     onBlocked = "refuse",
+    onLastResort,
   }: PlanSequenceDeps = {},
 ): Promise<PlannedSequenceResult> {
   const read = onceRead(briefReader);
@@ -245,7 +261,7 @@ export async function planSequence(
   for (let attempt = 1; attempt <= SHIP_ATTEMPTS; attempt += 1) {
     let result: PlannedSequenceResult;
     try {
-      result = await planSequenceOnce(input, read);
+      result = await planSequenceOnce(input, read, onLastResort);
     } catch (err) {
       /* A later attempt that fails leaves the best set so far to judge. */
       if (!best) throw err;
@@ -286,6 +302,7 @@ function onceRead(reader: BriefReader): BriefReader {
 async function planSequenceOnce(
   input: PlanSequenceInput,
   briefReader: BriefReader,
+  onLastResort?: PlanSequenceDeps["onLastResort"],
 ): Promise<PlannedSequenceResult> {
   const { context, kind, frameCount, imageSource, image } = input;
   const countError = frameCountError("planSequence", kind, frameCount);
@@ -763,6 +780,15 @@ async function planSequenceOnce(
     const drawn = drawFacts();
     const settled = settle(drawn.plan.frames);
     plan = { ...drawn.plan, frames: settled.frames.map(withFigureLayout) };
+    onLastResort?.({
+      plan,
+      rules,
+      claims: arc.frames.map((f) => f.claim),
+      alternates,
+      titleRules,
+      arcTitles,
+      casingSources: casingSources.filter((s): s is string => Boolean(s)),
+    });
     const result = lastResort(
       plan,
       rules,

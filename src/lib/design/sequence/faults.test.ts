@@ -14,6 +14,7 @@ import {
   hookScore,
   MAJOR,
   pointRepeats,
+  restatesHeadline,
   selfReferences,
   setFaults,
   subheadlineGrammar,
@@ -370,5 +371,49 @@ describe("actionRecaps: the close says how to act, not a middle frame again", ()
       i === 1 || i === 3 ? { ...b, headline: "Yours for ₦3,500 a jar" } : b,
     );
     expect(actionRecaps(priced, [price])).toEqual([]);
+  });
+});
+
+describe("an article left without its noun", () => {
+  it("is a broken line in a subheadline or a headline", () => {
+    expect(
+      subheadlineGrammar(
+        "Weekday bookings come with a added to your silk press appointment.",
+      ),
+    ).toMatch(/stops before/);
+    expect(headlineGrammar("Weekday bookings get a")).toMatch(/stops before/);
+    expect(headlineGrammar("Weekday bookings get")).toMatch(/stops before/);
+  });
+
+  it("leaves a letter that names a grade or a round alone", () => {
+    expect(headlineGrammar("Closing our Series A")).toBeNull();
+    expect(
+      subheadlineGrammar("Each room keeps a crate cool for 3 weeks."),
+    ).toBeNull();
+    expect(
+      subheadlineGrammar("A free scalp massage comes with a weekday booking."),
+    ).toBeNull();
+  });
+});
+
+describe("a subheadline that says its headline in other words", () => {
+  it("is a restatement when only the wording of one concept differs", () => {
+    expect(
+      restatesHeadline(
+        beatOf({
+          headline: "Farmers pay nothing upfront",
+          subheadline: "No upfront cost for farmers.",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      restatesHeadline(
+        beatOf({
+          headline: "Farmers pay nothing upfront",
+          subheadline:
+            "They rent crates by the day, only when a harvest needs them.",
+        }),
+      ),
+    ).toBe(false);
   });
 });

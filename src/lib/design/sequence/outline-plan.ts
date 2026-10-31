@@ -391,6 +391,7 @@ export function withEveryFactPlaced(
   points: readonly PlacedPoint[],
   facts: readonly BriefFact[],
   briefText: string,
+  atAction?: ReadonlySet<number>,
 ): PlacedPoint[] {
   const next = points.map((p) => ({ ...p }));
   const states = (fact: BriefFact) =>
@@ -408,11 +409,17 @@ export function withEveryFactPlaced(
     return -1;
   };
   const sentences = sentencesOf(briefText);
-  for (const fact of facts) {
+  /* A price the reader does not pay ("Revenue grew to ₦720 million") is a
+     claim the middle of the set makes, not a term beside the button: on
+     the action it recaps the hook that led with it. */
+  const besideAction = (fact: BriefFact, n: number) =>
+    AT_ACTION.has(fact.kind) &&
+    (fact.kind !== "price" || atAction === undefined || atAction.has(n));
+  for (const [n, fact] of facts.entries()) {
     if (fact.kind === "product" || states(fact)) continue;
     const sentence = sentencesStating(fact, briefText)[0];
     if (!sentence) continue;
-    const at = AT_ACTION.has(fact.kind) ? -1 : slotFor();
+    const at = besideAction(fact, n) ? -1 : slotFor();
     if (at >= 0) {
       next[at] = {
         ...next[at],
@@ -459,7 +466,9 @@ export function withEveryFactPlaced(
  * an outline that says one thing twice is the planner's fault, never the
  * owner's to find. A point is swapped only when the spare overlaps no
  * point, and only when nothing it alone states (a brief fact) would leave
- * the set. A point no spare can replace keeps its flag.
+ * the set. A point no spare can replace is left for the owner to write
+ * (EMPTY_POINT), flagged as such; one that alone states a brief fact keeps
+ * its overlap flag.
  */
 export function withOverlapsSwapped(
   drafts: readonly PlacedPoint[],
@@ -497,7 +506,13 @@ export function withOverlapsSwapped(
       );
       return flags(next).every((f) => f.weak?.kind !== "overlap");
     });
-    if (pick < 0) continue;
+    if (pick < 0) {
+      /* No distinct point is left: the slide is the owner's to write or
+         delete, said so, rather than one thing handed over twice. */
+      points[i] = { text: EMPTY_POINT, source: "user", role: points[i].role };
+      swapped.push(i);
+      continue;
+    }
     const [spare] = left.splice(pick, 1);
     points[i] = {
       text: clipped(spare.text, OUTLINE_LIMITS.pointChars),
@@ -620,6 +635,7 @@ export async function planOutline(
       })),
       facts,
       brief.briefText,
+      atAction,
     ),
     sparePoints(arc, pool, facts, free).map((i) => pool[i]),
     flagContext,

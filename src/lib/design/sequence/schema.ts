@@ -182,6 +182,13 @@ export const auditResponseSchema = z.object({
     .describe(
       "Each frame whose point an earlier frame already made, in any words: the same benefit or quality, or a cause and its effect. frame is the later one, sameAs the earlier. [] when none.",
     ),
+  restated: z
+    .array(z.number().int())
+    .max(20)
+    .default([])
+    .describe(
+      "Each middle frame whose subheadline only says its own headline again in other words, adding no detail the headline leaves out. [] when none.",
+    ),
   unsourced: z
     .array(
       z.object({

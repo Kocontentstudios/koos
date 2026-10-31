@@ -9,6 +9,7 @@ import {
   type CopyFault,
   type FaultRules,
   faultScore,
+  MAJOR,
   setFaults,
 } from "./faults";
 import { asSentence, claimHalves, fitsHeadline, fitsSubheadline } from "./gate";
@@ -221,6 +222,128 @@ export function lineCuts(beat: FrameBeat): Partial<FrameBeat>[] {
   return cuts;
 }
 
+/* How many of each line the cross pairing tries: enough to pair any
+   writer's headline with any other's subheadline on a set of 8 frames
+   in well under a second. */
+const CROSS_LINES = 8;
+
+type Version = { change: Partial<FrameBeat>; what: string };
+
+/** Every headline the versions give paired with every subheadline they
+ *  give: one writer's line over another's is often the clean frame
+ *  neither wrote whole ("Back washed and ironed by Wednesday?" over the
+ *  other draft's sentence, without the "two days later" no source gives). */
+export function crossVersions(
+  beat: FrameBeat,
+  versions: readonly Version[],
+  kind: PlannedSequence["kind"],
+): Version[] {
+  const headlines = [
+    ...new Set(
+      [beat.headline, ...versions.map((v) => v.change.headline ?? "")]
+        .map((h) => h.trim())
+        .filter((h) => h && fitsHeadline(h, kind)),
+    ),
+  ].slice(0, CROSS_LINES);
+  const subheadlines = [
+    ...new Set(
+      [beat.subheadline, ...versions.map((v) => v.change.subheadline ?? "")]
+        .map((h) => h.trim())
+        .filter((h) => h && fitsSubheadline(h)),
+    ),
+  ].slice(0, CROSS_LINES);
+  const given = new Set(
+    versions.map(
+      (v) =>
+        `${v.change.headline ?? beat.headline}|${v.change.subheadline ?? beat.subheadline}`,
+    ),
+  );
+  const out: Version[] = [];
+  for (const headline of headlines) {
+    for (const subheadline of subheadlines) {
+      const key = `${headline}|${subheadline}`;
+      if (given.has(key) || key === `${beat.headline}|${beat.subheadline}`) {
+        continue;
+      }
+      out.push({
+        change: { headline, subheadline },
+        what: "one writer's headline over another's subheadline",
+      });
+    }
+  }
+  return out;
+}
+
+/* Where a sentence's first clause ends and what it adds begins: "Every
+   bean comes from the plateau, where cooler air slows the cherry" says
+   its point in the first clause and invents in the second. */
+const CLAUSE_BREAK =
+  /,\s+(?=(?:where|which|so|and|while|because|as|with|giving|making|meaning)\b)|\s+[—–]\s+|;\s+/i;
+const CLAUSE_MIN_WORDS = 4;
+
+/** Each subheadline the versions give, cut to its first clause: a writer's
+ *  sentence whose tail the gate refused often holds a whole sentence
+ *  before it. */
+export function clauseCuts(versions: readonly Version[]): Version[] {
+  const out: Version[] = [];
+  for (const v of versions) {
+    const sub = v.change.subheadline?.trim() ?? "";
+    const parts = sub.split(CLAUSE_BREAK);
+    if (parts.length < 2) continue;
+    const head = asSentence(parts[0].replace(/[,;:]\s*$/, ""));
+    if (head.split(/\s+/).length < CLAUSE_MIN_WORDS || !fitsSubheadline(head)) {
+      continue;
+    }
+    out.push({
+      change: { ...v.change, subheadline: head },
+      what: `${v.what}, to its first clause`,
+    });
+  }
+  return out;
+}
+
+/* A word no source gives, said where a reader can do without it: "only",
+   "free", "fresh". Taken out, the line still says its point; a figure or
+   a phrase is not cut word by word, since what is left would not read. */
+const CUTTABLE_WORD = /^[\p{L}][\p{L}'-]*$/u;
+const INVENTED = /^it states "([^"]+)"/;
+
+/** The frame's lines with each invented single word (`it states "X"`)
+ *  taken out of whichever line says it. */
+export function inventedWordCuts(
+  beat: FrameBeat,
+  faults: readonly CopyFault[],
+): Version[] {
+  const words = faults.flatMap((f) => {
+    const word = INVENTED.exec(f.detail)?.[1]?.trim() ?? "";
+    return word && CUTTABLE_WORD.test(word) && !/\d/.test(word) ? [word] : [];
+  });
+  const out: Version[] = [];
+  for (const word of new Set(words)) {
+    const pattern = new RegExp(
+      `\\s*(?<![\\p{L}\\p{N}'-])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}'-])`,
+      "giu",
+    );
+    const cut = (text: string) =>
+      upperFirst(
+        text
+          .replace(pattern, "")
+          .replace(/\s+([,.;:!?])/g, "$1")
+          .replace(/\s{2,}/g, " ")
+          .trim(),
+      );
+    const headline = cut(beat.headline);
+    const subheadline = cut(beat.subheadline);
+    if (headline !== beat.headline || subheadline !== beat.subheadline) {
+      out.push({
+        change: { headline, subheadline },
+        what: `"${word}", which no source gives, cut`,
+      });
+    }
+  }
+  return out;
+}
+
 const coverageLost = (faults: readonly CopyFault[]) =>
   faults.filter((f) => f.weight >= COVERAGE).length;
 
@@ -293,6 +416,17 @@ export function framesToTry(fault: CopyFault, count: number): number[] {
 
 const faultKey = (f: CopyFault) => `${f.frame}|${f.detail}`;
 
+/* Versions of each frame a two-frame repair pairs: the writers' and code's
+   plainest, before the cross pairings. */
+const PAIR_VERSIONS = 10;
+
+/* Versions the last resort reads in one call before it stops searching:
+   a count, not a clock, so a replay ends where the job did. Each read is
+   a full setFaults (about 20ms on an 8-frame set), so one call stays
+   near ten seconds at worst; on the tuning snapshots 600 clears as many
+   sets as 1500. */
+export const LAST_RESORT_TRIALS = 600;
+
 /** Copy another writer gave a frame: the second draft's version of it,
  *  or an opening the writers offered beside their own hook. */
 export type AlternateCopy = Partial<
@@ -313,6 +447,11 @@ export function lastResort(
   let current = plan;
   let score = blockingScore(current, rules);
   const applied: string[] = [];
+  let trials = LAST_RESORT_TRIALS;
+  const scored = (next: PlannedSequence) => {
+    trials -= 1;
+    return blockingScore(next, rules);
+  };
   /* The brief first, then the profile and the owner's own words: a
      sentence any of them gives on a frame's point is no invention. */
   const sourceText = [
@@ -322,10 +461,10 @@ export function lastResort(
     .map((t) => asSentence(t.trim()))
     .filter((t) => t.length > 1)
     .join(" ");
-  const versionsOf = (frame: number) => {
+  const versionsOf = (frame: number): Version[] => {
     const beat = current.frames[frame];
     if (!beat) return [];
-    return [
+    const own: Version[] = [
       ...(alternates[frame] ?? []).map((change) => ({
         change,
         what: "another writer's version of it",
@@ -336,25 +475,63 @@ export function lastResort(
           .map((b) => `${b.headline} ${b.subheadline}`),
         free: namesFree(rules.brandName, rules.offering),
       }),
+    ];
+    const onFrame = setFaults(current, rules).filter((f) => f.frame === frame);
+    own.push(...clauseCuts(own));
+    return [
+      ...own,
+      ...inventedWordCuts(beat, onFrame),
+      ...crossVersions(beat, own, current.kind),
       ...lineCuts(beat).map((change) => ({
         change,
         what: "a line that said another frame's point cut",
       })),
     ];
   };
+  const withChange = (
+    plan: PlannedSequence,
+    frame: number,
+    change: Partial<FrameBeat>,
+  ): PlannedSequence => ({
+    ...plan,
+    frames: tidy(
+      plan.frames.map((b, i) => (i === frame ? { ...b, ...change } : b)),
+    ),
+  });
   const bestOf = (frame: number) => {
     let best: { plan: PlannedSequence; score: number; what: string } | null =
       null;
     for (const { change, what } of versionsOf(frame)) {
-      const next: PlannedSequence = {
-        ...current,
-        frames: tidy(
-          current.frames.map((b, i) => (i === frame ? { ...b, ...change } : b)),
-        ),
-      };
-      const nextScore = blockingScore(next, rules);
+      if (trials <= 0) break;
+      const next = withChange(current, frame, change);
+      const nextScore = scored(next);
       if (nextScore < (best?.score ?? score)) {
         best = { plan: next, score: nextScore, what };
+      }
+    }
+    return best;
+  };
+  /* Two frames that collide may each need rewriting for either to come
+     clean: the hook told off frame 5's point, and frame 5 no longer able
+     to leave it, clears only when both change at once. */
+  const bestPair = (a: number, b: number) => {
+    let best: { plan: PlannedSequence; score: number; what: string } | null =
+      null;
+    const ofA = versionsOf(a).slice(0, PAIR_VERSIONS);
+    const ofB = versionsOf(b).slice(0, PAIR_VERSIONS);
+    for (const va of ofA) {
+      const half = withChange(current, a, va.change);
+      for (const vb of ofB) {
+        if (trials <= 0) return best;
+        const next = withChange(half, b, vb.change);
+        const nextScore = scored(next);
+        if (nextScore < (best?.score ?? score)) {
+          best = {
+            plan: next,
+            score: nextScore,
+            what: `${va.what}, and frame ${b + 1}: ${vb.what}`,
+          };
+        }
       }
     }
     return best;
@@ -366,14 +543,50 @@ export function lastResort(
         blockingFaults(setFaults(current, rules)).map(faultKey),
       );
       if (!standing.has(faultKey(fault))) continue;
-      for (const frame of framesToTry(fault, current.frames.length)) {
+      const tried = framesToTry(fault, current.frames.length);
+      let fixed = false;
+      for (const frame of tried) {
         const best = bestOf(frame);
         if (!best) continue;
         current = best.plan;
         score = best.score;
         applied.push(`frame ${frame + 1}: ${best.what}`);
+        fixed = true;
         break;
       }
+      if (fixed || tried.length < 2) continue;
+      const pair = bestPair(tried[0], tried[1]);
+      if (!pair) continue;
+      current = pair.plan;
+      score = pair.score;
+      applied.push(`frame ${tried[0] + 1}: ${pair.what}`);
+    }
+  }
+  /* With nothing blocking left to clear, the faults a reader still
+     notices (a headline past its word budget, a price read wider than the
+     brief prices it) are cleared the same way, where that costs no
+     blocking fault. */
+  for (const frame of new Set(
+    setFaults(current, rules)
+      .filter((f) => f.weight < MAJOR)
+      .map((f) => f.frame),
+  )) {
+    const total = faultScore(setFaults(current, rules));
+    let best: { plan: PlannedSequence; total: number; what: string } | null =
+      null;
+    for (const { change, what } of versionsOf(frame)) {
+      if (trials <= 0) break;
+      const next = withChange(current, frame, change);
+      if (scored(next) > score) continue;
+      const nextTotal = faultScore(setFaults(next, rules));
+      if (nextTotal < (best?.total ?? total)) {
+        best = { plan: next, total: nextTotal, what };
+      }
+    }
+    if (best) {
+      current = best.plan;
+      score = blockingScore(current, rules);
+      applied.push(`frame ${frame + 1}: ${best.what}`);
     }
   }
   const cut = withBreachesCut(current, rules, tidy);

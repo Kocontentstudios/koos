@@ -290,7 +290,8 @@ export type OutlineRule =
   | "empty"
   | "too-long"
   | "markup"
-  | "injection";
+  | "injection"
+  | "link";
 
 export interface OutlineProblem {
   /** Zero-based point index; null for a problem of the outline as a whole. */

@@ -130,8 +130,9 @@ to about 60%.
    claim fact no point states (a count, an offer, a condition) takes the
    emptiest body slot in the brief's own sentence (an empty slide first,
    then one the profile filled; a brief point is never displaced). A
-   when, where, price or contact, and a claim fact with no slot left,
-   joins the action's point: on a slide of its own it would be filler the
+   when, where, contact or price the reader pays (`atAction`; a revenue
+   figure is a claim, not a price beside the button), and a claim fact
+   with no slot left, joins the action's point: on a slide of its own it would be filler the
    owner is told to replace, and replacing it would take the fact off the
    set. Only then is
    a slide left to the owner (`EMPTY_POINT`), with source `"user"`: it is
@@ -139,9 +140,21 @@ to about 60%.
 2b. No point repeats another (`withOverlapsSwapped`). A body point
    `flagOutline` would flag `overlap` is given the next spare pool point
    (one the arc left unused that overlaps no point) in its place, unless
-   it alone states a brief fact. The owner is never handed an outline
-   that says one thing twice; a point no spare can replace keeps its
-   flag. The trace counts them (`overlapsSwapped`).
+   it alone states a brief fact. With no distinct spare left, the slide is
+   handed to the owner to write or delete (`EMPTY_POINT`, source `"user"`,
+   flagged filler) rather than one claim twice; only a point that alone
+   states a brief fact keeps its overlap flag. The trace counts them
+   (`overlapsSwapped`). Overlap is read through `concepts.ts`: "for free",
+   "at no cost", "pay nothing" and "fully sponsored" are one concept, so
+   "At no cost to families" overlaps a hook on learning "for free"
+   (`echoesHook`), while "free of sulphates" or "sugar-free" is never the
+   price.
+2c. No point stops mid-phrase (`stopsMidPhrase`, `phrase.ts`): a pool
+   clause or the part of a sentence beside the ask that ends on an
+   article, a preposition or a verb waiting for its object ("Weekday
+   bookings get a", once its offer went to the action) is never offered,
+   and any point that still does is flagged filler: "Stops mid-sentence,
+   so the slide would too."
 3. Titles follow their points (`outlineTitles`). The arc's title is kept
    when it is 4 words or fewer and about its point (`titleFits`); else
    `pointTitle` takes a whole phrase of 2 to 4 of the point's own words: a
@@ -237,6 +250,10 @@ On the set path:
      after NFKC folding, so fullwidth `＜script＞` is refused too. The words
      are drawn on a frame and sent to the copy model, so neither may
      receive markup or a template.
+   - `link`: a link or domain the brief and profile never give
+     (`unsourcedLinks`): "Visit http://evil.example" is refused, the
+     brief's own `crownandcoil.ng` is not; the owner adds a new link to
+     the brief first.
    - `injection`: words written to the model, not the reader ("ignore all
      earlier instructions", "system prompt", "you are now", "write X on
      every slide"). Read as a class, not a list: a sentence that names the
@@ -325,6 +342,16 @@ appears; the approved outline is the owner's decision, so O5 wins:
 - the result lists `factsReleased`, so the outline UI can warn which hard
   facts a deletion leaves unstated before Generate.
 
+The rule when H5 and O5 meet on one fact: a brief fact stated only by a
+point the owner deleted or replaced is released, and no frame says it; a
+fact any kept point still states stays required, and the frame that
+point is on may say it. A removed point's words count against every line
+except a when, where or contact still required (`removalFree`) and the
+words of the frame's own point; a price, a product or a claim the owner
+took out is never free. So clinic's "One 60-minute session", deleted as
+a point and stated by no other, is released and leaks if any footer
+gives it; left in the outline, it is required and drawn.
+
 An outline approved untouched releases nothing and removes nothing: the
 planner's unused pool points are spare, not taken out, and H5 holds in
 full. The eval counts replaced points that leak
@@ -368,10 +395,22 @@ versions, in order:
   the headline or under the point, never one that makes another frame's
   point;
 - a hook's or action's subheadline cut, or one line (a subheadline
-  sentence, a footer item) cut.
+  sentence, a footer item) cut;
+- a writer's subheadline cut to its first clause (`clauseCuts`), where
+  its tail added what no source gives;
+- an invented single word ("only", "free") taken out of the line that
+  says it (`inventedWordCuts`); a figure is never cut word by word;
+- every headline above paired with every subheadline above
+  (`crossVersions`): one writer's headline over another's sentence is
+  often the clean frame neither wrote whole.
 
 A version is kept only where the whole set ends with fewer blocking
-faults, titles and casing settled again after each. Then
+faults, titles and casing settled again after each. A fault between two
+frames that no single rewrite clears is tried on both at once
+(`PAIR_VERSIONS` of each). With nothing blocking left to clear on a
+frame, its minor faults (a headline past its word budget, a price read
+wider than the brief prices it) are cleared the same way, where that adds
+no blocking fault. Then
 `withBreachesCut` cuts any line that still breaches (`CopyFault.breach`: a
 claim no source gives, a point or fact the owner took out, the owner's
 point turned into another claim), kept only where no brief fact or

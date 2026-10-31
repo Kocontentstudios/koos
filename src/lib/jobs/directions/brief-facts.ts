@@ -1265,6 +1265,17 @@ const countsOtherThing = (word: string) =>
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/* Words that say what a counted thing is like, not what thing it is. */
+const DESCRIBING = new Set(
+  "new more extra additional rural urban local hot fresh small large big full whole private shared dedicated quiet modern working active happy paying regular returning young old first further".split(
+    " ",
+  ),
+);
+const DESCRIBING_ENDING = /(?:al|ive|ous|ful|ic|ish|less|ern)$/i;
+
+const describes = (word: string) =>
+  DESCRIBING.has(word.toLowerCase()) || DESCRIBING_ENDING.test(word);
+
 /**
  * The ways `text` can say a count fact once the copy's own wording is
  * undone: a modifier between the number and the fact's noun dropped
@@ -1284,17 +1295,19 @@ function countWordings(fact: BriefFact, text: string): string[] {
     `(^|[^\\d.,])(${escaped(number)})\\s+([\\p{L}][\\p{L}'-]*)\\s+(${escaped(noun)}\\b)`,
     "giu",
   );
-  /* Only a count whose noun the brief already qualifies ("cold rooms")
-     takes a word more: "20 parking spots" is not the brief's "20 spots",
-     but "14 solar cold rooms" are still its cold rooms. */
-  if (qualified) {
-    const dropped = text.replace(modifier, (all, lead, n, word, head) =>
-      countsOtherThing(word) || word.toLowerCase() === noun.toLowerCase()
-        ? all
-        : `${lead}${n} ${head}`,
-    );
-    if (dropped !== text) wordings.push(dropped);
-  }
+  /* A count whose noun the brief already qualifies ("cold rooms") takes
+     any word more: "14 solar cold rooms" are still its cold rooms. A
+     one-word noun takes only a word that describes it ("30 new laptops",
+     "9,800 rural homes", "80 hot desks"): "20 parking spots" counts
+     another thing than the brief's "20 spots". */
+  const dropped = text.replace(modifier, (all, lead, n, word, head) =>
+    countsOtherThing(word) ||
+    word.toLowerCase() === noun.toLowerCase() ||
+    (!qualified && !describes(word))
+      ? all
+      : `${lead}${n} ${head}`,
+  );
+  if (dropped !== text) wordings.push(dropped);
   for (const singular of new Set([
     noun.replace(/s$/i, ""),
     noun.replace(/es$/i, ""),
@@ -1310,11 +1323,40 @@ function countWordings(fact: BriefFact, text: string): string[] {
   return wordings;
 }
 
+/* A date that is only a year and the word leading to it ("By 2028", "by
+   end of 2027") is said wherever that lead and year are, mid-sentence
+   too: "25,000 homes by 2028" gives it. The lead is kept, so "in 2028"
+   never reads as "by 2028". */
+const YEAR_DATE =
+  /^(?:(by|in|until|before|from|since|after)\s+)?((?:the\s+)?end\s+of\s+)?((?:19|20)\d\d)$/i;
+
+function yearStated(fact: string, text: string): boolean {
+  const m = YEAR_DATE.exec(fact.trim().replace(/[.]$/, ""));
+  if (!m) return false;
+  const [, lead, endOf, year] = m;
+  const pattern = new RegExp(
+    `${lead ? `\\b${lead}\\s+` : "(?:^|[^\\d,.])"}${endOf ? "(?:the\\s+)?end\\s+of\\s+" : ""}${year}(?!\\d)`,
+    "i",
+  );
+  return pattern.test(text);
+}
+
+/* "One" in "every one of these 9,800 homes" picks out of the count; it
+   is not a second count of homes contradicting the first. */
+const ONE_OF =
+  /\b(?:(?:every|each|any|not)\s+)?one\s+of\s+(?=the\b|these\b|those\b|our\b|its\b|their\b|your\b)/gi;
+
 function statedIn(
   fact: BriefFact,
   part: CopyPart,
   design: readonly (readonly CopyToken[])[],
 ): boolean {
+  if (fact.kind === "date" && yearStated(fact.text, part.text)) return true;
+  if (part.text.search(ONE_OF) >= 0) {
+    const picked = part.text.replace(ONE_OF, "each of ");
+    const line = part.line.replace(ONE_OF, "each of ");
+    return statedIn(fact, { text: picked, line }, design);
+  }
   if (statedAsWritten(fact, part, design)) return true;
   if (fact.kind !== "quantity") return false;
   return countWordings(fact, part.text).some((text) =>

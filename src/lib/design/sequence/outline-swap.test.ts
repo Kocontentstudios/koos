@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
 import { namesFree } from "./hook";
+import { EMPTY_POINT } from "./outline-arc";
 import { flagOutline } from "./outline-flags";
 import { type PlacedPoint, withOverlapsSwapped } from "./outline-plan";
 
@@ -70,10 +71,15 @@ describe("withOverlapsSwapped: the planner never hands over a point twice", () =
     expect(overlaps(points)).toBe(0);
   });
 
-  it("keeps the point, flagged, when no spare is distinct", () => {
+  it("leaves the slide for the owner to write when no spare is distinct", () => {
     const { points, swapped } = withOverlapsSwapped(drafts, [], ctx);
-    expect(swapped).toEqual([]);
-    expect(points).toEqual(drafts);
+    expect(swapped).toEqual([1]);
+    expect(points[1]).toEqual({
+      role: "body",
+      source: "user",
+      text: EMPTY_POINT,
+    });
+    expect(overlaps(points)).toBe(0);
   });
 
   it("never swaps away the only point that states a brief fact", () => {

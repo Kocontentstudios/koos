@@ -4,7 +4,7 @@ const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
-import { needsFor } from "@/lib/jobs/directions/brief-facts";
+import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { FRAME_BOUNDS, OUTLINE_LIMITS } from "./contract";
 import { EMPTY_POINT } from "./outline-arc";
@@ -459,5 +459,42 @@ describe("leadUpTo", () => {
   });
   it("gives nothing when the lead says much more than the fact", () => {
     expect(leadUpTo("25,000 homes", sentences)).toBeNull();
+  });
+});
+
+describe("withEveryFactPlaced: a figure the reader does not pay", () => {
+  it("takes a body slot, never the action, when it is not the action's price", () => {
+    const facts: BriefFact[] = [
+      {
+        kind: "price",
+        text: "₦720 million in 2025",
+        needs: needsFor("price", "₦720 million in 2025"),
+      },
+      {
+        kind: "contact",
+        text: "ibrahim@lumoragrid.ng",
+        needs: needsFor("contact", "ibrahim@lumoragrid.ng"),
+      },
+    ];
+    const brief =
+      "Revenue grew from ₦310 million in 2024 to ₦720 million in 2025. Contact ibrahim@lumoragrid.ng.";
+    const placed = withEveryFactPlaced(
+      [
+        { role: "hook", source: "brief", text: "Solar power for 9,800 homes" },
+        { role: "body", source: "profile", text: "Every home deserves light" },
+        {
+          role: "cta",
+          source: "brief",
+          text: "Contact ibrahim@lumoragrid.ng.",
+        },
+      ],
+      facts,
+      brief,
+      new Set(),
+    );
+    expect(placed[1].text).toBe(
+      "Revenue grew from ₦310 million in 2024 to ₦720 million in 2025.",
+    );
+    expect(placed[2].text).toBe("Contact ibrahim@lumoragrid.ng.");
   });
 });

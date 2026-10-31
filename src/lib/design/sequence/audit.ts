@@ -12,7 +12,8 @@ const SOURCED_SHARE = 0.75;
  *  unsourced statements that are on the frame as written and that the
  *  sources do not mostly say. */
 export function auditFlags(
-  audit: Pick<AuditAnswer, "repeats" | "unsourced">,
+  audit: Pick<AuditAnswer, "repeats" | "unsourced"> &
+    Partial<Pick<AuditAnswer, "restated">>,
   frames: readonly FrameBeat[],
   sources: string,
 ): Flag[] {
@@ -42,10 +43,16 @@ export function auditFlags(
       ? [{ kind: "unsourced", frame: frame - 1, text: text.trim() }]
       : [];
   });
+  const restated = (audit.restated ?? []).flatMap((n): Flag[] => {
+    const beat = frames[n - 1];
+    return beat?.role === "body" && beat.subheadline.trim()
+      ? [{ kind: "restated", frame: n - 1, subheadline: beat.subheadline }]
+      : [];
+  });
   const once = new Set<string>();
-  return [...repeats, ...unsourced].filter((flag) => {
+  return [...repeats, ...unsourced, ...restated].filter((flag) => {
     const key = `${flag.kind}:${flag.frame}`;
-    if (flag.kind === "repeat" && once.has(key)) return false;
+    if (flag.kind !== "unsourced" && once.has(key)) return false;
     once.add(key);
     return true;
   });

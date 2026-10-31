@@ -184,3 +184,32 @@ describe("sentenceCased: places and the owner's own names", () => {
     );
   });
 });
+
+describe("a long name given by its leading words", () => {
+  it("keeps the leading words of a brand's name cased", () => {
+    const academy = [
+      "Bright Path Academy",
+      "Exam prep in Surulere. Register at brightpath.ng.",
+    ];
+    expect(sentenceCased("Register at Bright path", academy)).toBe(
+      "Register at Bright Path",
+    );
+    expect(sentenceCased("Register at bright path", academy)).toBe(
+      "Register at Bright Path",
+    );
+    expect(
+      sentenceCased("Team plan at Udi hills", [
+        "Udi Hills Cowork",
+        "Desks in Enugu. Team plans from ₦40,000.",
+      ]),
+    ).toBe("Team plan at Udi Hills");
+  });
+
+  it("names nothing by the leading words of a name inside a sentence", () => {
+    expect(
+      sentenceCased("Lagos Design festival", [
+        "We run Lagos Design Week every December.",
+      ]),
+    ).toBe("Lagos design festival");
+  });
+});

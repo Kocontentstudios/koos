@@ -254,6 +254,29 @@ interface RunRecord {
   error?: string;
 }
 
+/* What every last resort was handed, kept beside the report so a change
+   to code's repair can be replayed on the sets that needed it without the
+   model calls (replay.mts). */
+const snapshots: {
+  case: string;
+  n: number;
+  lane: Lane;
+  snapshot: import("../../../design/sequence/plan").LastResortInput;
+}[] = [];
+const asJson = (_: string, value: unknown) =>
+  value instanceof Map
+    ? { $map: [...value.entries()] }
+    : value instanceof Set
+      ? { $set: [...value] }
+      : value;
+function writeSnapshots() {
+  if (snapshots.length === 0) return;
+  writeFileSync(
+    `${reportPath}.snapshots.jsonl`,
+    `${snapshots.map((s) => JSON.stringify(s, asJson)).join("\n")}\n`,
+  );
+}
+
 /* Three jobs at a time, each running its lanes in turn: enough to finish
    in minutes without tripping the provider's rate limit. */
 const CONCURRENCY = 3;
@@ -372,6 +395,7 @@ async function runPanel(): Promise<number> {
   const calibration = calibrationChecks(summary);
 
   mkdirSync(dirname(reportPath), { recursive: true });
+  writeSnapshots();
   writeFileSync(
     reportPath,
     JSON.stringify(
@@ -482,7 +506,16 @@ async function planLane(
       recentLayouts: [],
       approvedOutline: valid.outline,
     },
-    { onBlocked: "report" },
+    {
+      onBlocked: "report",
+      onLastResort: (snapshot) =>
+        snapshots.push({
+          case: c.id,
+          n: approved.points.length,
+          lane,
+          snapshot,
+        }),
+    },
   );
   return { result, edits, valid };
 }
@@ -714,6 +747,7 @@ const failed = [
 ];
 
 mkdirSync(dirname(reportPath), { recursive: true });
+writeSnapshots();
 writeFileSync(
   reportPath,
   JSON.stringify(

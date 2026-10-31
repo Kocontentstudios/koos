@@ -38,3 +38,47 @@ describe("factStated: a word before a bare noun is another thing counted", () =>
     );
   });
 });
+
+describe("a word that describes a one-word counted noun", () => {
+  const q = (text: string): BriefFact => ({
+    kind: "quantity",
+    text,
+    needs: needsFor("quantity", text),
+  });
+  it.each([
+    ["30 laptops", "We are buying 30 new laptops for the lab"],
+    ["9,800 homes", "14 grids serving 9,800 rural homes"],
+    ["80 desks", "80 hot desks"],
+    ["120 students", "120 young students"],
+    ["9,800 homes", "Every one of these 9,800-home networks"],
+    ["9,800 homes", "Every one of these 9,800 homes"],
+  ])("%s is stated by %s", (fact, copy) => {
+    expect(factStated(q(fact), copy)).toBe(true);
+  });
+  it.each([
+    ["20 spots", "20 parking spots"],
+    ["30 laptops", "30 gaming laptops"],
+    ["80 desks", "800 desks"],
+    ["9,800 homes", "98 homes"],
+  ])("%s is not stated by %s", (fact, copy) => {
+    expect(factStated(q(fact), copy)).toBe(false);
+  });
+});
+
+describe("a date that is only a year and its lead", () => {
+  const d = (text: string): BriefFact => ({
+    kind: "date",
+    text,
+    needs: needsFor("date", text),
+  });
+  it.each([
+    ["By 2028", "Reach 25,000 homes by 2028", true],
+    ["by end of 2027", "14 grids by end of 2027", true],
+    ["2028", "Live across Niger State in 2028", true],
+    ["By 2028", "Reach 25,000 homes in 2028", false],
+    ["by end of 2027", "14 grids by 2027", false],
+    ["By 2028", "Reach 2,028 homes", false],
+  ])("%s in %s is %s", (fact, copy, stated) => {
+    expect(factStated(d(fact), copy)).toBe(stated);
+  });
+});

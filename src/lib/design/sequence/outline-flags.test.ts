@@ -300,3 +300,48 @@ describe("flagOutline: a body point the hook already makes", () => {
     expect(kept.weak).toBeNull();
   });
 });
+
+describe("a point cut mid-sentence", () => {
+  it("is flagged on the hook and on a body point, never passed as whole", () => {
+    const flagged = flagOutline(
+      [
+        {
+          id: "p1",
+          role: "hook",
+          title: "",
+          point: "Weekday bookings get a",
+          source: "brief",
+          facts: [],
+        },
+        {
+          id: "p2",
+          role: "body",
+          title: "",
+          point: "Every stylist is trained in low-heat methods for",
+          source: "profile",
+          facts: [],
+        },
+        {
+          id: "p3",
+          role: "body",
+          title: "",
+          point: "Closing our Series A",
+          source: "brief",
+          facts: [],
+        },
+        {
+          id: "p4",
+          role: "cta",
+          title: "",
+          point: "Book at crownandcoil.ng",
+          source: "brief",
+          facts: [],
+        },
+      ],
+      { kind: "carousel", facts: [], free: new Set() },
+    );
+    expect(flagged[0].weak?.reason).toMatch(/mid-sentence/);
+    expect(flagged[1].weak?.reason).toMatch(/mid-sentence/);
+    expect(flagged[2].weak?.reason ?? "").not.toMatch(/mid-sentence/);
+  });
+});
