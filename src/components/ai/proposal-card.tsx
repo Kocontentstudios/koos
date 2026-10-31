@@ -159,7 +159,6 @@ export function ProposalCard({
           size="sm"
           loading={confirming}
           loadingText="Confirming…"
-          disabled={confirming}
           onClick={handleConfirm}
         >
           Confirm

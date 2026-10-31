@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* These pin the legacy no-image path, which runs only while
+   FEATURE_KO_IMAGERY is on (Oluwaseyi's ruling, 2026-10-29). */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 const getAuthUser = vi.fn();
 const checkRateLimit = vi.fn();
 const checkBrandAccess = vi.fn();
@@ -135,6 +139,36 @@ describe("design generate route", () => {
     isStorageConfigured.mockReturnValue(false);
     expect((await POST(post({ brandId: BRAND_ID }))).status).toBe(503);
     expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  /* The no-image request runs the variant job, which paints a KO plate, so
+     with the flag off it is refused before any row or model call. */
+  it("refuses a request with no image while KO imagery is off", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      const res = await POST(post({ brandId: BRAND_ID }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "ko_imagery_disabled" });
+      expect(createGenerationJob).not.toHaveBeenCalled();
+      expect(resolveDesignContext).not.toHaveBeenCalled();
+      expect(executeGenerationJob).not.toHaveBeenCalled();
+      expect(generateDesignWork).not.toHaveBeenCalled();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  it("still takes a text-led request with no image model while KO imagery is off", async () => {
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      const res = await POST(
+        post({ brandId: BRAND_ID, image: { source: "none" } }),
+      );
+      expect(res.status).toBe(202);
+      expect(createGenerationJob).toHaveBeenCalledTimes(1);
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
   });
 
   it("enforces the workspace monthly quota", async () => {

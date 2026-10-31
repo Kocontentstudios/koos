@@ -695,7 +695,7 @@ export function StrategyClient({
         {showEmptyState && (
           <div className="flex-1 overflow-y-auto px-4 py-6">
             <div className="flex items-start gap-3 max-w-[85%]">
-              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
+              <div className="w-7 h-7 rounded-full bg-primary-fill flex items-center justify-center shrink-0 text-primary-foreground font-bold text-[11px]">
                 KO
               </div>
               <div className="rounded-xl rounded-tl-sm border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm leading-relaxed text-foreground">

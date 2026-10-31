@@ -8,15 +8,12 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
 }));
 
 const arrayBuffer = vi.fn();
-/* satori and resvg are the thing under test's dependency, not the thing under
+/* satori and its rasteriser are the thing under test's dependency, not the thing under
    test: what matters here is what renderCompositeDesign does when a render
    throws, which a real renderer will not do on demand. */
-vi.mock("next/og", () => ({
-  ImageResponse: class {
-    arrayBuffer() {
-      return arrayBuffer();
-    }
-  },
+vi.mock("@/lib/design/render/satori-pool", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/design/render/satori-pool")>()),
+  renderPng: async () => new Uint8Array(await arrayBuffer()),
 }));
 
 const readVendoredFace = vi.fn();

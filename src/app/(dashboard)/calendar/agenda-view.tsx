@@ -39,7 +39,7 @@ export function AgendaView({ focused, items, onSelect }: AgendaViewProps) {
                 type="button"
                 onClick={() => onSelect(item)}
                 aria-label={`Open ${item.title}`}
-                className="flex items-center gap-4 rounded-[10px] border border-[var(--border)] bg-surface-1 px-4 py-3.5 text-left transition-colors duration-150 hover:border-[var(--border-accent)] hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]"
+                className="flex items-center gap-4 rounded-[10px] border border-[var(--border)] bg-surface-1 px-4 py-3.5 text-left transition-colors duration-150 hover:border-[var(--border-accent)] hover:bg-surface-2 focus-visible:focus-outline"
               >
                 <span className="w-[70px] shrink-0 text-[12px] text-[var(--text-muted)]">
                   {item.time ?? "—"}

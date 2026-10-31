@@ -34,6 +34,25 @@ jobs:
       - name: Vendor render fonts
         run: pnpm fonts
 
+      # testing-og-assets.ts keeps next/og's fallback faces and emoji under
+      # /tmp/koos-og-assets. A fresh runner starts empty, so every fetch
+      # cluster-fuzz.smoke makes would hit the network inside a render
+      # deadline; restoring the cache keeps those renders off the network.
+      - name: Restore next/og test assets
+        uses: actions/cache@v4
+        with:
+          path: /tmp/koos-og-assets
+          key: koos-og-assets-${{ hashFiles('src/lib/design/document/cluster-fuzz.smoke.test.ts', 'src/lib/design/document/testing-og-assets.ts') }}
+          restore-keys: koos-og-assets-
+
+      # *.layout.test.tsx measure real layout, which jsdom does not have, and
+      # document/browser-parity.smoke.test.ts draws every layer document in
+      # Chromium as well as satori, because the PR 2 editor is a browser and
+      # the two engines disagreed on line breaks in round 1 (FEAT-033). The
+      # full chromium install includes the headless shell the layout tests use.
+      - name: Install Chromium for the layout and editor parity tests
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Test
         run: pnpm test
 
@@ -41,3 +60,50 @@ jobs:
       - name: Dependency audit
         run: pnpm audit --audit-level=high
         continue-on-error: true
+
+  # The directions job against a real Postgres with every migration applied
+  # (FEAT-033): `pnpm test` skips this file, since it needs a database.
+  # KOOS_INTEGRATION_REQUIRED makes an unreachable database a failure, never
+  # a skip.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: koos
+          POSTGRES_PASSWORD: koos
+          POSTGRES_DB: koos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U koos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DIRECT_URL: postgres://koos:koos@localhost:5432/koos
+      DATABASE_URL: postgres://koos:koos@localhost:5432/koos
+      KOOS_INTEGRATION_DATABASE_URL: postgres://koos:koos@localhost:5432/koos
+      KOOS_INTEGRATION_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Vendor render fonts
+        run: pnpm fonts
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      - name: Directions job integration test
+        run: pnpm vitest run src/lib/jobs/run-design-directions.integration.test.ts

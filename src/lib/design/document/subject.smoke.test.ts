@@ -1,0 +1,242 @@
+// @vitest-environment node
+import { beforeAll, describe, expect, it } from "vitest";
+import { canvasFor } from "@/lib/design/canvas";
+import { loadBrandFonts } from "@/lib/design/render/fonts";
+import type { ImageFacts } from "./builders/ground";
+import { HEADLINE_OVER_FOOTER, HIERARCHY } from "./builders/looks";
+import {
+  LAYOUTS,
+  LOGO,
+  LOGO_ASPECT,
+  PALETTE,
+  RATIOS,
+  REALISTIC,
+  specFor,
+  syntheticImages,
+  WORST_CASE,
+} from "./fixtures";
+import { documentFromSpec } from "./from-spec";
+import { measureImage } from "./image-facts";
+import { createRendererMeasurer, type RendererMeasurer } from "./measure";
+import type { DesignDocument, DesignElement } from "./schema";
+import {
+  measureSubject,
+  SUBJECT_MIN_SHARE,
+  type SubjectBox,
+  type SubjectReport,
+  subjectFromAlpha,
+} from "./subject";
+import { TEST_PROBE_LIMIT_MS } from "./testing-measure";
+
+/**
+ * The subject rule on every layout: copy, buttons, the accent rule, the
+ * quote mark, the footer and the logo stay off the subject, and the subject
+ * is drawn whole at SUBJECT_MIN_SHARE or more, or the build says it could
+ * not with a subject fault. Never a silent overlap.
+ *
+ * Subjects: a cut-out (its alpha bounds) and a photograph with the subject
+ * in the middle, low on the left, high on the right, and a large one.
+ */
+
+const IMAGES = syntheticImages();
+const PHOTO = { key: "design-images/b1/busy.png" };
+const CUTOUT = { key: "design-images/b1/cutout.png" };
+
+const PHOTO_SUBJECTS: Record<string, SubjectBox> = {
+  centre: { x: 0.35, y: 0.3, w: 0.3, h: 0.4 },
+  lowLeft: { x: 0.05, y: 0.55, w: 0.3, h: 0.4 },
+  highRight: { x: 0.6, y: 0.05, w: 0.3, h: 0.35 },
+  large: { x: 0.2, y: 0.1, w: 0.6, h: 0.8 },
+};
+
+let measurer: RendererMeasurer;
+let photoFacts: ImageFacts;
+let cutoutFacts: ImageFacts;
+
+beforeAll(async () => {
+  measurer = createRendererMeasurer({
+    probeLimitMs: TEST_PROBE_LIMIT_MS,
+    fonts: await loadBrandFonts(null),
+  });
+  const photo = await measureImage(IMAGES.busy);
+  const cutout = await measureImage(IMAGES.cutout);
+  if (!photo || !cutout) throw new Error("fixtures did not measure");
+  photoFacts = photo;
+  cutoutFacts = cutout;
+});
+
+const COPIES = { realistic: REALISTIC, worst: WORST_CASE };
+
+/* A card too short for its copy beside a subject at the minimum gives the
+   subject up first, down to 70% of the minimum, so the headline still
+   leads the small print (card.ts subjectAboveCopy). That fault is the rule
+   working: the subject is whole, nothing is on it, and the headline leads. */
+function yieldedToHeadline(doc: DesignDocument, report: SubjectReport) {
+  const size = (keep: (e: DesignElement) => boolean) =>
+    Math.max(
+      0,
+      ...doc.elements.map((e) =>
+        e.type === "text" && keep(e) ? e.fontSize : 0,
+      ),
+    );
+  const footer = size((e) => e.type === "text" && e.role === "footer");
+  const subheadline = size((e) => e.id === "subheadline");
+  const headline = size((e) => e.id === "headline");
+  return (
+    report.overlaps.length === 0 &&
+    report.visibleShare > 0.995 &&
+    report.edgeShare >= SUBJECT_MIN_SHARE * 0.7 - 0.005 &&
+    headline >= footer * HEADLINE_OVER_FOOTER &&
+    headline >= subheadline * HIERARCHY
+  );
+}
+
+describe.each(LAYOUTS)("%s", (layout) => {
+  it.each(RATIOS)(
+    "keeps everything off the subject and the subject large at %s, or says it cannot",
+    async (ratio) => {
+      const silent: string[] = [];
+      const faulted: string[] = [];
+      const cases = [
+        ...Object.entries(COPIES).map(([copy, text]) => ({
+          label: `cutout ${copy}`,
+          text,
+          image: CUTOUT,
+          facts: cutoutFacts,
+          subject: null as SubjectBox | null,
+        })),
+        ...Object.entries(PHOTO_SUBJECTS).map(([where, subject]) => ({
+          label: `photo ${where}`,
+          text: REALISTIC,
+          image: PHOTO,
+          facts: photoFacts,
+          subject,
+        })),
+      ];
+      for (const { label, text, image, facts, subject } of cases) {
+        const build = await documentFromSpec({
+          spec: specFor(layout, ratio, text),
+          palette: PALETTE,
+          canvas: canvasFor(ratio),
+          image,
+          imageFacts: facts,
+          subject,
+          logo: { asset: LOGO, aspect: LOGO_ASPECT },
+          measurer,
+        });
+        const report = measureSubject(
+          build.document,
+          facts,
+          subject ?? subjectFromAlpha(facts),
+        );
+        if (!report) throw new Error(`${label}: no image drawn`);
+        if (build.subjectFault) {
+          if (yieldedToHeadline(build.document, report)) continue;
+          faulted.push(
+            `${label}: ${build.subjectFault.slice(0, 40)} edge ${report.edgeShare.toFixed(2)} on it ${report.overlaps.map((o) => o.id).join(",")}`,
+          );
+          continue;
+        }
+        if (!report.ok) {
+          silent.push(
+            `${label}: edge ${report.edgeShare.toFixed(2)} visible ${report.visibleShare.toFixed(3)} on it ${report.overlaps.map((o) => o.id).join(",")}`,
+          );
+        }
+      }
+      expect(silent.join("\n"), `${layout} ${ratio}`).toBe("");
+      /* The fault is the exception: a cut-out always finds an arrangement,
+         and so does a photo whose subject is not most of the frame. */
+      expect(
+        faulted.filter((label) => !label.startsWith("photo large")).join("\n"),
+        `${layout} ${ratio}`,
+      ).toBe("");
+    },
+    300_000,
+  );
+});
+
+it("states the minimum share it holds", () => {
+  expect(SUBJECT_MIN_SHARE).toBeGreaterThanOrEqual(0.35);
+});
+
+/* Round 4 centred an inset picture in whatever room the logo left: 8% off
+   the axis of centred copy, and floating between flush-left copy and the
+   canvas centre. */
+describe("an inset picture lines up with its copy", () => {
+  const inset = async (
+    layout: "hero-center" | "banner-bottom",
+    ratio: (typeof RATIOS)[number],
+    subject: SubjectBox | null,
+  ) => {
+    const { document } = await documentFromSpec({
+      spec: specFor(layout, ratio, REALISTIC),
+      palette: PALETTE,
+      canvas: canvasFor(ratio),
+      image: subject ? PHOTO : CUTOUT,
+      imageFacts: subject ? photoFacts : cutoutFacts,
+      subject,
+      logo: { asset: LOGO, aspect: LOGO_ASPECT },
+      measurer,
+    });
+    const image = document.elements.find((e) => e.type === "image");
+    const headline = document.elements.find((e) => e.id === "headline");
+    if (!image || !headline) throw new Error("no image or headline");
+    const isInset = image.width < document.width - 1;
+    return { document, image, headline, isInset };
+  };
+  const subjects = [null, ...Object.values(PHOTO_SUBJECTS)];
+
+  it.each(RATIOS)("hero-center %s: on the canvas axis", async (ratio) => {
+    for (const subject of subjects) {
+      const { document, image, headline, isInset } = await inset(
+        "hero-center",
+        ratio,
+        subject,
+      );
+      if (!isInset || image.fit === "contain") continue;
+      /* Round 24: a photo bleeding off the top, the bottom and a side is
+         not a print, and has no axis to keep. */
+      const bar = document.elements.find((e) => e.id === "footer-bar");
+      const runsOff =
+        image.y <= 0.5 &&
+        (image.y + image.height >= document.height - 0.5 ||
+          (bar !== undefined &&
+            Math.abs(image.y + image.height - bar.y) < 0.5)) &&
+        (image.x <= 0.5 || image.x + image.width >= document.width - 0.5);
+      if (runsOff) continue;
+      /* Round 21: a photo set beside the copy is on the left margin, not
+         the axis; the axis rule is the band's. */
+      if (image.x + image.width <= headline.x) continue;
+      expect(
+        Math.abs(image.x + image.width / 2 - document.width / 2),
+        `${ratio} ${JSON.stringify(subject)}`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  /* Round 8: from the copy's left edge, unless that parks it with a blank
+     side wider than its left margin by an eighth of the band (round-7 live
+     critic): then on the band's axis. */
+  it.each(RATIOS)(
+    "banner-bottom %s: from the copy's left edge, or centred when it would park",
+    async (ratio) => {
+      for (const subject of subjects) {
+        const { document, image, headline, isInset } = await inset(
+          "banner-bottom",
+          ratio,
+          subject,
+        );
+        if (!isInset || image.fit === "contain") continue;
+        const label = `${ratio} ${JSON.stringify(subject)}`;
+        const left = image.x - headline.x;
+        const right = document.width - headline.x - (image.x + image.width);
+        /* Lined up with the copy, or centred; centring is skipped only
+           when the logo sits where the centred print would go. */
+        expect(
+          image.x === headline.x || Math.abs(left - right) <= 1,
+          label,
+        ).toBe(true);
+      }
+    },
+  );
+});

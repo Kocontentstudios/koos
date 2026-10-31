@@ -88,7 +88,7 @@ export default async function InvitePage({
         <div className="flex flex-col gap-2">
           <Link
             href={`/register?next=${nextParam}&email=${encodeURIComponent(invite.email)}`}
-            className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"
+            className="rounded-lg bg-primary-fill px-4 py-2.5 text-sm font-medium text-primary-foreground"
           >
             Create account
           </Link>

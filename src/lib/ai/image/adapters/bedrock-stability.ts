@@ -16,13 +16,14 @@ export function isBedrockConfigured(env: ImageEnv = process.env): boolean {
   return Boolean(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
 }
 
-// Stability text-to-image on Bedrock: request { prompt, mode, aspect_ratio,
-// output_format }; response { images: [base64], seeds, finish_reasons }.
+// Stability text-to-image on Bedrock: request { prompt, negative_prompt,
+// mode, aspect_ratio, output_format }; response { images: [base64], seeds, finish_reasons }.
 // (Amazon Nova/Titan use a different taskType schema — this adapter targets
 // the active Stability models.)
 async function generate({
   prompt,
   aspectRatio = "1:1",
+  negativePrompt,
 }: ImageGenerationInput): Promise<GeneratedImage> {
   const model =
     process.env.AI_IMAGE_MODEL || "stability.stable-image-core-v1:1";
@@ -45,6 +46,7 @@ async function generate({
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
       prompt,
+      ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
       mode: "text-to-image",
       aspect_ratio: aspectRatio,
       output_format: "png",

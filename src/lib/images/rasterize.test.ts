@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_RASTER_PIXELS,
   svgIntrinsicRatio,
   svgRasterBox,
-  withViewBox,
 } from "@/lib/images/rasterize";
 
 const bytes = (markup: string) => new TextEncoder().encode(markup);
@@ -122,41 +122,29 @@ describe("svgRasterBox", () => {
     expect(box.width / box.height).toBeCloseTo(100, 0);
   });
 
+  /* Round-4 critic C4: a tall noisy logo rasterised at 600 x 4096 encoded
+     to 8.4 MB, past the renderer's 7,499,820. */
+  it("bounds the area, keeping the shape", () => {
+    const box = svgRasterBox(bytes('<svg viewBox="0 0 600 4096"/>'), 600);
+    expect(box.width * box.height).toBeLessThanOrEqual(MAX_RASTER_PIXELS);
+    expect(box.width / box.height).toBeCloseTo(600 / 4096, 2);
+    expect(box.height).toBeGreaterThan(2500);
+  });
+
+  it("leaves an ordinary wordmark at the preferred width", () => {
+    expect(svgRasterBox(bytes('<svg viewBox="0 0 300 100"/>'), 600)).toEqual({
+      width: 600,
+      height: 200,
+    });
+    expect(svgRasterBox(bytes('<svg viewBox="0 0 1 1"/>'), 600)).toEqual({
+      width: 600,
+      height: 600,
+    });
+  });
+
   it("never returns a zero side", () => {
     const box = svgRasterBox(bytes('<svg viewBox="0 0 5000 1"/>'), 600);
     expect(box.width).toBeGreaterThan(0);
     expect(box.height).toBeGreaterThan(0);
-  });
-});
-
-describe("withViewBox", () => {
-  const text = (b: Uint8Array) => new TextDecoder().decode(b);
-
-  /* satori throws without a viewBox, so an ordinary width/height SVG — which
-     every drawing tool emits — was refused and the brand told its logo was
-     broken. */
-  it("gives a width/height SVG the viewBox satori demands", () => {
-    const out = text(withViewBox(bytes('<svg width="300px" height="100px"/>')));
-    expect(out).toContain('viewBox="0 0 300 100"');
-  });
-
-  it("leaves an SVG that already declares one untouched", () => {
-    const original = '<svg viewBox="0 0 4 2" width="400"/>';
-    expect(text(withViewBox(bytes(original)))).toBe(original);
-  });
-
-  it("does not count a descendant viewBox as the root's", () => {
-    const out = text(
-      withViewBox(
-        bytes(
-          '<svg width="300" height="100"><symbol viewBox="0 0 1 1"/></svg>',
-        ),
-      ),
-    );
-    expect(out).toContain('<svg viewBox="0 0 300 100"');
-  });
-
-  it("leaves an SVG that declares nothing alone", () => {
-    expect(text(withViewBox(bytes("<svg/>")))).toBe("<svg/>");
   });
 });

@@ -82,6 +82,34 @@ describe("storageKeyFrom", () => {
     }
   });
 
+  /* The decoded key is what a later URL parser sees. A `%` left after one
+     decode means a second decode would change the key (`%252e%252e` is `..`
+     on the next read), and a malformed escape threw instead of refusing. */
+  it.each([
+    "logos/%252e%252e/deliverables/u1/x.zip",
+    "logos/u1/%E0%A4%A.png",
+    "logos/u1/a%3Fx=1.png",
+    "logos/u1/a%23y.png",
+    "logos/u1//x.png",
+    "logos/u1/a%E2%80%AEgnp.exe",
+    "logos/u1/a%E2%80%8Bb.png",
+    "logos/u1/a%00.png",
+    "logos/u1/a%5C..%5Cb.png",
+  ])("refuses %s, which a second read would turn into another key", (path) => {
+    expect(
+      storageKeyFrom(`${BASE}/${path}`, STORAGE_PREFIXES.logos),
+    ).toBeNull();
+  });
+
+  it("still accepts every key the upload route mints", () => {
+    expect(
+      storageKeyFrom(
+        `${BASE}/logos/clu1x2y3z/1729500000000-a1b2c3d4e5f6.png`,
+        STORAGE_PREFIXES.logos,
+      ),
+    ).toBe("logos/clu1x2y3z/1729500000000-a1b2c3d4e5f6.png");
+  });
+
   /* A sibling prefix must not satisfy a prefix check by sharing its opening
      characters. */
   it("matches whole path segments, not string prefixes", () => {
@@ -106,5 +134,24 @@ describe("storageKeyFrom", () => {
     expect(
       storageKeyFrom(`${BASE}/fonts/u1/x.ttf`, STORAGE_PREFIXES.fonts),
     ).toBe("fonts/u1/x.ttf");
+  });
+
+  /* Design documents pin logos/, generated/ and design-images/. The last must
+     resolve, and must not be reachable from a caller pinning a sibling. */
+  it("pins the design-images prefix like the others", () => {
+    const pinned = [
+      STORAGE_PREFIXES.logos,
+      STORAGE_PREFIXES.generated,
+      STORAGE_PREFIXES.designImages,
+    ];
+    expect(storageKeyFrom(`${BASE}/design-images/b1/x.png`, pinned)).toBe(
+      "design-images/b1/x.png",
+    );
+    expect(
+      storageKeyFrom(`${BASE}/design-images/b1/x.png`, STORAGE_PREFIXES.logos),
+    ).toBeNull();
+    expect(
+      storageKeyFrom(`${BASE}/design-images-evil/b1/x.png`, pinned),
+    ).toBeNull();
   });
 });

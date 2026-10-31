@@ -39,7 +39,7 @@ interface CreatedTicket {
 }
 
 const inputCls =
-  "w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)]";
+  "w-full rounded-lg border border-[var(--border)] bg-surface-1 px-3 py-2 text-[13px] text-foreground transition-colors hover:border-[var(--border-accent)] focus-visible:focus-outline";
 
 const labelCls =
   "mb-1 block text-[12px] font-semibold uppercase tracking-wider text-[var(--text-muted)]";
@@ -304,7 +304,7 @@ function PanelContent({
         ) : (
           <>
             <div className="py-3">
-              <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary">
+              <span className="inline-block rounded-full bg-[var(--accent-glow)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-primary-text">
                 Design Request
               </span>
               <h4 className="mt-2 text-[16px] font-semibold text-foreground">

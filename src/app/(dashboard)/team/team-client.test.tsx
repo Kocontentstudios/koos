@@ -281,7 +281,12 @@ describe("TeamClient", () => {
       await screen.findByRole("heading", { name: /remove sarah kim\?/i }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /remove member/i }));
+    const confirm = screen.getByRole("button", { name: /remove member/i });
+    /* White on --status-error-fg as a fill was 3.05:1 in dark; the variant
+       paints the dedicated destructive fill. */
+    expect(confirm).toHaveClass("bg-destructive-fill");
+    expect(confirm.className).not.toMatch(/status-error-fg/);
+    await user.click(confirm);
 
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),

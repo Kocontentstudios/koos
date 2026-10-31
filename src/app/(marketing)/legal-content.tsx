@@ -33,9 +33,9 @@ export function LegalPage({
         <Link href="/" className="inline-flex items-center gap-2.5 mb-8">
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>

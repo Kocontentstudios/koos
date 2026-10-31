@@ -12,6 +12,10 @@ export interface ReferenceImage {
 export interface ImageGenerationInput {
   prompt: string;
   aspectRatio?: string;
+  /** What the image must not show, for models that take it apart from the
+   *  prompt. A model that reads a prompt's "no text" as a cue to paint text
+   *  is told it here instead. Adapters without one ignore it. */
+  negativePrompt?: string;
   /** Brand logo and/or prior art. Adapters that cannot accept these must
    * ignore them rather than fail — see supportsReferenceImages. */
   referenceImages?: ReferenceImage[];

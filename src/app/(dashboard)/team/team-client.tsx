@@ -124,9 +124,11 @@ function PersonRow({
 }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-surface-1 p-4">
+      {/* White initials need 4.5:1 at both stops: the old #e8a0b0 end was
+          2.08:1. */}
       <Avatar
         size="lg"
-        className="shrink-0 bg-gradient-to-br from-[#e8a0b0] to-[#7c5cff]"
+        className="shrink-0 bg-gradient-to-br from-[#b4436c] to-[#7e22ce]"
       >
         {avatarUrl && <AvatarImage src={avatarUrl} alt={name || email} />}
         <AvatarFallback className="bg-transparent text-sm font-semibold text-white">
@@ -577,7 +579,7 @@ export function TeamClient({
                               },
                             )
                           }
-                          className="text-primary hover:text-primary"
+                          className="text-primary-text hover:text-primary-text"
                         >
                           Resend
                         </Button>
@@ -732,6 +734,7 @@ export function TeamClient({
             </Button>
             <Button
               type="button"
+              variant="destructive"
               loading={pending}
               loadingText="Removing…"
               onClick={() => {
@@ -747,7 +750,6 @@ export function TeamClient({
                   },
                 );
               }}
-              className="bg-[var(--status-error-fg)] text-white hover:bg-[var(--status-error-fg)]/90"
             >
               Remove Member
             </Button>

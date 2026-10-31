@@ -71,7 +71,7 @@ export function MessageList({
                 className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
                   isUser
                     ? "bg-surface-2 text-foreground"
-                    : "bg-primary text-white"
+                    : "bg-primary-fill text-primary-foreground"
                 }`}
               >
                 {isUser ? "U" : "KO"}
@@ -115,7 +115,7 @@ export function MessageList({
       {/* Typing dots */}
       {isLoading && (
         <div className="flex items-start gap-3 max-w-[85%]">
-          <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0 text-white font-bold text-[11px]">
+          <div className="w-7 h-7 rounded-full bg-primary-fill flex items-center justify-center shrink-0 text-primary-foreground font-bold text-[11px]">
             KO
           </div>
           <div className="bg-surface-1 border border-[var(--border)] rounded-xl rounded-tl-sm px-4 py-3">

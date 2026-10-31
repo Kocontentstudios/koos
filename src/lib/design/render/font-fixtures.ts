@@ -22,6 +22,28 @@ export interface FontShape {
   signature?: number[];
   numGlyphs?: number;
   unitsPerEm?: number;
+  /** Every glyph's advance, in font units. */
+  advance?: number;
+  /** One glyph's hmtx advance, by glyph id (0 is .notdef). */
+  advances?: Record<number, number>;
+  /** CFF outlines in place of glyf/loca, each charstring carrying a width
+   *  operand. Widths not listed match hmtx. */
+  cff?: {
+    defaultWidthX?: number;
+    nominalWidthX?: number;
+    /** Drawn widths, by glyph id; null leaves the operand out, so the glyph
+     *  draws at defaultWidthX. */
+    widths?: Record<number, number | null>;
+    /** Local subroutines, raw Type 2 bytes. */
+    subrs?: number[][];
+  };
+  /** One kerning pair, by glyph id, in a GPOS 'kern' lookup or a kern table. */
+  kerning?: {
+    table: "GPOS" | "kern";
+    left: number;
+    right: number;
+    value: number;
+  };
   headMagic?: number;
   indexToLocFormat?: number;
   numberOfHMetrics?: number;
@@ -37,6 +59,7 @@ export interface FontShape {
 }
 
 const TRUETYPE = [0x00, 0x01, 0x00, 0x00];
+const OPENTYPE_CFF = [0x4f, 0x54, 0x54, 0x4f];
 const HEAD_MAGIC = 0x5f0f3cf5;
 
 /* One glyph per printable ASCII character plus .notdef, so the cmap below can
@@ -79,7 +102,7 @@ function rectangleGlyph(): Uint8Array {
 
 const GLYF = rectangleGlyph();
 /** The glyph the cmap segment below maps "A" to. */
-const OUTLINE_GLYPH = 0x41 - FIRST_CHAR + 1;
+export const OUTLINE_GLYPH = 0x41 - FIRST_CHAR + 1;
 
 function head(shape: FontShape): Uint8Array {
   const t = table(54);
@@ -102,16 +125,231 @@ function hhea(shape: FontShape, numGlyphs: number): Uint8Array {
   return new Uint8Array(t.buffer);
 }
 
-function maxp(numGlyphs: number): Uint8Array {
-  const t = table(32);
-  t.setUint32(0, 0x00010000);
+function maxp(numGlyphs: number, cff: boolean): Uint8Array {
+  const t = table(cff ? 6 : 32);
+  t.setUint32(0, cff ? 0x00005000 : 0x00010000);
   t.setUint16(4, numGlyphs);
   return new Uint8Array(t.buffer);
 }
 
-function hmtx(numGlyphs: number): Uint8Array {
+function hmtx(
+  numGlyphs: number,
+  advance = 500,
+  advances: Record<number, number> = {},
+): Uint8Array {
   const t = table(numGlyphs * 4);
-  for (let i = 0; i < numGlyphs; i++) t.setUint16(i * 4, 500);
+  for (let i = 0; i < numGlyphs; i++) {
+    t.setUint16(i * 4, advances[i] ?? advance);
+  }
+  return new Uint8Array(t.buffer);
+}
+
+function concat(parts: (Uint8Array | number[])[]): Uint8Array {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
+
+/** A CFF INDEX of the given elements, with 2-byte offsets. */
+function cffIndex(elements: Uint8Array[]): Uint8Array {
+  if (elements.length === 0) return new Uint8Array([0, 0]);
+  const header = table(3 + (elements.length + 1) * 2);
+  header.setUint16(0, elements.length);
+  header.setUint8(2, 2);
+  let offset = 1;
+  elements.forEach((element, i) => {
+    header.setUint16(3 + i * 2, offset);
+    offset += element.length;
+  });
+  header.setUint16(3 + elements.length * 2, offset);
+  return concat([new Uint8Array(header.buffer), ...elements]);
+}
+
+/** A DICT operand in the five-byte form, so offsets can be patched in
+ *  without moving anything. */
+function dictInt(value: number): number[] {
+  const t = table(5);
+  t.setUint8(0, 29);
+  t.setInt32(1, value);
+  return [...new Uint8Array(t.buffer)];
+}
+
+function charstringInt(value: number): number[] {
+  const t = table(3);
+  t.setUint8(0, 28);
+  t.setInt16(1, value);
+  return [...new Uint8Array(t.buffer)];
+}
+
+const ENDCHAR = 14;
+const RMOVETO = 21;
+const HLINETO = 6;
+const VLINETO = 7;
+
+/** A non-CID CFF table: one charstring per glyph, the outline glyph a
+ *  filled rectangle like its glyf counterpart. */
+function cffTable(
+  shape: FontShape,
+  numGlyphs: number,
+  options: NonNullable<FontShape["cff"]>,
+): Uint8Array {
+  const defaultWidthX = options.defaultWidthX ?? 0;
+  const nominalWidthX = options.nominalWidthX ?? 0;
+  const charstrings = Array.from({ length: numGlyphs }, (_, glyph) => {
+    const width =
+      glyph in (options.widths ?? {})
+        ? options.widths?.[glyph]
+        : (shape.advances?.[glyph] ?? shape.advance ?? 500);
+    const operand =
+      width === null || width === undefined
+        ? []
+        : charstringInt(width - nominalWidthX);
+    const outline =
+      glyph === OUTLINE_GLYPH
+        ? [
+            ...operand,
+            ...charstringInt(0),
+            ...charstringInt(0),
+            RMOVETO,
+            ...charstringInt(500),
+            HLINETO,
+            ...charstringInt(700),
+            VLINETO,
+            ...charstringInt(-500),
+            HLINETO,
+            ENDCHAR,
+          ]
+        : [...operand, ENDCHAR];
+    return new Uint8Array(outline);
+  });
+
+  const header = new Uint8Array([1, 0, 4, 4]);
+  const names = cffIndex([new TextEncoder().encode("KOOSFixture")]);
+  const subrs = options.subrs?.length
+    ? cffIndex(options.subrs.map((subr) => new Uint8Array(subr)))
+    : null;
+  const privateBytes = 12 + (subrs ? 6 : 0);
+  /* Subrs are placed right after the Private DICT, at an offset relative
+     to its start. */
+  const privateDict = new Uint8Array([
+    ...dictInt(defaultWidthX),
+    20,
+    ...dictInt(nominalWidthX),
+    21,
+    ...(subrs ? [...dictInt(privateBytes), 19] : []),
+  ]);
+  /* SIDs 1..n-1 are standard glyph names, so no String INDEX is needed. */
+  const charset = new Uint8Array(1 + (numGlyphs - 1) * 2);
+  for (let glyph = 1; glyph < numGlyphs; glyph += 1) {
+    charset[glyph * 2 - 1] = 0;
+    charset[glyph * 2] = glyph & 0xff;
+  }
+  const charStringIndex = cffIndex(charstrings);
+  const topDictBytes = 3 * 6 + 5;
+  const topIndexBytes = 3 + 2 * 2 + topDictBytes;
+  const strings = cffIndex([]);
+  const globals = cffIndex([]);
+  const charsetAt =
+    header.length +
+    names.length +
+    topIndexBytes +
+    strings.length +
+    globals.length;
+  const charStringsAt = charsetAt + charset.length;
+  const privateAt = charStringsAt + charStringIndex.length;
+  const topDict = new Uint8Array([
+    ...dictInt(charsetAt),
+    15,
+    ...dictInt(charStringsAt),
+    17,
+    ...dictInt(privateDict.length),
+    ...dictInt(privateAt),
+    18,
+  ]);
+  return concat([
+    header,
+    names,
+    cffIndex([topDict]),
+    strings,
+    globals,
+    charset,
+    charStringIndex,
+    privateDict,
+    ...(subrs ? [subrs] : []),
+  ]);
+}
+
+/** DFLT script -> 'kern' feature -> one PairPos format 1 lookup holding a
+ *  single pair, which is the path opentype.js reads kerning from. */
+function gposTable(left: number, right: number, value: number): Uint8Array {
+  const t = table(80);
+  t.setUint32(0, 0x00010000);
+  t.setUint16(4, 10); // ScriptList
+  t.setUint16(6, 30); // FeatureList
+  t.setUint16(8, 44); // LookupList
+  // ScriptList at 10: one record, DFLT -> Script at +8
+  t.setUint16(10, 1);
+  t.setUint32(12, 0x44464c54);
+  t.setUint16(16, 8);
+  // Script at 18: default LangSys at +4, no others
+  t.setUint16(18, 4);
+  t.setUint16(20, 0);
+  // LangSys at 22
+  t.setUint16(22, 0);
+  t.setUint16(24, 0xffff);
+  t.setUint16(26, 1);
+  t.setUint16(28, 0);
+  // FeatureList at 30: one record, 'kern' -> Feature at +8
+  t.setUint16(30, 1);
+  t.setUint32(32, 0x6b65726e);
+  t.setUint16(36, 8);
+  // Feature at 38
+  t.setUint16(38, 0);
+  t.setUint16(40, 1);
+  t.setUint16(42, 0);
+  // LookupList at 44: one lookup at +4
+  t.setUint16(44, 1);
+  t.setUint16(46, 4);
+  // Lookup at 48: PairPos, one subtable at +8
+  t.setUint16(48, 2);
+  t.setUint16(50, 0);
+  t.setUint16(52, 1);
+  t.setUint16(54, 8);
+  // PairPos format 1 at 56: coverage at +12, value1 = XAdvance
+  t.setUint16(56, 1);
+  t.setUint16(58, 12);
+  t.setUint16(60, 0x0004);
+  t.setUint16(62, 0);
+  t.setUint16(64, 1);
+  t.setUint16(66, 18);
+  // Coverage format 1 at 68
+  t.setUint16(68, 1);
+  t.setUint16(70, 1);
+  t.setUint16(72, left);
+  // PairSet at 74: one record
+  t.setUint16(74, 1);
+  t.setUint16(76, right);
+  t.setInt16(78, value);
+  return new Uint8Array(t.buffer);
+}
+
+/** Version 0 kern table, one format 0 subtable with one pair. */
+function kernTable(left: number, right: number, value: number): Uint8Array {
+  const t = table(4 + 6 + 8 + 6);
+  t.setUint16(0, 0);
+  t.setUint16(2, 1);
+  t.setUint16(4, 0);
+  t.setUint16(6, 6 + 8 + 6);
+  t.setUint16(8, 0x0001); // horizontal, format 0
+  t.setUint16(10, 1);
+  t.setUint16(18, left);
+  t.setUint16(20, right);
+  t.setInt16(22, value);
   return new Uint8Array(t.buffer);
 }
 
@@ -215,20 +453,40 @@ function padTo4(n: number): number {
 export function buildFont(shape: FontShape = {}): Uint8Array {
   const numGlyphs = shape.numGlyphs ?? GLYPH_COUNT;
   const omit = new Set(shape.omit ?? []);
+  const outlines: [string, Uint8Array][] = shape.cff
+    ? [["CFF ", cffTable(shape, numGlyphs, shape.cff)]]
+    : [
+        ["glyf", GLYF],
+        ["loca", loca(shape, numGlyphs)],
+      ];
+  const kerning: [string, Uint8Array][] = shape.kerning
+    ? [
+        [
+          shape.kerning.table,
+          (shape.kerning.table === "GPOS" ? gposTable : kernTable)(
+            shape.kerning.left,
+            shape.kerning.right,
+            shape.kerning.value,
+          ),
+        ],
+      ]
+    : [];
   const parts: [string, Uint8Array][] = (
     [
       ["OS/2", os2()],
       ["cmap", cmap(shape)],
-      ["glyf", GLYF],
       ["head", head(shape)],
       ["hhea", hhea(shape, numGlyphs)],
-      ["hmtx", hmtx(Math.max(numGlyphs, 1))],
-      ["loca", loca(shape, numGlyphs)],
-      ["maxp", maxp(numGlyphs)],
+      ["hmtx", hmtx(Math.max(numGlyphs, 1), shape.advance, shape.advances)],
+      ["maxp", maxp(numGlyphs, Boolean(shape.cff))],
       ["name", name()],
       ["post", post()],
+      ...outlines,
+      ...kerning,
     ] as [string, Uint8Array][]
-  ).filter(([tag]) => !omit.has(tag));
+  )
+    .filter(([tag]) => !omit.has(tag))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
   const directoryBytes = 12 + parts.length * 16;
   let cursor = directoryBytes + padTo4(directoryBytes);
@@ -240,7 +498,7 @@ export function buildFont(shape: FontShape = {}): Uint8Array {
 
   const file = new Uint8Array(cursor);
   const view = new DataView(file.buffer);
-  file.set(shape.signature ?? TRUETYPE, 0);
+  file.set(shape.signature ?? (shape.cff ? OPENTYPE_CFF : TRUETYPE), 0);
   view.setUint16(4, shape.declaredNumTables ?? parts.length);
   placed.forEach((entry, i) => {
     const at = 12 + i * 16;

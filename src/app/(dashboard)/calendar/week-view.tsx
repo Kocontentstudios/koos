@@ -45,7 +45,7 @@ export function WeekView({
                 <div
                   className={cn(
                     "mt-1 text-lg font-semibold",
-                    isToday ? "text-primary" : "text-foreground",
+                    isToday ? "text-primary-text" : "text-foreground",
                   )}
                 >
                   {day.getUTCDate()}
@@ -54,7 +54,7 @@ export function WeekView({
                   type="button"
                   onClick={() => onAddDay(day)}
                   aria-label={`Add post on ${formatLongDate(day)}`}
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-opacity duration-150 hover:bg-[rgba(19,139,200,0.15)] hover:text-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-glow)] opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 focus-visible:opacity-100"
+                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-opacity duration-150 hover:bg-[rgba(19,139,200,0.15)] hover:text-primary-text focus-visible:focus-outline opacity-60 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 focus-visible:opacity-100"
                 >
                   <Plus aria-hidden="true" className="h-3.5 w-3.5" />
                 </button>

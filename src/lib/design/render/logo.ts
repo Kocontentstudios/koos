@@ -8,11 +8,9 @@ import {
   encodePngRgba,
   inkBoxOf,
 } from "@/lib/images/png-pixels";
-import {
-  rasterizeSvg,
-  svgRasterBox,
-  withViewBox,
-} from "@/lib/images/rasterize";
+import { rasterizeSvg, svgRasterBox } from "@/lib/images/rasterize";
+import { type ReencodeOptions, reencodeImage } from "@/lib/images/reencode";
+import { type SafeSvg, sanitizeSvg } from "@/lib/images/svg-sanitize";
 import {
   getObjectBytes,
   STORAGE_PREFIXES,
@@ -47,6 +45,20 @@ export interface LogoLoadResult {
  * raster never limits sharpness. */
 const SVG_RASTER_WIDTH = 600;
 
+/* A logo is drawn a few hundred pixels wide at most, so a larger file is
+   scaled to fit 1024 px before the renderer sees it, with no visible change.
+   At 4096 a valid 2560 px cutout re-encoded to 9.4 MB, past what the renderer
+   parses, and was reported as damaged (round-3 critic C4). A browser draws a
+   JPEG whose end marker is missing, and logos saved that way drew before the
+   re-encode, so that one fault is tolerated here. Input is refused from the
+   header past 256 MB of RGBA. */
+export const LOGO_REENCODE: ReencodeOptions = {
+  maxInputPixels: 8192 * 8192,
+  maxOutputSide: 1024,
+  minOutputSide: 256,
+  tolerateMissingJpegEnd: true,
+};
+
 const NOT_OURS =
   "the file is not in KO OS storage, so it may have been uploaded elsewhere";
 const UNREADABLE = "the file could not be read from storage";
@@ -59,8 +71,6 @@ const VECTOR_FAILED = "the SVG could not be converted for the design renderer";
 export const LOGO_UNDECODABLE_IN_RENDER =
   "the design renderer could not decode the file";
 
-/* Faults that are about the file the brand uploaded, as opposed to ours or
-   the image model's. Only these justify telling someone to replace it. */
 const NOT_DRAWABLE =
   "the design renderer could not decode it — the file may be damaged, or saved in a colour mode we cannot read";
 
@@ -78,7 +88,7 @@ export const LOGO_FILE_FAULTS = [
 /**
  * Loads the brand's logo as bytes the renderer can actually decode.
  *
- * Three things this does that the old inline loader did not:
+ * Four things this does that the old inline loader did not:
  *
  *  - Reports WHY it failed. The old one caught everything and returned null,
  *    so a logo that never arrived was indistinguishable from a brand that had
@@ -89,6 +99,10 @@ export const LOGO_FILE_FAULTS = [
  *  - Rasterises SVG onto a TRANSPARENT ground at its own aspect ratio. The
  *    vision path's opaque white square would paste a white card into the
  *    corner of the design and squash a wordmark into it.
+ *  - Hands the renderer a PNG or JPEG re-encoded here, never the uploaded
+ *    bytes (see reencodeImage). An 8-bit sRGB PNG keeps its exact pixels and
+ *    a JPEG is re-encoded at quality 92; a 16-bit, CMYK, ICC-tagged or
+ *    EXIF-rotated file is converted to what a browser shows for it.
  *
  * Storage-only by key, never an arbitrary fetch: logo_url is user-writable and
  * this runs server-side inside a job, so following whatever it contains would
@@ -121,10 +135,17 @@ export async function loadBrandLogo(
   }
 
   if (type === "svg") {
+    let safe: SafeSvg;
     try {
-      const rastered = await rasterizeSvg(withViewBox(bytes), {
+      safe = await sanitizeSvg(bytes);
+    } catch (err) {
+      console.error("brand logo SVG refused by the sanitiser", err);
+      return { logo: null, fault: NOT_DRAWABLE };
+    }
+    try {
+      const rastered = await rasterizeSvg(safe, {
         background: "transparent",
-        ...svgRasterBox(bytes, SVG_RASTER_WIDTH),
+        ...svgRasterBox(safe.bytes, SVG_RASTER_WIDTH),
       });
       return confirmDrawable({
         bytes: rastered,
@@ -136,7 +157,18 @@ export async function loadBrandLogo(
     }
   }
 
-  return confirmDrawable({ bytes, contentType: IMAGE_MIME[type] });
+  /* The uploaded bytes never reach the renderer. Its PNG decoder aborts the
+     whole process on some malformed PNGs (a palette whose length is not a
+     multiple of three), so the probe below would kill the job instead of
+     reporting. */
+  let clean: Uint8Array;
+  try {
+    ({ bytes: clean } = await reencodeImage(bytes, type, LOGO_REENCODE));
+  } catch (err) {
+    console.error("brand logo could not be decoded", err);
+    return { logo: null, fault: NOT_DRAWABLE };
+  }
+  return confirmDrawable({ bytes: clean, contentType: IMAGE_MIME[type] });
 }
 
 /** Enough for a light/dark/mono set several times over. */
@@ -204,12 +236,10 @@ async function confirmDrawable(
 
   /* The renderer fits the whole FILE into the logo box with object-fit:
      contain, so the aspect it needs is the file's. Those agree once the file
-     has been trimmed to its ink — but cropToInk only reaches formats the
-     decoder handles, and a 16-bit or interlaced PNG (an ordinary Photoshop
-     export) keeps its padding. Reporting the INK aspect for one of those sized
-     the box for a 3:1 mark and then contained a 1:1 file into it, drawing at
-     under a third of the intended size. The header is readable even when the
-     pixels are not. */
+     has been trimmed to its ink, but an untrimmed file (a JPEG, or a PNG
+     whose ink already fills it) keeps its own shape. Reporting the INK aspect
+     for a padded file sized the box for a 3:1 mark and then contained a 1:1
+     file into it, drawing at under a third of the intended size. */
   const declared = trimmed ? null : readImageDimensions(drawn.bytes);
   return {
     logo: {

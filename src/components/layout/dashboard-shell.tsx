@@ -70,7 +70,7 @@ function ShellInner({
           {can(workspace.role, "create_brand") && (
             <Link
               href="/brand/create"
-              className="flex h-9 items-center gap-2 rounded-[10px] bg-primary px-3 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-[var(--primary-hover)]"
+              className="flex h-9 items-center gap-2 rounded-[10px] bg-primary-fill px-3 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary-fill-hover"
             >
               <Plus size={16} />
               <span className="hidden sm:inline">Create Brand</span>

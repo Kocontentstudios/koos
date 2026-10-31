@@ -123,6 +123,25 @@ describe("GET /api/design/generations/[id]/download", () => {
     },
   );
 
+  /* FEAT-033: a direction stores its layer document beside the PNG it was
+     rendered to. Download still serves that PNG, never the document or the
+     plate the document names. */
+  it("serves the rendered PNG of a direction that has a document", async () => {
+    getDesignGenerationById.mockResolvedValue({
+      ...GENERATION,
+      document: {
+        version: 1,
+        elements: [
+          { type: "image", asset: { key: "generated/b1/plates/p.png" } },
+        ],
+      },
+      rationale: { title: "Morning bake story", reasons: ["a", "b"] },
+      imageSource: "ko",
+    });
+    expect((await call()).status).toBe(302);
+    expect(getSignedReadUrl.mock.calls[0][0]).toBe("generated/b1/abc.png");
+  });
+
   it("reports a signing failure rather than redirecting nowhere", async () => {
     getSignedReadUrl.mockRejectedValue(new Error("no creds"));
     vi.spyOn(console, "error").mockImplementation(() => {});

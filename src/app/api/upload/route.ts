@@ -6,6 +6,16 @@ import {
   fontExtension,
   fontRejectionMessage,
 } from "@/lib/design/render/font-file";
+import { detectImageType, IMAGE_MIME } from "@/lib/images/detect";
+import {
+  SVG_DRAWS_NOTHING_MESSAGE,
+  svgDrawsSomething,
+} from "@/lib/images/svg-drawable";
+import {
+  type SafeSvg,
+  sanitizeSvg,
+  UnsafeSvgError,
+} from "@/lib/images/svg-sanitize";
 import {
   isStorageConfigured,
   publicUrl,
@@ -83,18 +93,55 @@ export async function POST(request: Request) {
     );
   }
 
+  /* Judged by the bytes as well as the declared type, since the logo loader
+     sniffs: an SVG uploaded as image/png is still drawn as an SVG.
+
+     What is stored is the sanitiser's serialisation, never the uploaded
+     text: the bucket is public, and a browser opening the URL parses the
+     stored bytes with its own parser, which need not read the original the
+     way saxes did. The rebuilt document is the one that was checked.
+     Attachment keeps a direct visit from rendering it as a page at all;
+     <img> ignores the header. */
+  const isSvg =
+    !wantsFont &&
+    (ext === "svg" || detectImageType(new Uint8Array(buffer)) === "svg");
+  let stored: { body: Uint8Array; contentType: string; ext: string } = {
+    body: buffer,
+    // Never echo the client's type for a font: it is frequently wrong, and
+    // the signature already told us what this is.
+    contentType: wantsFont ? "font/sfnt" : file.type,
+    ext,
+  };
+  let contentDisposition: string | undefined;
+  if (isSvg) {
+    let safe: SafeSvg;
+    try {
+      safe = await sanitizeSvg(new Uint8Array(buffer));
+    } catch (err) {
+      if (!(err instanceof UnsafeSvgError)) throw err;
+      return NextResponse.json({ error: err.userMessage }, { status: 400 });
+    }
+    if (!svgDrawsSomething(safe)) {
+      return NextResponse.json(
+        { error: SVG_DRAWS_NOTHING_MESSAGE },
+        { status: 400 },
+      );
+    }
+    stored = { body: safe.bytes, contentType: IMAGE_MIME.svg, ext: "svg" };
+    contentDisposition = 'attachment; filename="logo.svg"';
+  }
+
   const prefix = wantsFont ? STORAGE_PREFIXES.fonts : STORAGE_PREFIXES.logos;
   const key = `${prefix}/${dbUser.id}/${Date.now()}-${randomBytes(6).toString(
     "hex",
-  )}.${ext}`;
+  )}.${stored.ext}`;
 
   try {
     await uploadObject({
       key,
-      body: buffer,
-      // Never echo the client's type for a font: it is frequently wrong, and
-      // the signature already told us what this is.
-      contentType: wantsFont ? "font/sfnt" : file.type,
+      body: stored.body,
+      contentType: stored.contentType,
+      contentDisposition,
     });
   } catch {
     return NextResponse.json({ error: "Upload failed." }, { status: 502 });

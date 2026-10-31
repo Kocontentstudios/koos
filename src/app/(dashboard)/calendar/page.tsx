@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { KoImageryProvider } from "@/components/design/directions/ko-imagery-context";
 import { Button } from "@/components/ui/button";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
@@ -7,6 +8,7 @@ import {
   getDesignTicketsForMember,
   getStrategyById,
 } from "@/lib/db/queries";
+import { koImageryEnabled } from "@/lib/design/ko-imagery-flag";
 import { isUuid } from "@/lib/validation/uuid";
 import { CalendarClient } from "./calendar-client";
 import { isPickDesign } from "./pick-mode";
@@ -51,7 +53,7 @@ export default async function CalendarPage({
   if (!calendar) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
-        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(19,139,200,0.2)] text-xl font-bold text-primary">
+        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(19,139,200,0.2)] text-xl font-bold text-primary-text">
           K
         </div>
         <h1 className="mb-2 font-display text-2xl font-bold text-foreground">
@@ -124,14 +126,16 @@ export default async function CalendarPage({
   }));
 
   return (
-    <CalendarClient
-      calendar={serializedCalendar}
-      items={serializedItems}
-      brand={brandSummary}
-      campaignName={strategy?.name ?? null}
-      submittedItemIds={submittedItemIds}
-      calendarOptions={calendarOptions}
-      pickMode={pickMode}
-    />
+    <KoImageryProvider enabled={koImageryEnabled()}>
+      <CalendarClient
+        calendar={serializedCalendar}
+        items={serializedItems}
+        brand={brandSummary}
+        campaignName={strategy?.name ?? null}
+        submittedItemIds={submittedItemIds}
+        calendarOptions={calendarOptions}
+        pickMode={pickMode}
+      />
+    </KoImageryProvider>
   );
 }

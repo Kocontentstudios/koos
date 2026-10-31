@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { DesignCard } from "@/components/design/design-card";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
+import { DesignDirectionsDialog } from "@/components/design/directions/design-directions-dialog";
 import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,10 +39,9 @@ export function DesignStudioClient({
   const [prompt, setPrompt] = useState("");
   const [context, setContext] = useState<ContextOption[]>([]);
   const [aspectRatio, setAspectRatio] = useState<string>("4:5");
-  const [previewOpen, setPreviewOpen] = useState(false);
-  /* A card from the history opens the SAME modal with just that design, so
-     saving always happens behind a preview of what is being saved. Kept
-     separate from the generation run: there is nothing to regenerate here. */
+  const [directionsOpen, setDirectionsOpen] = useState(false);
+  /* A card from the history opens the design preview with just that design,
+     so saving always happens behind a preview of what is being saved. */
   const [viewing, setViewing] = useState<SerializedGeneration | null>(null);
   /* Recorded when a run starts, not inferred from state at close: a second
      generation that fails clears the first one's results, so reading
@@ -54,17 +54,11 @@ export function DesignStudioClient({
     ? [...design.generations, ...initialGenerations]
     : initialGenerations;
 
-  async function handleGenerate() {
+  /* Nothing is generated yet: the image choice comes first, and the run starts
+     from inside the dialog once the user has picked one. */
+  function handleGenerate() {
     if (!brandId) return;
-    setViewing(null);
-    setRanThisSession(true);
-    setPreviewOpen(true);
-    await design.generate({
-      brandId,
-      freeform: prompt.trim() || null,
-      attachments: toAttachmentRefs(context),
-      aspectRatio,
-    });
+    setDirectionsOpen(true);
   }
 
   if (!brandId) {
@@ -163,44 +157,50 @@ export function DesignStudioClient({
               <DesignCard
                 key={generation.id}
                 generation={generation}
-                onOpen={(picked) => {
-                  setViewing(picked);
-                  setPreviewOpen(true);
-                }}
+                onOpen={setViewing}
               />
             ))}
           </div>
         )}
       </section>
 
-      <DesignPreviewModal
-        open={previewOpen}
+      <DesignDirectionsDialog
+        open={directionsOpen}
         onOpenChange={(next) => {
-          setPreviewOpen(next);
+          setDirectionsOpen(next);
           if (!next) {
             /* reset() clears the run's generations, and the grid is now the
-               only route back to a preview — without a refresh the design just
-               made is missing from it until a reload. Only after a run,
-               though: refetching 24 rows and re-signing their URLs to close a
-               preview that changed nothing is pure cost. */
-            /* Only once the run has finished: closing mid-generation would
-               refetch before the job has written anything, and the design
-               would still be missing from the grid. */
+               only route back to a design, so without a refresh the ones just
+               made are missing from it until a reload. Only once a run has
+               finished: closing mid-generation would refetch before the job
+               has written anything. */
             const hadRun = ranThisSession && !design.pending;
-            setViewing(null);
             setRanThisSession(false);
             design.reset();
             if (hadRun) router.refresh();
           }
         }}
+        entry="studio"
+        onRunStart={() => setRanThisSession(true)}
+        args={{
+          brandId,
+          freeform: prompt.trim() || null,
+          attachments: toAttachmentRefs(context),
+          aspectRatio,
+        }}
+        design={design}
+      />
+
+      <DesignPreviewModal
+        open={viewing !== null}
+        onOpenChange={(next) => {
+          if (!next) setViewing(null);
+        }}
         brandId={brandId}
-        generations={viewing ? [viewing] : design.generations}
-        pending={viewing ? false : design.pending}
-        progressLabel={viewing ? null : design.progressLabel}
-        error={viewing ? null : design.error}
-        partial={viewing ? null : design.partial}
-        onRetry={viewing ? undefined : design.retry}
-        onRegenerate={viewing ? undefined : handleGenerate}
+        generations={viewing ? [viewing] : []}
+        pending={false}
+        progressLabel={null}
+        error={null}
       />
     </div>
   );

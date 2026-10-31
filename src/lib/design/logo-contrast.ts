@@ -1,6 +1,5 @@
 import { ImageResponse } from "next/og";
 import { logoBoxIn } from "@/lib/design/logo-placement";
-import { relativeLuminance } from "@/lib/design/palette";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import type { DesignSpec } from "@/lib/design/spec";
 import {
@@ -200,8 +199,8 @@ export async function groundLuminanceUnderLogo({
 
   /* The decoder reads PNG. A native model may answer with JPEG, and leaving
      that route with no contrast check at all meant a dark mark could be
-     stamped invisible onto a dark composition on a whole delivery path. resvg
-     reads JPEG even though we cannot, so the picture is re-rendered once into
+     stamped invisible onto a dark composition on a whole delivery path. The
+     renderer (sharp/librsvg via next/og) reads JPEG even though we cannot, so the picture is re-rendered once into
      a PNG we can look at — the same trick the SVG path already uses. */
   const decoded =
     decodePngRgba(image.bytes) ?? (await decodeViaRenderer(image));

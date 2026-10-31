@@ -4,26 +4,19 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl as presign } from "@aws-sdk/s3-request-presigner";
+import {
+  decodedPathKey,
+  keyUnderPrefix,
+  STORAGE_PREFIXES,
+  type StoragePrefix,
+} from "./storage-keys";
 
 /**
  * Cloudflare R2 (S3-compatible) storage. Objects are organized under key
  * prefixes within a single bucket. Logos are public-read (served by URL);
  * private artifacts (deliverables) are read via short-lived signed URLs.
  */
-export const STORAGE_PREFIXES = {
-  logos: "logos",
-  fonts: "fonts",
-  referenceImages: "reference-images",
-  deliverables: "deliverables",
-  generated: "generated",
-  /* Onboarding brand guidelines and identity decks. A prefix of their own so
-     storageKeyFrom can pin it: the document parser reads bytes BY KEY, and the
-     prefix is what stops a caller pointing it at any other object. */
-  brandDocs: "brand-docs",
-} as const;
-
-export type StoragePrefix =
-  (typeof STORAGE_PREFIXES)[keyof typeof STORAGE_PREFIXES];
+export { STORAGE_PREFIXES, type StoragePrefix };
 
 function env(name: string): string {
   const value = process.env[name];
@@ -59,6 +52,7 @@ export async function uploadObject(params: {
   key: string;
   body: Uint8Array | Buffer;
   contentType: string;
+  contentDisposition?: string;
 }): Promise<void> {
   await client().send(
     new PutObjectCommand({
@@ -66,6 +60,7 @@ export async function uploadObject(params: {
       Key: params.key,
       Body: params.body,
       ContentType: params.contentType,
+      ContentDisposition: params.contentDisposition,
     }),
   );
 }
@@ -110,38 +105,84 @@ export function storageKeyFrom(
 
   // Decoded, so an encoded traversal cannot smuggle a different prefix past
   // the check and then be re-expanded by the storage client.
-  const key = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-  const allowed = Array.isArray(prefix) ? prefix : [prefix];
-  if (!allowed.some((p) => key.startsWith(`${p}/`))) return null;
-  if (key.includes("..")) return null;
-  return key;
+  const key = decodedPathKey(parsed.pathname);
+  return key === null ? null : keyUnderPrefix(key, prefix);
 }
 
-/** Fetch an object's raw bytes (e.g. to bundle into a zip). */
-export async function getObjectBytes(key: string): Promise<Buffer> {
+export class ObjectTooLargeError extends Error {
+  constructor(
+    readonly key: string,
+    readonly maxBytes: number,
+  ) {
+    super(`Object exceeds ${maxBytes} bytes: ${key}`);
+    this.name = "ObjectTooLargeError";
+  }
+}
+
+/**
+ * Fetch an object's raw bytes (e.g. to bundle into a zip).
+ *
+ * `maxBytes` is for objects a browser wrote through a presigned PUT. The
+ * signature binds the size the client claimed, but the server never saw the
+ * bytes, and an object written before that binding existed carries no such
+ * promise. The cap is a Range request for one byte past the limit rather than
+ * a check of the reported length, so the process never buffers more than the
+ * cap plus one byte whatever the object.
+ */
+export async function getObjectBytes(
+  key: string,
+  opts?: { maxBytes?: number },
+): Promise<Buffer> {
+  const maxBytes = opts?.maxBytes;
   const res = await client().send(
-    new GetObjectCommand({ Bucket: env("R2_BUCKET"), Key: key }),
+    new GetObjectCommand({
+      Bucket: env("R2_BUCKET"),
+      Key: key,
+      ...(maxBytes === undefined ? {} : { Range: `bytes=0-${maxBytes}` }),
+    }),
   );
   const bytes = await res.Body?.transformToByteArray();
   if (!bytes) throw new Error(`Empty object: ${key}`);
+  if (maxBytes !== undefined && bytes.byteLength > maxBytes) {
+    throw new ObjectTooLargeError(key, maxBytes);
+  }
   return Buffer.from(bytes);
 }
 
-/** Short-lived signed PUT URL so the browser uploads directly to R2,
- * bypassing the serverless request-body size limit. */
+/* The presigner always leaves content-type unsigned and leaves content-length
+   unsigned unless asked, so by default one URL accepts any type at any size
+   up to R2's 5 GB, and the public domain serves it back as whatever type the
+   uploader declared. Naming both here overrides that. */
+const SIGNED_UPLOAD_HEADERS = new Set(["content-type", "content-length"]);
+
+/**
+ * Short-lived signed PUT URL so the browser uploads directly to R2, bypassing
+ * the serverless request-body size limit.
+ *
+ * The signature binds `contentType` and `sizeBytes`: the PUT must send exactly
+ * that Content-Type and exactly that many bytes, or R2 answers 403.
+ */
 export async function getSignedUploadUrl(
   key: string,
   contentType: string,
+  sizeBytes: number,
   expiresInSeconds = 900,
 ): Promise<string> {
+  /* An empty type is dropped from the request before signing, which would
+     quietly leave the type unbound again. */
+  if (!contentType) throw new Error("A signed upload needs a content type.");
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+    throw new Error("A signed upload needs a positive byte size.");
+  }
   return presign(
     client(),
     new PutObjectCommand({
       Bucket: env("R2_BUCKET"),
       Key: key,
       ContentType: contentType,
+      ContentLength: sizeBytes,
     }),
-    { expiresIn: expiresInSeconds },
+    { expiresIn: expiresInSeconds, signableHeaders: SIGNED_UPLOAD_HEADERS },
   );
 }
 

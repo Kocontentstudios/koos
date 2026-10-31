@@ -30,6 +30,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { join } from "node:path";
 import { buildFont, signatureOnlyFont } from "./font-fixtures";
+
+const googleFace = () => buildFont().slice().buffer as ArrayBuffer;
+
 import {
   __resetFontCaches,
   FONT_DIR,
@@ -168,6 +171,8 @@ describe("loadBrandFonts", () => {
   it.each([
     ["a body of zeros behind a valid signature", signatureOnlyFont()],
     ["a half-finished upload", buildFont({ truncateTo: 220 })],
+    /* R4-1: stored before the full advance scan, it loops satori. */
+    ["a face with a 9em .notdef", buildFont({ advances: { 0: 9000 } })],
   ])(
     "keeps the bundled faces when the stored font is %s",
     async (_l, bytes) => {
@@ -405,7 +410,7 @@ describe("the network fallback, when the vendored files are missing", () => {
     const transport = vi.fn(
       async (url: string, _init?: { headers?: Record<string, string> }) =>
         url.endsWith(".ttf")
-          ? { arrayBuffer: async () => new ArrayBuffer(64) }
+          ? { arrayBuffer: async () => googleFace() }
           : { text: async () => GOOGLE_CSS },
     );
     vi.stubGlobal("fetch", transport);
@@ -426,7 +431,7 @@ describe("the network fallback, when the vendored files are missing", () => {
     readVendoredFace.mockResolvedValue(fontBytes([0x77, 0x4f, 0x46, 0x32]));
     const transport = vi.fn(async (url: string) =>
       url.endsWith(".ttf")
-        ? { arrayBuffer: async () => new ArrayBuffer(64) }
+        ? { arrayBuffer: async () => googleFace() }
         : { text: async () => GOOGLE_CSS },
     );
     vi.stubGlobal("fetch", transport);
@@ -435,6 +440,20 @@ describe("the network fallback, when the vendored files are missing", () => {
 
     expect(fonts.map((f) => f.name)).toEqual(["Display", "Body", "Body"]);
     expect(transport).toHaveBeenCalled();
+  });
+
+  it("refuses a Google answer that is not a face satori can wrap", async () => {
+    absent();
+    vi.stubGlobal("fetch", async (url: string) =>
+      url.endsWith(".ttf")
+        ? {
+            arrayBuffer: async () =>
+              buildFont({ advances: { 0: 9000 } }).slice().buffer,
+          }
+        : { text: async () => GOOGLE_CSS },
+    );
+
+    expect(await loadBrandFonts()).toEqual([]);
   });
 
   /* A transient failure must not poison the process: caching the empty result

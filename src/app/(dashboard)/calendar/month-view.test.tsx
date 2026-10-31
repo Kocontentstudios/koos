@@ -162,3 +162,30 @@ describe("MonthView source marks", () => {
     expect(screen.queryByLabelText("Added by you")).toBeNull();
   });
 });
+
+/* Padding days stay drill-in targets, so their text is held to AA: the old
+   opacity-40 cell put the day number at 3.76:1 dark and 2.50:1 light. */
+describe("MonthView padding days", () => {
+  it("recedes by the muted text token, never by opacity", () => {
+    setup();
+    const cell = screen.getByRole("button", {
+      name: "View Monday, August 31",
+    }).parentElement as HTMLElement;
+    expect(cell.className).not.toMatch(/(^|\s)opacity-/);
+    const number = Array.from(cell.querySelectorAll("span")).find(
+      (span) => span.textContent === "31",
+    );
+    expect(number?.className).toContain("text-[var(--text-muted)]");
+  });
+
+  it("keeps in-month days on the foreground token", () => {
+    setup();
+    const cell = screen.getByRole("button", {
+      name: "View Saturday, September 12",
+    }).parentElement as HTMLElement;
+    const number = Array.from(cell.querySelectorAll("span")).find(
+      (span) => span.textContent === "12",
+    );
+    expect(number?.className).toContain("text-foreground");
+  });
+});

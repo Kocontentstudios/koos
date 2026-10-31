@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useKoImageryOffered } from "@/components/design/directions/ko-imagery-context";
 
 const {
   requireBrandMock,
@@ -8,6 +9,7 @@ const {
   getStrategyByIdMock,
   getDesignTicketsForMemberMock,
   calendarClientProps,
+  calendarKoImagery,
 } = vi.hoisted(() => ({
   requireBrandMock: vi.fn(),
   getCalendarsForBrandMock: vi.fn(),
@@ -15,6 +17,7 @@ const {
   getStrategyByIdMock: vi.fn(),
   getDesignTicketsForMemberMock: vi.fn(),
   calendarClientProps: { current: null as Record<string, unknown> | null },
+  calendarKoImagery: { current: null as boolean | null },
 }));
 
 vi.mock("@/lib/auth/require-brand", () => ({ requireBrand: requireBrandMock }));
@@ -30,6 +33,7 @@ vi.mock("@/lib/db/queries", () => ({
 vi.mock("./calendar-client", () => ({
   CalendarClient: (props: Record<string, unknown>) => {
     calendarClientProps.current = props;
+    calendarKoImagery.current = useKoImageryOffered();
     return null;
   },
 }));
@@ -112,4 +116,24 @@ describe("CalendarPage pick mode", () => {
       "no planned posts to request a design for yet",
     );
   });
+});
+
+/* Oluwaseyi's ruling, 2026-10-27: the calendar drawer's image choice offers
+   KO imagery only while FEATURE_KO_IMAGERY is on, read on the server. */
+describe("CalendarPage and FEATURE_KO_IMAGERY", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["1", true],
+    ["", false],
+    ["0", false],
+  ])(
+    "hands FEATURE_KO_IMAGERY=%j to the image choice as %s",
+    async (value, offered) => {
+      vi.stubEnv("FEATURE_KO_IMAGERY", value);
+      calendarKoImagery.current = null;
+      await renderCalendarPage({});
+      expect(calendarKoImagery.current).toBe(offered);
+    },
+  );
 });

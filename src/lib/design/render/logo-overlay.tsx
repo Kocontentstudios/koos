@@ -108,8 +108,8 @@ export async function overlayLogo({
     </div>,
     { width: canvas.width, height: canvas.height },
   );
-  // ImageResponse renders lazily inside the stream, so a satori or resvg
-  // failure surfaces here rather than at construction.
+  // ImageResponse renders lazily inside the stream, so a satori or
+  // rasteriser failure surfaces here rather than at construction.
   return {
     bytes: new Uint8Array(await response.arrayBuffer()),
     logoFault: decision.legible ? null : LOGO_NOT_LEGIBLE,

@@ -3,7 +3,9 @@
 import { Wand2 } from "lucide-react";
 import { useState } from "react";
 import { Button, type ButtonProps } from "@/components/ui/button";
-import { DesignPreviewModal } from "./design-preview-modal";
+import type { DesignEntry } from "./design-analytics";
+import { DesignDirectionsDialog } from "./directions/design-directions-dialog";
+import type { TicketContext } from "./send-to-team";
 import { useDesignGeneration } from "./use-design-generation";
 
 export interface GenerateDesignButtonProps {
@@ -12,61 +14,68 @@ export interface GenerateDesignButtonProps {
   calendarItemId?: string | null;
   freeform?: string | null;
   aspectRatio?: string | null;
+  /** Which entry point this is, for the dialog's copy and analytics. Inferred
+   *  from the ids when absent. */
+  entry?: DesignEntry;
   label?: string;
   variant?: ButtonProps["variant"];
+  size?: ButtonProps["size"];
   className?: string;
-  ticketContext?: React.ComponentProps<
-    typeof DesignPreviewModal
-  >["ticketContext"];
+  ticketContext?: TicketContext;
 }
 
-/** The single launcher every entry point uses. Callers pass ids only — the
- * server resolves brief/calendar/brand context so nothing is retyped. */
+function entryFor(
+  calendarItemId: string | null | undefined,
+  briefId: string | null | undefined,
+): DesignEntry {
+  if (calendarItemId) return "calendar";
+  if (briefId) return "brief";
+  return "studio";
+}
+
+/** The single launcher every entry point uses. Callers pass ids only: the
+ * server resolves brief/calendar/brand context so nothing is retyped. The
+ * click opens the image choice; nothing is generated or billed until the
+ * user has picked the imagery, so no entry point can skip that choice. */
 export function GenerateDesignButton({
   brandId,
   briefId,
   calendarItemId,
   freeform,
   aspectRatio,
+  entry,
   label = "Generate Design",
   variant = "default",
+  size,
   className,
   ticketContext,
 }: GenerateDesignButtonProps) {
   const [open, setOpen] = useState(false);
   const design = useDesignGeneration();
 
-  const args = { brandId, briefId, calendarItemId, freeform, aspectRatio };
-
-  async function start() {
-    setOpen(true);
-    await design.generate(args);
-  }
-
   return (
     <>
       <Button
+        type="button"
         variant={variant}
-        onClick={start}
+        size={size}
+        onClick={() => setOpen(true)}
         loading={design.pending}
         loadingText="Generating…"
         className={className}
       >
-        <Wand2 className="size-4" />
+        <Wand2 aria-hidden="true" className="size-4" />
         {label}
       </Button>
-      <DesignPreviewModal
+      <DesignDirectionsDialog
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
           if (!next) design.reset();
         }}
-        brandId={brandId}
-        generations={design.generations}
-        pending={design.pending}
-        progressLabel={design.progressLabel}
-        error={design.error}
-        onRegenerate={() => design.generate(args)}
+        entry={entry ?? entryFor(calendarItemId, briefId)}
+        args={{ brandId, briefId, calendarItemId, freeform, aspectRatio }}
+        design={design}
         ticketContext={ticketContext}
       />
     </>

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 
 async function patchWorkspace(body: {
   name?: string;
@@ -237,15 +237,17 @@ export function SettingsClient({
             >
               Cancel
             </button>
-            <button
+            <Button
               type="button"
-              disabled={confirmText !== workspace.name || pending}
+              variant="destructive"
+              size="lg"
+              disabled={confirmText !== workspace.name}
+              loading={pending}
+              loadingText="Deleting…"
               onClick={deleteWorkspace}
-              className="flex items-center gap-2 rounded-lg bg-[var(--status-error-fg)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {pending ? <Spinner /> : null}
               Delete Workspace Permanently
-            </button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -77,7 +77,7 @@ export function UpdateComposer({ ticketId }: { ticketId: string }) {
           variant="default"
           loading={pending}
           loadingText="Posting…"
-          disabled={pending || message.trim().length === 0}
+          disabled={message.trim().length === 0}
           onClick={submit}
         >
           Post update

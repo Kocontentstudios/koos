@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesignPreviewModal } from "./design-preview-modal";
 
+const captureEvent = vi.fn();
+vi.mock("@/lib/analytics/posthog-client", () => ({
+  captureEvent: (...a: unknown[]) => captureEvent(...a),
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -39,11 +43,11 @@ describe("DesignPreviewModal send action", () => {
   /* Regression: this button swapped its own label to "Sending…" but never
      showed a spinner, so it was the one action in the app whose pending state
      didn't match the rest. It now uses Button's own loading prop. */
-  it("shows a spinner and disables itself while sending", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<never>(() => {})),
-    );
+  /* Loading is not disabled: the busy button keeps its fill and swallows the
+     second click instead, so the request goes out once. */
+  it("shows a spinner and sends once while sending", async () => {
+    const fetchMock = vi.fn(() => new Promise<never>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderModal();
 
@@ -52,8 +56,10 @@ describe("DesignPreviewModal send action", () => {
     await user.click(send);
 
     const busy = await screen.findByRole("button", { name: /Sending…/ });
-    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-disabled", "true");
     expect(busy).toHaveAttribute("aria-busy", "true");
+    await user.click(busy);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("stays disabled while a generation is still running", () => {
@@ -211,5 +217,40 @@ describe("what the modal shows when a run does not go cleanly", () => {
       />,
     );
     expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+describe("DesignPreviewModal directions", () => {
+  it("names a direction and leaves a legacy row as it was", () => {
+    renderModal({
+      generations: [
+        {
+          ...generation,
+          direction: { title: "Playful product story", reasons: ["a"] },
+        },
+        { ...generation, id: "g2", direction: null },
+      ],
+    });
+    expect(screen.getAllByText("Playful product story")).toHaveLength(1);
+    expect(screen.getAllByText("Exact brand colours & logo")).toHaveLength(2);
+  });
+});
+
+/* The legacy preview is where a run ends until the server ships directions,
+   so its downloads must count in the FEAT-033 funnel too. */
+describe("DesignPreviewModal download tracking", () => {
+  it("records a PNG download with the row's image source", async () => {
+    renderModal({
+      generations: [
+        { ...generation, imageSource: null, width: 1080, height: 1350 },
+      ],
+    });
+    const link = screen.getByRole("link", { name: /download/i });
+    link.addEventListener("click", (e) => e.preventDefault());
+    await userEvent.click(link);
+    expect(captureEvent).toHaveBeenCalledWith("design_downloaded", {
+      format: "png",
+      image_source: null,
+    });
   });
 });

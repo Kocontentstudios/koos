@@ -1,0 +1,487 @@
+import { type SaxesAttributeNS, SaxesParser, type SaxesTagNS } from "saxes";
+import { detectImageType, IMAGE_MIME } from "./detect";
+import {
+  ImageOverBudgetError,
+  RENDERER_IMAGE_BYTE_BUDGET,
+  reencodeImage,
+} from "./reencode";
+
+/**
+ * Rebuilds an uploaded SVG from what a strict XML parser read, keeping only
+ * what draws from inside the file, so librsvg never decodes a raster or
+ * follows a reference we did not vet.
+ *
+ * An SVG logo is drawn by next/og, so by librsvg (sharp) or resvg-wasm. Both
+ * decode an embedded data:image/png with the Rust PNG decoder whose panic on a
+ * bad palette aborts the whole Node process, so one logo could kill every
+ * design job for its brand (FEAT-033 round-3 critic, B8). Both also follow
+ * references: librsvg loads hrefs, XInclude, url() in CSS and, through
+ * libxml2, external entities.
+ *
+ * So the rules, each a refusal rather than a repair:
+ *  - The file parses as well-formed XML (saxes) with an <svg> root.
+ *  - No DOCTYPE at all. A logo never needs one, and entities are how a
+ *    string check is walked around.
+ *  - Every href, in any namespace and on any element, is a "#fragment" in
+ *    this document, except data:image/png or data:image/jpeg on <image>, which
+ *    is decoded and re-encoded through reencodeImage and written back. That
+ *    excludes nested SVG data URIs, feImage sources and external files.
+ *  - No XInclude element, and no animation that retargets an href.
+ *  - Every url() in an attribute or a <style> block names a "#fragment", and
+ *    no @import. A CSS escape can spell url( or @import in a way no pattern
+ *    sees, so a <style> block may hold no backslash at all, and an attribute
+ *    none beside a "(" (an attribute cannot hold an @import).
+ *  - A src attribute is held to the href rule, and xml:base, which would
+ *    turn a "#fragment" into a URL, is refused.
+ *  - No <script>, no on* event attribute and no animation that writes one.
+ *    Neither rasteriser runs them, but the upload route stores this
+ *    function's output on the public bucket, where a browser would.
+ *  - Bounds a logo never reaches, each one the renderer fails on, slowly or
+ *    silently, with a message about damage: nesting over MAX_DEPTH (libxml2
+ *    stops at 256), a name over MAX_NAME_LENGTH (libxml2 stops at 50,000),
+ *    <use> references that expand past MAX_DRAWN_ELEMENTS or form a cycle
+ *    (ten levels of ten took librsvg 8.6 s to give up on), and a root size
+ *    with a coordinate over MAX_COORDINATE or proportions past MAX_ASPECT.
+ *  (FEAT-033 round-5 attack corpus, svg-attack-fixtures.ts.)
+ *
+ * Left out rather than refused: elements outside the SVG namespace and
+ * foreignObject, with everything inside them (isDropped). And a root with
+ * only width and height gets the viewBox they imply, which satori needs.
+ *
+ * The output is serialised from the parse events (comments, processing
+ * instructions and the XML declaration are dropped), so the renderer parses
+ * exactly the document that was checked rather than the original text.
+ */
+
+declare const SANITISED: unique symbol;
+
+/** SVG bytes that came out of sanitizeSvg. Only that function makes one. */
+export type SafeSvg = { readonly bytes: Uint8Array } & {
+  readonly [SANITISED]: true;
+};
+
+export type UnsafeSvgReason =
+  | "not_svg"
+  | "too_large"
+  | "doctype"
+  | "external_reference"
+  | "embedded_image"
+  | "too_complex"
+  | "active_content"
+  | "bad_dimensions";
+
+const USER_REASONS: Record<UnsafeSvgReason, string> = {
+  not_svg: "it is not a well-formed SVG file",
+  too_large: "it is too large to place on a design",
+  doctype: "it declares a DOCTYPE or entities, which a logo never needs",
+  external_reference: "it links to a file or address outside itself",
+  embedded_image: "an image embedded in it could not be read",
+  too_complex: "it has more elements or embedded images than a logo needs",
+  active_content:
+    "it contains scripts or event handlers, which a logo never needs",
+  bad_dimensions: "its size or proportions are not ones a logo is drawn at",
+};
+
+export class UnsafeSvgError extends Error {
+  constructor(
+    readonly reason: UnsafeSvgReason,
+    detail: string,
+    options?: ErrorOptions,
+  ) {
+    super(`${reason}: ${detail}`, options);
+    this.name = "UnsafeSvgError";
+  }
+
+  /** Safe to show the person who uploaded the file. */
+  get userMessage(): string {
+    return `This SVG can't be used as a logo: ${USER_REASONS[this.reason]}. Export it again as a plain SVG, or upload a PNG.`;
+  }
+}
+
+/* The logo upload cap, so a stored file is never judged by a looser rule
+   than an uploaded one. */
+export const MAX_SVG_INPUT_BYTES = 5 * 1024 * 1024;
+const MAX_ELEMENTS = 50_000;
+const MAX_EMBEDDED_IMAGES = 8;
+const MAX_DEPTH = 100;
+const MAX_NAME_LENGTH = 1_000;
+/* Elements drawn once every <use> is expanded. librsvg's own limit is
+   higher, and it spends seconds reaching it. */
+const MAX_DRAWN_ELEMENTS = 100_000;
+const MAX_COORDINATE = 1_000_000;
+const MAX_ASPECT = 100;
+
+/* Drawn inside a logo, which is a few hundred pixels wide, so a logo's bound.
+   A PNG at 1024 px is at most about 4.2 MB, inside the renderer's budget. */
+const EMBEDDED_IMAGE_LIMITS = {
+  maxInputPixels: 4096 * 4096,
+  maxOutputSide: 1024,
+  minOutputSide: 256,
+  tolerateMissingJpegEnd: true,
+};
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const XINCLUDE_NS = "http://www.w3.org/2001/XInclude";
+const XML_NS = "http://www.w3.org/XML/1998/namespace";
+const EMBEDDED_RASTER = /^data:image\/(?:png|jpe?g);base64,([\s\S]*)$/i;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+const CSS_URL_ARGUMENT = /url\s*\(\s*["']?\s*([^"')\s]*)/gi;
+
+interface EmbeddedJob {
+  base64: string;
+}
+
+/* The element tree as far as <use> expansion needs it. */
+interface UseNode {
+  children: UseNode[];
+  /** The id a <use> on this element points at. */
+  uses: string | null;
+}
+
+export async function sanitizeSvg(input: Uint8Array): Promise<SafeSvg> {
+  if (input.length > MAX_SVG_INPUT_BYTES) {
+    throw new UnsafeSvgError("too_large", `${input.length} bytes`);
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(input);
+  } catch (err) {
+    throw new UnsafeSvgError("not_svg", "not UTF-8", { cause: err });
+  }
+
+  const parts = serialise(text);
+  let out = "";
+  for (const part of parts) {
+    out += typeof part === "string" ? part : await reencodeEmbedded(part);
+  }
+  const bytes = new TextEncoder().encode(out);
+  if (bytes.length > RENDERER_IMAGE_BYTE_BUDGET) {
+    throw new UnsafeSvgError("too_large", `${bytes.length} bytes sanitised`);
+  }
+  return { bytes } as SafeSvg;
+}
+
+function serialise(text: string): (string | EmbeddedJob)[] {
+  const parts: (string | EmbeddedJob)[] = [];
+  let depth = 0;
+  let elements = 0;
+  let embedded = 0;
+  let sawRoot = false;
+  let impliedViewBox: string | null = null;
+  /* Depth inside a dropped subtree; 0 when serialising. */
+  let dropping = 0;
+  let styleText: string | null = null;
+  const ids = new Map<string, UseNode>();
+  const open: UseNode[] = [];
+  let root: UseNode | null = null;
+
+  const parser = new SaxesParser({ xmlns: true });
+  parser.on("error", (err) => {
+    throw new UnsafeSvgError("not_svg", err.message, { cause: err });
+  });
+  parser.on("doctype", () => {
+    throw new UnsafeSvgError("doctype", "DOCTYPE declared");
+  });
+  parser.on("opentag", (tag) => {
+    elements += 1;
+    if (elements > MAX_ELEMENTS) {
+      throw new UnsafeSvgError("too_complex", `over ${MAX_ELEMENTS} elements`);
+    }
+    if (tag.name.length > MAX_NAME_LENGTH) {
+      throw new UnsafeSvgError("too_complex", "an element name that long");
+    }
+    if (depth >= MAX_DEPTH) {
+      throw new UnsafeSvgError("too_complex", `nested over ${MAX_DEPTH} deep`);
+    }
+    if (depth === 0) {
+      if (tag.local !== "svg" || (tag.uri !== SVG_NS && tag.uri !== "")) {
+        throw new UnsafeSvgError("not_svg", `root is <${tag.name}>`);
+      }
+      impliedViewBox = checkRootSize(tag);
+      sawRoot = true;
+    }
+    if (tag.local === "script") {
+      throw new UnsafeSvgError("active_content", `<${tag.name}>`);
+    }
+    if (tag.uri === XINCLUDE_NS) {
+      throw new UnsafeSvgError("external_reference", `<${tag.name}>`);
+    }
+    const animated = animatedAttribute(tag);
+    if (animated.endsWith("href")) {
+      throw new UnsafeSvgError("external_reference", `<${tag.name}> on href`);
+    }
+    if (animated.startsWith("on")) {
+      throw new UnsafeSvgError(
+        "active_content",
+        `<${tag.name}> on ${animated}`,
+      );
+    }
+    if (dropping > 0 || isDropped(tag)) {
+      dropping += 1;
+      depth += 1;
+      return;
+    }
+    const node: UseNode = { children: [], uses: null };
+    open.at(-1)?.children.push(node);
+    open.push(node);
+    root ??= node;
+
+    parts.push(`<${elementName(tag)}`);
+    if (depth === 0) parts.push(` xmlns="${SVG_NS}"`);
+    if (depth === 0 && impliedViewBox) {
+      parts.push(` viewBox="${impliedViewBox}"`);
+    }
+    for (const attr of Object.values(tag.attributes)) {
+      checkAttributeName(attr);
+      if (attr.name === "xmlns") continue;
+      if (attr.local === "id" && (attr.uri === "" || attr.uri === XML_NS)) {
+        ids.set(attr.value, node);
+      }
+      const isReference =
+        (attr.local === "href" || attr.local === "src") &&
+        attr.prefix !== "xmlns";
+      if (!isReference) {
+        if (!cssReferencesOnlyFragments(attr.value)) {
+          throw new UnsafeSvgError("external_reference", `${attr.name}`);
+        }
+        parts.push(` ${attr.name}="${escapeAttribute(attr.value)}"`);
+        continue;
+      }
+      if (attr.value.startsWith("#")) {
+        if (tag.local === "use") node.uses = attr.value.slice(1);
+        parts.push(` ${attr.name}="${escapeAttribute(attr.value)}"`);
+        continue;
+      }
+      const raster = EMBEDDED_RASTER.exec(attr.value);
+      if (!raster || tag.local !== "image") {
+        throw new UnsafeSvgError(
+          "external_reference",
+          `${attr.name} on <${tag.name}>: ${attr.value.slice(0, 40)}`,
+        );
+      }
+      embedded += 1;
+      if (embedded > MAX_EMBEDDED_IMAGES) {
+        throw new UnsafeSvgError(
+          "too_complex",
+          `over ${MAX_EMBEDDED_IMAGES} embedded images`,
+        );
+      }
+      parts.push(` ${attr.name}="`, { base64: raster[1] }, `"`);
+    }
+    parts.push(">");
+    depth += 1;
+    if (tag.local === "style") styleText = "";
+  });
+  const onText = (value: string) => {
+    if (dropping > 0) return;
+    if (styleText !== null) styleText += value;
+    parts.push(escapeText(value));
+  };
+  parser.on("text", onText);
+  parser.on("cdata", onText);
+  parser.on("closetag", (tag) => {
+    if (dropping > 0) {
+      dropping -= 1;
+      depth -= 1;
+      return;
+    }
+    if (tag.local === "style" && styleText !== null) {
+      if (styleText.includes("\\") || !cssReferencesOnlyFragments(styleText)) {
+        throw new UnsafeSvgError("external_reference", "<style>");
+      }
+      styleText = null;
+    }
+    depth -= 1;
+    open.pop();
+    parts.push(`</${elementName(tag)}>`);
+  });
+
+  parser.write(text).close();
+  if (!sawRoot || !root) throw new UnsafeSvgError("not_svg", "no root element");
+  const drawn = expandedSize(root, ids);
+  if (drawn.elements > MAX_DRAWN_ELEMENTS || drawn.depth > MAX_DEPTH) {
+    throw new UnsafeSvgError(
+      "too_complex",
+      Number.isFinite(drawn.elements)
+        ? `${drawn.elements} elements ${drawn.depth} deep once <use> is expanded`
+        : "a <use> cycle",
+    );
+  }
+  return parts;
+}
+
+/* SVG elements are written unprefixed under one default namespace on the
+   root. A prefixed root (<s:svg xmlns:s=...>) is valid XML that the upload
+   accepts, but satori finds an image's size by looking for "<svg" and failed
+   it as undrawable; and a nested default xmlns would otherwise move
+   unprefixed children out of the SVG namespace this rule now puts them in. */
+function elementName(tag: { uri: string; local: string; name: string }) {
+  return tag.uri === SVG_NS || tag.uri === "" ? tag.local : tag.name;
+}
+
+function checkAttributeName(attr: SaxesAttributeNS): void {
+  if (attr.name.length > MAX_NAME_LENGTH) {
+    throw new UnsafeSvgError("too_complex", "an attribute name that long");
+  }
+  if (attr.uri === XML_NS && attr.local === "base") {
+    throw new UnsafeSvgError("external_reference", "xml:base");
+  }
+  if (attr.prefix === "" && /^on/i.test(attr.local)) {
+    throw new UnsafeSvgError("active_content", attr.name);
+  }
+}
+
+/* The elements drawn and how deeply they nest once every <use> is
+   expanded, walked without recursion: a chain of 20,000 uses would overflow
+   the stack. librsvg gives up past 500 nested layers. Infinity for a
+   cycle. */
+function expandedSize(
+  root: UseNode,
+  ids: Map<string, UseNode>,
+): { elements: number; depth: number } {
+  const done = new Map<UseNode, { elements: number; depth: number }>();
+  const visiting = new Set<UseNode>();
+  const stack: UseNode[] = [root];
+  const cycle = {
+    elements: Number.POSITIVE_INFINITY,
+    depth: Number.POSITIVE_INFINITY,
+  };
+  while (stack.length > 0) {
+    const node = stack[stack.length - 1];
+    const target = node.uses === null ? undefined : ids.get(node.uses);
+    const deps = target ? [...node.children, target] : node.children;
+    if (!visiting.has(node)) {
+      visiting.add(node);
+      for (const dep of deps) {
+        if (visiting.has(dep) && !done.has(dep)) return cycle;
+        if (!done.has(dep)) stack.push(dep);
+      }
+      continue;
+    }
+    stack.pop();
+    if (done.has(node)) continue;
+    let elements = 1;
+    let depth = 0;
+    for (const dep of deps) {
+      const size = done.get(dep);
+      elements += size?.elements ?? 0;
+      depth = Math.max(depth, size?.depth ?? 0);
+    }
+    done.set(node, {
+      elements: Math.min(elements, MAX_DRAWN_ELEMENTS + 1),
+      depth: depth + 1,
+    });
+  }
+  return done.get(root) ?? { elements: 0, depth: 0 };
+}
+
+const LENGTH =
+  /^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*(?:px|pt|pc|mm|cm|in|q)?\s*$/i;
+
+/* Reads the root's declared size the way svgRasterBox will: viewBox first,
+   else width and height. Percentages say nothing about the drawing.
+
+   Returns the viewBox a width/height-only root implies, so every caller gets
+   it from here rather than from a regex over the unparsed text: satori throws
+   without a viewBox, and every drawing tool emits `<svg width height>`. */
+function checkRootSize(tag: SaxesTagNS): string | null {
+  const value = (local: string) =>
+    Object.values(tag.attributes).find(
+      (attr) => attr.local === local && attr.uri === "",
+    )?.value;
+  const box = value("viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const lengths = ["width", "height"].map((side) => {
+    const match = LENGTH.exec(value(side) ?? "");
+    return match ? Number(match[1]) : null;
+  });
+  const numbers = [...(box ?? []), ...lengths.filter((n) => n !== null)];
+  if (
+    numbers.some((n) => !Number.isFinite(n) || Math.abs(n) > MAX_COORDINATE)
+  ) {
+    throw new UnsafeSvgError("bad_dimensions", "a coordinate out of range");
+  }
+  const [width, height] =
+    box?.length === 4 ? [box[2], box[3]] : [lengths[0] ?? 0, lengths[1] ?? 0];
+  if (
+    width > 0 &&
+    height > 0 &&
+    Math.max(width / height, height / width) > MAX_ASPECT
+  ) {
+    throw new UnsafeSvgError("bad_dimensions", `${width} x ${height}`);
+  }
+  if (box !== undefined || !(width > 0 && height > 0)) return null;
+  return `0 0 ${width} ${height}`;
+}
+
+/* Left out of the output with everything inside them, rather than refused:
+   Inkscape and Illustrator write editor state as elements in their own
+   namespaces (sodipodi:namedview, i:pgf), and no renderer draws any of it.
+   An element outside the SVG namespace is the only way a browser opening the
+   stored file meets HTML (an XHTML iframe's srcdoc, a meta refresh), and
+   foreignObject is where it would sit; neither rasteriser draws it. */
+function isDropped(tag: SaxesTagNS): boolean {
+  return (
+    (tag.uri !== SVG_NS && tag.uri !== "") || tag.local === "foreignObject"
+  );
+}
+
+/* SMIL can swap an href or set an event handler after load. Neither
+   rasteriser animates, but a browser opening the stored file does, so the
+   href and handler rules would otherwise hold only until the first frame.
+   The attribute an animation targets, lower-cased, or "". */
+function animatedAttribute(tag: SaxesTagNS): string {
+  if (tag.local !== "set" && !tag.local.startsWith("animate")) return "";
+  const target = Object.values(tag.attributes).find(
+    (attr) => attr.local === "attributeName",
+  );
+  return target?.value.trim().toLowerCase() ?? "";
+}
+
+function cssReferencesOnlyFragments(css: string): boolean {
+  if (/@import/i.test(css)) return false;
+  if (css.includes("\\") && css.includes("(")) return false;
+  for (const [, target] of css.matchAll(CSS_URL_ARGUMENT)) {
+    if (!target.startsWith("#")) return false;
+  }
+  return true;
+}
+
+async function reencodeEmbedded({ base64 }: EmbeddedJob): Promise<string> {
+  const compact = base64.replace(/\s+/g, "");
+  if (!BASE64.test(compact)) {
+    throw new UnsafeSvgError("embedded_image", "not base64");
+  }
+  const bytes = Buffer.from(compact, "base64");
+  const type = detectImageType(bytes);
+  if (type !== "png" && type !== "jpeg") {
+    throw new UnsafeSvgError("embedded_image", `sniffed as ${type}`);
+  }
+  try {
+    const clean = await reencodeImage(bytes, type, EMBEDDED_IMAGE_LIMITS);
+    return `data:${IMAGE_MIME[type]};base64,${clean.bytes.toString("base64")}`;
+  } catch (err) {
+    const reason =
+      err instanceof ImageOverBudgetError ? "too_large" : "embedded_image";
+    throw new UnsafeSvgError(reason, String(err), { cause: err });
+  }
+}
+
+function escapeText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+/* Tabs and line breaks are escaped too, so attribute-value normalisation in
+   the renderer's parser cannot change a value this one already normalised. */
+function escapeAttribute(value: string): string {
+  return escapeText(value)
+    .replaceAll('"', "&quot;")
+    .replaceAll("\t", "&#9;")
+    .replaceAll("\n", "&#10;")
+    .replaceAll("\r", "&#13;");
+}

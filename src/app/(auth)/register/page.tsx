@@ -4,6 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useActionState, useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { signInWithGoogle, signup } from "../actions";
@@ -86,9 +87,9 @@ function RegisterForm() {
         >
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>
@@ -125,7 +126,7 @@ function RegisterForm() {
                 First Name
               </label>
               <input
-                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
                 id="firstName"
                 name="firstName"
                 placeholder="John"
@@ -141,7 +142,7 @@ function RegisterForm() {
                 Last Name
               </label>
               <input
-                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
                 id="lastName"
                 name="lastName"
                 placeholder="Doe"
@@ -160,7 +161,7 @@ function RegisterForm() {
               Email
             </label>
             <input
-              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
               id="email"
               name="email"
               defaultValue={invitedEmail}
@@ -180,7 +181,7 @@ function RegisterForm() {
             </label>
             <div className="relative">
               <input
-                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
                 id="password"
                 name="password"
                 placeholder="At least 6 characters"
@@ -227,25 +228,15 @@ function RegisterForm() {
           </div>
 
           {/* Submit */}
-          <button
-            className={cn(
-              "w-full bg-primary text-white rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
-              anyPending
-                ? "opacity-50 cursor-not-allowed"
-                : "hover:bg-[var(--primary-hover)]",
-            )}
-            disabled={anyPending}
+          <Button
             type="submit"
+            loading={formPending}
+            loadingText="Creating account…"
+            disabled={googlePending}
+            className="mt-1 h-10 w-full rounded-xl py-2.5 text-sm"
           >
-            {formPending ? (
-              <>
-                <Spinner />
-                Creating account…
-              </>
-            ) : (
-              "Create Account"
-            )}
-          </button>
+            Create Account
+          </Button>
         </form>
 
         {/* Divider */}
@@ -310,7 +301,7 @@ function RegisterForm() {
           <p className="text-sm text-[var(--text-secondary)]">
             Already have an account?{" "}
             <Link
-              className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+              className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
               href={`/login${next ? `?next=${encodeURIComponent(next)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ""}` : ""}`}
             >
               Sign in.

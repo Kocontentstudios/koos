@@ -10,6 +10,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { login, signInWithGoogle } from "../actions";
@@ -77,9 +78,9 @@ function LoginForm() {
         >
           <div
             aria-hidden="true"
-            className="w-9 h-9 rounded-[10px] bg-primary flex items-center justify-center"
+            className="w-9 h-9 rounded-[10px] bg-primary-fill flex items-center justify-center"
           >
-            <span className="text-white text-sm font-extrabold leading-none">
+            <span className="text-primary-foreground text-sm font-extrabold leading-none">
               KO
             </span>
           </div>
@@ -121,7 +122,7 @@ function LoginForm() {
               Email
             </label>
             <input
-              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+              className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
               id="email"
               name="email"
               defaultValue={invitedEmail}
@@ -141,7 +142,7 @@ function LoginForm() {
             </label>
             <div className="relative">
               <input
-                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-[var(--accent-glow)] transition-colors"
+                className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl px-4 py-2.5 pr-10 text-sm text-foreground w-full placeholder:text-[var(--text-muted)] focus-visible:focus-outline transition-colors"
                 id="password"
                 name="password"
                 placeholder="••••••••"
@@ -163,7 +164,7 @@ function LoginForm() {
             </div>
             <div className="flex justify-end mt-1">
               <Link
-                className="text-xs text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+                className="text-xs text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
                 href="/forgot-password"
               >
                 Forgot password?
@@ -172,25 +173,15 @@ function LoginForm() {
           </div>
 
           {/* Submit */}
-          <button
-            className={cn(
-              "w-full bg-primary text-white rounded-xl text-sm font-semibold py-2.5 mt-1 flex justify-center items-center gap-2 h-10 transition-colors",
-              anyPending
-                ? "opacity-50 cursor-not-allowed"
-                : "hover:bg-[var(--primary-hover)]",
-            )}
-            disabled={anyPending}
+          <Button
             type="submit"
+            loading={formPending}
+            loadingText="Signing in…"
+            disabled={googlePending}
+            className="mt-1 h-10 w-full rounded-xl py-2.5 text-sm"
           >
-            {formPending ? (
-              <>
-                <Spinner />
-                Signing in…
-              </>
-            ) : (
-              "Sign In"
-            )}
-          </button>
+            Sign In
+          </Button>
         </form>
 
         {/* Divider */}
@@ -255,7 +246,7 @@ function LoginForm() {
           <p className="text-sm text-[var(--text-secondary)]">
             Need an account?{" "}
             <Link
-              className="text-primary hover:text-[var(--primary-hover)] font-semibold transition-colors"
+              className="text-primary-text hover:text-primary-text-hover font-semibold transition-colors"
               href={`/register${next ? `?next=${encodeURIComponent(next)}${invitedEmail ? `&email=${encodeURIComponent(invitedEmail)}` : ""}` : ""}`}
             >
               Create one.

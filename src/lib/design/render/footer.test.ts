@@ -138,3 +138,292 @@ describe("footerLinesFor", () => {
     ).toHaveLength(3);
   });
 });
+
+/* FEAT-033 U3 live critique: two of four live designs said the call to
+   action twice, once on the button and again in the footer. The button is
+   the action; the footer is for what the button cannot carry. */
+describe("footerLinesFor with the call to action", () => {
+  const linesFor = (cta: string, footerLines: string[]) =>
+    footerLinesFor({ footerStyle: "text", footerLines, cta });
+
+  it("drops a line that is the call to action, whatever its case or punctuation", () => {
+    expect(
+      linesFor("Pre-order now", ["PRE-ORDER NOW!", "Lekki · Open 7am"]),
+    ).toEqual(["Lekki · Open 7am"]);
+  });
+
+  it("drops the repeated item and keeps the rest of the line", () => {
+    expect(linesFor("Order now", ["Order now · 0803 555 0142"])).toEqual([
+      "0803 555 0142",
+    ]);
+    expect(
+      linesFor("Order now", ["0803 555 0142 | Order now | Lekki"]),
+    ).toEqual(["0803 555 0142 | Lekki"]);
+  });
+
+  /* Round 7: cutting the CTA off an item rewrote it, and "Order by 8pm
+     for next-day pickup" under "Order by 8pm" was drawn as "Next-day
+     pickup", losing the deadline. */
+  it("keeps an item led by the call to action whole", () => {
+    expect(
+      linesFor("Order on WhatsApp", ["Order on WhatsApp: 0803 555 0142"]),
+    ).toEqual(["Order on WhatsApp: 0803 555 0142"]);
+    expect(
+      linesFor("Order by 8pm", ["Order by 8pm for next-day pickup"]),
+    ).toEqual(["Order by 8pm for next-day pickup"]);
+  });
+
+  it("drops an item that is part of the call to action", () => {
+    expect(linesFor("Reserve your box today", ["Reserve your box"])).toEqual(
+      [],
+    );
+  });
+
+  /* Round-7 code critic, K18: "Free consultation when you book now" under
+     "Book now" was drawn as nothing, losing the brief's only offer. An
+     item with words of its own is the job's to drop, under the literal
+     verifier. */
+  it("keeps an item that carries the call to action among its own words", () => {
+    expect(
+      linesFor("Book now", ["Free consultation when you book now"]),
+    ).toEqual(["Free consultation when you book now"]);
+    expect(
+      linesFor("Book a table", ["Call us and book a table tonight"]),
+    ).toEqual(["Call us and book a table tonight"]);
+  });
+
+  it("does not treat a one-word overlap as a repeat", () => {
+    expect(linesFor("Shop", ["Shop 12, Admiralty Mall"])).toEqual([
+      "Shop 12, Admiralty Mall",
+    ]);
+    expect(linesFor("Visit us in Lagos", ["Lagos"])).toEqual(["Lagos"]);
+  });
+
+  it("leaves lines alone when there is no call to action", () => {
+    expect(linesFor("", ["Order now"])).toEqual(["Order now"]);
+  });
+
+  it("is no footer at all when every line repeated the call to action", () => {
+    const spec = {
+      footerStyle: "bar" as const,
+      footerLines: ["Order now"],
+      cta: "Order now",
+    };
+    expect(hasFooter(spec)).toBe(false);
+    expect(footerBandHeight(spec, canvas)).toBe(0);
+  });
+});
+
+/* Removing the CTA deleted the phone
+   number, the address, the URL and the promo code it shared an item with,
+   and cut a domain that happened to spell the CTA. A footer exists to carry
+   exactly those, so an item with a fact in it is never deleted for repeating
+   the CTA. */
+describe("footerLinesFor never deletes contact details to avoid a repeat", () => {
+  const linesFor = (cta: string, line: string) =>
+    footerLinesFor({ footerStyle: "text", footerLines: [line], cta });
+
+  it.each([
+    ["Book a table", "Call 0803 555 0142 to book a table"],
+    ["Order now", "WhatsApp to order now: 0803 555 0142"],
+    ["Visit us", "Come visit us at 12 Admiralty Way, Lekki"],
+    ["Get 20% off", "Use code CRUMB20 to get 20% off"],
+    ["Order now", "ORDER-NOW.ng · Lekki"],
+    ["Order now", "Pre-orders: order now for Christmas · hello@crumbandco.ng"],
+  ])("keeps %j's footer %j whole", (cta, line) => {
+    expect(linesFor(cta, line)).toEqual([line]);
+  });
+
+  it("splits items on commas and unspaced pipes, dropping only the CTA", () => {
+    expect(
+      linesFor("Order now", "crumbandco.ng, Order now, 0803 555 0142"),
+    ).toEqual(["crumbandco.ng, 0803 555 0142"]);
+    expect(linesFor("Order now", "Order now|0803 555 0142")).toEqual([
+      "0803 555 0142",
+    ]);
+  });
+
+  it("keeps an item led by the CTA whole, the address and code with it", () => {
+    expect(linesFor("Visit us", "Visit us at 12 Admiralty Way, Lekki")).toEqual(
+      ["Visit us at 12 Admiralty Way, Lekki"],
+    );
+    expect(linesFor("Get 20% off", "Get 20% off with code CRUMB20")).toEqual([
+      "Get 20% off with code CRUMB20",
+    ]);
+  });
+});
+
+/* Five of seven live bakery footers repeated
+   the subheadline's day and time, and stripping the CTA left "pickup from
+   7am" starting in lower case. */
+describe("footerLinesFor against the copy above it", () => {
+  const linesFor = (spec: {
+    cta?: string;
+    subheadline?: string;
+    headline?: string;
+    footerLines: string[];
+  }) => footerLinesFor({ footerStyle: "text", ...spec });
+
+  it("drops a line the copy above already says word for word", () => {
+    expect(
+      linesFor({
+        subheadline: "Strawberry mille-feuille, ready Monday from 7am.",
+        footerLines: ["Ready Monday from 7 am.", "12 Admiralty Way, Lekki"],
+      }),
+    ).toEqual(["12 Admiralty Way, Lekki"]);
+    expect(
+      linesFor({
+        headline: "7am to 6pm. Fresh every morning",
+        footerLines: ["7am to 6pm", "Closed Sundays · 7am to 6pm"],
+      }),
+    ).toEqual(["Closed Sundays · 7am to 6pm"]);
+  });
+
+  /* Round-11 code critic, J13: a line is hidden only when it is a whole
+     clause above with no other number or weekday in its field, the one
+     place the verifier provably reads it as the line does. Part of a
+     clause stays: a repeat costs a line, and the job drops it first when
+     every fact survives (redundantFooterItems, droppedSafely). */
+  it("keeps a line that is only part of a clause above", () => {
+    expect(
+      linesFor({
+        headline: "Open 7am to 6pm",
+        footerLines: ["7am to 6pm"],
+      }),
+    ).toEqual(["7am to 6pm"]);
+  });
+
+  /* Round 3 dropped an item when its facts all appeared above, ignoring
+     the words around them, and deleted offers, conditions and exclusions. */
+  it.each([
+    ["Now baking in Lekki", "Free delivery in Lekki"],
+    ["Open 7am–6pm, fresh every morning", "Mon–Sat 7am–6pm"],
+    ["Boxes from ₦5,000", "Delivery fee ₦5,000"],
+    ["20% off this weekend", "Not 20% off on cakes"],
+    ["Call 0803 555 0142", "WhatsApp only, no calls: 0803 555 0142"],
+    ["Live jazz every Friday at 8pm", "Except Friday 24 Dec"],
+    ["Pick up Monday at 7:00am", "Pickup Monday 7am"],
+    ["Ikoyi pop-up", "Lekki · Ikoyi · Victoria Island"],
+    ["Ready Monday from 7am", "Monday · 7 am · 12 Admiralty Way, Lekki"],
+  ])("under %j keeps %j whole", (subheadline, line) => {
+    expect(
+      linesFor({ cta: "Order now", subheadline, footerLines: [line] }),
+    ).toEqual([line]);
+    expect(
+      linesFor({
+        cta: "Order now",
+        headline: subheadline,
+        footerLines: [line],
+      }),
+    ).toEqual([line]);
+  });
+
+  it("keeps an offer the CTA leads into", () => {
+    expect(
+      linesFor({ cta: "Order now", footerLines: ["Order now and save 20%"] }),
+    ).toEqual(["Order now and save 20%"]);
+    expect(
+      linesFor({
+        cta: "Order now",
+        footerLines: ["Order now, pay on delivery"],
+      }),
+    ).toEqual(["Pay on delivery"]);
+  });
+
+  it("keeps a mixed-case name's case when it starts the line", () => {
+    expect(
+      linesFor({
+        cta: "Get the app",
+        footerLines: ["Get the app / iOS / Android"],
+      }),
+    ).toEqual(["iOS / Android"]);
+  });
+
+  it("keeps an item with a fact the copy above does not state", () => {
+    expect(
+      linesFor({
+        subheadline: "Ready Monday from 7am.",
+        footerLines: ["Open Monday to Saturday, 7am to 6pm"],
+      }),
+    ).toEqual(["Open Monday to Saturday, 7am to 6pm"]);
+  });
+
+  it("keeps an item with no facts at all", () => {
+    expect(
+      linesFor({ subheadline: "Ready from 7am", footerLines: ["Open daily"] }),
+    ).toEqual(["Open daily"]);
+  });
+
+  it("starts a line that lost its first item with a capital", () => {
+    expect(
+      linesFor({
+        cta: "Order ahead",
+        footerLines: ["Order ahead · pickup from 7am"],
+      }),
+    ).toEqual(["Pickup from 7am"]);
+  });
+
+  it("never capitalises an address left at the start of a line", () => {
+    expect(
+      linesFor({
+        cta: "Email us",
+        footerLines: ["Email us · hello@crumbandco.ng"],
+      }),
+    ).toEqual(["hello@crumbandco.ng"]);
+    expect(
+      linesFor({
+        cta: "Order now",
+        footerLines: ["Order now · crumbandco.ng"],
+      }),
+    ).toEqual(["crumbandco.ng"]);
+  });
+
+  it("leaves a line the user wrote in lower case alone when nothing was cut", () => {
+    expect(linesFor({ footerLines: ["open daily, 7am"] })).toEqual([
+      "open daily, 7am",
+    ]);
+  });
+});
+
+/* Round-9 code critic, J4: "Ages 8+", written in by the fact writer, was
+   dropped as a repeat of "Fun for all ages, 8+ flavours", whose "ages" is
+   another clause's word. */
+describe("footerLinesFor reads the copy above clause by clause", () => {
+  const linesFor = (subheadline: string, line: string) =>
+    footerLinesFor({ footerStyle: "text", subheadline, footerLines: [line] });
+
+  it.each([
+    ["This Saturday. Fun for all ages, 8+ flavours.", "Ages 8+"],
+    ["Our social is back for all ages: 8+ flavours to try.", "Ages 8+"],
+    ["Scoops for all ages - 8+ flavours", "Ages 8+"],
+    ["Ages 8 and over welcome", "Ages 8+"],
+  ])("under %j keeps %j", (subheadline, line) => {
+    expect(linesFor(subheadline, line)).toEqual([line]);
+  });
+
+  /* Round-11 code critic, F1 to F6: any break once stood for any other,
+     and part of a clause was hidden. Now only a whole clause, its marks
+     its own, in a field with no other number or weekday. */
+  it.each([
+    ["Ice cream social for ages 8+, this Saturday.", "Ages 8+"],
+    ["Ice cream social, this Saturday, 7pm.", "Saturday, 7pm"],
+    ["Ice cream social, this Saturday, 7pm.", "Saturday · 7pm"],
+    ["Fun for all ages · 8+ flavours", "Ages: 8+"],
+    ["Book your seats · 8 courses", "Seats: 8"],
+    ["This Saturday · 5 December stalls", "Saturday, 5 December"],
+    ["All ages, 8+ flavours", "Ages: 8+"],
+    ["Top picks — 5 December deals", "Top picks, 5 December"],
+    ["Kids under 5 may attend.", "5 May"],
+    ["Ice cream social. Ages 8+. Saturday only", "Ages 8+"],
+  ])("under %j keeps %j", (subheadline, line) => {
+    expect(linesFor(subheadline, line)).toEqual([line]);
+  });
+
+  it.each([
+    ["Ice cream social. Ages 8+.", "Ages 8+"],
+    ["Ice cream social · this Saturday, 7pm", "This Saturday, 7pm"],
+    ["Free registration. Limited seats", "Limited seats"],
+  ])("under %j drops %j", (subheadline, line) => {
+    expect(linesFor(subheadline, line)).toEqual([]);
+  });
+});

@@ -82,7 +82,7 @@ export function RecordsTable({
                       {i === 0 && row.href ? (
                         <Link
                           href={row.href}
-                          className="font-medium text-primary hover:underline"
+                          className="font-medium text-primary-text hover:underline"
                         >
                           {cell}
                         </Link>

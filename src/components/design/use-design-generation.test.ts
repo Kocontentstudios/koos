@@ -9,7 +9,7 @@ vi.mock("@/lib/generation/poll-job", () => ({
 import { useDesignGeneration } from "./use-design-generation";
 
 const BRAND = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
-const ARGS = { brandId: BRAND };
+const ARGS = { brandId: BRAND, image: { source: "none" as const } };
 
 const row = (id: string, status = "succeeded") => ({
   id,
@@ -41,6 +41,21 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+/* The server refuses a request with no image while FEATURE_KO_IMAGERY is
+   off, so the hook must forward the caller's choice untouched. */
+it("sends the image choice in the request body", async () => {
+  const { result } = renderHook(() => useDesignGeneration());
+  await act(async () => {
+    await result.current.generate(ARGS);
+  });
+  const call = fetchMock.mock.calls.find((c) =>
+    String(c[0]).includes("/api/design/generate"),
+  );
+  expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+    image: { source: "none" },
+  });
+});
 
 describe("a finished run reads back exactly its own designs", () => {
   /* The reported bug: the hook asked for the brand's NEWEST N generations and
@@ -266,5 +281,136 @@ describe("a superseded run cannot overwrite fresh state", () => {
     expect(result.current.pending).toBe(false);
     // It must not have gone on to read rows for a run nobody is watching.
     expect(urls().some((u) => u.includes("ids=old"))).toBe(false);
+  });
+});
+
+/* FEAT-033: the progress modal steps on the job's real events, and the
+   directions path needs the image sent and the failed count kept. */
+describe("progress, image and failed count", () => {
+  it("walks starting, running and fetching from the job's own reports", async () => {
+    const seen: string[] = [];
+    let report: ((p: unknown) => void) | undefined;
+    let finish: ((v: unknown) => void) | undefined;
+    pollGenerationJob.mockImplementation(
+      (_id: string, opts: { onProgress: (p: unknown) => void }) => {
+        report = opts.onProgress;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    let running: Promise<unknown> = Promise.resolve();
+    act(() => {
+      running = result.current.generate(ARGS);
+    });
+    seen.push(String(result.current.stage));
+    await waitFor(() => expect(report).toBeDefined());
+
+    act(() => report?.({ done: 0, total: 2, label: "Writing…" }));
+    expect(result.current.jobStage).toBeNull();
+
+    act(() =>
+      report?.({
+        done: 1,
+        total: 2,
+        label: "Rendering designs…",
+        stage: "render",
+      }),
+    );
+    seen.push(String(result.current.stage));
+    expect(result.current.progress).toEqual({ done: 1, total: 2 });
+    expect(result.current.progressLabel).toBe("Rendering designs…");
+    expect(result.current.jobStage).toBe("render");
+
+    /* A report without a stage (an older worker) never moves the steps back. */
+    act(() => report?.({ done: 1, total: 2, label: "Still rendering…" }));
+    expect(result.current.jobStage).toBe("render");
+
+    await act(async () => {
+      finish?.({ generationIds: ["g1", "g2"], failed: [] });
+      await running;
+    });
+    expect(seen).toEqual(["starting", "running"]);
+    expect(result.current.stage).toBeNull();
+    expect(result.current.progress).toBeNull();
+    expect(result.current.jobStage).toBeNull();
+  });
+
+  it("sends regenerateOf through to the route with the image", async () => {
+    pollGenerationJob.mockResolvedValue({ generationIds: ["g3"], failed: [] });
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/api/design/generate")
+        ? new Response(JSON.stringify({ jobId: "job-2" }), { status: 200 })
+        : new Response(JSON.stringify({ generations: [row("g3")] }), {
+            status: 200,
+          }),
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    let rows: unknown[] = [];
+    await act(async () => {
+      rows = await result.current.generate({
+        ...ARGS,
+        image: { source: "ko" },
+        regenerateOf: "g1",
+      });
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      image: { source: "ko" },
+      regenerateOf: "g1",
+    });
+    expect(rows.map((r) => (r as { id: string }).id)).toEqual(["g3"]);
+  });
+
+  it("sends the chosen image through to the route", async () => {
+    const { result } = renderHook(() => useDesignGeneration());
+    await act(async () => {
+      await result.current.generate({
+        ...ARGS,
+        image: { source: "upload", key: `design-images/${BRAND}/a.png` },
+      });
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init.body)).image).toEqual({
+      source: "upload",
+      key: `design-images/${BRAND}/a.png`,
+    });
+  });
+
+  it("resolves to the rendered rows and counts the ones that failed", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/api/design/generate")
+        ? new Response(JSON.stringify({ jobId: "job-1" }), { status: 200 })
+        : new Response(
+            JSON.stringify({
+              generations: [row("g1"), row("g2", "failed")],
+            }),
+            { status: 200 },
+          ),
+    );
+    const { result } = renderHook(() => useDesignGeneration());
+    let rows: unknown[] = [];
+    await act(async () => {
+      rows = await result.current.generate(ARGS);
+    });
+    expect(rows.map((r) => (r as { id: string }).id)).toEqual(["g1"]);
+    expect(result.current.failedCount).toBe(1);
+    expect(result.current.failedIds).toEqual(["g2"]);
+
+    act(() => result.current.reset());
+    expect(result.current.failedCount).toBe(0);
+    expect(result.current.failedIds).toEqual([]);
+  });
+
+  it("resolves to nothing when the run fails", async () => {
+    pollGenerationJob.mockRejectedValue(new Error("This image can't be used."));
+    const { result } = renderHook(() => useDesignGeneration());
+    let rows: unknown[] = ["unset"];
+    await act(async () => {
+      rows = await result.current.generate(ARGS);
+    });
+    expect(rows).toEqual([]);
+    expect(result.current.error).toBe("This image can't be used.");
   });
 });

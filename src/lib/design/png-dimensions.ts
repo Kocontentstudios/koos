@@ -60,40 +60,48 @@ const SOF_MARKERS = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
 ]);
 
+/**
+ * Strict on purpose. A decoder skips bytes it does not expect; a reader
+ * that guesses differently can be steered onto a fake frame header while
+ * the decoder draws the real one: a 0xFF fill byte, then a stuffed 0xFF00
+ * read as a marker with a length, each passed an 8192 px image as 10x10.
+ * Every encoder writes segments back to back, so anything else between
+ * them (a stray byte, 0xFF00 outside scan data, a second start of image or
+ * frame header) is refused rather than interpreted. So are TEM and the
+ * restart markers before the first scan: this reader took them as having
+ * no length while next/og's decoder reads one, and two of them steered the
+ * reader onto a fake header. No encoder writes them there.
+ */
 export function readJpegDimensions(bytes: Uint8Array): PngDimensions | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 2;
+  let found: PngDimensions | null = null;
 
-  while (offset + 4 <= bytes.length) {
-    if (bytes[offset] !== 0xff) {
-      offset += 1; // resynchronise on fill bytes
-      continue;
-    }
-    const marker = bytes[offset + 1];
-    // Standalone markers carry no length payload.
-    if (
-      marker === 0xd8 ||
-      marker === 0x01 ||
-      (marker >= 0xd0 && marker <= 0xd7)
-    ) {
-      offset += 2;
-      continue;
-    }
-    if (marker === 0xd9 || marker === 0xda) return null; // EOI / scan data
-    const length = view.getUint16(offset + 2);
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+    if (offset >= bytes.length) return found;
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0x00 || marker === 0xd8) return null;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) return null;
+    if (marker === 0xd9 || marker === 0xda) return found; // EOI / scan data
+    if (offset + 2 > bytes.length) return found;
+    const length = view.getUint16(offset);
     if (length < 2) return null;
     if (SOF_MARKERS.has(marker)) {
-      if (offset + 9 > bytes.length) return null;
-      const height = view.getUint16(offset + 5);
-      const width = view.getUint16(offset + 7);
-      return isPlausibleDimension(width) && isPlausibleDimension(height)
-        ? { width, height }
-        : null;
+      if (found || offset + 7 > bytes.length) return null;
+      const height = view.getUint16(offset + 3);
+      const width = view.getUint16(offset + 5);
+      if (!isPlausibleDimension(width) || !isPlausibleDimension(height)) {
+        return null;
+      }
+      found = { width, height };
     }
-    offset += 2 + length;
+    offset += length;
   }
-  return null;
+  return found;
 }
 
 /** Size of whichever of the two raster formats the renderer can composite. */

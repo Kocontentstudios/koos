@@ -8,12 +8,18 @@
             --surface-2: #001F3D;
             --nav: #00204F;
             --primary: #138BC8;
-            --primary-hover: #0F7EB8;
-            --primary-active: #0C5F8A;
+            /* Same values and contract as globals.css: a fill carries white,
+               --primary-text is the brand blue as text. --primary is neither. */
+            --primary-fill: #1075A8;
+            --primary-fill-hover: #0F6B9A;
+            --primary-fill-active: #0C5F8A;
+            --primary-foreground: #FFFFFF;
+            --primary-text: #30ADEC;
+            --primary-text-hover: #45B4ED;
             --accent-glow: rgba(19, 139, 200, 0.15);
             --text-primary: #FFFFFF;
             --text-secondary: #A7B6C7;
-            --text-muted: #6F8599;
+            --text-muted: #93A3B3;
             --text-faint: #475569;
             --border: rgba(255, 255, 255, 0.06);
             --easing: cubic-bezier(0.2, 0, 0, 1);
@@ -165,7 +171,7 @@
         .nav-brand-icon {
             width: 32px;
             height: 32px;
-            background: var(--primary);
+            background: var(--primary-fill);
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -200,10 +206,6 @@
             background: rgba(255, 255, 255, 0.85);
             border-color: var(--nav-light-border);
             box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
-        }
-
-        :root[data-theme="light"] .nav-link {
-            color: #64748B;
         }
 
         :root[data-theme="light"] .nav-link:hover {
@@ -244,24 +246,13 @@
         }
 
         .nav-cta-primary {
-            background: var(--primary);
+            background: var(--primary-fill);
             color: white;
         }
 
         .nav-cta-primary:hover {
-            background: var(--primary-hover);
+            background: var(--primary-fill-hover);
             box-shadow: 0 4px 16px rgba(19, 139, 200, 0.3);
-        }
-
-        .nav-cta-secondary {
-            background: transparent;
-            color: white;
-            border: 1px solid rgba(19, 139, 200, 0.4);
-        }
-
-        .nav-cta-secondary:hover {
-            background: rgba(19, 139, 200, 0.08);
-            border-color: rgba(19, 139, 200, 0.6);
         }
 
         .nav-mobile-toggle {
@@ -294,7 +285,7 @@
             border: 1px solid rgba(19, 139, 200, 0.2);
             padding: 8px 18px;
             border-radius: 999px;
-            color: var(--primary);
+            color: var(--primary-text);
             font-size: 12px;
             font-weight: 600;
             margin-bottom: 28px;
@@ -316,7 +307,7 @@
         }
 
         .hero h1 span {
-            background: linear-gradient(135deg, var(--primary), #85B7EB);
+            background: linear-gradient(135deg, var(--primary-text), #85B7EB);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -345,7 +336,7 @@
             padding: 0 32px;
             height: 52px;
             border-radius: 12px;
-            background: var(--primary);
+            background: var(--primary-fill);
             color: white;
             font-size: 15px;
             font-weight: 600;
@@ -356,7 +347,7 @@
         }
 
         .hero-cta-primary:hover {
-            background: var(--primary-hover);
+            background: var(--primary-fill-hover);
             transform: translateY(-2px);
             box-shadow: 0 8px 30px rgba(19, 139, 200, 0.35);
         }
@@ -369,7 +360,7 @@
             height: 52px;
             border-radius: 12px;
             background: transparent;
-            color: var(--primary);
+            color: var(--primary-text);
             font-size: 15px;
             font-weight: 600;
             text-decoration: none;
@@ -379,7 +370,7 @@
         }
 
         .hero-cta-secondary:hover {
-            background: var(--primary);
+            background: var(--primary-fill);
             color: white;
             transform: translateY(-2px);
             box-shadow: 0 8px 30px rgba(19, 139, 200, 0.35);
@@ -424,11 +415,17 @@
             animation-delay: 0s;
         }
 
+        /* The side cards recede by their surface, not by group opacity: a 0.7
+           fade put the avatar's white at 3.00:1 and the blue badge at 3.21:1. */
+        .hero-visual-card-2,
+        .hero-visual-card-3 {
+            background: color-mix(in srgb, var(--surface-1) 55%, var(--base));
+        }
+
         .hero-visual-card-2 {
             top: 80px;
             left: 5%;
             width: 240px;
-            opacity: 0.7;
             z-index: 2;
             animation-delay: -2s;
         }
@@ -437,7 +434,6 @@
             top: 100px;
             right: 5%;
             width: 240px;
-            opacity: 0.7;
             z-index: 2;
             animation-delay: -4s;
         }
@@ -453,7 +449,7 @@
             width: 28px;
             height: 28px;
             border-radius: 50%;
-            background: var(--primary);
+            background: var(--primary-fill);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -488,7 +484,7 @@
 
         .hvc-badge-blue {
             background: rgba(19, 139, 200, 0.15);
-            color: #85B7EB;
+            color: var(--primary-text);
         }
 
         .hvc-badge-green {
@@ -611,7 +607,7 @@
 
         .feature-icon.blue {
             background: rgba(19, 139, 200, 0.1);
-            color: var(--primary);
+            color: var(--primary-text);
         }
 
         .feature-icon.purple {
@@ -694,8 +690,8 @@
         }
 
         .carousel-arrow:hover {
-            background: var(--primary);
-            border-color: var(--primary);
+            background: var(--primary-fill);
+            border-color: var(--primary-fill);
             color: white;
         }
 
@@ -766,7 +762,7 @@
             justify-content: center;
             font-size: 18px;
             font-weight: 700;
-            color: var(--primary);
+            color: var(--primary-text);
             margin: 0 auto 20px;
         }
 
@@ -865,7 +861,7 @@
             padding: 0 36px;
             height: 56px;
             border-radius: 12px;
-            background: var(--primary);
+            background: var(--primary-fill);
             color: white;
             font-size: 16px;
             font-weight: 600;
@@ -877,7 +873,7 @@
         }
 
         .cta-btn:hover {
-            background: var(--primary-hover);
+            background: var(--primary-fill-hover);
             transform: translateY(-2px);
             box-shadow: 0 8px 30px rgba(19, 139, 200, 0.35);
         }
@@ -958,7 +954,7 @@
         }
 
         .footer-address i {
-            color: var(--primary);
+            color: var(--primary-text);
             margin-right: 8px;
             width: 16px;
         }
@@ -969,7 +965,7 @@
         }
 
         .footer-email a {
-            color: var(--primary);
+            color: var(--primary-text);
             text-decoration: none;
         }
 
@@ -996,7 +992,7 @@
         }
 
         .footer-col a:hover {
-            color: var(--primary);
+            color: var(--primary-text);
         }
 
         .footer-socials {
@@ -1020,7 +1016,7 @@
 
         .footer-socials a:hover {
             border-color: var(--border-accent);
-            color: var(--primary);
+            color: var(--primary-text);
         }
 
         .footer-bottom {
@@ -1124,7 +1120,7 @@
         .about-stat h4 {
             font-size: 28px;
             font-weight: 700;
-            color: var(--primary);
+            color: var(--primary-text);
         }
 
         .about-stat p {
@@ -1168,7 +1164,9 @@
             height: 84px;
             border-radius: 50%;
             margin: 0 auto 16px;
-            background: linear-gradient(135deg, var(--primary), #A855F7);
+            /* Both stops and every point between clear 4.5:1 under the white
+               initials (worst 5.05:1, at the blue end). */
+            background: linear-gradient(135deg, var(--primary-fill), #9733F5);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1193,7 +1191,7 @@
 
         .founder-role {
             font-size: 12px;
-            color: var(--primary);
+            color: var(--primary-text);
             font-weight: 600;
             margin-bottom: 12px;
         }
@@ -1218,7 +1216,7 @@
         }
 
         .founder-socials a:hover {
-            color: var(--primary);
+            color: var(--primary-text);
         }
 
         /* ---------- Contact Section ---------- */
@@ -1253,7 +1251,7 @@
         }
 
         .contact-detail i {
-            color: var(--primary);
+            color: var(--primary-text);
             font-size: 16px;
             margin-top: 2px;
         }
@@ -1279,7 +1277,7 @@
 
         .contact-socials a:hover {
             border-color: var(--border-accent);
-            color: var(--primary);
+            color: var(--primary-text);
         }
 
         .contact-form {
@@ -1322,10 +1320,13 @@
             resize: vertical;
         }
 
+        /* Same indicator as the app's focus-outline utility (UI Spec §12.2):
+           the old accent-glow halo measured 1.2:1 and read as no focus. */
         .form-group input:focus,
         .form-group textarea:focus {
             border-color: var(--border-accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
         }
 
         .form-success {
@@ -1417,6 +1418,18 @@
 
         @media (max-width: 900px) {
 
+            /* Three cards need about 800px; below 900 the side cards slid under
+               the centre one, its shadow over their text (3.65:1 at 640px). The
+               centre card carries the idea alone. */
+            .hero-visual-card-2,
+            .hero-visual-card-3 {
+                display: none;
+            }
+
+            .hero-visual {
+                height: 240px;
+            }
+
             .features-grid,
             .founders-grid,
             .about-grid,
@@ -1500,10 +1513,6 @@
                 box-shadow: 0 12px 40px rgba(15, 23, 42, 0.14);
             }
 
-            :root[data-theme="light"] .nav-links .nav-link {
-                color: #64748B;
-            }
-
             :root[data-theme="light"] .nav-links .nav-link:hover {
                 background: rgba(15, 23, 42, 0.05);
                 color: #0F172A;
@@ -1575,8 +1584,19 @@
     --surface-2: #FFFFFF;
     --text-primary: #0F172A;
     --text-secondary: #475569;
-    --text-muted: #7C8DA1;
+    /* The app's light muted. #58687B measured 4.39:1 over the landing page's
+       cyan glow orb under the about stats at 1280px; #4F5D6F clears it. */
+    --text-muted: #4F5D6F;
     --text-faint: #AEB9C7;
     --border: #E2E8F0;
     --accent-glow: rgba(19, 139, 200, 0.12);
+    --primary-text: #0D5E87;
+    --primary-text-hover: #0C577E;
+}
+
+/* The dark hero ends its headline gradient on #85B7EB, which is 1.86:1 on the
+   light page, and --primary as text is 3.34:1 there. Light mode runs it
+   between the two text tokens instead, so every point clears 4.5:1. */
+:root[data-theme="light"] .landing-page .hero h1 span {
+    background-image: linear-gradient(135deg, var(--primary-text), var(--primary-text-hover));
 }

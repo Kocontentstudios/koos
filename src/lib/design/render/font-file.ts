@@ -15,12 +15,18 @@
  *
  * Hand-written rather than delegated to a font library: the only parser in the
  * bundle is the one inside next/og, which is not exported, and trial-rendering
- * every file is a full satori + resvg pass. This reads header fields only, so
- * it is O(number of tables) and allocates nothing but the table index. It is
- * necessary but NOT sufficient — a structurally perfect font can still defeat
+ * every file is a full satori + rasteriser pass. Apart from the advance scan
+ * (font-advance.ts, linear in the font: 150ms for a 17,944-glyph CID face)
+ * it reads header fields only. It is necessary but NOT sufficient — a structurally perfect font can still defeat
  * satori (an unsupported GSUB lookup, a variable-font axis table), which is why
  * `composite.ts` retries with the bundled faces at render time.
  */
+
+import {
+  type Advances,
+  FontAdvanceFault,
+  widestAdvances,
+} from "./font-advance";
 
 export type FontCheck = { ok: true } | { ok: false; reason: string };
 
@@ -52,6 +58,16 @@ const HEAD_MIN_BYTES = 54;
 const HHEA_MIN_BYTES = 36;
 const MAXP_MIN_BYTES = 6;
 const MIN_UNITS_PER_EM = 16;
+
+/** The widest glyph advance, in em, a face may have. Satori loops when a
+ *  word-breaking line is narrower than one grapheme cluster, and the layer
+ *  renderer keeps lines wider than this many ems per code point
+ *  (document/render.tsx minBreakableWidth). Every face next/og falls back to
+ *  is within it (Noto Sans Math's widest glyph is exactly 4em). Of 319 faces
+ *  measured whole, every glyph, CFF width and kerning pair, the 8 past it are
+ *  Arabic, Urdu, Cuneiform and Gunjala Gondi faces, scripts copy refuses
+ *  (document/text-safety.ts). */
+export const MAX_GLYPH_EM = 4;
 const MAX_UNITS_PER_EM = 16384;
 
 const NOT_A_FONT = "it is not a TTF or OTF font file";
@@ -171,6 +187,36 @@ function checkMetrics(
   return { ok: true };
 }
 
+/** Every glyph and every kerning pair, not those a cmap range is expected
+ *  to reach: .notdef, ligatures and glyphs in any plane all reach satori
+ *  (font-advance.ts). A cluster of n glyphs then stays within n x
+ *  MAX_GLYPH_EM, kerning included. */
+function checkGlyphWidths(
+  view: DataView,
+  tables: Map<string, TableRecord>,
+  unitsPerEm: number,
+): FontCheck {
+  let advances: Advances;
+  try {
+    advances = widestAdvances(view, tables);
+  } catch (error) {
+    if (error instanceof FontAdvanceFault) return fail(error.message);
+    throw error;
+  }
+  const limit = MAX_GLYPH_EM * unitsPerEm;
+  if (advances.glyph > limit) {
+    return fail(
+      `one of its letters is ${(advances.glyph / unitsPerEm).toFixed(1)} letters wide, wider than designs can wrap safely (at most ${MAX_GLYPH_EM})`,
+    );
+  }
+  if (advances.glyph + Math.max(0, advances.kerning) > limit) {
+    return fail(
+      `its spacing after one of its letters makes it ${((advances.glyph + advances.kerning) / unitsPerEm).toFixed(1)} letters wide, wider than designs can wrap safely (at most ${MAX_GLYPH_EM})`,
+    );
+  }
+  return { ok: true };
+}
+
 /** A truncated download usually keeps the directory and loses the tail, so the
  *  glyph index survives while the glyph data it points into does not. */
 function checkGlyphIndex(
@@ -258,7 +304,9 @@ function checkTables(view: DataView): FontCheck {
     if (!glyphCheck.ok) return glyphCheck;
   }
 
-  return checkCharacterMap(view, cmap);
+  const mapCheck = checkCharacterMap(view, cmap);
+  if (!mapCheck.ok) return mapCheck;
+  return checkGlyphWidths(view, index, view.getUint16(head.offset + 18));
 }
 
 /**

@@ -52,6 +52,50 @@ describe("SettingsClient", () => {
     await user.clear(confirmInput);
     await user.type(confirmInput, workspace.name);
     expect(confirmButton).toBeEnabled();
+    /* White on --status-error-fg as a fill was 3.05:1 in dark. */
+    expect(confirmButton).toHaveClass("bg-destructive-fill");
+    expect(confirmButton.className).not.toMatch(/status-error-fg/);
+  });
+
+  it("says it is deleting while the request is in flight", async () => {
+    const user = userEvent.setup();
+    let respond: (res: unknown) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            respond = resolve;
+          }),
+      ),
+    );
+    render(
+      <SettingsClient workspace={workspace} brandCount={0} canDelete={true} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /delete workspace/i }));
+    await user.type(
+      await screen.findByLabelText(
+        /type the workspace name to confirm deletion/i,
+      ),
+      workspace.name,
+    );
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /delete workspace permanently/i,
+      }),
+    );
+
+    const busy = await within(screen.getByRole("dialog")).findByRole("button", {
+      name: "Deleting…",
+    });
+    expect(busy).toHaveAttribute("aria-disabled", "true");
+    expect(busy).toHaveAttribute("aria-busy", "true");
+
+    /* React entangles later transitions with a pending async action, so an
+       unsettled one would leak into the next test. */
+    respond({ ok: false, json: async () => ({ error: "Nope." }) });
+    expect(await screen.findByText("Nope.")).toBeInTheDocument();
   });
 
   it("disables the Danger Zone delete trigger when canDelete is false", () => {

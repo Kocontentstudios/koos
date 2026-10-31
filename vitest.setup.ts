@@ -1,8 +1,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 
-// Files opting into `@vitest-environment node` (e.g. the satori/resvg render
-// smoke test) still run this setup, so every DOM touch must be guarded.
+// Files opting into `@vitest-environment node` (e.g. the next/og render
+// smoke tests) still run this setup, so every DOM touch must be guarded.
 const hasDom = typeof window !== "undefined";
 
 // jsdom's localStorage persists across tests within a file; clear it so tests

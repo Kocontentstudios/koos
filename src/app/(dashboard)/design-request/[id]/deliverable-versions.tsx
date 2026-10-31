@@ -82,7 +82,7 @@ export function DeliverableVersions({
               {canDownload ? (
                 <a
                   href={`/api/design-tickets/${ticketId}/deliverables/zip?version=${group.version}`}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:border-primary hover:text-primary-text"
                 >
                   <FileArchive className="h-4 w-4" aria-hidden="true" />
                   Download all (ZIP)
@@ -119,7 +119,7 @@ export function DeliverableVersions({
                         href={previewHref}
                         target="_blank"
                         rel="noreferrer"
-                        className="truncate text-[13px] text-[var(--text-secondary)] hover:text-primary hover:underline"
+                        className="truncate text-[13px] text-[var(--text-secondary)] hover:text-primary-text hover:underline"
                       >
                         {d.fileName}
                       </a>
@@ -127,7 +127,7 @@ export function DeliverableVersions({
                         <a
                           href={`/api/design-tickets/${ticketId}/deliverables/${d.id}?disposition=attachment`}
                           download
-                          className="inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-primary hover:underline"
+                          className="inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-primary-text hover:underline"
                         >
                           <Download
                             className="h-3.5 w-3.5"
@@ -140,7 +140,7 @@ export function DeliverableVersions({
                           href={previewHref}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-[var(--text-secondary)] hover:text-primary hover:underline"
+                          className="inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-[var(--text-secondary)] hover:text-primary-text hover:underline"
                         >
                           <Eye className="h-3.5 w-3.5" aria-hidden="true" />
                           View

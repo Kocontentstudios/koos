@@ -1,8 +1,10 @@
+import { KoImageryProvider } from "@/components/design/directions/ko-imagery-context";
 import { requireBrand } from "@/lib/auth/require-brand";
 import {
   getRecentConversationsForBrand,
   getStrategiesByBrand,
 } from "@/lib/db/queries";
+import { koImageryEnabled } from "@/lib/design/ko-imagery-flag";
 import { groupStrategiesForSidebar } from "@/lib/strategy/sidebar-groups";
 import { StrategyClient } from "./strategy-client";
 
@@ -54,13 +56,15 @@ export default async function StrategyPage({
   }));
 
   return (
-    <StrategyClient
-      brandId={brand.id}
-      brandName={brand.name}
-      brandContext={brandContext}
-      olderStrategies={olderStrategies}
-      conversations={conversations}
-      initialMode={initialMode}
-    />
+    <KoImageryProvider enabled={koImageryEnabled()}>
+      <StrategyClient
+        brandId={brand.id}
+        brandName={brand.name}
+        brandContext={brandContext}
+        olderStrategies={olderStrategies}
+        conversations={conversations}
+        initialMode={initialMode}
+      />
+    </KoImageryProvider>
   );
 }

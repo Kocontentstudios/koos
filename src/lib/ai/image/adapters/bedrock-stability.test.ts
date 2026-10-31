@@ -121,4 +121,24 @@ describe("bedrockStabilityAdapter", () => {
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it("sends a negative prompt when given one, and none otherwise", async () => {
+    mockFetch.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ images: [Buffer.from("x").toString("base64")] }),
+          { status: 200 },
+        ),
+    );
+    await bedrockStabilityAdapter.generate({
+      prompt: "linen in morning light",
+      negativePrompt: "text, letters",
+    });
+    await bedrockStabilityAdapter.generate({ prompt: "linen" });
+    const bodies = mockFetch.mock.calls.map(([, init]) =>
+      JSON.parse((init as { body: string }).body),
+    );
+    expect(bodies[0].negative_prompt).toBe("text, letters");
+    expect("negative_prompt" in bodies[1]).toBe(false);
+  });
 });

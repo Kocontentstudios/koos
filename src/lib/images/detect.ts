@@ -44,14 +44,16 @@ export function detectImageType(bytes: Uint8Array): ImageType | null {
 /* SVG is text, so there is no magic number. A leading XML declaration, a
    doctype, or a comment may all precede the root element, and the file may be
    UTF-8 BOM'd — so this looks for the tag within the opening bytes rather
-   than demanding it first. */
+   than demanding it first. The root may carry a namespace prefix (<s:svg>):
+   the upload route judges such a file by its declared type and accepts it,
+   so the logo loader has to recognise it too. */
 const SVG_SNIFF_BYTES = 1024;
 
 function looksLikeSvg(bytes: Uint8Array): boolean {
   const head = new TextDecoder("utf-8", { fatal: false })
     .decode(bytes.subarray(0, SVG_SNIFF_BYTES))
     .toLowerCase();
-  return /<svg[\s>]/.test(head);
+  return /<(?:[a-z_][\w.-]*:)?svg[\s>]/.test(head);
 }
 
 export function isVisionReadable(

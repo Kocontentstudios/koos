@@ -69,7 +69,7 @@ export function CommentComposer({ ticketId }: { ticketId: string }) {
           variant="default"
           loading={pending}
           loadingText="Sending…"
-          disabled={pending || message.trim().length === 0}
+          disabled={message.trim().length === 0}
           onClick={submit}
         >
           Send comment

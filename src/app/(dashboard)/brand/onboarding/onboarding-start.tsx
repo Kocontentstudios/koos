@@ -34,7 +34,7 @@ export function OnboardingStart({
   return (
     <div className="mx-auto flex min-h-[60vh] w-full max-w-lg flex-col justify-center gap-6 py-10">
       <div className="flex items-start gap-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-fill text-[11px] font-bold text-primary-foreground">
           KO
         </div>
         <div className="rounded-xl rounded-tl-sm border border-[var(--border)] bg-surface-1 px-4 py-3 text-sm leading-relaxed text-foreground">
@@ -59,7 +59,7 @@ export function OnboardingStart({
           Prefer to do it yourself?{" "}
           <Link
             href="/brand/create"
-            className="text-foreground underline underline-offset-2 hover:text-primary"
+            className="text-foreground underline underline-offset-2 hover:text-primary-text"
           >
             Fill in the form instead
           </Link>

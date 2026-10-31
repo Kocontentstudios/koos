@@ -113,7 +113,7 @@ export function PlatformChips({
               className={cn(
                 "inline-flex min-h-[40px] items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors",
                 active
-                  ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary"
+                  ? "border-[var(--border-accent)] bg-[var(--accent-glow)] text-primary-text"
                   : "border-border bg-[var(--surface-container-low)] text-text-secondary hover:border-border-hover",
               )}
             >

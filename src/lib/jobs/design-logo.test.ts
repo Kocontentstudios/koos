@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+/* The variant path runs only while FEATURE_KO_IMAGERY is on (Oluwaseyi's
+   ruling, 2026-10-29). */
+process.env.FEATURE_KO_IMAGERY = "1";
+
 const generateObject = vi.fn();
 const loadBrandLogo = vi.fn();
 const overlayLogo = vi.fn();
@@ -65,7 +69,10 @@ vi.mock("@/lib/storage", () => ({
   },
 }));
 
-const { generateDesignWork } = await import("@/lib/jobs/run-design-generation");
+const { designFailureMessage, generateDesignWork } = await import(
+  "@/lib/jobs/run-design-generation"
+);
+const { EmojiBudgetError } = await import("@/lib/design/render/satori-pool");
 
 /* Sized to clear the pre-delivery blank-frame floor (KOOS-AI-001 §1.6): a
    64-byte stub for a 1024x1024 frame reads as blank by compressed density,
@@ -167,6 +174,36 @@ beforeEach(() => {
   getObjectBytes.mockResolvedValue(Buffer.from(ATTACHMENT));
   updateDesignGeneration.mockResolvedValue(undefined);
   createNotification.mockResolvedValue(undefined);
+});
+
+describe("the variant path behind FEATURE_KO_IMAGERY", () => {
+  /* Defence in depth behind the route's 403: a caller that enqueues the job
+     directly must still not reach a model with the flag off. */
+  it("refuses before any model call or row while the flag is off", async () => {
+    const { KoImageryDisabledError } = await import(
+      "@/lib/design/ko-imagery-flag"
+    );
+    const { createDesignGeneration } = await import("@/lib/db/queries");
+    process.env.FEATURE_KO_IMAGERY = "";
+    try {
+      await expect(
+        generateDesignWork({ context: context(), userId: "u1" }, runtime),
+      ).rejects.toBeInstanceOf(KoImageryDisabledError);
+      expect(generateObject).not.toHaveBeenCalled();
+      expect(getPlateAdapter).not.toHaveBeenCalled();
+      expect(getNativeAdapters).not.toHaveBeenCalled();
+      expect(nativeGenerate).not.toHaveBeenCalled();
+      expect(createDesignGeneration).not.toHaveBeenCalled();
+    } finally {
+      process.env.FEATURE_KO_IMAGERY = "1";
+    }
+  });
+
+  it("runs while the flag is on", async () => {
+    await generateDesignWork({ context: context(), userId: "u1" }, runtime);
+    expect(generateObject).toHaveBeenCalledTimes(1);
+    expect(nativeGenerate).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the logo reaches the design", () => {
@@ -658,6 +695,18 @@ describe("a logo the renderer cannot decode", () => {
     );
   });
 
+  /* Copy with more emoji than a render may fetch fails every variant the
+     same way, so "try again" would be wrong; the user has to change it. */
+  it("says the emoji are the problem when every variant is refused for them", async () => {
+    renderCompositeDesign.mockRejectedValue(new EmojiBudgetError(24));
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      generateDesignWork({ context: context(), userId: "u1" }, runtime),
+    ).rejects.toThrow(/more than 24 different emoji/);
+    quiet.mockRestore();
+  });
+
   /* A failure that has nothing to do with the logo must not be relabelled as
      a logo problem — that sends the user to replace a file that is fine. */
   it("reports the original failure when the logo was not the cause", async () => {
@@ -691,5 +740,25 @@ describe("when the brand's history cannot be read", () => {
     await generateDesignWork({ context: context(), userId: "u1" }, runtime);
 
     expect(nativeGenerate).toHaveBeenCalled();
+  });
+});
+
+describe("designFailureMessage", () => {
+  it("names the emoji only when every variant was refused for them", () => {
+    expect(
+      designFailureMessage([
+        new EmojiBudgetError(24),
+        new EmojiBudgetError(24),
+      ]),
+    ).toMatch(/more than 24 different emoji/);
+  });
+
+  it("does not hide another failure behind the emoji message", () => {
+    expect(
+      designFailureMessage([
+        new EmojiBudgetError(24),
+        new Error("render backend down"),
+      ]),
+    ).toBe("Design generation failed. Please try again.");
   });
 });

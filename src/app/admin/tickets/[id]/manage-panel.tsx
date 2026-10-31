@@ -137,7 +137,6 @@ export function ManagePanel({
         variant="default"
         loading={pending}
         loadingText="Saving…"
-        disabled={pending}
         onClick={save}
         className="self-start"
       >

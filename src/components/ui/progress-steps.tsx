@@ -6,9 +6,20 @@ interface ProgressStepsProps {
   current: number;
 }
 
+/* Equal columns with each circle centred in its own, so every connector is
+   the same length whatever the labels say. Flex items sized by their labels
+   made "Brief" to "Imagery" twice the length of "Imagery" to "Layout". The
+   connector runs from the previous column's centre to this one's, stopping
+   4px short of each 24px circle. */
+const CONNECTOR =
+  "absolute top-[11px] right-[calc(50%+16px)] left-[calc(-50%+16px)] h-0.5 rounded-full";
+
+/* The active step's text is --status-progress-fg, not --primary: primary as
+   12px text is 3.78:1 on white and 4.40:1 on the dark dialog. The ring is a
+   non-text indicator, so --primary clears 3:1 there. */
 export function ProgressSteps({ steps, current }: ProgressStepsProps) {
   return (
-    <ol className="flex items-center gap-0">
+    <ol className="grid auto-cols-[minmax(0,1fr)] grid-flow-col">
       {steps.map((label, index) => {
         const isCompleted = index < current;
         const isActive = index === current;
@@ -16,55 +27,43 @@ export function ProgressSteps({ steps, current }: ProgressStepsProps) {
         return (
           <li
             key={label}
-            className="flex flex-1 items-center"
+            className="relative flex flex-col items-center gap-1.5"
             aria-current={isActive ? "step" : undefined}
           >
-            {/* Connector line before (skip for first) */}
             {index > 0 && (
-              <div
+              <span
+                aria-hidden="true"
+                data-slot="progress-connector"
+                data-reached={index <= current || undefined}
                 className={cn(
-                  "h-px flex-1",
-                  isCompleted
-                    ? "bg-primary"
-                    : index <= current
-                      ? "bg-primary"
-                      : "bg-[var(--border)]",
+                  CONNECTOR,
+                  index <= current ? "bg-primary" : "bg-[var(--border)]",
                 )}
               />
             )}
-            <div className="flex flex-col items-center gap-1.5">
-              {/* Circle */}
-              <div
-                className={cn(
-                  "flex size-6 items-center justify-center rounded-full text-[11px] font-semibold",
-                  isCompleted && "bg-primary text-white",
-                  isActive && "ring-2 ring-primary text-primary bg-transparent",
-                  !isCompleted &&
-                    !isActive &&
-                    "text-[var(--text-muted)] border border-[var(--border)]",
-                )}
-              >
-                {isCompleted ? <Check size={14} /> : <span>{index + 1}</span>}
-              </div>
-              {/* Label */}
-              <span
-                className={cn(
-                  "text-[12px] whitespace-nowrap",
-                  isActive && "text-primary font-medium",
-                  isCompleted && "text-foreground",
-                  !isCompleted && !isActive && "text-[var(--text-muted)]",
-                )}
-              >
-                {label}
-              </span>
+            <div
+              className={cn(
+                "flex size-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                isCompleted && "bg-primary-fill text-primary-foreground",
+                isActive &&
+                  "ring-2 ring-primary text-[var(--status-progress-fg)] bg-transparent",
+                !isCompleted &&
+                  !isActive &&
+                  "text-[var(--text-muted)] border border-[var(--border)]",
+              )}
+            >
+              {isCompleted ? <Check size={14} /> : <span>{index + 1}</span>}
             </div>
-            {/* Connector line after (for completed steps) */}
-            {index < steps.length - 1 && index >= current && (
-              <div className={cn("h-px flex-1", "bg-[var(--border)]")} />
-            )}
-            {index < steps.length - 1 && index < current && (
-              <div className="h-px flex-1 bg-primary" />
-            )}
+            <span
+              className={cn(
+                "px-1 text-center text-[12px] leading-tight",
+                isActive && "text-[var(--status-progress-fg)] font-medium",
+                isCompleted && "text-foreground",
+                !isCompleted && !isActive && "text-[var(--text-muted)]",
+              )}
+            >
+              {label}
+            </span>
           </li>
         );
       })}

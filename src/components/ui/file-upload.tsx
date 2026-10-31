@@ -151,7 +151,7 @@ export function FileUpload({
         <button
           type="button"
           aria-label={label ? `Remove ${label}` : "Remove file"}
-          className="rounded p-1 hover:bg-[rgba(255,255,255,0.08)]"
+          className="rounded p-1 hover:bg-[rgba(255,255,255,0.08)] focus-visible:focus-outline"
           onClick={onRemove}
         >
           <X className="size-4 text-[var(--text-secondary)]" />
@@ -175,6 +175,8 @@ export function FileUpload({
           dragOver &&
             "border-[var(--border-accent)] bg-[rgba(19,139,200,0.06)]",
           "hover:border-[var(--border-accent)]",
+          // The input is sr-only, so its own outline is clipped to 1px.
+          "has-[input:focus-visible]:focus-outline",
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}

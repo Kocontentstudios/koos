@@ -1,0 +1,105 @@
+name: Rendered contrast
+
+# The rendered half of the colour contract (docs/KO_OS UI.Specification.md
+# 9.2, e2e/README.md): every route in e2e/contrast/routes.ts, both themes,
+# every width band, every interactive state, measured against what Chromium
+# paints.
+#
+# ADVISORY, not a merge gate. Run it by hand before shipping any colour or
+# component-state change (Actions > Rendered contrast > Run workflow), and it
+# runs weekly on the default branch. It takes about 2.4 hours for every route,
+# so it is never a pull_request check: the source gate in ci.yml runs on every
+# pull request instead, as part of the `check` job, which the protect-dev and
+# protect-main rulesets require to pass before a merge. A run can go red for reasons that are not the change under
+# review (a hydration warning after a probe reload, a dev-server restart), so
+# read the evidence before acting on a red run.
+on:
+  workflow_dispatch:
+    inputs:
+      routes:
+        description: "Route labels from e2e/contrast/routes.ts, comma separated (empty for every route)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contrast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contrast:
+    runs-on: ubuntu-latest
+    # A full run is about 2.4 h on one local worker; leave room above it.
+    timeout-minutes: 240
+
+    # Same image as the local koos-dev-db container, on the same port, so the
+    # lane's localhost-only seed guard and its default URL hold unchanged.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: koos
+          POSTGRES_PASSWORD: koos
+          POSTGRES_DB: koos
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U koos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://koos:koos@localhost:5434/koos
+      DIRECT_URL: postgres://koos:koos@localhost:5434/koos
+      E2E_DATABASE_URL: postgres://koos:koos@localhost:5434/koos
+      NEXT_PUBLIC_APP_URL: http://localhost:3417
+      NEXT_TELEMETRY_DISABLED: "1"
+      E2E_WORKERS: "2"
+      E2E_ROUTES: ${{ inputs.routes }}
+      # The runner has 16 GB; next dev restarts itself when its heap nears this
+      # cap, and a route in flight during a restart fails.
+      NODE_OPTIONS: --max-old-space-size=6144
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Vendor render fonts
+        run: pnpm fonts
+
+      - name: Migrate the throwaway database
+        run: node scripts/migrate.mjs
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Starts next dev through e2e/contrast/serve.mjs (its log is part of the
+      # check), seeds the QA accounts, measures every route, then reads the
+      # whole server log for errors.
+      - name: Rendered contrast lane
+        run: pnpm e2e:contrast
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contrast-evidence
+          path: |
+            test-results/contrast/
+            test-results/server.log
+            test-results/e2e/
+          retention-days: 14

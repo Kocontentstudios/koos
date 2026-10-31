@@ -15,7 +15,7 @@ import { buttonVariants } from "@/components/ui/button";
 const LOCKED_CARDS = [
   {
     icon: Target,
-    tint: "bg-[rgba(19,139,200,0.1)] text-primary",
+    tint: "bg-[rgba(19,139,200,0.1)] text-primary-text",
     title: "Complete Your Brand",
     desc: "Tell KO who you are, and everything below unlocks.",
   },
@@ -66,7 +66,7 @@ export function LockedDashboard({
           now ends, so /brand/onboarding is no longer where they first land. */}
       {showWelcome && <WelcomeCard onboardingHref={onboardingHref} />}
       <section className="rounded-2xl border border-[var(--border)] bg-gradient-to-b from-[var(--surface-2)] to-[var(--surface-1)] p-6 sm:p-8">
-        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-primary">
+        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-primary-text">
           <Sparkles aria-hidden="true" className="size-3.5" />
           One step to go
         </p>

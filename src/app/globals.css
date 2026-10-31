@@ -30,17 +30,40 @@
   --nav-border: rgba(255, 255, 255, 0.08);
 
   /* --- Action / Primary --------------------------------------------------- */
+  /* The brand blue as an accent: focus rings, borders, dots, bars, icons.
+     Never a fill behind text (white on it is 3.78:1) and never text itself
+     (4.02:1 on --surface-container-highest here, 3.34:1 on the light page).
+     src/app/primary-token-usage.test.ts rejects either pairing anywhere in
+     src, however it is written (src/lib/theme/primary-usage.ts). */
   --primary: #138bc8;
-  --primary-hover: #0f7eb8;
-  --primary-active: #0c5f8a;
+  /* Fills that carry --primary-foreground. Same hue as --primary, lightness
+     only, so white clears 4.5:1 at every state (5.08, 5.85, 6.95). One set
+     serves both themes because the label, not the page, is what it carries. */
+  --primary-fill: #1075a8;
+  --primary-fill-hover: #0f6b9a;
+  --primary-fill-active: #0c5f8a;
   --primary-disabled: #1a3a4a;
+  --primary-disabled-foreground: #7c90a3;
   --primary-foreground: #ffffff;
+  /* --primary as text. Lifted here, darkened in light mode, so a link or
+     eyebrow clears 4.5:1 on every surface token and on every brand tint src
+     paints (up to 20%) over any of them; the weakest pair is a 20% tint over
+     --surface-container-highest. Hover moves away from the ground. */
+  --primary-text: #30adec;
+  --primary-text-hover: #45b4ed;
+  /* A tint for backgrounds only. At 12-15% alpha it measures about 1.2:1
+     against the surfaces, so it is never a focus indicator; --ring is. */
   --accent-glow: rgba(19, 139, 200, 0.15);
 
   /* --- Text --------------------------------------------------------------- */
   --foreground: #ffffff;
   --text-secondary: #a7b6c7;
-  --text-muted: #6f8599;
+  /* Held to 4.5:1 on every surface AND on every translucent tint composited
+     over one: hint text sits on hovered and drag-active cards, and #7c90a3
+     fell to 4.15:1 there. Same hue, lightness only; the weakest pair is
+     --status-pending-bg over --surface-container-highest at 4.6:1.
+     src/app/theme-contrast.test.ts holds it. */
+  --text-muted: #93a3b3;
 
   /* --- Status bg / fg pairs ---------------------------------------------- */
   --status-draft-bg: rgba(255, 255, 255, 0.06);
@@ -52,7 +75,17 @@
   --status-pending-bg: rgba(212, 169, 84, 0.15);
   --status-pending-fg: #d4a954;
   --status-error-bg: rgba(212, 117, 117, 0.08);
-  --status-error-fg: #d47575;
+  /* #d47575 was 4.42:1 on its own tint over --surface-container-highest.
+     The one token for error text: pills, inline field errors, rejections. */
+  --status-error-fg: #d57a7a;
+
+  /* --- Destructive fill ---------------------------------------------------- */
+  /* A solid fill under white text, so never --status-error-fg: that is tuned
+     as text on navy and white on it measured 3.05:1. Hover deepens, per the
+     motion rules; lightening it would drop under 4.5:1. */
+  --destructive-fill: #c0392b;
+  --destructive-fill-hover: #a93226;
+  --destructive-fill-foreground: #ffffff;
 
   /* --- Borders & effects -------------------------------------------------- */
   --border: rgba(255, 255, 255, 0.06);
@@ -114,9 +147,9 @@
   /* Primary container alias */
   --primary-container: #1a3a4a;
 
-  /* Status / semantic aliases */
-  --error: #d47575;
-  --error-foreground: #ffffff;
+  /* Status / semantic aliases. --error is the error text token under its old
+     name; as a separate #d47575 it fell to 3.18:1 on a light card. */
+  --error: var(--status-error-fg);
   --success: #97c459;
   --warning: #d4a954;
 
@@ -132,12 +165,14 @@
 
   /* Form aliases */
   --input: var(--border);
+  /* The focus indicator for every control, drawn solid by the focus-outline
+     utility below. Never at partial alpha: --primary at 50% fell to ~1.7:1. */
   --ring: var(--primary);
 
   /* Sidebar aliases */
   --sidebar-background: var(--nav);
   --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--primary);
+  --sidebar-primary: var(--primary-fill);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: var(--surface-2);
   --sidebar-accent-foreground: var(--foreground);
@@ -155,6 +190,10 @@
    The sidebar (--nav) intentionally stays dark in both themes.
    ─────────────────────────────────────────────────────────────────────────── */
 :root[data-theme="light"] {
+  /* Secondary carries --background as its label, which in light mode is the
+     page colour: #edf1f7 on #a7b6c7 was 1.82:1 (the /team role badges). */
+  --secondary-foreground: var(--foreground);
+
   /* Backgrounds & surfaces */
   --background: #edf1f7;
   --surface-1: #ffffff;
@@ -166,10 +205,19 @@
   --skeleton: #d5dee9;
   --accent-glow: rgba(19, 139, 200, 0.12);
 
+  --primary-text: #0d5e87;
+  --primary-text-hover: #0c577e;
+  /* The disabled fill stays dark navy in light mode; --text-muted on it was
+     2.11:1, unreadable even before the button's 50% opacity. */
+  --primary-disabled-foreground: #a7b6c7;
+
   /* Text hierarchy */
   --foreground: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #7c8da1;
+  /* Held to 4.5:1 on every surface and every tint over one, like the dark
+     value. #58687b fell to 3.9:1 on --status-ready-bg over #e2e8f0. Same hue,
+     lightness only. */
+  --text-muted: #4f5d6f;
 
   /* Borders & dividers */
   --border: #e2e8f0;
@@ -198,14 +246,25 @@
   --status-draft-bg: rgba(15, 23, 42, 0.05);
   --hover: rgba(15, 23, 42, 0.05);
 
-  /* Status foregrounds are tuned for the dark navy shell; the light blue/green/
-     amber/red drop below readable contrast on white surfaces. Darken them for
-     light mode (the low-alpha tint backgrounds stay legible as-is). */
+  /* Status foregrounds are tuned for the dark navy shell and darkened here,
+     same hue, until each clears 4.5:1 over its own tint composited over every
+     light surface, the page and #e2e8f0 included (theme-contrast.test.ts). The
+     earlier values (#1f7ab5, #4d7c0f, #a16207, #c0392b) fell to 3.2-4.1:1
+     there, and the source pill on a white dialog read 3.89:1. */
   --status-draft-fg: #475569;
-  --status-progress-fg: #1f7ab5;
-  --status-ready-fg: #4d7c0f;
-  --status-pending-fg: #a16207;
-  --status-error-fg: #c0392b;
+  --status-progress-fg: #175c89;
+  --status-ready-fg: #3f660c;
+  --status-pending-fg: #8b5506;
+  --status-error-fg: #b23528;
+
+  /* The semantic hues are also text (text-success, the Pro Tip heading); the
+     dark values were 1.79 and 1.93:1 on the light page. They share the status
+     foregrounds' light values. --error follows --status-error-fg by alias. */
+  --success: #3f660c;
+  --warning: #8b5506;
+
+  --destructive-fill: #b23528;
+  --destructive-fill-hover: #962a1f;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -221,10 +280,14 @@
   --color-surface-2: var(--surface-2);
   --color-nav: var(--nav);
   --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-active: var(--primary-active);
+  --color-primary-fill: var(--primary-fill);
+  --color-primary-fill-hover: var(--primary-fill-hover);
+  --color-primary-fill-active: var(--primary-fill-active);
   --color-primary-disabled: var(--primary-disabled);
+  --color-primary-disabled-foreground: var(--primary-disabled-foreground);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
+  --color-primary-text-hover: var(--primary-text-hover);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
 
@@ -277,7 +340,9 @@
 
   /* Backward-compatible semantic tokens */
   --color-error: var(--error);
-  --color-error-foreground: var(--error-foreground);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-destructive-fill-hover: var(--destructive-fill-hover);
+  --color-destructive-fill-foreground: var(--destructive-fill-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
 
@@ -391,6 +456,24 @@ h6 {
   transition: box-shadow 150ms var(--ease-standard);
 }
 
+/* Keyboard focus indicator (UI Spec §12.2). Apply with a variant, e.g.
+   `focus-visible:focus-outline`, so the same rule also serves
+   `has-[textarea:focus-visible]:` on a composite field. An outline, not a
+   box-shadow ring: the offset gap shows whatever surface is behind, so the
+   ring is measured against that surface in either theme, and outlines survive
+   forced-colors mode where box-shadow is dropped. */
+@utility focus-outline {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* For controls inside a scrolling or clipping parent (calendar cells, tabs,
+   menu items) where an outward ring would be cut off. */
+@utility focus-outline-inset {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    UTILITY CLASSES (kept intact — colors already align with KO OS palette)
    ─────────────────────────────────────────────────────────────────────────── */
@@ -419,17 +502,6 @@ h6 {
 .glow-hover:hover {
   box-shadow: 0 0 20px rgba(19, 139, 200, 0.15);
   border-color: rgba(19, 139, 200, 0.3);
-}
-
-.gradient-primary {
-  background: linear-gradient(135deg, #138bc8, #0a6d9e);
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #138bc8, #aec6fe);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .ai-glow {
@@ -482,31 +554,20 @@ h6 {
   letter-spacing: 0.05em;
 }
 
-.progress-bar {
-  height: 4px;
-  border-radius: 9999px;
-  background: var(--surface-container-high);
-  overflow: hidden;
-}
-
-.progress-bar-fill {
-  height: 100%;
-  border-radius: 9999px;
-  background: linear-gradient(90deg, #138bc8, #0a6d9e);
-  transition: width 0.5s ease;
-}
-
 /* Base form styling lives in @layer base so Tailwind utility classes
    (pl-9, px-4, bg-*, …) reliably override these defaults. Without the layer,
    these unlayered rules would beat @layer utilities in the cascade — which is
    what caused the top-bar search icon to overlap the placeholder text. */
 @layer base {
-  input:focus,
-  textarea:focus,
-  select:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(19, 139, 200, 0.2);
+  /* The old rule recoloured the border (which the unlayered `*` above always
+     overrides) and added a 20%-alpha glow at 1.2:1, so a bare input showed no
+     usable focus at all. :focus-visible keeps a mouse click on a checkbox
+     from drawing the ring; text fields match it on every focus. */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 
   input,
@@ -524,10 +585,13 @@ h6 {
       box-shadow 0.2s ease;
   }
 
+  /* A placeholder is text the user reads, so it is held to 4.5:1 like any
+     other: --text-muted at full opacity. --on-surface-variant at 0.5 measured
+     2.9 to 3.1:1 dark and 2.2 to 2.3:1 light on every field ground. */
   input::placeholder,
   textarea::placeholder {
-    color: var(--on-surface-variant);
-    opacity: 0.5;
+    color: var(--text-muted);
+    opacity: 1;
   }
 }
 
@@ -587,14 +651,16 @@ h6 {
    (navy) in dark mode and brand-blue in light mode. In light mode the band text
    and badges flip to white so they read on the blue. The logo tile is excluded
    (it keeps its own surface/border) by scoping the white-text rule to
-   .brand-header-info.
+   .brand-header-info. The blue is --primary-fill (white 5.08:1); the badges
+   sit on --primary-fill-active (6.95:1), solid, because a translucent white
+   pill over the band pulled white down to 3.23:1.
    ─────────────────────────────────────────────────────────────────────────── */
 .brand-header-band {
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
 }
 :root[data-theme="light"] .brand-header-band {
-  background: #0f7eb8;
+  background: var(--primary-fill);
   border-bottom-color: rgba(255, 255, 255, 0.15);
 }
 :root[data-theme="light"]
@@ -622,6 +688,7 @@ h6 {
   color: var(--text-secondary);
 }
 :root[data-theme="light"] .brand-header-band .brand-badge {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--primary-fill-active);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
   color: #ffffff;
 }
