@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
 import type { OutlinePoint } from "./contract";
 import { namesFree } from "./hook";
-import { flagOutline } from "./outline-flags";
+import { EMPTY_POINT } from "./outline-arc";
+import { flagOutline, genericProfile } from "./outline-flags";
 
 const fact = (kind: BriefFact["kind"], text: string): BriefFact => ({
   kind,
@@ -19,7 +20,7 @@ const FACTS = [
   fact("quantity", "12 places"),
 ];
 
-type Draft = Omit<OutlinePoint, "weak">;
+type Draft = Omit<OutlinePoint, "weak" | "sig">;
 let n = 0;
 const point = (
   role: OutlinePoint["role"],
@@ -85,15 +86,85 @@ describe("flagOutline", () => {
     },
   );
 
-  it("flags a profile point, but never a point the owner wrote", () => {
-    expect(
-      flags([
+  it("flags a profile point with the reason its kind earns, never the owner's", () => {
+    const withProfile = {
+      ...ctx,
+      genericProfile: genericProfile({
+        overview: "Specialty coffee bar in Yaba, Lagos",
+        values: "Patience over shortcuts; coffee that tastes of where it grew",
+      }),
+    };
+    const flagged = flagOutline(
+      [
         point("hook", "Kiln cold brew is steeped for 18 hours"),
         point("body", "Beans from the Mambilla Plateau", "profile"),
+        point("body", "Specialty coffee bar in Yaba, Lagos", "profile"),
         point("body", "Each bottle keeps for five days in the fridge", "user"),
         point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
-      ]),
-    ).toEqual([null, "profile-fill", null, null]);
+      ],
+      withProfile,
+    );
+    expect(flagged.map((p) => p.weak?.kind ?? null)).toEqual([
+      null,
+      "profile-fill",
+      "profile-fill",
+      null,
+      null,
+    ]);
+    expect(flagged[1].weak?.reason).toMatch(/Keep it if it is true/);
+    expect(flagged[2].weak?.reason).toMatch(/what the brand is or believes/);
+  });
+
+  /* O1 round-1 critic, HIGH 3: bare facts were not flagged. */
+  it.each(["Six Saturdays", "₦150 per kWh", "Ngozi Ade"])(
+    "flags the bare point %s as filler",
+    (text) => {
+      const [, middle] = flagOutline(
+        [
+          point("hook", "Kiln cold brew is steeped for 18 hours"),
+          point("body", text),
+          point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
+        ],
+        ctx,
+      );
+      expect(middle.weak?.kind).toBe("filler");
+      expect(middle.weak?.reason).toMatch(/^Only gives|^Too thin/);
+    },
+  );
+
+  it("flags the prompt left on a frame nothing was found for", () => {
+    const [, middle] = flagOutline(
+      [
+        point("hook", "Kiln cold brew is steeped for 18 hours"),
+        point("body", EMPTY_POINT),
+        point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
+      ],
+      ctx,
+    );
+    expect(middle.weak?.kind).toBe("filler");
+  });
+
+  /* O1 round-1 critic, HIGH 3: 90% of body points were flagged, so the
+     flags said nothing. A brief with real points must leave most of them
+     unflagged. */
+  it("flags a minority of a normal brief's body points", () => {
+    const flagged = flagOutline(
+      [
+        point("hook", "Kiln cold brew is steeped for 18 hours"),
+        point("body", "Served over ice in a glass bottle"),
+        point(
+          "body",
+          "Each bottle is poured fresh at our Yaba bar every morning",
+        ),
+        point("body", "Beans grown on the Mambilla Plateau by one cooperative"),
+        point("body", "Specialty coffee bar in Yaba, Lagos", "profile"),
+        point("cta", "WhatsApp 0803 555 0142 to reserve a bottle."),
+      ],
+      ctx,
+    ).filter((p) => p.role === "body" && p.weak);
+    expect(flagged.map((p) => p.point)).toEqual([
+      "Specialty coffee bar in Yaba, Lagos",
+    ]);
   });
 
   it("flags a hook that only names the offer, not one with a reason or a figure", () => {

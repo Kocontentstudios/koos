@@ -21,7 +21,7 @@
  *
  * Usage: pnpm eval:design-sequence [--set tuning|held-out] [--case <id>]
  *          [--n <3|5|8>] [--kind carousel|presentation] [--no-judge]
- *          [--lane auto|approved|both] [--report <path>]
+ *          [--lane auto|approved|both] [--no-deletes] [--report <path>]
  *
  * --set tuning (the default) runs the briefs the planner is tuned
  * against; --set held-out runs the briefs it was never tuned on,
@@ -61,7 +61,9 @@ const {
   FLAG_RECALL_MIN,
   flagRecall,
   withOwnerPoints,
+  withPointDeleted,
 } = await import("./lanes");
+const { FRAME_BOUNDS } = await import("../../../design/sequence/contract");
 type Lane = import("./lanes").Lane;
 type OwnerEdit = import("./lanes").OwnerEdit;
 type PlannedOutline =
@@ -93,6 +95,9 @@ const onlyCase = flag("--case");
 const onlyN = flag("--n");
 const onlyKind = flag("--kind");
 const withJudge = !args.includes("--no-judge");
+/* An owner deleting a point is the other half of O5; it is measured on
+   its own, unjudged, so the gated lanes stay as Addendum A defines them. */
+const withDeletes = !args.includes("--no-deletes");
 const laneArg = flag("--lane") ?? "both";
 if (!["auto", "approved", "both"].includes(laneArg)) {
   console.error(`--lane is auto, approved or both, not ${laneArg}`);
@@ -237,6 +242,19 @@ function threw(lane: Lane, label: string, started: number, err: unknown) {
   );
 }
 
+/* Where and when are every frame's to mention, so a removed point that
+   gave them leaks nothing when the action frame gives them. */
+function sharedWords(c: SequenceEvalCase): Set<string> {
+  return new Set([
+    ...namesFree(c.brand.name, c.offering),
+    ...c.facts
+      .filter((f) =>
+        ["date", "day", "time", "place", "contact"].includes(f.kind),
+      )
+      .flatMap((f) => [...contentStems(f.text)]),
+  ]);
+}
+
 async function runLane(
   c: SequenceEvalCase,
   n: number,
@@ -273,17 +291,12 @@ async function runLane(
     });
     const score = scoreRun(c, n, result.plan);
     const verdict = withJudge ? await judge(c, result.plan) : null;
-    /* Where and when are every frame's to mention, so a replaced point
-       that gave them leaks nothing when the action frame gives them. */
-    const shared = new Set([
-      ...namesFree(c.brand.name, c.offering),
-      ...c.facts
-        .filter((f) =>
-          ["date", "day", "time", "place", "contact"].includes(f.kind),
-        )
-        .flatMap((f) => [...contentStems(f.text)]),
-    ]);
-    const leaks = deletedLeaks(result.plan, valid.outline, edits, shared);
+    const leaks = deletedLeaks(
+      result.plan,
+      valid.outline,
+      edits,
+      sharedWords(c),
+    );
     records.push({
       lane,
       label,
@@ -339,6 +352,64 @@ async function runLane(
   }
 }
 
+interface DeletionRecord {
+  label: string;
+  deleted: string;
+  /** Frames that still make the deleted point. */
+  leaks: string[];
+  error?: string;
+}
+const deletions: DeletionRecord[] = [];
+
+/** The planner's outline with one body point deleted: does any delivered
+ *  frame still make it (O5)? */
+async function runDeletion(
+  c: SequenceEvalCase,
+  n: number,
+  outline: PlannedOutline,
+) {
+  const label = `${c.id}/${n}`;
+  const cut = withPointDeleted(outline, FRAME_BOUNDS[c.kind].min);
+  if (!cut) return;
+  try {
+    const valid = validateApprovedOutline(cut.approved, {
+      kind: c.kind,
+      briefText: c.request.briefText,
+      profileStatements: profileStatements(c.brand),
+    });
+    if (!valid.ok) throw new Error("outline refused");
+    const result = await planSequence({
+      context: contextOf(c),
+      kind: c.kind,
+      frameCount: valid.outline.points.length,
+      imageSource: c.imageSource,
+      image: null,
+      memorySummary: "",
+      recentLayouts: [],
+      approvedOutline: valid.outline,
+    });
+    const leaks = deletedLeaks(
+      result.plan,
+      valid.outline,
+      [cut.deleted],
+      sharedWords(c),
+    );
+    deletions.push({ label, deleted: cut.deleted.from, leaks });
+    if (printRuns) {
+      console.log(
+        `${label} [delete "${cut.deleted.from}"]: ${leaks.length === 0 ? "not said" : leaks.join("; ")}`,
+      );
+    }
+  } catch (err) {
+    deletions.push({
+      label,
+      deleted: cut.deleted.from,
+      leaks: [],
+      error: String(err),
+    });
+  }
+}
+
 /* Three jobs at a time, each running its lanes in turn: enough to finish
    in minutes without tripping the provider's rate limit. */
 const CONCURRENCY = 3;
@@ -370,6 +441,7 @@ async function worker() {
     for (const lane of lanes) {
       await runLane(c, n, lane, planned.outline, planned.modelCalls);
     }
+    if (withDeletes) await runDeletion(c, n, planned.outline);
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
@@ -433,6 +505,7 @@ writeFileSync(
       gatedLane,
       aggregate: byLane,
       recall,
+      deletions,
       thresholds: SEQUENCE_EVAL_THRESHOLDS,
       records,
     },
@@ -461,7 +534,20 @@ if (lanes.includes("auto") && withJudge) {
   console.log(
     `flag recall (AUTO frames the judge scored <= 2 for repetition that code flagged): ${recall.flagged} of ${recall.low}${recall.recall === null ? "" : ` = ${recall.recall.toFixed(2)}`}`,
   );
+  console.log(
+    `flag rate: ${recall.bodyFlagged} of ${recall.bodyPoints} body points flagged; precision (flagged points the judge scored <= 3): ${recall.precision === null ? "n/a" : recall.precision.toFixed(2)}`,
+  );
   if (printRuns) for (const m of recall.missed) console.log(`  missed: ${m}`);
+}
+if (withDeletes) {
+  const leaked = deletions.filter((d) => d.leaks.length > 0);
+  const errored = deletions.filter((d) => d.error).length;
+  console.log(
+    `deleted points said anyway: ${leaked.length} of ${deletions.length - errored} runs${errored ? ` (${errored} threw)` : ""}`,
+  );
+  if (printRuns) {
+    for (const d of leaked) console.log(`  ${d.label}: ${d.leaks.join("; ")}`);
+  }
 }
 console.log(`report: ${reportPath}`);
 if (failed.length > 0) {

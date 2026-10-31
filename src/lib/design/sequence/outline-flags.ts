@@ -2,7 +2,7 @@ import type { BriefFact, CoverKind } from "@/lib/jobs/directions/brief-facts";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { claimsOverlap } from "./arc";
 import type { OutlinePoint, OutlineWeak, SequenceKind } from "./contract";
-import { factsIn } from "./outline-arc";
+import { EMPTY_POINT, factsIn } from "./outline-arc";
 
 export interface OutlineFlagContext {
   kind: SequenceKind;
@@ -14,7 +14,44 @@ export interface OutlineFlagContext {
   /** Who the brand profile says it is for (targetAudience): a point that
    *  only says this tells the reader who they are, not what they get. */
   audience?: string | null;
+  /** The profile's statements of what the brand is, sells and believes
+   *  (overview, offer, values; genericProfile). A point drawn from one
+   *  describes the brand, which the hook already names, and its flag
+   *  says to replace it. */
+  genericProfile?: readonly string[];
 }
+
+/** The profile fields whose statements describe the brand rather than
+ *  give the reader a fact about the offer. */
+export const GENERIC_PROFILE_FIELDS = ["overview", "offer", "values"] as const;
+
+export function genericProfile(
+  brand: Partial<
+    Record<(typeof GENERIC_PROFILE_FIELDS)[number], string | null>
+  >,
+): string[] {
+  return GENERIC_PROFILE_FIELDS.flatMap((field) => {
+    const text = brand[field]?.trim();
+    return text ? [text] : [];
+  });
+}
+
+/* Share of a point's content words a profile statement must hold for the
+   point to be that statement: the pool cuts a field into clauses and the
+   planner keeps their words. */
+const DRAWN_SHARE = 0.8;
+
+function drawnFrom(point: string, statements: readonly string[]): boolean {
+  const own = [...contentStems(point)];
+  if (own.length === 0) return false;
+  return statements.some((statement) => {
+    const theirs = contentStems(statement);
+    return own.filter((s) => theirs.has(s)).length / own.length >= DRAWN_SHARE;
+  });
+}
+
+/** A point as flagOutline reads it: its words, role and source. */
+type Draft = Omit<OutlinePoint, "weak" | "sig">;
 
 const WHEN = new Set<CoverKind>(["date", "day", "time"]);
 const WHERE = new Set<CoverKind>(["place", "contact"]);
@@ -32,8 +69,15 @@ const OWN_WORDS = 2;
 
 const isWord = (stem: string) => !/^\d+$/.test(stem);
 
+/* "Six Saturdays", "₦150 per kWh", "Ngozi Ade": a point this short is a
+   fact or a name with nothing said about it, which the copy can only
+   print as a bare headline. */
+const BARE_WORDS = 3;
+const wordsIn = (text: string) =>
+  text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+
 function fillerReason(
-  point: Omit<OutlinePoint, "weak">,
+  point: Draft,
   stated: readonly BriefFact[],
   ctx: OutlineFlagContext,
 ): string | null {
@@ -46,7 +90,9 @@ function fillerReason(
     ...logistics.flatMap((f) => [...contentStems(f.text)]),
   ]);
   const own = [...contentStems(point.point, ignored)].filter(isWord);
-  if (own.length >= OWN_WORDS) return null;
+  if (own.length >= OWN_WORDS && wordsIn(point.point) > BARE_WORDS) {
+    return null;
+  }
   if (logistics.some((f) => WHEN.has(f.kind))) {
     return "Only says when it happens. Add what the reader gets.";
   }
@@ -60,6 +106,9 @@ function fillerReason(
   const fact = stated[0];
   if (fact) {
     return `Only gives "${fact.text}". Say what it means for the reader.`;
+  }
+  if (own.length >= OWN_WORDS) {
+    return `Only gives "${point.point}". Say what it means for the reader.`;
   }
   return "Too thin to fill a slide. Say one thing the reader gets or should know.";
 }
@@ -75,7 +124,7 @@ const ANNOUNCING = contentStems(
 const HOOK_OWN_WORDS = 3;
 
 function labelHook(
-  point: Omit<OutlinePoint, "weak">,
+  point: Draft,
   stated: readonly BriefFact[],
   ctx: OutlineFlagContext,
 ): boolean {
@@ -96,8 +145,14 @@ function labelHook(
  *    overlapsWith names the earlier id;
  *  - filler: a body point whose only content is who it is for, when or
  *    where (audience, date, day, time, place), or one bare fact;
- *  - profile-fill: a body point drawn from the brand profile because the
- *    brief ran out. Never set on a "user" point.
+ *  - filler also: a point of three words or fewer ("Six Saturdays"), a
+ *    fact or a name with nothing said about it, and the prompt left on a
+ *    frame nothing was found for (EMPTY_POINT);
+ *  - profile-fill: a body point drawn from the profile because the brief
+ *    ran out (Addendum A, O2). Its reason says which kind: a statement of
+ *    what the brand is, sells or believes (genericProfile) repeats the
+ *    hook and should go; a point of what sets the brand apart may stand
+ *    if it is true of this offer. Never set on a "user" point.
  * The hook opens the set, so it repeats nothing and is never filler for
  * giving when or where; it is flagged only as a label (labelHook): no
  * figure and fewer than three words of its own beyond the names. The
@@ -105,16 +160,16 @@ function labelHook(
  * is, and swapping it for another point would leave the set with no
  * action.
  */
-export function flagOutline(
-  points: readonly Omit<OutlinePoint, "weak">[],
+export function flagOutline<P extends Draft>(
+  points: readonly P[],
   ctx: OutlineFlagContext,
-): OutlinePoint[] {
+): (P & { weak: OutlineWeak | null })[] {
   const claims = points.map((p) => ({
     text: p.point,
     facts: factsIn(p.point, ctx.facts),
   }));
   return points.map((point, i) => {
-    const weak = (w: OutlineWeak | null): OutlinePoint => ({
+    const weak = (w: OutlineWeak | null): P & { weak: OutlineWeak | null } => ({
       ...point,
       weak: w,
     });
@@ -139,16 +194,22 @@ export function flagOutline(
         overlapsWith: points[earlier].id,
       });
     }
+    if (point.point.trim() === EMPTY_POINT) {
+      return weak({
+        kind: "filler",
+        reason:
+          "Nothing in the brief or profile was left for this slide. Write its point, or delete it.",
+      });
+    }
     const stated = claims[i].facts.map((n) => ctx.facts[n]);
     const filler = fillerReason(point, stated, ctx);
     if (filler) return weak({ kind: "filler", reason: filler });
-    if (point.source === "profile") {
-      return weak({
-        kind: "profile-fill",
-        reason:
-          "Taken from your brand profile, not this brief. Replace it with something about this offer.",
-      });
-    }
-    return weak(null);
+    if (point.source !== "profile") return weak(null);
+    return weak({
+      kind: "profile-fill",
+      reason: drawnFrom(point.point, ctx.genericProfile ?? [])
+        ? "Taken from your brand profile: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer."
+        : "Taken from your brand profile because the brief ran out. Keep it if it is true of this offer; otherwise replace it with something about this offer.",
+    });
   });
 }

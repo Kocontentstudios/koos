@@ -19,6 +19,40 @@ import { sequenceFacts } from "./ledger";
 const NAMES_THE_PIECE =
   /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|presentation|carousel)$/iu;
 
+/**
+ * The offering widened over the names the brief writes in front of it:
+ * a read of "maths crash course" from "WAEC maths crash course" left the
+ * hook free to drop the exam it is for (O1 round-1 critic, MEDIUM 8). An
+ * acronym always joins; a capitalised word joins only mid-sentence, so
+ * "Our" or "Launch" opening a sentence never does.
+ */
+export function widenedOffering(
+  offering: string | null,
+  briefText: string,
+): string | null {
+  if (!offering?.trim()) return offering;
+  const at = briefText.toLowerCase().indexOf(offering.toLowerCase());
+  if (at < 0) return offering;
+  const before = briefText.slice(0, at).split(/(\s+)/);
+  const words: string[] = [];
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    const token = before[i];
+    if (!token) continue;
+    if (/^\s+$/.test(token)) continue;
+    const previous = before
+      .slice(0, i)
+      .reverse()
+      .find((t) => t && !/^\s+$/.test(t));
+    const opensSentence = previous === undefined || /[.!?:]$/.test(previous);
+    const acronym = /^\p{Lu}[\p{Lu}\d]+$/u.test(token);
+    const name = /^\p{Lu}[\p{L}\d-]*$/u.test(token) && !opensSentence;
+    if (!acronym && !name) break;
+    words.unshift(token);
+  }
+  const original = briefText.slice(at, at + offering.length);
+  return words.length > 0 ? `${words.join(" ")} ${original}` : offering;
+}
+
 /** What a set is held to, read once from the brief. */
 export interface SequenceBrief {
   briefText: string;
@@ -79,7 +113,7 @@ export async function readSequenceBrief(
   const offering =
     readOffering && NAMES_THE_PIECE.test(readOffering.trim())
       ? null
-      : readOffering;
+      : widenedOffering(readOffering, briefText);
   return {
     briefText,
     brandName,

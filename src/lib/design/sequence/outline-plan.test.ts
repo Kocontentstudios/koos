@@ -4,9 +4,11 @@ const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
+import { needsFor } from "@/lib/jobs/directions/brief-facts";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { FRAME_BOUNDS, OUTLINE_LIMITS } from "./contract";
 import { actionPoint, clipped, planOutline } from "./outline-plan";
+import { validateApprovedOutline } from "./outline-validate";
 
 const BRIEF =
   "Launch our cold brew at our Yaba bar. It is steeped for 18 hours and served over ice. ₦2,500 a bottle. Launch day is Saturday 15 November, 8am to 2pm. WhatsApp 0803 555 0142 to reserve a bottle.";
@@ -126,6 +128,26 @@ describe("planOutline", () => {
     ).toBe(true);
   });
 
+  it("signs every point so an untouched point keeps its source", async () => {
+    generateObject.mockResolvedValue({ object: arcAnswer([1, 2, 3, 0]) });
+    const { outline } = await plan(4);
+    const ctx = {
+      kind: "carousel" as const,
+      briefText: BRIEF,
+      profileStatements: [],
+    };
+    const untouched = validateApprovedOutline(
+      { kind: "carousel", points: outline.points },
+      ctx,
+    );
+    expect(
+      untouched.ok && untouched.outline.points.map((p) => p.source),
+    ).toEqual(outline.points.map((p) => p.source));
+    expect(
+      untouched.ok && untouched.outline.points.some((p) => p.source === "user"),
+    ).toBe(false);
+  });
+
   it("asks once more when the answer is off the schema", async () => {
     const off = Object.assign(new Error("no object"), {
       name: "AI_NoObjectGeneratedError",
@@ -192,6 +214,32 @@ describe("actionPoint", () => {
     expect(actionPoint(brief()).point).toBe(
       "WhatsApp 0803 555 0142 to reserve a bottle. ₦2,500 a bottle.",
     );
+  });
+
+  /* O1 round-1 critic, LOW 12: "Contact founders@farmlink.ng. $750,000." */
+  it("gives a carried figure in the brief's own short sentence", () => {
+    const deck =
+      "Farmlink rents solar cold rooms to tomato farmers in Kano by the crate. We are raising $750,000. Contact founders@farmlink.ng.";
+    expect(
+      actionPoint(
+        brief({
+          briefText: deck,
+          facts: [
+            {
+              kind: "price",
+              text: "$750,000",
+              needs: needsFor("price", "$750,000"),
+            },
+            {
+              kind: "contact",
+              text: "founders@farmlink.ng",
+              needs: needsFor("contact", "founders@farmlink.ng"),
+            },
+          ],
+          atAction: new Set([0]),
+        }),
+      ).point,
+    ).toBe("Contact founders@farmlink.ng. We are raising $750,000.");
   });
 
   it("asks the owner for an action when the brief gives none, inventing nothing", () => {

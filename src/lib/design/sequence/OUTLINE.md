@@ -66,6 +66,13 @@ Success: `200 {outline: PlannedOutline}`.
 - Ids are `"p1".."pN"` in frame order.
 - `source` is `"brief"` or `"profile"`; the planner never returns `"user"`.
 - `weak` is set by `flagOutline`, never by a model.
+- `title` is about its own point (`outlineTitles`): the arc's title follows
+  the point it was written for when `settleArc` moves points, and a title
+  that shares no word or figure with its point is remade from the point's
+  opening words (`pointTitle`).
+- `sig` is the server's HMAC over `kind`, the brief, `source` and `point`
+  (`outline-sign.ts`). The client sends it back unchanged with an unedited
+  point, and drops it (or lets it go stale) when the user edits the words.
 
 Trace: one log line `design.outline.planned` with `{kind, frames, weak:
 {overlap, filler, profileFill}, modelCalls, ms}`. No brief text in the log.
@@ -73,44 +80,66 @@ Trace: one log line `design.outline.planned` with `{kind, frames, weak:
 ## Weak flags (`flagOutline`, pure)
 
 One flag per point, first match wins. Flags are advisory; generate is never
-blocked by one.
+blocked by one. A flag is advice only if most points do not carry one, so
+the profile source alone is not a flag: the UI already shows `source`.
 
 | kind | When | Example reason |
 |---|---|---|
 | `overlap` | The point makes an earlier point's point (`claimsOverlap` over the brief facts, `namesFree` words ignored). `overlapsWith` is the earlier point's id. | "Says the same as point 2. Give this slide a different point." |
-| `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else). | "Only says when it happens. Add what the reader gets." |
-| `profile-fill` | A body point drawn from the brand profile because the brief ran out. Never on a `"user"` point. | "Taken from your brand profile, not this brief. Replace it with something about this offer." |
+| `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else); a point of three words or fewer ("Six Saturdays", "₦150 per kWh", "Ngozi Ade"); or the prompt left where nothing was found (`EMPTY_POINT`). | "Only says when it happens. Add what the reader gets." |
+| `profile-fill` | A body point drawn from the profile's statements of what the brand is, sells or believes (`genericProfile`: overview, offer, values). Never on a `"user"` point, never on one drawn from `differentiators`. | "Taken from your brand profile: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer." |
 
-Only body points are flagged. The hook opens the set, so it repeats nothing;
-the action's point is how to act, which a date or a place is, and swapping
-it for another point would leave the set with no action. `filler` also
-covers a body point that is one bare fact ("12 places") or too thin to fill
-a slide (fewer than two words of its own beyond names, framing words, its
-logistics and the audience). A body frame the brief and profile left no
-point for gets a prompt to the owner as its words, flagged `filler`. The
-eval (H13 recall) checks that every frame the judge scores 2 or lower for
-repetition in lane AUTO was flagged.
+Only body points are flagged, plus a hook that only names the offer (no
+figure, under three words of its own): "Names the offer but gives no reason
+to swipe." The action's point is how to act, which a date or a place is,
+and swapping it for another point would leave the set with no action.
+
+The eval prints flag recall (every frame the judge scores 2 or lower for
+repetition in lane AUTO should be flagged; at least 0.8), the flag rate
+(flagged body points of all body points) and precision (flagged points the
+judge scored 3 or lower).
 
 ## How the planner builds an outline (`planOutline`)
 
 1. `readSequenceBrief` (`read.ts`): the same brief read `planSequence` makes.
+   The read offering is widened over an acronym or a mid-sentence name the
+   brief writes in front of it (`widenedOffering`: "maths crash course" in
+   "WAEC maths crash course"), so the hook names the whole offering.
 2. `pointPool` and one arc call (`buildArcPrompt`), settled by `settleArc`:
    the outline is the settled arc, surfaced. The hook's point is the arc's
-   angle; each body point is its pool point in its source's words; the
-   action's point is the brief's sentence on how to act plus the facts the
-   action frame carries that it leaves out (`actionPoint`).
-3. Titles are the arc's, in sentence case with the brief's names kept
-   (`sentenceCased`), cut at a word to `OUTLINE_LIMITS.titleChars`.
-4. `flagOutline`, then the trace line.
+   angle; each body point is its pool point in its source's words. A brief
+   fact that is a point on its own is offered in the sentence the brief
+   gives it in (`factPoints`: "Customers pay ₦150 per kWh against ₦420 for
+   diesel" is one point, not two bare prices); a sentence that is the
+   action gives no point, so "Ngozi Ade" from "Contact Ngozi Ade" is not a
+   slide. The action's point is the brief's sentence on how to act plus the
+   facts the action frame carries that it leaves out, each in the brief's
+   own short sentence where it has one ("We are raising $750,000."), else
+   bare (`actionPoint`).
+3. Titles follow their points (`outlineTitles`), in sentence case with the
+   brief's names kept (`sentenceCased`: camel-case names like "FreshFold"
+   and "WhatsApp", "M-Pesa", and a person a sentence opens on, "Contact
+   Ngozi Ade", keep their capitals), cut at a word to
+   `OUTLINE_LIMITS.titleChars`.
+4. Each point is signed (`signPoint`), then `flagOutline`, then the trace
+   line.
 
-## How a source is recomputed (`outlineSourceOf`)
+## How a source is recomputed (`validateApprovedOutline`)
 
-A point is `"brief"` when the brief holds its words verbatim or 80% of its
-content words, else `"profile"` by the same test against the profile's
-statements, else `"user"`. The planner's points restate a clause or join
-two, so they keep most words but not every one; an owner's sentence keeps
-few. A `"user"` point is added to the ledger (`sequenceLedger(..., stated)`)
-and the title sources, so copy may say it.
+1. A point whose `sig` is still the server's signature over its words keeps
+   the source it was planned with (`signedSource`). The planner's own words,
+   a hook angle above all, are never the owner's: before signing, a client
+   that sent the outline back untouched turned "hemmed to your exact length"
+   into an owner fact the copy was then forced to keep.
+2. Any other point is `"brief"` when the brief holds its words verbatim or
+   80% of its content words, else `"profile"` by the same test against the
+   profile's statements (`outlineSourceOf`), else `"user"`.
+
+A `"user"` point is added to the ledger (`sequenceLedger(..., stated)`) and
+the title sources, so copy may say it. The key is `OUTLINE_SIGNING_SECRET`,
+else one derived from `DATABASE_URL` (shared by every instance), else a
+per-process key for tests and scripts. A signature binds the brief, so one
+from another brief does not verify.
 
 ## Client editing rules (O3)
 
@@ -157,13 +186,19 @@ On the set path:
    - `id`, `id-repeat`: an id not matching `^[a-z0-9-]{1,40}$`, or repeated;
    - `empty`, `too-long`: title or point blank after trimming, or past
      `OUTLINE_LIMITS`;
-   - `markup`: `<`, `>`, `{{`, `}}`, a backtick, or a control character.
-     The words are drawn on a frame and sent to the copy model, so neither
-     may receive markup or a template.
-2. Sources are recomputed, never trusted: a point whose words the brief
-   holds is `"brief"`, the profile's `"profile"`, anything else `"user"`. A
-   `"user"` point counts as stated: copy may use it and the ledger does not
-   flag it invented.
+   - `markup`: `<`, `>`, `{{`, `}}`, a backtick, or a control character,
+     after NFKC folding, so fullwidth `＜script＞` is refused too. The words
+     are drawn on a frame and sent to the copy model, so neither may
+     receive markup or a template.
+   - `injection`: words written to the model, not the reader ("ignore all
+     earlier instructions", "system prompt", "you are now", "write X on
+     every slide"). Narrow on purpose: "Ignore the queue, book online" is
+     copy.
+2. Sources are recomputed, never trusted: a signed, unedited point keeps
+   its planned source; otherwise a point whose words the brief holds is
+   `"brief"`, the profile's `"profile"`, anything else `"user"`. A `"user"`
+   point counts as stated: copy may use it and the ledger does not flag it
+   invented.
 3. `frames` becomes `outline.points.length`. A `frames` field that
    disagrees with it is `400 {error: "frames does not match the outline"}`.
 4. Quota is checked for `points.length` units (`checkDesignQuota(...,
@@ -176,9 +211,8 @@ The planner, given an approved outline (O5):
 
 - writes each frame from its own point only, told the other points so it
   does not repeat them;
-- states nothing from a point the user deleted (the deleted points are not
-  sent, and the ledger holds only the approved points plus the brief's hard
-  facts);
+- states nothing from a point the user deleted or replaced (see "Removed
+  points" below);
 - keeps a `"user"` point's claim as written: its copy may shorten it, never
   turn it into a different claim;
 - still holds every hard brief fact on some frame (H5).
@@ -200,10 +234,39 @@ How (`plan.ts`, `outline-arc.ts`):
   (`ownerPointKept`); the ship gate gives the point back
   (`withOwnerPoints`).
 
-A hard brief fact a deleted point carried is still drawn on some frame,
-since H5 outranks the deletion. A clause of the brief that no approved point
-holds is not sent as a point but stays in the request the copy model reads;
-the copy prompt tells it to leave such points out, and the eval counts any
-that leak (`deletedLeaks`).
+### Removed points (O5)
+
+Not sending a point is not enough: the copy model still reads the brand
+profile and the whole brief. The planner builds the pool it would have
+offered (`pointPool`) and takes every pool point no approved point makes as
+removed (`removedPoints`). Then:
+
+- every prompt reads the profile without the removed clauses
+  (`profileWithout`), so a deleted differentiator is never in front of the
+  writer;
+- the copy prompt names the removed points the brief still holds
+  (`removedFromBrief`); a profile point is not named, since naming it would
+  put it back;
+- `removedFaults` is a blocking fault on any frame whose headline or a
+  subheadline sentence makes a removed point and not its own claim;
+- the ship gate cuts such a sentence, or sets such a headline to the
+  frame's claim (`withoutRemoved`).
+
+A hard brief fact a removed point carried is still drawn on some frame,
+since H5 outranks the deletion. The eval counts replaced points that leak
+(lane APPROVED, `deletedLeaks`) and runs a deletion probe on every outline:
+the first body point deleted, the rest sent back signed, and any frame that
+still makes it counted (`withPointDeleted`, "deleted points said anyway").
+
+### Two drafts and an editor
+
+The copy call is made twice at once: the first writer and a second one
+told to write its own draft from scratch (`SECOND_DRAFT`). An editor call
+(`buildPickPrompt`) reads both from frame 2 on and every opening written
+for frame 1, and picks a draft and an opening. Code keeps the pick
+(`settlePick`) unless the picked draft carries more than one blocking fault
+more after frame 1 than the other, or the picked opening scores a coverage
+fault worse than the best one. A failed second draft or pick leaves the
+first draft and its fewest-fault opening.
 
 Response unchanged: `202 {jobId, frames, notice}`.

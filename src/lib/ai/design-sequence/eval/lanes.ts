@@ -16,16 +16,18 @@ import type {
 export const LANES = ["auto", "approved"] as const;
 export type Lane = (typeof LANES)[number];
 
-/** The outline as the client sends it back, untouched. */
+/** The outline as the client sends it back, untouched: every point with
+ *  the signature it was planned with. */
 export function approvedAsPlanned(outline: PlannedOutline): ApprovedOutline {
   return {
     kind: outline.kind,
-    points: outline.points.map(({ id, role, title, point, source }) => ({
+    points: outline.points.map(({ id, role, title, point, source, sig }) => ({
       id,
       role,
       title,
       point,
       source,
+      sig,
     })),
   };
 }
@@ -68,7 +70,8 @@ export function withOwnerPoints(
     if (!flagged || next >= pool.length) return p;
     const to = pool[next++];
     edits.push({ id: p.id, from: p.point, to });
-    return { ...p, point: to, title: ownerTitle(to), source: "user" };
+    const { sig: _planned, ...unsigned } = p;
+    return { ...unsigned, point: to, title: ownerTitle(to), source: "user" };
   });
   return { approved, edits };
 }
@@ -85,7 +88,19 @@ export interface RecallTally {
   recall: number | null;
   /** "case/N frame k: reason" for each low frame code did not flag. */
   missed: string[];
+  /** Body points code flagged weak, of all body points scored. A flag on
+   *  nearly every point passes recall by default and tells the owner
+   *  nothing (O1 round-1 critic, HIGH 3). */
+  bodyFlagged: number;
+  bodyPoints: number;
+  /** Of the flagged points the judge scored, the share it scored at or
+   *  below FLAG_PRECISION_SCORE: how often a flag is right. */
+  precision: number | null;
 }
+
+/* A point the judge scores 3 shares some of another frame's point or
+   wording (judge.ts): a flag on it is advice the owner can use. */
+export const FLAG_PRECISION_SCORE = 3;
 
 export interface RecallInput {
   label: string;
@@ -95,10 +110,14 @@ export interface RecallInput {
 }
 
 /** Of the frames the judge scored low for repetition in lane AUTO, how
- *  many code flagged weak in the outline. */
+ *  many code flagged weak in the outline; and of the body points code
+ *  flagged, how many the judge scored weak too. */
 export function flagRecall(runs: readonly RecallInput[]): RecallTally {
   let low = 0;
   let flagged = 0;
+  let bodyFlagged = 0;
+  let bodyPoints = 0;
+  let flaggedWeak = 0;
   const missed: string[] = [];
   for (const run of runs) {
     const scored = new Map<number, number>();
@@ -107,7 +126,15 @@ export function flagRecall(runs: readonly RecallInput[]): RecallTally {
     }
     for (const [frame, score] of scored) {
       const point = run.outline.points[frame - 1];
-      if (!point || score > LOW_REPETITION) continue;
+      if (!point) continue;
+      if (point.role === "body") {
+        bodyPoints += 1;
+        if (point.weak) {
+          bodyFlagged += 1;
+          if (score <= FLAG_PRECISION_SCORE) flaggedWeak += 1;
+        }
+      }
+      if (score > LOW_REPETITION) continue;
       low += 1;
       if (point.weak) flagged += 1;
       else
@@ -116,7 +143,33 @@ export function flagRecall(runs: readonly RecallInput[]): RecallTally {
         );
     }
   }
-  return { low, flagged, recall: low === 0 ? null : flagged / low, missed };
+  return {
+    low,
+    flagged,
+    recall: low === 0 ? null : flagged / low,
+    missed,
+    bodyFlagged,
+    bodyPoints,
+    precision: bodyFlagged === 0 ? null : flaggedWeak / bodyFlagged,
+  };
+}
+
+/** The planner's outline with its first body point deleted, as an owner
+ *  taking a slide out would, every other point sent back signed; null
+ *  when the outline is already at its kind's fewest points. */
+export function withPointDeleted(
+  outline: PlannedOutline,
+  min: number,
+): { approved: ApprovedOutline; deleted: OwnerEdit } | null {
+  if (outline.points.length - 1 < min) return null;
+  const at = outline.points.findIndex((p) => p.role === "body");
+  if (at < 0) return null;
+  const approved = approvedAsPlanned(outline);
+  const [gone] = approved.points.splice(at, 1);
+  return {
+    approved,
+    deleted: { id: gone.id, from: gone.point, to: "" },
+  };
 }
 
 /** The replaced points a delivered frame still makes: what the owner

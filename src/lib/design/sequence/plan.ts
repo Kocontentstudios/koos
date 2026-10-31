@@ -5,6 +5,7 @@ import {
   buildArcPrompt,
   buildAuditPrompt,
   buildFixPrompt,
+  buildPickPrompt,
   buildSequenceSystemPrompt,
   type ClaimedFrame,
 } from "@/lib/ai/prompts/design-sequence";
@@ -34,7 +35,6 @@ import {
   type CopyFault,
   type FaultRules,
   type Flag,
-  hookScore,
   setFaults,
 } from "./faults";
 import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
@@ -47,8 +47,10 @@ import {
   ownedClaims,
   ownerStatements,
 } from "./outline-arc";
+import { type Draft, settlePick } from "./pick";
 import { profileStatements } from "./points";
 import { failure, frameCountError, readSequenceBrief } from "./read";
+import { profileWithout, removedFromBrief, removedPoints } from "./removed";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, withoutRepeats } from "./repeats";
 import {
@@ -57,6 +59,8 @@ import {
   auditResponseSchema,
   type CopyAnswer,
   copyResponseSchema,
+  type PickAnswer,
+  pickResponseSchema,
   rewriteResponseSchema,
 } from "./schema";
 import { settledTitle, type TitleRules, withSettledTitles } from "./title";
@@ -66,12 +70,13 @@ const ARC_MAX_OUTPUT_TOKENS = 3000;
 /** N frames of copy, the button and the other openings. */
 const COPY_MAX_OUTPUT_TOKENS = 8000;
 const AUDIT_MAX_OUTPUT_TOKENS = 2000;
+const PICK_MAX_OUTPUT_TOKENS = 600;
 const FIX_MAX_OUTPUT_TOKENS = 6000;
 
-/* The brief read, the arc, the copy, the audit and two fix calls are six;
-   the rest covers a schema retry on three of them. Past that a fix is
-   skipped rather than the wait growing. */
-export const MAX_MODEL_CALLS = 9;
+/* The brief read, the arc, two drafts of copy, the editor's pick, the
+   audit and two fix calls are eight; the rest covers a schema retry on two
+   of them. Past that a fix is skipped rather than the wait growing. */
+export const MAX_MODEL_CALLS = 10;
 
 /** Thrown in place of a call past MAX_MODEL_CALLS. */
 export class ModelBudgetError extends Error {
@@ -153,31 +158,6 @@ export function assemblePlan(
   };
 }
 
-/** The hook among `versions` that leaves frame 1 with the fewest faults;
- *  the first (the writer's own pick) on a tie. */
-export function chosenHook(
-  plan: PlannedSequence,
-  versions: readonly Pick<FrameBeat, "headline" | "subheadline">[],
-  rules: FaultRules,
-): { plan: PlannedSequence; index: number } {
-  const hook = plan.frames[0];
-  if (!hook || versions.length === 0) return { plan, index: 0 };
-  const beats = versions.map((v) => ({
-    ...hook,
-    headline: v.headline.trim(),
-    subheadline: v.subheadline.trim(),
-  }));
-  const scores = beats.map((beat) => hookScore(beat, plan, rules));
-  const index = scores.indexOf(Math.min(...scores));
-  return {
-    plan: {
-      ...plan,
-      frames: plan.frames.map((beat, i) => (i === 0 ? beats[index] : beat)),
-    },
-    index,
-  };
-}
-
 /**
  * The set's plan, arc first:
  *  1. The brief is read the way the directions path reads it
@@ -234,11 +214,6 @@ export async function planSequence(
   const aspectRatio =
     kind === "presentation" ? PRESENTATION_ASPECT : context.aspectRatio;
   const hasImage = imageSource !== "none";
-  const system = buildSequenceSystemPrompt(
-    context.brandSummary,
-    Boolean(context.brand?.logoUrl),
-    { memorySummary, recentLayouts: input.recentLayouts },
-  );
   const brief = await readSequenceBrief(context, kind, briefReader);
   let modelCalls = 1;
   const {
@@ -252,17 +227,32 @@ export async function planSequence(
     atAction,
   } = brief;
   const stated = ownerStatements(outline);
-  const pool = outline
-    ? outlinePool(outline, facts)
-    : pointPool({
-        facts,
-        briefText,
-        brand: context.brandSummary,
-        kind,
-        free,
-        slots: frameCount - 1,
-        atAction,
-      });
+  const planned = pointPool({
+    facts,
+    briefText,
+    brand: context.brandSummary,
+    kind,
+    free,
+    slots: frameCount - 1,
+    atAction,
+  });
+  const pool = outline ? outlinePool(outline, facts) : planned;
+  const removedPool = outline
+    ? removedPoints(outline, planned, facts, free)
+    : [];
+  const removed = removedPool.map((p) => p.text);
+  /* Every prompt reads the profile without what the owner took out; the
+     ledger still reads all of it, so a removed point is cut for being
+     removed, not for being invented. */
+  const writing: typeof context = {
+    ...context,
+    brandSummary: profileWithout(context.brandSummary, removed, free),
+  };
+  const system = buildSequenceSystemPrompt(
+    writing.brandSummary,
+    Boolean(context.brand?.logoUrl),
+    { memorySummary, recentLayouts: input.recentLayouts },
+  );
 
   const showImage =
     imageSource === "upload" &&
@@ -366,7 +356,7 @@ export async function planSequence(
   const answered = await ask(
     arcResponseSchema(frameCount),
     (attached) =>
-      buildArcPrompt(context, {
+      buildArcPrompt(writing, {
         kind,
         frameCount,
         aspectRatio,
@@ -406,24 +396,38 @@ export async function planSequence(
       ownedClaims(outline)[i] !== "" && ownedClaims(outline)[i] !== undefined,
   }));
 
-  const copy = await ask(
-    copyResponseSchema(frameCount),
-    () =>
-      buildArcCopyPrompt(context, {
-        kind,
-        frames: claimed,
-        offering,
-        imageSource,
-        aspectRatio,
-        approved: outline !== null,
-      }),
-    COPY_MAX_OUTPUT_TOKENS,
-    { count: frameCount },
-  );
+  const askCopy = (second: boolean) =>
+    ask(
+      copyResponseSchema(frameCount),
+      () =>
+        buildArcCopyPrompt(writing, {
+          kind,
+          frames: claimed,
+          offering,
+          imageSource,
+          aspectRatio,
+          approved: outline !== null,
+          removed: removedFromBrief(removedPool),
+          second,
+        }),
+      COPY_MAX_OUTPUT_TOKENS,
+      { count: frameCount },
+    );
+  /* Two drafts at once, so the second costs no wait. Either one is
+     enough: the set fails only when both do. */
+  const settled = await Promise.allSettled([askCopy(false), askCopy(true)]);
+  const answers = settled.flatMap((r) => {
+    if (r.status === "fulfilled") return [r.value];
+    if (r.reason instanceof ModelBudgetError) throw r.reason;
+    console.error("a sequence draft failed", failure(r.reason));
+    return [];
+  });
+  if (answers.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+  const [copy, secondCopy = null] = answers;
 
   const ledger = sequenceLedger(context, memorySummary, stated);
   const profile = [
-    ...profileStatements(context.brandSummary),
+    ...profileStatements(writing.brandSummary),
     context.brandSummary.targetAudience?.trim() ?? "",
     ...stated,
   ].filter(Boolean);
@@ -449,6 +453,8 @@ export async function planSequence(
     titleSources: titleRules.sources,
     atAction,
     owned,
+    removed,
+    briefText,
   };
   const arcTitles = arc.frames.map((f) => [f.title]);
   const tidy = (frames: readonly FrameBeat[]) =>
@@ -457,10 +463,46 @@ export async function planSequence(
       titleRules,
       arcTitles,
     );
-  const written = assemblePlan({ kind, context }, arcAnswer, arc.frames, copy);
-  const hooks = chosenHook(
-    { ...written, frames: tidy(written.frames) },
-    [written.frames[0], ...copy.otherHooks],
+  const drafts: Draft[] = [copy, secondCopy].flatMap((answer) => {
+    if (!answer) return [];
+    const written = assemblePlan(
+      { kind, context },
+      arcAnswer,
+      arc.frames,
+      answer,
+    );
+    return [
+      {
+        plan: { ...written, frames: tidy(written.frames) },
+        hooks: [written.frames[0], ...answer.otherHooks],
+      },
+    ];
+  });
+  let pick: PickAnswer | null = null;
+  if (drafts.length > 1) {
+    try {
+      pick = await ask(
+        pickResponseSchema,
+        () =>
+          buildPickPrompt(writing, {
+            kind,
+            drafts: drafts.map((d) => d.plan.frames),
+            hooks: drafts.flatMap((d) => d.hooks),
+          }),
+        PICK_MAX_OUTPUT_TOKENS,
+        { looks: false },
+      );
+    } catch (err) {
+      if (err instanceof ModelBudgetError) throw err;
+      console.error(
+        "sequence pick failed; keeping the first draft",
+        failure(err),
+      );
+    }
+  }
+  const hooks = settlePick(
+    drafts,
+    pick ? { set: pick.set === "A" ? 0 : 1, hook: pick.hook - 1 } : null,
     rules,
   );
   let plan = hooks.plan;
@@ -472,7 +514,7 @@ export async function planSequence(
     const audit = await ask(
       auditResponseSchema,
       () =>
-        buildAuditPrompt(context, {
+        buildAuditPrompt(writing, {
           kind,
           frames: plan.frames,
           spares: spares.map((i) => ({ number: i + 1, text: pool[i].text })),
@@ -508,7 +550,7 @@ export async function planSequence(
       const answer = await ask(
         rewriteResponseSchema,
         () =>
-          buildFixPrompt(context, {
+          buildFixPrompt(writing, {
             kind,
             plan: plan.frames,
             frames: claimed,
@@ -601,7 +643,12 @@ export async function planSequence(
     sameAs: [...arc.sameAs].filter((_, i) => i % 2 === 0),
     flagged: [...(rules.flagged ?? []), ...unsourced],
     layoutsChanged: arc.layoutsChanged,
-    hookChosen: hooks.index,
+    drafts: drafts.length,
+    picked: {
+      draft: hooks.draft,
+      hook: hooks.hook,
+      overruled: hooks.overruled,
+    },
     fixRounds,
     gated,
     recased: cased.recased,

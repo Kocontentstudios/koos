@@ -21,6 +21,7 @@ import { echoesHeadline, namesFree, previewedFrames } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
 import { textStatesPrice } from "./points";
+import { removedSaidBy } from "./removed";
 import { withoutFactWords } from "./repeats";
 import { factsUncovered, validateSequence } from "./validate";
 
@@ -88,7 +89,8 @@ const SENTENCE_BREAK = /(?<=[.!?])\s+(?=\S)/;
 
 /* Where a claim of two parts divides: "steeped for 18 hours, then served
    over ice" is a headline and the sentence under it. */
-const CLAIM_JOIN = /,\s+|;\s+|\s+[—–]\s+|\s+(?:and|so|then|while|which)\s+/g;
+const CLAIM_JOIN =
+  /,\s+|;\s+|:\s+|\s+[—–]\s+|\s+(?:and|so|then|while|which)\s+/g;
 /* Each half must say something of its own to stand as a line. */
 const HALF_WORDS = 2;
 
@@ -105,7 +107,7 @@ export function claimHalves(claim: string): [string, string] | null {
       .replace(/^then\s+/i, "");
     /* "Each teen shapes" is not a headline: a half cut at a joining word
        must carry its object as well as its verb. */
-    const headWords = /^[,;]/.test(join[0]) ? HALF_WORDS : HALF_WORDS + 1;
+    const headWords = /^\s*[,;:—–]/.test(join[0]) ? HALF_WORDS : HALF_WORDS + 1;
     if (
       contentStems(head).size >= headWords &&
       contentStems(rest).size >= HALF_WORDS
@@ -246,6 +248,100 @@ class Gate {
     return elsewhere ? null : { headline, subheadline };
   }
 
+  /** A sentence of the brief that says more about `frame`'s headline:
+   *  it shares a word of the headline beyond the names, says something
+   *  the headline does not, gives no contact and no price the action
+   *  frame carries, and no other frame's copy says it. What a bare frame
+   *  takes when its claim cannot be split (O1 round-1 critic, HIGH 6:
+   *  "15 seats", "Six Saturdays" shipped alone). */
+  briefLine(frame: number): string | null {
+    const beat = this.frames[frame];
+    const briefText = this.rules.briefText ?? "";
+    if (!beat || !briefText.trim()) return null;
+    const headline = contentStems(beat.headline, this.free);
+    const { facts, atAction } = this.rules;
+    const contact = facts.filter((f) => f.kind === "contact");
+    const asked = facts.filter(
+      (f, n) =>
+        f.kind === "price" &&
+        (this.plan.kind === "carousel" || atAction?.has(n)),
+    );
+    const said = beat.headline
+      .trim()
+      .replace(/[.!?]$/, "")
+      .toLowerCase();
+    for (const raw of briefText.split(SENTENCE_BREAK)) {
+      /* "Six Saturdays from 10 January, at Bodija" under "Six Saturdays"
+         says the headline twice; the rest of the sentence is what the
+         reader does not have yet. */
+      const at = said ? raw.toLowerCase().indexOf(said) : -1;
+      const rest =
+        at >= 0
+          ? `${raw.slice(0, at)} ${raw.slice(at + said.length)}`
+              .replace(/^[\s,;:–—-]+/, "")
+              .replace(/\s+([,.;:])/g, "$1")
+              .trim()
+          : raw;
+      const line = asSentence(rest);
+      const mine = contentStems(line, this.free);
+      const shared = [...headline].filter((s) => mine.has(s)).length;
+      const more = [...mine].filter((s) => !headline.has(s)).length;
+      if ((shared === 0 && at < 0) || more < HALF_WORDS) continue;
+      if (!fitsSubheadline(line)) continue;
+      if (contact.some((f) => says(line, f.text))) continue;
+      if (
+        frame !== this.frames.length - 1 &&
+        asked.some((f) => textStatesPrice(f, line))
+      ) {
+        continue;
+      }
+      if (restatesHeadline({ ...beat, subheadline: line })) continue;
+      const removed = this.rules.removed ?? [];
+      if (removedSaidBy(line, removed, this.claims[frame] ?? "", this.free)) {
+        continue;
+      }
+      const elsewhere = this.frames.some(
+        (other, i) =>
+          i !== frame &&
+          textsOverlap(
+            line,
+            `${other.headline} ${other.subheadline}`,
+            this.free,
+          ),
+      );
+      if (!elsewhere) return line;
+    }
+    return null;
+  }
+
+  /** A bare headline of two parts ("40 pieces — no two patterns are the
+   *  same") as a headline and the sentence under it, when both stand and
+   *  no other frame says either. */
+  headlineInHalves(frame: number): Partial<FrameBeat> | null {
+    const beat = this.frames[frame];
+    const halves = beat ? claimHalves(beat.headline) : null;
+    if (!beat || !halves) return null;
+    const [headline, subheadline] = halves;
+    if (
+      !fitsHeadline(headline, this.plan.kind) ||
+      headlineGrammar(headline) !== null ||
+      !fitsSubheadline(subheadline) ||
+      restatesHeadline({ ...beat, headline, subheadline })
+    ) {
+      return null;
+    }
+    const elsewhere = this.frames.some(
+      (other, i) =>
+        i !== frame &&
+        textsOverlap(
+          subheadline,
+          `${other.headline} ${other.subheadline}`,
+          this.free,
+        ),
+    );
+    return elsewhere ? null : { headline, subheadline };
+  }
+
   withoutUnsourced() {
     this.frames.forEach((_, frame) => {
       for (let pass = 0; pass < 4; pass += 1) {
@@ -268,7 +364,7 @@ class Gate {
              go the names alone, never an empty line. */
           const claim =
             own ??
-            (frame === 0 ? this.namesLine({ ...beat, subheadline: "" }) : null);
+            (frame === 0 ? this.hookLine({ ...beat, subheadline: "" }) : null);
           const done = this.set(
             frame,
             { subheadline: claim ?? "" },
@@ -473,6 +569,24 @@ class Gate {
       const halves = this.claimInHalves(frame);
       if (halves) {
         this.set(frame, halves, "bare headline given its claim in two lines");
+        return;
+      }
+      const line = this.briefLine(frame);
+      if (line) {
+        this.set(
+          frame,
+          { subheadline: line },
+          "bare headline given the brief's line on it",
+        );
+        return;
+      }
+      const split = this.headlineInHalves(frame);
+      if (split) {
+        this.set(
+          frame,
+          split,
+          "bare headline split into a headline and a line",
+        );
       }
     });
   }
@@ -546,6 +660,43 @@ class Gate {
     });
   }
 
+  /** A frame's lines that make a point the owner took out: its
+   *  subheadline's such sentences cut, else the line set to the frame's
+   *  own claim (O5). */
+  withoutRemoved() {
+    const removed = this.rules.removed ?? [];
+    if (removed.length === 0) return;
+    this.frames.forEach((beat, frame) => {
+      const own = this.claims[frame] ?? "";
+      const said = (line: string) =>
+        removedSaidBy(line, removed, own, this.free) !== null;
+      if (said(beat.subheadline)) {
+        const kept = beat.subheadline
+          .split(SENTENCE_BREAK)
+          .filter((s) => !said(s));
+        const subheadline =
+          kept.length > 0
+            ? asSentence(kept.join(" "))
+            : (this.claimAs(frame, "subheadline") ?? "");
+        this.set(
+          frame,
+          { subheadline },
+          "removed point cut from the subheadline",
+        );
+      }
+      if (said(this.frames[frame].headline)) {
+        const claim = this.claimAs(frame, "headline");
+        if (claim && !said(claim)) {
+          this.set(
+            frame,
+            { headline: claim },
+            "removed point's headline set to its claim",
+          );
+        }
+      }
+    });
+  }
+
   /** The hook's subheadline without its sentences that spend a later
    *  frame's point, while one of its own is left. */
   withoutHookPreviews() {
@@ -594,7 +745,7 @@ class Gate {
     const subheadline =
       kept.length > 0
         ? asSentence(kept.join(" "))
-        : (this.namesLine({ ...hook, subheadline: "" }) ?? "");
+        : (this.hookLine({ ...hook, subheadline: "" }) ?? "");
     this.set(0, { subheadline }, "price cut from the hook's subheadline");
   }
 
@@ -613,7 +764,7 @@ class Gate {
     const subheadline =
       kept.length > 0
         ? asSentence(kept.join(" "))
-        : (this.namesLine({ ...hook, subheadline: "" }) ?? "");
+        : (this.hookLine({ ...hook, subheadline: "" }) ?? "");
     if (subheadline === hook.subheadline) return;
     this.set(0, { subheadline }, "hook subheadline echoing its headline cut");
   }
@@ -646,12 +797,58 @@ class Gate {
     );
   }
 
+  /** The brief's own sentence that gives every name `hook` leaves out
+   *  ("Lumenfield runs 6 solar mini-grids in Benue…"), else namesLine: a
+   *  bare "Lumenfield." under a headline reads as a label left behind (O1
+   *  round-1 critic, HIGH 6). No price the action carries, no contact. */
+  hookLine(hook: FrameBeat): string | null {
+    const bare = this.namesLine(hook);
+    if (!bare) return null;
+    const { offering, names, facts } = this.rules;
+    const wanted = [offering, ...names].filter(
+      (n): n is string =>
+        Boolean(n?.trim()) && !copyNamesOffering(hook, n ?? ""),
+    );
+    const contact = facts.filter((f) => f.kind === "contact");
+    const prices = facts.filter((f) => f.kind === "price");
+    for (const raw of (this.rules.briefText ?? "").split(SENTENCE_BREAK)) {
+      const line = asSentence(raw);
+      const beat = { ...hook, subheadline: line };
+      if (!wanted.every((n) => copyNamesOffering(beat, n))) continue;
+      if (!fitsSubheadline(line) || wordCount(line) < 4) continue;
+      if (contact.some((f) => says(line, f.text))) continue;
+      if (
+        this.plan.kind === "carousel" &&
+        prices.some((f) => textStatesPrice(f, line))
+      ) {
+        continue;
+      }
+      if (textsOverlap(line, hook.headline, this.free)) continue;
+      if (echoesHeadline(beat, this.rules.brandName, offering)) continue;
+      const later = this.frames
+        .slice(1)
+        .some((other) =>
+          textsOverlap(
+            line,
+            `${other.headline} ${other.subheadline}`,
+            this.free,
+          ),
+        );
+      if (!later) return line;
+    }
+    return bare;
+  }
+
   /** The hook with every name it must give (the offering, and the brand
    *  when the brief makes it the subject) that no version gave, written
    *  as a sentence opening its subheadline. */
   withNamesOnHook() {
     const hook = this.frames[0];
-    const named = hook ? this.namesLine(hook) : null;
+    const named = hook
+      ? hook.subheadline
+        ? this.namesLine(hook)
+        : this.hookLine(hook)
+      : null;
     if (!hook || !named) return;
     const joined = hook.subheadline ? `${named} ${hook.subheadline}` : named;
     const subheadline =
@@ -672,6 +869,7 @@ export function shipGate(plan: PlannedSequence, rules: GateRules): GateResult {
   gate.withoutHeadlinePrices();
   gate.withoutHookPrices();
   gate.withoutTwins();
+  gate.withoutRemoved();
   gate.withoutHookPreviews();
   gate.withoutHookEcho();
   gate.withWholeHeadlines();

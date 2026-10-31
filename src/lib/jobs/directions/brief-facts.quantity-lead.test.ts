@@ -25,6 +25,11 @@ describe("factStated on a quantity in an ordinary sentence", () => {
     ],
     ["2.1 million litres sold in 2025", "2.1 million litres sold in 2025"],
     ["12 places", "We hold 12 places a term"],
+    [
+      "2.1 million litres sold in 2025",
+      "In 2025 Aqualoop sold 2.1 million litres",
+    ],
+    ["10 seats", "Up to 10 seats"],
     ["1,140 farmers", "Already 1,140 farmers rent from us"],
   ])("%s is stated by %s", (fact, copy) => {
     expect(factStated(quantity(fact), copy)).toBe(true);
@@ -39,6 +44,15 @@ describe("factStated on a quantity in an ordinary sentence", () => {
     ["12 places", "At least 12 places"],
     ["16 places", "16 places to see around Ibadan"],
     ["60 more ATMs", "160 more ATMs"],
+    /* O1 round-1 critic, MEDIUM 10: a cap or a second batch is another
+       claim than the brief's exact increment. */
+    ["60 more ATMs", "Up to 60 more ATMs"],
+    ["60 more ATMs", "Another 60 more ATMs next year after the first 60"],
+    [
+      "2.1 million litres sold in 2025",
+      "In 2024 Aqualoop sold 2.1 million litres",
+    ],
+    ["2.1 million litres sold in 2025", "Aqualoop sold 2.1 million litres"],
   ])("%s is not stated by %s", (fact, copy) => {
     expect(factStated(quantity(fact), copy)).toBe(false);
   });

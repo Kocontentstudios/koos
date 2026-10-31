@@ -11,6 +11,7 @@ import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
 import { factOnlyFrames, misplacedPrices, statesPrice } from "./points";
+import { removedFaults } from "./removed";
 import { sequenceRepeats } from "./repeats";
 import { titleProblems } from "./title";
 import { frameCopy, isWordBudgetProblem, validateSequence } from "./validate";
@@ -70,6 +71,12 @@ export interface FaultRules {
   /** By frame, the owner's own words from the approved outline, or "":
    *  copy may shorten them, never change the claim (O5). */
   owned?: readonly string[];
+  /** Points the owner took out of the approved outline (removedPoints):
+   *  no frame may make one (O5). */
+  removed?: readonly string[];
+  /** The brief, whose own sentences the ship gate may set under a bare
+   *  headline: words no reader can call invented. */
+  briefText?: string;
 }
 
 /** One finding of the audit call, held to the copy it was made on. */
@@ -486,6 +493,7 @@ export function setFaults(
     ...bareFrames(frames),
     ...restatedSubheadlines(frames),
     ...ownerPointsChanged(frames, rules.owned ?? [], free),
+    ...removedFaults(frames, rules.removed ?? [], rules.claims ?? [], free),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
     ...factOnlyFrames(frames, facts).map(minor),
     ...misplacedPrices(frames, facts, kind).map(minor),
@@ -532,7 +540,7 @@ export function bareFrames(frames: readonly FrameBeat[]): CopyFault[] {
             frame,
             field: "subheadline" as const,
             detail:
-              "it has a headline and nothing under it; add one sentence with a concrete detail of this frame's claim that the headline leaves out",
+              "it has a headline and nothing under it; add one sentence with a concrete detail of this frame's claim that the headline leaves out, or, where the brief and profile give none, what the claim plainly means for the reader, adding no fact",
             weight: MAJOR,
           },
         ]

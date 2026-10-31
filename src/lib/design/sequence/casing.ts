@@ -67,6 +67,11 @@ const CALENDAR = new Set(
 
 const isWord = (token: string) => /^\p{L}/u.test(token);
 const isAcronym = (token: string) => /^\p{Lu}{2,}\b/u.test(token);
+/* A capital after a small letter is the name's own spelling ("FreshFold",
+   "WhatsApp", "iFresh"), never a casing choice, so no casing touches it. */
+const isCamel = (token: string) => /\p{Ll}\p{Lu}/u.test(token);
+/* "M-Pesa", "E-Naira": a lone capital before a hyphen spells a name. */
+const isLetterName = (token: string) => /^\p{Lu}-\p{Lu}/u.test(token);
 const bare = (token: string) =>
   token.toLowerCase().replace(/[^\p{L}\p{N}'’-]/gu, "");
 
@@ -78,7 +83,10 @@ export function properNouns(sources: readonly (string | null | undefined)[]) {
     const tokens = (source ?? "").split(/\s+/).filter(Boolean);
     tokens.forEach((token, i) => {
       const startsSentence = i === 0 || /[.!?:]$/.test(tokens[i - 1]);
-      if (!startsSentence && /^\p{Lu}/u.test(token)) names.add(bare(token));
+      if (isCamel(token) || isLetterName(token)) names.add(bare(token));
+      else if (!startsSentence && /^\p{Lu}/u.test(token)) {
+        names.add(bare(token));
+      }
     });
   }
   return names;
@@ -100,11 +108,16 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
     const capped = (t: string | undefined) =>
       t !== undefined && /^\p{Lu}/u.test(t) && isWord(t);
     let run: string[] = [];
+    let runOpensSentence = false;
     const close = () => {
       if (run.length >= 2) {
         runs.push(run);
         for (const w of run) inRun.add(w);
       }
+      /* "Contact Ngozi Ade" opens its sentence, so its first word may be
+         a verb: the name is also the run without it. Two words ("Kiln
+         Coffee") are left whole, since either may be the name. */
+      if (runOpensSentence && run.length >= 3) runs.push(run.slice(1));
       run = [];
     };
     tokens.forEach((token, i) => {
@@ -112,6 +125,7 @@ export function nameRuns(sources: readonly (string | null | undefined)[]): {
       const word = bare(token);
       const leadsRun = run.length === 0 && SMALL_WORDS.has(word);
       if (capped(token) && !leadsRun) {
+        if (run.length === 0) runOpensSentence = startsSentence;
         run.push(word);
         const nextOn = capped(tokens[i + 1]) && !/[.!?:,;]$/.test(token);
         if (!startsSentence && run.length === 1 && !nextOn) alone.add(word);
@@ -156,6 +170,7 @@ export function headlineCase(
         isWord(w) &&
         !SMALL_WORDS.has(bare(w)) &&
         !isAcronym(w) &&
+        !isCamel(w) &&
         !names.has(bare(w)),
     );
   if (words.length < 2) return null;
@@ -165,7 +180,14 @@ export function headlineCase(
 }
 
 function lowered(part: string, names: ReadonlySet<string>): string {
-  if (!isWord(part) || isAcronym(part) || names.has(bare(part))) return part;
+  if (
+    !isWord(part) ||
+    isAcronym(part) ||
+    isCamel(part) ||
+    names.has(bare(part))
+  ) {
+    return part;
+  }
   return /^\p{Lu}\p{Ll}/u.test(part) || /^\p{Lu}$/u.test(part)
     ? `${part[0].toLowerCase()}${part.slice(1)}`
     : part;
@@ -175,6 +197,7 @@ function lowered(part: string, names: ReadonlySet<string>): string {
    word, even where it opens the headline: the parts after a hyphen follow
    the set's casing. */
 function afterHyphens(token: string, names: ReadonlySet<string>): string {
+  if (isLetterName(token)) return token;
   const [head, ...rest] = token.split("-");
   return [head, ...rest.map((part) => lowered(part, names))].join("-");
 }

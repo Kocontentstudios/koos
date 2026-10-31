@@ -10,6 +10,7 @@ import {
   flagRecall,
   ownerTitle,
   withOwnerPoints,
+  withPointDeleted,
 } from "./lanes";
 
 const pt = (
@@ -25,6 +26,7 @@ const pt = (
   source: "brief",
   facts: [],
   weak: weak ? { kind: "filler", reason: "Only says when it happens." } : null,
+  sig: `sig-${id}`,
 });
 
 const OUTLINE: PlannedOutline = {
@@ -110,6 +112,42 @@ describe("flagRecall", () => {
 
   it("is null when the judge scored no frame low", () => {
     expect(flagRecall([]).recall).toBeNull();
+  });
+
+  it("reports how many body points are flagged and how often a flag is right", () => {
+    const tally = flagRecall([
+      {
+        label: "cafe/5",
+        outline: OUTLINE,
+        frameScores: [
+          { frame: 1, repetition: 5 },
+          { frame: 2, repetition: 2 },
+          { frame: 3, repetition: 4 },
+          { frame: 4, repetition: 5 },
+          { frame: 5, repetition: 4 },
+        ],
+      },
+    ]);
+    expect(tally).toMatchObject({ bodyFlagged: 2, bodyPoints: 3 });
+    expect(tally.precision).toBeCloseTo(1 / 2);
+  });
+});
+
+describe("lane DELETE", () => {
+  it("deletes the first body point and sends the rest back signed", () => {
+    const result = withPointDeleted(OUTLINE, 2);
+    expect(result?.deleted.from).toBe("For students in Yaba");
+    expect(result?.approved.points.map((p) => p.id)).toEqual([
+      "p1",
+      "p3",
+      "p4",
+      "p5",
+    ]);
+    expect(result?.approved.points.every((p) => p.sig)).toBe(true);
+  });
+
+  it("deletes nothing from an outline at its fewest points", () => {
+    expect(withPointDeleted(OUTLINE, 5)).toBeNull();
   });
 });
 

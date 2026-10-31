@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nameRuns, withConsistentCasing } from "./casing";
+import { nameRuns, sentenceCased, withConsistentCasing } from "./casing";
 import { beatOf } from "./fixtures";
 import { isCutTitle } from "./title";
 
@@ -80,5 +80,41 @@ describe("isCutTitle on a name cut short", () => {
   });
   it("keeps a name with its area code as whole", () => {
     expect(isCutTitle("Clinic in Ikeja", sources)).toBe(false);
+  });
+});
+
+/* O1 round-1 critic, HIGH 7: "Book at freshFold" and "Led by ngozi ade"
+   shipped live. */
+describe("sentenceCased keeps a name's own capitals", () => {
+  it.each([
+    ["Join CodeNest camp", ["CodeNest"], "Join CodeNest camp"],
+    ["Book At FreshFold Today", ["FreshFold"], "Book at FreshFold today"],
+    ["Pay With KudiPay Today", ["KudiPay"], "Pay with KudiPay today"],
+    ["Order On WhatsApp", [], "Order on WhatsApp"],
+    ["Book Via PayPal Or WhatsApp", [], "Book via PayPal or WhatsApp"],
+    ["Shop iFresh Deals", [], "Shop iFresh deals"],
+    ["Built On AWS And M-Pesa", ["Lumenfield"], "Built on AWS and M-Pesa"],
+    ["Take-Home Starter", [], "Take-home starter"],
+  ])("%s -> %s", (text, sources, want) => {
+    expect(sentenceCased(text, sources)).toBe(want);
+  });
+
+  it("keeps a person's name the brief opens a sentence with a verb before", () => {
+    const sources = ["Contact Ngozi Ade, ngozi@lumenfield.ng."];
+    expect(sentenceCased("Meet Ngozi Ade", sources)).toBe("Meet Ngozi Ade");
+    expect(sentenceCased("Led By Ngozi Ade", sources)).toBe("Led by Ngozi Ade");
+  });
+
+  it("does not lower a camel-case brand the set's casing pass recases", () => {
+    const frames = withConsistentCasing(
+      [
+        beatOf({ headline: "Clothes washed and folded", title: "Washed" }),
+        beatOf({ headline: "Picked up from your door", title: "Pickup" }),
+        beatOf({ headline: "Book A Pickup Today", title: "Book At FreshFold" }),
+      ],
+      ["FreshFold picks up from your door."],
+    ).frames;
+    expect(frames[2].title).toBe("Book at FreshFold");
+    expect(frames[2].headline).toBe("Book a pickup today");
   });
 });

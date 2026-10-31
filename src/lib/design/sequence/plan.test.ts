@@ -30,6 +30,9 @@ const isFix = (o: unknown) =>
   promptOf(o).includes("as written, with each frame's claim");
 const isAudit = (o: unknown) =>
   promptOf(o).includes("report what you find. Rewrite nothing.");
+const isPick = (o: unknown) => promptOf(o).includes("You are the editor.");
+const isSecondDraft = (o: unknown) =>
+  promptOf(o).includes("You are the second writer");
 
 const context = (over: Record<string, unknown> = {}) =>
   directionsContext({
@@ -144,6 +147,7 @@ function answer({
     if (isArc(o)) return { object: arc };
     if (isCopy(o)) return { object: copy };
     if (isAudit(o)) return { object: audit };
+    if (isPick(o)) return { object: { set: "A", hook: 1, why: "" } };
     if (isFix(o)) {
       const next = fixes[fix] ?? { frames: [] };
       fix += 1;
@@ -183,9 +187,20 @@ describe("planSequence: arc first", () => {
     answer();
     const result = await plan();
     const order = generateObject.mock.calls.map(([o]) =>
-      isArc(o) ? "arc" : isCopy(o) ? "copy" : isAudit(o) ? "audit" : "fix",
+      isArc(o)
+        ? "arc"
+        : isCopy(o)
+          ? "copy"
+          : isPick(o)
+            ? "pick"
+            : isAudit(o)
+              ? "audit"
+              : "fix",
     );
-    expect(order.slice(0, 3)).toEqual(["arc", "copy", "audit"]);
+    expect(order.slice(0, 5)).toEqual(["arc", "copy", "copy", "pick", "audit"]);
+    expect(
+      generateObject.mock.calls.filter(([o]) => isSecondDraft(o)),
+    ).toHaveLength(1);
     expect(result.plan.frames.map((f) => f.role)).toEqual([
       "hook",
       "body",
@@ -259,12 +274,40 @@ describe("planSequence: arc first", () => {
     );
   });
 
+  /* Eval tuning pass 2: the first draft missed the schema twice and the
+     set threw although the second draft had come back. */
+  it("delivers from the second draft when the first fails", async () => {
+    answer();
+    const base = generateObject.getMockImplementation();
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isCopy(o) && !isSecondDraft(o)) {
+        throw Object.assign(new Error("no object"), {
+          name: "AI_NoObjectGeneratedError",
+        });
+      }
+      return base?.(o);
+    });
+    const result = await plan();
+    expect(result.plan.frames).toHaveLength(4);
+    expect(promptsOf(isPick)).toEqual([]);
+  });
+
+  it("fails the set only when both drafts fail", async () => {
+    answer();
+    const base = generateObject.getMockImplementation();
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isCopy(o)) throw new Error("provider down");
+      return base?.(o);
+    });
+    await expect(plan()).rejects.toThrow("provider down");
+  });
+
   it("makes no fix call for a set with nothing at fault", async () => {
     answer();
     const result = await plan();
     expect(promptsOf(isFix)).toEqual([]);
     expect(result.faults).toEqual([]);
-    expect(result.modelCalls).toBe(4);
+    expect(result.modelCalls).toBe(6);
     expect(result.repaired).toBe(false);
   });
 
@@ -838,7 +881,7 @@ describe("planSequence: calls and inputs", () => {
     expect(trace).toMatchObject({
       kind: "carousel",
       frames: 4,
-      modelCalls: 4,
+      modelCalls: 6,
     });
     expect(trace.arc).toHaveLength(4);
     info.mockRestore();

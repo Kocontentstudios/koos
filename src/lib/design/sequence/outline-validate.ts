@@ -12,6 +12,7 @@ import {
   SEQUENCE_KINDS,
   type SequenceKind,
 } from "./contract";
+import { signedSource } from "./outline-sign";
 
 export interface OutlineValidateContext {
   /** The kind the server resolved from the brief; the client's is checked
@@ -34,10 +35,23 @@ const ID = /^[a-z0-9-]{1,40}$/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
 const MARKUP = /[<>`]|\{\{|\}\}|[\u0000-\u0008\u000b-\u001f\u007f]/;
 
+/* Words addressed to the model rather than the reader: an outline point
+   is copy a frame states, so a sentence telling the writer what to do is
+   refused, not drawn (O4). Narrow on purpose: "Ignore the queue, book
+   online" is copy; "ignore all earlier instructions" is not. */
+const INSTRUCTION = [
+  /\b(?:ignore|disregard|forget|override|bypass)\b[^.!?]{0,40}\b(?:instructions?|prompts?|rules|guidelines|directions|system)\b/i,
+  /\b(?:system|developer)\s+(?:prompt|message|instructions?)\b/i,
+  /\byou\s+are\s+now\b|\bact\s+as\s+(?:an?|the)\s+(?:ai|assistant|model|language)\b/i,
+  /\b(?:new|updated|real)\s+instructions?\b/i,
+  /\b(?:write|put|add|print|say)\b[^.!?]{0,60}\bon\s+(?:every|each|all)\s+(?:slides?|frames?)\b/i,
+];
+
 /* Generous caps so a hostile body fails on its own rules, not on a
    parser limit, while a megabyte of text is still refused as shape. */
 const RAW_TEXT_MAX = 2000;
 const RAW_POINTS_MAX = 50;
+const RAW_SIG_MAX = 200;
 
 const outlineSchema = z.object({
   kind: z.enum(SEQUENCE_KINDS),
@@ -49,6 +63,7 @@ const outlineSchema = z.object({
         title: z.string().max(RAW_TEXT_MAX),
         point: z.string().max(RAW_TEXT_MAX),
         source: z.enum(OUTLINE_SOURCES),
+        sig: z.string().max(RAW_SIG_MAX).optional(),
       }),
     )
     .max(RAW_POINTS_MAX),
@@ -126,12 +141,24 @@ function textProblems(
   raw: string,
   i: number,
 ): OutlineProblem[] {
-  if (MARKUP.test(raw)) {
+  /* NFKC folds fullwidth and small-form brackets ("＜script＞", "﹤") to
+     the ASCII ones the check refuses. */
+  const folded = raw.normalize("NFKC");
+  if (MARKUP.test(folded)) {
     return [
       {
         point: i,
         rule: "markup",
         detail: `the ${field} holds markup or a control character`,
+      },
+    ];
+  }
+  if (INSTRUCTION.some((pattern) => pattern.test(folded))) {
+    return [
+      {
+        point: i,
+        rule: "injection",
+        detail: `the ${field} is written to the writer, not the reader; say what the slide tells the reader`,
       },
     ];
   }
@@ -157,9 +184,11 @@ function textProblems(
  * count within FRAME_BOUNDS, hook first, cta last and only last, ids
  * unique and well formed, title and point non-empty and within
  * OUTLINE_LIMITS, no markup. Text is trimmed and its whitespace collapsed.
- * Every source is recomputed: a point whose words the brief holds is
- * "brief", the profile's "profile", anything else "user", which copy treats
- * as stated. Pure.
+ * Every source is recomputed, never read from the client: a point whose
+ * signature still matches its words keeps the source it was planned with
+ * (the planner's own wording is never the owner's); any other point is
+ * "brief" when the brief holds its words, "profile" when the profile does,
+ * else "user", which copy treats as stated.
  */
 export function validateApprovedOutline(
   raw: unknown,
@@ -232,7 +261,11 @@ export function validateApprovedOutline(
           role: p.role,
           title: flat(p.title),
           point,
-          source: outlineSourceOf(point, ctx),
+          source:
+            signedSource(
+              { kind: ctx.kind, briefText: ctx.briefText, point },
+              p.sig,
+            ) ?? outlineSourceOf(point, ctx),
         };
       }),
     },

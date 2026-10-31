@@ -232,6 +232,105 @@ function makesAPoint(
   );
 }
 
+const capitalisedFirst = (text: string) =>
+  text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+
+/* The part of a sentence on the far side of `fact` from the ask: "We are
+   raising $1.2M seed to build 14 more grids" says what the money builds
+   after its price. Its joining word goes with the ask. */
+function besideAsk(sentence: string, ask: BriefFact): string | null {
+  const at = sentence.toLowerCase().indexOf(ask.text.toLowerCase());
+  if (at < 0) return null;
+  const sides = [
+    sentence.slice(at + ask.text.length),
+    sentence.slice(0, at),
+  ].map((side) =>
+    side
+      .replace(/^[\s,;:–—-]*(?:to|and|so|for|which|that)?\s+/i, "")
+      .replace(/[\s,;:–—-]+$/, "")
+      .replace(/\b(?:we\s+are|we're)\s+(?:raising|asking\s+for)\s*$/i, "")
+      .trim(),
+  );
+  return sides.find((side) => side.split(/\s+/).length >= 2) ?? null;
+}
+
+/**
+ * The brief's facts that are a point on their own, each in the sentence
+ * the brief gives it in: "Customers pay ₦150 per kWh against ₦420 for
+ * diesel" is one point, where its two prices alone were two bare slides
+ * that only made sense together (O1 round-1 critic, HIGH 3 and 4). A
+ * sentence that is the action ("Contact Ngozi Ade, ngozi@…") gives no
+ * point: the person named there is how to act, not a slide. A sentence
+ * that also holds the ask gives the part beside it. A fact no sentence
+ * holds is offered in its own words, as before.
+ */
+export function factPoints({
+  facts,
+  briefText,
+  kind,
+  atAction,
+}: Pick<PoolInput, "facts" | "briefText" | "kind"> & {
+  atAction: ReadonlySet<number>;
+}): ArcPoint[] {
+  const factsIn = (text: string) =>
+    facts.flatMap((f, n) =>
+      f.kind !== "product" && factStated(f, text) ? [n] : [],
+    );
+  const sentences = sentencesOf(briefText).map((s) =>
+    s.trim().replace(/[.!]+$/, ""),
+  );
+  const isAction = (sentence: string) =>
+    THE_ACTION.test(sentence) ||
+    facts.some((f) => f.kind === "contact" && factStated(f, sentence));
+  const points: ArcPoint[] = [];
+  const grouped = new Map<number, number[]>();
+  facts.forEach((fact, n) => {
+    if (!isClaimFact(fact, n, kind, atAction)) return;
+    /* A price beside a rival price ("₦150 per kWh against ₦420 for
+       diesel") is not read as stated, by design; its sentence still
+       holds it word for word. */
+    const at = sentences.findIndex(
+      (s) =>
+        factStated(fact, s) ||
+        s.toLowerCase().includes(fact.text.toLowerCase()),
+    );
+    if (at < 0) {
+      points.push({ source: "fact", text: fact.text, facts: [n] });
+      return;
+    }
+    grouped.set(at, [...(grouped.get(at) ?? []), n]);
+  });
+  for (const [at, own] of [...grouped].sort(([a], [b]) => a - b)) {
+    const sentence = sentences[at];
+    if (isAction(sentence)) continue;
+    const ask = [...atAction].find((n) => factStated(facts[n], sentence));
+    const text = ask === undefined ? sentence : besideAsk(sentence, facts[ask]);
+    const holds = (n: number) =>
+      text?.toLowerCase().includes(facts[n].text.toLowerCase()) ?? false;
+    /* Every fact the sentence gives word for word is this point's,
+       "by end of 2027" with "14 more grids", so code never draws it onto
+       another slide (O1 round-1 critic, MEDIUM 9). */
+    const held = facts.flatMap((f, n) =>
+      f.kind !== "product" && f.kind !== "contact" && holds(n) ? [n] : [],
+    );
+    const stated = text
+      ? [...new Set([...factsIn(text), ...held])].sort((a, b) => a - b)
+      : [];
+    if (text && own.every((n) => stated.includes(n))) {
+      points.push({
+        source: "fact",
+        text: capitalisedFirst(text),
+        facts: stated.filter((n) => !atAction.has(n)),
+      });
+      continue;
+    }
+    for (const n of own) {
+      points.push({ source: "fact", text: facts[n].text, facts: [n] });
+    }
+  }
+  return points;
+}
+
 /**
  * Every distinct point the set may make, the brief's first: its own
  * clauses, then its facts that are a point on their own and no clause
@@ -261,11 +360,7 @@ export function pointPool({
       text,
       facts: factsIn(text),
     })),
-    ...facts.flatMap((fact, n) =>
-      isClaimFact(fact, n, kind, atAction)
-        ? [{ source: "fact" as const, text: fact.text, facts: [n] }]
-        : [],
-    ),
+    ...factPoints({ facts, briefText, kind, atAction }),
     ...profilePoints(brand, briefText)
       .sort(
         (a, b) => Number(a.field === "values") - Number(b.field === "values"),
@@ -316,8 +411,10 @@ export function pointPool({
     hookHasTheDate ? ["day", "time"] : ["day", "date", "time"],
   );
   /* Where and when are one point to a reader: split over two frames they
-     read as housekeeping padded out to fill the set. */
-  const logistics = [...where, ...when];
+     read as housekeeping padded out to fill the set. A fact a point
+     already gives is that point's, not padding's. */
+  const given = new Set(pool.flatMap((p) => p.facts));
+  const logistics = [...where, ...when].filter((n) => !given.has(n));
   if (short() && logistics.length > 0) {
     pool.push({
       source: "fact",

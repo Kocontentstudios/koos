@@ -202,3 +202,20 @@ export const auditResponseSchema = z.object({
 });
 
 export type AuditAnswer = z.infer<typeof auditResponseSchema>;
+
+/** The editor's pick between two drafts of a set and among their
+ *  openings (buildPickPrompt). */
+export const pickResponseSchema = z.object({
+  set: z
+    .enum(["A", "B"])
+    .describe("The draft whose frames after the first read better in order."),
+  hook: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .describe("The number of the strongest opening for the chosen draft."),
+  why: z.string().max(1000).describe("One sentence on both choices."),
+});
+
+export type PickAnswer = z.infer<typeof pickResponseSchema>;

@@ -6,7 +6,14 @@ import {
   restatesHeadline,
   setFaults,
 } from "./faults";
-import { CAFE_BRIEF, CAFE_FACTS, cafePlan, withFrame } from "./fixtures";
+import {
+  beatOf,
+  CAFE_BRIEF,
+  CAFE_FACTS,
+  cafePlan,
+  fact,
+  withFrame,
+} from "./fixtures";
 import { claimHalves, type GateRules, shipGate } from "./gate";
 
 const STEEPED = "It is steeped for 18 hours and served over ice.";
@@ -129,5 +136,121 @@ describe("shipGate: the owner's point stays the owner's (O5)", () => {
       f.detail.includes("owner's point"),
     );
     expect(faults).toEqual([]);
+  });
+});
+
+/* O1 round-1 critic, HIGH 6: "15 seats" and "Six Saturdays" shipped as
+   bare middle frames, and "Lumenfield." as a hook's whole subheadline. */
+describe("shipGate never ships a bare frame it can fill from the brief", () => {
+  const BRIEF =
+    "WAEC maths crash course for SS3 students. Six Saturdays from 10 January, 9am to 12pm, at 4 Awolowo Avenue, Bodija. Every class works through past papers marked by WAEC examiners. ₦40,000 for the full course. 15 seats. Register at brightpath.ng.";
+  const FACTS = [
+    fact("product", "WAEC maths crash course"),
+    fact("quantity", "Six Saturdays"),
+    fact("date", "10 January"),
+    fact("time", "9am to 12pm"),
+    fact("place", "4 Awolowo Avenue, Bodija"),
+    fact("price", "₦40,000 for the full course"),
+    fact("quantity", "15 seats"),
+    fact("contact", "brightpath.ng"),
+  ];
+  const plan = {
+    ...cafePlan(),
+    frames: [
+      beatOf({
+        role: "hook",
+        headline: "Pass WAEC maths in six weeks",
+        subheadline: "The WAEC maths crash course starts 10 January.",
+      }),
+      beatOf({ headline: "Marked by WAEC examiners" }),
+      beatOf({ headline: "Six Saturdays" }),
+      beatOf({
+        role: "cta",
+        headline: "Register at brightpath.ng",
+        cta: "Register now",
+        footerLines: ["₦40,000 for the full course", "15 seats"],
+      }),
+    ],
+  };
+  const gateRules: GateRules = {
+    frameCount: 4,
+    facts: FACTS,
+    offering: "WAEC maths crash course",
+    hasImage: false,
+    brandName: "Bright Path",
+    names: ["WAEC maths crash course"],
+    ledger: factLedger([BRIEF, "Bright Path"], 3),
+    claims: [
+      "",
+      "Every class works through past papers marked by WAEC examiners",
+      "Six Saturdays",
+      "",
+    ],
+    unsourced: [],
+    briefText: BRIEF,
+  };
+
+  it("gives each bare middle frame a sentence under it", () => {
+    const shipped = shipGate(plan, gateRules).plan;
+    expect(bareFrames(shipped.frames)).toEqual([]);
+    expect(shipped.frames[1].subheadline).toBe(
+      "Every class works through past papers.",
+    );
+    expect(shipped.frames[2].subheadline).toMatch(/^From 10 January/);
+  });
+
+  it("writes the hook's missing name as the brief's sentence, not the bare name", () => {
+    const deck =
+      "Lumenfield runs 6 solar mini-grids in Benue market towns. Customers pay ₦150 per kWh against ₦420 for diesel. Contact Ngozi Ade, ngozi@lumenfield.ng.";
+    const named = shipGate(
+      {
+        ...plan,
+        kind: "presentation",
+        frames: [
+          beatOf({ role: "hook", headline: "Power at 40% below diesel" }),
+          beatOf({
+            headline: "₦150 per kWh",
+            subheadline: "Customers pay against ₦420 for diesel.",
+          }),
+          beatOf({
+            role: "cta",
+            headline: "Join the round",
+            cta: "Email Ngozi",
+          }),
+        ],
+      },
+      {
+        ...gateRules,
+        frameCount: 3,
+        facts: [
+          fact("price", "₦150 per kWh"),
+          fact("contact", "ngozi@lumenfield.ng"),
+        ],
+        offering: null,
+        brandName: "Lumenfield",
+        names: ["Lumenfield"],
+        ledger: factLedger([deck, "Lumenfield"], 3),
+        claims: ["", "", ""],
+        briefText: deck,
+      },
+    ).plan;
+    expect(named.frames[0].subheadline).toBe(
+      "Lumenfield runs 6 solar mini-grids in Benue market towns.",
+    );
+  });
+});
+
+describe("shipGate splits a bare two-part headline", () => {
+  it("gives 'Steeped for 18 hours — then served over ice' a line under it", () => {
+    const plan = withFrame(cafePlan(), 2, {
+      headline: "Steeped for 18 hours — then served over ice",
+      subheadline: "",
+    });
+    const shipped = shipGate(
+      plan,
+      rules({ claims: ["", "", "", "", ""] }),
+    ).plan;
+    expect(shipped.frames[2].headline).toBe("Steeped for 18 hours");
+    expect(shipped.frames[2].subheadline).toBe("Served over ice.");
   });
 });

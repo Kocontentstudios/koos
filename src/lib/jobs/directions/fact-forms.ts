@@ -64,6 +64,9 @@ export interface FactForm {
   text: string;
   tokens: CopyToken[];
   guard: Guard | null;
+  /** Parts of the fact the guard finds in the field rather than the run
+   *  holds ("2025" of "sold in 2025" opening the sentence). */
+  carries?: readonly string[];
   /** The fact's kind, which says what another number beside it is
    *  (rivalled). */
   kind?: string;
@@ -779,12 +782,30 @@ const COUNT_CHANGERS = [
   "above",
   "beyond",
   "past",
+  "another",
 ];
 const counted: Guard = (around) =>
   (startsClause(around) ||
     (around.before?.kind === "word" &&
       !word(around.before, ...COUNT_CHANGERS))) &&
   notToDo(around);
+/* "Up to 10 seats" is a class of ten, but "up to 60 more ATMs" is a
+   ceiling on a plan the brief states as a number: an increment the brief
+   gives exactly is not stated by its cap. */
+const countedIncrement: Guard = (around) =>
+  counted(around) &&
+  !(word(around.before, "to") && word(around.beforeThat, "up"));
+const countedFor = (text: string): Guard =>
+  /\bmore\b/i.test(text) ? countedIncrement : counted;
+
+/* "2.1 million litres sold in 2025" is stated by "In 2025 Aqualoop sold
+   2.1 million litres": the year may open the sentence, so a form without
+   its trailing "in 2025" counts where the same field gives that year. */
+const YEAR = /^(?:19|20)\d\d$/;
+const countedInYear =
+  (year: string): Guard =>
+  (around) =>
+    counted(around) && around.field.some((t) => t.text === year);
 
 /* Participles a count is put after or before with one meaning: "2.1
    million litres sold in 2025" is "sold 2.1 million litres in 2025". */
@@ -826,14 +847,29 @@ function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   while (core.length > 1 && word(core[core.length - 1], ...COUNT_TAIL)) {
     core = core.slice(0, -1);
   }
-  const forms = [form(own, counted)];
+  const forms = [form(own, countedFor(own))];
   if (!hasWord(core) || !isNumber(core[0])) return forms;
   const [n, ...rest] = core.map((t) => t.text);
   const noun = rest.join(" ");
   /* "Just 20 more spots" is 20 spots (round-9 code critic, FN8). */
-  forms.push(form(`${n} ${noun}`, counted), form(`${n} more ${noun}`, counted));
+  forms.push(
+    form(`${n} ${noun}`, countedFor(noun)),
+    form(`${n} more ${noun}`, countedIncrement),
+  );
   const moved = participleFirst(core);
   if (moved) forms.push(form(moved, counted));
+  const year = core.at(-1)?.text ?? "";
+  if (core.length > 3 && YEAR.test(year) && word(core.at(-2), "in")) {
+    const yearless = core.slice(0, -2);
+    const inYear = countedInYear(year);
+    const withYear = (text: string): FactForm => ({
+      ...form(text, inYear),
+      carries: [year],
+    });
+    forms.push(withYear(yearless.map((t) => t.text).join(" ")));
+    const movedYearless = participleFirst(yearless);
+    if (movedYearless) forms.push(withYear(movedYearless));
+  }
   if (rest.length === 1 && /s$/i.test(noun)) {
     for (const label of [`${noun}:`, `${noun} left:`]) {
       for (const lead of ["", "only ", "just "]) {
@@ -1319,7 +1355,10 @@ function wholeForms(
     guards.includes(g) ? guards.indexOf(g) : guards.push(g) - 1;
   const whole = forms.filter((f) => {
     const key = `${f.tokens.map((t) => t.key).join(" ")}|${guardId(f.guard)}`;
-    if (seen.has(key) || partsMissing(parts, f).length > 0) return false;
+    const missing = partsMissing(parts, f).filter(
+      (name) => !f.carries?.includes(name),
+    );
+    if (seen.has(key) || missing.length > 0) return false;
     seen.add(key);
     return true;
   });

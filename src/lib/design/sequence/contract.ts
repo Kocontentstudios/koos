@@ -240,6 +240,11 @@ export interface OutlinePoint {
   /** The brief facts this point states, in the brief's words. */
   facts: string[];
   weak: OutlineWeak | null;
+  /** The server's signature over the planned words and their source
+   *  (outline-sign.ts). Sent back untouched with an unedited point, so its
+   *  source survives the round trip; an edited point's no longer matches
+   *  and its words become the owner's. */
+  sig: string;
 }
 
 /** What POST /api/design/outline answers with. */
@@ -257,11 +262,12 @@ export interface PlannedOutline {
 }
 
 /** One point as the client sends it back. `source` is advisory only: the
- *  server recomputes it (validateApprovedOutline). */
+ *  server recomputes it (validateApprovedOutline), keeping a planned
+ *  point's source only where `sig` still matches its words. */
 export type ApprovedOutlinePoint = Pick<
   OutlinePoint,
   "id" | "role" | "title" | "point" | "source"
->;
+> & { sig?: string };
 
 /** What POST /api/design/generate accepts as `approvedOutline`. */
 export interface ApprovedOutline {
@@ -280,7 +286,8 @@ export type OutlineRule =
   | "id-repeat"
   | "empty"
   | "too-long"
-  | "markup";
+  | "markup"
+  | "injection";
 
 export interface OutlineProblem {
   /** Zero-based point index; null for a problem of the outline as a whole. */
