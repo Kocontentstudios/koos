@@ -34,6 +34,7 @@ import {
   type DirectionsView,
   dialogWidthFor,
 } from "./directions-flow-view";
+import { DiscardOutlineConfirm } from "./discard-outline-confirm";
 import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
@@ -69,13 +70,17 @@ export const DIRECTIONS_POPUP_CLASS =
 
 /* Scroll the contents, not the popup: the close button is positioned against
    the popup, so scrolling that carries the X off-screen. The scroller spans
-   the popup's padding (-m-4 p-4) because a scroll box clips whatever crosses
-   its edge: flush with the content, it cut the 2px-offset focus outline off
-   every edge control, and the footer could not bleed to the popup's edge.
-   Padding does not stop the browser scrolling a newly focused control flush
-   with the edge, which clipped its outline again; scroll-padding does. */
+   the popup's side and bottom padding (-mx-4 -mb-4, px-4 pb-4) because a
+   scroll box clips whatever crosses its edge: flush with the content, it cut
+   the 2px-offset focus outline off every edge control, and the footer could
+   not bleed to the popup's edge. Its top edge sits at the close button's
+   bottom (8px inset plus 28px, or 44px on a phone or touch screen), so a
+   scrolled field never passes under the X and a tap meant for the field
+   can't close the dialog. Padding does not stop the browser scrolling a
+   newly focused control flush with the edge, which clipped its outline
+   again; scroll-padding does. */
 export const DIRECTIONS_SCROLL_CLASS =
-  "-m-4 flex flex-col overflow-y-auto p-4 scroll-py-2";
+  "-mx-4 -mb-4 mt-5 flex flex-col overflow-y-auto px-4 pt-2 pb-4 scroll-py-2 max-sm:mt-9 [@media(hover:none)]:mt-9";
 
 const NO_FRAME_ACTIONS: ReadonlySet<string> = new Set();
 const NO_FRAMES_WAITING: ReadonlySet<number> = new Set();
@@ -122,6 +127,7 @@ export function DesignDirectionsDialog({
   const [sendNotices, setSendNotices] = useState<Record<string, SendNotice>>(
     {},
   );
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const lastImage = useRef<DesignImageChoice | null>(null);
   const multiFrame = useMultiFrameOffered();
   /* Studio hands over the attachments' design type and the brief and
@@ -287,27 +293,43 @@ export function DesignDirectionsDialog({
     }
   }
 
+  /* Closing resets the flow, and an edited outline can't be got back: a new
+     plan costs another rate-limited call and says something different. */
+  const outlineEdited =
+    step === "outline" &&
+    outline.state.status === "ready" &&
+    outline.state.draft.edited;
+
+  function closeFlow() {
+    setStep("choose");
+    setWaitingOnUpload(false);
+    upload.clear();
+    outline.reset();
+    setFromOutline(false);
+    setConfirmingDiscard(false);
+    clearRunState();
+    onOpenChange(false);
+  }
+
   function handleOpenChange(
     next: boolean,
     details?: DialogPrimitive.Root.ChangeEventDetails,
   ) {
-    if (
-      !next &&
-      details?.reason === "escape-key" &&
-      escapeLayers.dismissInnermost()
-    ) {
+    if (next) {
+      onOpenChange(true);
+      return;
+    }
+    if (details?.reason === "escape-key" && escapeLayers.dismissInnermost()) {
       details.cancel();
       return;
     }
-    if (!next) {
-      setStep("choose");
-      setWaitingOnUpload(false);
-      upload.clear();
-      outline.reset();
-      setFromOutline(false);
-      clearRunState();
+    /* Every way out (Escape, the X, Android's back gesture) asks first. */
+    if (outlineEdited) {
+      details?.cancel();
+      setConfirmingDiscard(true);
+      return;
     }
-    onOpenChange(next);
+    closeFlow();
   }
 
   const handlers: DirectionsHandlers = {
@@ -464,8 +486,8 @@ export function DesignDirectionsDialog({
                       };
 
   /* A click beside the dialog is usually a slip, and closing resets the
-     flow; it may only dismiss when nothing would be thrown away. Escape and
-     the X stay deliberate ways out. */
+     flow; it may only dismiss when nothing would be thrown away. An edited
+     outline is guarded on every path, so a slip there asks nothing. */
   const pointerDismissable =
     view.step === "choose" ||
     (view.step === "upload" && view.upload.status === "idle") ||
@@ -473,11 +495,7 @@ export function DesignDirectionsDialog({
       view.regeneratingSlot === null &&
       view.sendingId === null) ||
     (view.step === "set-results" && view.frameActions.size === 0) ||
-    (view.step === "outline" &&
-      !view.starting &&
-      !(
-        view.outline.state.status === "ready" && view.outline.state.draft.edited
-      ));
+    (view.step === "outline" && !view.starting && !outlineEdited);
 
   return (
     <Dialog
@@ -503,6 +521,11 @@ export function DesignDirectionsDialog({
             </EscapeLayerProvider>
           </FlowChromeProvider>
         </div>
+        <DiscardOutlineConfirm
+          open={confirmingDiscard}
+          onKeep={() => setConfirmingDiscard(false)}
+          onDiscard={closeFlow}
+        />
       </DialogContent>
     </Dialog>
   );

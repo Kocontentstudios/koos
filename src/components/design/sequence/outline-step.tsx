@@ -88,7 +88,7 @@ function BackButton({ onBack }: { onBack: () => void }) {
 
 function Heading({ kind }: { kind: SequenceKind }) {
   return (
-    <div className="flex flex-col gap-1.5 pr-8 pb-4 max-sm:pr-14 [@media(hover:none)]:pr-14">
+    <div className="flex flex-col gap-1.5 pb-4">
       <FlowTitle>Plan your {kindNoun(kind)}</FlowTitle>
       <FlowDescription>
         Each point becomes one slide. Change the words, add or remove slides,
@@ -479,13 +479,15 @@ function PointCard({
           : "var(--border-control)",
       }}
     >
-      {/* Wraps so three 44px buttons drop under the heading on a narrow
-          phone instead of squeezing it. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* From 360px the source badge wraps under the slide name so the three
+          44px buttons keep the heading's row; a stacked row cost every card
+          another 52px of scrolling. Narrower than that, the buttons drop
+          under the heading instead of squeezing it. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 min-[360px]:flex-nowrap">
         <h3
           id={headingId}
           aria-label={`Slide ${index + 1} · ${role}, ${sourceLabel(point.source)}`}
-          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]"
+          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px]"
         >
           <span className="font-semibold text-foreground">
             Slide {index + 1} · {role}
@@ -578,19 +580,18 @@ function PointCard({
   );
 }
 
-/* Not numbered: it stands where the deleted card was, and the slides after
-   it already took their new numbers. */
+/* Named by its title, not a number: the slides after it already took their
+   new numbers, and after a move "slide 3" would name a card still on
+   screen. Not a list item either, so the outline still counts only slides. */
 function UndoRow({
   id,
   removed,
-  slide,
   canUndo,
   limitNote,
   onUndo,
 }: {
   id: string;
   removed: OutlinePoint;
-  slide: number;
   canUndo: boolean;
   limitNote: string | null;
   onUndo: () => void;
@@ -599,13 +600,13 @@ function UndoRow({
   const noteId = `${id}-note`;
   return (
     <li
+      role="none"
       data-testid="undo-delete"
       className="flex list-none flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed px-4 py-2"
       style={{ borderColor: "var(--border-control)" }}
     >
       <p className="text-[13px] text-[var(--text-secondary)]">
-        Deleted slide {slide}
-        {title ? `, “${title}”` : ""}.
+        {title ? `Deleted “${title}”.` : "Deleted a slide with no title."}
       </p>
       <Button
         id={id}
@@ -616,7 +617,11 @@ function UndoRow({
         onClick={onUndo}
         disabled={!canUndo}
         focusableWhenDisabled
-        aria-label={`Undo deleting slide ${slide}${title ? `, ${title}` : ""}`}
+        aria-label={
+          title
+            ? `Undo deleting “${title}”`
+            : "Undo deleting the untitled slide"
+        }
         aria-describedby={limitNote ? noteId : undefined}
       >
         <Undo2 aria-hidden="true" />
@@ -875,7 +880,6 @@ function ReadyOutline({
     <UndoRow
       id={undoId}
       removed={removed.point}
-      slide={removed.index + 1}
       canUndo={canRestore(draft) && !starting}
       limitNote={
         canAdd(draft)
@@ -893,7 +897,7 @@ function ReadyOutline({
             Re-plan label never reflow the row. */}
         <div
           data-testid="outline-count-row"
-          className="flex flex-col items-start gap-2 pr-8 max-sm:pr-14 [@media(hover:none)]:pr-14"
+          className="flex flex-col items-start gap-2"
         >
           <p className="text-[13px] text-[var(--text-secondary)]">
             <span className="font-semibold text-foreground">
@@ -955,7 +959,7 @@ function ReadyOutline({
             </Fragment>
           ))}
           {undoAt === before.length ? undoRow : null}
-          <li className="list-none">
+          <li role="none" className="list-none">
             <Button
               type="button"
               variant="ghost"

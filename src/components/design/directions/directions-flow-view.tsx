@@ -158,7 +158,7 @@ function Header({
   description: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 pr-8 pb-4 max-sm:pr-14 [@media(hover:none)]:pr-14">
+    <div className="flex flex-col gap-1.5 pb-4">
       <FlowTitle>{title}</FlowTitle>
       <FlowDescription>{description}</FlowDescription>
     </div>

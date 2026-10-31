@@ -64,15 +64,26 @@ follow what is on screen:
   "No slide says … any more" warning shows.
 - Overlap reasons name the earlier slide by where it sits now.
 
-Deleting a body point leaves an "Undo" row where the card was (not numbered),
-and focus moves to it. Undo puts the newest deletion back at its place with
+Deleting a body point leaves an "Undo" row where the card was, named by the
+slide's title rather than its number (a later move would make the number name
+another card), and focus moves to it. The row and the Add button are
+`role="none"`, so the outline list counts slides only. Undo puts the newest deletion back at its place with
 its source and flag, newest first, and is held at the kind's maximum with a
 note saying why. A re-plan clears it.
 
+Once the outline is edited, closing would lose work a new plan can't give
+back, so every way out of the dialog (Escape, the X, a tap beside it,
+Android's back gesture) opens `DiscardOutlineConfirm` instead: focus on "Keep
+editing", and Escape or a tap beside the question keeps the edits. Escape in
+"Replace with my own point" still closes only that form first. An untouched
+outline closes at once. The dialog's scroll box starts below the X, so no
+field ever scrolls under it.
+
 On a phone (below `sm`, or any `hover: none` screen) every control in the
 step is a 44px target (UI spec 11.3): move and delete grow to 44x44 with 8px
-between them and wrap under the card heading when the row is too narrow, and
-the `size="sm"` buttons grow to 44px tall. The count line sits above the count
+between them, sharing the card heading's row from 360px (the source badge
+wraps under the slide name) and wrapping under it below that, and the
+`size="sm"` buttons grow to 44px tall. The count line sits above the count
 control at every width, so the pending note never reflows the row.
 
 Body points move up and down (hook and action stay put); the move is

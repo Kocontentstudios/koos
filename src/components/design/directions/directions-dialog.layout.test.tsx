@@ -13,7 +13,10 @@ import {
 } from "@/components/design/sequence/outline-step";
 import type { OutlineController } from "@/components/design/sequence/use-outline";
 import { Button } from "@/components/ui/button";
-import { DIALOG_CONTENT_CLASS } from "@/components/ui/dialog";
+import {
+  DIALOG_CLOSE_CLASS,
+  DIALOG_CONTENT_CLASS,
+} from "@/components/ui/dialog";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import {
   appCssFor,
@@ -163,7 +166,10 @@ const VIEWS: [string, DirectionsView][] = [
   ],
 ];
 
-function dialogMarkup(view: DirectionsView): string {
+function dialogMarkup(
+  view: DirectionsView,
+  { closeButton = false } = {},
+): string {
   return renderToStaticMarkup(
     <div
       role="dialog"
@@ -183,6 +189,18 @@ function dialogMarkup(view: DirectionsView): string {
           />
         </FlowChromeProvider>
       </div>
+      {closeButton ? (
+        <Button
+          data-slot="dialog-close"
+          data-testid="close"
+          variant="ghost"
+          size="icon-sm"
+          className={DIALOG_CLOSE_CLASS}
+          aria-label="Close"
+        >
+          x
+        </Button>
+      ) : null}
     </div>,
   );
 }
@@ -410,32 +428,122 @@ describe("outline step count control", () => {
     },
   );
 
-  /* The dialog's close button sits over the scroll box, so a row that can
-     reach the top of the view keeps the same right gutter the heading has. */
-  it.each([390, 768, 1440])(
-    "keeps the count row clear of the close button at %ipx",
+  /* A scrolled field under the X turns a tap on the field's corner into a
+     close (it covered 19px of the hook's Point field at 390px). This scrolls
+     the whole outline and checks no visible part of any control ever sits
+     under it, on a phone, a touch tablet and a desktop. */
+  it.each([
+    [320, false],
+    [390, false],
+    [768, true],
+    [768, false],
+    [1440, false],
+  ] as const)(
+    "never scrolls a control under the close button at %ipx (touch: %s)",
+    async (width, touch) => {
+      const markup = dialogMarkup(
+        { step: "outline", outline: OUTLINE_AFTER_DELETE, starting: false },
+        { closeButton: true },
+      );
+      const context = await browser.newContext({
+        viewport: { width, height: 640 },
+        hasTouch: touch,
+        isMobile: touch,
+      });
+      const page = await context.newPage();
+      try {
+        await page.setContent(
+          pageHtml(markup, await appCssFor(markup), "light"),
+        );
+        await page.evaluate(() => document.fonts.ready);
+        const report = await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(
+            "[data-testid=scroller]",
+          );
+          const close = document.querySelector<HTMLElement>(
+            "[data-testid=close]",
+          );
+          if (!scroller || !close) throw new Error("dialog not rendered");
+          const x = close.getBoundingClientRect();
+          const covered: string[] = [];
+          const max = scroller.scrollHeight - scroller.clientHeight;
+          for (let top = 0; top <= max + 8; top += 8) {
+            scroller.scrollTop = Math.min(top, max);
+            const view = scroller.getBoundingClientRect();
+            for (const el of scroller.querySelectorAll<HTMLElement>(
+              "button, input, select, textarea",
+            )) {
+              const r = el.getBoundingClientRect();
+              const shownTop = Math.max(r.top, view.top);
+              const shownBottom = Math.min(r.bottom, view.bottom);
+              const overlapX =
+                Math.min(r.right, x.right) - Math.max(r.left, x.left);
+              const overlapY =
+                Math.min(shownBottom, x.bottom) - Math.max(shownTop, x.top);
+              if (overlapX > 0.5 && overlapY > 0.5) {
+                covered.push(
+                  `${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 30)} at scrollTop ${scroller.scrollTop}`,
+                );
+              }
+            }
+          }
+          return {
+            covered: [...new Set(covered)],
+            scrolled: max > 0,
+            closeSize: [x.width, x.height],
+          };
+        });
+        expect(report.scrolled).toBe(true);
+        expect(report.covered).toEqual([]);
+        expect(report.closeSize).toEqual(
+          width < 640 || touch ? [44, 44] : [28, 28],
+        );
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  /* A row of their own costs every card 52px more scrolling. From 360px
+     move and delete share the heading's row and the badge wraps instead,
+     without touching them. */
+  it.each([360, 390, 1440])(
+    "keeps move and delete on the heading's row at %ipx",
     async (width) => {
-      const markup = dialogMarkup(outline);
+      const markup = dialogMarkup({
+        step: "outline",
+        outline: OUTLINE_AFTER_DELETE,
+        starting: false,
+      });
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       try {
         await page.setContent(
-          pageHtml(markup, await appCssFor(markup), "dark"),
+          pageHtml(markup, await appCssFor(markup), "light"),
         );
-        const gutters = await page.evaluate(() => {
-          const row = document.querySelector<HTMLElement>(
-            "[data-testid=outline-count-row]",
-          );
-          const heading = document
-            .querySelector("h2")
-            ?.closest<HTMLElement>("div");
-          if (!row || !heading) throw new Error("outline not rendered");
-          return {
-            row: getComputedStyle(row).paddingRight,
-            heading: getComputedStyle(heading).paddingRight,
-          };
-        });
-        expect(Number.parseFloat(gutters.row)).toBeGreaterThanOrEqual(32);
-        expect(gutters.row).toBe(gutters.heading);
+        await page.evaluate(() => document.fonts.ready);
+        const rows = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>("li[data-point]")]
+            .filter((card) => card.querySelector("button[aria-label^=Delete]"))
+            .map((card) => {
+              const heading = card.querySelector("h3")?.getBoundingClientRect();
+              const buttons = [
+                ...card.querySelectorAll<HTMLElement>(
+                  "button[aria-label^=Move], button[aria-label^=Delete]",
+                ),
+              ].map((b) => b.getBoundingClientRect());
+              if (!heading || buttons.length !== 3) {
+                throw new Error("card not rendered");
+              }
+              return {
+                sameRow: buttons.every(
+                  (b) => b.top < heading.bottom && b.bottom > heading.top,
+                ),
+                clear: heading.right <= Math.min(...buttons.map((b) => b.left)),
+              };
+            }),
+        );
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.every((r) => r.sameRow && r.clear)).toBe(true);
       } finally {
         await page.close();
       }

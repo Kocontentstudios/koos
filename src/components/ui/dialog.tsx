@@ -55,6 +55,9 @@ export function renderInertUnderNestedDialog(
 export const DIALOG_CONTENT_CLASS =
   "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95";
 
+/* Exported so layout tests place the X exactly where the dialog does. */
+export const DIALOG_CLOSE_CLASS = "absolute top-2 right-2";
+
 function DialogContent({
   className,
   children,
@@ -79,7 +82,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
+                className={DIALOG_CLOSE_CLASS}
                 size="icon-sm"
               />
             }

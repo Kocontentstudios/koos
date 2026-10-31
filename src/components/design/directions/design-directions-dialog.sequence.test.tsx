@@ -1,5 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BRAND,
@@ -7,6 +8,7 @@ import {
   plannedOutline,
   SET,
 } from "@/components/design/sequence/fixtures";
+import { TOUCH_HEIGHT } from "@/components/design/sequence/outline-step";
 import { buildSet } from "@/components/design/sequence/set-model";
 import {
   FRAME_STILL_RUNNING,
@@ -532,5 +534,176 @@ describe("the outline step in the dialog", () => {
     );
     await clickBeside();
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+/* An edited outline can't be got back once the dialog closes: a new plan is
+   another rate-limited call and says something different. Every way out
+   asks first; an untouched outline still closes at once. */
+describe("closing an edited outline", () => {
+  function Controlled({
+    onOpenChange,
+  }: {
+    onOpenChange: (o: boolean) => void;
+  }) {
+    const [open, setOpen] = useState(true);
+    return (
+      <DesignDirectionsDialog
+        open={open}
+        onOpenChange={(next) => {
+          onOpenChange(next);
+          setOpen(next);
+        }}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={runState()}
+        ticketContext={{ briefId: "brief-1", designType: "Instagram carousel" }}
+      />
+    );
+  }
+
+  async function openEdited() {
+    const onOpenChange = vi.fn();
+    render(<Controlled onOpenChange={onOpenChange} />, flags(true));
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    await screen.findByRole("list", { name: /^Outline/ });
+    const point = screen.getByRole("textbox", { name: "Point, slide 2" });
+    await userEvent.clear(point);
+    await userEvent.type(point, "Hand-woven in Abeokuta by our own weavers");
+    return { onOpenChange, point };
+  }
+
+  const confirm = () =>
+    screen.queryByRole("alertdialog", { name: "Discard your outline edits?" });
+  const closeButton = () =>
+    within(
+      screen.getByRole("dialog", { name: "Plan your carousel" }),
+    ).getByRole("button", { name: "Close" });
+
+  it("asks before Escape in a field throws the edits away", async () => {
+    const { onOpenChange, point } = await openEdited();
+    expect(point).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(confirm()).toBeInTheDocument();
+    expect(point.closest("[inert]")).not.toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Keep editing" }),
+      ).toHaveFocus(),
+    );
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps every edit on Keep editing, and gives focus back to the field", async () => {
+    const { onOpenChange, point } = await openEdited();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(confirm()).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Point, slide 2" })).toHaveValue(
+      "Hand-woven in Abeokuta by our own weavers",
+    );
+    await waitFor(() => expect(point).toHaveFocus());
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(outlineFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a second Escape as Keep editing, never as Discard", async () => {
+    const { onOpenChange } = await openEdited();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(confirm()).toBeNull());
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Point, slide 2" })).toHaveValue(
+      "Hand-woven in Abeokuta by our own weavers",
+    );
+  });
+
+  it("treats a tap beside the question as Keep editing", async () => {
+    const { onOpenChange } = await openEdited();
+    await userEvent.keyboard("{Escape}");
+    const backdrops = document.querySelectorAll('[data-slot="dialog-overlay"]');
+    const top = backdrops[backdrops.length - 1];
+    if (!top) throw new Error("no backdrop");
+    await userEvent.click(top);
+    await waitFor(() => expect(confirm()).toBeNull());
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("list", { name: /^Outline/ })).toBeInTheDocument();
+  });
+
+  it("asks before the X throws a deletion away", async () => {
+    const onOpenChange = vi.fn();
+    render(<Controlled onOpenChange={onOpenChange} />, flags(true));
+    await userEvent.click(
+      screen.getByRole("button", { name: /let ko create the imagery/i }),
+    );
+    await screen.findByRole("list", { name: /^Outline/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    await userEvent.click(closeButton());
+    expect(confirm()).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("closes and starts fresh only on Discard edits", async () => {
+    const { onOpenChange } = await openEdited();
+    await userEvent.click(closeButton());
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard edits" }),
+    );
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: /^Outline/ })).toBeNull(),
+    );
+    expect(confirm()).toBeNull();
+  });
+
+  it("closes an untouched outline at once, by Escape or the X", async () => {
+    for (const close of ["escape", "x"] as const) {
+      const onOpenChange = vi.fn();
+      const view = render(
+        <Controlled onOpenChange={onOpenChange} />,
+        flags(true),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: /let ko create the imagery/i }),
+      );
+      await screen.findByRole("list", { name: /^Outline/ });
+      if (close === "escape") await userEvent.keyboard("{Escape}");
+      else await userEvent.click(closeButton());
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(confirm()).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it("lets Escape close the replace form first, asking nothing", async () => {
+    const { onOpenChange } = await openEdited();
+    const [replace] = screen.getAllByRole("button", {
+      name: /^Replace with my own point/,
+    });
+    if (!replace) throw new Error("no weak point in the fixture");
+    await userEvent.click(replace);
+    await userEvent.keyboard("{Escape}");
+    expect(
+      screen.queryByRole("form", { name: /^Replace the point/ }),
+    ).toBeNull();
+    expect(confirm()).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(confirm()).toBeInTheDocument();
+  });
+
+  it("gives both answers a 44px target on a phone", async () => {
+    await openEdited();
+    await userEvent.keyboard("{Escape}");
+    for (const name of ["Keep editing", "Discard edits"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass(
+        ...TOUCH_HEIGHT.split(" "),
+      );
+    }
   });
 });

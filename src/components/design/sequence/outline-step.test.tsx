@@ -524,11 +524,11 @@ describe("deleting and adding", () => {
     expect(cards()).toHaveLength(4);
     expect(generateButton()).toHaveTextContent("Generate 4 slides · 4 units");
     const undo = screen.getByRole("button", {
-      name: "Undo deleting slide 3, Who it's for",
+      name: "Undo deleting “Who it's for”",
     });
     expect(undo).toHaveFocus();
     const row = screen.getByTestId("undo-delete");
-    expect(row).toHaveTextContent("Deleted slide 3, “Who it's for”.");
+    expect(row).toHaveTextContent("Deleted “Who it's for”.");
     expect(row.previousElementSibling).toBe(cards()[1]);
     expect(row.nextElementSibling).toBe(cards()[2]);
     expect(
@@ -545,13 +545,44 @@ describe("deleting and adding", () => {
     ).toEqual(["p1", "p2", "p4", "p5"]);
   });
 
+  /* The Undo row and the Add button sit inside the list for their place,
+     but a screen reader counting items must count slides only. */
+  it("lists only slides, with Undo and Add on screen", async () => {
+    await ready();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
+    );
+    const items = within(
+      screen.getByRole("list", { name: "Outline, 4 slides" }),
+    ).getAllByRole("listitem");
+    expect(items).toHaveLength(4);
+    expect(items.every((li) => li.hasAttribute("data-point"))).toBe(true);
+  });
+
+  it("names an untitled deleted slide without a number", async () => {
+    await ready();
+    const title = within(cards()[2]).getByRole("textbox", {
+      name: "Title, slide 3",
+    });
+    await userEvent.clear(title);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete slide 3" }),
+    );
+    expect(screen.getByTestId("undo-delete")).toHaveTextContent(
+      "Deleted a slide with no title.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Undo deleting the untitled slide" }),
+    ).toHaveFocus();
+  });
+
   it("undoes a delete: same place, same source and flag, focus on its title", async () => {
     const { onGenerate } = await ready();
     await userEvent.click(
       screen.getByRole("button", { name: "Delete slide 3, Who it's for" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: /^Undo deleting slide 3/ }),
+      screen.getByRole("button", { name: "Undo deleting “Who it's for”" }),
     );
     expect(cards()).toHaveLength(5);
     expect(screen.queryByTestId("undo-delete")).toBeNull();
@@ -583,10 +614,10 @@ describe("deleting and adding", () => {
       screen.getByRole("button", { name: "Delete slide 3, Our story" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Undo deleting slide 3, Our story" }),
+      screen.getByRole("button", { name: "Undo deleting “Our story”" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Undo deleting slide 2, The fabric" }),
+      screen.getByRole("button", { name: "Undo deleting “The fabric”" }),
     );
     expect(
       cards().map(
@@ -615,7 +646,7 @@ describe("deleting and adding", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Add a slide before the last" }),
     );
-    const undo = screen.getByRole("button", { name: /^Undo deleting slide 2/ });
+    const undo = screen.getByRole("button", { name: /^Undo deleting “/ });
     expect(undo).toHaveAttribute("aria-disabled", "true");
     expect(undo).toHaveAccessibleDescription(
       "10 slides is the most one carousel can hold. Delete one to bring this back.",
