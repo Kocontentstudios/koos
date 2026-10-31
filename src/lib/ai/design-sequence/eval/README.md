@@ -247,6 +247,30 @@ titles); no threshold has been lowered.
 
 ## Results so far
 
+### No blocking fault ships (2026-10-31, Bedrock `us.anthropic.claude-sonnet-4-6`, fixed judge)
+
+Logs and reports in `/tmp/feat-multiframe/critique/o1-final/`
+(`panel{1,2}`, `tuning{1,2}`, `heldout{1,2}`; `baseline/` is c6b487d's
+sets re-judged with the fixed judge). Every blocking fault is now repaired,
+asked of the fix call again, planned afresh (`SHIP_ATTEMPTS`) or refused.
+
+| Run | lane | hook | non-rep | blocking left (sets) | recall |
+|---|---|---|---|---|---|
+| panel 1 / 2 | ours | 3.46 / 3.50 (bar 3.55) | 4.13 / 3.96 (bar 4.22, 4.26) | 2 / 0 of 8 | |
+| tuning 1 / 2 | APPROVED | 3.47 / 3.70 | 3.93 / 3.97 | 2 / 2 of 30 | |
+| tuning 1 / 2 | AUTO | 3.53 / 3.33 | 3.67 / 3.43 | 7 / 4 of 30 | 0.95 / 0.73 |
+| held out 1 / 2 | APPROVED | 3.83 / 4.00 | 4.00 / 4.00 | 1 / 0 of 12 | |
+| held out 1 / 2 | AUTO | 4.08 / 3.83 | 3.67 / 3.75 | 2 / 1 of 12 | 1.00 / 0.60 |
+
+c6b487d under the same judge: tuning APPROVED hook 3.67, 3.67 and non-rep
+4.07, 3.93; AUTO hook 3.43, 3.50 and non-rep 3.83, 3.70. The Addendum B
+gate still fails on hook and non-repetition in both panel runs (it passed
+once in development, `panel-dev4`, at hook 3.71 and non-rep 4.21 against
+a bar of 4.26); blocking faults on the panel fell from 3 of 8 sets to 2
+and 0. A thin brief at a high N (an 8- or 10-frame set with audience and
+belief points) is where sets are still refused.
+
+
 ### Arc-first planner, subjects and a gate between fix calls (2026-10-31, Bedrock `us.anthropic.claude-sonnet-4-6`)
 
 The arc call sorts every pool point under the subjects it touches
