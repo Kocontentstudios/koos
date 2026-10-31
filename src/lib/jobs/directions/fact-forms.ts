@@ -2102,8 +2102,23 @@ const HOUR_LEADS = [
   "after",
   "around",
 ];
-/* "Six Saturday mornings" counts the mornings of those days. */
-const PARTS_OF_DAY = ["mornings", "afternoons", "evenings", "nights"];
+/* "Six Saturday mornings" and "Eight Saturday sessions" count what
+   happens on those days. */
+const ON_THE_DAY = [
+  "mornings",
+  "afternoons",
+  "evenings",
+  "nights",
+  "sessions",
+  "classes",
+  "lessons",
+  "workshops",
+  "meetups",
+  "meetings",
+  "clinics",
+  "visits",
+  "shifts",
+];
 
 /* "Six Saturdays, 9am to 12pm" counts the days the hours fall on; it is
    not "6 Fridays" read as six o'clock. A digit counts days when it opens
@@ -2121,7 +2136,7 @@ function countsDays(
     i === 0 || (before?.kind === "word" && !word(before, ...HOUR_LEADS));
   const daysCounted = nouns.some(
     (n, k) =>
-      isDayWord(n) && (/s$/.test(n.key) || word(nouns[k + 1], ...PARTS_OF_DAY)),
+      isDayWord(n) && (/s$/.test(n.key) || word(nouns[k + 1], ...ON_THE_DAY)),
   );
   return daysCounted && (spelled || opensCount);
 }

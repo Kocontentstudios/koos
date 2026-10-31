@@ -186,6 +186,29 @@ export function subheadlineGrammar(subheadline: string): string | null {
   return null;
 }
 
+/* A headline that opens on one of these and runs four words or fewer is a
+   signpost hung off the frame before it ("for Year 6 pupils"), not a line
+   that says something. */
+const SIGNPOST_OPENERS =
+  /^(?:for|with|to|from|at|in|on|by|about|of|and|or|but)\b/i;
+const SIGNPOST_WORDS = 4;
+
+/** Why a headline does not stand as a line of its own, or null: it starts
+ *  lowercase, or it is a short phrase opening on a preposition or a
+ *  conjunction. */
+export function headlineGrammar(headline: string): string | null {
+  const text = headline.trim();
+  if (!text) return null;
+  if (/^\p{Ll}/u.test(text)) {
+    return `the headline "${text}" starts lowercase, as if it continued another frame; write it as a line that stands on its own`;
+  }
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (SIGNPOST_OPENERS.test(text) && words <= SIGNPOST_WORDS) {
+    return `the headline "${text}" is a fragment with no subject; say what this frame's claim tells the reader`;
+  }
+  return null;
+}
+
 /** Frames whose card title is not a clean, whole, distinct name for its
  *  own copy (titleProblems). */
 export function titleFaults(
@@ -372,8 +395,10 @@ function ruleFaults(plan: PlannedSequence, rules: FaultRules): CopyFault[] {
 }
 
 /* Hook faults a reader sees before anything else: an announcement, the
-   offering's name standing alone, a name it must carry and leaves out. */
-const FLAT_HOOK = /announces the offering|only the name|does not name/;
+   offering's name standing alone, a name it must carry and leaves out, a
+   second line that only says the first again. */
+const FLAT_HOOK =
+  /announces the offering|only the name|does not name|says what its headline says/;
 
 /** Every fault of a written set (see the module comment). */
 export function setFaults(
@@ -411,6 +436,12 @@ export function setFaults(
               weight: MAJOR,
             },
           ]
+        : [];
+    }),
+    ...frames.flatMap((beat, frame) => {
+      const fault = headlineGrammar(beat.headline);
+      return fault
+        ? [{ frame, field: "headline" as const, detail: fault, weight: MAJOR }]
         : [];
     }),
     ...titleFaults(frames, rules.titleSources ?? []),
@@ -482,7 +513,7 @@ const recapsTheHook = (detail: string, count: number) =>
 
 /** Middle frames with a headline and nothing under it: read in order, a
  *  bare line lands as an unfinished thought between two frames that say
- *  more. */
+ *  more, so it must not ship. */
 export function bareFrames(frames: readonly FrameBeat[]): CopyFault[] {
   return frames.flatMap((beat, frame) =>
     beat.role === "body" && !beat.subheadline.trim()
@@ -492,7 +523,7 @@ export function bareFrames(frames: readonly FrameBeat[]): CopyFault[] {
             field: "subheadline" as const,
             detail:
               "it has a headline and nothing under it; add one sentence with a concrete detail of this frame's claim that the headline leaves out",
-            weight: MINOR,
+            weight: MAJOR,
           },
         ]
       : [],

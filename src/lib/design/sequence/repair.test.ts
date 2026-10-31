@@ -24,8 +24,7 @@ const arcAnswer = (over: Record<string, unknown> = {}) => ({
   backgroundTreatment: "solid",
   footerStyle: "none",
   hookAngle: "One visit and the bike is safe again",
-  kinds: ["how-it-works", "proof"],
-  sameAs: [],
+  subjects: [{ name: "how it works", points: [1, 2] }],
   frames: [
     arcFrame({ point: 1 }),
     arcFrame({ point: 2 }),
@@ -257,19 +256,19 @@ describe("the planner's answer schemas", () => {
 });
 
 describe("repairSequenceText: the arc's own fields", () => {
-  it("parses spare points, sameAs pairs and other hooks sent as strings, and shortens a long angle", async () => {
+  it("parses spare points and subjects sent as strings, and shortens a long angle", async () => {
     const answer = arcAnswer({
       hookAngle: "x ".repeat(ANGLE_MAX),
       spare: "[2, 3]",
-      kinds: '["\\"proof\\"", "belief"]',
-      sameAs: JSON.stringify([{ a: 2, b: 3 }]),
+      subjects: JSON.stringify([{ name: "where it grows", points: "[2, 3]" }]),
     });
     const fixed = await repaired(answer, 3);
     const parsed = arcResponseSchema(3).safeParse(fixed);
     expect(parsed.success).toBe(true);
     expect(parsed.data?.spare).toEqual([2, 3]);
-    expect(parsed.data?.sameAs).toEqual([{ a: 2, b: 3 }]);
-    expect(parsed.data?.kinds).toEqual(["proof", "belief"]);
+    expect(parsed.data?.subjects).toEqual([
+      { name: "where it grows", points: [2, 3] },
+    ]);
     expect(parsed.data?.hookAngle.length).toBeLessThanOrEqual(ANGLE_MAX);
   });
 

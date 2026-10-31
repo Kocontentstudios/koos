@@ -216,11 +216,13 @@ const NAMES_THE_PIECE =
  *  6. Code finds what is wrong (setFaults, the audit's findings among
  *     them) and the fix call rewrites only the frames at fault, a frame
  *     whose point is another's given a spare point; a version is kept only
- *     where the set improves. A second call takes what still blocks.
+ *     where the set improves.
  *  7. What must not ship is settled in code (shipGate): unsourced words
  *     cut, a priced or repeated headline set to its claim, a broken or
- *     missing subheadline set to its claim, the offering named on the
- *     hook. A fact still missing is written in the brief's words
+ *     missing subheadline set to its claim, a hook's echo cut, the
+ *     offering named on the hook. What still blocks after it, the gate's
+ *     own cuts included, goes to a second fix call and through the gate
+ *     again. A fact still missing is written in the brief's words
  *     (withFactsDrawn), every title is settled against its frame's final
  *     copy (withSettledTitles) and the set takes one casing.
  *  At most MAX_MODEL_CALLS calls, the brief read included.
@@ -571,16 +573,24 @@ export async function planSequence(
     await fixRound(faults, swaps);
     spares = spares.filter((i) => !taken.has(i));
   };
+  const gate = () => {
+    const result = shipGate(plan, {
+      ...rules,
+      claims: arc.frames.map((f) => f.claim),
+      unsourced,
+      spares: spares.map((i) => pool[i].text),
+    });
+    plan = result.plan;
+    return result.applied;
+  };
   await withSpares(setFaults(plan, rules));
+  const gated = gate();
   const blocking = blockingFaults(setFaults(plan, rules));
-  if (blocking.length > 0) await withSpares(blocking);
-
-  const gated = shipGate(plan, {
-    ...rules,
-    claims: arc.frames.map((f) => f.claim),
-    unsourced,
-  });
-  const filled = withFactsDrawn(gated.plan, facts, owners);
+  if (blocking.length > 0) {
+    await withSpares(blocking);
+    gated.push(...gate());
+  }
+  const filled = withFactsDrawn(plan, facts, owners);
   const cased = withConsistentCasing(
     withSettledTitles(filled.plan.frames, titleRules, arcTitles),
     [
@@ -611,7 +621,7 @@ export async function planSequence(
     layoutsChanged: arc.layoutsChanged,
     hookChosen: hooks.index,
     fixRounds,
-    gated: gated.applied,
+    gated,
     recased: cased.recased,
     problems: problems.map((p) => p.rule),
     invented,

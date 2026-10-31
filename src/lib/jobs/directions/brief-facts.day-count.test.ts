@@ -41,6 +41,9 @@ const COUNTED_DAYS = [
   "Six Saturday mornings, 9am to 12pm",
   "6 Saturday mornings, 9am to 12pm",
   "We meet 8 Tuesdays, 9am to 12pm",
+  "Eight Saturday sessions, 9am to 12pm",
+  "8 Saturday sessions, 9am to 12pm",
+  "Four Sunday classes, 9am to 12pm",
 ];
 
 /* An hour written in digits after a word, before a day word, is still a

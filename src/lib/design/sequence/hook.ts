@@ -7,12 +7,10 @@ import {
 import type { FrameBeat } from "./contract";
 
 /**
- * Hooks that give no reason to swipe, in the shapes the eval's judge marked
- * down every time: an announcement ("Cold brew is here", "Hand-dyed indigo
- * adire is here", "Cold Brew, Finally at Kiln"), the offering's name standing as the whole headline
- * ("Teen sourdough baking class"), and a subheadline that says the headline
- * again ("Invoice in naira or dollars in seconds" over "send an invoice in
- * naira or dollars in under a minute").
+ * Hooks that give no reason to swipe: an announcement ("Fresh bread is
+ * here", "Finally at the market"), the offering's name standing as the
+ * whole headline, and a subheadline that says the headline again ("Repairs
+ * in a day" over "we repair your phone in one day").
  *
  * A proxy, not a judgement of the hook: a headline can avoid all three and
  * still be flat, which the judge measures. What this catches it catches
@@ -22,6 +20,11 @@ import type { FrameBeat } from "./contract";
 
 const ANNOUNCEMENT =
   /\b(?:is|are|'s)\s+(?:here|back|live|now available|available now)\b[.!]?\s*$|^\s*(?:introducing|meet|presenting|announcing|new|now)\b|\b(?:arrived|arrives|landed|lands|dropped)\b|\bjust\s+in\b|\bnew\s+(?:in|arrival|arrivals|stock)\b|\bnow\s+(?:available|open|in stock)\b|\b(?:out now|in stores?|back in stock)\b|\bfinally\b/i;
+
+/* An arrival said outright reads as a label however concrete the words
+   around it ("Hand-woven baskets from Bida are here"). */
+const ARRIVAL =
+  /\b(?:is|are|'s)\s+(?:here|back)\b|\b(?:has|have)\s+arrived\b|\bfinally\b/i;
 
 /* What a strong hook does instead: a question any competitor could ask
    ("Still doing laundry yourself?") or a mood line reads as generic; the
@@ -34,18 +37,37 @@ export const HOOK_CRAFT =
    already an echo a reader hears ("Whiter teeth" over "teeth whitening"). */
 const ECHO_WORDS = 2;
 
-function echoedWords(hook: FrameBeat, brandName: string): string[] {
-  const free = contentStems(brandName);
+/* The offering's own name said in full under a headline that gives part
+   of it ("Pastry masterclass" over "The weekend French pastry masterclass") is
+   the hook naming what is on offer, not an echo. */
+function echoedWords(
+  hook: Pick<FrameBeat, "headline" | "subheadline">,
+  brandName: string,
+  offering: string | null = null,
+): string[] {
+  const free = new Set([
+    ...contentStems(brandName),
+    ...contentStems(offering ?? ""),
+  ]);
   const headline = contentStems(hook.headline, free);
   return [...contentStems(hook.subheadline, free)].filter((s) =>
     headline.has(s),
   );
 }
 
+/** Whether the hook's subheadline says its headline again. */
+export function echoesHeadline(
+  hook: Pick<FrameBeat, "headline" | "subheadline">,
+  brandName: string,
+  offering: string | null = null,
+): boolean {
+  return echoedWords(hook, brandName, offering).length >= ECHO_WORDS;
+}
+
 /* Content words the hook may share with a later frame before it reads as
    spending that frame's point before the swipe. Tighter than two body
-   frames are held to (repeats.ts): "Straight from Abeokuta" on the hook
-   and "directly from Abeokuta" on frame 2 read as one point made twice. */
+   frames are held to (repeats.ts): "Straight from Kumasi" on the hook
+   and "directly from Kumasi" on frame 2 read as one point made twice. */
 const HOOK_PREVIEW_WORDS = 2;
 
 /** Zero-based indexes of the later frames whose point the hook already
@@ -83,10 +105,10 @@ export function hookPreviews(
   );
 }
 
-/* An offering read as a name ("cold brew", "Ledgerly") may be said on any
-   frame; one read as a description ("Send an invoice in naira or dollars
-   in under a minute") is made of points, and a frame that says them again
-   repeats them, so "naira or dollars" on two frames still counts. */
+/* An offering read as a name ("flat white", "Paybook") may be said on any
+   frame; one read as a description ("Book a cleaner in pounds or euros in
+   two taps") is made of points, and a frame that says them again repeats
+   them, so "pounds or euros" on two frames still counts. */
 const NAME_STEMS = 3;
 
 /** Stems any frame may say without repeating a point: the brand's name and
@@ -182,8 +204,9 @@ export function hookFaults(
     [...said].some((s) => named.has(s)) &&
     [...said].every((s) => labelWords.has(s));
   if (
-    ANNOUNCEMENT.test(hook.headline) &&
-    !concreteBeyond(hook.headline, labelWords)
+    ARRIVAL.test(hook.headline) ||
+    (ANNOUNCEMENT.test(hook.headline) &&
+      !concreteBeyond(hook.headline, labelWords))
   ) {
     faults.push(
       `the hook's headline "${hook.headline}" announces the offering, which gives no reason to swipe; ${HOOK_CRAFT}`,
@@ -200,7 +223,7 @@ export function hookFaults(
       `the hook's subheadline "${hook.subheadline}" announces the offering; name it with the one specific from the brief that makes the headline's pull concrete`,
     );
   }
-  if (echoedWords(hook, brandName).length >= ECHO_WORDS) {
+  if (echoesHeadline(hook, brandName, offering)) {
     faults.push(
       `the hook's subheadline "${hook.subheadline}" says what its headline says; the subheadline names the offering and adds what the headline does not`,
     );

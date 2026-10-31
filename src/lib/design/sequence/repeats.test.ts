@@ -376,6 +376,25 @@ describe("hookFaults: announcements", () => {
     },
   );
 
+  it.each([
+    "Hand-woven raffia baskets from Bida are here",
+    "Our slow-cured smoked catfish is back",
+    "Cold brew steeped 18 hours has arrived",
+  ])("names an outright arrival however concrete the rest: %s", (headline) => {
+    expect(hookFaults({ ...hook, headline }, "cold brew")).toContainEqual(
+      expect.stringContaining("announces the offering"),
+    );
+  });
+
+  it("passes a concrete headline that only mentions coming back", () => {
+    expect(
+      hookFaults(
+        { ...hook, headline: "Steeped 18 hours so you come back for more" },
+        "cold brew",
+      ).filter((f) => f.includes("announces")),
+    ).toEqual([]);
+  });
+
   it("names a subheadline that spends the headline's pull on an announcement", () => {
     expect(
       hookFaults(

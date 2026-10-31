@@ -106,6 +106,21 @@ export function headlineCase(
   return capped === 0 ? "sentence" : null;
 }
 
+function lowered(part: string, names: ReadonlySet<string>): string {
+  if (!isWord(part) || isAcronym(part) || names.has(bare(part))) return part;
+  return /^\p{Lu}\p{Ll}/u.test(part) || /^\p{Lu}$/u.test(part)
+    ? `${part[0].toLowerCase()}${part.slice(1)}`
+    : part;
+}
+
+/* "Take-Home" in a sentence-case set reads as title case kept on half a
+   word, even where it opens the headline: the parts after a hyphen follow
+   the set's casing. */
+function afterHyphens(token: string, names: ReadonlySet<string>): string {
+  const [head, ...rest] = token.split("-");
+  return [head, ...rest.map((part) => lowered(part, names))].join("-");
+}
+
 function toSentence(headline: string, names: ReadonlySet<string>): string {
   const tokens = headline.split(/(\s+)/);
   let words = 0;
@@ -116,11 +131,9 @@ function toSentence(headline: string, names: ReadonlySet<string>): string {
       const first = words === 0 || sentenceStart;
       words += 1;
       sentenceStart = /[.!?:]$/.test(token);
-      if (first || !isWord(token) || isAcronym(token)) return token;
-      if (names.has(bare(token))) return token;
-      return /^\p{Lu}\p{Ll}/u.test(token) || /^\p{Lu}$/u.test(token)
-        ? `${token[0].toLowerCase()}${token.slice(1)}`
-        : token;
+      const tail = afterHyphens(token, names);
+      if (first || names.has(bare(token))) return tail;
+      return lowered(tail, names);
     })
     .join("");
 }

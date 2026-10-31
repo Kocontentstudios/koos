@@ -289,8 +289,11 @@ export function pointPool({
       pool.push(candidate);
     }
   }
+  /* Who it is for and where and when read as padding beside a real
+     point, so they are offered only to a pool short of the frames. */
+  const short = () => pool.length < slots;
   const audience = brand.targetAudience?.trim();
-  if (pool.length < slots && audience) {
+  if (short() && audience) {
     pool.push({ source: "profile", text: `For ${audience}`, facts: [] });
   }
   const ofKinds = (kinds: readonly CoverKind[]) =>
@@ -299,13 +302,16 @@ export function pointPool({
     );
   const where = ofKinds(["place"]);
   /* A carousel's hook carries the day it happens (HOOK_NEWS), so a frame
-     built on that day would make the hook's point again. */
-  const hookHasTheDay = kind === "carousel" && slots >= 2;
+     built on that day would make the hook's point again; a pool short of
+     the frames gives the day a frame of its own instead of a frame with
+     no point. */
+  const hookHasTheDay =
+    kind === "carousel" && slots >= 2 && pool.length >= slots;
   const when = ofKinds(hookHasTheDay ? ["time"] : ["day", "date", "time"]);
   /* Where and when are one point to a reader: split over two frames they
      read as housekeeping padded out to fill the set. */
   const logistics = [...where, ...when];
-  if (pool.length < slots && logistics.length > 0) {
+  if (short() && logistics.length > 0) {
     pool.push({
       source: "fact",
       text: logistics.map((n) => facts[n].text).join(", "),
@@ -313,6 +319,27 @@ export function pointPool({
     });
   }
   return pool;
+}
+
+/** Pool index pairs ("i,j", both orders) that share a subject. A reader
+ *  hears two points on one subject as one point made twice, whatever
+ *  their words. */
+export function subjectPairs(
+  subjects: readonly { points: readonly number[] }[],
+  idOf: (n: number | undefined) => number | null,
+): Set<string> {
+  const pairs = new Set<string>();
+  for (const subject of subjects) {
+    const ids = [
+      ...new Set(
+        subject.points.map(idOf).filter((i): i is number => i !== null),
+      ),
+    ];
+    for (const i of ids) {
+      for (const j of ids) if (i !== j) pairs.add(`${i},${j}`);
+    }
+  }
+  return pairs;
 }
 
 export interface ArcFrame {
@@ -348,7 +375,8 @@ export interface ArcSettlement {
   /** Body frames given the unused point closest to distinct, every
    *  distinct one being spent. */
   crowded: number[];
-  /** Pool index pairs ("i,j", both orders) the model read as one point. */
+  /** Pool index pairs ("i,j", both orders) the model listed under one
+   *  subject. */
   sameAs: ReadonlySet<string>;
   layoutsChanged: number;
 }
@@ -382,10 +410,10 @@ const HOOK_NEWS = new Set<CoverKind>(["date", "day"]);
  *    in its source's words;
  *  - each body frame's point is one no earlier frame (the hook's angle and
  *    point included) already makes, by its words (claimsOverlap) or by the
- *    model's own reading of which points are one (two of one "kinds", or
- *    a "sameAs" pair); one that is
- *    missing, used twice or overlapping is replaced by the next unused point in the model's
- *    ranking, then in the pool's order;
+ *    model's own reading of which points are one (two points it lists
+ *    under one subject); one that is missing, used twice or overlapping
+ *    is replaced by the next unused point in the model's ranking, then in
+ *    the pool's order, and with none left by the closest (see closest);
  *  - each fact is stated once, on the frame whose point holds it; the
  *    offering on the hook, a carousel's prices and every fact no point
  *    holds on the action frame; in a carousel of three frames or more the
@@ -395,7 +423,7 @@ const HOOK_NEWS = new Set<CoverKind>(["date", "day"]);
  */
 export function settleArc(
   answer: Pick<ArcAnswer, "frames" | "hookAngle" | "spare"> &
-    Partial<Pick<ArcAnswer, "sameAs" | "kinds">>,
+    Partial<Pick<ArcAnswer, "subjects">>,
   {
     pool,
     facts,
@@ -429,23 +457,7 @@ export function settleArc(
     hookClaim = sourceText;
   }
 
-  const kinds = answer.kinds ?? [];
-  const sameKind = pool.flatMap((_, i) =>
-    pool.flatMap((__, j) =>
-      i !== j && kinds[i] !== undefined && kinds[i] === kinds[j]
-        ? [`${i},${j}`]
-        : [],
-    ),
-  );
-  const sameAs = new Set([
-    ...sameKind,
-    ...(answer.sameAs ?? []).flatMap(({ a, b }) => {
-      const [i, j] = [idOf(a), idOf(b)];
-      return i === null || j === null || i === j
-        ? []
-        : [`${i},${j}`, `${j},${i}`];
-    }),
-  ]);
+  const sameAs = subjectPairs(answer.subjects ?? [], idOf);
   const used = new Set<number>(hookPoint === null ? [] : [hookPoint]);
   const placed: Pick<ArcPoint, "text" | "facts">[] =
     hookPoint === null ? [] : [pool[hookPoint]];
@@ -475,22 +487,21 @@ export function settleArc(
     ![...used].some((u) => sameAs.has(`${u},${i}`)) &&
     !angleTakes(i) &&
     !placed.some((p) => claimsOverlap(p, pool[i], facts, free));
-  /* With every distinct point spent, an unused point that shares the
-     fewest words with those placed is still a point of its own to say,
-     where an empty claim leaves the writer to pad. One the model itself
-     reads as a point already made is never taken: that frame is left for
-     the writer to find a detail no other frame gives. */
+  /* With every distinct point spent, a frame still takes a sourced point
+     rather than none, where the writer would pad: the unused one on the
+     subject fewest frames already make, then sharing the fewest words. */
   const closest = (): number | null => {
     const unused = ranking.filter(
       (i) =>
         !used.has(i) &&
-        ![...used].some((u) => sameAs.has(`${u},${i}`)) &&
         !placed.some((p) =>
           isNearDuplicateHeadline(p.text, pool[i].text, free),
         ),
     );
     if (unused.length === 0) return null;
-    const shared = (i: number) => {
+    const subjectsShared = (i: number) =>
+      [...used].filter((u) => sameAs.has(`${u},${i}`)).length;
+    const wordsShared = (i: number) => {
       const mine = contentStems(pool[i].text, free);
       return placed.reduce(
         (n, p) =>
@@ -498,7 +509,8 @@ export function settleArc(
         0,
       );
     };
-    return unused.reduce((best, i) => (shared(i) < shared(best) ? i : best));
+    const cost = (i: number) => subjectsShared(i) * 100 + wordsShared(i);
+    return unused.reduce((best, i) => (cost(i) < cost(best) ? i : best));
   };
 
   const replaced: ArcReplacement[] = [];
@@ -530,9 +542,14 @@ export function settleArc(
     if (!owner.has(n)) owner.set(n, frame);
   };
   if (offeringFact !== null) own(offeringFact, 0);
+  const onBodies = new Set(
+    points.flatMap((point, frame) =>
+      point === null || frame === 0 || frame === last ? [] : pool[point].facts,
+    ),
+  );
   if (kind === "carousel" && count >= 3) {
     facts.forEach((f, n) => {
-      if (HOOK_NEWS.has(f.kind)) own(n, 0);
+      if (HOOK_NEWS.has(f.kind) && !onBodies.has(n)) own(n, 0);
     });
   }
   points.forEach((point, frame) => {

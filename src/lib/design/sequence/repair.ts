@@ -149,14 +149,20 @@ export async function repairSequenceText({
   ) {
     answer.hookAngle = clampWords(answer.hookAngle, ANGLE_MAX);
   }
-  if ("kinds" in answer) {
-    answer.kinds = parsedArray(answer.kinds);
-    if (answer.kinds === null) answer.kinds = [];
-    if (Array.isArray(answer.kinds)) answer.kinds = answer.kinds.map(unquoted);
-  }
-  if ("sameAs" in answer) {
-    answer.sameAs = parsedArray(answer.sameAs);
-    if (answer.sameAs === null) answer.sameAs = [];
+  if ("subjects" in answer) {
+    answer.subjects = parsedArray(answer.subjects);
+    if (answer.subjects === null) answer.subjects = [];
+    if (Array.isArray(answer.subjects)) {
+      answer.subjects = answer.subjects.map((subject) =>
+        subject && typeof subject === "object" && "points" in subject
+          ? {
+              ...subject,
+              points:
+                parsedArray((subject as { points: unknown }).points) ?? [],
+            }
+          : subject,
+      );
+    }
   }
   if ("spare" in answer) {
     answer.spare = parsedArray(answer.spare);

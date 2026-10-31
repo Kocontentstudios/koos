@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { factStated } from "@/lib/jobs/directions/brief-facts";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { beatOf, fact } from "./fixtures";
-import { inventedOn, sequenceLedger, withCountWord } from "./ledger";
+import {
+  inventedOn,
+  sequenceLedger,
+  withCountWord,
+  withTurnaround,
+} from "./ledger";
 
 /* The profile's own words are sourced, so a profile-point frame can be
    regenerated; the goal licenses nothing, since it is what the brand only
@@ -130,5 +136,27 @@ describe("withCountWord", () => {
       withCountWord(fact("product", "Teeth whitening"), "One Teeth whitening")
         .text,
     ).toBe("Teeth whitening");
+  });
+});
+
+describe("withTurnaround", () => {
+  const brief =
+    "Shoes resoled and ready in 2 days. Bags back within one week. Open 6 days a week.";
+
+  it.each([
+    ["2 days", "ready in 2 days"],
+    ["one week", "back within one week"],
+  ])("gives %j back the promise the brief puts before it", (text, whole) => {
+    const widened = withTurnaround(fact("quantity", text), brief);
+    expect(widened.text).toBe(whole);
+    expect(factStated(widened, "Booked in 2 days")).toBe(false);
+    expect(factStated(widened, `Resoled and ${whole}`)).toBe(true);
+  });
+
+  it("leaves a duration with no promise before it, and a fact that is not a duration", () => {
+    expect(withTurnaround(fact("quantity", "6 days"), brief).text).toBe(
+      "6 days",
+    );
+    expect(withTurnaround(fact("place", "Shoes"), brief).text).toBe("Shoes");
   });
 });

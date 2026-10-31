@@ -51,6 +51,36 @@ describe("isCleanTitle", () => {
   });
 });
 
+describe("titleFault: the frame's job and a lone word", () => {
+  it.each([
+    "Hook: Our head chef",
+    "Family plan hook",
+    "Free delivery hook",
+    "The hook",
+    "CTA slide",
+    "Call to action",
+    "Title slide",
+    "Frame 3",
+    "Slide 2 overview",
+  ])("refuses the planner's role word in %j", (title) => {
+    expect(isCleanTitle(title)).toBe(false);
+  });
+
+  it.each(["Repairs", "Pricing"])("refuses the one-word title %j", (title) => {
+    expect(titleFault(title)).toBe("it is one word, not a name");
+  });
+
+  it.each([
+    "Hand-dyed in Abeokuta",
+    "Slides and sandals",
+    "Frames for every face",
+    "Hooked on cold brew",
+    "Hems and alterations",
+  ])("leaves a real name alone: %j", (title) => {
+    expect(titleFault(title)).toBeNull();
+  });
+});
+
 describe("settledTitle", () => {
   it("keeps the proposed title cleaned, else the one the frame had", () => {
     expect(settledTitle("Roasted weekly — version B", "Roasting")).toBe(

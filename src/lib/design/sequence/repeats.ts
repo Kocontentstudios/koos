@@ -265,9 +265,8 @@ function actionPreviews(
 
 /* Two headlines built on the same words are one idea headlined twice even
    when the near-duplicate check (validateSequence) passes them ("Late
-   payments? Ledgerly chases them." and "Late payment? Handled."). Any two
-   frames,
-   not only neighbours, since the reader remembers the headline. */
+   deliveries? We chase them." and "Late delivery? Handled."). Any two
+   frames, not only neighbours, since the reader remembers the headline. */
 const IDEA_STEMS = 2;
 
 export function headlineIdeaRepeats(

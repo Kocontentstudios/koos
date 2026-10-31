@@ -51,10 +51,11 @@ export function copyKey(frames: readonly FrameBeat[]): string {
 }
 
 const coverageOf = (faults: readonly CopyFault[]) =>
-  faults.filter((f) => f.weight >= COVERAGE).length;
+  new Set(faults.filter((f) => f.weight >= COVERAGE).map((f) => f.detail));
 
 /** Whether `after` ships with fewer faults than `before`, never by losing
- *  coverage: a brief fact or the offering is never the price of a fix. */
+ *  coverage: a brief fact or the offering is never the price of a fix,
+ *  not even in trade for another one. */
 export function improves(
   before: PlannedSequence,
   after: PlannedSequence,
@@ -62,8 +63,10 @@ export function improves(
 ): boolean {
   const was = setFaults(before, rules);
   const now = setFaults(after, rules);
+  const covered = coverageOf(was);
   return (
-    coverageOf(now) <= coverageOf(was) && faultScore(now) < faultScore(was)
+    [...coverageOf(now)].every((detail) => covered.has(detail)) &&
+    faultScore(now) < faultScore(was)
   );
 }
 

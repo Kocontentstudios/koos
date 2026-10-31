@@ -27,7 +27,9 @@ export function sequenceFacts(
   briefText = "",
 ): BriefFact[] {
   return withVenueOrBrand(
-    coverFactsOf(read).map((fact) => withCountWord(fact, briefText)),
+    coverFactsOf(read).map((fact) =>
+      withTurnaround(withCountWord(fact, briefText), briefText),
+    ),
     brandName,
   );
 }
@@ -51,6 +53,29 @@ export function withCountWord(fact: BriefFact, briefText: string): BriefFact {
   ).exec(briefText);
   if (!before || /^\p{N}/u.test(fact.text) === false) return fact;
   const text = `${before[1]} ${fact.text}`;
+  return { ...fact, text, needs: needsFor(fact.kind, text) };
+}
+
+const DURATION =
+  /^(?:\p{N}+|one|two|three|four|five|six|seven|eight|nine|ten|twelve)(?:\s*(?:-|to)\s*\p{N}+)?[\s-]*(?:minutes?|mins?|hours?|hrs?|days?|weeks?|months?|working days?|business days?)$/iu;
+const TURNAROUND =
+  "ready|done|delivered|back|returned|fixed|finished|completed|shipped|collected|installed|repaired|cleaned|available|dispatched";
+
+/**
+ * A duration as the brief promises it: a reader that returns "2 days"
+ * from "Shoes resoled and ready in 2 days" keeps the length and loses
+ * what happens in it, so copy saying "Booked in 2 days" would count. The word
+ * and "in" or "within" the brief puts before the duration are part of
+ * the fact.
+ */
+export function withTurnaround(fact: BriefFact, briefText: string): BriefFact {
+  if (!DURATION.test(fact.text.trim())) return fact;
+  const lead = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}])((?:${TURNAROUND})\\s+(?:in|within))\\s+${escaped(fact.text)}(?![\\p{L}\\p{N}])`,
+    "iu",
+  ).exec(briefText);
+  if (!lead) return fact;
+  const text = `${lead[1].toLowerCase()} ${fact.text}`;
   return { ...fact, text, needs: needsFor(fact.kind, text) };
 }
 

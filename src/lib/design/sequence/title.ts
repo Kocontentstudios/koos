@@ -82,6 +82,11 @@ const OPEN_ENDS = new Set([
    says "How to act" names the planner's step, not the frame. */
 const SCAFFOLD =
   /^(?:how to act|the action|call to action|cta|hook|body|point|frame|slide|untitled|title)(?:\s+\d+)?$/i;
+/* The planner's names for a frame's job, anywhere in a title: "Family
+   plan hook", "Hook: Our head chef", "CTA slide", "The hook". A card shows the
+   client what the frame says, never which slot it fills. */
+const ROLE_WORDS =
+  /\b(?:hooks?|ctas?|call[\s-]to[\s-]action|closer|opener)\b|\b(?:slide|frame)(?:\s+\d+)?\s*$|^(?:slide|frame)\s+\d+\b/i;
 const SERIES =
   /\b(?:series|round|class|grade|plan|type|tier|phase|block)\s+\p{Lu}$/iu;
 /* A figure whose separator was stripped: "$1 2m" for "$1.2m", "₦18 000"
@@ -103,6 +108,9 @@ export function titleFault(title: string): string | null {
     return "it is longer than a card shows";
   }
   if (SCAFFOLD.test(trimmed)) return "it is a placeholder, not a name";
+  if (ROLE_WORDS.test(trimmed))
+    return "it names the frame's job, not its point";
+  if (wordCount(trimmed) < 2) return "it is one word, not a name";
   if (STRIPPED_FIGURE.test(trimmed)) return "a figure in it lost its comma";
   /* "Series A" names a round; "Services B" is a version's letter, and
      "a" at the end an article left hanging. */

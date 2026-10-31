@@ -8,6 +8,7 @@ import {
   roleOf,
   settleArc,
   sparePoints,
+  subjectPairs,
   textsOverlap,
 } from "./arc";
 import { fact } from "./fixtures";
@@ -153,25 +154,28 @@ describe("pointPool: what is not a point", () => {
     const base = thin(0);
     expect(base).not.toContain("For Weekend riders in Lagos");
     expect(thin(base.length + 1).at(-1)).toBe("For Weekend riders in Lagos");
-    expect(thin(base.length + 2).at(-1)).toBe("our Ojota workshop, 9am to 4pm");
+    expect(thin(base.length + 2).at(-1)).toBe(
+      "our Ojota workshop, Saturday 6 December, 9am to 4pm",
+    );
     expect(thin(base.length + 3).slice(-2)).toEqual([
       "For Weekend riders in Lagos",
-      "our Ojota workshop, 9am to 4pm",
+      "our Ojota workshop, Saturday 6 December, 9am to 4pm",
     ]);
   });
 
-  it("never makes the day a carousel's hook carries a frame's point, while a deck's slide may", () => {
-    const short = (kind: "carousel" | "presentation") =>
+  it("leaves the day to a carousel's hook while the points suffice, and gives it a frame when they run short", () => {
+    const pooled = (kind: "carousel" | "presentation", slots: number) =>
       pointPool({
         facts: FACTS,
         briefText: BRIEF,
         brand: {},
         kind,
         free: FREE,
-        slots: 12,
+        slots,
       }).map((p) => p.text);
-    expect(short("carousel").join(" ")).not.toMatch(/6 December/);
-    expect(short("presentation").join(" ")).toMatch(/6 December/);
+    expect(pooled("carousel", 2).join(" ")).not.toMatch(/6 December/);
+    expect(pooled("carousel", 12).join(" ")).toMatch(/6 December/);
+    expect(pooled("presentation", 12).join(" ")).toMatch(/6 December/);
   });
 });
 
@@ -210,6 +214,20 @@ describe("actionPrices: the price beside the action", () => {
   });
 });
 
+describe("subjectPairs", () => {
+  const idOf = (n: number | undefined) =>
+    n !== undefined && n >= 1 && n <= 5 ? n - 1 : null;
+
+  it("pairs every two points under one subject, both ways, and a point under two subjects with each", () => {
+    const pairs = subjectPairs([{ points: [1, 2] }, { points: [2, 3] }], idOf);
+    expect([...pairs].sort()).toEqual(["0,1", "1,0", "1,2", "2,1"]);
+  });
+
+  it("ignores numbers off the list and a point listed with itself", () => {
+    expect([...subjectPairs([{ points: [9, 0, 2, 2] }], idOf)]).toEqual([]);
+  });
+});
+
 describe("settleArc", () => {
   const points: ArcPoint[] = [
     {
@@ -238,7 +256,7 @@ describe("settleArc", () => {
   const answer = (frames: ReturnType<typeof frame>[], over = {}) => ({
     hookAngle: "Your bike leaves tuned and safe after one visit",
     spare: [],
-    sameAs: [],
+    subjects: [],
     frames,
     ...over,
   });
@@ -282,10 +300,13 @@ describe("settleArc", () => {
     expect(arc.replaced.map((r) => r.frame)).toEqual([2, 3]);
   });
 
-  it("holds the model's own sameAs pairs as one point", () => {
+  it("holds two points the model lists under one subject as one point", () => {
     const arc = settleArc(
       answer([frame(1), frame(3), frame(5), frame(0)], {
-        sameAs: [{ a: 3, b: 5 }],
+        subjects: [
+          { name: "who fixes it", points: [3, 5] },
+          { name: "what it costs", points: [2] },
+        ],
         spare: [2],
       }),
       options,
@@ -318,6 +339,19 @@ describe("settleArc", () => {
     expect(arc.frames.flatMap((f) => f.facts).sort()).toEqual([
       0, 1, 2, 3, 4, 5, 6,
     ]);
+  });
+
+  it("leaves the day to the body frame whose point holds it", () => {
+    const dayPool: ArcPoint[] = [
+      ...points,
+      { source: "fact", text: FACTS[4].text, facts: [4] },
+    ];
+    const arc = settleArc(answer([frame(1), frame(2), frame(6), frame(0)]), {
+      ...options,
+      pool: dayPool,
+    });
+    expect(arc.frames[0].facts).not.toContain(4);
+    expect(arc.frames[2].facts).toContain(4);
   });
 
   it("leaves a deck's result figure on the slide whose point it is, and its ask on the action slide", () => {
@@ -361,21 +395,18 @@ describe("settleArc", () => {
     expect(arc.unsourced).toEqual([2]);
   });
 
-  it("holds two points of one kind as one point", () => {
+  it("takes the unused point on the least-made subject once every distinct one is spent", () => {
     const arc = settleArc(
-      answer([frame(1), frame(3), frame(5), frame(0)], {
-        kinds: [
-          "how-it-works",
-          "what-you-get",
-          "who-makes-it",
-          "who-makes-it",
-          "who-makes-it",
+      answer([frame(1), frame(2), frame(3), frame(5), frame(0)], {
+        subjects: [
+          { name: "what it costs", points: [2, 5] },
+          { name: "who fixes it", points: [3, 4, 5] },
         ],
-        spare: [2],
       }),
       options,
     );
-    expect(arc.frames[2].claim).toBe("Free pickup for 3 bikes or more");
+    expect(arc.frames[3].claim).not.toBe("");
+    expect(arc.crowded).toEqual([3]);
   });
 
   it("names a frame no unused point was left for", () => {

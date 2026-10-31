@@ -6,6 +6,7 @@ import {
   type FaultRules,
   faultScore,
   flaggedFaults,
+  headlineGrammar,
   headlinePrices,
   hookScore,
   MAJOR,
@@ -218,5 +219,25 @@ describe("hookScore", () => {
     );
     const strong = hookScore(plan.frames[0], plan, rules);
     expect(strong).toBeLessThan(flat);
+  });
+});
+
+describe("headlineGrammar", () => {
+  it.each([
+    "for Year 6 pupils",
+    "For Year 6 pupils",
+    "With our head tailor",
+    "and every week after",
+  ])("refuses %j as a headline of its own", (headline) => {
+    expect(headlineGrammar(headline)).not.toBeNull();
+  });
+
+  it.each([
+    "For students who mark their own papers weekly",
+    "Taught by teachers who mark the exam",
+    "Year 6 pupils sit six mock papers",
+    "15 seats per cohort",
+  ])("passes %j", (headline) => {
+    expect(headlineGrammar(headline)).toBeNull();
   });
 });

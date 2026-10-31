@@ -111,3 +111,25 @@ describe("withConsistentCasing: card titles", () => {
     ]);
   });
 });
+
+describe("withConsistentCasing: hyphenated words", () => {
+  it("lowers the part after a hyphen in a sentence-case set, first word too", () => {
+    const set = [
+      beatOf({
+        headline: "Fresh loaves every morning",
+        title: "Take-Home goods",
+      }),
+      beatOf({
+        headline: "Made by our own bakers",
+        title: "On-Time every visit",
+      }),
+      beatOf({ headline: "Beans from the Plateau", title: "Hand-dyed cloth" }),
+    ];
+    const { frames: cased } = withConsistentCasing(set, SOURCES);
+    expect(cased.map((f) => f.title)).toEqual([
+      "Take-home goods",
+      "On-time every visit",
+      "Hand-dyed cloth",
+    ]);
+  });
+});

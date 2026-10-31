@@ -33,6 +33,28 @@ describe("withFactsDrawn: no known fact-uncovered ships", () => {
     expect(plan.frames[0]).toEqual(full.frames[0]);
   });
 
+  it("joins the fact onto a line when every footer it may go on is full", () => {
+    const full = ["Bring a friend", "Bring a bag", "Bring a flask"];
+    let plan = withFrame(cafePlan(), 2, { subheadline: "Come early" });
+    for (const i of [1, 2, 3, 4]) {
+      plan = withFrame(plan, i, { footerLines: [...full] });
+    }
+    plan = withFrame(plan, 4, {
+      footerLines: ["₦2,500 a bottle", "Saturday 15 November", "Our Yaba bar"],
+    });
+    const { plan: filled, drawn } = withFactsDrawn(plan, CAFE_FACTS, OWNERS);
+    expect(drawn).toContain("8am to 2pm");
+    expect(
+      factsUncovered(filled.frames, CAFE_FACTS).map((f) => f.text),
+    ).not.toContain("8am to 2pm");
+    expect(filled.frames[0]).toEqual(plan.frames[0]);
+    expect(
+      filled.frames
+        .flatMap((f) => f.footerLines)
+        .some((l) => l.includes(" · 8am to 2pm")),
+    ).toBe(true);
+  });
+
   it("leaves a set that states everything as it is, and never writes the offering as small print", () => {
     const plan = cafePlan();
     expect(withFactsDrawn(plan, CAFE_FACTS, OWNERS)).toEqual({

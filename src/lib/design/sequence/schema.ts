@@ -20,27 +20,6 @@ const t = COPY_TARGETS;
 
 export const ANGLE_MAX = 200;
 
-/**
- * What a listed point is about. Two points of one kind make one point to a
- * reader ("no preservatives" and "nothing artificial" are both what goes
- * in it), so code holds no two frames to one kind while another is left.
- */
-export const POINT_KINDS = [
-  "what-it-is",
-  "what-goes-in",
-  "how-it-is-made",
-  "where-it-comes-from",
-  "who-makes-it",
-  "what-you-get",
-  "how-it-works",
-  "proof",
-  "who-it-is-for",
-  "belief",
-  "price",
-  "when-where",
-  "limit",
-] as const;
-export type PointKind = (typeof POINT_KINDS)[number];
 export const SCENE_MAX = 400;
 
 export const arcFrameSchema = z.object({
@@ -82,28 +61,22 @@ export function arcResponseSchema(count: number) {
       "solid",
     ]),
     footerStyle: z.enum(["bar", "text", "none"]),
+    subjects: z
+      .array(
+        z.object({
+          name: z.string().max(60),
+          points: z.array(z.number().int()).max(40),
+        }),
+      )
+      .max(30)
+      .describe(
+        "Every numbered point sorted by what it tells the reader, one entry per subject: its name in 2 to 4 words and the numbers of every point on it. A point on two subjects is listed under both.",
+      ),
     hookAngle: z
       .string()
       .max(ANGLE_MAX)
       .describe(
         "The hook's claim: frame 1's point said as the one reason to see frame 2, in a plain sentence. Not the copy.",
-      ),
-    kinds: z
-      .array(z.enum(POINT_KINDS))
-      .max(60)
-      .describe(
-        "The kind of each numbered point, in the list's order: what the point is about.",
-      ),
-    sameAs: z
-      .array(
-        z.object({
-          a: z.number().int(),
-          b: z.number().int(),
-        }),
-      )
-      .max(40)
-      .describe(
-        "Every pair of listed points, by number, that a reader would say make one point: the same subject or quality from two sides, a cause and its effect. [] when none.",
       ),
     frames: z.array(arcFrameSchema).min(count).max(count),
     spare: z

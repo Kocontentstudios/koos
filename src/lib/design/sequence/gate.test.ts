@@ -268,3 +268,104 @@ describe("shipGate: an unsourced sentence on the hook", () => {
     expect(unsourcedOnSet(gated.frames, flagged)).toEqual([]);
   });
 });
+
+describe("shipGate: a hook whose second line says the first again", () => {
+  it("cuts the echoing sentence and keeps the one that adds something", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      headline: "Cold brew steeped slow",
+      subheadline: "Our cold brew is steeped slow. Served over ice.",
+    });
+    const { plan: gated, applied } = shipGate(plan, rules());
+    expect(gated.frames[0].subheadline).toBe("Served over ice.");
+    expect(applied).toContain(
+      "frame 1: hook subheadline echoing its headline cut",
+    );
+  });
+
+  it("leaves the second line empty when every sentence echoes and the headline names the offering", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      headline: "Cold brew steeped slow",
+      subheadline: "Our cold brew, steeped slow.",
+    });
+    const { plan: gated } = shipGate(plan, rules());
+    expect(gated.frames[0].subheadline).toBe("");
+    expect(gated.frames[0].headline).toBe("Cold brew steeped slow");
+  });
+});
+
+describe("shipGate: no headline makes another frame's point", () => {
+  it("gives a middle frame a spare point when its own claim cannot stand apart", () => {
+    const plan = withFrame(cafePlan(), 3, {
+      headline: "Your Saturday, slowed down again",
+      subheadline: "Sit in with a glass, or carry yours out.",
+    });
+    const twin = rules({
+      claims: ["", "", "", "Your Saturday slowed down", ""],
+      spares: ["Roasted in-house each week"],
+    });
+    const before = validateSequence(plan, twin).filter(
+      (p) => p.rule === "headline-repeat",
+    );
+    expect(before).not.toEqual([]);
+    const { plan: gated, applied } = shipGate(plan, twin);
+    expect(gated.frames[3].headline).toBe("Roasted in-house each week");
+    expect(applied).toContain("frame 4: repeated headline given a spare point");
+    expect(
+      validateSequence(gated, twin).filter((p) => p.rule === "headline-repeat"),
+    ).toEqual([]);
+  });
+});
+
+describe("shipGate: a headline that leans on the frame before", () => {
+  it("sets a fragment headline to the frame's claim", () => {
+    const plan = withFrame(cafePlan(), 2, {
+      headline: "for early risers",
+      subheadline: "8am to 2pm",
+    });
+    const { plan: gated } = shipGate(
+      plan,
+      rules({ claims: ["", "", "Roasted in-house each week", "", ""] }),
+    );
+    expect(gated.frames[2].headline).toBe("Roasted in-house each week");
+  });
+
+  it("starts it with a capital when no claim can stand in", () => {
+    const plan = withFrame(cafePlan(), 2, {
+      headline: "slow mornings at the bar start early",
+      subheadline: "8am to 2pm",
+    });
+    const { plan: gated } = shipGate(plan, rules({ claims: [] }));
+    expect(gated.frames[2].headline).toBe(
+      "Slow mornings at the bar start early",
+    );
+  });
+});
+
+describe("shipGate: the hook names what the brief offers", () => {
+  it("writes a product fact the hook leaves out onto it, whatever phrase was read as the offering", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      headline: "Steeped slow, poured over ice",
+      subheadline: "",
+    });
+    const product = { ...CAFE_FACTS[0] };
+    expect(product.kind).toBe("product");
+    const { plan: gated } = shipGate(
+      plan,
+      rules({ offering: null, names: [], claims: [] }),
+    );
+    expect(gated.frames[0].subheadline.toLowerCase()).toContain(
+      product.text.toLowerCase(),
+    );
+  });
+});
+
+describe("shipGate: a carousel's price waits for the action", () => {
+  it("cuts the hook's sentence that gives the price", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      headline: "Your Saturday, slowed down",
+      subheadline: "Our cold brew, served over ice. Yours for ₦2,500 a bottle.",
+    });
+    const { plan: gated } = shipGate(plan, rules());
+    expect(gated.frames[0].subheadline).toBe("Our cold brew, served over ice.");
+  });
+});

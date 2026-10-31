@@ -68,6 +68,20 @@ function withLine(lines: readonly string[], line: string): string[] {
   return replaced ? next : [...lines, line];
 }
 
+/** `lines` with `line` joined onto one of them, shortest first, for a
+ *  footer with no room for a line of its own. */
+function merged(lines: readonly string[], line: string): string[][] {
+  return lines
+    .map((existing, i) => ({ existing, i }))
+    .sort((a, b) => a.existing.length - b.existing.length)
+    .map(({ existing, i }) =>
+      lines.map((l, k) => (k === i ? `${existing} · ${line}` : l)),
+    )
+    .filter((joined) =>
+      joined.every((l) => l.length <= COPY_LIMITS.footerLine),
+    );
+}
+
 /** Whether the line leaves the frame drawable: within the footer's lines
  *  and adding no limit the frame did not already break. */
 function fits(
@@ -104,16 +118,28 @@ export function withFactsDrawn(
   let frames = plan.frames;
   const drawn: string[] = [];
   const restated: string[] = [];
-  const draw = (fact: BriefFact, strict: boolean): boolean => {
+  const draw = (
+    fact: BriefFact,
+    strict: boolean,
+    joining: boolean,
+  ): boolean => {
     const line = fact.text.trim();
     const index = facts.indexOf(fact);
     const owner = owners.findIndex((owned) => owned.includes(index));
     for (const home of homesFor(owner, frames)) {
       const beat = frames[home];
       if (strict && givesFigures(beat, fact)) continue;
-      const next = { ...beat, footerLines: withLine(beat.footerLines, line) };
-      if (!fits(beat, next, home, plan.kind)) continue;
-      if (!factStated(fact, frameCopy(next))) continue;
+      const footers = joining
+        ? merged(beat.footerLines, line)
+        : [withLine(beat.footerLines, line)];
+      const next = footers
+        .map((footerLines) => ({ ...beat, footerLines }))
+        .find(
+          (candidate) =>
+            fits(beat, candidate, home, plan.kind) &&
+            factStated(fact, frameCopy(candidate)),
+        );
+      if (!next) continue;
       frames = frames.map((b, i) => (i === home ? next : b));
       drawn.push(line);
       return true;
@@ -126,7 +152,16 @@ export function withFactsDrawn(
     if (line.length > COPY_LIMITS.footerLine) continue;
     /* Coverage is a hard gate (H5): a figure only a frame already giving
        it could take is drawn there too rather than shipped uncovered. */
-    if (!draw(fact, true) && !draw(fact, false)) restated.push(line);
+    /* A line of its own is read before one joined onto another, and a
+       full footer still takes the fact joined on rather than lose it. */
+    const tries: [boolean, boolean][] = [
+      [true, false],
+      [false, false],
+      [false, true],
+    ];
+    if (!tries.some(([strict, joining]) => draw(fact, strict, joining))) {
+      restated.push(line);
+    }
   }
   return {
     plan: drawn.length > 0 ? { ...plan, frames } : plan,

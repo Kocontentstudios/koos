@@ -138,6 +138,29 @@ titles); no threshold has been lowered.
 
 ## Results so far
 
+### Arc-first planner, subjects and a gate between fix calls (2026-10-31, Bedrock `us.anthropic.claude-sonnet-4-6`)
+
+The arc call sorts every pool point under the subjects it touches
+(`subjects`, replacing `kinds` and `sameAs`) and code holds no two frames
+to one subject (`subjectPairs`). The ship gate runs between the two fix
+calls, so what it cuts gets a rewrite, and again after the second. It now
+also cuts a hook subheadline that echoes its headline, a price on the hook,
+a fragment headline, and gives a repeated middle headline a spare point.
+Titles refuse role words and single words; duration facts keep the
+promise before them (`withTurnaround`); a fact joins a full footer line
+rather than ship uncovered; a fix may not trade one coverage fault for
+another.
+
+| Run | hook | non-repetitive | coverage | faults shipped |
+|---|---|---|---|---|
+| tuning 1 to 3, final | 3.40, 3.40, 3.40, 3.47 | 3.03, 2.97, 3.03, 2.93 | 1.0 | 49 to 75 |
+| held-out 1 to 3 | 3.75, 3.33, 3.58 | 3.50, 2.83, 2.92 | 0.833, 0.917, 1.0 | 23 to 27 |
+
+By N on the final runs (hook / non-repetitive): tuning 3.5/3.5, 3.7/3.0,
+3.2/2.3; held-out 3.25/3.25, 3.75/3.0, 3.75/2.5. H13 still fails. N=8
+thin briefs have fewer distinct points than middle frames, and the judge
+reads both padding and a point told twice as repetition.
+
 ### Arc-first planner, audit pass (2026-10-30, Bedrock `us.anthropic.claude-sonnet-4-6`)
 
 Logs and JSON reports in `/tmp/feat-multiframe/critique/arc-b-r2/`

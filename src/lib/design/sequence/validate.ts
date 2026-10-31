@@ -22,7 +22,7 @@ export interface SequenceRules {
   /** Whether the set has an image to draw (an upload or a KO plate). */
   hasImage: boolean;
   /** Words every frame may share without repeating itself: the brand's
-   *  name ("Crumb & Co." on two headlines is not one idea twice). */
+   *  name ("Bread & Co." on two headlines is not one idea twice). */
   brandName?: string | null;
 }
 
