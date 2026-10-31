@@ -21,16 +21,47 @@ import type { FrameBeat } from "./contract";
 const ANNOUNCEMENT =
   /\b(?:is|are|'s)\s+(?:here|back|live|now available|available now)\b[.!]?\s*$|^\s*(?:introducing|meet|presenting|announcing|new|now)\b|\b(?:arrived|arrives|landed|lands|dropped)\b|\bjust\s+in\b|\bnew\s+(?:in|arrival|arrivals|stock)\b|\bnow\s+(?:available|open|in stock)\b|\b(?:out now|in stores?|back in stock)\b|\bfinally\b/i;
 
+const DEVICE = /^\s*before\b[^.!?]*[.:!?—–-]\s*after\b/i;
+
 /* An arrival said outright reads as a label however concrete the words
    around it ("Hand-woven baskets from Bida are here"). */
 const ARRIVAL =
   /\b(?:is|are|'s)\s+(?:here|back)\b|\b(?:has|have)\s+arrived\b|\bfinally\b/i;
 
+const ARRIVAL_WORDS =
+  /\s*\b(?:(?:is|are)\s+(?:here|back)(?:\s+in\s+stock)?|'s\s+(?:here|back)|(?:has|have)\s+(?:arrived|landed)|finally)\b/gi;
+
+/* Content words a hook's point keeps beyond the names once its arrival is
+   taken out, for the rest to stand as a reason of its own. */
+const REASON_WORDS = 3;
+
+/**
+ * A hook's point with its arrival taken out ("Ata Kitchen's sauce is
+ * back, made in small batches" is "Ata Kitchen's sauce, made in small
+ * batches"): the news is a label, and a hook written to a point that says
+ * it leads on it. The point as it was when nothing would be left but the
+ * name.
+ */
+export function withoutArrival(
+  point: string,
+  free: ReadonlySet<string> = new Set(),
+): string {
+  if (!ARRIVAL.test(point)) return point;
+  const cut = point
+    .replace(ARRIVAL_WORDS, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([,;:])\s*(?=[,.;:!?]|$)/g, "")
+    .replace(/^[\s,;:—–-]+/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return contentStems(cut, free).size >= REASON_WORDS ? cut : point;
+}
+
 /* What a strong hook does instead: a question any competitor could ask
    ("Still doing laundry yourself?") or a mood line reads as generic; the
    brief's own specific (a duration, a count, who makes it) does not. */
 export const HOOK_CRAFT =
-  "build the headline on the most concrete thing the brief gives (a figure, how it is made, who makes it, what it changes for the reader), said straight, as a question that holds it or as a before-and-after, and name the offering in the headline or the subheadline";
+  "build the headline on the most concrete thing the brief gives (a figure, how it is made, who makes it, what it changes for the reader), said straight (a question or a before-and-after only when the figure is in it), and name the offering in the headline or the subheadline";
 
 /* Content words a headline and its subheadline may share before the second
    line reads as the first said again; the brand's name is free. Two is
@@ -72,23 +103,36 @@ const HOOK_PREVIEW_WORDS = 2;
 
 /** Zero-based indexes of the later frames whose point the hook already
  *  spends, by the content words they share beyond the brand's and the
- *  offering's names. */
+ *  offering's names. `actionFree` holds the words the last frame may say
+ *  again whatever the hook said: what the reader needs to act (a price, a
+ *  date, a place, a contact, the ask), which is the action's to give and
+ *  no repeat of the hook. */
 export function previewedFrames(
   frames: readonly FrameBeat[],
   offering: string | null,
   brandName = "",
+  actionFree: ReadonlySet<string> = new Set(),
 ): number[] {
   const [hook, ...later] = frames;
   if (!hook) return [];
   const free = namesFree(brandName, offering);
-  const hookWords = contentStems(`${hook.headline} ${hook.subheadline}`, free);
+  /* The hook must name the offering, so the offering's words are never
+     the point it spends: "scotch bonnet pepper sauce" on the hook does not
+     preview "About 30 scotch bonnets in every jar". */
+  const hookWords = contentStems(
+    `${hook.headline} ${hook.subheadline}`,
+    new Set([...free, ...contentStems(offering ?? "")]),
+  );
+  const lastIndex = later.length - 1;
   return later.flatMap((beat, i) => {
     /* The later frame restating the hook's headline is that frame's
        headline-repeat (validateSequence), not the hook's fault. */
     if (isNearDuplicateHeadline(hook.headline, beat.headline, free)) return [];
     const shared = [
       ...contentStems(`${beat.headline} ${beat.subheadline}`, free),
-    ].filter((s) => hookWords.has(s));
+    ].filter(
+      (s) => hookWords.has(s) && !(i === lastIndex && actionFree.has(s)),
+    );
     return shared.length >= HOOK_PREVIEW_WORDS ? [i + 1] : [];
   });
 }
@@ -98,8 +142,9 @@ export function hookPreviews(
   frames: readonly FrameBeat[],
   offering: string | null,
   brandName = "",
+  actionFree: ReadonlySet<string> = new Set(),
 ): string[] {
-  return previewedFrames(frames, offering, brandName).map(
+  return previewedFrames(frames, offering, brandName, actionFree).map(
     (i) =>
       `the hook already says what frame ${i + 1} ("${frames[i].headline}") is for; leave that point to it and give the hook its own reason to swipe`,
   );
@@ -214,6 +259,24 @@ export function hookFaults(
   } else if (nameAlone) {
     faults.push(
       `the hook's headline "${hook.headline}" is only the name of what is offered; ${HOOK_CRAFT}`,
+    );
+  }
+  /* A before-and-after with no figure in it is a device any competitor
+     could post ("Before: no sauce. After: Oyo fire."): it is only worth
+     its line when it holds the brief's own number. */
+  if (!/\p{N}/u.test(hook.headline) && DEVICE.test(hook.headline)) {
+    faults.push(
+      `the hook's headline "${hook.headline}" is a before-and-after with no figure in it, a device any competitor could post; ${HOOK_CRAFT}`,
+    );
+  }
+  /* The name with where to find it under a headline is a label left
+     behind, not the reader's stake. */
+  const subWords = [...contentStems(hook.subheadline)].filter(
+    (s) => !labelWords.has(s),
+  );
+  if (hook.subheadline.trim() && subWords.length === 0) {
+    faults.push(
+      `the hook's subheadline "${hook.subheadline}" only names the offering and where it is; say what the reader gets because of the headline's claim`,
     );
   }
   /* An announcement under a question ("— just arrived") is a flat retail

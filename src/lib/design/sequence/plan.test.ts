@@ -3,6 +3,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const generateObject = vi.fn();
 vi.mock("ai", () => ({ generateObject: (o: unknown) => generateObject(o) }));
 vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
+/* The last resort runs as written unless a test makes it leave a fault,
+   to see what the planner does with a set no repair clears. */
+const lastResortLeaves = vi.fn((): unknown[] | null => null);
+vi.mock("./last-resort", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./last-resort")>();
+  return {
+    ...real,
+    lastResort: (...args: Parameters<typeof real.lastResort>) => {
+      const result = real.lastResort(...args);
+      const left = lastResortLeaves();
+      return left
+        ? { ...result, blocking: [...result.blocking, ...left] }
+        : result;
+    },
+  };
+});
 
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { auditFlags } from "./audit";
@@ -593,40 +609,113 @@ describe("planSequence: faults are fixed, not shipped", () => {
     expect(result.refused).toEqual([]);
   });
 
-  it("refuses a set it cannot clear of a fault that must not ship", async () => {
+  const runWith = (copy: unknown, onBlocked?: "refuse" | "report") => {
     generateObject.mockImplementation(async (o: unknown) => {
       if (isArc(o)) return { object: { ...ARC, hookAngle: "" } };
-      if (isCopy(o)) {
-        return {
-          object: {
-            ...COPY,
-            frames: [
-              copyFrame("Cold brew is here", "Come and try it."),
-              ...COPY.frames.slice(1),
-            ],
-          },
-        };
-      }
+      if (isCopy(o)) return { object: copy };
       throw new Error("provider down");
     });
-    const run = (onBlocked: "refuse" | "report") =>
-      planSequence(
-        {
-          context: context(),
-          kind: "carousel",
-          frameCount: 4,
-          imageSource: "none",
-          image: null,
-          memorySummary: "",
-          recentLayouts: [],
-        },
-        { briefReader: reader, onBlocked },
+    return planSequence(
+      {
+        context: context(),
+        kind: "carousel",
+        frameCount: 4,
+        imageSource: "none",
+        image: null,
+        memorySummary: "",
+        recentLayouts: [],
+      },
+      { briefReader: reader, ...(onBlocked ? { onBlocked } : {}) },
+    );
+  };
+
+  it("rewrites an announcing hook from its own point rather than ship it", async () => {
+    const result = await runWith(
+      {
+        ...COPY,
+        frames: [
+          copyFrame("Cold brew is here", "Come and try it."),
+          ...COPY.frames.slice(1),
+        ],
+      },
+      "report",
+    );
+    expect(result.refused).toEqual([]);
+    expect(result.plan.frames[0].headline).not.toMatch(/is here/);
+  });
+
+  /* The gate once named faults it then shipped. A blocking fault no
+     repair clears is never shipped: it goes back to the model once, and
+     what is still left is refused, or reported to the eval, which counts
+     it. */
+  it("asks once more, then refuses a quality fault no repair clears", async () => {
+    const bare = {
+      frame: 1,
+      field: "subheadline",
+      detail: "it has a headline and nothing under it",
+      weight: 3,
+    };
+    lastResortLeaves.mockReturnValue([bare]);
+    try {
+      const reported = await runWith(COPY, "report");
+      expect(reported.refused).toContainEqual({
+        frame: 1,
+        detail: bare.detail,
+      });
+      const fixes = generateObject.mock.calls.filter(([o]) => isFix(o));
+      expect(fixes.length).toBeGreaterThan(0);
+      await expect(runWith(COPY)).rejects.toBeInstanceOf(
+        SequenceShipRefusedError,
       );
-    const reported = await run("report");
+    } finally {
+      lastResortLeaves.mockReturnValue(null);
+    }
+  });
+
+  it("plans afresh before it refuses, and ships the first clean set", async () => {
+    const bare = {
+      frame: 1,
+      field: "subheadline",
+      detail: "it has a headline and nothing under it",
+      weight: 3,
+    };
+    /* finish() runs the last resort twice per attempt: before and after
+       the last fix call. The first attempt is left with a fault. */
+    lastResortLeaves.mockReturnValueOnce([bare]).mockReturnValueOnce([bare]);
+    reader.mockClear();
+    const result = await runWith(COPY);
+    expect(result.refused).toEqual([]);
+    expect(reader).toHaveBeenCalledTimes(1);
+    expect(result.modelCalls).toBeGreaterThan(MAX_MODEL_CALLS / 2);
+  });
+
+  it("refuses, by default, a set that still breaches after every repair", async () => {
+    const breaching = { ...COPY, cta: "Get 50% off today" };
+    const reported = await runWith(breaching, "report");
     expect(reported.refused.length).toBeGreaterThan(0);
-    await expect(run("refuse")).rejects.toBeInstanceOf(
+    expect(reported.refused[0].detail).toContain("50");
+    await expect(runWith(breaching)).rejects.toBeInstanceOf(
       SequenceShipRefusedError,
     );
+  });
+
+  it("cuts a footer line that breaches rather than refusing the set", async () => {
+    const result = await runWith({
+      ...COPY,
+      frames: [
+        ...COPY.frames.slice(0, 2),
+        copyFrame(
+          "Patience over shortcuts",
+          "We would rather wait than rush a glass.",
+          ["Voted best in Lagos 2024"],
+        ),
+        COPY.frames[3],
+      ],
+    });
+    expect(result.refused).toEqual([]);
+    expect(
+      result.plan.frames.flatMap((f) => f.footerLines).join(" "),
+    ).not.toContain("Voted best");
   });
 });
 

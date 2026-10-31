@@ -244,8 +244,9 @@ interface RunRecord {
   /** Fixture facts the owner's edits took out (factsTakenOut), not asked
    *  of any frame. */
   released?: string[];
-  /** Faults that must not ship still on the set: production refuses such
-   *  a set (SequenceShipRefusedError); the eval scores it and counts it. */
+  /** Blocking faults still on the set: production refuses such a set
+   *  (SequenceShipRefusedError) before any render; the eval scores it and
+   *  counts it. */
   refused?: string[];
   /** Frames code rewrote from their own point (last-resort.ts). */
   lastResort?: string[];
@@ -749,7 +750,7 @@ for (const lane of lanes) {
   console.log(`invented words shipped: ${across("invented")}`);
   console.log(`facts drawn by code: ${across("factsDrawn")}`);
   console.log(
-    `blocking faults left (production refuses these sets): ${across("refused")}`,
+    `blocking faults left (production refuses these sets before any render): ${across("refused")}`,
   );
   console.log(`frames code rewrote from their point: ${across("lastResort")}`);
   if (lane === "approved") {

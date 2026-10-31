@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settledOffering, widenedOffering } from "./read";
+import { frameCountError, settledOffering, widenedOffering } from "./read";
 
 /* O1 round-1 critic, MEDIUM 8: the hook dropped "WAEC" because the read
    took "maths crash course" as the offering. */
@@ -52,5 +52,27 @@ describe("settledOffering", () => {
     expect(
       settledOffering("investor deck", "Our investor deck.", "Farmlink"),
     ).toBeNull();
+  });
+});
+
+describe("frameCountError", () => {
+  it.each([
+    ["carousel", 2],
+    ["carousel", 8],
+    ["carousel", 10],
+    ["presentation", 3],
+    ["presentation", 12],
+  ] as const)("is null for a %s of %d", (kind, n) => {
+    expect(frameCountError("planOutline", kind, n)).toBeNull();
+  });
+
+  it.each([
+    ["carousel", 1, "got 1"],
+    ["carousel", 11, "got 11"],
+    ["carousel", 3.5, "got 3.5"],
+    ["presentation", 13, "got 13"],
+    ["carousel", "8", 'got "8"'],
+  ] as const)("names a refused %s count %s", (kind, n, named) => {
+    expect(frameCountError("planOutline", kind, n)).toContain(named);
   });
 });

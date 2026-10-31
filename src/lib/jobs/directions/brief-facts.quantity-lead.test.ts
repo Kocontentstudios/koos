@@ -80,3 +80,73 @@ describe("factStated on a share and on a group per unit", () => {
     expect(factStated(quantity(text), copy)).toBe(stated);
   });
 });
+
+/* A growth sentence holds two amounts, each dated by its own year, and a
+   count may share its field with a length of time: neither is a second
+   value of the fact's kind. */
+describe("factStated with a second number in the field", () => {
+  const price = (text: string): BriefFact => ({
+    kind: "price",
+    text,
+    needs: needsFor("price", text),
+  });
+  const growth =
+    "Recorded revenue rose from ₦310 million in 2024 to ₦720 million in 2025.";
+
+  it.each([
+    [quantity("from ₦310 million in 2024"), growth],
+    [quantity("₦720 million in 2025"), growth],
+    [price("₦720 million in 2025"), growth],
+    [quantity("12 stylists"), "Our 12 stylists each trained for two years"],
+    [quantity("12 stylists"), "Our 12 stylists each trained for 2 years"],
+    [quantity("40 riders served in March"), "In March we served 40 riders"],
+  ])("%o is stated by %s", (fact, copy) => {
+    expect(factStated(fact, copy)).toBe(true);
+  });
+
+  it.each([
+    [price("₦6,000"), "₦6,000 or ₦5,000"],
+    [
+      price("₦720 million in 2025"),
+      "₦720 million in 2025 or ₦800 million in 2025",
+    ],
+    [
+      price("₦720 million in 2025"),
+      "₦310 million in 2024 or ₦720 million in 2025",
+    ],
+    [quantity("₦310 million in 2024"), "₦310 million in 2024 to 2025"],
+    [quantity("10 seats"), "10 seats per row, 5 rows"],
+    [quantity("₦720 million in 2025"), "₦720 million in 2026"],
+  ])("%o is not stated by %s", (fact, copy) => {
+    expect(factStated(fact, copy)).toBe(false);
+  });
+});
+
+/* Code drew "Weekday bookings get a free
+   scalp massage" as a footer while the hook already said it with
+   "include". */
+describe("factStated on an offer given with another offer verb", () => {
+  const condition = (text: string): BriefFact => ({
+    kind: "condition",
+    text,
+    needs: needsFor("condition", text),
+  });
+  const fact = condition("Weekday bookings get a free scalp massage");
+
+  it.each([
+    "Weekday bookings at Crown & Coil include a free scalp massage",
+    "Weekday bookings include a free scalp massage.",
+    "Weekday bookings get a free scalp massage",
+  ])("is stated by %s", (copy) => {
+    expect(factStated(fact, copy)).toBe(true);
+  });
+
+  it.each([
+    "Weekday bookings never include a free scalp massage",
+    "Weekday bookings include a scalp massage",
+    "Weekday bookings at our two branches in Lekki and Ikoyi include a free scalp massage",
+    "Bookings include a free scalp massage",
+  ])("is not stated by %s", (copy) => {
+    expect(factStated(fact, copy)).toBe(false);
+  });
+});

@@ -66,7 +66,10 @@ import {
 } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
 import { frameRationale, liveFrames } from "@/lib/design/sequence/frames";
-import { planSequence } from "@/lib/design/sequence/plan";
+import {
+  planSequence,
+  SequenceShipRefusedError,
+} from "@/lib/design/sequence/plan";
 import { replanFrame } from "@/lib/design/sequence/replan";
 import type { DesignSpec } from "@/lib/design/spec";
 import { STORAGE_PREFIXES } from "@/lib/storage";
@@ -1134,6 +1137,22 @@ async function planSet({
       : null,
     memorySummary,
     recentLayouts,
+  }).catch((err) => {
+    /* A blocking fault no repair cleared is refused before any frame
+       renders or is billed; the user sees the same plain refusal as a set
+       that broke a rule. */
+    if (!(err instanceof SequenceShipRefusedError)) throw err;
+    console.error("design sequence plan refused", {
+      blockingFaults: err.faults.length,
+    });
+    throw new SequencePlanError(
+      kind,
+      err.faults.map((f) => ({
+        frame: f.frame,
+        rule: "blocking-fault" as const,
+        detail: f.detail,
+      })),
+    );
   });
   const fatal = planned.problems.filter((p) => FATAL_RULES.includes(p.rule));
   if (planned.plan.frames.length !== frameCount) {

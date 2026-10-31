@@ -166,12 +166,21 @@ export async function readSequenceBrief(
   };
 }
 
-/** Why a frame count was refused, naming the count that was given. */
+/** Why a frame count is refused, naming the count that was given, or
+ *  null for a count within FRAME_BOUNDS. */
 export function frameCountError(
   caller: string,
   kind: SequenceKind,
   got: unknown,
-): string {
+): string | null {
   const { min, max } = FRAME_BOUNDS[kind];
+  if (
+    typeof got === "number" &&
+    Number.isInteger(got) &&
+    got >= min &&
+    got <= max
+  ) {
+    return null;
+  }
   return `${caller}: a ${kind} takes ${min} to ${max} frames; got ${typeof got === "number" ? String(got) : JSON.stringify(got)}. Clamp the count with clampFrameCount first.`;
 }

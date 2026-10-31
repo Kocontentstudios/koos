@@ -78,6 +78,30 @@ const OPEN_ENDS = new Set([
   "where",
   "every",
   "each",
+  /* Verbs that need what follows them: "Every rider deserves" from
+     "Every rider deserves to stay rolling". */
+  "deserve",
+  "deserves",
+  "need",
+  "needs",
+  "want",
+  "wants",
+  "get",
+  "gets",
+  "help",
+  "helps",
+  "let",
+  "lets",
+  "make",
+  "makes",
+  "keep",
+  "keeps",
+  "bring",
+  "brings",
+  "give",
+  "gives",
+  "take",
+  "takes",
 ]);
 /* Labels the planner fills a slot with when it has no name: a card that
    says "How to act" names the planner's step, not the frame. */

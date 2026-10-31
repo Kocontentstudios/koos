@@ -312,6 +312,77 @@ export function withConsistentCasing(
   return { frames: next, recased, style };
 }
 
+/* A name as its sources spell it: capitalised words, an "&" between two
+   of them, and a number closing it ("Crown & Coil", "Wuse 2", "Lekki
+   Phase 1"). */
+const NAME_PHRASE =
+  /\p{Lu}[\p{L}'’-]*(?:\s+(?:&\s+)?\p{Lu}[\p{L}'’-]*)*(?:\s+\d+[A-Za-z]?\b)?/gu;
+
+/** Each name `sources` spell with capitals, keyed by its lowercase form:
+ *  every phrase of two or more parts, its first word (which names it
+ *  alone: "Lumora" for "Lumora Grid"), and a single capitalised word a
+ *  sentence does not open. */
+export function nameSpellings(
+  sources: readonly (string | null | undefined)[],
+): Map<string, string> {
+  const spelt = new Map<string, string>();
+  for (const source of sources) {
+    const text = source ?? "";
+    for (const match of text.matchAll(NAME_PHRASE)) {
+      const phrase = match[0].replace(/\s+/g, " ").trim();
+      const parts = phrase.split(" ");
+      const at = match.index ?? 0;
+      const opensSentence = at === 0 || /[.!?:]\s*$/.test(text.slice(0, at));
+      const whole = phrase === text.trim();
+      /* A phrase opening its sentence may open on a verb ("Book Pedal
+         Doctor") or be a heading in title case: only what follows its
+         first word is taken as a name, and only when that is a phrase. */
+      const named =
+        opensSentence && !whole
+          ? parts.slice(1).filter((w) => w !== "&")
+          : parts;
+      if (parts.length >= 2 && named.length >= 2) {
+        const name =
+          opensSentence && !whole ? parts.slice(1).join(" ") : phrase;
+        spelt.set(name.toLowerCase(), name);
+        if (!opensSentence || whole) {
+          spelt.set(named[0].toLowerCase(), named[0]);
+        }
+      } else if ((!opensSentence || whole) && !SMALL_WORDS.has(bare(phrase))) {
+        spelt.set(phrase.toLowerCase(), phrase);
+      }
+    }
+  }
+  return spelt;
+}
+
+const escapedPhrase = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** `text` with every name `spellings` holds written as its sources spell
+ *  it: "Visit crown & coil" is "Visit Crown & Coil". */
+export function withNamesSpelt(
+  text: string,
+  spellings: ReadonlyMap<string, string>,
+): string {
+  const longestFirst = [...spellings.keys()].sort(
+    (a, b) => b.length - a.length,
+  );
+  let out = text;
+  for (const key of longestFirst) {
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])${escapedPhrase(key).replace(/ /g, "\\s+")}(?![\\p{L}\\p{N}])`,
+      "giu",
+    );
+    out = out.replace(pattern, (found) =>
+      isCamel(found) || isAcronym(found)
+        ? found
+        : (spellings.get(key) ?? found),
+    );
+  }
+  return out;
+}
+
 /** `text` in sentence case, the names `sources` give kept: how an
  *  outline's titles read beside the set's sentence-case copy. */
 export function sentenceCased(
@@ -320,5 +391,8 @@ export function sentenceCased(
 ): string {
   const { runs, runOnly, heads } = nameRuns(sources);
   const names = new Set([...properNouns(sources), ...heads]);
-  return toSentence(text, names, runs, runOnly);
+  return withNamesSpelt(
+    toSentence(text, names, runs, runOnly),
+    nameSpellings(sources),
+  );
 }

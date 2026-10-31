@@ -10,6 +10,7 @@ import {
 } from "@/lib/jobs/directions/text-overlap";
 import { upperFirst } from "./casing";
 import type { FrameRole, SequenceKind } from "./contract";
+import { withoutArrival } from "./hook";
 import { isStatFigure, settleFrameLayouts } from "./layouts";
 import {
   briefPoints,
@@ -571,6 +572,8 @@ export function settleArc(
     angleDropped = "the angle gives the price, which the action frame carries";
     hookClaim = sourceText;
   }
+  const claimIsSource = hookClaim === sourceText;
+  if (!fixed) hookClaim = withoutArrival(hookClaim, free);
 
   const sameAs = subjectPairs(answer.subjects ?? [], idOf);
   const used = new Set<number>(hookPoint === null ? [] : [hookPoint]);
@@ -581,7 +584,7 @@ export function settleArc(
      the point's own words are in it ("each piece is one of a kind" in an
      angle that ends on it), not when it shares one. */
   const angleTakes = (i: number) => {
-    if (!hookClaim || hookClaim === sourceText) return false;
+    if (!hookClaim || claimIsSource) return false;
     if (isNearDuplicateHeadline(hookClaim, pool[i].text, free)) return true;
     const said = contentStems(hookClaim, free);
     const theirs = [...contentStems(pool[i].text, free)];

@@ -22,7 +22,6 @@ import { type ArcFrame, pointPool, settleArc, sparePoints } from "./arc";
 import { auditFlags } from "./audit";
 import { withConsistentCasing } from "./casing";
 import {
-  FRAME_BOUNDS,
   type FrameBeat,
   type PlannedSequence,
   type PlanSequenceInput,
@@ -39,7 +38,7 @@ import {
 } from "./faults";
 import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
 import { shipGate, unsourcedOnSet } from "./gate";
-import { lastResort } from "./last-resort";
+import { type AlternateCopy, lastResort } from "./last-resort";
 import { withFigureLayout } from "./layouts";
 import { sequenceLedger } from "./ledger";
 import {
@@ -97,17 +96,19 @@ export class ModelBudgetError extends Error {
 export interface PlanSequenceDeps {
   /** Reads the brief's facts, offering and people (brief-read.ts). */
   briefReader?: BriefReader;
-  /** What a set still carrying a fault that must not ship does: "refuse"
-   *  throws SequenceShipRefusedError; "report" (the default) returns it
-   *  with `refused` set. Report is the default because the live eval
-   *  finds a blocking fault left on about half the sets after the last
-   *  resort, and refusing them would fail half of all jobs: which way the
-   *  product goes is the owner's decision (OUTLINE.md). */
+  /** What a set still carrying a blocking fault after every repair does
+   *  (blockingFaults: a breach such as a claim no source gives or a point
+   *  the owner took out, or a quality fault such as a repeat or a bare
+   *  frame): "refuse" (the default, and production's) throws
+   *  SequenceShipRefusedError before any frame is rendered or billed;
+   *  "report" returns the set with `refused` set, so the eval can score
+   *  it and count it. */
   onBlocked?: "refuse" | "report";
 }
 
-/** Thrown in place of a set that still carries a fault that must not
- *  ship after every repair, code's last resort included. */
+/** Thrown in place of a set that still carries a blocking fault after
+ *  every repair: the fix calls, code's last resort, one more fix call on
+ *  what is left, and the last resort again. */
 export class SequenceShipRefusedError extends Error {
   constructor(readonly faults: readonly FrameRepeat[]) {
     super(
@@ -135,8 +136,8 @@ export interface PlannedSequenceResult extends PlanSequenceResult {
   /** Brief facts the owner took out of the approved outline
    *  (releasedFacts): not required on any frame, and kept off them. */
   factsReleased: string[];
-  /** The faults that must not ship that are still on the set; only ever
-   *  non-empty with onBlocked "report". */
+  /** Blocking faults still on the set, breaches and quality faults alike;
+   *  only ever non-empty with onBlocked "report". */
   refused: FrameRepeat[];
   /** "frame k: how code rewrote it" for every frame the last resort
    *  rewrote from its own point. */
@@ -227,23 +228,68 @@ export function assemblePlan(
  *     (withFactsDrawn), every title is settled against its frame's final
  *     copy (withSettledTitles) and the set takes one casing.
  *  At most MAX_MODEL_CALLS calls, the brief read included.
+ *  8. A set still carrying a blocking fault is planned afresh, up to
+ *     SHIP_ATTEMPTS times, and the one with the fewest is kept; with any
+ *     left it is refused (onBlocked "refuse") or reported.
  */
 export async function planSequence(
   input: PlanSequenceInput,
   {
     briefReader = readBriefWithModel,
-    onBlocked = "report",
+    onBlocked = "refuse",
   }: PlanSequenceDeps = {},
 ): Promise<PlannedSequenceResult> {
-  const { context, kind, frameCount, imageSource, image } = input;
-  const bounds = FRAME_BOUNDS[kind];
-  if (
-    !Number.isInteger(frameCount) ||
-    frameCount < bounds.min ||
-    frameCount > bounds.max
-  ) {
-    throw new RangeError(frameCountError("planSequence", kind, frameCount));
+  const read = onceRead(briefReader);
+  let best: PlannedSequenceResult | null = null;
+  let modelCalls = 0;
+  for (let attempt = 1; attempt <= SHIP_ATTEMPTS; attempt += 1) {
+    let result: PlannedSequenceResult;
+    try {
+      result = await planSequenceOnce(input, read);
+    } catch (err) {
+      /* A later attempt that fails leaves the best set so far to judge. */
+      if (!best) throw err;
+      console.error("sequence replan failed", failure(err));
+      break;
+    }
+    modelCalls += result.modelCalls;
+    if (!best || result.refused.length < best.refused.length) best = result;
+    if (best.refused.length === 0) break;
+    console.info("design.sequence.replanned", {
+      attempt,
+      blockingFaults: result.refused.length,
+    });
   }
+  const chosen = { ...(best as PlannedSequenceResult), modelCalls };
+  if (chosen.refused.length > 0 && onBlocked === "refuse") {
+    throw new SequenceShipRefusedError(chosen.refused);
+  }
+  return chosen;
+}
+
+/* A set still carrying a blocking fault after every repair is planned
+   afresh before it is refused: the drafts differ run to run, and a second
+   or third is often clean where the first was not. Bounded so a job never
+   spends more than three plans' worth of calls (each at most
+   MAX_MODEL_CALLS); the brief is read once. */
+export const SHIP_ATTEMPTS = 3;
+
+/* The brief reads the same every attempt: read it once. */
+function onceRead(reader: BriefReader): BriefReader {
+  let cached: ReturnType<BriefReader> | null = null;
+  return (input) => {
+    cached ??= reader(input);
+    return cached;
+  };
+}
+
+async function planSequenceOnce(
+  input: PlanSequenceInput,
+  briefReader: BriefReader,
+): Promise<PlannedSequenceResult> {
+  const { context, kind, frameCount, imageSource, image } = input;
+  const countError = frameCountError("planSequence", kind, frameCount);
+  if (countError) throw new RangeError(countError);
   const outline = input.approvedOutline ?? null;
   if (outline && outline.points.length !== frameCount) {
     throw new RangeError(
@@ -659,20 +705,6 @@ export async function planSequence(
     await withSpares(blocking);
     gated.push(...gate());
   }
-  const filled = withFactsDrawn(
-    plan,
-    facts,
-    owners,
-    released,
-    /* A when or where is every frame's to give, so it is drawn even
-       beside words a removed point shared: "our Yaba bar" is the
-       action's, whatever the owner did with "Specialty coffee bar in
-       Yaba". */
-    (line, frame, fact) =>
-      !SAYABLE_KINDS.has(fact.kind) &&
-      removedSaidBy(line, removed, arc.frames[frame]?.claim ?? "", free) !==
-        null,
-  );
   const casingSources = [
     briefText,
     context.title,
@@ -680,26 +712,91 @@ export async function planSequence(
     offering,
     ...brandFacts(context.brandSummary),
   ];
-  const cased = withConsistentCasing(
-    withSettledTitles(filled.plan.frames, titleRules, arcTitles),
-    casingSources,
-  );
-  plan = { ...filled.plan, frames: cased.frames.map(withFigureLayout) };
-  const resorted = lastResort(
-    plan,
-    rules,
-    arc.frames.map((f) => f.claim),
-    (frames) =>
-      withConsistentCasing(
-        withSettledTitles(frames, titleRules, arcTitles),
-        casingSources,
-      ).frames.map(withFigureLayout),
-  );
-  plan = resorted.plan;
+  const settle = (frames: readonly FrameBeat[]) =>
+    withConsistentCasing(
+      withSettledTitles(frames, titleRules, arcTitles),
+      casingSources,
+    );
+  const drawFacts = () =>
+    withFactsDrawn(
+      plan,
+      facts,
+      owners,
+      released,
+      /* A when or where is every frame's to give, so it is drawn even
+         beside words a removed point shared: "our Yaba bar" is the
+         action's, whatever the owner did with "Specialty coffee bar in
+         Yaba". */
+      (line, frame, fact) =>
+        !SAYABLE_KINDS.has(fact.kind) &&
+        removedSaidBy(line, removed, arc.frames[frame]?.claim ?? "", free) !==
+          null,
+    );
+  /* The other draft's frames and the openings both writers offered were
+     written to the same claims: copy to try before code's plainest. */
+  const alternates: AlternateCopy[][] = plan.frames.map((_, i) => [
+    ...drafts.flatMap((d) => {
+      const beat = d.plan.frames[i];
+      return beat
+        ? [
+            {
+              headline: beat.headline,
+              subheadline: beat.subheadline,
+              footerLines: beat.footerLines,
+              cta: beat.cta,
+            },
+          ]
+        : [];
+    }),
+    ...(i === 0
+      ? drafts.flatMap((d) =>
+          d.hooks.map((h) => ({
+            headline: h.headline,
+            subheadline: h.subheadline,
+          })),
+        )
+      : []),
+  ]);
+  const finish = () => {
+    const drawn = drawFacts();
+    const settled = settle(drawn.plan.frames);
+    plan = { ...drawn.plan, frames: settled.frames.map(withFigureLayout) };
+    const result = lastResort(
+      plan,
+      rules,
+      arc.frames.map((f) => f.claim),
+      (frames) => settle(frames).frames.map(withFigureLayout),
+      alternates,
+    );
+    plan = result.plan;
+    return { drawn, settled, result };
+  };
+  let finished = finish();
+  /* What code could not clear goes back to the model once, named, and is
+     then settled again: a blocking fault is fixed before ship or the set
+     is refused, never shipped. */
+  if (finished.result.blocking.length > 0) {
+    await withSpares(finished.result.blocking);
+    gated.push(...gate());
+    const again = finish();
+    finished = {
+      ...again,
+      drawn: {
+        ...again.drawn,
+        drawn: [...finished.drawn.drawn, ...again.drawn.drawn],
+      },
+      result: {
+        ...again.result,
+        applied: [...finished.result.applied, ...again.result.applied],
+      },
+    };
+  }
+  const { drawn: filled, settled: cased, result: resorted } = finished;
   const refused = resorted.blocking.map((f) => ({
     frame: f.frame,
     detail: f.detail,
   }));
+  const breached = resorted.breaches.length;
 
   const problems = validateSequence(plan, rules);
   const invented = unsourcedOnSet(plan.frames, { ledger, unsourced });
@@ -732,15 +829,13 @@ export async function planSequence(
     factsReleased: released,
     lastResort: resorted.applied,
     refused: refused.length,
+    breaches: breached,
     faults: faults.map((f) => `frame ${f.frame + 1} ${f.field}: ${f.detail}`),
     imageSeen,
     readAvailable: brief.readAvailable,
     modelCalls,
     ms: Date.now() - started,
   });
-  if (refused.length > 0 && onBlocked === "refuse") {
-    throw new SequenceShipRefusedError(refused);
-  }
   return {
     plan,
     facts,

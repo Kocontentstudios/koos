@@ -95,7 +95,10 @@ export type SequenceRule =
   | "copy-length"
   | "fact-uncovered"
   | "offering-unnamed"
-  | "hook-without-image";
+  | "hook-without-image"
+  /** A blocking fault (faults.ts blockingFaults) left after every repair:
+   *  planSequence refuses the set. */
+  | "blocking-fault";
 
 export interface SequenceProblem {
   /** Null for a problem of the set as a whole. */

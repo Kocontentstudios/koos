@@ -1,6 +1,7 @@
 import {
   aboveRepeatsBy,
   type BriefFact,
+  factStated,
   isFragment,
 } from "@/lib/jobs/directions/brief-facts";
 import type { FactLedger } from "@/lib/jobs/directions/claims";
@@ -37,6 +38,10 @@ export interface CopyFault {
   field: FaultField;
   detail: string;
   weight: number;
+  /** A fault against what the set may say at all, not how well it says
+   *  it: a claim no source gives, a point or fact the owner took out, the
+   *  owner's own point turned into another. Never shipped (breaches). */
+  breach?: true;
 }
 
 /* A fault a reader sees at once, or one that loses the frame. */
@@ -161,7 +166,27 @@ export function flaggedFaults(
 /* Copy that talks about the piece rather than what it is about: "This
    investor deck covers the round". */
 const ABOUT_ITSELF =
-  /\b(?:this|our|these|the next|the following)\s+(?:[\p{L}-]+\s+)?(?:deck|carousel|presentation|slides?|frames?)\b/iu;
+  /\b(?:this|our|these|the next|the following)\s+(?:[\p{L}-]+\s+)?(?:deck|carousel|presentation|slides?|frames?)\b|\b(?:fundraising|pitch|investor|sales|funding)\s+(?:deck|presentation|carousel)\b/iu;
+
+/** A hook that gives how to act (a contact): the first frame spends its
+ *  one line on what the last frame is for, and gives no reason to swipe. */
+export function contactOnHook(
+  frames: readonly FrameBeat[],
+  facts: readonly BriefFact[],
+): CopyFault[] {
+  const hook = frames[0];
+  if (!hook || frames.length < 2) return [];
+  return (["headline", "subheadline"] as const).flatMap((field) =>
+    facts
+      .filter((f) => f.kind === "contact" && factStated(f, hook[field]))
+      .map((f) => ({
+        frame: 0,
+        field,
+        detail: `the hook's ${field} gives the contact "${f.text}", which belongs on the last frame; give the reader a reason to swipe instead`,
+        weight: MAJOR,
+      })),
+  );
+}
 
 /** Fields that speak of the set itself instead of the offering. */
 export function selfReferences(frames: readonly FrameBeat[]): CopyFault[] {
@@ -428,7 +453,7 @@ function ruleFaults(plan: PlannedSequence, rules: FaultRules): CopyFault[] {
    offering's name standing alone, a name it must carry and leaves out, a
    second line that only says the first again. */
 const FLAT_HOOK =
-  /announces the offering|only the name|does not name|says what its headline says/;
+  /announces the offering|only the name|does not name|says what its headline says|a device any competitor|only names the offering and where/;
 
 /** Every fault of a written set (see the module comment). */
 export function setFaults(
@@ -453,6 +478,7 @@ export function setFaults(
         field: "frame" as const,
         detail: `it states "${made}", which neither the brief nor the brand profile gives; leave it out`,
         weight: MAJOR,
+        breach: true as const,
       })),
     ),
     ...frames.flatMap((beat, frame) => {
@@ -477,6 +503,7 @@ export function setFaults(
     ...titleFaults(frames, rules.titleSources ?? []),
     ...flaggedFaults(frames, rules.flagged ?? []),
     ...selfReferences(frames),
+    ...contactOnHook(frames, facts),
     ...pointRepeats(frames, facts, free),
     ...claimStrays(frames, rules.claims ?? [], logisticsFree(free, facts)),
     ...headlinePrices(frames, facts, kind, rules.atAction),
@@ -490,7 +517,12 @@ export function setFaults(
           weight: FLAT_HOOK.test(detail) ? MAJOR : MINOR,
         }))
       : []),
-    ...hookPreviews(frames, offering, brandName).map((detail) =>
+    ...hookPreviews(
+      frames,
+      offering,
+      brandName,
+      actionWords(free, facts, rules.atAction),
+    ).map((detail) =>
       recapsTheHook(detail, frames.length)
         ? {
             frame: frames.length - 1,
@@ -508,24 +540,36 @@ export function setFaults(
     ...bareFrames(frames),
     ...bareNameSubheadlines(frames, free),
     ...restatedSubheadlines(frames),
-    ...ownerPointsChanged(frames, rules.owned ?? [], free),
-    ...removedFaults(
-      frames,
-      rules.removed ?? [],
-      rules.claims ?? [],
-      logisticsFree(free, facts),
-    ),
-    ...releasedFaults(
-      frames,
-      rules.facts,
-      rules.released ?? [],
-      rules.owned ?? [],
-    ),
+    ...[
+      ...ownerPointsChanged(frames, rules.owned ?? [], free),
+      ...removedFaults(
+        frames,
+        rules.removed ?? [],
+        rules.claims ?? [],
+        logisticsFree(free, facts),
+      ),
+      ...releasedFaults(
+        frames,
+        rules.facts,
+        rules.released ?? [],
+        rules.owned ?? [],
+      ),
+    ].map((f) => ({ ...f, breach: true as const })),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
     ...factOnlyFrames(frames, facts).map(minor),
-    ...misplacedPrices(frames, facts, kind).map(minor),
+    /* A price dropped mid-story has no job there and reads as the close
+       come early; only the owner's own point may carry one. */
+    ...misplacedPrices(frames, facts, kind).map((r) =>
+      ownerGivesPrice(rules.owned?.[r.frame] ?? "", facts)
+        ? minor(r)
+        : { ...minor(r), weight: MAJOR },
+    ),
   ];
 }
+
+const ownerGivesPrice = (owned: string, facts: readonly BriefFact[]) =>
+  owned.trim() !== "" &&
+  facts.some((f) => f.kind === "price" && factStated(f, owned));
 
 /* Words any frame may say: the names, and the brief's logistics, which the
    action frame and its neighbours can both mention. */
@@ -547,6 +591,23 @@ export function logisticsFree(
           "price",
         ].includes(f.kind),
       )
+      .flatMap((f) => [...contentStems(f.text)]),
+  ]);
+}
+
+/** Words the action frame may say again after the hook: the logistics
+ *  (logisticsFree) and the facts the action carries (actionPrices: a
+ *  carousel's price, a deck's ask). Restating how to act is not a
+ *  repeat. */
+export function actionWords(
+  free: ReadonlySet<string>,
+  facts: readonly BriefFact[],
+  atAction: ReadonlySet<number> = new Set(),
+): Set<string> {
+  return new Set([
+    ...logisticsFree(free, facts),
+    ...facts
+      .filter((_, n) => atAction.has(n))
       .flatMap((f) => [...contentStems(f.text)]),
   ]);
 }
@@ -657,6 +718,11 @@ export function faultScore(faults: readonly CopyFault[]): number {
  *  rule. */
 export function blockingFaults(faults: readonly CopyFault[]): CopyFault[] {
   return faults.filter((f) => f.weight >= MAJOR);
+}
+
+/** The faults no set ships with (CopyFault.breach). */
+export function breaches(faults: readonly CopyFault[]): CopyFault[] {
+  return faults.filter((f) => f.breach === true);
 }
 
 /** How a version of the hook stands beside the set, lower first: the

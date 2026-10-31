@@ -290,3 +290,21 @@ describe("withSettledTitles: when every longer name is cut or too long", () => {
     expect(titleProblems(settled, { sources })).toEqual([]);
   });
 });
+
+/* "Every rider deserves", cut from "Every rider deserves to stay
+   rolling", is not a card title. */
+describe("titleFault on a title that ends on a verb wanting more", () => {
+  it.each(["Every rider deserves", "Your bike needs", "We help", "Keep"])(
+    "faults %s",
+    (title) => {
+      expect(titleFault(title)).not.toBeNull();
+    },
+  );
+  it.each([
+    "Bikes that keep rolling",
+    "Riders deserve better",
+    "Free pickup offer",
+  ])("passes %s", (title) => {
+    expect(titleFault(title)).toBeNull();
+  });
+});

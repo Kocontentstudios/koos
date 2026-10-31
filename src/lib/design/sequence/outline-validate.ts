@@ -99,7 +99,52 @@ const INSTRUCTION = [
   /\b(?:new|updated|real)\s+instructions?\b/i,
   /\b(?:write|put|add|print|say)\b[^.!?]{0,60}\bon\s+(?:every|each|all)\s+(?:slides?|frames?)\b/i,
   /(?:^|[.!?]\s*)(?:assistant|system|developer|user|human|ai|model)\s*:/i,
+  /* Orders about the set's other fields: copy says one slide's point,
+     never what every headline should read. */
+  /\b(?:headlines?|subheadlines?|buttons?|ctas?|titles?|copy|text)\b[^.!?]{0,30}\b(?:on|of|for|in)\s+(?:every|each|all)(?:\s+(?:the|of\s+the))?\s+(?:slides?|frames?|fields?|pages?)\b/i,
+  /\b(?:every|each|all)(?:\s+(?:the|of\s+the))?\s+(?:headlines?|subheadlines?|buttons?|fields?)\s+(?:is|are|reads?|says?|should|must|will|becomes?)\b/i,
+  /\b(?:every|each|all)(?:\s+(?:the|of\s+the))?\s+(?:slides?|frames?)\s+(?:reads?|says?|(?:should|must|will)\s+(?:read|say))\b/i,
+  /\b(?:headline|title|caption)\s+(?:every|each|all)\s+(?:slides?|frames?)\b/i,
+  /\b(?:in|on)\s+(?:every|each|all)\s+fields?\b/i,
+  /\byour\s+(?:real|actual|true|new|only)\s+(?:task|job|goal|instructions?|role)\b/i,
+  /\bfrom\s+now\s+on\b[^.!?]{0,40}\b(?:headlines?|slides?|frames?|fields?|respond|reply|answer|write|output)\b/i,
+  /\b(?:respond|reply|answer|output)\s+(?:only|with\s+only)\b/i,
+  /\b(?:previous|prior|earlier|above)\s+(?:instructions?|prompts?|rules|directions)\b/i,
+  /* The same orders in the other languages a Nigerian owner's tools may
+     produce: French, Spanish, Portuguese, German, Italian. */
+  /\b(?:ignore[zr]?|oublie[zr]?|ignora|olvida|esque[cç]a|ignoriere|vergiss)\b[^.!?]{0,40}\b(?:consignes?|instructions?|instrucciones|instru[cç][oõ]es|anweisungen|istruzioni)\b/iu,
 ];
+
+/* A link scheme that runs code or carries a document is never copy. */
+const SCHEME = /\b(?:javascript|vbscript)\s*:|\b(?:data|file):\S/i;
+
+/* "I G N O R E" and "1gnore" read as the word they spell: letters spaced
+   one by one are joined, and a figure standing for a letter inside a word
+   is read as that letter. */
+const LEET: Record<string, string> = {
+  "0": "o",
+  "1": "i",
+  "3": "e",
+  "4": "a",
+  "5": "s",
+  "7": "t",
+  "@": "a",
+  $: "s",
+};
+const despaced = (text: string) =>
+  text.replace(/\b(?:\p{L}\s){2,}\p{L}\b/gu, (run) => run.replace(/\s/g, ""));
+const unleet = (text: string) =>
+  text.replace(/[\p{L}0-9@$]*\p{L}[\p{L}0-9@$]*/gu, (word) =>
+    /[0-9@$]/.test(word)
+      ? word.replace(/[0134578@$]/g, (ch) => LEET[ch] ?? ch)
+      : word,
+  );
+
+/** Every reading of `raw` an injection check must look at. */
+const readings = (raw: string) => {
+  const base = unmasked(raw);
+  return [base, despaced(base), unleet(base), unleet(despaced(base))];
+};
 
 /* Generous caps so a hostile body fails on its own rules, not on a
    parser limit, while a megabyte of text is still refused as shape. */
@@ -216,7 +261,20 @@ function textProblems(
       },
     ];
   }
-  if (INSTRUCTION.some((pattern) => pattern.test(unmasked(raw)))) {
+  if (SCHEME.test(folded)) {
+    return [
+      {
+        point: i,
+        rule: "markup",
+        detail: `the ${field} holds a link that is not copy`,
+      },
+    ];
+  }
+  if (
+    readings(raw).some((text) =>
+      INSTRUCTION.some((pattern) => pattern.test(text)),
+    )
+  ) {
     return [
       {
         point: i,

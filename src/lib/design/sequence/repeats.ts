@@ -375,9 +375,10 @@ const JOINER = "\\s,;:·|•—–\\-";
 const TRAILING_JOINERS = new RegExp(`[${JOINER}]+$`);
 const LEADING_JOINERS = new RegExp(`^[${JOINER}.!?]+`);
 /* A word that leans on what was dropped: "Reserve before" alone, "on, 10am
-   to 1pm". Such a remainder is refused rather than rewritten. */
+   to 1pm", the particle of "back Wednesday" ("we collect Monday, back").
+   Such a remainder is refused rather than rewritten. */
 const LEANING =
-  /^(?:on|at|from|by|in|for|to|and|or|until|till|before|after|this|every|the|of|with|across|near|around|into|onto|inside|within|throughout|over|under|beside|serving|covering|including)$/i;
+  /^(?:on|at|from|by|in|for|to|and|or|until|till|before|after|this|every|the|of|with|across|near|around|into|onto|inside|within|throughout|over|under|beside|serving|covering|including|back|out|up|off|down|away|due|open|opens|closes|starts|ends|runs|returned|ready)$/i;
 const SENTENCE_END = /[.!?]$/;
 
 function joined(left: string, gap: string, right: string): string | null {
@@ -417,8 +418,14 @@ export function withoutFactWords(text: string, fact: BriefFact): string | null {
   }
   const gap =
     before.slice(left.length) || (after.match(LEADING_JOINERS)?.[0] ?? "");
-  const rest = joined(left.trim(), gap, right);
-  if (rest === null) return null;
+  const joinedRest = joined(left.trim(), gap, right);
+  if (joinedRest === null) return null;
+  /* The sentence keeps its full stop when the fact was its last words. */
+  const close = /[.!?]$/.exec(text.trim())?.[0] ?? "";
+  const rest =
+    joinedRest && close && !SENTENCE_END.test(joinedRest)
+      ? `${joinedRest}${close}`
+      : joinedRest;
   /* One word left is never a line: "Serving" from "Serving Lekki Phase 1"
      with the place dropped. */
   if (rest !== "" && rest.split(/\s+/).length < 2) return null;

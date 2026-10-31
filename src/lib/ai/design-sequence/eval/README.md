@@ -59,12 +59,16 @@ numbers are printed:
   harness's own edits, never from the planner) is not asked of any frame
   by `factCoverage`: the owner's outline outranks H5 (O5). Lane AUTO makes
   no edits, so it is held to every fact.
-- **Blocking faults left**: production refuses a set that still carries a
-  fault that must not ship after code's last resort
-  (`SequenceShipRefusedError`); the eval asks `planSequence` to report
-  instead (`onBlocked: "report"`), so every set is still judged, and
-  prints how many sets production would refuse and how many frames code
-  rewrote from their own point.
+- **Blocking faults left**: production never ships a blocking fault
+  (`blockingFaults` in `faults.ts`: a breach such as an invented claim, a
+  removed point, a released fact or the owner's point rewritten, and a
+  quality fault such as a repeat, a bare frame or a flat hook). The
+  planner repairs, asks the fix call once more, plans afresh up to
+  `SHIP_ATTEMPTS` times, and refuses what is still left
+  (`SequenceShipRefusedError`, the job's `SequencePlanError`, before any
+  render). The eval asks `planSequence` to report instead
+  (`onBlocked: "report"`) so every set is still judged, and prints how
+  many sets production would refuse; the panel gates on zero.
 - **Deleted points said anyway**: on every outline that can lose a point,
   the first body point is deleted and the rest sent back signed
   (`withPointDeleted`), and the set is planned unjudged. Any frame that
@@ -72,8 +76,9 @@ numbers are printed:
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
-SigV4 keys are used. Each run makes 6 to 8 planner calls, never more than
-`MAX_MODEL_CALLS` (10, the brief read included), arc first: the brief read;
+SigV4 keys are used. Each plan makes 6 to 9 planner calls, never more than
+`MAX_MODEL_CALLS` (10, the brief read included), and a set planned afresh
+(`SHIP_ATTEMPTS`) spends that again, the brief read once, arc first: the brief read;
 the arc call, which ranks the pool of points code built from the brief and
 the brand profile (`pointPool` in `src/lib/design/sequence/arc.ts`),
 names each point's kind and assigns one point per frame, writing no claim

@@ -5,13 +5,13 @@ import {
 } from "@/lib/ai/prompts/design-sequence";
 import { getModel } from "@/lib/ai/provider";
 import { brandFacts } from "@/lib/jobs/directions/brief";
-import { factStated } from "@/lib/jobs/directions/brief-facts";
+import { type BriefFact, factStated } from "@/lib/jobs/directions/brief-facts";
 import type { BriefReader } from "@/lib/jobs/directions/brief-read";
+import { COPY_TARGETS } from "@/lib/jobs/directions/schema";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { type ArcFrame, type ArcPoint, pointPool, settleArc } from "./arc";
 import { sentenceCased, upperFirst } from "./casing";
 import {
-  FRAME_BOUNDS,
   OUTLINE_LIMITS,
   type OutlinePoint,
   type OutlineSource,
@@ -31,7 +31,7 @@ import {
 } from "./read";
 import { repairSequenceFor } from "./repair";
 import { type ArcAnswer, arcResponseSchema } from "./schema";
-import { cleanTitle } from "./title";
+import { cleanTitle, isCleanTitle } from "./title";
 
 export type PlanOutlineInput = Pick<
   PlanSequenceInput,
@@ -85,6 +85,31 @@ const ACTION_SENTENCE_EXTRA = 2;
 
 const asSentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);
 
+/* Words a lead may hold before its fact: "We are raising $1.2 million"
+   of "We are raising $1.2 million to build 20 more grids". */
+const LEAD_EXTRA = 3;
+
+/** The brief's own words up to and through `fact`, when they are little
+ *  more than the fact: a figure glued on bare ("Contact Ibrahim Musa.
+ *  $1.2 million.") tells the owner nothing they can edit. */
+export function leadUpTo(
+  fact: string,
+  sentences: readonly string[],
+  free: ReadonlySet<string> = new Set(),
+): string | null {
+  const factWords = contentStems(fact, free);
+  for (const sentence of sentences) {
+    const at = sentence.toLowerCase().indexOf(fact.toLowerCase());
+    if (at < 0) continue;
+    const lead = sentence.slice(0, at + fact.length).trim();
+    const extra = [...contentStems(lead, free)].filter(
+      (w) => !factWords.has(w),
+    );
+    if (extra.length <= LEAD_EXTRA && lead.length > fact.length) return lead;
+  }
+  return null;
+}
+
 /**
  * The action's point in plain words: the brief's sentence that says how
  * to act, with the facts the action frame carries that it leaves out (a
@@ -122,9 +147,11 @@ export function actionPoint(brief: SequenceBrief): {
         [...contentStems(s, brief.free)].filter((w) => !factWords.has(w))
           .length <= ACTION_SENTENCE_EXTRA,
     );
-    if (!holding) return asSentence(text);
-    said.add(holding);
-    return asSentence(holding);
+    if (holding) {
+      said.add(holding);
+      return asSentence(holding);
+    }
+    return asSentence(leadUpTo(text, sentences, brief.free) ?? text);
   });
   if (acting) {
     const point = [asSentence(acting), ...new Set(restSentences)].join(" ");
@@ -161,6 +188,7 @@ const JOINING = new Set(
 const COPULA = new Set(["is", "are", "was", "were"]);
 const TITLE_WORDS = 4;
 const TITLE_MIN_WORDS = 2;
+const WHOLE_CLAUSE_WORDS = 5;
 const EMPTY_TITLE = "Add a point";
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
@@ -218,6 +246,19 @@ export function pointTitle(
       if (end < words.length && !joining(end)) continue;
       if (!best || rank([start, end]) > rank(best)) best = [start, end];
     }
+  }
+  /* Two words before a joining word leave a short clause cut ("Keep
+     riders" of "Keep riders on the road"): the whole clause names it
+     when a card can show it. */
+  const clause = words.join(" ");
+  if (
+    best &&
+    best[1] - best[0] === TITLE_MIN_WORDS &&
+    words.length <= WHOLE_CLAUSE_WORDS &&
+    clause.length <= COPY_TARGETS.title.chars &&
+    isCleanTitle(clause)
+  ) {
+    return upperFirst(clause);
   }
   if (best) return upperFirst(words.slice(best[0], best[1]).join(" "));
   const opening = words.slice(0, TITLE_WORDS);
@@ -296,6 +337,102 @@ export function hookSource(
   return shared(briefText) >= shared(profile.join(" ")) ? "brief" : "profile";
 }
 
+interface PlacedPoint {
+  text: string;
+  source: OutlineSource;
+  role: OutlinePoint["role"];
+}
+
+/** Every brief sentence that states `fact`, in brief order. */
+const sentencesStating = (fact: BriefFact, briefText: string) =>
+  sentencesOf(briefText).filter((s) => factStated(fact, s));
+
+/* Which body point gives way to a hard brief fact: one with nothing on
+   it first, then one the profile filled. A brief point is never
+   displaced: it already carries what the owner asked for. */
+const GIVES_WAY: readonly OutlineSource[] = ["user", "profile"];
+
+/* A when, where, price or contact belongs beside the action: on a slide of
+   its own it is filler the owner is told to replace, and replacing it
+   would take the fact off the set. */
+const AT_ACTION = new Set<BriefFact["kind"]>([
+  "date",
+  "day",
+  "time",
+  "place",
+  "contact",
+  "price",
+]);
+
+/**
+ * The outline's points with every hard brief fact on one of them (H5).
+ * The arc may leave a fact on no point ("One 60-minute session", "3
+ * March") while it fills a slide from the profile or leaves one empty;
+ * the owner is then told the brief is used up when it is not, and once
+ * they edit the outline nothing puts the fact back. So a claim fact (a
+ * count, an offer, a condition) takes the emptiest body slot in the
+ * brief's own sentence; a when, where or price, and a claim fact with no
+ * slot left, joins the action's point.
+ */
+export function withEveryFactPlaced(
+  points: readonly PlacedPoint[],
+  facts: readonly BriefFact[],
+  briefText: string,
+): PlacedPoint[] {
+  const next = points.map((p) => ({ ...p }));
+  const states = (fact: BriefFact) =>
+    next.some((p) => p.text !== EMPTY_POINT && factStated(fact, p.text));
+  const slotFor = () => {
+    for (const source of GIVES_WAY) {
+      const at = next.findIndex(
+        (p) =>
+          p.role === "body" &&
+          p.source === source &&
+          !facts.some((f) => f.kind !== "product" && factStated(f, p.text)),
+      );
+      if (at >= 0) return at;
+    }
+    return -1;
+  };
+  const sentences = sentencesOf(briefText);
+  for (const fact of facts) {
+    if (fact.kind === "product" || states(fact)) continue;
+    const sentence = sentencesStating(fact, briefText)[0];
+    if (!sentence) continue;
+    const at = AT_ACTION.has(fact.kind) ? -1 : slotFor();
+    if (at >= 0) {
+      next[at] = {
+        ...next[at],
+        text: clipped(asSentence(sentence), OUTLINE_LIMITS.pointChars),
+        source: "brief",
+      };
+      continue;
+    }
+    const action = next.at(-1);
+    if (!action) continue;
+    const already = action.text.toLowerCase();
+    const candidates = [
+      sentence,
+      leadUpTo(fact.text, sentences),
+      fact.text,
+    ].filter((t): t is string => Boolean(t));
+    /* Two facts of one sentence ("Saturday 15 November, 8am to 2pm") are
+       joined once; the reader would see the sentence twice. */
+    if (
+      candidates.some((t) =>
+        already.includes(t.toLowerCase().replace(/[.!?]$/, "")),
+      )
+    ) {
+      continue;
+    }
+    const said = candidates
+      .map((t) => `${asSentence(action.text)} ${asSentence(t)}`)
+      .find((joined) => joined.length <= OUTLINE_LIMITS.pointChars);
+    if (said) next[next.length - 1] = { ...action, text: said };
+  }
+  return next;
+}
+
 /**
  * The outline of a set: exactly frameCount points, hook first and action
  * last, each one claim in plain words with its source. Reads the brief
@@ -308,14 +445,8 @@ export async function planOutline(
   { briefReader }: PlanOutlineDeps = {},
 ): Promise<PlanOutlineResult> {
   const { context, kind, frameCount } = input;
-  const bounds = FRAME_BOUNDS[kind];
-  if (
-    !Number.isInteger(frameCount) ||
-    frameCount < bounds.min ||
-    frameCount > bounds.max
-  ) {
-    throw new RangeError(frameCountError("planOutline", kind, frameCount));
-  }
+  const countError = frameCountError("planOutline", kind, frameCount);
+  if (countError) throw new RangeError(countError);
   const started = Date.now();
   const brief = await readSequenceBrief(context, kind, briefReader);
   let modelCalls = 1;
@@ -388,7 +519,7 @@ export async function planOutline(
     offering,
     ...brandFacts(context.brandSummary),
   ];
-  const texts = arc.frames.map((frame, i) => {
+  const planned = arc.frames.map((frame, i) => {
     const fromPool = frame.point === null ? null : pool[frame.point];
     const text =
       i === last
@@ -396,19 +527,28 @@ export async function planOutline(
         : frame.claim.trim() || fromPool?.text || EMPTY_POINT;
     return clipped(text, OUTLINE_LIMITS.pointChars);
   });
-  const titles = outlineTitles(answer.frames, arc.frames, texts, free);
   const profile = profileStatements(context.brandSummary);
-  const points: Omit<OutlinePoint, "weak">[] = arc.frames.map((frame, i) => {
+  const plannedSources: OutlineSource[] = arc.frames.map((frame, i) => {
     const fromPool = frame.point === null ? null : pool[frame.point];
+    if (i === last) return action.source;
+    if (i === 0) return hookSource(planned[i], brief.briefText, profile);
+    if (planned[i] === EMPTY_POINT) return "user";
+    return fromPool ? SOURCE_OF[fromPool.source] : "brief";
+  });
+  const placed = withEveryFactPlaced(
+    planned.map((text, i) => ({
+      text,
+      source: plannedSources[i],
+      role: arc.frames[i].role,
+    })),
+    facts,
+    brief.briefText,
+  );
+  const texts = placed.map((p) => p.text);
+  const titles = outlineTitles(answer.frames, arc.frames, texts, free);
+  const points: Omit<OutlinePoint, "weak">[] = arc.frames.map((frame, i) => {
     const point = texts[i];
-    const source: OutlineSource =
-      i === last
-        ? action.source
-        : i === 0
-          ? hookSource(point, brief.briefText, profile)
-          : fromPool
-            ? SOURCE_OF[fromPool.source]
-            : "brief";
+    const source = placed[i].source;
     return {
       id: `p${i + 1}`,
       role: frame.role,

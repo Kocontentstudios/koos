@@ -582,6 +582,22 @@ describe("withoutFactWords", () => {
     expect(withoutFactWords("Come on Saturday 22 November", date)).toBeNull();
     expect(withoutFactWords("Saturday 22 Novembers", date)).toBeNull();
   });
+
+  it("refuses a rest ending on the particle the fact completed, and keeps the full stop", () => {
+    const day = fact("day", "Wednesday");
+    expect(
+      withoutFactWords(
+        "Laundry pickup for Lekki Phase 1 — we collect Monday, back Wednesday.",
+        day,
+      ),
+    ).toBeNull();
+    expect(
+      withoutFactWords("Clothes come home ironed, every Wednesday.", day),
+    ).toBeNull();
+    expect(withoutFactWords("Ironed and folded, Wednesday.", day)).toBe(
+      "Ironed and folded.",
+    );
+  });
 });
 
 describe("sequenceRepeats: numbers inside brief facts", () => {

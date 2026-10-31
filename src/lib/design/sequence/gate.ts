@@ -8,6 +8,7 @@ import { upperFirst } from "./casing";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { withoutStatement } from "./cuts";
 import {
+  actionWords,
   type FaultRules,
   type Flag,
   flaggedFaults,
@@ -728,6 +729,7 @@ class Gate {
       this.frames,
       this.rules.offering,
       this.rules.brandName,
+      actionWords(this.free, this.rules.facts, this.rules.atAction),
     );
     if (later.length === 0) return;
     const theirs = new Set(
@@ -833,8 +835,17 @@ class Gate {
     );
     const contact = facts.filter((f) => f.kind === "contact");
     const prices = facts.filter((f) => f.kind === "price");
-    for (const raw of (this.rules.briefText ?? "").split(SENTENCE_BREAK)) {
-      const line = asSentence(raw);
+    /* The brief's sentences first, then the profile's: a sentence of the
+       brand's own on what it does says more than its name left alone. */
+    const sentences = [
+      this.rules.briefText ?? "",
+      ...(this.rules.titleSources ?? []).filter(
+        (t) => t !== this.rules.briefText,
+      ),
+    ].flatMap((text) => text.split(SENTENCE_BREAK));
+    for (const raw of sentences) {
+      if (!raw.trim()) continue;
+      const line = asSentence(raw.trim());
       const beat = { ...hook, subheadline: line };
       if (!wanted.every((n) => copyNamesOffering(beat, n))) continue;
       if (!fitsSubheadline(line) || wordCount(line) < 4) continue;

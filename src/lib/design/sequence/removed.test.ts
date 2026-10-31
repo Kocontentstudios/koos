@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
 import { factLedger } from "@/lib/jobs/directions/claims";
 import type { ArcPoint } from "./arc";
 import type { ApprovedOutline } from "./contract";
@@ -7,7 +8,9 @@ import { CAFE_BRIEF, CAFE_FACTS, cafePlan, withFrame } from "./fixtures";
 import { type GateRules, shipGate } from "./gate";
 import { namesFree } from "./hook";
 import {
+  correctsFact,
   profileWithout,
+  releasedFacts,
   removedFaults,
   removedFromBrief,
   removedPoints,
@@ -128,5 +131,116 @@ describe("removed points", () => {
     expect(
       setFaults(shipped, rules).filter((f) => /took out/.test(f.detail)),
     ).toEqual([]);
+  });
+});
+
+/* An owner who sets a silk press at ₦16,500 on a body point while the
+   action's point keeps ₦18,000 would see the set give both. */
+describe("an owner's corrected price", () => {
+  const price = {
+    kind: "price" as const,
+    text: "A silk press is ₦18,000",
+    needs: needsFor("price", "A silk press is ₦18,000"),
+  };
+
+  it("is a correction when it prices the same thing another way", () => {
+    expect(correctsFact("A silk press is ₦16,500 this month", price)).toBe(
+      true,
+    );
+  });
+
+  it("is not one when it says the fact again or prices something else", () => {
+    expect(correctsFact("A silk press is ₦18,000", price)).toBe(false);
+    expect(
+      correctsFact("We braid children's hair on Saturdays for ₦8,000", price),
+    ).toBe(false);
+    /* A figure that is not money says nothing of the price: the live eval
+       released "₦2,500 a bottle" for an owner's "350ml, keeps 5 days". */
+    const bottle = {
+      kind: "price" as const,
+      text: "₦2,500 a bottle",
+      needs: needsFor("price", "₦2,500 a bottle"),
+    };
+    expect(
+      correctsFact("Each bottle is 350ml and keeps for 5 days", bottle),
+    ).toBe(false);
+    expect(correctsFact("Two bottles for ₦4,500", bottle)).toBe(true);
+  });
+
+  it("releases the old price though the action's point still gives it", () => {
+    const outline: ApprovedOutline = {
+      kind: "carousel",
+      points: [
+        {
+          id: "p1",
+          role: "hook",
+          title: "Silk press",
+          point: "Silk press at Crown & Coil",
+          source: "brief",
+        },
+        {
+          id: "p2",
+          role: "body",
+          title: "New price",
+          point: "A silk press is ₦16,500 this month",
+          source: "user",
+        },
+        {
+          id: "p3",
+          role: "cta",
+          title: "Book",
+          point: "Book at crownandcoil.ng. A silk press is ₦18,000.",
+          source: "brief",
+        },
+      ],
+    };
+    expect(releasedFacts(outline, [], [price])).toEqual([0]);
+  });
+});
+
+/* The live tuning eval released prices and dates no owner touched: a
+   figure the owner's words only happened to share was read as a
+   correction, so the set lost "₦18,000 for a 2-yard piece", "3 March"
+   and "Free for your first 3 months". */
+describe("correctsFact reads the fact's kind", () => {
+  const f = (kind: BriefFact["kind"], text: string): BriefFact => ({
+    kind,
+    text,
+    needs: needsFor(kind, text),
+  });
+  it.each([
+    [
+      "A 2-yard piece is enough for a skirt and blouse",
+      f("price", "₦18,000 for a 2-yard piece"),
+    ],
+    [
+      "Reminders go out 3 days before the due date, and 7 days after",
+      f("date", "3 March"),
+    ],
+    [
+      "No card needed to start the free 3 months",
+      f("offer", "Free for your first 3 months"),
+    ],
+    [
+      "Bring back an empty bottle and get ₦300 off your next one",
+      f("price", "₦2,500 a bottle"),
+    ],
+    [
+      "Each laptop costs ₦200,000 and lasts five years",
+      f("price", "We need ₦6,000,000 for 30 laptops"),
+    ],
+    ["A 10kg bag holds a week of clothes", f("price", "₦8,000 for a 10kg bag")],
+  ])("%s does not correct %o", (text, fact) => {
+    expect(correctsFact(text, fact)).toBe(false);
+  });
+  it.each([
+    ["Open 5am to 11pm every day", f("time", "5am to 10pm")],
+    ["Launch moves to 3 April", f("date", "3 March")],
+    [
+      "A silk press is ₦16,500 this month",
+      f("price", "A silk press is ₦18,000"),
+    ],
+  ])("%s corrects %o", (text, fact) => {
+    expect(correctsFact(text, fact)).toBe(true);
   });
 });

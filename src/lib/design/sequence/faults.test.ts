@@ -4,6 +4,7 @@ import {
   bareNameSubheadlines,
   blockingFaults,
   COVERAGE,
+  contactOnHook,
   type FaultRules,
   faultScore,
   flaggedFaults,
@@ -295,5 +296,52 @@ describe("lines cut before their object, and subheadlines of names alone", () =>
         namesFree("FreshFold", "laundry pickup"),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("contactOnHook", () => {
+  it("finds the hook spending its line on how to act", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      subheadline: "WhatsApp 0803 555 0142 to reserve.",
+    });
+    expect(contactOnHook(plan.frames, CAFE_FACTS)).toEqual([
+      expect.objectContaining({
+        frame: 0,
+        field: "subheadline",
+        weight: MAJOR,
+      }),
+    ]);
+    expect(contactOnHook(cafePlan().frames, CAFE_FACTS)).toEqual([]);
+  });
+});
+
+describe("selfReferences on a deck naming its own kind", () => {
+  it("finds a hook calling itself a fundraising deck", () => {
+    const plan = withFrame(cafePlan(), 0, {
+      subheadline: "Fundraising deck for Ikorodu Code Club.",
+    });
+    expect(selfReferences(plan.frames)).toHaveLength(1);
+  });
+});
+
+describe("setFaults: a price mid-story", () => {
+  const midPrice = () =>
+    withFrame(cafePlan(), 3, {
+      subheadline: "Sit in with a glass for ₦2,500 a bottle.",
+    });
+
+  it("blocks a carousel body frame that drops the price before the action", () => {
+    const found = setFaults(midPrice(), rules).filter(
+      (f) => f.frame === 3 && /gives the price/.test(f.detail),
+    );
+    expect(found.map((f) => f.weight)).toContain(MAJOR);
+  });
+
+  it("lets the owner's own point carry its price", () => {
+    const owned = ["", "", "", "A glass costs ₦2,500 a bottle", ""];
+    const found = setFaults(midPrice(), { ...rules, owned }).filter(
+      (f) => f.frame === 3 && /gives the price/.test(f.detail),
+    );
+    expect(found.every((f) => f.weight < MAJOR)).toBe(true);
   });
 });

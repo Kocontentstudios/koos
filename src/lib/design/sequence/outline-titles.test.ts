@@ -161,3 +161,12 @@ describe("pointTitle keeps a whole phrase of 2 to 4 words", () => {
     expect(titleWithin("Coach on the floor", 14)).toBe("Coach");
   });
 });
+
+describe("pointTitle never cuts a short clause after two words", () => {
+  it.each([
+    ["Keep riders on the road", "Keep riders on the road"],
+    ["Phone repair shop in Yaba, Lagos", "Phone repair shop"],
+  ])("%s -> %s", (point, want) => {
+    expect(pointTitle(point)).toBe(want);
+  });
+});

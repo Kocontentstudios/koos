@@ -160,3 +160,56 @@ describe("withTurnaround", () => {
     expect(withTurnaround(fact("place", "Shoes"), brief).text).toBe("Shoes");
   });
 });
+
+/* A regenerate was refused for "Book now": an action line's "now" or
+   "today" sets no date, and "fresh" claims nothing on a bike tune-up. */
+describe("inventedOn: words an action line uses", () => {
+  const bike = () =>
+    directionsContext({
+      title: "Tune-ups",
+      briefText:
+        "Pedal Doctor tune-ups are ₦12,000. Book on WhatsApp 0812 300 4455.",
+      brandSummary: {
+        name: "Pedal Doctor",
+        overview: "Bicycle repair workshop in Wuse 2, Abuja",
+        offer: "Tune-ups, puncture repairs and brake servicing",
+      },
+    });
+  const bakery = () =>
+    directionsContext({
+      title: "Sourdough",
+      briefText: "Sourdough loaves ₦4,500. Order on WhatsApp.",
+      brandSummary: { name: "Crumb", overview: "Bakery in Yaba" },
+    });
+
+  it.each([
+    [{ headline: "Book your tune-up now" }],
+    [{ headline: "Get a fresh tune-up today", cta: "Book now" }],
+    [{ headline: "Your bike, running like new", cta: "Book now" }],
+    [{ headline: "Ride fresh", cta: "Book today" }],
+  ])("accepts %o", (copy) => {
+    expect(inventedOn(beatOf(copy), sequenceLedger(bike(), ""))).toEqual([]);
+  });
+
+  it("still refuses a promise of when", () => {
+    const ledger = sequenceLedger(bike(), "");
+    expect(
+      inventedOn(
+        beatOf({ headline: "Tune-ups half price today only" }),
+        ledger,
+      ),
+    ).toContain("today");
+    expect(
+      inventedOn(beatOf({ headline: "Tune-ups are cheaper today" }), ledger),
+    ).toContain("today");
+  });
+
+  it("still refuses fresh about what can go stale", () => {
+    expect(
+      inventedOn(
+        beatOf({ headline: "Fresh sourdough loaves" }),
+        sequenceLedger(bakery(), ""),
+      ).map((w) => w.toLowerCase()),
+    ).toContain("fresh");
+  });
+});

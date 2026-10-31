@@ -264,3 +264,39 @@ describe("flagOutline", () => {
     expect(flagOutline(points, ctx)).toEqual(flagOutline(points, ctx));
   });
 });
+
+/* A reader takes "Peppers bought from smallholder farmers in Oyo" after a
+   hook on smallholder-grown peppers, and "Ready in 3 days" after a hook
+   promising 3 days, as the hook said again. */
+describe("flagOutline: a body point the hook already makes", () => {
+  it.each([
+    [
+      "Kiln's cold brew is steeped from smallholder-grown peppers, no preservatives.",
+      "Peppers bought from smallholder farmers in Oyo",
+    ],
+    ["Your trousers hemmed precisely in 3 days.", "Ready in 3 days"],
+  ])("flags %s / %s as overlap with the hook", (hook, body) => {
+    const [, flagged] = flagOutline(
+      [
+        point("hook", hook),
+        point("body", body),
+        point("cta", "WhatsApp 0803 555 0142"),
+      ],
+      ctx,
+    );
+    expect(flagged.weak?.kind).toBe("overlap");
+    expect(flagged.weak?.reason).toMatch(/first slide/);
+  });
+
+  it("leaves a body point with its own words and figures", () => {
+    const [, kept] = flagOutline(
+      [
+        point("hook", "Steeped for 18 hours and served over ice"),
+        point("body", "Only 12 places at the launch tasting"),
+        point("cta", "WhatsApp 0803 555 0142"),
+      ],
+      ctx,
+    );
+    expect(kept.weak).toBeNull();
+  });
+});

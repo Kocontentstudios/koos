@@ -7,7 +7,15 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 import { needsFor } from "@/lib/jobs/directions/brief-facts";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { FRAME_BOUNDS, OUTLINE_LIMITS } from "./contract";
-import { actionPoint, clipped, hookSource, planOutline } from "./outline-plan";
+import { EMPTY_POINT } from "./outline-arc";
+import {
+  actionPoint,
+  clipped,
+  hookSource,
+  leadUpTo,
+  planOutline,
+  withEveryFactPlaced,
+} from "./outline-plan";
 import { validateApprovedOutline } from "./outline-validate";
 
 const BRIEF =
@@ -150,6 +158,21 @@ describe("planOutline", () => {
     ).toBe(false);
   });
 
+  /* A slide left for the owner is theirs, never "brief", and no slide is
+     left to them while a hard fact sits on no point. */
+  it("places every hard fact before it leaves a slide to the owner, and calls that slide theirs", async () => {
+    generateObject.mockResolvedValue({
+      object: arcAnswer([1, 2, 3, 4, 5, 6, 7, 8, 9, 0]),
+    });
+    const { outline } = await plan(10);
+    for (const fact of outline.facts) {
+      if (fact === outline.offering) continue;
+      expect(outline.points.some((p) => p.facts.includes(fact))).toBe(true);
+    }
+    const empty = outline.points.filter((p) => p.point === EMPTY_POINT);
+    for (const p of empty) expect(p.source).toBe("user");
+  });
+
   it("asks once more when the answer is off the schema", async () => {
     const off = Object.assign(new Error("no object"), {
       name: "AI_NoObjectGeneratedError",
@@ -283,5 +306,158 @@ describe("hookSource", () => {
         ["Every repair comes with a 90-day warranty"],
       ),
     ).toBe("profile");
+  });
+});
+
+/* With "One 60-minute session" and "3 March" on no point while slides
+   are filled from the profile or left empty, no frame states them once
+   the owner edits the outline. */
+describe("withEveryFactPlaced", () => {
+  const CLINIC =
+    "Teeth whitening at Smile Studio, Ikeja GRA. One 60-minute session. ₦45,000 for the month of December. Call 0701 234 9876 to book.";
+  const fact = (kind: string, text: string) => ({
+    kind: kind as "quantity",
+    text,
+    needs: needsFor(kind as "quantity", text),
+  });
+  const facts = [
+    fact("product", "Teeth whitening"),
+    fact("quantity", "One 60-minute session"),
+    fact("price", "₦45,000 for the month of December"),
+    fact("contact", "Call 0701 234 9876"),
+  ];
+  const cta = {
+    text: "Call 0701 234 9876 to book. ₦45,000 for the month of December.",
+    source: "brief" as const,
+    role: "cta" as const,
+  };
+
+  it("puts an unplaced fact's sentence on a profile-filled slide", () => {
+    const placed = withEveryFactPlaced(
+      [
+        {
+          text: "Whitening by a licensed dentist.",
+          source: "brief",
+          role: "hook",
+        },
+        { text: "Explained before it starts", source: "profile", role: "body" },
+        cta,
+      ],
+      facts,
+      CLINIC,
+    );
+    expect(placed[1]).toEqual({
+      text: "One 60-minute session.",
+      source: "brief",
+      role: "body",
+    });
+    expect(placed[0].text).toBe("Whitening by a licensed dentist.");
+  });
+
+  it("fills an empty slide before a profile one, and never moves a brief point", () => {
+    const placed = withEveryFactPlaced(
+      [
+        {
+          text: "Whitening by a licensed dentist.",
+          source: "brief",
+          role: "hook",
+        },
+        { text: "Explained before it starts", source: "profile", role: "body" },
+        { text: EMPTY_POINT, source: "user", role: "body" },
+        {
+          text: "A dentist does every session.",
+          source: "brief",
+          role: "body",
+        },
+        cta,
+      ],
+      facts,
+      CLINIC,
+    );
+    expect(placed.map((p) => p.text)).toEqual([
+      "Whitening by a licensed dentist.",
+      "Explained before it starts",
+      "One 60-minute session.",
+      "A dentist does every session.",
+      cta.text,
+    ]);
+  });
+
+  it("joins the action's point when every slide holds a brief point", () => {
+    const placed = withEveryFactPlaced(
+      [
+        {
+          text: "Whitening by a licensed dentist.",
+          source: "brief",
+          role: "hook",
+        },
+        {
+          text: "A dentist does every session.",
+          source: "brief",
+          role: "body",
+        },
+        cta,
+      ],
+      facts,
+      CLINIC,
+    );
+    expect(placed[2].text).toBe(`${cta.text} One 60-minute session.`);
+  });
+
+  it("joins a sentence holding two unplaced facts once", () => {
+    const brief =
+      "Launch day is Saturday 15 November, 8am to 2pm. WhatsApp 0803 555 0142 to reserve.";
+    const placed = withEveryFactPlaced(
+      [
+        { text: "Steeped 18 hours.", source: "brief", role: "hook" },
+        {
+          text: "WhatsApp 0803 555 0142 to reserve.",
+          source: "brief",
+          role: "cta",
+        },
+      ],
+      [fact("date", "Saturday 15 November"), fact("time", "8am to 2pm")],
+      brief,
+    );
+    expect(placed[1].text.match(/Launch day/g)).toHaveLength(1);
+  });
+
+  /* A date on a slide of its own is filler the owner is told to replace,
+     which would take the date off the set. */
+  it("puts a when or where beside the action, never on a slide", () => {
+    const placed = withEveryFactPlaced(
+      [
+        {
+          text: "Send an invoice in under a minute.",
+          source: "brief",
+          role: "hook",
+        },
+        { text: "Built for freelancers", source: "profile", role: "body" },
+        { text: "Sign up at ledgerly.app.", source: "brief", role: "cta" },
+      ],
+      [fact("date", "3 March")],
+      "Ledgerly launches on 3 March. Send an invoice in under a minute. Sign up at ledgerly.app.",
+    );
+    expect(placed[1].text).toBe("Built for freelancers");
+    expect(placed[2].text).toBe(
+      "Sign up at ledgerly.app. Ledgerly launches on 3 March.",
+    );
+  });
+});
+
+/* "Contact Ibrahim Musa, ibrahim@lumoragrid.ng. $1.2 million." glues a
+   bare figure onto the action's point. */
+describe("leadUpTo", () => {
+  const sentences = [
+    "We are raising $1.2 million to build 20 more grids and reach 25,000 homes by 2028.",
+    "Contact Ibrahim Musa, ibrahim@lumoragrid.ng.",
+  ];
+  it("gives the brief's words up to the figure", () => {
+    expect(leadUpTo("$1.2 million", sentences)).toBe(
+      "We are raising $1.2 million",
+    );
+  });
+  it("gives nothing when the lead says much more than the fact", () => {
+    expect(leadUpTo("25,000 homes", sentences)).toBeNull();
   });
 });

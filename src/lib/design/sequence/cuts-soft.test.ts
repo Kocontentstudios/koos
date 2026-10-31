@@ -43,18 +43,18 @@ describe("withoutSoftClaim", () => {
 });
 
 describe("regenerate keeps a version whose only fault is a soft word (arc round-4 MEDIUM 5)", () => {
-  it("cuts 'fresh' and 'now' rather than refusing the version", () => {
+  it("cuts 'fresh' rather than refusing the version, and keeps an action line's 'now'", () => {
     const next = beatOf({
       role: "cta",
       headline: "Get your fresh bottle now",
       cta: "Reserve now",
       footerLines: ["WhatsApp 0803 555 0142"],
     });
-    expect(inventedOn(next, ledger)).toEqual(["fresh", "now"]);
+    expect(inventedOn(next, ledger)).toEqual(["fresh"]);
     const repaired = repairedVersion(next, "carousel", CAFE_FACTS, ledger);
     expect(inventedOn(repaired, ledger)).toEqual([]);
-    expect(repaired.headline).toBe("Get your bottle");
-    expect(repaired.cta).toBe("Reserve");
+    expect(repaired.headline).toBe("Get your bottle now");
+    expect(repaired.cta).toBe("Reserve now");
   });
 
   it("takes the soft word alone out of a sentence, keeping the sentence", () => {

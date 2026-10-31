@@ -85,7 +85,7 @@ the profile source alone is not a flag: the UI already shows `source`.
 
 | kind | When | Example reason |
 |---|---|---|
-| `overlap` | The point makes an earlier point's point (`claimsOverlap` over the brief facts, `namesFree` words ignored). `overlapsWith` is the earlier point's id. | "Says the same as point 2. Give this slide a different point." |
+| `overlap` | The point makes an earlier point's point (`claimsOverlap` over the brief facts, `namesFree` words ignored), or the hook's (`echoesHook`: it gives one of the hook's figures, or shares two of its words beyond the names). `overlapsWith` is the earlier point's id. | "Says the same as point 2. Give this slide a different point." / "The first slide already says this. Give this slide a point the first slide does not make." |
 | `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else); a point of three words or fewer ("Six Saturdays", "₦150 per kWh", "Ngozi Ade"); or the prompt left where nothing was found (`EMPTY_POINT`, checked before overlap and never named as the earlier point another overlaps). A bare figure the reader weighs (a quantity, offer, condition or age with a number: "Only 12 places", "Ready in 3 days") is not filler. | "Only says when it happens. Add what the reader gets." |
 | `profile-fill` | A body point drawn from the profile because the brief ran out that states what the brand is, sells or believes (`genericProfile`: overview, offer, values). Never on a `"user"` point, never on one drawn from `differentiators`: a concrete profile fact ("Beans from the Mambilla Plateau") shows its `source` and is not flagged. | "Taken from your brand profile because the brief ran out: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer." |
 
@@ -123,7 +123,19 @@ to about 60%.
    slide. The action's point is the brief's sentence on how to act plus the
    facts the action frame carries that it leaves out, each in the brief's
    own short sentence where it has one ("We are raising $750,000."), else
+   the brief's words up to the figure when they are little more than it
+   ("We are raising $1.2 million" of a longer sentence; `leadUpTo`), else
    bare (`actionPoint`).
+2a. Every hard brief fact is on a point (`withEveryFactPlaced`, H5). A
+   claim fact no point states (a count, an offer, a condition) takes the
+   emptiest body slot in the brief's own sentence (an empty slide first,
+   then one the profile filled; a brief point is never displaced). A
+   when, where, price or contact, and a claim fact with no slot left,
+   joins the action's point: on a slide of its own it would be filler the
+   owner is told to replace, and replacing it would take the fact off the
+   set. Only then is
+   a slide left to the owner (`EMPTY_POINT`), with source `"user"`: it is
+   theirs to write, never "brief".
 3. Titles follow their points (`outlineTitles`). The arc's title is kept
    when it is 4 words or fewer and about its point (`titleFits`); else
    `pointTitle` takes a whole phrase of 2 to 4 of the point's own words: a
@@ -136,8 +148,12 @@ to about 60%.
    names kept (`sentenceCased`: camel-case names like "FreshFold",
    "WhatsApp" and "iPhone", "M-Pesa", a person a sentence opens on, and
    the first word of a name used alone, "Join Ironclad today" for
-   "Ironclad Gym"), and cut at a whole word to `OUTLINE_LIMITS.titleChars`
-   with no ellipsis (`titleWithin`).
+   "Ironclad Gym"), every name spelt as its sources spell it ("Visit
+   crown & coil" is "Visit Crown & Coil", "wuse 2" is "Wuse 2";
+   `nameSpellings`), and cut at a whole word to
+   `OUTLINE_LIMITS.titleChars` with no ellipsis (`titleWithin`). A clause
+   of 5 words or fewer whose best run is 2 words is titled whole ("Keep
+   riders on the road", never "Keep riders").
    The offering is refused when the read's phrase ends on a pronoun
    ("replaces it"), and is never widened over half of the brand's name
    ("Hub" of "Fixit Hub"; `settledOffering`).
@@ -316,21 +332,50 @@ first draft and its fewest-fault opening.
 
 Response unchanged: `202 {jobId, frames, notice}`.
 
-### Nothing that must not ship ships
+### No blocking fault ships
 
 After the gate, coverage, titles and casing, `lastResort`
 (`last-resort.ts`) rewrites in code every frame still carrying a blocking
-fault from its own point (the approved words): the point split into a
-headline and a sentence (a subjectless second half given "It" or
-"They"), the point under its headline, the frame's title over its point,
-the point as the headline, or a hook's or action's subheadline cut. A
-version is kept only where the whole set ends with fewer blocking faults,
-titles and casing settled again after each. What still blocks after that
-is returned as `refused`; with `onBlocked: "refuse"` `planSequence` throws
-`SequenceShipRefusedError` instead. The default is "report": on the live
-eval about half the sets still carry a blocking fault after the last
-resort, so refusing would fail about half of all jobs. Turning refusal on
-is a product decision left open for the owner.
+fault (`blockingFaults`: weight `MAJOR` or more). For each fault it tries
+the frames that could clear it (`framesToTry`): the faulted frame and any
+frame the fault names ("the hook already says what frame 4 is for"), a
+later frame before the hook, since the hook earned the swipe. Each frame's
+versions, in order:
+
+- the copy the writers already gave it (`alternates`: the other draft's
+  version of the frame, and for the hook every opening both writers
+  offered), at no extra call;
+- its own point (the approved words) split into a headline and a sentence
+  (a subjectless second half given "It" or "They"); on the hook, the
+  point's reason over its name ("Made in small batches in Ibadan" over
+  "Ata Kitchen's scotch bonnet sauce.");
+- the point under its headline, the frame's title over its point, the
+  point as the headline;
+- a sentence the brief, the profile or the owner gives on the point, under
+  the headline or under the point, never one that makes another frame's
+  point;
+- a hook's or action's subheadline cut, or one line (a subheadline
+  sentence, a footer item) cut.
+
+A version is kept only where the whole set ends with fewer blocking
+faults, titles and casing settled again after each. Then
+`withBreachesCut` cuts any line that still breaches (`CopyFault.breach`: a
+claim no source gives, a point or fact the owner took out, the owner's
+point turned into another claim), kept only where no brief fact or
+offering is newly left off.
+
+What still blocks goes back to the fix call once, named, and through the
+gate, the facts, the casing and the last resort again. A set still
+carrying a blocking fault after that is planned afresh, up to
+`SHIP_ATTEMPTS` (3) times, the brief read once; the set with the fewest
+is kept. With any left, `planSequence` throws `SequenceShipRefusedError`
+(`onBlocked: "refuse"`, the default, which production uses), and the job
+turns it into the same plain `SequencePlanError` a broken rule gets
+(rule `blocking-fault`), before any frame is rendered or billed. Each
+fresh plan logs `design.sequence.replanned`. The eval passes
+`onBlocked: "report"` so it can still score the set, and prints what is
+left as "blocking faults left (production refuses these sets before any
+render)"; the panel counts it against the zero-fault gate.
 
 Two blocking faults name broken copy the gate used to pass: a line cut on a verb or preposition
 still waiting for its object ("Ironclad Gym's monthly membership

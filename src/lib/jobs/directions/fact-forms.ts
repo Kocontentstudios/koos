@@ -744,7 +744,11 @@ const labelled: Guard = ({ after }) =>
    holdout, H96). Read whole, "8 spots to grab" is refused with it, and
    the fact writer writes it in; any other word may follow a count ("50
    guests max", "Two senior React engineers wanted"). */
-const notToDo: Guard = ({ after }) => !word(after, "to");
+/* "to" after a count opens a range ("10 to 12 seats"); after a run that
+   ends on its year it moves on to the next dated value ("from ₦310
+   million in 2024 to ₦720 million in 2025"). */
+const notToDo: Guard = ({ run, after, afterThat }) =>
+  !word(after, "to") || (isYear(run.at(-1)) && !isYear(afterThat));
 
 /* Words before a count that change how many it is: "Over 10 seats sold"
    is more than ten, "the first 20 customers"
@@ -805,7 +809,8 @@ const YEAR = /^(?:19|20)\d\d$/;
 const countedInYear =
   (year: string): Guard =>
   (around) =>
-    counted(around) && around.field.some((t) => t.text === year);
+    counted(around) &&
+    around.field.some((t) => t.text.toLowerCase() === year.toLowerCase());
 
 /* Participles a count is put after or before with one meaning: "2.1
    million litres sold in 2025" is "sold 2.1 million litres in 2025". */
@@ -897,7 +902,8 @@ function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   const moved = participleFirst(core);
   if (moved) forms.push(form(moved, counted));
   const year = core.at(-1)?.text ?? "";
-  if (core.length > 3 && YEAR.test(year) && word(core.at(-2), "in")) {
+  const when = YEAR.test(year) || monthOf(core.at(-1)) !== null;
+  if (core.length > 3 && when && word(core.at(-2), "in")) {
     const yearless = core.slice(0, -2);
     const inYear = countedInYear(year);
     const withYear = (text: string): FactForm => ({
@@ -1509,10 +1515,12 @@ function cutFromNumber({ run, before, after, afterThat }: Around): boolean {
   if (isNumeric(first) && (isNumeric(before) || joinsNumbers(before))) {
     return true;
   }
+  /* A run ending on its year is cut only by another year ("in 2024 to
+     2025"); "in 2024 to ₦720 million in 2025" moves on to the next value. */
+  const joinedOn = isYear(last) ? isYear(afterThat) : !isYear(afterThat);
   return (
     isNumeric(last) &&
-    ((isNumeric(after) && !isYear(after)) ||
-      (joinsNumbers(after) && !isYear(afterThat)))
+    ((isNumeric(after) && !isYear(after)) || (joinsNumbers(after) && joinedOn))
   );
 }
 
@@ -1926,6 +1934,10 @@ function offeredAsAlternative(
    "10th of 10 seats" is), nor an isOtherValue number, nor a number with
    its own noun or rate anywhere else ("one artisan", "90 minutes", "2 per
    room"). */
+const DURATION_NOUNS = new Set(
+  ["minute", "min", "hour", "hr", "day", "week", "month", "year"].map(nounKey),
+);
+
 function countRival(
   tokens: readonly CopyToken[],
   i: number,
@@ -1947,9 +1959,11 @@ function countRival(
   if (isOtherValue(tokens, i)) return false;
   /* "10 seats per row, 5 rows": a count per something is multiplied by
      any other count in its field. */
-  if (perUnit) return true;
-  if (word(tokens[i + 1], ...RATE)) return false;
   const { nouns, next } = nounsAfter(tokens, i);
+  /* "Our 12 stylists each trained for two years": a length of time is
+     how long, never a second count the first is multiplied by. */
+  if (perUnit) return !nouns.some((n) => DURATION_NOUNS.has(countNoun(n)));
+  if (word(tokens[i + 1], ...RATE)) return false;
   if (!namesItsNoun(t, nouns)) return true;
   if (nouns.some((n) => counts.has(countNoun(n)))) return true;
   if (
@@ -2394,6 +2408,42 @@ function pricedApart(
   return ownAmount >= 0 && boundToItem(runTokens, ownAmount, priced.own);
 }
 
+/* The year a value at `i` is dated by: "₦720 million in 2025", "(2025)". */
+function yearAfter(tokens: readonly CopyToken[], i: number): number | null {
+  for (let k = i + 1; k <= i + 3 && k < tokens.length; k++) {
+    const t = tokens[k];
+    if (isYear(t)) return t.value ?? null;
+    if (!(word(t, "in", "for", "during", "by") || t.text === "(")) {
+      return null;
+    }
+  }
+  return null;
+}
+
+/* "from ₦310 million in 2024 to ₦720 million in 2025" is a change over
+   time, not a choice: each amount is dated by its own year, so neither is
+   the other's alternative and the ruling's "two values, states neither"
+   does not apply. Both years must be given and differ. */
+function datedApart(
+  tokens: readonly CopyToken[],
+  i: number,
+  run: { start: number; end: number },
+): boolean {
+  const rivalYear = yearAfter(tokens, i);
+  if (rivalYear === null) return false;
+  const ownYears = new Set<number>();
+  for (let k = run.start; k < run.end; k++) {
+    if (isYear(tokens[k])) ownYears.add(tokens[k].value ?? 0);
+  }
+  const trailing = yearAfter(tokens, run.end - 1);
+  if (trailing !== null) ownYears.add(trailing);
+  const [from, to] = i < run.start ? [i, run.start] : [run.end, i];
+  const offeredAsChoice = tokens
+    .slice(from, to)
+    .some((t) => word(t, "or", "either"));
+  return ownYears.size > 0 && !ownYears.has(rivalYear) && !offeredAsChoice;
+}
+
 /* What counts as another value of the fact's kind, anywhere in its field
    (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
    where a reader could still take the number for one, failing closed:
@@ -2502,7 +2552,8 @@ function rivalled(
           start,
           end,
         }) &&
-        !pricedApart(tokens, i, { start, end, clause }, priced),
+        !pricedApart(tokens, i, { start, end, clause }, priced) &&
+        !datedApart(tokens, i, { start, end }),
     );
   }
   if (!run.some(isNumeric)) return false;

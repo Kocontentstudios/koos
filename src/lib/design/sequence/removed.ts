@@ -4,6 +4,7 @@ import {
   factStated,
   numbersIn,
 } from "@/lib/jobs/directions/brief-facts";
+import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { type ArcPoint, claimsOverlap, textsOverlap } from "./arc";
 import type { ApprovedOutline, FrameBeat } from "./contract";
 import type { CopyFault } from "./faults";
@@ -143,14 +144,61 @@ export function outlineEdited(outline: ApprovedOutline): boolean {
   );
 }
 
-/* Whether the owner's words change a fact rather than leave it out: they
-   give one of its figures ("5am to 11pm" over the brief's "5am to
-   10pm"). */
-function correctsFact(text: string, fact: BriefFact): boolean {
-  const figures = numbersIn(fact.text);
-  if (figures.size === 0) return false;
+const MONEY =
+  /[₦$£€]\s?\d|\b\d[\d,.]*\s?(?:naira|k)\b|\bN\d|\bNGN\s?\d|\bUSD\s?\d/i;
+/* "₦300 off your next one" takes money off; it prices nothing. */
+const MONEY_OFF =
+  /\b(?:save|saves|saving|discount|rebate|cashback)\b|[\d,.]+k?\s+(?:off|less)\b/i;
+const CALENDAR_WORD =
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/i;
+const CLOCK = /\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b\d{1,2}:\d{2}\b/i;
+/* Share of a price's item words ("silk press") the owner's words must
+   give for their price to be for the same thing: "Each laptop costs
+   ₦200,000" does not reprice "We need ₦6,000,000 for 30 laptops". */
+const SAME_ITEM_SHARE = 0.6;
+
+const sharesFigure = (text: string, fact: BriefFact) => {
   const given = numbersIn(text);
-  return [...figures].some((n) => given.has(n));
+  return [...numbersIn(fact.text)].some((n) => given.has(n));
+};
+
+/**
+ * Whether the owner's words change a fact rather than leave it out or say
+ * it again, read by the fact's kind so a figure that only happens to be
+ * shared is no correction ("A 2-yard piece is enough for a gown" says
+ * nothing of "₦18,000 for a 2-yard piece"; "Reminders go out 3 days
+ * before" says nothing of "3 March"):
+ *  - a date or day: they give a day or month and share a figure with it;
+ *  - a time: they give a clock time and share a figure with it;
+ *  - a price: they give money, not money off, for the same item;
+ *  - anything else: they share a figure and a word with it and give a
+ *    figure of their own ("5 to 8 seats" over "6 seats" does not count).
+ */
+export function correctsFact(text: string, fact: BriefFact): boolean {
+  if (factStated(fact, text) || numbersIn(fact.text).size === 0) return false;
+  switch (fact.kind) {
+    case "date":
+    case "day":
+      return CALENDAR_WORD.test(text) && sharesFigure(text, fact);
+    case "time":
+      return CLOCK.test(text) && sharesFigure(text, fact);
+    case "price": {
+      if (!MONEY.test(text) || MONEY_OFF.test(text)) return false;
+      const item = [...contentStems(fact.text)].filter((w) => !/\d/.test(w));
+      const theirs = contentStems(text);
+      const shared = item.filter((w) => theirs.has(w)).length;
+      return item.length > 0 && shared / item.length >= SAME_ITEM_SHARE;
+    }
+    default: {
+      if (!sharesFigure(text, fact)) return false;
+      const own = [...numbersIn(text)].filter(
+        (n) => !numbersIn(fact.text).has(n),
+      );
+      const words = [...contentStems(fact.text)].filter((w) => !/\d/.test(w));
+      const theirs = contentStems(text);
+      return own.length > 0 && words.some((w) => theirs.has(w));
+    }
+  }
 }
 
 /**
@@ -179,15 +227,19 @@ export function releasedFacts(
   const owners = approved.filter((a) => a.owner);
   const removed = removedPoints(outline, planned, facts, free);
   return facts.flatMap((fact, n) => {
-    if (fact.kind === "product" || stated.has(n)) return [];
+    if (fact.kind === "product") return [];
+    /* An owner's correction outranks a planned point that still gives the
+       old figure ("₦16,500" on a body point while the action's point
+       says "₦18,000"): the set would otherwise state both. */
+    if (owners.some((o) => correctsFact(o.text, fact))) return [n];
+    if (stated.has(n)) return [];
     const carried = planned.filter((p) => p.facts.includes(n));
     const dropped = carried.some(
       (p) =>
         removed.includes(p) ||
         owners.some((o) => claimsOverlap(o, p, facts, free)),
     );
-    const corrected = owners.some((o) => correctsFact(o.text, fact));
-    return dropped || corrected ? [n] : [];
+    return dropped ? [n] : [];
   });
 }
 

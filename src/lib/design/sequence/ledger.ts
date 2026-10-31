@@ -129,9 +129,36 @@ export function inventedOn(beat: FrameBeat, ledger: FactLedger): string[] {
   ];
   const made = fields
     .filter(Boolean)
-    .flatMap((field) => inventedFacts(field, ledger))
+    .flatMap((field) =>
+      inventedFacts(field, ledger).filter(
+        (found) => !invitationWord(found, field, field === beat.cta, ledger),
+      ),
+    )
     .filter((found) => !sourcedYear(found, ledger));
   return [...new Set(made), ...commercialClaims(text, ledger.text)];
+}
+
+/* An action line ("Book now", "Get a fresh tune-up today") asks the reader
+   to act; "now" and "today" there set no date and promise nothing, so a
+   regenerate must not be refused for them. "Tonight only" is still a
+   promise, and so is "today" on a line that does not ask for an action. */
+const ACTION_LINE =
+  /^\s*(?:book|order|call|visit|join|register|get|start|reserve|message|dm|whatsapp|shop|buy|sign\s+up|apply|try|text|email|contact|enrol|enroll|subscribe|download|claim|grab|come|bring|drop|send|pick)\b/i;
+const URGENCY = /^(?:now|today)\b/i;
+/* "Fresh" is a quality claim only about what can go stale: bread, a juice,
+   peppers. "A fresh tune-up" or "ride fresh" claims nothing checkable. */
+const PERISHABLE =
+  /\b(?:food|bread|bak\w*|cake|pastr\w*|meal|kitchen|restaurant|caf[eé]|coffee|beans?|tea|juice|drinks?|milk|fruit|vegetables?|veg|fish|meat|chicken|pepper\w*|sauce|spice\w*|flowers?|produce|farm\w*|grocer\w*|eggs?)\b/i;
+
+function invitationWord(
+  found: string,
+  field: string,
+  isButton: boolean,
+  ledger: FactLedger,
+): boolean {
+  if (/^fresh(?:ly)?$/i.test(found)) return !PERISHABLE.test(ledger.text);
+  if (!URGENCY.test(found) || /\bonly\b/i.test(field)) return false;
+  return isButton || ACTION_LINE.test(field);
 }
 
 /* A year the brief gives is a date, never a count of the word after it:

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { headlineCase, properNouns, withConsistentCasing } from "./casing";
+import {
+  headlineCase,
+  properNouns,
+  sentenceCased,
+  withConsistentCasing,
+} from "./casing";
 import { beatOf } from "./fixtures";
 
 const SOURCES = [
@@ -131,5 +136,26 @@ describe("withConsistentCasing: hyphenated words", () => {
       "On-time every visit",
       "Hand-dyed cloth",
     ]);
+  });
+});
+
+/* An outline title cut from lowercase words lost the brand's spelling:
+   "Visit crown & coil", "Workshop in wuse 2", "Join lumora today". */
+describe("sentenceCased spells names as their sources do", () => {
+  const sources = [
+    "Crown & Coil",
+    "Natural hair salon in Lekki Phase 1. Book at crownandcoil.ng.",
+    "Lumora Grid",
+    "Bicycle repair workshop in Wuse 2, Abuja",
+  ];
+  it.each([
+    ["Visit crown & coil", "Visit Crown & Coil"],
+    ["Join lumora today", "Join Lumora today"],
+    ["Workshop in wuse 2", "Workshop in Wuse 2"],
+    ["Salon in lekki phase 1", "Salon in Lekki Phase 1"],
+    ["Natural hair salon", "Natural hair salon"],
+    ["Repair workshop", "Repair workshop"],
+  ])("%s -> %s", (text, cased) => {
+    expect(sentenceCased(text, sources)).toBe(cased);
   });
 });

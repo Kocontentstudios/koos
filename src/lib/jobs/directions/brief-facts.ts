@@ -1205,6 +1205,52 @@ function needsHold(needs: readonly string[], text: string): boolean {
 
 const isSpan = (kind: CoverKind) => kind === "offer" || kind === "condition";
 
+/* Verbs an offer's terms are given by, each saying the same thing: a
+   weekday booking that "includes" a free scalp massage "gets" one. */
+const OFFER_VERBS = new Set(
+  "get gets include includes come comes earn earns".split(" "),
+);
+/* Words a copy may put between an offer's subject and its verb: the
+   place or name it is at ("Weekday bookings at Crown & Coil include"). */
+const OFFER_GAP = 4;
+const NEGATION = new Set(
+  "not never no don't doesn't won't cannot can't didn't nor".split(" "),
+);
+
+/**
+ * Whether `part` gives an offer's whole span with its verb said another
+ * way: the subject and the terms each whole and in order, an offer verb
+ * between them, and at most a short name or place before the verb. The
+ * terms are never loosened ("a free scalp massage" stays whole), so a
+ * dropped item still fails as holdsWhole does.
+ */
+function holdsWithOfferVerb(phrase: string, part: string): boolean {
+  const wanted = withoutEdgeMarks(factTokens(phrase));
+  const at = wanted.findIndex((t) => OFFER_VERBS.has(t.key.slice(2)));
+  if (at <= 0 || at === wanted.length - 1) return false;
+  const subject = wanted.slice(0, at);
+  const terms = wanted.slice(at + 1);
+  const copy = factTokens(part);
+  return runsOf(copy, subject).some((start) => {
+    const from = start + subject.length;
+    for (let gap = 0; gap <= OFFER_GAP; gap += 1) {
+      const verb = copy[from + gap];
+      if (!verb) return false;
+      if (verb.kind !== "word" || NEGATION.has(verb.key.slice(2))) {
+        return false;
+      }
+      if (OFFER_VERBS.has(verb.key.slice(2))) {
+        const rest = copy.slice(from + gap + 1, from + gap + 1 + terms.length);
+        return (
+          rest.length === terms.length &&
+          rest.every((t, k) => t.key === terms[k].key)
+        );
+      }
+    }
+    return false;
+  });
+}
+
 function statedIn(
   fact: BriefFact,
   part: CopyPart,
@@ -1239,9 +1285,13 @@ function statedIn(
      delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic).
      So is a price with no amount ("first session is free"): its words
      scattered are not its terms. */
-  if (isSpan(fact.kind) || fact.kind === "price") {
-    return holdsWhole(fact.text, part.text);
+  if (isSpan(fact.kind)) {
+    return (
+      holdsWhole(fact.text, part.text) ||
+      holdsWithOfferVerb(fact.text, part.text)
+    );
   }
+  if (fact.kind === "price") return holdsWhole(fact.text, part.text);
   return holdsWhole(fact.text, part.text) || needsHold(fact.needs, part.text);
 }
 

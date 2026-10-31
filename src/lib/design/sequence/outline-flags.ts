@@ -149,6 +149,36 @@ function labelHook(
   return contentStems(point.point, ignored).size < HOOK_OWN_WORDS;
 }
 
+/* Words of its own a body point may share with the hook before it reads
+   as the hook said again: "Peppers bought from smallholder farmers in
+   Oyo" under a hook on "smallholder-grown peppers" shares two. */
+const HOOK_ECHO_STEMS = 2;
+
+/** Whether a body point makes the hook's point again: it gives one of the
+ *  hook's figures, or shares HOOK_ECHO_STEMS of its words beyond the
+ *  names every slide may say. The hook writes its angle from the whole
+ *  brief, so it often spends the very point a later slide was planned
+ *  for, and that slide then reads as a repeat (the judge's most common
+ *  low score). */
+export function echoesHook(
+  hook: Pick<Draft, "point">,
+  point: Pick<Draft, "point">,
+  ctx: Pick<OutlineFlagContext, "free">,
+): boolean {
+  if (isEmpty(point) || isEmpty(hook)) return false;
+  const figures = (text: string) =>
+    new Set(
+      text.match(/\p{N}[\p{N},.]*/gu)?.map((n) => n.replace(/[,.]$/, "")) ?? [],
+    );
+  const theirs = figures(hook.point);
+  if ([...figures(point.point)].some((n) => theirs.has(n))) return true;
+  const hookWords = contentStems(hook.point, ctx.free);
+  return (
+    [...contentStems(point.point, ctx.free)].filter((w) => hookWords.has(w))
+      .length >= HOOK_ECHO_STEMS
+  );
+}
+
 /**
  * The points with `weak` set by code, never by a model. Pure and
  * deterministic; one flag per point, first match wins:
@@ -218,6 +248,14 @@ export function flagOutline<P extends Draft>(
         kind: "overlap",
         reason: `Says the same as point ${earlier + 1}. Give this slide a different point.`,
         overlapsWith: points[earlier].id,
+      });
+    }
+    if (i > 0 && echoesHook(points[0], point, ctx)) {
+      return weak({
+        kind: "overlap",
+        reason:
+          "The first slide already says this. Give this slide a point the first slide does not make.",
+        overlapsWith: points[0].id,
       });
     }
     const stated = claims[i].facts.map((n) => ctx.facts[n]);
