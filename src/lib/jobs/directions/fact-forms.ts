@@ -743,77 +743,80 @@ const labelled: Guard = ({ after }) =>
    guests max", "Two senior React engineers wanted"). */
 const notToDo: Guard = ({ after }) => !word(after, "to");
 
-/* What may stand before a count: a clause's start or a word from this
-   closed list, none of which changes how many. "Over 10 seats sold" is
-   more than ten (round-12 code critic, G15), and so are "nearly", "about",
-   "at least" and every word not named here, which the fact writer then
-   writes in. "to" stays for "Send money to 20 African countries" and "Up
-   to 16 places"; the spec records "close to 10 seats" as its residual. */
-const COUNT_BEFORE = [
-  /* "a dozen cupcakes": the article of a number word. */
-  "a",
-  "only",
-  "just",
-  "the",
-  "all",
-  "our",
-  "your",
-  "these",
-  "those",
-  "its",
-  "their",
-  "top",
-  "with",
-  "of",
-  "for",
-  "to",
-  "and",
-  "in",
-  "across",
-  "has",
-  "have",
-  "hiring",
-  "win",
-  "book",
-  "reserve",
-  "grab",
-  "claim",
-  "meet",
-  "join",
-  "featuring",
-  "offering",
-  "including",
-  /* The verbs a deck or a post counts with: "The round buys 5,000 kits",
-     "Revenue grew 3x in 2025", "We serve 3,400 shops". */
-  "buys",
-  "buy",
-  "funds",
-  "fund",
-  "grew",
-  "grow",
-  "grows",
-  "serve",
-  "serves",
-  "served",
-  "reach",
-  "reaches",
-  "reached",
-  "run",
-  "runs",
-  "sold",
-  "sells",
-  "trained",
-  "trains",
-  "teach",
-  "teaches",
-  "taught",
-  "installed",
-  "delivered",
-  "delivers",
+/* Words before a count that change how many it is: "Over 10 seats sold"
+   is more than ten (round-12 code critic, G15), "the first 20 customers"
+   is not 20 customers. Any other word leaves the count as the brief gives
+   it: an allowlist of verbs missed "This round deploys 60 more ATMs" and
+   "Heel replacement done in 20 minutes", so code drew the fact a second
+   time onto another frame (arc round-4 critic, HIGH 2). "to" stays a
+   plain lead for "Up to 16 places"; the spec records "close to 10 seats"
+   as its residual. */
+const COUNT_CHANGERS = [
+  "over",
+  "nearly",
+  "almost",
+  "about",
+  "around",
+  "roughly",
+  "approximately",
+  "approx",
+  "circa",
+  "under",
+  "than",
+  "least",
+  "most",
+  "some",
+  "first",
+  "last",
+  "not",
+  "no",
+  "never",
+  "minus",
+  "every",
+  "each",
+  "per",
+  "below",
+  "above",
+  "beyond",
+  "past",
 ];
 const counted: Guard = (around) =>
-  (startsClause(around) || word(around.before, ...COUNT_BEFORE)) &&
+  (startsClause(around) ||
+    (around.before?.kind === "word" &&
+      !word(around.before, ...COUNT_CHANGERS))) &&
   notToDo(around);
+
+/* Participles a count is put after or before with one meaning: "2.1
+   million litres sold in 2025" is "sold 2.1 million litres in 2025". */
+const MOVABLE_PARTICIPLES = [
+  "sold",
+  "served",
+  "delivered",
+  "installed",
+  "trained",
+  "taught",
+  "reached",
+  "built",
+  "made",
+  "shipped",
+  "planted",
+  "raised",
+  "funded",
+  "deployed",
+  "treated",
+  "placed",
+];
+
+/* The fact with its participle moved before the number, or null when it
+   has none past its noun. */
+function participleFirst(core: readonly CopyToken[]): string | null {
+  const at = core.findIndex(
+    (t, i) => i >= 2 && word(t, ...MOVABLE_PARTICIPLES),
+  );
+  if (at < 0) return null;
+  const moved = [core[at], ...core.slice(0, at), ...core.slice(at + 1)];
+  return moved.map((t) => t.text).join(" ");
+}
 
 function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   const hasWord = (ts: CopyToken[]) => ts.some((t) => t.kind === "word");
@@ -829,6 +832,8 @@ function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   const noun = rest.join(" ");
   /* "Just 20 more spots" is 20 spots (round-9 code critic, FN8). */
   forms.push(form(`${n} ${noun}`, counted), form(`${n} more ${noun}`, counted));
+  const moved = participleFirst(core);
+  if (moved) forms.push(form(moved, counted));
   if (rest.length === 1 && /s$/i.test(noun)) {
     for (const label of [`${noun}:`, `${noun} left:`]) {
       for (const lead of ["", "only ", "just "]) {

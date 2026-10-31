@@ -231,6 +231,15 @@ export function isCutTitle(title: string, sources: readonly string[]): boolean {
       const next = tokens[i + mine.length];
       const nextName = /^\p{Lu}/u.test(cased[i + mine.length] ?? "");
       const nextFigure = /^\p{N}/u.test(next ?? "");
+      /* "Coworking space in Independence" from "Independence Layout": a
+         name the title ends inside is cut, though a name after a whole
+         phrase opens a new one, and an area's code ("Ikeja GRA") only
+         qualifies the name before it. */
+      const endsOnName = /^\p{Lu}/u.test(cased[i + mine.length - 1] ?? "");
+      const nextCode = /^\p{Lu}{2,}$/u.test(cased[i + mine.length] ?? "");
+      if (nextName && !nextCode && endsOnName && i + mine.length - 1 > 0) {
+        return true;
+      }
       if (
         isWord(next) &&
         !PHRASE_OPENERS.has(next) &&

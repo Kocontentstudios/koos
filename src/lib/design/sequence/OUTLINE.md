@@ -81,9 +81,36 @@ blocked by one.
 | `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else). | "Only says when it happens. Add what the reader gets." |
 | `profile-fill` | A body point drawn from the brand profile because the brief ran out. Never on a `"user"` point. | "Taken from your brand profile, not this brief. Replace it with something about this offer." |
 
-The hook and the action are never `filler`: when and where is the action's
-job. The eval (H13 recall) checks that every frame the judge scores 2 or
-lower for repetition in lane AUTO was flagged.
+Only body points are flagged. The hook opens the set, so it repeats nothing;
+the action's point is how to act, which a date or a place is, and swapping
+it for another point would leave the set with no action. `filler` also
+covers a body point that is one bare fact ("12 places") or too thin to fill
+a slide (fewer than two words of its own beyond names, framing words, its
+logistics and the audience). A body frame the brief and profile left no
+point for gets a prompt to the owner as its words, flagged `filler`. The
+eval (H13 recall) checks that every frame the judge scores 2 or lower for
+repetition in lane AUTO was flagged.
+
+## How the planner builds an outline (`planOutline`)
+
+1. `readSequenceBrief` (`read.ts`): the same brief read `planSequence` makes.
+2. `pointPool` and one arc call (`buildArcPrompt`), settled by `settleArc`:
+   the outline is the settled arc, surfaced. The hook's point is the arc's
+   angle; each body point is its pool point in its source's words; the
+   action's point is the brief's sentence on how to act plus the facts the
+   action frame carries that it leaves out (`actionPoint`).
+3. Titles are the arc's, in sentence case with the brief's names kept
+   (`sentenceCased`), cut at a word to `OUTLINE_LIMITS.titleChars`.
+4. `flagOutline`, then the trace line.
+
+## How a source is recomputed (`outlineSourceOf`)
+
+A point is `"brief"` when the brief holds its words verbatim or 80% of its
+content words, else `"profile"` by the same test against the profile's
+statements, else `"user"`. The planner's points restate a clause or join
+two, so they keep most words but not every one; an owner's sentence keeps
+few. A `"user"` point is added to the ledger (`sequenceLedger(..., stated)`)
+and the title sources, so copy may say it.
 
 ## Client editing rules (O3)
 
@@ -155,5 +182,28 @@ The planner, given an approved outline (O5):
 - keeps a `"user"` point's claim as written: its copy may shorten it, never
   turn it into a different claim;
 - still holds every hard brief fact on some frame (H5).
+
+How (`plan.ts`, `outline-arc.ts`):
+
+- The pool is the approved points (`outlinePool`); the arc call is told the
+  order is settled (`buildArcPrompt` with `fixed`) and only chooses titles,
+  layouts and the shared brand frame. Code then holds frame k to point k
+  whatever the model assigned (`fixedArcAnswer`, `settleArc` with `fixed`):
+  a point the owner approved is never swapped for a "more distinct" one.
+- The action frame's claim is the approved action point.
+- The copy call is told each `"user"` claim is the owner's words, to keep
+  its figures and terms and only shorten, and that the owner took other
+  points out, so nothing else the brief gives is said.
+- No spare points exist, so no fix call can bring a removed point back.
+- `ownerPointsChanged` (faults.ts) is a blocking fault when a frame loses
+  any figure of the owner's point or more than half its words
+  (`ownerPointKept`); the ship gate gives the point back
+  (`withOwnerPoints`).
+
+A hard brief fact a deleted point carried is still drawn on some frame,
+since H5 outranks the deletion. A clause of the brief that no approved point
+holds is not sent as a point but stays in the request the copy model reads;
+the copy prompt tells it to leave such points out, and the eval counts any
+that leak (`deletedLeaks`).
 
 Response unchanged: `202 {jobId, frames, notice}`.

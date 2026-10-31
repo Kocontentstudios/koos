@@ -85,11 +85,14 @@ export function withTurnaround(fact: BriefFact, briefText: string): BriefFact {
  * thin brief's frame makes a profile point by decision (Oluwaseyi,
  * 2026-10-30), so a claim taken word for word from the brand's
  * differentiators is sourced. The goal licenses nothing: it is what the
- * business wants, not what is true.
+ * business wants, not what is true. `stated` is what the owner wrote into
+ * the approved outline (rubric Addendum A, O4): the owner vouches for it
+ * as the brief does.
  */
 export function sequenceLedger(
   context: DesignContext,
   memorySummary: string,
+  stated: readonly string[] = [],
 ): FactLedger {
   const brand = context.brandSummary;
   const statements = profileStatements(brand);
@@ -99,8 +102,15 @@ export function sequenceLedger(
       source?.trim() !== goal && !statements.includes(source?.trim() ?? ""),
   );
   return factLedger(
-    [context.briefText, context.title, ...statements, ...rest, memorySummary],
-    2 + statements.length,
+    [
+      context.briefText,
+      context.title,
+      ...statements,
+      ...stated,
+      ...rest,
+      memorySummary,
+    ],
+    2 + statements.length + stated.length,
   );
 }
 

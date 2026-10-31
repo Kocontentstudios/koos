@@ -41,7 +41,7 @@ export function roleOf(index: number, count: number): FrameRole {
 /* "value" is a profile clause that states a belief rather than a fact
    about the offering: a frame built on one reads as filler beside frames
    built on what it is, how it is made and what the reader gets. */
-export type PointSource = "brief" | "fact" | "profile" | "value";
+export type PointSource = "brief" | "fact" | "profile" | "value" | "user";
 
 /** One claim a frame may make. */
 export interface ArcPoint {
@@ -294,20 +294,27 @@ export function pointPool({
   const short = () => pool.length < slots;
   const audience = brand.targetAudience?.trim();
   if (short() && audience) {
-    pool.push({ source: "profile", text: `For ${audience}`, facts: [] });
+    /* "For Women 25-45" reads as a title; a name or code ("SS3 students")
+       keeps its capital. */
+    const lead = /^\p{Lu}\p{Ll}/u.test(audience)
+      ? `${audience[0].toLowerCase()}${audience.slice(1)}`
+      : audience;
+    pool.push({ source: "profile", text: `For ${lead}`, facts: [] });
   }
   const ofKinds = (kinds: readonly CoverKind[]) =>
     kinds.flatMap((kind) =>
       facts.flatMap((f, n) => (f.kind === kind ? [n] : [])),
     );
   const where = ofKinds(["place"]);
-  /* A carousel's hook carries the day it happens (HOOK_NEWS), so a frame
-     built on that day would make the hook's point again; a pool short of
-     the frames gives the day a frame of its own instead of a frame with
+  /* A carousel's hook carries the date it happens (HOOK_NEWS), so a frame
+     built on that date would make the hook's point again; a pool short of
+     the frames gives the date a frame of its own instead of a frame with
      no point. */
-  const hookHasTheDay =
+  const hookHasTheDate =
     kind === "carousel" && slots >= 2 && pool.length >= slots;
-  const when = ofKinds(hookHasTheDay ? ["time"] : ["day", "date", "time"]);
+  const when = ofKinds(
+    hookHasTheDate ? ["day", "time"] : ["day", "date", "time"],
+  );
   /* Where and when are one point to a reader: split over two frames they
      read as housekeeping padded out to fill the set. */
   const logistics = [...where, ...when];
@@ -392,15 +399,24 @@ export interface SettleArcOptions {
   free?: ReadonlySet<string>;
   /** Prices the action frame states (actionPrices). */
   atAction?: ReadonlySet<number>;
+  /** The owner approved the outline (rubric Addendum A): frame k makes
+   *  pool point k as assigned, never swapped for a distinct one, since the
+   *  owner chose those points; the hook's claim is its point as given. */
+  fixed?: boolean;
+  /** The action frame's claim when the owner approved one; "" otherwise,
+   *  as the action's job is how to act. */
+  actionClaim?: string;
 }
 
 /* What the hook never carries in a carousel of three frames or more: the
    name and where to find it is a label, not a reason to swipe. */
 const OFF_HOOK = new Set<CoverKind>(["time", "place", "contact"]);
-/* The day it happens is the news a reader swipes for ("Saturday 15
+/* The date it happens is the news a reader swipes for ("Saturday 15
    November: launch day"), so a carousel's hook carries it beside its
-   reason, and the action frame says how to act on it. */
-const HOOK_NEWS = new Set<CoverKind>(["date", "day"]);
+   reason, and the action frame says how to act on it. Days of the week
+   alone ("Tuesday to Saturday") are opening days, the action's to give:
+   on the hook they read as store hours (outline round 2 judge, textile). */
+const HOOK_NEWS = new Set<CoverKind>(["date"]);
 
 /**
  * The model's assignment, held to the rules no copy is needed to check:
@@ -433,6 +449,8 @@ export function settleArc(
     recentLayouts = [],
     free = new Set(),
     atAction = new Set(),
+    fixed = false,
+    actionClaim = "",
   }: SettleArcOptions,
 ): ArcSettlement {
   const count = answer.frames.length;
@@ -452,7 +470,7 @@ export function settleArc(
   if (!angle) {
     angleDropped = "no angle was given";
     hookClaim = sourceText;
-  } else if (actionPriced(angle)) {
+  } else if (!fixed && actionPriced(angle)) {
     angleDropped = "the angle gives the price, which the action frame carries";
     hookClaim = sourceText;
   }
@@ -520,6 +538,11 @@ export function settleArc(
     if (i === 0) return hookPoint;
     if (i === last) return null;
     const assigned = idOf(frame.point);
+    if (fixed) {
+      if (assigned === null) unsourced.push(i);
+      else used.add(assigned);
+      return assigned;
+    }
     let chosen = fits(assigned) ? assigned : (ranking.find(fits) ?? null);
     if (chosen === null) {
       chosen = closest();
@@ -573,6 +596,7 @@ export function settleArc(
 
   const claims = points.map((point, i) => {
     if (i === 0) return hookClaim;
+    if (i === last) return actionClaim.trim();
     return point === null ? "" : pool[point].text;
   });
   const roles = answer.frames.map((_, i) => roleOf(i, count));

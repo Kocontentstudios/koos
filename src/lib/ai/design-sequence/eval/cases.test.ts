@@ -222,6 +222,7 @@ describe("judge", () => {
       hook: { why: "names it", score: 4 },
       lastAction: { why: "clear", score: 5 },
       nonRepetitive: { why: "moves on", score: 3 },
+      frames: [{ frame: 1, repetition: 4 }],
     });
     expect(judgeScores(answer)).toEqual({
       hook: 4,
@@ -231,6 +232,12 @@ describe("judge", () => {
     expect(
       judgeSchema.safeParse({ ...answer, hook: { why: "", score: 6 } }).success,
     ).toBe(false);
+    expect(
+      judgeSchema.safeParse({
+        ...answer,
+        frames: [{ frame: 1, repetition: 0 }],
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -239,6 +246,7 @@ describe("repairJudgeText", () => {
     hook: { why, score: 3 },
     lastAction: { why: "Clear.", score: 5 },
     nonRepetitive: { why: "Builds.", score: 4 },
+    frames: [],
   });
 
   it("shortens a reason past its limit and keeps every score", async () => {

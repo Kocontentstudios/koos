@@ -1,14 +1,19 @@
-import { type BriefFact, isFragment } from "@/lib/jobs/directions/brief-facts";
+import {
+  aboveRepeatsBy,
+  type BriefFact,
+  isFragment,
+} from "@/lib/jobs/directions/brief-facts";
 import type { FactLedger } from "@/lib/jobs/directions/claims";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { textsOverlap } from "./arc";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
+import { ownerPointKept } from "./outline-arc";
 import { factOnlyFrames, misplacedPrices, statesPrice } from "./points";
 import { sequenceRepeats } from "./repeats";
 import { titleProblems } from "./title";
-import { isWordBudgetProblem, validateSequence } from "./validate";
+import { frameCopy, isWordBudgetProblem, validateSequence } from "./validate";
 
 /**
  * Everything code finds wrong with a written set, by frame and field, with
@@ -62,6 +67,9 @@ export interface FaultRules {
   flagged?: readonly Flag[];
   /** Prices the action frame states (actionPrices). */
   atAction?: ReadonlySet<number>;
+  /** By frame, the owner's own words from the approved outline, or "":
+   *  copy may shorten them, never change the claim (O5). */
+  owned?: readonly string[];
 }
 
 /** One finding of the audit call, held to the copy it was made on. */
@@ -476,6 +484,8 @@ export function setFaults(
           },
     ),
     ...bareFrames(frames),
+    ...restatedSubheadlines(frames),
+    ...ownerPointsChanged(frames, rules.owned ?? [], free),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
     ...factOnlyFrames(frames, facts).map(minor),
     ...misplacedPrices(frames, facts, kind).map(minor),
@@ -528,6 +538,57 @@ export function bareFrames(frames: readonly FrameBeat[]): CopyFault[] {
         ]
       : [],
   );
+}
+
+/** Whether a middle frame's subheadline only says its headline again
+ *  (aboveRepeatsBy): read in order, the frame makes one point twice. */
+export function restatesHeadline(beat: FrameBeat): boolean {
+  return (
+    beat.role === "body" &&
+    aboveRepeatsBy(frameCopy(beat)).some((r) => r.field === "headline")
+  );
+}
+
+/** Middle frames whose subheadline restates their headline. Blocking: a
+ *  slide that says its point twice is what a reader marks as repetition
+ *  (arc round-4 critic, HIGH 3). */
+export function restatedSubheadlines(
+  frames: readonly FrameBeat[],
+): CopyFault[] {
+  return frames.flatMap((beat, frame) =>
+    restatesHeadline(beat)
+      ? [
+          {
+            frame,
+            field: "subheadline" as const,
+            detail:
+              "its subheadline says its headline again; write one sentence with a detail of this frame's claim that the headline leaves out",
+            weight: MAJOR,
+          },
+        ]
+      : [],
+  );
+}
+
+/** Frames whose copy turned the owner's point into another claim
+ *  (ownerPointKept). `owned` holds, by frame, the owner's words, or "". */
+export function ownerPointsChanged(
+  frames: readonly FrameBeat[],
+  owned: readonly string[],
+  free: ReadonlySet<string>,
+): CopyFault[] {
+  return frames.flatMap((beat, frame) => {
+    const point = owned[frame]?.trim();
+    if (!point || ownerPointKept(beat, point, free)) return [];
+    return [
+      {
+        frame,
+        field: "frame" as const,
+        detail: `it no longer says the owner's point ("${point}"); keep what it claims and its figures, shortened if it must be`,
+        weight: MAJOR,
+      },
+    ];
+  });
 }
 
 /** How far a set is from shipping clean: 0 is no fault. */

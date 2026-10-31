@@ -84,6 +84,64 @@ export function properNouns(sources: readonly (string | null | undefined)[]) {
   return names;
 }
 
+/** Runs of two or more capitalised words in `sources` ("Bright Path",
+ *  "Lagos Design Week"), each word bare and lowercased, and the words
+ *  that are capitalised only inside such a run: "Coffee" in "Kiln
+ *  Coffee" is part of a name, not a name on its own. */
+export function nameRuns(sources: readonly (string | null | undefined)[]): {
+  runs: string[][];
+  runOnly: Set<string>;
+} {
+  const runs: string[][] = [];
+  const inRun = new Set<string>();
+  const alone = new Set<string>();
+  for (const source of sources) {
+    const tokens = (source ?? "").split(/\s+/).filter(Boolean);
+    const capped = (t: string | undefined) =>
+      t !== undefined && /^\p{Lu}/u.test(t) && isWord(t);
+    let run: string[] = [];
+    const close = () => {
+      if (run.length >= 2) {
+        runs.push(run);
+        for (const w of run) inRun.add(w);
+      }
+      run = [];
+    };
+    tokens.forEach((token, i) => {
+      const startsSentence = i === 0 || /[.!?:]$/.test(tokens[i - 1]);
+      const word = bare(token);
+      const leadsRun = run.length === 0 && SMALL_WORDS.has(word);
+      if (capped(token) && !leadsRun) {
+        run.push(word);
+        const nextOn = capped(tokens[i + 1]) && !/[.!?:,;]$/.test(token);
+        if (!startsSentence && run.length === 1 && !nextOn) alone.add(word);
+        if (!nextOn) close();
+      } else {
+        close();
+      }
+    });
+    close();
+  }
+  return {
+    runs,
+    runOnly: new Set([...inRun].filter((w) => !alone.has(w))),
+  };
+}
+
+/** Indexes, among `words`, of every word inside a run of `runs`. */
+function inRuns(words: readonly string[], runs: readonly string[][]) {
+  const held = new Set<number>();
+  const keys = words.map(bare);
+  for (const run of runs) {
+    for (let i = 0; i + run.length <= keys.length; i += 1) {
+      if (run.every((w, k) => keys[i + k] === w)) {
+        for (let k = 0; k < run.length; k += 1) held.add(i + k);
+      }
+    }
+  }
+  return held;
+}
+
 /** The casing a headline is written in, or null when it has too few
  *  words beyond the first to tell. */
 export function headlineCase(
@@ -121,22 +179,35 @@ function afterHyphens(token: string, names: ReadonlySet<string>): string {
   return [head, ...rest.map((part) => lowered(part, names))].join("-");
 }
 
-function toSentence(headline: string, names: ReadonlySet<string>): string {
+function toSentence(
+  headline: string,
+  names: ReadonlySet<string>,
+  runs: readonly string[][] = [],
+  runOnly: ReadonlySet<string> = new Set(),
+): string {
   const tokens = headline.split(/(\s+)/);
-  let words = 0;
+  const words = tokens.filter((t) => t && !/^\s+$/.test(t));
+  const held = inRuns(words, runs);
+  const own = new Set([...names].filter((n) => !runOnly.has(n)));
+  let count = 0;
   let sentenceStart = true;
   return tokens
     .map((token) => {
       if (/^\s+$/.test(token) || !token) return token;
-      const first = words === 0 || sentenceStart;
-      words += 1;
+      const at = count;
+      const first = count === 0 || sentenceStart;
+      count += 1;
       sentenceStart = /[.!?:]$/.test(token);
-      const tail = afterHyphens(token, names);
-      if (first || names.has(bare(token))) return tail;
-      return lowered(tail, names);
+      if (held.has(at)) return capitalised(token);
+      const tail = afterHyphens(token, own);
+      if (first || own.has(bare(token))) return tail;
+      return lowered(tail, own);
     })
     .join("");
 }
+
+const capitalised = (token: string) =>
+  isWord(token) ? `${token[0].toUpperCase()}${token.slice(1)}` : token;
 
 function toTitle(headline: string): string {
   const tokens = headline.split(/(\s+)/);
@@ -161,7 +232,18 @@ export function withConsistentCasing(
   sources: readonly (string | null | undefined)[],
 ): { frames: FrameBeat[]; recased: number[]; style: HeadlineCase | null } {
   const names = properNouns(sources);
-  const styles = frames.map((beat) => headlineCase(beat.headline, names));
+  const { runs, runOnly } = nameRuns(sources);
+  /* A name's words say nothing of the casing around them: "Pour one at
+     Kiln Coffee" is sentence case. */
+  const own = new Set([...names].filter((n) => !runOnly.has(n)));
+  const withoutRuns = (headline: string) => {
+    const words = headline.split(/\s+/).filter(Boolean);
+    const held = inRuns(words, runs);
+    return words.filter((_, i) => i === 0 || !held.has(i)).join(" ");
+  };
+  const styles = frames.map((beat) =>
+    headlineCase(withoutRuns(beat.headline), own),
+  );
   const titles = styles.filter((s) => s === "title").length;
   const sentences = styles.filter((s) => s === "sentence").length;
   const style: HeadlineCase | null =
@@ -172,7 +254,7 @@ export function withConsistentCasing(
         : "sentence";
   if (style === null) return { frames: [...frames], recased: [], style };
   const recase = (text: string) =>
-    style === "title" ? toTitle(text) : toSentence(text, names);
+    style === "title" ? toTitle(text) : toSentence(text, names, runs, runOnly);
   const recased: number[] = [];
   const next = frames.map((beat, i) => {
     const headline =
@@ -185,4 +267,14 @@ export function withConsistentCasing(
     return { ...beat, headline, title };
   });
   return { frames: next, recased, style };
+}
+
+/** `text` in sentence case, the names `sources` give kept: how an
+ *  outline's titles read beside the set's sentence-case copy. */
+export function sentenceCased(
+  text: string,
+  sources: readonly (string | null | undefined)[],
+): string {
+  const { runs, runOnly } = nameRuns(sources);
+  return toSentence(text, properNouns(sources), runs, runOnly);
 }

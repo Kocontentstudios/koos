@@ -118,6 +118,7 @@ const SOURCE_LABEL: Record<ArcPoint["source"], string> = {
   fact: "a brief fact",
   profile: "the brand profile says",
   value: "a belief the brand states",
+  user: "the owner wrote",
 };
 
 /** The pool of points, numbered for the arc to assign. */
@@ -138,6 +139,9 @@ export interface ArcPromptInput {
   offering: string | null;
   imageSource: SequenceImageSource;
   imageAttached: boolean;
+  /** The owner approved the outline: point k is frame k's, in order, and
+   *  the call only chooses titles, layouts and the shared brand frame. */
+  fixed?: boolean;
 }
 
 /**
@@ -157,11 +161,28 @@ export function buildArcPrompt(
     offering,
     imageSource,
     imageAttached,
+    fixed = false,
   }: ArcPromptInput,
 ): string {
   const noun = frameNoun(kind);
   const Noun = noun === "slide" ? "Slide" : "Frame";
   const last = frameCount;
+  if (fixed) {
+    return [
+      requestBlock(context, kind, frameCount, aspectRatio),
+      `Plan the arc of the ${kind} before any copy is written: exactly ${frameCount} ${noun}s, in order. The owner has approved its points, so the order and the points are settled. Write no copy.`,
+      `The approved points, numbered in ${noun} order:\n${pointList(pool)}`,
+      [
+        `- ${Noun} k makes point k: set "point" to the ${noun}'s own number on ${noun}s 1 to ${last - 1}, and to 0 on ${noun} ${last}, the action, which says how to act and carries ${actionFacts.length > 0 ? actionFacts.map((f) => `"${f}"`).join(", ") : "the way to act"}.`,
+        `- "hookAngle": point 1 as written. "subjects" and "spare": [].`,
+        `- "title": what the ${noun} is about in 2 to ${t.title.words} words taken from its own point, never a label for its job ("The price", "Next steps"). No two ${noun}s share a title, in any casing.`,
+        `- "layout": the composition. Neighbouring ${noun}s never share a layout; stat-highlight only for a ${noun} whose point is a figure.`,
+        `- "showsImage": whether the ${noun} shows the set's image.`,
+        `- The shared brand frame, chosen once for every ${noun}: "palette" from the brand colours, "logoPlacement", "logoFree", "logoFreeQuote", "backgroundTreatment" and "footerStyle" ("bar" or "text" when any ${noun} has contact, place or date lines to show, "none" otherwise).`,
+      ].join("\n"),
+      arcImageBlock(imageSource, imageAttached),
+    ].join("\n\n");
+  }
   const middle =
     frameCount > 2
       ? `- ${Noun}s 2 to ${last - 1}: each makes one point from the list, by its number in "point". Every ${noun} a different point, and no two points that say one thing in other words (the same quality from two sides, a benefit and its cause, a fact and what it means are one point). Order them so the story builds: what the reader gets, then why it is true or different, then what makes it easy to say yes. Take the brief's own points first; take the brand profile's points only for ${noun}s the brief has no point left for, and a belief the brand states only when no concrete point (what it is, how it is made, where it comes from, who makes it, what the reader gets) is left.`
@@ -197,10 +218,12 @@ export interface ClaimedFrame {
   facts: string[];
   layout: string;
   showsImage: boolean;
+  /** The claim is the owner's own words from the approved outline. */
+  owned?: boolean;
 }
 
 const ROLE_BRIEF: Record<FrameRole, string> = {
-  hook: `HOOK: earns the swipe. The headline is built on its claim, the most concrete thing the brief gives (a figure, a duration, how it is made, who makes it, or for a deck what is asked for and what it buys), said in the target audience's terms, so it could only be about this offering. Say it straight, as a question that holds it, or as a before-and-after that holds it; a question or promise without it ("Still doing it yourself?", "Ready for something better?") is flat, because any competitor could post it word for word. A claim keeps the brief's own measure: never sharper, rounder or faster than the brief says. Name the offering, by its own name when the brief gives one (a product, app, event or package name), in the headline where it fits, else the subheadline, with the news the brief gives (a launch, a return, the day it happens) beside the reason, never instead of it; the subheadline adds what the headline does not say and never restates it or reuses its words. Never the offering's name alone, the name with where to find it, or "X is here", "has arrived", "Introducing", "Just in" or "New in": a label or an announcement gives no reason to swipe. Do not spend the point a later frame makes. No button.`,
+  hook: `HOOK: earns the swipe. The headline is built on its claim, the most concrete thing the brief gives (a figure, a duration, how it is made, who makes it, or for a deck what is asked for and what it buys), said in the target audience's terms, so it could only be about this offering. Say it straight, as a question that holds it, or as a before-and-after that holds it; a question or promise without it ("Still doing it yourself?", "Ready for something better?") is flat, because any competitor could post it word for word. A claim keeps the brief's own measure: never sharper, rounder or faster than the brief says. Name the offering, by its own name when the brief gives one (a product, app, event or package name), in the headline where it fits, else the subheadline. The subheadline is one whole sentence on the reader's stake: what they get, or what changes for them, because of the claim; news the brief gives (a launch, a return, the date it happens) may sit beside that stake, never instead of it, and opening days, hours or a place never fill it. It never restates the headline or reuses its words. Never the offering's name alone, the name with where to find it, or "X is here", "has arrived", "Introducing", "Just in" or "New in": a label or an announcement gives no reason to swipe. Do not spend the point a later frame makes. No button.`,
   body: 'ONE POINT: the headline says this frame\'s claim, in words no other frame uses. The subheadline is one whole sentence with a concrete detail of this claim the headline leaves out (a number, a place, a material, a step, who does it, what the reader sees or gets), from its source or the brief, in words no other frame uses. Never a line about values, feelings or what it means in general, and never the headline again. Never the headline again in other words, a reassurance the brief does not give ("No card needed", "Worth every penny") or a phrase another frame used. No button.',
   cta: 'ACTION: the headline tells the reader what they get by acting, in words no earlier frame used; the footer holds how to act; the button ("cta") is the action itself, starting with a verb ("Book your seat", "Order on WhatsApp"). It recaps nothing an earlier frame said, in its words or its facts.',
 };
@@ -285,11 +308,13 @@ function claimedLines(
       [
         `${noun} ${i + 1} (${ROLE_BRIEF[f.role]})`,
         `  working title: ${f.title}`,
-        f.claim
-          ? `  its claim, the only point it makes: "${f.claim}"`
-          : f.role === "cta"
-            ? "  its claim: how to act, and what the reader gets by acting"
-            : `  its claim: a detail of the offering that the brief or the brand profile gives and no other ${noun} makes`,
+        f.claim && f.owned
+          ? `  its claim, in the owner's own words, the only point it makes: "${f.claim}". Keep what it claims, its figures and its terms; shorten it to fit, never turn it into another claim.`
+          : f.claim
+            ? `  its claim, the only point it makes: "${f.claim}"`
+            : f.role === "cta"
+              ? "  its claim: how to act, and what the reader gets by acting"
+              : `  its claim: a detail of the offering that the brief or the brand profile gives and no other ${noun} makes`,
         `  layout: ${f.layout}, ${f.showsImage ? "shows the image" : "text-led, no image"}`,
         f.role === "hook" && names.some((n) => !f.facts.includes(n))
           ? `  must name, in these words: ${names
@@ -314,6 +339,8 @@ export interface ArcCopyPromptInput {
   offering: string | null;
   imageSource: SequenceImageSource;
   aspectRatio: string;
+  /** The claims come from an outline the owner approved. */
+  approved?: boolean;
 }
 
 /** Hook versions the copy call writes beside frame 1, on the same claim
@@ -323,19 +350,31 @@ export const OTHER_HOOKS = 2;
 /** Every frame's copy, each written to its own claim alone. */
 export function buildArcCopyPrompt(
   context: DesignContext,
-  { kind, frames, offering, imageSource, aspectRatio }: ArcCopyPromptInput,
+  {
+    kind,
+    frames,
+    offering,
+    imageSource,
+    aspectRatio,
+    approved = false,
+  }: ArcCopyPromptInput,
 ): string {
   const noun = frameNoun(kind);
   return [
     requestBlock(context, kind, frames.length, aspectRatio),
     `Write the copy for this arc, one entry in "frames" per ${noun}, in order, and the last ${noun}'s button in "cta". Each ${noun} says its own claim and nothing another ${noun} says.${offering ? ` What the brief offers: "${offering}".` : ""}`,
+    approved
+      ? `The owner approved exactly these ${noun}s and their claims, and took other points out. Say nothing the brief or the brand profile gives that no ${noun}'s claim or facts hold.`
+      : null,
     claimedLines(frames, noun, hookNames(context, offering)),
     `In "otherHooks", write ${noun} 1 ${OTHER_HOOKS} more ways on the same claim, each a headline and subheadline: one a question that holds the claim, one a before-and-after that holds it. Put your strongest opening in "frames".`,
     COPY_RULES(kind),
     `Every subheadline is a whole sentence: it starts with a capital and names its own subject, never a clause that leans on the headline above it.`,
     `"title": each ${noun}'s name on its card, written after its copy: 2 to ${t.title.words} words naming what its own headline says, as a whole phrase (never cut off mid-way), any figure written as in the copy, and never another ${noun}'s title.`,
     sceneRule(imageSource),
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** Versions of each frame the fix call writes. A rewrite that fixes one

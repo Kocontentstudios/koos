@@ -13,11 +13,13 @@ import {
   headlineGrammar,
   headlinePrices,
   pointRepeats,
+  restatesHeadline,
   stillSays,
   subheadlineGrammar,
 } from "./faults";
 import { echoesHeadline, namesFree, previewedFrames } from "./hook";
 import { inventedOn } from "./ledger";
+import { ownerPointKept } from "./outline-arc";
 import { textStatesPrice } from "./points";
 import { withoutFactWords } from "./repeats";
 import { factsUncovered, validateSequence } from "./validate";
@@ -83,6 +85,36 @@ function fitsSubheadline(text: string): boolean {
 }
 
 const SENTENCE_BREAK = /(?<=[.!?])\s+(?=\S)/;
+
+/* Where a claim of two parts divides: "steeped for 18 hours, then served
+   over ice" is a headline and the sentence under it. */
+const CLAIM_JOIN = /,\s+|;\s+|\s+[—–]\s+|\s+(?:and|so|then|while|which)\s+/g;
+/* Each half must say something of its own to stand as a line. */
+const HALF_WORDS = 2;
+
+/** A claim of two parts as a headline and a subheadline, at the first
+ *  join both halves stand on, or null. */
+export function claimHalves(claim: string): [string, string] | null {
+  const flatClaim = claim.trim().replace(/\s+/g, " ").replace(/[.]$/, "");
+  for (const join of flatClaim.matchAll(CLAIM_JOIN)) {
+    const at = join.index ?? 0;
+    const head = flatClaim.slice(0, at).trim();
+    const rest = flatClaim
+      .slice(at + join[0].length)
+      .trim()
+      .replace(/^then\s+/i, "");
+    /* "Each teen shapes" is not a headline: a half cut at a joining word
+       must carry its object as well as its verb. */
+    const headWords = /^[,;]/.test(join[0]) ? HALF_WORDS : HALF_WORDS + 1;
+    if (
+      contentStems(head).size >= headWords &&
+      contentStems(rest).size >= HALF_WORDS
+    ) {
+      return [capitalised(head), asSentence(rest)];
+    }
+  }
+  return null;
+}
 
 const says = (field: string, text: string) =>
   stillSays({ headline: field, subheadline: "", footerLines: [] }, text);
@@ -178,6 +210,40 @@ class Gate {
         textsOverlap(line, `${other.headline} ${other.subheadline}`, this.free),
     );
     return elsewhere ? null : line;
+  }
+
+  /** The frame's claim in two halves, as its headline and subheadline,
+   *  when both stand, neither says the other, and no other frame says
+   *  either. */
+  claimInHalves(frame: number): Partial<FrameBeat> | null {
+    const halves = claimHalves(this.claims[frame] ?? "");
+    const beat = this.frames[frame];
+    if (!halves || !beat) return null;
+    const [headline, subheadline] = halves;
+    if (
+      !fitsHeadline(headline, this.plan.kind) ||
+      headlineGrammar(headline) !== null ||
+      !fitsSubheadline(subheadline) ||
+      textsOverlap(headline, subheadline, this.free)
+    ) {
+      return null;
+    }
+    const next = { ...beat, headline, subheadline };
+    if (restatesHeadline(next)) return null;
+    const alone = { ...next, cta: "", footerLines: [] };
+    if (unsourcedOn(alone, frame, this.rules).length > 0) return null;
+    const elsewhere = this.frames.some(
+      (other, i) =>
+        i !== frame &&
+        [headline, subheadline].some((line) =>
+          textsOverlap(
+            line,
+            `${other.headline} ${other.subheadline}`,
+            this.free,
+          ),
+        ),
+    );
+    return elsewhere ? null : { headline, subheadline };
   }
 
   withoutUnsourced() {
@@ -400,8 +466,83 @@ class Gate {
     this.frames.forEach((beat, frame) => {
       if (beat.role !== "body" || beat.subheadline.trim()) return;
       const claim = this.claimAs(frame, "subheadline");
-      if (claim)
+      if (claim) {
         this.set(frame, { subheadline: claim }, "subheadline set to its claim");
+        return;
+      }
+      const halves = this.claimInHalves(frame);
+      if (halves) {
+        this.set(frame, halves, "bare headline given its claim in two lines");
+      }
+    });
+  }
+
+  /** A middle frame whose subheadline says its headline again given its
+   *  claim under the headline, else its claim in two lines, else only
+   *  the subheadline's sentences that say something more. */
+  withoutRestatedSubheadlines() {
+    this.frames.forEach((beat, frame) => {
+      if (!restatesHeadline(beat)) return;
+      const claim = this.claimAs(frame, "subheadline");
+      if (claim && !restatesHeadline({ ...beat, subheadline: claim })) {
+        this.set(
+          frame,
+          { subheadline: claim },
+          "restated subheadline set to its claim",
+        );
+        return;
+      }
+      const halves = this.claimInHalves(frame);
+      if (halves) {
+        this.set(frame, halves, "restated subheadline: claim in two lines");
+        return;
+      }
+      const sentences = beat.subheadline.split(SENTENCE_BREAK);
+      const kept = sentences.filter(
+        (s) => !restatesHeadline({ ...beat, subheadline: s }),
+      );
+      if (kept.length > 0 && kept.length < sentences.length) {
+        this.set(
+          frame,
+          { subheadline: asSentence(kept.join(" ")) },
+          "restating sentence cut from the subheadline",
+        );
+      }
+    });
+  }
+
+  /** A frame that lost the owner's point given it back: in two lines,
+   *  else under its headline, else as its headline (O5). */
+  withOwnerPoints() {
+    const owned = this.rules.owned ?? [];
+    this.frames.forEach((beat, frame) => {
+      const point = owned[frame]?.trim();
+      if (!point || ownerPointKept(beat, point, this.free)) return;
+      const halves = this.claimInHalves(frame);
+      if (halves && ownerPointKept({ ...beat, ...halves }, point, this.free)) {
+        this.set(frame, halves, "owner's point given back in two lines");
+        return;
+      }
+      const sub = asSentence(point);
+      if (
+        fitsSubheadline(sub) &&
+        !textsOverlap(sub, beat.headline, this.free)
+      ) {
+        this.set(
+          frame,
+          { subheadline: sub },
+          "owner's point given back under the headline",
+        );
+        return;
+      }
+      const headline = this.claimAs(frame, "headline");
+      if (headline) {
+        this.set(
+          frame,
+          { headline },
+          "owner's point given back as the headline",
+        );
+      }
     });
   }
 
@@ -535,6 +676,8 @@ export function shipGate(plan: PlannedSequence, rules: GateRules): GateResult {
   gate.withoutHookEcho();
   gate.withWholeHeadlines();
   gate.withWholeSubheadlines();
+  gate.withOwnerPoints();
+  gate.withoutRestatedSubheadlines();
   gate.withSubheadlinesUnderBareHeadlines();
   gate.withNamesOnHook();
   gate.withoutUnsourced();

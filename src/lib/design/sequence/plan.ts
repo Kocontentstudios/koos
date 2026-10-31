@@ -7,26 +7,17 @@ import {
   buildFixPrompt,
   buildSequenceSystemPrompt,
   type ClaimedFrame,
-  hookNames,
 } from "@/lib/ai/prompts/design-sequence";
 import { getModel } from "@/lib/ai/provider";
 import {
   ART_DIRECTOR_IMAGE_MAX_BYTES,
   brandFacts,
 } from "@/lib/jobs/directions/brief";
-import { brandRegion } from "@/lib/jobs/directions/brief-facts";
 import {
   type BriefReader,
   readBriefWithModel,
-  settleBriefRead,
 } from "@/lib/jobs/directions/brief-read";
-import {
-  type ArcFrame,
-  actionPrices,
-  pointPool,
-  settleArc,
-  sparePoints,
-} from "./arc";
+import { type ArcFrame, pointPool, settleArc, sparePoints } from "./arc";
 import { auditFlags } from "./audit";
 import { withConsistentCasing } from "./casing";
 import {
@@ -48,10 +39,16 @@ import {
 } from "./faults";
 import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
 import { shipGate, unsourcedOnSet } from "./gate";
-import { namesFree } from "./hook";
 import { withFigureLayout } from "./layouts";
-import { sequenceFacts, sequenceLedger } from "./ledger";
+import { sequenceLedger } from "./ledger";
+import {
+  fixedArcAnswer,
+  outlinePool,
+  ownedClaims,
+  ownerStatements,
+} from "./outline-arc";
 import { profileStatements } from "./points";
+import { failure, frameCountError, readSequenceBrief } from "./read";
 import { repairSequenceFor } from "./repair";
 import { type FrameRepeat, withoutRepeats } from "./repeats";
 import {
@@ -83,13 +80,6 @@ export class ModelBudgetError extends Error {
     this.name = "ModelBudgetError";
   }
 }
-
-/* A model error carries the answer's text, which is the client's copy:
-   its name and message say what failed without putting a brief in a log. */
-const failure = (err: unknown) => ({
-  name: (err as Error)?.name,
-  message: String((err as Error)?.message ?? err).slice(0, 300),
-});
 
 export interface PlanSequenceDeps {
   /** Reads the brief's facts, offering and people (brief-read.ts). */
@@ -188,13 +178,6 @@ export function chosenHook(
   };
 }
 
-/* A brief read can take the piece for the offering ("Investor deck"):
-   the hook is then told to name it, and talks about the deck instead of
-   what the deck is about. Only a phrase whose head is the piece itself:
-   "Desk posts" or "Slides and sandals" can be what a brand sells. */
-const NAMES_THE_PIECE =
-  /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|presentation|carousel)$/iu;
-
 /**
  * The set's plan, arc first:
  *  1. The brief is read the way the directions path reads it
@@ -238,8 +221,12 @@ export async function planSequence(
     frameCount < bounds.min ||
     frameCount > bounds.max
   ) {
+    throw new RangeError(frameCountError("planSequence", kind, frameCount));
+  }
+  const outline = input.approvedOutline ?? null;
+  if (outline && outline.points.length !== frameCount) {
     throw new RangeError(
-      `planSequence: a ${kind} is ${bounds.min} to ${bounds.max} frames, not ${frameCount} (clampFrameCount)`,
+      `planSequence: the approved outline has ${outline.points.length} points for ${frameCount} frames`,
     );
   }
   const started = Date.now();
@@ -252,46 +239,30 @@ export async function planSequence(
     Boolean(context.brand?.logoUrl),
     { memorySummary, recentLayouts: input.recentLayouts },
   );
-  const briefText = context.briefText ?? "";
+  const brief = await readSequenceBrief(context, kind, briefReader);
   let modelCalls = 1;
-
-  const raw = await briefReader({
+  const {
     briefText,
-    title: context.title ?? "",
-  }).catch((err) => {
-    console.error("sequence brief read failed", failure(err));
-    return null;
-  });
-  const read = settleBriefRead(
-    raw,
-    briefText,
-    brandRegion([
-      ...brandFacts(context.brandSummary),
-      context.brandSummary.websiteUrl,
-    ]),
-  );
-  const brandName = context.brandSummary.name;
-  const facts = sequenceFacts(read, brandName, briefText).filter(
-    (f) => f.kind !== "product" || !NAMES_THE_PIECE.test(f.text.trim()),
-  );
-  const readOffering = read.offering?.phrase ?? null;
-  const offering =
-    readOffering && NAMES_THE_PIECE.test(readOffering.trim())
-      ? null
-      : readOffering;
-  const offeringIndex = facts.findIndex((f) => f.kind === "product");
-  const names = hookNames(context, offering);
-  const free = namesFree(brandName, offering);
-  const atAction = actionPrices(facts, kind, briefText);
-  const pool = pointPool({
+    brandName,
     facts,
-    briefText,
-    brand: context.brandSummary,
-    kind,
+    offering,
+    offeringIndex,
+    names,
     free,
-    slots: frameCount - 1,
     atAction,
-  });
+  } = brief;
+  const stated = ownerStatements(outline);
+  const pool = outline
+    ? outlinePool(outline, facts)
+    : pointPool({
+        facts,
+        briefText,
+        brand: context.brandSummary,
+        kind,
+        free,
+        slots: frameCount - 1,
+        atAction,
+      });
 
   const showImage =
     imageSource === "upload" &&
@@ -392,7 +363,7 @@ export async function planSequence(
   const actionFacts = facts.filter(
     (f, n) => f.kind === "contact" || atAction.has(n),
   );
-  const arcAnswer = await ask(
+  const answered = await ask(
     arcResponseSchema(frameCount),
     (attached) =>
       buildArcPrompt(context, {
@@ -404,10 +375,12 @@ export async function planSequence(
         offering,
         imageSource,
         imageAttached: attached,
+        fixed: outline !== null,
       }),
     ARC_MAX_OUTPUT_TOKENS,
     { count: frameCount },
   );
+  const arcAnswer = outline ? fixedArcAnswer(answered, outline) : answered;
   const arc = settleArc(arcAnswer, {
     pool,
     facts,
@@ -417,15 +390,20 @@ export async function planSequence(
     recentLayouts: input.recentLayouts,
     free,
     atAction,
+    fixed: outline !== null,
+    actionClaim: outline?.points.at(-1)?.point ?? "",
   });
   const owners = arc.frames.map((f) => f.facts);
-  const claimed: ClaimedFrame[] = arc.frames.map((f) => ({
+  const owned = ownedClaims(outline);
+  const claimed: ClaimedFrame[] = arc.frames.map((f, i) => ({
     role: f.role,
     title: f.title,
     claim: f.claim,
     facts: f.facts.map((n) => facts[n].text),
     layout: f.layout,
     showsImage: f.showsImage,
+    owned:
+      ownedClaims(outline)[i] !== "" && ownedClaims(outline)[i] !== undefined,
   }));
 
   const copy = await ask(
@@ -437,19 +415,22 @@ export async function planSequence(
         offering,
         imageSource,
         aspectRatio,
+        approved: outline !== null,
       }),
     COPY_MAX_OUTPUT_TOKENS,
     { count: frameCount },
   );
 
-  const ledger = sequenceLedger(context, memorySummary);
+  const ledger = sequenceLedger(context, memorySummary, stated);
   const profile = [
     ...profileStatements(context.brandSummary),
     context.brandSummary.targetAudience?.trim() ?? "",
+    ...stated,
   ].filter(Boolean);
   const titleRules: TitleRules = {
     sources: [
       briefText,
+      ...stated,
       ...Object.values(context.brandSummary).filter(
         (v): v is string => typeof v === "string",
       ),
@@ -467,6 +448,7 @@ export async function planSequence(
     claims: arc.frames.map((f) => f.claim),
     titleSources: titleRules.sources,
     atAction,
+    owned,
   };
   const arcTitles = arc.frames.map((f) => [f.title]);
   const tidy = (frames: readonly FrameBeat[]) =>
@@ -628,7 +610,7 @@ export async function planSequence(
     factsDrawn: filled.drawn,
     faults: faults.map((f) => `frame ${f.frame + 1} ${f.field}: ${f.detail}`),
     imageSeen,
-    readAvailable: read.available,
+    readAvailable: brief.readAvailable,
     modelCalls,
     ms: Date.now() - started,
   });

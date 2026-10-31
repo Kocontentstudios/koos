@@ -152,13 +152,13 @@ describe("pointPool: what is not a point", () => {
         slots,
       }).map((p) => p.text);
     const base = thin(0);
-    expect(base).not.toContain("For Weekend riders in Lagos");
-    expect(thin(base.length + 1).at(-1)).toBe("For Weekend riders in Lagos");
+    expect(base).not.toContain("For weekend riders in Lagos");
+    expect(thin(base.length + 1).at(-1)).toBe("For weekend riders in Lagos");
     expect(thin(base.length + 2).at(-1)).toBe(
       "our Ojota workshop, Saturday 6 December, 9am to 4pm",
     );
     expect(thin(base.length + 3).slice(-2)).toEqual([
-      "For Weekend riders in Lagos",
+      "For weekend riders in Lagos",
       "our Ojota workshop, Saturday 6 December, 9am to 4pm",
     ]);
   });

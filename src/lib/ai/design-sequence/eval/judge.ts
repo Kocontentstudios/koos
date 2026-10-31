@@ -18,10 +18,20 @@ const scored = z.object({
   score: z.number().int().min(1).max(5),
 });
 
+/* Per frame, so the eval can check every frame the judge scores low for
+   repetition was flagged weak by code (rubric Addendum A, flag recall).
+   After the set's scores in the answer, so it is read once they are
+   given and does not lead them. */
+const frameRepetition = z.object({
+  frame: z.number().int().min(1).max(20),
+  repetition: z.number().int().min(1).max(5),
+});
+
 export const judgeSchema = z.object({
   hook: scored,
   lastAction: scored,
   nonRepetitive: scored,
+  frames: z.array(frameRepetition).max(20),
 });
 
 export type JudgeAnswer = z.infer<typeof judgeSchema>;
@@ -47,7 +57,7 @@ export async function repairJudgeText({
   if (!parsed || typeof parsed !== "object") return null;
   const answer = { ...(parsed as Record<string, unknown>) };
   let changed = false;
-  for (const key of Object.keys(judgeSchema.shape)) {
+  for (const key of ["hook", "lastAction", "nonRepetitive"]) {
     const entry = answer[key] as { why?: unknown } | undefined;
     if (typeof entry?.why === "string" && entry.why.length > WHY_MAX) {
       answer[key] = { ...entry, why: `${entry.why.slice(0, WHY_MAX - 1)}…` };
@@ -90,7 +100,8 @@ export function buildJudgePrompt(
     `Score each from 1 to 5, with one sentence of why:
 - "hook": does the first frame earn the swipe? 5: names the offer and gives a concrete, specific reason to see more; 3: names it but is flat or generic; 1: unclear what it is about.
 - "lastAction": does the last frame carry the action? 5: one clear action with how to take it (the contact, place or link the brief gives); 3: an action without the how, or a vague one; 1: no action.
-- "nonRepetitive": does each frame move the story on? 5: every frame makes its own point in its own words, read in order it builds; 3: two frames say much the same or reuse phrasing; 1: one message cut into pieces.`,
+- "nonRepetitive": does each frame move the story on? 5: every frame makes its own point in its own words, read in order it builds; 3: two frames say much the same or reuse phrasing; 1: one message cut into pieces.
+Then "frames": one entry per frame, its number and "repetition" from 1 to 5: 5 makes a point no other frame makes, in its own words; 3 shares some of another frame's point or wording; 2 or less says what an earlier frame said, or adds nothing a reader needs.`,
   ].join("\n\n");
 }
 

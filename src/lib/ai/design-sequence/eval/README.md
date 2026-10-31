@@ -14,7 +14,38 @@ pnpm eval:design-sequence --case event            # one brief, every N
 pnpm eval:design-sequence --no-judge              # deterministic lane only
 pnpm eval:design-sequence --set held-out          # the 4 held-out briefs x N, aggregate only
 pnpm eval:design-sequence --report /tmp/x.json    # write the report elsewhere
+pnpm eval:design-sequence --lane approved         # one lane: auto, approved or both (default)
 ```
+
+If `pnpm` stops to reinstall `node_modules` in a worktree without a TTY,
+run the same script directly: `npx tsx src/lib/ai/design-sequence/eval/run.mts
+--set tuning`.
+
+## Two lanes (rubric Addendum A)
+
+Every run first plans the outline (`planOutline`: the brief read and one
+arc call), then generates the set twice from it:
+
+- **AUTO**: the planner's own outline, approved untouched. Reported, not
+  gated. It must not fall below the round-6 numbers (hook 3.5, non-rep 3.3
+  on tuning).
+- **APPROVED**: each point `flagOutline` marked weak, in frame order, is
+  replaced by the next fact from the fixture's frozen owner pool
+  (`owner-pool.ts`, written before the outline build and never edited by a
+  builder), as a `"user"` point. H13 is gated on this lane, on both sets, at
+  the frozen thresholds.
+
+The edits are pure functions in `lanes.ts` with their own tests. Two more
+numbers are printed:
+
+- **Flag recall**: the judge also scores each frame's repetition 1 to 5
+  (`frames` in its answer). Of the frames it scores 2 or lower in lane AUTO,
+  the share code had flagged weak. It must be at least 0.8; the frames it
+  missed are printed on a tuning run.
+- **Removed points leaked** (APPROVED): a frame whose headline or
+  subheadline still makes a point the owner replaced (`textsOverlap`,
+  where and when ignored, since the action frame gives them), and not its
+  own approved point.
 
 Paid lane. It calls whatever `getModel("strategy")` resolves to (Bedrock in
 this repo's `.env`). The runner clears `AWS_BEARER_TOKEN_BEDROCK` so the
