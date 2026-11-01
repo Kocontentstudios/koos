@@ -250,8 +250,8 @@ export interface OutlinePoint {
   /** The server's signature over the planned words and their source
    *  (outline-sign.ts). Sent back untouched with an unedited point, so its
    *  source survives the round trip; an edited point's no longer matches
-   *  and its words become the owner's. */
-  sig: string;
+   *  and its words become the owner's. A point the owner added has none. */
+  sig?: string;
 }
 
 /** What POST /api/design/outline answers with. */

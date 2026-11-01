@@ -606,14 +606,34 @@ describe("toApproved", () => {
       title: "Woven here",
       point: "Every piece is woven in Abeokuta from Nigerian cotton.",
       source: "brief",
+      sig: "test-sig-p2",
     });
     expect(Object.keys(approved.points[0]).sort()).toEqual([
       "id",
       "point",
       "role",
+      "sig",
       "source",
       "title",
     ]);
+  });
+
+  it("sends each planned point's signature back, so the server keeps its source", () => {
+    const approved = toApproved(draftFrom(plannedOutline(5)));
+    expect(approved.points.map((p) => p.sig)).toEqual([
+      "test-sig-p1",
+      "test-sig-p2",
+      "test-sig-p3",
+      "test-sig-p4",
+      "test-sig-p5",
+    ]);
+  });
+
+  it("sends no signature for a point the owner added", () => {
+    const { draft, id } = addPoint(draftFrom(plannedOutline(3)));
+    const added = toApproved(draft).points.find((p) => p.id === id);
+    expect(added?.source).toBe("user");
+    expect(added && "sig" in added).toBe(false);
   });
 });
 

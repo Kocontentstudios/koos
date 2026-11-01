@@ -326,6 +326,7 @@ describe("editing", () => {
       title: "Since 1998",
       point: "We have tailored for Lagos families since 1998.",
       source: "profile",
+      sig: "test-sig-p4",
     });
   });
 

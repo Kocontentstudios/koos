@@ -403,12 +403,13 @@ export function draftProblems(draft: OutlineDraft): DraftProblem[] {
 export function toApproved(draft: OutlineDraft): ApprovedOutline {
   return {
     kind: draft.kind,
-    points: draft.points.map(({ id, role, title, point, source }) => ({
+    points: draft.points.map(({ id, role, title, point, source, sig }) => ({
       id,
       role,
       title: title.trim(),
       point: point.trim(),
       source,
+      ...(sig ? { sig } : {}),
     })),
   };
 }

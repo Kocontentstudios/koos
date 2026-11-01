@@ -144,7 +144,12 @@ export function plannedOutline(
               facts: [],
               weak: null,
             });
-    return { ...base, id: `p${i + 1}`, role: roleAt(i, count) };
+    return {
+      ...base,
+      id: `p${i + 1}`,
+      role: roleAt(i, count),
+      sig: `test-sig-p${i + 1}`,
+    };
   });
   return {
     kind,

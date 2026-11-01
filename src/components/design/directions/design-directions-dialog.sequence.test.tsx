@@ -137,12 +137,13 @@ describe("what the dialog tells the run", () => {
         approvedOutline: {
           kind: "carousel",
           points: plannedOutline(5).points.map(
-            ({ id, role, title, point, source }) => ({
+            ({ id, role, title, point, source, sig }) => ({
               id,
               role,
               title,
               point,
               source,
+              sig,
             }),
           ),
         },
