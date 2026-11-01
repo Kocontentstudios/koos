@@ -25,6 +25,7 @@ import { useDesignGeneration } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SUPPORTED_ASPECT_RATIOS } from "@/lib/ai/image/types";
+import { primaryDesignType } from "@/lib/design/attachments";
 import type { ContextOption } from "@/lib/design/context-search";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
@@ -234,6 +235,7 @@ export function DesignStudioClient({
           }
         }}
         entry="studio"
+        designType={primaryDesignType(context)}
         onRunStart={() => setRanThisSession(true)}
         args={{
           brandId,

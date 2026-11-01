@@ -83,6 +83,7 @@ export async function GET(req: Request) {
       id: b.id,
       label: b.title,
       hint: shorten(b.designType),
+      designType: b.designType,
     })),
     ...items.map((i) => ({
       type: "calendar_item" as const,
@@ -93,6 +94,9 @@ export async function GET(req: Request) {
           .filter(Boolean)
           .join(" · "),
       ),
+      /* The same fallback loadAttachment uses, so the client and the
+         generate route agree on the format. */
+      designType: i.designType ?? i.contentType,
       /* Carried so the picker can group by campaign. The strategy's name is
          what a user recognises; a calendar has no name of its own. */
       groupId: i.calendarId,
@@ -106,6 +110,7 @@ export async function GET(req: Request) {
       id: t.id,
       label: t.title ?? formatTicketNumber(t.ticketNumber),
       hint: shorten(t.designType),
+      designType: t.designType,
     })),
     ...strategies.slice(0, PER_TYPE_LIMIT).map((s) => ({
       type: "strategy" as const,

@@ -61,9 +61,15 @@ export function readSequenceProgress(
   };
 }
 
-/** The wait a known set opens on, before the job's first report. */
-export function plannedProgress(kind: SequenceKind): SequenceProgress {
-  return { kind, frameCount: null, phase: "plan", done: 0 };
+/**
+ * The wait a known set opens on, before the job's first report. An approved
+ * outline already fixes the count, so the wait can say it from the start.
+ */
+export function plannedProgress(
+  kind: SequenceKind,
+  frameCount: number | null = null,
+): SequenceProgress {
+  return { kind, frameCount, phase: "plan", done: 0 };
 }
 
 /** The frame being worked on, 1-based: one past those already delivered. */

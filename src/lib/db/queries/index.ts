@@ -725,6 +725,8 @@ export async function listCalendarItemsForBrand(brandId: string, limit = 500) {
         platform: calendarItems.platform,
         date: calendarItems.date,
         designRequired: calendarItems.designRequired,
+        designType: calendarItems.designType,
+        contentType: calendarItems.contentType,
         calendarId: calendars.id,
         calendarCreatedAt: calendars.createdAt,
         calendarStart: calendars.startDate,

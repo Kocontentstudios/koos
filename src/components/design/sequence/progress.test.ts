@@ -161,6 +161,19 @@ describe("sequenceProgressLine", () => {
       "Frame 2…",
     );
   });
+
+  it("knows the count from the start when an approved outline fixed it", () => {
+    const seeded = plannedProgress("presentation", 6);
+    expect(seeded).toEqual({
+      kind: "presentation",
+      frameCount: 6,
+      phase: "plan",
+      done: 0,
+    });
+    expect(sequenceProgressLine({ ...seeded, phase: "render" })).toBe(
+      "Frame 1 of 6…",
+    );
+  });
 });
 
 describe("sequenceMarkOf", () => {

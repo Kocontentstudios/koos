@@ -3,15 +3,20 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DesignEntry } from "@/components/design/design-analytics";
+import { OutlineStep } from "@/components/design/sequence/outline-step";
 import type { SequenceProgress } from "@/components/design/sequence/progress";
 import { setHeading } from "@/components/design/sequence/set-heading";
 import type { DesignSet } from "@/components/design/sequence/set-model";
 import { SetProgress } from "@/components/design/sequence/set-progress";
 import { SetViewer } from "@/components/design/sequence/set-viewer";
+import type { OutlineController } from "@/components/design/sequence/use-outline";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
-import type { FrameEdits } from "@/lib/design/sequence/contract";
+import type {
+  ApprovedOutline,
+  FrameEdits,
+} from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
@@ -74,6 +79,13 @@ export type DirectionsView =
       sendNotices: Record<string, SendNotice>;
     }
   | {
+      /** A carousel or presentation's points, approved before generating. */
+      step: "outline";
+      outline: OutlineController;
+      /** Generate was pressed and the server has not answered yet. */
+      starting: boolean;
+    }
+  | {
       step: "set-progress";
       progress: SequenceProgress;
       stage: GenerationStage | null;
@@ -110,6 +122,10 @@ export interface DirectionsHandlers {
     edits?: FrameEdits,
   ) => Promise<SerializedGeneration | null>;
   onKeepWaitingOnFrame?: (index: number) => void;
+  /* Optional for the same reason: only a set's outline step uses them. */
+  onGenerateOutline?: (approved: ApprovedOutline) => void;
+  /** Present when the run on screen came from an approved outline. */
+  onEditOutline?: () => void;
   onDone: () => void;
 }
 
@@ -128,6 +144,9 @@ export function dialogWidthFor(view: DirectionsView): string {
   if (view.step === "set-results") {
     return "sm:max-w-[min(48rem,calc(100%-2rem))]";
   }
+  /* One column of editable cards; the base width squeezed the point field
+     to a few words a line. */
+  if (view.step === "outline") return "sm:max-w-[min(40rem,calc(100%-2rem))]";
   return "sm:max-w-xl";
 }
 
@@ -139,7 +158,7 @@ function Header({
   description: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 pr-8 pb-4 max-sm:pr-14 [@media(hover:none)]:pr-14">
+    <div className="flex flex-col gap-1.5 pb-4">
       <FlowTitle>{title}</FlowTitle>
       <FlowDescription>{description}</FlowDescription>
     </div>
@@ -354,6 +373,7 @@ export function DirectionsFlowView({
           onUseKoImagery={handlers.onLetKoCreate}
           onNoImage={handlers.onNoImage}
           onChangeImage={handlers.onBackToChoice}
+          onEditOutline={handlers.onEditOutline}
         />
       );
 
@@ -363,6 +383,16 @@ export function DirectionsFlowView({
           message={view.message}
           onKeepWaiting={handlers.onRetryGeneration}
           onClose={handlers.onDone}
+        />
+      );
+
+    case "outline":
+      return (
+        <OutlineStep
+          outline={view.outline}
+          starting={view.starting}
+          onBack={handlers.onBackToChoice}
+          onGenerate={(approved) => handlers.onGenerateOutline?.(approved)}
         />
       );
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAttachmentType,
   mergeAttachments,
+  primaryDesignType,
   type ResolvedAttachment,
   sortByPrecedence,
 } from "@/lib/design/attachments";
@@ -284,5 +285,37 @@ describe("mergeAttachments", () => {
     expect(merged.briefText).toContain("A bold flyer for the launch.");
     expect(merged.briefText).toContain("Tease the drop.");
     expect(merged.platform).toBe("Instagram");
+  });
+});
+
+/* KOOS-AI-002: Design Studio reads the format from its picker options before
+   sending anything, to know a set needs its outline first. It must agree
+   with what the server merges, or a carousel skips the outline. */
+describe("primaryDesignType", () => {
+  it("picks the format the server's merge picks, for every order", () => {
+    const sets: ResolvedAttachment[][] = [
+      [calendarItem(), brief({ designType: "Instagram carousel" })],
+      [brief({ designType: null }), calendarItem()],
+      [calendarItem(), brief({ designType: "  " })],
+      [{ type: "strategy", id: "s", label: "S", text: null }],
+      [],
+    ];
+    for (const attachments of sets) {
+      for (const ordered of [attachments, [...attachments].reverse()]) {
+        expect(primaryDesignType(ordered)).toBe(
+          mergeAttachments({ attachments: ordered }).designType,
+        );
+      }
+    }
+  });
+
+  it("takes picker options, which carry only a type and a format", () => {
+    expect(
+      primaryDesignType([
+        { type: "ticket", designType: "Flyer" },
+        { type: "brief", designType: "Presentation" },
+      ]),
+    ).toBe("Presentation");
+    expect(primaryDesignType([{ type: "asset" }])).toBeNull();
   });
 });

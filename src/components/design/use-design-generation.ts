@@ -21,6 +21,8 @@ import {
   useFrameSet,
 } from "@/components/design/sequence/use-frame-set";
 import type {
+  ApprovedOutline,
+  OutlineProblem,
   SequenceJobResult,
   SequenceKind,
 } from "@/lib/design/sequence/contract";
@@ -41,6 +43,9 @@ export interface GenerateArgs {
   /** A generation id: the job makes exactly one new direction to take that
    *  one's place. Requires `image`. */
   regenerateOf?: string;
+  /** The outline the user approved for a carousel or presentation; the
+   *  server re-validates it and writes the set's copy from it. */
+  approvedOutline?: ApprovedOutline;
 }
 
 /** What the caller knows about the run that the request does not carry. */
@@ -124,13 +129,26 @@ export interface DesignGenerationState {
   frameActions?: FrameSetState["actingOn"];
   frameErrors?: FrameSetState["frameErrors"];
   framesStillRunning?: FrameSetState["stillRunning"];
+  /** True while the generate request itself is in flight, before the
+   *  server has accepted (or refused) the run. */
+  posting?: boolean;
 }
 
 /** What the hook itself returns: every field, the set ones included. */
 export type LiveDesignGeneration = Required<DesignGenerationState>;
 
 async function readError(res: Response): Promise<string> {
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  const body = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    problems?: OutlineProblem[];
+  };
+  /* "Invalid outline" alone gives the user nothing to fix; the first
+     problem names the slide and the rule. */
+  const problem = Array.isArray(body.problems) ? body.problems[0] : null;
+  if (body.error && problem?.detail) {
+    const where = problem.point == null ? "" : `Slide ${problem.point + 1}: `;
+    return `${body.error}. ${where}${problem.detail}`;
+  }
   return body.error ?? "Design generation failed. Please try again.";
 }
 
@@ -160,6 +178,7 @@ interface LastRun {
  * finished variants so callers only deal with rendered designs. */
 export function useDesignGeneration(): LiveDesignGeneration {
   const [pending, setPending] = useState(false);
+  const [posting, setPosting] = useState(false);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [stage, setStage] = useState<GenerationStage | null>(null);
   const [progress, setProgress] = useState<{
@@ -197,6 +216,7 @@ export function useDesignGeneration(): LiveDesignGeneration {
   const reset = useCallback(() => {
     runId.current += 1;
     setPending(false);
+    setPosting(false);
     clearProgress();
     setError(null);
     setStillRunning(false);
@@ -451,7 +471,10 @@ export function useDesignGeneration(): LiveDesignGeneration {
       /* A known set opens on its own wait, not the directions one, before
          the job's first report arrives. */
       const seeded = options.sequenceKind
-        ? plannedProgress(options.sequenceKind)
+        ? plannedProgress(
+            options.sequenceKind,
+            args.approvedOutline?.points.length ?? null,
+          )
         : null;
       /* Recorded before anything can fail, with no job yet: a failure before
        the POST returns means nothing was started, so a retry is a real
@@ -469,6 +492,10 @@ export function useDesignGeneration(): LiveDesignGeneration {
       begin("Starting…", "starting", seeded);
       setGenerations([]);
       loadSet(null);
+      setPosting(true);
+      const posted = () => {
+        if (runId.current === run) setPosting(false);
+      };
       try {
         const res = await fetch("/api/design/generate", {
           method: "POST",
@@ -478,11 +505,13 @@ export function useDesignGeneration(): LiveDesignGeneration {
         if (!res.ok) throw new Error(await readError(res));
         const { jobId } = (await res.json()) as { jobId: string };
         last.jobId = jobId;
+        posted();
         return await follow(last, jobId, run);
       } catch (err) {
         settle(run, err);
         return [];
       } finally {
+        posted();
         finish(run);
       }
     },
@@ -543,6 +572,7 @@ export function useDesignGeneration(): LiveDesignGeneration {
     frameActions: frameSet.actingOn,
     frameErrors: frameSet.frameErrors,
     framesStillRunning: frameSet.stillRunning,
+    posting,
     reset,
   };
 }

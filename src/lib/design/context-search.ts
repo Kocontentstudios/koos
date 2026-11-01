@@ -6,6 +6,10 @@ export interface ContextOption {
   id: string;
   label: string;
   hint: string | null;
+  /* What the server will read as the format once this is attached, so the
+     studio knows a carousel or presentation brief needs its outline step
+     before generate. Absent on strategies and assets, which carry none. */
+  designType?: string | null;
   /* Calendar items belong to a calendar and the picker groups them by it, so
      a brief saved against an older campaign is findable rather than buried in
      one flat list (KOOS-BUG-016). Absent on every other type. */

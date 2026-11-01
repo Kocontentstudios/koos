@@ -12,6 +12,7 @@ vi.mock("@/lib/generation/poll-job", () => ({
 }));
 
 import { GenerateDesignButton } from "@/components/design/generate-design-button";
+import { plannedOutline } from "@/components/design/sequence/fixtures";
 import { DesignFlagsProvider } from "./design-flags-provider";
 
 const BRAND = "3aac081f-cae5-446c-af3a-eaa2dfc3f916";
@@ -36,14 +37,30 @@ async function startFromBrief(designType: string) {
   );
 }
 
+/* A set stops at its outline first; approve it as planned. */
+async function approveOutline() {
+  await userEvent.click(
+    await screen.findByRole("button", {
+      name: /^Generate \d+ slides · \d+ units$/,
+    }),
+  );
+}
+
+const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+  url === "/api/design/outline"
+    ? Response.json({ outline: plannedOutline(5) })
+    : Response.json({ jobId: "job-1" }, { status: 202 }),
+);
+
+function callsTo(url: string) {
+  return fetchMock.mock.calls.filter(([called]) => called === url);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   vi.stubEnv("FEATURE_KO_IMAGERY", "1");
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => Response.json({ jobId: "job-1" }, { status: 202 })),
-  );
+  vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -54,6 +71,8 @@ describe("a carousel brief started from a page that hands the flags down", () =>
   it("opens on the set's own wait when FEATURE_MULTI_FRAME is on", async () => {
     vi.stubEnv("FEATURE_MULTI_FRAME", "1");
     await startFromBrief("Instagram carousel");
+    expect(pollGenerationJob).not.toHaveBeenCalled();
+    await approveOutline();
     await waitFor(() =>
       expect(
         screen
@@ -62,11 +81,17 @@ describe("a carousel brief started from a page that hands the flags down", () =>
       ).toBe(true),
     );
     expect(screen.queryByText(/two directions/i)).toBeNull();
+    const [, init] = callsTo("/api/design/generate")[0] ?? [];
+    const body = JSON.parse(String(init?.body));
+    expect(body.approvedOutline.kind).toBe("carousel");
+    expect(body.approvedOutline.points).toHaveLength(5);
+    expect(callsTo("/api/design/outline")).toHaveLength(1);
   });
 
   it("names a presentation as one", async () => {
     vi.stubEnv("FEATURE_MULTI_FRAME", "1");
     await startFromBrief("Presentation");
+    await approveOutline();
     await waitFor(() =>
       expect(
         screen
@@ -81,5 +106,10 @@ describe("a carousel brief started from a page that hands the flags down", () =>
     await startFromBrief("Instagram carousel");
     await waitFor(() => expect(pollGenerationJob).toHaveBeenCalled());
     expect(screen.queryByText(/Planning your carousel/)).toBeNull();
+    expect(callsTo("/api/design/outline")).toHaveLength(0);
+    const [, init] = callsTo("/api/design/generate")[0] ?? [];
+    expect(JSON.parse(String(init?.body))).not.toHaveProperty(
+      "approvedOutline",
+    );
   });
 });
