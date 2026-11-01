@@ -39,7 +39,7 @@ jobs:
       # cluster-fuzz.smoke makes would hit the network inside a render
       # deadline; restoring the cache keeps those renders off the network.
       - name: Restore next/og test assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/koos-og-assets
           key: koos-og-assets-${{ hashFiles('src/lib/design/document/cluster-fuzz.smoke.test.ts', 'src/lib/design/document/testing-og-assets.ts') }}
