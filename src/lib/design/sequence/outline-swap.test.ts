@@ -82,7 +82,7 @@ describe("withOverlapsSwapped: the planner never hands over a point twice", () =
     expect(overlaps(points)).toBe(0);
   });
 
-  it("never swaps away the only point that states a brief fact", () => {
+  it("moves the only point that states a brief fact onto the action, then swaps the slide", () => {
     const priced: PlacedPoint[] = [
       drafts[0],
       {
@@ -93,11 +93,15 @@ describe("withOverlapsSwapped: the planner never hands over a point twice", () =
       drafts[2],
       { role: "cta", source: "brief", text: "Book at crownandcoil.ng." },
     ];
-    const { swapped } = withOverlapsSwapped(
+    const { points, swapped } = withOverlapsSwapped(
       priced,
       [{ source: "profile", text: "Products free of sulphates", facts: [] }],
       ctx,
     );
-    expect(swapped).toEqual([]);
+    expect(swapped).toEqual([1]);
+    expect(points[3].text).toBe(
+      "Book at crownandcoil.ng. Free scalp massage, ₦8,000 a wash.",
+    );
+    expect(points[1].text).toBe("Products free of sulphates");
   });
 });

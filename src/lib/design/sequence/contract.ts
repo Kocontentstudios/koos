@@ -162,6 +162,10 @@ export interface SequenceJobResult {
   setId: string;
   sequenceKind: SequenceKind;
   frameCount: number;
+  /** Zero-based indexes, in the set as planned, of the frames the planner
+   *  took off rather than ship a blocking fault; frameCount is what was
+   *  left. Absent when none was. */
+  framesDropped?: number[];
   /** Delivered frames, in frame order. */
   generationIds: string[];
   failed: string[];

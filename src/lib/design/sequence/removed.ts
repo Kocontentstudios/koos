@@ -8,7 +8,7 @@ import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { type ArcPoint, claimsOverlap, textsOverlap } from "./arc";
 import type { ApprovedOutline, FrameBeat } from "./contract";
 import type { CopyFault } from "./faults";
-import { factsIn } from "./outline-arc";
+import { EMPTY_POINT, factsIn } from "./outline-arc";
 import { PROFILE_POINT_FIELDS, profileClauses } from "./points";
 
 /**
@@ -133,14 +133,65 @@ export function removedFaults(
   });
 }
 
+/** `line` with a released fact's own words taken out, with the comma or
+ *  joining word that held them, or "" when nothing readable is left. */
+export function withoutFactText(line: string, fact: BriefFact): string {
+  if (!factStated(fact, line)) return line;
+  const words = fact.text.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `(?:\\s*[,;·–—-]\\s*|\\s+(?:and|in|at|on|for)\\s+)?${words}(?:\\s*[,;·–—-]\\s*)?`,
+    "i",
+  );
+  const cut = line
+    .replace(pattern, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,;·–—-]+|[\s,;·–—-]+$/g, "")
+    .trim();
+  return cut && !factStated(fact, cut) && /\p{L}{2}/u.test(cut) ? cut : "";
+}
+
+/** Frames that say a held point (heldPoints) the frame's own approved
+ *  point does not make. Blocking, like a removed point. */
+export function heldFaults(
+  frames: readonly FrameBeat[],
+  held: readonly { text: string; frames: readonly number[] }[],
+  claims: readonly string[],
+  free: ReadonlySet<string>,
+): CopyFault[] {
+  if (held.length === 0) return [];
+  return frames.flatMap((beat, frame) => {
+    const others = held
+      .filter((h) => !h.frames.includes(frame))
+      .map((h) => h.text);
+    const own = claims[frame] ?? "";
+    const said = linesOf(beat)
+      .map((line) => removedSaidBy(line, others, own, free))
+      .find((r): r is string => r !== null);
+    return said
+      ? [
+          {
+            frame,
+            field: "frame" as const,
+            detail: `it says what the owner left to another slide ("${said}"); say only this frame's own claim`,
+            weight: BLOCKING,
+          },
+        ]
+      : [];
+  });
+}
+
 /**
  * Whether the outline is not the one the planner sent: a point the owner
  * wrote, or a planned point missing (ids are planned in order, p1 to pN,
  * and the hook and action cannot be deleted, so a deletion leaves a gap).
  */
 export function outlineEdited(outline: ApprovedOutline): boolean {
+  /* An "Add a point" slide the planner left is not the owner's writing:
+     an outline that only has those comes back as planned. */
   return outline.points.some(
-    (p, i) => p.source === "user" || p.id !== `p${i + 1}`,
+    (p, i) =>
+      (p.source === "user" && p.point.trim() !== EMPTY_POINT) ||
+      p.id !== `p${i + 1}`,
   );
 }
 
@@ -184,6 +235,14 @@ export function correctsFact(text: string, fact: BriefFact): boolean {
       return CLOCK.test(text) && sharesFigure(text, fact);
     case "price": {
       if (!MONEY.test(text) || MONEY_OFF.test(text)) return false;
+      /* "Each laptop costs ₦200,000" prices one laptop, not the brief's
+         "₦6,000,000 for 30 laptops": a price for a counted lot is only
+         corrected by words that give the same count. */
+      const given = numbersIn(text);
+      const lot = [...numbersIn(fact.text)].filter(
+        (n) => !moneyAmounts(fact.text).has(n),
+      );
+      if (lot.some((n) => !given.has(n))) return false;
       const item = [...contentStems(fact.text)].filter((w) => !/\d/.test(w));
       const theirs = contentStems(text);
       const shared = item.filter((w) => theirs.has(w)).length;
@@ -232,7 +291,22 @@ export function releasedFacts(
        old figure ("₦16,500" on a body point while the action's point
        says "₦18,000"): the set would otherwise state both. */
     if (owners.some((o) => correctsFact(o.text, fact))) return [n];
-    if (stated.has(n)) return [];
+    if (stated.has(n) || approved.some((a) => givesWords(fact, a.text))) {
+      return [];
+    }
+    /* The planned outline places every hard fact on a point
+       (withEveryFactPlaced), so one no approved point states left with a
+       point the owner deleted or rewrote. Reading it off the pool instead
+       missed a point the outline wrote in other words than the pool's
+       ("Farmers pay ₦500 per crate per day."), and the fact was drawn
+       back onto the action. A price whose amount an approved point still
+       gives is that point's, in its words ("₦450,000 a month" for "5
+       desks"). */
+    if (fact.kind === "price" && givesAmount(fact, approved)) return [];
+    if (!LOGISTICS_KINDS.has(fact.kind)) return [n];
+    /* A when or where is often said in other words than the brief's
+       ("starts 10 January" for "From 10 January"): released only with
+       the point that carried it. */
     const carried = planned.filter((p) => p.facts.includes(n));
     const dropped = carried.some(
       (p) =>
@@ -243,26 +317,204 @@ export function releasedFacts(
   });
 }
 
-/** The released facts no frame may state. */
-export function unsayable(
-  facts: readonly BriefFact[],
-  released: readonly string[],
-  owned: readonly string[] = [],
-): BriefFact[] {
-  return facts.filter(
-    (f) =>
-      released.includes(f.text) &&
-      (!SAYABLE.has(f.kind) || owned.some((o) => o && correctsFact(o, f))),
+/* A fact a point gives in its own words, read loosely so a strict read
+   that misses it ("ready in 3 days" beside "₦3,000") never releases
+   what the owner kept: the fact's words as they are, or every figure and
+   content word of it. */
+function givesWords(fact: BriefFact, text: string): boolean {
+  if (flatWords(text).includes(flatWords(fact.text))) return true;
+  const figures = numbersIn(fact.text);
+  const given = numbersIn(text);
+  const words = contentStems(fact.text);
+  const theirs = contentStems(text);
+  return (
+    words.size > 0 &&
+    [...figures].every((f) => given.has(f)) &&
+    [...words].every((w) => theirs.has(w))
   );
 }
 
-const SAYABLE = new Set<BriefFact["kind"]>([
+const LOGISTICS_KINDS = new Set<BriefFact["kind"]>([
   "date",
   "day",
   "time",
   "place",
   "contact",
 ]);
+
+const givesAmount = (
+  price: BriefFact,
+  approved: readonly { text: string }[],
+) => {
+  const amounts = moneyAmounts(price.text);
+  return (
+    amounts.size > 0 &&
+    approved.some((a) => {
+      const given = moneyAmounts(a.text);
+      return [...amounts].every((n) => given.has(n));
+    })
+  );
+};
+
+const MONEY_AMOUNT =
+  /(?:[₦$£€]|\bNGN\s?|\bN(?=\d))\s?(\d[\d,]*(?:\.\d+)?\s?(?:k|m|million)?)\b/gi;
+
+function moneyAmounts(text: string): Set<string> {
+  const amounts = new Set<string>();
+  for (const m of text.matchAll(MONEY_AMOUNT)) {
+    for (const n of numbersIn(m[1])) amounts.add(n);
+  }
+  return amounts;
+}
+
+/**
+ * Fact homes with each price moved to the approved point that gives its
+ * amount, when the frame planned to carry it does not: in a deck the
+ * owner edited, "₦450,000 a month" is the hook's point, and the same
+ * price on the action's footer says again the point the owner rewrote.
+ * A carousel's price stays beside the action (misplacedPrices).
+ */
+export function pricesOnTheirPoints(
+  owners: readonly (readonly number[])[],
+  outline: ApprovedOutline | null,
+  facts: readonly BriefFact[],
+): number[][] {
+  const homes = owners.map((o) => [...o]);
+  if (outline?.kind !== "presentation" || !outlineEdited(outline)) {
+    return homes;
+  }
+  homes.forEach((owned, frame) => {
+    for (const n of [...owned]) {
+      const fact = facts[n];
+      if (fact?.kind !== "price") continue;
+      const own = outline.points[frame]?.point ?? "";
+      if (givesAmount(fact, [{ text: own }])) continue;
+      const home = outline.points.findIndex((p) =>
+        givesAmount(fact, [{ text: p.point }]),
+      );
+      if (home < 0 || home === frame || !homes[home]) continue;
+      homes[frame] = homes[frame].filter((m) => m !== n);
+      homes[home].push(n);
+    }
+  });
+  return homes;
+}
+
+/**
+ * Planned points an edited outline still makes, each with the frames
+ * whose approved point makes it. The owner who rewrote "Team plan
+ * ₦450,000 a month for 5 desks" into another point left its price to
+ * the hook that also gives it; the same words on the action's footer
+ * are the rewritten point said again, not the hook's.
+ */
+export function heldPoints(
+  outline: ApprovedOutline,
+  pool: readonly Pick<ArcPoint, "text" | "facts">[],
+  facts: readonly BriefFact[],
+  free: ReadonlySet<string> = new Set(),
+  briefText = "",
+): { text: string; frames: number[] }[] {
+  if (!outlineEdited(outline)) return [];
+  const approved = outline.points.map((p) => ({
+    text: p.point,
+    facts: factsIn(p.point, facts),
+  }));
+  /* The brief's own sentences too: the outline may have carried one in
+     the brief's words, not the pool's ("Gold partner package
+     ₦15,000,000." on the action's point). */
+  const sentences = (briefText ?? "")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim().replace(/[.!?]$/, ""))
+    .filter((s) => s.split(/\s+/).length >= 3)
+    .map((text) => ({ text, facts: factsIn(text, facts) }));
+  const seen = new Set<string>();
+  return [...pool, ...sentences].flatMap((candidate) => {
+    const key = flatWords(candidate.text);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    if (!candidate.text.trim()) return [];
+    const frames = approved.flatMap((a, i) =>
+      claimsOverlap(a, candidate, facts, free) ? [i] : [],
+    );
+    /* A point the approved words give as they are is that frame's own
+       claim, already held by every repeat check. */
+    const verbatim = approved.some(
+      (a) => flatWords(a.text) === flatWords(candidate.text),
+    );
+    return frames.length > 0 && !verbatim
+      ? [{ text: candidate.text, frames }]
+      : [];
+  });
+}
+
+const flatWords = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/** The brief's sentences that give a fact the owner took out, as removed
+ *  points: the outline may have carried the fact in the brief's words
+ *  rather than the pool's, so the sentence is what a frame would say. */
+export function releasedSentences(
+  briefText: string,
+  facts: readonly BriefFact[],
+  released: readonly string[],
+  outline: ApprovedOutline,
+  free: ReadonlySet<string> = new Set(),
+): string[] {
+  const gone = facts.filter(
+    (f) => released.includes(f.text) && !LOGISTICS_KINDS.has(f.kind),
+  );
+  if (gone.length === 0) return [];
+  return briefText
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(
+      (s) =>
+        s &&
+        gone.some((f) => factStated(f, s)) &&
+        !facts.some(
+          (f) =>
+            !released.includes(f.text) &&
+            f.kind !== "product" &&
+            factStated(f, s),
+        ) &&
+        !outline.points.some((p) => textsOverlap(s, p.point, free)),
+    );
+}
+
+/** The released facts a frame may not state. A claim the owner took out
+ *  never; a figure the owner corrected never. A where or when may still
+ *  be said (the hook dates its news, the action says where to go) unless
+ *  the frame's own point already gives one of its kind: the action whose
+ *  point says "Drop off at Plot 12 Aminu Kano Crescent" has its where,
+ *  and the "Wuse 2" of the deleted "studio in Wuse 2" says that point
+ *  again. */
+export function unsayable(
+  facts: readonly BriefFact[],
+  released: readonly string[],
+  owned: readonly string[] = [],
+  claim = "",
+): BriefFact[] {
+  const ownKinds = new Set(
+    facts
+      .filter(
+        (f) => !released.includes(f.text) && claim && factStated(f, claim),
+      )
+      .map((f) => logisticsGroup(f.kind)),
+  );
+  return facts.filter(
+    (f) =>
+      released.includes(f.text) &&
+      (!LOGISTICS_KINDS.has(f.kind) ||
+        owned.some((o) => o && correctsFact(o, f)) ||
+        ownKinds.has(logisticsGroup(f.kind))),
+  );
+}
+
+const logisticsGroup = (kind: BriefFact["kind"]) =>
+  kind === "day" || kind === "time" ? "date" : kind;
 
 /** Frames that state a fact the owner took out (releasedFacts). Blocking:
  *  the brief still holds it, so the copy model may write it anyway. */
@@ -271,13 +523,11 @@ export function releasedFaults(
   facts: readonly BriefFact[],
   released: readonly string[],
   owned: readonly string[] = [],
+  claims: readonly string[] = [],
 ): CopyFault[] {
   if (released.length === 0) return [];
-  /* A when or where the owner dropped with a point may still be said: the
-     hook dates its news and the action says where. A figure the owner
-     corrected, and any claim they dropped, may not. */
-  const gone = unsayable(facts, released, owned);
   return frames.flatMap((beat, frame) => {
+    const gone = unsayable(facts, released, owned, claims[frame] ?? "");
     const said = gone.find((fact) =>
       linesOf(beat).some((line) => factStated(fact, line)),
     );

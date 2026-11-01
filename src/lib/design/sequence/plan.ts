@@ -14,14 +14,23 @@ import {
   ART_DIRECTOR_IMAGE_MAX_BYTES,
   brandFacts,
 } from "@/lib/jobs/directions/brief";
+import type { BriefFact } from "@/lib/jobs/directions/brief-facts";
 import {
   type BriefReader,
   readBriefWithModel,
 } from "@/lib/jobs/directions/brief-read";
-import { type ArcFrame, pointPool, settleArc, sparePoints } from "./arc";
+import {
+  type ArcFrame,
+  type ArcPoint,
+  claimsOverlap,
+  pointPool,
+  settleArc,
+  sparePoints,
+} from "./arc";
 import { auditFlags } from "./audit";
 import { withConsistentCasing } from "./casing";
 import {
+  type ApprovedOutline,
   type FrameBeat,
   type PlannedSequence,
   type PlanSequenceInput,
@@ -34,25 +43,34 @@ import {
   type CopyFault,
   type FaultRules,
   type Flag,
+  removalFree,
   setFaults,
 } from "./faults";
 import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
 import { shipGate, unsourcedOnSet } from "./gate";
-import { type AlternateCopy, lastResort } from "./last-resort";
+import { type AlternateCopy, lastResort, sourceTextOf } from "./last-resort";
+import { lastStand } from "./last-stand";
 import { withFigureLayout } from "./layouts";
 import { sequenceLedger } from "./ledger";
 import {
+  factsIn,
   fixedArcAnswer,
   outlinePool,
   ownedClaims,
   ownerStatements,
 } from "./outline-arc";
+import { stopsMidPhrase } from "./phrase";
 import { type Draft, settlePick } from "./pick";
+import { settlePlaceholders } from "./placeholders";
 import { profileStatements } from "./points";
 import { failure, frameCountError, readSequenceBrief } from "./read";
 import {
+  heldPoints,
+  outlineEdited,
+  pricesOnTheirPoints,
   profileWithout,
   releasedFacts,
+  releasedSentences,
   removedFromBrief,
   removedPoints,
   removedSaidBy,
@@ -73,7 +91,6 @@ import { settledTitle, type TitleRules, withSettledTitles } from "./title";
 import { validateSequence } from "./validate";
 
 const ARC_MAX_OUTPUT_TOKENS = 3000;
-const SAYABLE_KINDS = new Set(["date", "day", "time", "place", "contact"]);
 /** N frames of copy, the button and the other openings. */
 const COPY_MAX_OUTPUT_TOKENS = 8000;
 const AUDIT_MAX_OUTPUT_TOKENS = 2000;
@@ -155,8 +172,12 @@ export interface PlannedSequenceResult extends PlanSequenceResult {
    *  only ever non-empty with onBlocked "report". */
   refused: FrameRepeat[];
   /** "frame k: how code rewrote it" for every frame the last resort
-   *  rewrote from its own point. */
+   *  rewrote from its own point, or the last stand swapped or dropped. */
   lastResort: string[];
+  /** Zero-based indexes, in the set as planned, of the frames the last
+   *  stand took off rather than ship a blocking fault (lastStand). The
+   *  set has that many fewer frames, and bills only what it delivers. */
+  framesDropped: number[];
 }
 
 type BrandFrame = Pick<
@@ -290,6 +311,35 @@ export async function planSequence(
    MAX_MODEL_CALLS); the brief is read once. */
 export const SHIP_ATTEMPTS = 3;
 
+/** The sourced points a last stand may give a frame: the pool's spares;
+ *  with an approved outline, the planner's own unused pool points only
+ *  while the owner left it untouched, since every unused point of an
+ *  edited outline is one the owner took out (removedPoints). */
+function standSpares(
+  outline: ApprovedOutline | null,
+  planned: readonly ArcPoint[],
+  pool: readonly ArcPoint[],
+  spares: readonly number[],
+  arc: { frames: readonly ArcFrame[] },
+  facts: readonly BriefFact[],
+  free: ReadonlySet<string>,
+): string[] {
+  if (!outline) return spares.map((i) => pool[i].text);
+  if (outlineEdited(outline)) return [];
+  const claims = arc.frames.map((f) => ({
+    text: f.claim,
+    facts: factsIn(f.claim, facts),
+  }));
+  return planned
+    .filter(
+      (p) =>
+        p.text.trim() &&
+        !stopsMidPhrase(p.text) &&
+        !claims.some((c) => claimsOverlap(c, p, facts, free)),
+    )
+    .map((p) => p.text);
+}
+
 /* The brief reads the same every attempt: read it once. */
 function onceRead(reader: BriefReader): BriefReader {
   let cached: ReturnType<BriefReader> | null = null;
@@ -304,13 +354,13 @@ async function planSequenceOnce(
   briefReader: BriefReader,
   onLastResort?: PlanSequenceDeps["onLastResort"],
 ): Promise<PlannedSequenceResult> {
-  const { context, kind, frameCount, imageSource, image } = input;
-  const countError = frameCountError("planSequence", kind, frameCount);
+  const { context, kind, imageSource, image } = input;
+  const countError = frameCountError("planSequence", kind, input.frameCount);
   if (countError) throw new RangeError(countError);
-  const outline = input.approvedOutline ?? null;
-  if (outline && outline.points.length !== frameCount) {
+  const approvedOutline = input.approvedOutline ?? null;
+  if (approvedOutline && approvedOutline.points.length !== input.frameCount) {
     throw new RangeError(
-      `planSequence: the approved outline has ${outline.points.length} points for ${frameCount} frames`,
+      `planSequence: the approved outline has ${approvedOutline.points.length} points for ${input.frameCount} frames`,
     );
   }
   const started = Date.now();
@@ -330,23 +380,36 @@ async function planSequenceOnce(
     free,
     atAction,
   } = brief;
-  const stated = ownerStatements(outline);
   const planned = pointPool({
     facts,
     briefText,
     brand: context.brandSummary,
     kind,
     free,
-    slots: frameCount - 1,
+    slots: input.frameCount - 1,
     atAction,
   });
+  const placeholders = approvedOutline
+    ? settlePlaceholders(approvedOutline, planned, facts, free)
+    : null;
+  const outline = placeholders?.outline ?? null;
+  const frameCount = outline ? outline.points.length : input.frameCount;
+  const stated = ownerStatements(outline);
   const pool = outline ? outlinePool(outline, facts) : planned;
   const removedPool = outline
     ? removedPoints(outline, planned, facts, free)
     : [];
-  const removed = removedPool.map((p) => p.text);
   const released = outline
     ? releasedFacts(outline, planned, facts, free).map((n) => facts[n].text)
+    : [];
+  const removed = [
+    ...removedPool.map((p) => p.text),
+    ...(outline
+      ? releasedSentences(briefText, facts, released, outline, free)
+      : []),
+  ];
+  const held = outline
+    ? heldPoints(outline, planned, facts, free, briefText)
     : [];
   /* Every prompt reads the profile without what the owner took out; the
      ledger still reads all of it, so a removed point is cut for being
@@ -490,7 +553,14 @@ async function planSequenceOnce(
     fixed: outline !== null,
     actionClaim: outline?.points.at(-1)?.point ?? "",
   });
-  const owners = arc.frames.map((f) => f.facts);
+  const owners = pricesOnTheirPoints(
+    arc.frames.map((f) => f.facts),
+    outline,
+    facts,
+  );
+  arc.frames.forEach((f, i) => {
+    f.facts = owners[i];
+  });
   const owned = ownedClaims(outline);
   const claimed: ClaimedFrame[] = arc.frames.map((f, i) => ({
     role: f.role,
@@ -562,7 +632,9 @@ async function planSequenceOnce(
     owned,
     removed,
     released,
+    held,
     briefText,
+    goal: context.brandSummary.primaryGoal?.trim() ?? "",
   };
   const arcTitles = arc.frames.map((f) => [f.title]);
   const tidy = (frames: readonly FrameBeat[]) =>
@@ -736,20 +808,22 @@ async function planSequenceOnce(
       withSettledTitles(frames, titleRules, arcTitles),
       casingSources,
     );
-  const drawFacts = () =>
+  const drawFacts = (on: PlannedSequence = plan) =>
     withFactsDrawn(
-      plan,
+      on,
       facts,
       owners,
       released,
-      /* A when or where is every frame's to give, so it is drawn even
-         beside words a removed point shared: "our Yaba bar" is the
-         action's, whatever the owner did with "Specialty coffee bar in
-         Yaba". */
-      (line, frame, fact) =>
-        !SAYABLE_KINDS.has(fact.kind) &&
-        removedSaidBy(line, removed, arc.frames[frame]?.claim ?? "", free) !==
-          null,
+      /* A when or where still required is every frame's to give, so its
+         words are free: "our Yaba bar" is the action's, whatever the
+         owner did with "Specialty coffee bar in Yaba". */
+      (line, frame) =>
+        removedSaidBy(
+          line,
+          removed,
+          arc.frames[frame]?.claim ?? "",
+          removalFree(free, facts),
+        ) !== null,
     );
   /* The other draft's frames and the openings both writers offered were
      written to the same claims: copy to try before code's plainest. */
@@ -795,6 +869,7 @@ async function planSequenceOnce(
       arc.frames.map((f) => f.claim),
       (frames) => settle(frames).frames.map(withFigureLayout),
       alternates,
+      (cut) => drawFacts(cut).plan,
     );
     plan = result.plan;
     return { drawn, settled, result };
@@ -820,15 +895,70 @@ async function planSequenceOnce(
     };
   }
   const { drawn: filled, settled: cased, result: resorted } = finished;
-  const refused = resorted.blocking.map((f) => ({
+  /* What the model and code's rewrites both left is cleared by changing
+     what a frame says: a sourced point no frame makes in its place, or the
+     frame off the set (rubric Addendum C, C1). */
+  const stand =
+    resorted.blocking.length > 0
+      ? lastStand({
+          plan,
+          rules,
+          claims: arc.frames.map((f) => f.claim),
+          spares: standSpares(outline, planned, pool, spares, arc, facts, free),
+          sourceText: sourceTextOf(rules),
+          tidy: (frames, kept) =>
+            withConsistentCasing(
+              withSettledTitles(
+                frames,
+                titleRules,
+                kept.map((i) => arcTitles[i] ?? []),
+              ),
+              casingSources,
+            ).frames.map(withFigureLayout),
+          draw: (next, nextRules) =>
+            withFactsDrawn(
+              next,
+              facts,
+              (nextRules.owners ?? []).map((o) => [...o]),
+              released,
+              (line, frame) =>
+                removedSaidBy(
+                  line,
+                  removed,
+                  nextRules.claims?.[frame] ?? "",
+                  removalFree(free, facts),
+                ) !== null,
+            ).plan,
+        })
+      : null;
+  if (stand) {
+    plan = stand.plan;
+    unsourced = unsourced.flatMap((u) => {
+      const at = stand.kept.indexOf(u.frame);
+      return at < 0 ? [] : [{ ...u, frame: at }];
+    });
+  }
+  const blockingLeft = stand ? stand.blocking : resorted.blocking;
+  const refused = blockingLeft.map((f) => ({
     frame: f.frame,
     detail: f.detail,
   }));
-  const breached = resorted.breaches.length;
+  const breached = blockingLeft.filter((f) => f.breach).length;
+  /* By the set as approved: a placeholder dropped before planning, then a
+     frame the last stand took off, read through what was left. */
+  const origin =
+    placeholders?.origin ?? Array.from({ length: frameCount }, (_, i) => i);
+  const framesDropped = [
+    ...(placeholders?.dropped ?? []),
+    ...(stand?.dropped ?? []).map((i) => origin[i] ?? i),
+  ].sort((a, b) => a - b);
 
-  const problems = validateSequence(plan, rules);
+  /* After a drop the per-frame rules are the stand's; the planner's own
+     are left as they were, so what the eval kept of them still reads. */
+  const shipped = stand?.rules ?? rules;
+  const problems = validateSequence(plan, shipped);
   const invented = unsourcedOnSet(plan.frames, { ledger, unsourced });
-  const faults = setFaults(plan, rules);
+  const faults = setFaults(plan, shipped);
   console.info("design.sequence.planned", {
     kind,
     frames: frameCount,
@@ -856,6 +986,9 @@ async function planSequenceOnce(
     factsDrawn: filled.drawn,
     factsReleased: released,
     lastResort: resorted.applied,
+    lastStand: stand?.applied ?? [],
+    placeholders: placeholders?.applied ?? [],
+    framesDropped,
     refused: refused.length,
     breaches: breached,
     faults: faults.map((f) => `frame ${f.frame + 1} ${f.field}: ${f.detail}`),
@@ -874,7 +1007,8 @@ async function planSequenceOnce(
     factsDrawn: filled.drawn,
     factsReleased: released,
     refused,
-    lastResort: resorted.applied,
+    lastResort: [...resorted.applied, ...(stand?.applied ?? [])],
+    framesDropped,
     modelCalls,
     repaired: copyKey(plan.frames) !== copyKey(draft.frames),
   };

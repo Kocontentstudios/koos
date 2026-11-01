@@ -20,7 +20,7 @@ import {
   pricesWithoutScope,
   statesPrice,
 } from "./points";
-import { releasedFaults, removedFaults } from "./removed";
+import { heldFaults, linesOf, releasedFaults, removedFaults } from "./removed";
 import { sequenceRepeats } from "./repeats";
 import { titleProblems } from "./title";
 import { frameCopy, isWordBudgetProblem, validateSequence } from "./validate";
@@ -90,9 +90,15 @@ export interface FaultRules {
   /** Brief facts the owner took out of the approved outline
    *  (releasedFacts): no frame need state one, and none may. */
   released?: readonly string[];
+  /** Planned points an edited outline makes only on some frames
+   *  (heldPoints): no other frame may say one. */
+  held?: readonly { text: string; frames: readonly number[] }[];
   /** The brief, whose own sentences the ship gate may set under a bare
    *  headline: words no reader can call invented. */
   briefText?: string;
+  /** The brand profile's primaryGoal: what the business wants, written
+   *  to the owner, never a line for the reader (ownerGoals). */
+  goal?: string;
 }
 
 /** One finding of the audit call, held to the copy it was made on. */
@@ -271,6 +277,15 @@ export function subheadlineGrammar(subheadline: string): string | null {
   }
   if (isFragment(text)) {
     return `the subheadline "${text}" is a fragment; write it as a whole sentence, or leave it empty`;
+  }
+  /* "In the printed programme." under "Partner logos appear on all
+     festival signage": the tail of the headline's sentence, cut off and
+     set on a line of its own. */
+  if (
+    SIGNPOST_OPENERS.test(text) &&
+    text.split(/\s+/).filter(Boolean).length <= SIGNPOST_WORDS
+  ) {
+    return `the subheadline "${text}" is the tail of a sentence, not one of its own; write it as a whole sentence, or leave it empty`;
   }
   return null;
 }
@@ -628,6 +643,15 @@ export function setFaults(
           },
     ),
     ...bareFrames(frames),
+    /* Where, when and who to call are every line's to give: "Lekki Phase
+       1" in a goal of "Repeat customers in Lekki Phase 1" is the address.
+       The offering's name is not free here: "More tune-up bookings" is
+       the goal whatever the offering is called. */
+    ...ownerGoals(
+      frames,
+      rules.goal ?? "",
+      removalFree(namesFree(brandName, null), facts),
+    ),
     ...bareNameSubheadlines(frames, free),
     ...restatedSubheadlines(frames),
     ...[
@@ -638,17 +662,31 @@ export function setFaults(
         rules.claims ?? [],
         removalFree(free, facts),
       ),
+      ...heldFaults(
+        frames,
+        rules.held ?? [],
+        rules.claims ?? [],
+        removalFree(free, facts),
+      ),
       ...releasedFaults(
         frames,
         rules.facts,
         rules.released ?? [],
         rules.owned ?? [],
+        rules.claims ?? [],
       ),
     ].map((f) => ({ ...f, breach: true as const })),
     ...sequenceRepeats(frames, facts, offering, brandName).map(minor),
-    ...pricesWithoutScope(frames, facts, rules.briefText ?? "", free).map(
-      minor,
-    ),
+    /* The offering's own name is the scope a price is for ("tune-ups"),
+       so only the brand's name is free here: "Get your bike seen for
+       ₦12,000" prices a look, not the brief's tune-up. The last resort
+       clears it where it can; what ships is reported (unsourcedOnSet). */
+    ...pricesWithoutScope(
+      frames,
+      facts,
+      rules.briefText ?? "",
+      namesFree(brandName, null),
+    ).map(minor),
     ...factOnlyFrames(frames, facts).map(minor),
     /* A price dropped mid-story has no job there and reads as the close
        come early; only the owner's own point may carry one. */
@@ -693,8 +731,8 @@ export function logisticsFree(
    A price, a product or a claim is not: the owner who took out "Gold
    package ₦15,000,000 with naming on the main stage" took its words out.
    A where or when stays free even when it left with its point: the action
-   still says where to go (releasedFaults holds the same rule). The frame's
-   own point still covers any words it shares. */
+   still says where to go (releasedFaults reads where it may not). The
+   frame's own point still covers any words it shares. */
 export function removalFree(
   free: ReadonlySet<string>,
   facts: readonly BriefFact[],
@@ -750,6 +788,39 @@ export function bareNameSubheadlines(
         weight: MAJOR,
       },
     ];
+  });
+}
+
+/* Share of a line's own words the goal gives past which the line only
+   says the goal: "Fill weekday appointments." of "Fill weekday
+   appointments", never "Weekday appointments get a free scalp massage". */
+const GOAL_SHARE = 0.75;
+
+/** Frames with a line that only says the brand's goal ("Fill weekday
+ *  appointments"): the owner's aim read to the reader as copy. */
+export function ownerGoals(
+  frames: readonly FrameBeat[],
+  goal: string,
+  free: ReadonlySet<string>,
+): CopyFault[] {
+  const wants = contentStems(goal, free);
+  if (wants.size < 2) return [];
+  return frames.flatMap((beat, frame) => {
+    const said = linesOf(beat).find((line) => {
+      const words = contentStems(line, free);
+      const shared = [...words].filter((w) => wants.has(w)).length;
+      return shared >= 2 && shared / words.size >= GOAL_SHARE;
+    });
+    return said
+      ? [
+          {
+            frame,
+            field: "frame" as const,
+            detail: `"${said}" is the brand's own goal, written to the owner; say what the reader gets instead`,
+            weight: MAJOR,
+          },
+        ]
+      : [];
   });
 }
 

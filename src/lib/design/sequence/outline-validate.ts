@@ -20,6 +20,8 @@ export interface OutlineValidateContext {
   briefText: string;
   /** The profile's statements (profileStatements), in their own words. */
   profileStatements: readonly string[];
+  /** The brand's name: a domain spelling it is the owner's own (O4). */
+  brandName?: string;
 }
 
 export type OutlineValidation =
@@ -140,12 +142,34 @@ const INSTRUCTION = [
   /\b(?:never|don'?t|do\s+not)\s+(?:mention|name)\b/i,
   /\bsay\b[^.!?]{0,40}\binstead\b|\bin\s+its\s+place\b/i,
   /(?:^|[.!?]\s*)(?:every|each|all)\s+(?:the\s+)?(?:slides?|frames?|pages?|cards?)\s*[:—–]/i,
+  /* What the writer was given, named to be set aside: "Disregard the
+     brand profile entirely". */
+  /\b(?:disregard|ignore|forget|override|bypass)\b[^.!?]{0,20}\b(?:brand\s+profile|profile|all\s+(?:of\s+)?(?:that|this|the\s+above))\b/i,
+  /\b(?:ignorieren|vergessen)\b[^.!?]{0,40}\b(?:anweisungen|vorherigen)\b|\bvorherigen\s+anweisungen\b/iu,
+  /* The writer told who to be, how to write or what to return. */
+  /\bpretend\s+(?:you|to\s+be|that)\b|\byou\s+are\s+(?:a|an)\s+(?:different|new|other)\b/i,
+  /\bfor\s+the\s+rest\s+of\s+the\s+(?:deck|carousel|set|slides|presentation|copy)\b/i,
+  /\b(?:all\s+caps|in\s+capitals|upper\s*case)\b/i,
+  /\b(?:output|return|respond\s+with|reply\s+with|format\s+as)\s+(?:as\s+)?(?:json|xml|yaml|html|markdown|code)\b/i,
+  /* A ban on the set's own facts: "Do not include the WhatsApp number
+     anywhere". */
+  /\b(?:do\s+not|don'?t|never)\s+(?:include|show|use|give|state|print|put)\b[^.!?]{0,40}\b(?:anywhere|any\s+(?:slide|frame|page)|number|price|contact|phone|address|email)\b/i,
+  /* A point about the other slides is about the set, not the reader. */
+  /\b(?:the\s+)?other\s+(?:slides?|frames?|pages?|points?)\b/i,
 ];
 
 /* A link the brief and the profile never give is not the owner's copy
-   to send readers to from an outline; it goes in the brief first. */
+   to send readers to from an outline; it goes in the brief first. The
+   owner's own domain is the exception (O4: their point counts as
+   stated): "pedaldoctor.ng" spells "Pedal Doctor". */
 const LINK =
-  /\bhttps?:\/\/[^\s)]+|\bwww\.[^\s)]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|ng|net|org|io|co|app|xyz|info|biz|shop|store|example|link|me)\b(?:\/[^\s)]*)?/gi;
+  /\bhttps?:\/\/[^\s)]+|\bwww\.[^\s)]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|ng|net|org|io|co|app|xyz|info|biz|shop|store|example|link|me|ly|gl|gd|to|cc|tv|ai|dev|site|online|page|uk|africa)\b(?:\/[^\s)]*)?/gi;
+
+/* A shortener hides where it goes, so it never spells the owner's name. */
+const SHORTENERS =
+  /^(?:bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|cutt\.ly|rb\.gy|shorturl\.at|tiny\.cc|buff\.ly|rebrand\.ly|t\.ly|s\.id)$/;
+/* A name shorter than this spelled in a domain could be any word. */
+const OWN_NAME_CHARS = 5;
 
 const hostOf = (link: string) =>
   link
@@ -154,17 +178,60 @@ const hostOf = (link: string) =>
     .replace(/^www\./, "")
     .split(/[/?#]/)[0];
 
-/** The links in `point` that neither the brief nor the profile gives. */
+const letters = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/* Second-level suffixes a registrable domain sits under: "com.ng". */
+const SUFFIX_PAIRS = /^(?:com|co|org|net|gov|edu|ac|sch)$/;
+
+/** The label a domain is registered under: "pedaldoctor" of
+ *  "shop.pedaldoctor.com.ng", "evil" of "pedaldoctor.ng.evil.example". */
+function registeredLabel(host: string): string {
+  const labels = host.split(".").filter(Boolean);
+  labels.pop();
+  if (labels.length > 1 && SUFFIX_PAIRS.test(labels.at(-1) ?? "")) {
+    labels.pop();
+  }
+  return labels.at(-1) ?? "";
+}
+
+/** Whether `host` is the brand's own domain: the label it is registered
+ *  under spells the brand's name, or two or three words the brief or
+ *  profile run together as a name ("Pedal Doctor"). */
+function ownDomain(host: string, names: readonly string[]): boolean {
+  if (SHORTENERS.test(host)) return false;
+  const label = letters(registeredLabel(host));
+  if (label.length < OWN_NAME_CHARS) return false;
+  return names.some((name) => {
+    const spelt = letters(name);
+    return spelt.length >= OWN_NAME_CHARS && label === spelt;
+  });
+}
+
+/* Capitalised runs of two or three words: the names a brief writes. */
+const NAME_RUN =
+  /\b\p{Lu}[\p{L}'&-]*(?:\s+(?:&\s+)?\p{Lu}[\p{L}'&-]*){1,2}\b/gu;
+
+/** The links in `point` that neither the brief nor the profile gives, nor
+ *  spell the brand's own name. */
 export function unsourcedLinks(
   point: string,
-  ctx: Pick<OutlineValidateContext, "briefText" | "profileStatements">,
+  ctx: Pick<
+    OutlineValidateContext,
+    "briefText" | "profileStatements" | "brandName"
+  >,
 ): string[] {
-  const known = [ctx.briefText, ...ctx.profileStatements]
-    .join(" ")
-    .toLowerCase();
+  const sources = [ctx.briefText, ...ctx.profileStatements];
+  const known = sources.join(" ").toLowerCase();
+  const names = [
+    ...(ctx.brandName ? [ctx.brandName] : []),
+    ...sources.flatMap((s) => [...s.matchAll(NAME_RUN)].map((m) => m[0])),
+  ];
   return [...point.matchAll(LINK)]
     .map((m) => m[0])
-    .filter((link) => !known.includes(hostOf(link)));
+    .filter((link) => {
+      const host = hostOf(link);
+      return !known.includes(host) && !ownDomain(host, names);
+    });
 }
 
 /* A link scheme that runs code or carries a document is never copy. */

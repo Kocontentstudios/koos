@@ -16,8 +16,8 @@ import {
   flaggedFaults,
   headlineGrammar,
   headlinePrices,
-  logisticsFree,
   pointRepeats,
+  removalFree,
   restatesHeadline,
   setFaults,
   stillSays,
@@ -27,7 +27,7 @@ import { echoesHeadline, hookFaults, namesFree, previewedFrames } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
 import { textStatesPrice } from "./points";
-import { removedSaidBy, unsayable } from "./removed";
+import { removedSaidBy, unsayable, withoutFactText } from "./removed";
 import { withoutFactWords } from "./repeats";
 import { factsUncovered, validateSequence } from "./validate";
 
@@ -673,25 +673,48 @@ class Gate {
    *  sentences cut, else the line set to the frame's own claim. */
   withoutRemoved() {
     const removed = this.rules.removed ?? [];
-    const released = unsayable(
-      this.rules.facts,
-      this.rules.released ?? [],
-      this.rules.owned ?? [],
-    );
-    if (removed.length === 0 && released.length === 0) return;
-    /* Where and when are every frame's to give: a removed point that
-       named the venue does not take the venue off the action frame. */
-    const sayable = logisticsFree(this.free, this.rules.facts);
+    const releasedOn = (frame: number) =>
+      unsayable(
+        this.rules.facts,
+        this.rules.released ?? [],
+        this.rules.owned ?? [],
+        this.claims[frame] ?? "",
+      );
+    const held = this.rules.held ?? [];
+    if (
+      removed.length === 0 &&
+      (this.rules.released ?? []).length === 0 &&
+      held.length === 0
+    ) {
+      return;
+    }
+    /* Where and when still required are every frame's to give: a removed
+       point that named the venue does not take the venue off the action
+       frame. */
+    const sayable = removalFree(this.free, this.rules.facts);
     this.frames.forEach((beat, frame) => {
       const own = this.claims[frame] ?? "";
+      const released = releasedOn(frame);
+      const notHere = [
+        ...removed,
+        ...held.filter((h) => !h.frames.includes(frame)).map((h) => h.text),
+      ];
       const said = (line: string) =>
-        removedSaidBy(line, removed, own, sayable) !== null ||
+        removedSaidBy(line, notHere, own, sayable) !== null ||
         released.some((fact) => factStated(fact, line));
+      /* "Plot 12 Aminu Kano Crescent, Wuse 2" with "Wuse 2" taken out
+         still gives the address the action owes the reader. */
+      const trimmed = (item: string) =>
+        released.reduce(
+          (text, fact) => (text ? withoutFactText(text, fact) : text),
+          item,
+        );
       const footerLines = beat.footerLines
         .map((line) =>
           line
             .split(FOOTER_ITEM)
-            .filter((item) => !said(item))
+            .map((item) => (said(item) ? trimmed(item) : item))
+            .filter((item) => item && !said(item))
             .join(" · "),
         )
         .filter((line) => line.trim());

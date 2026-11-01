@@ -71,6 +71,34 @@ describe("inventedWordCuts", () => {
     ]);
   });
 
+  it("takes an invented phrase out whole, and word by word", () => {
+    const invented = (phrase: string) => ({
+      frame: 6,
+      field: "frame" as const,
+      detail: `it states "${phrase}", which neither the brief nor the brand profile gives; leave it out`,
+      weight: 3,
+    });
+    const cuts = inventedWordCuts(
+      beatOf({
+        headline: "One flat price for every bag",
+        subheadline: "Farmers now have a place to store their crop.",
+      }),
+      [invented("one flat"), invented("flat price"), invented("now have")],
+    ).map((c) => c.change);
+    expect(cuts).toContainEqual({
+      headline: "Price for every bag",
+      subheadline: "Farmers now have a place to store their crop.",
+    });
+    expect(cuts).toContainEqual({
+      headline: "One price for every bag",
+      subheadline: "Farmers now have a place to store their crop.",
+    });
+    expect(cuts).toContainEqual({
+      headline: "One flat price for every bag",
+      subheadline: "Farmers have a place to store their crop.",
+    });
+  });
+
   it("never cuts a figure word by word", () => {
     const cuts = inventedWordCuts(
       beatOf({ subheadline: "Back clean two days later." }),

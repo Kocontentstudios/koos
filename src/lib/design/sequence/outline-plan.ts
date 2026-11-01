@@ -496,8 +496,18 @@ export function withOverlapsSwapped(
         factStated(f, points[i].text) &&
         !points.some((p, k) => k !== i && factStated(f, p.text)),
     );
+  const sentence = (text: string) => text.trim().replace(/[.!?]?$/, ".");
   for (let i = 1; i < points.length - 1; i += 1) {
-    if (flags(points)[i].weak?.kind !== "overlap" || onlyHere(i)) continue;
+    if (flags(points)[i].weak?.kind !== "overlap") continue;
+    if (onlyHere(i)) {
+      /* Two points with one claim are never sent (C5): the fact only this
+         point states joins the action's point, which carries what the
+         reader needs to act, and the slide takes another point. */
+      const action = points.length - 1;
+      const joined = `${sentence(points[action].text)} ${sentence(points[i].text)}`;
+      if (joined.length > OUTLINE_LIMITS.pointChars) continue;
+      points[action] = { ...points[action], text: joined };
+    }
     const pick = left.findIndex((spare) => {
       const next = points.map((p, k) =>
         k === i

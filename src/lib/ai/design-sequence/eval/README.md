@@ -117,6 +117,14 @@ change to `last-resort.ts` can be replayed on exactly the sets that
 needed it, with no model call:
 `npx tsx src/lib/ai/design-sequence/eval/replay.mts <report>.snapshots.jsonl [--show] [--frames]`.
 
+A frame the planner dropped rather than ship a blocking fault, or an
+untouched "Add a point" slide it dropped before planning (rubric
+Addendum C, C1 and C5), is reported, not hidden: each run records
+`framesDropped`, the summary prints "frames dropped by the last stand",
+the count check and the panel's zero-blocking gate hold the set to the
+count it says it delivered, and the leak checks read each delivered
+frame against its own approved point.
+
 ## Fixtures
 
 Two sets, scored and reported separately against the same frozen

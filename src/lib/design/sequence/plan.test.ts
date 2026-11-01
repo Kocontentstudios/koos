@@ -20,6 +20,22 @@ vi.mock("./last-resort", async (importOriginal) => {
   };
 });
 
+/* The last stand, likewise: the planner refuses only what it leaves. */
+const lastStandLeaves = vi.fn((): unknown[] | null => null);
+vi.mock("./last-stand", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./last-stand")>();
+  return {
+    ...real,
+    lastStand: (...args: Parameters<typeof real.lastStand>) => {
+      const result = real.lastStand(...args);
+      const left = lastStandLeaves();
+      return left
+        ? { ...result, blocking: [...result.blocking, ...left] }
+        : result;
+    },
+  };
+});
+
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { auditFlags } from "./audit";
 import type { PlannedSequence } from "./contract";
@@ -656,6 +672,7 @@ describe("planSequence: faults are fixed, not shipped", () => {
       weight: 3,
     };
     lastResortLeaves.mockReturnValue([bare]);
+    lastStandLeaves.mockReturnValue([bare]);
     try {
       const reported = await runWith(COPY, "report");
       expect(reported.refused).toContainEqual({
@@ -669,6 +686,7 @@ describe("planSequence: faults are fixed, not shipped", () => {
       );
     } finally {
       lastResortLeaves.mockReturnValue(null);
+      lastStandLeaves.mockReturnValue(null);
     }
   });
 
@@ -682,6 +700,7 @@ describe("planSequence: faults are fixed, not shipped", () => {
     /* finish() runs the last resort twice per attempt: before and after
        the last fix call. The first attempt is left with a fault. */
     lastResortLeaves.mockReturnValueOnce([bare]).mockReturnValueOnce([bare]);
+    lastStandLeaves.mockReturnValueOnce([bare]);
     reader.mockClear();
     const result = await runWith(COPY);
     expect(result.refused).toEqual([]);

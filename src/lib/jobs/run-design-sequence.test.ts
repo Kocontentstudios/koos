@@ -594,6 +594,25 @@ describe("a set of frames", () => {
     expect(db.rows.size).toBe(0);
   });
 
+  it("delivers and bills the frames left when the planner dropped one, and reports it", async () => {
+    planSequence.mockResolvedValue(planned(planOf(3), { framesDropped: [2] }));
+    const outcome = await run(4);
+    const rows = frameRows();
+    expect(rows.map((r) => r.frameIndex)).toEqual([0, 1, 2]);
+    expect(rows.every((r) => r.frameCount === 3)).toBe(true);
+    expect(db.usage).toHaveLength(3);
+    expect(outcome.result).toMatchObject({
+      frameCount: 3,
+      framesDropped: [2],
+    });
+  });
+
+  it("still fails a short plan that reports no drop", async () => {
+    planSequence.mockResolvedValue(planned(planOf(3), { framesDropped: [] }));
+    await expect(run(4)).rejects.toBeInstanceOf(SequencePlanError);
+    expect(db.rows.size).toBe(0);
+  });
+
   it("draws the client's photo only on frames that show the image", async () => {
     await run(4, { source: "upload", key: UPLOAD_KEY });
     const imageKeys = frameRows().map((r) =>

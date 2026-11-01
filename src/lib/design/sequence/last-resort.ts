@@ -1,3 +1,4 @@
+import type { BriefFact } from "@/lib/jobs/directions/brief-facts";
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { textsOverlap } from "./arc";
 import { upperFirst } from "./casing";
@@ -14,6 +15,7 @@ import {
 } from "./faults";
 import { asSentence, claimHalves, fitsHeadline, fitsSubheadline } from "./gate";
 import { namesFree } from "./hook";
+import { unsayable, withoutFactText } from "./removed";
 
 /**
  * The last step before a set ships: every frame still carrying a fault
@@ -201,11 +203,22 @@ const FOOTER_ITEM = /\s+·\s+/;
 
 /** Each version of a frame with one line a reader sees taken away: a
  *  footer item, or one sentence of the subheadline. */
-export function lineCuts(beat: FrameBeat): Partial<FrameBeat>[] {
+export function lineCuts(
+  beat: FrameBeat,
+  released: readonly BriefFact[] = [],
+): Partial<FrameBeat>[] {
   const cuts: Partial<FrameBeat>[] = [];
   beat.footerLines.forEach((line, n) => {
     const items = line.split(FOOTER_ITEM);
-    items.forEach((_, k) => {
+    items.forEach((item, k) => {
+      for (const fact of released) {
+        const trimmed = withoutFactText(item, fact);
+        if (!trimmed || trimmed === item) continue;
+        const kept = items.map((it, j) => (j === k ? trimmed : it)).join(" · ");
+        cuts.push({
+          footerLines: beat.footerLines.map((l, j) => (j === n ? kept : l)),
+        });
+      }
       const kept = items.filter((__, j) => j !== k).join(" · ");
       const footerLines = beat.footerLines.flatMap((l, j) =>
         j === n ? (kept ? [kept] : []) : [l],
@@ -302,46 +315,80 @@ export function clauseCuts(versions: readonly Version[]): Version[] {
   return out;
 }
 
-/* A word no source gives, said where a reader can do without it: "only",
-   "free", "fresh". Taken out, the line still says its point; a figure or
-   a phrase is not cut word by word, since what is left would not read. */
+/* Words no source gives, said where a reader can do without them:
+   "only", "free", "one flat", "now have". Taken out whole, or word by
+   word ("One flat price" is "One price" or "Price"), the line still says
+   its point; a figure is never cut, since what is left would not read.
+   The set's fault score decides which cut, if any, reads. */
 const CUTTABLE_WORD = /^[\p{L}][\p{L}'-]*$/u;
+const CUTTABLE_WORDS = 3;
 const INVENTED = /^it states "([^"]+)"/;
 
-/** The frame's lines with each invented single word (`it states "X"`)
- *  taken out of whichever line says it. */
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function cutPhrase(text: string, phrase: string): string {
+  const pattern = new RegExp(
+    `\\s*(?<![\\p{L}\\p{N}'-])${phrase.split(/\s+/).map(escaped).join("\\s+")}(?![\\p{L}\\p{N}'-])`,
+    "giu",
+  );
+  return upperFirst(
+    text
+      .replace(pattern, "")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/^[\s,;:]+/, "")
+      .replace(/\s{2,}/g, " ")
+      .trim(),
+  );
+}
+
+/** The frame's lines with each invented phrase of up to three words
+ *  (`it states "X"`) taken out of whichever line says it: the whole
+ *  phrase, then each of its words. */
 export function inventedWordCuts(
   beat: FrameBeat,
   faults: readonly CopyFault[],
 ): Version[] {
-  const words = faults.flatMap((f) => {
-    const word = INVENTED.exec(f.detail)?.[1]?.trim() ?? "";
-    return word && CUTTABLE_WORD.test(word) && !/\d/.test(word) ? [word] : [];
+  const phrases = faults.flatMap((f) => {
+    const phrase = INVENTED.exec(f.detail)?.[1]?.trim() ?? "";
+    const words = phrase.split(/\s+/).filter(Boolean);
+    return words.length > 0 &&
+      words.length <= CUTTABLE_WORDS &&
+      words.every((w) => CUTTABLE_WORD.test(w))
+      ? [phrase]
+      : [];
   });
+  const cuts = new Set<string>();
+  for (const phrase of phrases) {
+    cuts.add(phrase);
+    for (const word of phrase.split(/\s+/)) cuts.add(word);
+  }
   const out: Version[] = [];
-  for (const word of new Set(words)) {
-    const pattern = new RegExp(
-      `\\s*(?<![\\p{L}\\p{N}'-])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}'-])`,
-      "giu",
-    );
-    const cut = (text: string) =>
-      upperFirst(
-        text
-          .replace(pattern, "")
-          .replace(/\s+([,.;:!?])/g, "$1")
-          .replace(/\s{2,}/g, " ")
-          .trim(),
-      );
-    const headline = cut(beat.headline);
-    const subheadline = cut(beat.subheadline);
-    if (headline !== beat.headline || subheadline !== beat.subheadline) {
+  for (const phrase of cuts) {
+    const headline = cutPhrase(beat.headline, phrase);
+    const subheadline = cutPhrase(beat.subheadline, phrase);
+    if (
+      (headline !== beat.headline || subheadline !== beat.subheadline) &&
+      headline
+    ) {
       out.push({
         change: { headline, subheadline },
-        what: `"${word}", which no source gives, cut`,
+        what: `"${phrase}", which no source gives, cut`,
       });
     }
   }
   return out;
+}
+
+/** The brief first, then the profile and the owner's own words: a
+ *  sentence any of them gives on a frame's point is no invention. */
+export function sourceTextOf(rules: FaultRules): string {
+  return [
+    rules.briefText ?? "",
+    ...(rules.titleSources ?? []).filter((t) => t !== rules.briefText),
+  ]
+    .map((t) => asSentence(t.trim()))
+    .filter((t) => t.length > 1)
+    .join(" ");
 }
 
 const coverageLost = (faults: readonly CopyFault[]) =>
@@ -358,6 +405,7 @@ export function withBreachesCut(
   plan: PlannedSequence,
   rules: FaultRules,
   tidy: (frames: readonly FrameBeat[]) => FrameBeat[] = (frames) => [...frames],
+  draw: (plan: PlannedSequence) => PlannedSequence = (p) => p,
 ): { plan: PlannedSequence; applied: string[] } {
   let current = plan;
   let faults = setFaults(current, rules);
@@ -369,8 +417,16 @@ export function withBreachesCut(
     for (const frame of frames) {
       const beat = current.frames[frame];
       if (!beat) continue;
-      for (const change of lineCuts(beat)) {
-        const next: PlannedSequence = {
+      for (const change of lineCuts(
+        beat,
+        unsayable(
+          rules.facts,
+          rules.released ?? [],
+          rules.owned ?? [],
+          rules.claims?.[frame] ?? "",
+        ),
+      )) {
+        const cut: PlannedSequence = {
           ...current,
           frames: tidy(
             current.frames.map((b, i) =>
@@ -378,7 +434,13 @@ export function withBreachesCut(
             ),
           ),
         };
-        const nextFaults = setFaults(next, rules);
+        /* A footer that breached may have been the only line giving a
+           fact the owner kept ("Gold partner package ₦15,000,000" on the
+           wrong slide): it is drawn again on its own frame. */
+        const cutFaults = setFaults(cut, rules);
+        const next =
+          coverageLost(cutFaults) > coverageLost(faults) ? draw(cut) : cut;
+        const nextFaults = next === cut ? cutFaults : setFaults(next, rules);
         if (
           breaches(nextFaults).length < breaches(faults).length &&
           coverageLost(nextFaults) <= coverageLost(faults)
@@ -443,6 +505,7 @@ export function lastResort(
   claims: readonly string[],
   tidy: (frames: readonly FrameBeat[]) => FrameBeat[] = (frames) => [...frames],
   alternates: readonly (readonly AlternateCopy[])[] = [],
+  draw: (plan: PlannedSequence) => PlannedSequence = (p) => p,
 ): LastResortResult {
   let current = plan;
   let score = blockingScore(current, rules);
@@ -452,15 +515,7 @@ export function lastResort(
     trials -= 1;
     return blockingScore(next, rules);
   };
-  /* The brief first, then the profile and the owner's own words: a
-     sentence any of them gives on a frame's point is no invention. */
-  const sourceText = [
-    rules.briefText ?? "",
-    ...(rules.titleSources ?? []).filter((t) => t !== rules.briefText),
-  ]
-    .map((t) => asSentence(t.trim()))
-    .filter((t) => t.length > 1)
-    .join(" ");
+  const sourceText = sourceTextOf(rules);
   const versionsOf = (frame: number): Version[] => {
     const beat = current.frames[frame];
     if (!beat) return [];
@@ -589,7 +644,7 @@ export function lastResort(
       applied.push(`frame ${frame + 1}: ${best.what}`);
     }
   }
-  const cut = withBreachesCut(current, rules, tidy);
+  const cut = withBreachesCut(current, rules, tidy, draw);
   const left = setFaults(cut.plan, rules);
   return {
     plan: cut.plan,

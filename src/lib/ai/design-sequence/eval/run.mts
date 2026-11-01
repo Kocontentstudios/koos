@@ -248,6 +248,9 @@ interface RunRecord {
    *  (SequenceShipRefusedError) before any render; the eval scores it and
    *  counts it. */
   refused?: string[];
+  /** Planned indexes of the frames the last stand dropped (Addendum C,
+   *  C1): reported, and the count is held to what was delivered. */
+  framesDropped?: number[];
   /** Frames code rewrote from their own point (last-resort.ts). */
   lastResort?: string[];
   ms: number;
@@ -286,6 +289,8 @@ if (panelMode) process.exit(await runPanel());
 interface PanelOurs {
   fixtureId: string;
   set: PanelSet | null;
+  /** Planned indexes of the frames the last stand dropped. */
+  framesDropped?: number[];
   blocking: string[];
   error?: string;
 }
@@ -324,8 +329,12 @@ async function runPanel(): Promise<number> {
         ours.push({
           fixtureId: c.id,
           set: { fixtureId: c.id, kind: c.kind, frames: result.plan.frames },
+          /* A frame the last stand dropped is reported, not hidden: the
+             set is held to the count it says it delivers (Addendum C,
+             C1), and the drop is printed with the panel. */
+          framesDropped: result.framesDropped ?? [],
           blocking: blockingFaults({
-            frameCount: n,
+            frameCount: n - (result.framesDropped ?? []).length,
             plannedFrames: result.plan.frames.length,
             refused: result.refused,
             problems: result.problems,
@@ -419,6 +428,9 @@ async function runPanel(): Promise<number> {
   console.log(
     `blocking faults shipped on our sets: ${blockingShipped} across ${ours.filter((o) => o.blocking.length > 0).length} of ${ours.length}`,
   );
+  console.log(
+    `frames dropped by the last stand: ${ours.reduce((n, o) => n + (o.framesDropped ?? []).length, 0)} across ${ours.filter((o) => (o.framesDropped ?? []).length > 0).length} of ${ours.length}`,
+  );
   console.log("\njudge calibration (Addendum B acceptance of the judge):");
   for (const c of calibration) {
     console.log(`  ${c.pass ? "PASS" : "FAIL"} ${c.name}: ${c.detail}`);
@@ -463,6 +475,18 @@ function threw(lane: Lane, label: string, started: number, err: unknown) {
 
 /* Where and when are every frame's to mention, so a removed point that
    gave them leaks nothing when the action frame gives them. */
+/* The approved outline's points by delivered frame, once the frames the
+   last stand dropped are taken out. */
+function outlineWithout<T extends { points: readonly unknown[] }>(
+  outline: T,
+  dropped: readonly number[],
+): T {
+  return {
+    ...outline,
+    points: outline.points.filter((_, i) => !dropped.includes(i)),
+  };
+}
+
 function sharedWords(c: SequenceEvalCase): Set<string> {
   return new Set([
     ...namesFree(c.brand.name, c.offering),
@@ -532,11 +556,12 @@ async function runLane(
   try {
     const { result, edits, valid } = await planLane(c, lane, outline);
     const released = factsTakenOut(labelledFacts(c), valid.outline, edits);
-    const score = scoreRun(c, n, result.plan, released);
+    const dropped = result.framesDropped ?? [];
+    const score = scoreRun(c, n - dropped.length, result.plan, released);
     const verdict = withJudge ? await judge(c, result.plan) : null;
     const leaks = deletedLeaks(
       result.plan,
-      valid.outline,
+      outlineWithout(valid.outline, dropped),
       edits,
       sharedWords(c),
     );
@@ -557,6 +582,7 @@ async function runLane(
       released,
       refused: result.refused.map((f) => `frame ${f.frame + 1}: ${f.detail}`),
       lastResort: result.lastResort,
+      framesDropped: dropped,
       ms: Date.now() - started,
     });
     if (!printRuns) {
@@ -643,7 +669,7 @@ async function runDeletion(
     );
     const leaks = deletedLeaks(
       result.plan,
-      valid.outline,
+      outlineWithout(valid.outline, result.framesDropped ?? []),
       [cut.deleted],
       sharedWords(c),
     );
@@ -773,7 +799,8 @@ for (const lane of lanes) {
       | "factsDrawn"
       | "leaks"
       | "refused"
-      | "lastResort",
+      | "lastResort"
+      | "framesDropped",
   ) =>
     `${runs.reduce((n, r) => n + (r[key]?.length ?? 0), 0)} across ${runs.filter((r) => (r[key]?.length ?? 0) > 0).length} of ${runs.length} runs`;
   console.log(
@@ -787,6 +814,7 @@ for (const lane of lanes) {
     `blocking faults left (production refuses these sets before any render): ${across("refused")}`,
   );
   console.log(`frames code rewrote from their point: ${across("lastResort")}`);
+  console.log(`frames dropped by the last stand: ${across("framesDropped")}`);
   if (lane === "approved") {
     console.log(
       `owner edits: ${runs.reduce((n, r) => n + r.edits.length, 0)}; removed points leaked: ${across("leaks")}`,

@@ -206,6 +206,9 @@ export interface SequenceCheckpoint {
     invented?: string[];
     /** Brief facts the planner wrote into a footer itself. */
     factsDrawn?: string[];
+    /** Frames, by their planned index, the planner dropped rather than
+     *  ship a blocking fault. */
+    framesDropped?: number[];
   };
   /** Frames that finished, delivered or failed, with what they carried, so a
    *  later slice neither renders them again nor loses their record. */
@@ -880,7 +883,10 @@ export async function generateSequenceWork(
     throw new KoImageryDisabledError();
   }
   const brandId = context.brand.id;
-  const frameCount = request.frames;
+  /* The count asked for, until the plan is written: a frame the planner
+     dropped rather than ship a blocking fault (framesDropped) is neither
+     drawn nor billed. */
+  let frameCount = request.frames;
   const uploadKey =
     request.image.source === "upload" ? request.image.key : null;
   const report = (
@@ -914,6 +920,7 @@ export async function generateSequenceWork(
     }
     const set = state;
     const { setId, plan } = set;
+    frameCount = plan.frames.length;
     if (set.completed) {
       return setResult(
         set,
@@ -1178,7 +1185,10 @@ async function planSet({
     );
   });
   const fatal = planned.problems.filter((p) => FATAL_RULES.includes(p.rule));
-  if (planned.plan.frames.length !== frameCount) {
+  if (
+    planned.plan.frames.length !==
+    frameCount - (planned.framesDropped ?? []).length
+  ) {
     fatal.push({
       frame: null,
       rule: "count",
@@ -1205,6 +1215,7 @@ async function planSet({
       problems: planned.problems,
       invented: planned.invented.map((i) => `frame ${i.frame + 1}: ${i.text}`),
       factsDrawn: planned.factsDrawn,
+      framesDropped: planned.framesDropped ?? [],
     },
     frames: {},
     startedAt,
@@ -1725,7 +1736,7 @@ async function completeSet({
 
 /** The job's result, read off the set's frames on show. */
 function setResult(
-  state: Pick<SequenceCheckpoint, "setId" | "plan">,
+  state: Pick<SequenceCheckpoint, "setId" | "plan" | "planned">,
   live: readonly GenerationRow[],
   source: SequenceImageSource,
 ): { resultId?: string; result: SequenceJobResult } {
@@ -1739,6 +1750,9 @@ function setResult(
       setId: state.setId,
       sequenceKind: state.plan.kind,
       frameCount: state.plan.frames.length,
+      ...((state.planned?.framesDropped ?? []).length > 0
+        ? { framesDropped: state.planned.framesDropped }
+        : {}),
       generationIds,
       failed: live.filter((r) => r.status === "failed").map((r) => r.id),
       imageSource: source,
