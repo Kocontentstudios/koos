@@ -100,8 +100,9 @@ export interface SetStageProps {
   onSelect: (index: number) => void;
   isRegenerating: (slot: FrameSlot) => boolean;
   frameLabel: (slot: FrameSlot) => string;
-  /** Regenerates a frame that failed, from a button on the frame. */
-  onRetry: (slot: FrameSlot) => void;
+  /** Regenerates a frame that failed, from a button on the frame. Absent
+   *  where a regenerate cannot run (FEATURE_MULTI_FRAME off). */
+  onRetry?: (slot: FrameSlot) => void;
   panelId: string;
   /** The id of the selected frame's tab, which names the panel. */
   tabId: string;
@@ -173,7 +174,7 @@ export function SetStage({
                 alt={frameLabel(slot)}
                 size={size}
                 mode={isRegenerating(slot) ? "regenerating" : "frame"}
-                onRetry={() => onRetry(slot)}
+                onRetry={onRetry ? () => onRetry(slot) : undefined}
               />
             </div>
           );

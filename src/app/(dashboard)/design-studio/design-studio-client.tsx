@@ -7,6 +7,7 @@ import { useId, useMemo, useState } from "react";
 import { DesignCard } from "@/components/design/design-card";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import { DesignDirectionsDialog } from "@/components/design/directions/design-directions-dialog";
+import { useMultiFrameOffered } from "@/components/design/directions/multi-frame-context";
 import {
   SetBuildingCard,
   SetCard,
@@ -75,7 +76,8 @@ export function DesignStudioClient({
         : initialGenerations,
     [design.generations, initialGenerations],
   );
-  const watch = useSetWatch(brandId, history);
+  const multiFrame = useMultiFrameOffered();
+  const watch = useSetWatch(brandId, history, { listServerJobs: multiFrame });
 
   /* Nothing is generated yet: the image choice comes first, and the run starts
      from inside the dialog once the user has picked one. */
@@ -204,6 +206,7 @@ export function DesignStudioClient({
                 <SetCard
                   key={item.set.setId}
                   set={item.set}
+                  canRetry={multiFrame}
                   onOpen={(set) => setViewingSetId(set.setId)}
                 />
               ) : (

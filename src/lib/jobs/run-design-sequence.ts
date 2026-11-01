@@ -218,6 +218,10 @@ export interface SequenceCheckpoint {
     /** framesDropped named and explained; absent on checkpoints written
      *  before it existed. */
     framesLeftOut?: LeftOutFrame[];
+    /** Brief facts the owner took out of the approved outline
+     *  (releasedFacts): never required of the set. Absent on checkpoints
+     *  written before it existed. */
+    factsReleased?: string[];
   };
   /** The approved outline the plan was written from, as this job
    *  validated it; absent for a set planned without the outline step. */
@@ -1281,6 +1285,7 @@ async function planSet({
       factsDrawn: planned.factsDrawn,
       framesDropped: planned.framesDropped ?? [],
       framesLeftOut: planned.framesLeftOut ?? [],
+      factsReleased: planned.factsReleased ?? [],
     },
     frames: {},
     startedAt,
@@ -1293,11 +1298,18 @@ function providerOf(kit: FrameKit): string {
 }
 
 /** What the set as a whole says, measured on the frames it delivered. */
-function setCoverage(
-  state: Pick<SequenceCheckpoint, "facts" | "offering" | "plan">,
+export function setCoverage(
+  state: Pick<SequenceCheckpoint, "facts" | "offering" | "plan"> & {
+    planned?: Pick<SequenceCheckpoint["planned"], "factsReleased">;
+  },
   delivered: readonly GenerationRow[],
 ) {
-  const { facts, offering } = state;
+  const { offering } = state;
+  /* A fact the owner deleted from the outline is one they chose to leave
+     off: counting it as missing overstated the set's faults (integration
+     round 2, LOW 6). */
+  const released = new Set(state.planned?.factsReleased ?? []);
+  const facts = state.facts.filter((f) => !released.has(f.text));
   const frameCount = state.plan.frames.length;
   const missing = setFactsMissing(facts, delivered.map(drawnCopyOfRow));
   const hook = delivered.find((r) => r.frameIndex === 0);

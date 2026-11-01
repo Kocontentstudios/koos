@@ -44,6 +44,11 @@ export interface SetViewerProps {
   /** Frame indexes whose regenerate outlived the poll and may still deliver. */
   stillRunning?: ReadonlySet<number>;
   onKeepWaiting?: (index: number) => void;
+  /** FEATURE_MULTI_FRAME, from the server. Off, the set's routes (ZIP, PDF,
+   *  regenerate) answer 404, so a set made while it was on is shown with
+   *  per-frame downloads only: an action that can only fail is not
+   *  offered. */
+  setActions?: boolean;
 }
 
 const NONE_WAITING: ReadonlySet<number> = new Set();
@@ -162,6 +167,46 @@ function LeftOutNotice({ set }: { set: DesignSet }) {
   );
 }
 
+function FrameDownload({ slot }: { slot: FrameSlot }) {
+  if (frameState(slot) !== "ready" || !slot.generation) return null;
+  /* A link, as on a direction card: the route redirects to a signed URL
+     whose disposition saves the file. */
+  return (
+    <a
+      href={`/api/design/generations/${slot.generation.id}/download`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={buttonVariants({ variant: "ghost" })}
+    >
+      <Download aria-hidden="true" />
+      Download this frame
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  );
+}
+
+/* Shown in place of the set's actions while they are switched off: the
+   owner keeps every frame they made, one download at a time. */
+function ViewOnlyActions({
+  slot,
+  kind,
+}: {
+  slot: FrameSlot;
+  kind: DesignSet["kind"];
+}) {
+  return (
+    <div className="flex flex-col gap-2" data-view-only>
+      <p className="text-[13px] leading-snug text-[var(--text-secondary)]">
+        Editing this {kindNoun(kind)} and downloading it in one file are
+        switched off for now. You can still download each frame.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <FrameDownload slot={slot} />
+      </div>
+    </div>
+  );
+}
+
 function FrameError({ message }: { message: string }) {
   return (
     <p
@@ -187,6 +232,7 @@ export function SetViewer({
   onRegenerateFrame,
   stillRunning = NONE_WAITING,
   onKeepWaiting,
+  setActions = true,
 }: SetViewerProps) {
   const baseId = useId();
   const panelId = `${baseId}-stage`;
@@ -271,7 +317,9 @@ export function SetViewer({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <KindPill set={set} />
-        <SetDownloads set={set} blocked={actingOn.size > 0} />
+        {setActions ? (
+          <SetDownloads set={set} blocked={actingOn.size > 0} />
+        ) : null}
       </div>
 
       <ViewerAnnouncer
@@ -291,7 +339,7 @@ export function SetViewer({
         onSelect={select}
         isRegenerating={regenerating}
         frameLabel={frameLabel}
-        onRetry={(target) => void regenerate(target)}
+        onRetry={setActions ? (target) => void regenerate(target) : undefined}
         panelId={panelId}
         tabId={tabIdOf(baseId, index)}
       />
@@ -344,6 +392,8 @@ export function SetViewer({
             The job never got to this frame. Make the {kindNoun(set.kind)} again
             to fill it.
           </p>
+        ) : !setActions ? (
+          <ViewOnlyActions slot={slot} kind={set.kind} />
         ) : editing === slot.index ? (
           <FrameEditor
             key={slot.generation?.id}
@@ -383,20 +433,7 @@ export function SetViewer({
                 Regenerate
               </Button>
             )}
-            {state === "ready" && !pending && slot.generation ? (
-              /* A link, as on a direction card: the route redirects to a
-                 signed URL whose disposition saves the file. */
-              <a
-                href={`/api/design/generations/${slot.generation.id}/download`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={buttonVariants({ variant: "ghost" })}
-              >
-                <Download aria-hidden="true" />
-                Download this frame
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-            ) : null}
+            {pending ? null : <FrameDownload slot={slot} />}
           </div>
         )}
       </div>

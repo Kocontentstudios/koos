@@ -793,3 +793,51 @@ describe("SetViewer says which slides were left out (Addendum D, D2)", () => {
     expect(document.querySelector("[data-left-out]")).toBeNull();
   });
 });
+
+/* Integration round 2, MEDIUM 1: with FEATURE_MULTI_FRAME off the set's
+   ZIP, PDF and regenerate routes answer 404, and the viewer still offered
+   them ("The ZIP couldn't be made. Try again."). */
+describe("SetViewer with the set's actions switched off", () => {
+  function viewOnly(set: DesignSet) {
+    return render(
+      <SetViewer
+        set={set}
+        actingOn={new Set()}
+        frameErrors={{}}
+        onRegenerateFrame={onRegenerateFrame}
+        setActions={false}
+      />,
+    );
+  }
+
+  it("offers no action that can only fail, and keeps each frame's download", () => {
+    viewOnly(setOf(frameRows(5)));
+    for (const name of [
+      "Download ZIP",
+      "Download PDF",
+      "Edit & regenerate frame 1",
+      "Regenerate frame 1",
+    ]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(
+      screen.getByRole("link", { name: /Download this frame/ }),
+    ).toHaveAttribute(
+      "href",
+      `/api/design/generations/${frameRows(5)[0].id}/download`,
+    );
+    expect(
+      screen.getByText(
+        /switched off for now. You can still download each frame/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("puts no retry on a frame that failed", () => {
+    const rows = frameRows(5);
+    rows[0] = frameRow(0, { status: "failed", url: null });
+    viewOnly(setOf(rows));
+    expect(screen.queryByRole("button", { name: /Retry frame/ })).toBeNull();
+    expect(onRegenerateFrame).not.toHaveBeenCalled();
+  });
+});

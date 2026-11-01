@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
 import type { OutlinePoint } from "./contract";
+import { LUMEN_BRIEF } from "./fixtures";
 import { namesFree } from "./hook";
 import { EMPTY_POINT } from "./outline-arc";
-import { flagOutline, genericProfile } from "./outline-flags";
+import { cutBeforeItsNoun, flagOutline, genericProfile } from "./outline-flags";
 
 const fact = (kind: BriefFact["kind"], text: string): BriefFact => ({
   kind,
@@ -343,5 +344,69 @@ describe("a point cut mid-sentence", () => {
     expect(flagged[0].weak?.reason).toMatch(/mid-sentence/);
     expect(flagged[1].weak?.reason).toMatch(/mid-sentence/);
     expect(flagged[2].weak?.reason ?? "").not.toMatch(/mid-sentence/);
+  });
+});
+
+/* Integration round 2, HIGH 2: the outline gave slide 3 as "Audience: young
+   professionals in Yaba and Surulere who want a smooth", labelled "From
+   your brief", with no flag (weak: { filler: 0 }). The brief's audience
+   note is not the profile's targetAudience, so fillerReason never saw it. */
+describe("flagOutline: the brief's own note on who the piece is for", () => {
+  const lumenCtx = {
+    kind: "carousel" as const,
+    facts: [
+      fact("date", "Saturday 14 November"),
+      fact("place", "our Yaba shop (12 Herbert Macaulay Way)"),
+      fact("price", "N3,500"),
+      fact("contact", "WhatsApp 0812 555 0199"),
+    ],
+    free: namesFree("Lumen Coffee", "Lumen Cold Brew"),
+    audience: null,
+    briefText: LUMEN_BRIEF,
+  };
+  const lumen = (third: string) =>
+    flagOutline(
+      [
+        point(
+          "hook",
+          "Lumen Cold Brew is steeped for 20 hours before it is bottled",
+        ),
+        point("body", "Launch day only: buy two, get a free pastry."),
+        point("body", third),
+        point("cta", "Order ahead on WhatsApp 0812 555 0199."),
+      ],
+      lumenCtx,
+    )[2].weak;
+
+  it("flags the exact slide the live outline shipped as cut mid-sentence", () => {
+    expect(
+      lumen(
+        "Audience: young professionals in Yaba and Surulere who want a smooth",
+      ),
+    ).toMatchObject({ kind: "filler", reason: /Stops mid-sentence/ });
+    expect(
+      cutBeforeItsNoun(
+        "Young professionals in Yaba and Surulere who want a smooth",
+        LUMEN_BRIEF,
+      ),
+    ).toBe(true);
+  });
+
+  it("flags the whole audience note as saying only who it is for", () => {
+    expect(
+      lumen(
+        "Young professionals in Yaba and Surulere who want a smooth, low-acid coffee.",
+      ),
+    ).toEqual({
+      kind: "filler",
+      reason: "Only says who it is for. Say what they get from it.",
+    });
+  });
+
+  it("leaves a point that only shares a word with the note", () => {
+    expect(lumen("Brewed with single-origin Ethiopian beans.")).toBeNull();
+    expect(cutBeforeItsNoun("Brewed with single-origin", LUMEN_BRIEF)).toBe(
+      false,
+    );
   });
 });

@@ -307,6 +307,14 @@ function overlay(
 export function useSetWatch(
   brandId: string | null,
   given: SerializedGeneration[],
+  {
+    listServerJobs = true,
+  }: {
+    /** FEATURE_MULTI_FRAME, from the server. Off, GET /api/design/set-jobs
+     *  answers 404, so the server's list is not asked for: this browser's
+     *  own jobs are still driven to their end. */
+    listServerJobs?: boolean;
+  } = {},
 ): SetWatch {
   const [fresh, setFresh] = useState<ReadonlyMap<string, SerializedGeneration>>(
     new Map(),
@@ -368,6 +376,7 @@ export function useSetWatch(
     }
 
     async function refreshList() {
+      if (!listServerJobs) return;
       const open = await listOpenJobs(brand);
       if (cancelled || !open) return;
       for (const job of open) listed.set(job.jobId, fromServer(job));
@@ -474,7 +483,7 @@ export function useSetWatch(
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [brandId]);
+  }, [brandId, listServerJobs]);
 
   return { rows, stalled, live };
 }

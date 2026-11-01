@@ -1,15 +1,20 @@
+import { isFragment } from "@/lib/jobs/directions/brief-facts";
+import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
 import type { FrameBeat, PlannedSequence } from "./contract";
 import { FRAME_BOUNDS } from "./contract";
+import { opensOnDesignerNote, withoutPieceLead } from "./designer-note";
 import {
   blockingFaults,
   type CopyFault,
   type FaultRules,
   type Flag,
   faultScore,
+  headlineGrammar,
+  isFlatHookFault,
   setFaults,
 } from "./faults";
 import { asSentence, fitsSubheadline } from "./gate";
-import { namesFree } from "./hook";
+import { hookFaults, namesFree } from "./hook";
 import { framesToTry, plainVersions } from "./last-resort";
 import { isStatFigure, settleFrameLayouts, withFigureLayout } from "./layouts";
 import { pointKeptOnSet } from "./outline-arc";
@@ -71,6 +76,9 @@ export interface StandResult {
   kept: number[];
   /** Original indexes of the frames dropped, in order. */
   dropped: number[];
+  /** Original indexes, among `dropped`, of the frames whose line became
+   *  the hook's headline: their words open the set. */
+  promoted: number[];
   /** "frame k: what changed", in order. */
   applied: string[];
   blocking: CopyFault[];
@@ -142,6 +150,46 @@ export function rulesWithout(
   };
 }
 
+/**
+ * Whether a hook with a body frame's line as its headline passes what a
+ * planned hook must: the headline stands as a line of its own (no
+ * fragment, no cut), is not the brief's words to the designer
+ * ("Audience: young professionals in Yaba", integration round 2, HIGH 1),
+ * the hook still names the offering, and it is not a flat hook (an
+ * announcement, a label, the name alone). The score alone let that line
+ * through: nothing else on the set faulted it.
+ */
+/* A line opening on a relative word ("Who want a smooth") is the tail of
+   another sentence: it cannot open the set. */
+const OPENS_ON_RELATIVE = /^(?:who|whom|whose|which|that|where|while)\b/i;
+
+export function promotableOntoHook(
+  promoted: FrameBeat,
+  rules: Pick<FaultRules, "offering" | "names" | "brandName" | "facts">,
+): boolean {
+  const headline = promoted.headline.trim();
+  if (!headline) return false;
+  if (
+    headlineGrammar(headline) !== null ||
+    isFragment(headline) ||
+    OPENS_ON_RELATIVE.test(headline) ||
+    opensOnDesignerNote(headline) ||
+    withoutPieceLead(headline) !== headline
+  ) {
+    return false;
+  }
+  if (rules.offering && !copyNamesOffering(promoted, rules.offering)) {
+    return false;
+  }
+  return !hookFaults(
+    promoted,
+    rules.offering,
+    rules.names,
+    rules.brandName,
+    rules.facts,
+  ).some(isFlatHookFault);
+}
+
 /** The frames with neighbours' layouts settled again after a drop. */
 function relaid(frames: readonly FrameBeat[], hasImage: boolean): FrameBeat[] {
   const layouts = settleFrameLayouts(
@@ -173,6 +221,7 @@ export function lastStand({
   let kept = plan.frames.map((_, i) => i);
   const unused = [...spares];
   const dropped: number[] = [];
+  const promoted: number[] = [];
   const applied: string[] = [];
   let score = blockingScore(current, currentRules);
   const min = FRAME_BOUNDS[plan.kind].min;
@@ -204,6 +253,7 @@ export function lastStand({
       what: string;
       spare?: string;
       dropped?: number;
+      promoted?: true;
     } | null = null;
 
     for (const frame of frames) {
@@ -324,17 +374,18 @@ export function lastStand({
           ].filter((t) => t.trim() && fitsSubheadline(t)),
         );
         for (const subheadline of unders) {
-          const promoted: FrameBeat = {
+          const lifted: FrameBeat = {
             ...hook,
             headline: beat.headline,
             subheadline,
           };
+          if (!promotableOntoHook(lifted, currentRules)) continue;
           const without: PlannedSequence = {
             ...current,
             frames: relaid(
               tidy(
                 current.frames
-                  .map((b, i) => (i === 0 ? promoted : b))
+                  .map((b, i) => (i === 0 ? lifted : b))
                   .filter((_, i) => i !== frame),
                 nextKept,
               ),
@@ -353,6 +404,7 @@ export function lastStand({
               score: nextScore,
               what: `frame ${kept[frame] + 1}: its line made the hook's headline, and the frame dropped`,
               dropped: kept[frame],
+              promoted: true,
             };
           }
         }
@@ -370,6 +422,9 @@ export function lastStand({
       unused.splice(unused.indexOf(best.spare), 1);
     }
     if (best.dropped !== undefined) dropped.push(best.dropped);
+    if (best.promoted && best.dropped !== undefined) {
+      promoted.push(best.dropped);
+    }
   }
 
   return {
@@ -378,6 +433,7 @@ export function lastStand({
     claims: currentClaims,
     kept,
     dropped,
+    promoted,
     applied,
     blocking: blockingFaults(setFaults(current, currentRules)),
   };

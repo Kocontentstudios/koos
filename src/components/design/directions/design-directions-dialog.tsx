@@ -438,6 +438,7 @@ export function DesignDirectionsDialog({
         : step === "upload"
           ? {
               step: "upload",
+              setKind: expectedKind,
               upload: upload.state,
               waitingOnUpload:
                 waitingOnUpload &&

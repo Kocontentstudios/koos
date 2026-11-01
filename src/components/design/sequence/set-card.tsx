@@ -56,9 +56,11 @@ export function SetBuildingCard({ job }: { job: LiveSetJob }) {
 function CoverlessFace({
   building,
   noun,
+  canRetry,
 }: {
   building: boolean;
   noun: string;
+  canRetry: boolean;
 }) {
   if (building) {
     return (
@@ -86,9 +88,11 @@ function CoverlessFace({
       <span className="relative text-[12px] font-semibold text-foreground">
         This {noun} didn&apos;t render
       </span>
-      <span className="relative text-[11px] text-[var(--text-secondary)]">
-        Open it to retry its frames
-      </span>
+      {canRetry ? (
+        <span className="relative text-[11px] text-[var(--text-secondary)]">
+          Open it to retry its frames
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -103,9 +107,13 @@ function CoverlessFace({
 export function SetCard({
   set,
   onOpen,
+  canRetry = true,
 }: {
   set: DesignSet;
   onOpen: (set: DesignSet) => void;
+  /** FEATURE_MULTI_FRAME, from the server. Off, a frame cannot be
+   *  regenerated, so the card never promises a retry. */
+  canRetry?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   /* Set on error too: a broken cover must not leave the skeleton claiming
@@ -131,7 +139,9 @@ export function SetCard({
   const note = building
     ? `. Still being made, ${ready} of ${count} ready`
     : !coverUrl
-      ? ". None of its frames rendered. Open it to retry them"
+      ? canRetry
+        ? ". None of its frames rendered. Open it to retry them"
+        : ". None of its frames rendered"
       : broken
         ? `. ${broken} didn't render`
         : "";
@@ -186,7 +196,7 @@ export function SetCard({
             />
           </>
         ) : (
-          <CoverlessFace building={building} noun={noun} />
+          <CoverlessFace building={building} noun={noun} canRetry={canRetry} />
         )}
         <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white">
           <Icon aria-hidden="true" className="size-3" />

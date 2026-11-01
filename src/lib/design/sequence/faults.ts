@@ -10,6 +10,7 @@ import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { textsOverlap } from "./arc";
 import { withConcepts } from "./concepts";
 import type { FrameBeat, PlannedSequence, SequenceKind } from "./contract";
+import { opensOnDesignerNote } from "./designer-note";
 import { hookFaults, hookPreviews, namesFree } from "./hook";
 import { inventedOn } from "./ledger";
 import { ownerPointKept } from "./outline-arc";
@@ -262,6 +263,9 @@ const SUBJECTLESS =
 export function subheadlineGrammar(subheadline: string): string | null {
   const text = subheadline.trim();
   if (!text) return null;
+  if (opensOnDesignerNote(text)) {
+    return `the subheadline "${text}" is the brief's note to the designer, not a line for the reader; say what the reader gets instead`;
+  }
   if (
     CUT_ON_VERB.test(text) ||
     ARTICLE_WITHOUT_NOUN.test(text) ||
@@ -303,6 +307,9 @@ const SIGNPOST_WORDS = 4;
 export function headlineGrammar(headline: string): string | null {
   const text = headline.trim();
   if (!text) return null;
+  if (opensOnDesignerNote(text)) {
+    return `the headline "${text}" is the brief's note to the designer, not a line for the reader; say what the reader gets instead`;
+  }
   if (
     CUT_ON_VERB.test(text) ||
     ARTICLE_WITHOUT_NOUN.test(text) ||
@@ -556,6 +563,10 @@ function ruleFaults(plan: PlannedSequence, rules: FaultRules): CopyFault[] {
    second line that only says the first again. */
 const FLAT_HOOK =
   /announces the offering|only the name|does not name|says what its headline says|a device any competitor|only names the offering and where|is a label|the hook has a headline and nothing under it/;
+
+/** Whether a hook fault is one a reader sees before anything else
+ *  (FLAT_HOOK): such a hook does not earn the swipe. */
+export const isFlatHookFault = (detail: string) => FLAT_HOOK.test(detail);
 
 /** Every fault of a written set (see the module comment). */
 export function setFaults(

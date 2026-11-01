@@ -9,6 +9,7 @@ import {
   FlowDescription,
   FlowTitle,
 } from "@/components/design/directions/flow-heading";
+import { useMultiFrameOffered } from "@/components/design/directions/multi-frame-context";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ export function SetViewerDialog({
   onClose: (changed: boolean) => void;
 }) {
   const frames = useFrameSet();
+  const setActions = useMultiFrameOffered();
   const changed = useRef(false);
   const { load, refresh } = frames;
   const openSetId = useRef<string | null>(null);
@@ -80,6 +82,7 @@ export function SetViewerDialog({
               </div>
               <SetViewer
                 set={shown}
+                setActions={setActions}
                 actingOn={frames.actingOn}
                 frameErrors={frames.frameErrors}
                 stillRunning={frames.stillRunning}

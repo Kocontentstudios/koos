@@ -417,3 +417,22 @@ describe("a subheadline that says its headline in other words", () => {
     ).toBe(false);
   });
 });
+
+/* Integration round 2, HIGH 1 and 2: "Audience: young professionals in
+   Yaba" shipped as a headline with no fault against it. */
+describe("a line that is the brief's note to the designer", () => {
+  it("is a headline fault and a subheadline fault", () => {
+    expect(headlineGrammar("Audience: young professionals in Yaba")).toMatch(
+      /note to the designer/,
+    );
+    expect(subheadlineGrammar("Tone: warm, never salesy.")).toMatch(
+      /note to the designer/,
+    );
+  });
+
+  it("leaves a labelled offer the reader is meant to see", () => {
+    expect(
+      headlineGrammar("Launch day only: buy two, get a free pastry"),
+    ).toBeNull();
+  });
+});

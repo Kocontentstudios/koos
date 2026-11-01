@@ -54,6 +54,8 @@ export type DirectionsView =
   | {
       step: "upload";
       upload: DesignImageUpload;
+      /** As on "choose": set when the run makes one set. */
+      setKind?: SequenceKind | null;
       /** "Use this image" was pressed before the upload finished. */
       waitingOnUpload: boolean;
       /** Forces the drop-target look where no real drag can be shown. */
@@ -316,6 +318,7 @@ export function DirectionsFlowView({
             onLetKoCreate={handlers.onLetKoCreate}
             onNoImage={handlers.onNoImage}
             onFileDropped={handlers.onFile}
+            setKind={view.setKind ?? null}
           />
         </>
       );
@@ -327,7 +330,11 @@ export function DirectionsFlowView({
         <>
           <Header
             title="Upload your image"
-            description="KO keeps your image exactly as it is and designs two directions around it."
+            description={
+              view.setKind
+                ? `KO keeps your image exactly as it is and designs every slide of your ${kindNoun(view.setKind)} around it.`
+                : "KO keeps your image exactly as it is and designs two directions around it."
+            }
           />
           {upload.status === "idle" ? (
             <ImageDropzone

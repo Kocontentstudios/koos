@@ -222,11 +222,23 @@ export function mergeSets(held: DesignSet, incoming: DesignSet): DesignSet {
   };
 }
 
-const LEFT_OUT_REASONS: Record<LeftOutFrame["reason"], string> = {
-  empty: "it still said “Add a point”, so there was nothing to put on it",
-  fault:
-    "we couldn't word it in a way that passed our checks, and we don't deliver a slide that fails them",
-};
+/* A merged slide's words are still in the set: saying "we couldn't word
+   it" while its line opens slide 1 is false (integration round 2, HIGH 1). */
+function leftOutReason(frame: LeftOutFrame): string {
+  switch (frame.reason) {
+    case "empty":
+      return "it still said “Add a point”, so there was nothing to put on it";
+    case "merged":
+      if (frame.keptOn === 0) {
+        return "its line now opens slide 1, so it isn't repeated on a slide of its own";
+      }
+      return frame.keptOn !== undefined
+        ? `slide ${frame.keptOn + 1} already makes its point, so it isn't repeated on a slide of its own`
+        : "the other slides already make its point, so it isn't repeated on a slide of its own";
+    default:
+      return "we couldn't word it in a way that passed our checks, and we don't deliver a slide that fails them";
+  }
+}
 
 /** What a finished job left out, by framesDropped, each named where the
  *  result's framesLeftOut says; a result stored before it gives indexes
@@ -263,7 +275,7 @@ export function leftOutNotice(
     const name = frame.title.trim()
       ? `Slide ${frame.index + 1}, “${frame.title.trim()}”`
       : `Slide ${frame.index + 1}`;
-    return `${name}: ${LEFT_OUT_REASONS[frame.reason]}.`;
+    return `${name}: ${leftOutReason(frame)}.`;
   });
   return { summary, slides };
 }

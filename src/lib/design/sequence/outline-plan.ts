@@ -25,6 +25,12 @@ import {
   type PlanSequenceInput,
   PRESENTATION_ASPECT,
 } from "./contract";
+import {
+  onlyForDesigner,
+  opensOnDesignerNote,
+  withoutNoteLabel,
+  withoutPieceLead,
+} from "./designer-note";
 import { EMPTY_POINT } from "./outline-arc";
 import {
   flagOutline,
@@ -57,6 +63,9 @@ export interface PlanOutlineResult {
   outline: PlannedOutline;
   modelCalls: number;
   ms: number;
+  /** Body points given a spare in place of an overlap
+   *  (withOverlapsSwapped), for the route's one trace line. */
+  overlapsSwapped: number;
 }
 
 const ARC_MAX_OUTPUT_TOKENS = 3000;
@@ -78,28 +87,14 @@ export function clipped(text: string, max: number): string {
   return `${(atWord > max / 2 ? cut.slice(0, atWord) : cut).replace(/[\s,;:.-]+$/, "")}…`;
 }
 
-/* The brief's words about the piece itself, before what the piece says:
-   "A short deck for office managers in Lagos: Lumen Coffee now supplies
-   offices" and "Sponsorship deck for Lagos Design Week 2026, 4 to 8
-   December". On a slide's point they are the owner talking to the
-   designer (C6), so a point quotes only what follows them. Without a colon
-   only "<piece> for|about|on" goes: "A deck to pitch offices" would leave
-   an order. */
-const PIECE_LEAD_TO_COLON =
-  /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|carousel|presentation|slides?|post|reel|flyer|poster)\s+(?:for|about|on|to)\b[^:.!?]{0,80}:\s+(?=\S)/iu;
-const PIECE_LEAD =
-  /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|carousel|presentation|slides?|post|reel|flyer|poster)\s+(?:for|about|on)\s+(?=\S)/iu;
+export { withoutPieceLead } from "./designer-note";
 
-export function withoutPieceLead(sentence: string): string {
-  const rest = sentence
-    .replace(PIECE_LEAD_TO_COLON, "")
-    .replace(PIECE_LEAD, "");
-  return rest === sentence ? sentence : upperFirst(rest);
-}
-
+/* A note to the designer ("Audience: …", "Tone: …") is never a sentence a
+   point quotes or a fact is said in (C6). */
 const sentencesOf = (text: string) =>
   text
     .split(/(?<=[.!?])\s+|\n+/)
+    .filter((s) => !opensOnDesignerNote(s.trim()))
     .map((s) => withoutPieceLead(s.trim()))
     .filter(Boolean);
 
@@ -489,8 +484,11 @@ export function withEveryFactPlaced(
   for (const [n, fact] of facts.entries()) {
     if (fact.kind === "product" || states(fact)) continue;
     const sentence = sentencesStating(fact, briefText)[0];
-    /* A fact only the piece's own lead states ("for office managers in
-       Lagos") still goes beside the action, said on its own. */
+    /* A fact only the brief's words to the designer give ("for office
+       managers in Lagos") is who the piece is for: glued on the action on
+       its own it read "Contact wholesale@lumencoffee.ng. In Lagos."
+       (integration round 2, LOW 1). */
+    if (!sentence && onlyForDesigner(fact, briefText)) continue;
     if (!sentence && !besideAction(fact, n)) continue;
     const at = !sentence || besideAction(fact, n) ? -1 : slotFor();
     if (sentence && at >= 0) {
@@ -723,10 +721,16 @@ export async function planOutline(
   ];
   const planned = arc.frames.map((frame, i) => {
     const fromPool = frame.point === null ? null : pool[frame.point];
+    /* A claim the arc took from a note to the designer keeps its words,
+       never the label ("Audience:"): the flag says what it lacks. */
     const text =
       i === last
         ? action.point
-        : frame.claim.trim() || fromPool?.text || EMPTY_POINT;
+        : withoutNoteLabel(
+            withoutPieceLead(
+              frame.claim.trim() || fromPool?.text || EMPTY_POINT,
+            ),
+          );
     return clipped(text, OUTLINE_LIMITS.pointChars);
   });
   const profile = profileStatements(context.brandSummary);
@@ -743,6 +747,7 @@ export async function planOutline(
     free,
     audience: context.brandSummary.targetAudience,
     genericProfile: genericProfile(context.brandSummary),
+    briefText: brief.briefText,
   };
   const unique = withOverlapsSwapped(
     withEveryFactPlaced(
@@ -791,19 +796,13 @@ export async function planOutline(
     offering,
     facts: facts.map((f) => f.text),
   };
-  const ms = Date.now() - started;
-  const count = (k: string) => flagged.filter((p) => p.weak?.kind === k).length;
-  console.info("design.outline.planned", {
-    kind,
-    frames: frameCount,
-    weak: {
-      overlap: count("overlap"),
-      filler: count("filler"),
-      profileFill: count("profile-fill"),
-    },
-    overlapsSwapped: unique.swapped.length,
+  /* The route writes design.outline.planned once, after its own shape
+     check; a second line here counted every outline twice (integration
+     round 2, LOW 6). */
+  return {
+    outline,
     modelCalls,
-    ms,
-  });
-  return { outline, modelCalls, ms };
+    ms: Date.now() - started,
+    overlapsSwapped: unique.swapped.length,
+  };
 }

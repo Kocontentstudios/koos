@@ -44,15 +44,18 @@ import {
   type CopyFault,
   type FaultRules,
   type Flag,
+  faultScore,
   removalFree,
   setFaults,
 } from "./faults";
 import { applyFixes, copyKey, fixesFor, newClaims, tidyLines } from "./fixes";
+import { hasOneFooterSystem, withOneFooterSystem } from "./footer-system";
 import { shipGate, unsourcedOnSet } from "./gate";
 import { type AlternateCopy, lastResort, sourceTextOf } from "./last-resort";
 import { lastStand } from "./last-stand";
 import { withFigureLayout } from "./layouts";
 import { sequenceLedger } from "./ledger";
+import { whereItLives } from "./left-out";
 import {
   approvedPoints,
   factsIn,
@@ -946,7 +949,20 @@ async function planSequenceOnce(
       return at < 0 ? [] : [{ ...u, frame: at }];
     });
   }
-  const blockingLeft = stand ? stand.blocking : resorted.blocking;
+  /* One footer system for the set (H2), kept only where it adds no
+     blocking fault: a line a frame needs is never traded for the look. */
+  const footed = withOneFooterSystem(plan);
+  const footRules = stand?.rules ?? rules;
+  const footerSettled =
+    footed !== plan &&
+    faultScore(blockingFaults(setFaults(footed, footRules))) <=
+      faultScore(blockingFaults(setFaults(plan, footRules)));
+  if (footerSettled) plan = footed;
+  const blockingLeft = footerSettled
+    ? blockingFaults(setFaults(plan, footRules))
+    : stand
+      ? stand.blocking
+      : resorted.blocking;
   const refused = blockingLeft.map((f) => ({
     frame: f.frame,
     detail: f.detail,
@@ -962,11 +978,18 @@ async function planSequenceOnce(
       title: approvedOutline?.points[index]?.title ?? "",
       reason: "empty" as const,
     })),
-    ...(stand?.dropped ?? []).map((i) => ({
-      index: origin[i] ?? i,
-      title: outline?.points[i]?.title ?? beforeStand.frames[i]?.title ?? "",
-      reason: "fault" as const,
-    })),
+    ...(stand?.dropped ?? []).map(
+      (i): LeftOutFrame => ({
+        index: origin[i] ?? i,
+        title: outline?.points[i]?.title ?? beforeStand.frames[i]?.title ?? "",
+        ...whereItLives(
+          plan.frames,
+          stand?.promoted.includes(i) ?? false,
+          approvedPoints(outline)[i] || beforeStand.frames[i]?.headline || "",
+          free,
+        ),
+      }),
+    ),
   ].sort((a, b) => a.index - b.index);
   const framesDropped = framesLeftOut.map((f) => f.index);
 
@@ -1004,6 +1027,7 @@ async function planSequenceOnce(
     factsReleased: released,
     lastResort: resorted.applied,
     lastStand: stand?.applied ?? [],
+    footerSystem: hasOneFooterSystem(plan.frames) ? "one" : "per-frame",
     placeholders: placeholders?.applied ?? [],
     framesDropped,
     refused: refused.length,

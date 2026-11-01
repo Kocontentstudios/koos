@@ -7,6 +7,7 @@ import {
 import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { upperFirst } from "./casing";
 import type { FrameBeat } from "./contract";
+import { readerBrief } from "./designer-note";
 import type { FrameRepeat } from "./repeats";
 import { frameCopy } from "./validate";
 
@@ -113,6 +114,12 @@ const JOINED = /^(?:and|but|plus)\s+/i;
    "Brings designers"). Alone, each half reads cut off. */
 const LIST_TAIL = /^[\p{L}\p{N}'-]+(?:\s+[\p{L}\p{N}'-]+)?\s+(?:and|or|&)\s/iu;
 
+/* A clause ending on a determiner and one word before a comma is a noun
+   phrase's first adjective ("who want a smooth, low-acid coffee"): cut
+   there, it stops on the adjective with its noun on the next clause. */
+const ADJECTIVE_BEFORE_COMMA =
+  /\b(?:a|an|the|our|your|their|its|this|that|some|every|each|more|most|very|so)\s+[\p{L}-]+$/iu;
+
 const capitalised = upperFirst;
 
 /** A field's statements, one per clause: "Full-grain leather, hand-stitched
@@ -129,7 +136,10 @@ export function profileClauses(text: string): string[] {
     const short = contentStems(clause).size < CLAUSE_WORDS;
     const listed = pieces[i - 1] === "," && /^\p{Ll}/u.test(clause);
     const leans =
-      short || QUALIFIES.test(clause) || (listed && LIST_TAIL.test(clause));
+      short ||
+      QUALIFIES.test(clause) ||
+      (listed && LIST_TAIL.test(clause)) ||
+      (listed && ADJECTIVE_BEFORE_COMMA.test(clauses.at(-1) ?? ""));
     if (clauses.length > 0 && leans) {
       clauses[clauses.length - 1] = `${clauses[clauses.length - 1]}, ${clause}`;
       continue;
@@ -175,7 +185,12 @@ export function briefPoints(
   facts: readonly BriefFact[],
 ): string[] {
   const named = new Set(facts.flatMap((f) => [...contentStems(f.text)]));
-  return profileClauses(briefText.replace(/\s+/g, " ").trim()).filter(
+  /* A note to the designer ("Audience: …", "Tone: …") is not a point a
+     reader is told; the brand profile's audience is left out of the pool
+     for the same reason (PROFILE_POINT_FIELDS). */
+  return profileClauses(
+    readerBrief(briefText).replace(/\s+/g, " ").trim(),
+  ).filter(
     (clause) =>
       [...contentStems(clause)].filter((s) => !named.has(s)).length >=
       CLAUSE_WORDS,

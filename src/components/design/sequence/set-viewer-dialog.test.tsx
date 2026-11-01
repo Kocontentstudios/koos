@@ -8,9 +8,12 @@ vi.mock("@/lib/generation/poll-job", () => ({
 }));
 
 import { PollTimeoutError } from "@/lib/generation/poll-errors";
+import { withDesignFlags } from "@/lib/testing/ko-imagery";
 import { BRAND, frameRow, frameRows } from "./fixtures";
 import { buildSet, type DesignSet } from "./set-model";
 import { SetViewerDialog } from "./set-viewer-dialog";
+
+const FLAGS_ON = withDesignFlags({ koImagery: true, multiFrame: true });
 
 function setOf(rows = frameRows(5)): DesignSet {
   return buildSet(BRAND, rows) as DesignSet;
@@ -36,6 +39,7 @@ describe("SetViewerDialog fed a fresher read of its set", () => {
     building[4] = frameRow(4, { status: "pending", url: null });
     const { rerender } = render(
       <SetViewerDialog set={setOf(building)} onClose={vi.fn()} />,
+      FLAGS_ON,
     );
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(
@@ -64,6 +68,7 @@ describe("SetViewerDialog fed a fresher read of its set", () => {
     pollGenerationJob.mockRejectedValueOnce(new PollTimeoutError());
     const { rerender } = render(
       <SetViewerDialog set={setOf()} onClose={vi.fn()} />,
+      FLAGS_ON,
     );
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(

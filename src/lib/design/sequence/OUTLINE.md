@@ -80,7 +80,8 @@ A planner that throws, or returns an outline that breaks these rules, is
 outline.
 
 Trace: one log line `design.outline.planned` with `{kind, frames, weak:
-{overlap, filler, profileFill}, modelCalls, ms}`. No brief text in the log.
+{overlap, filler, profileFill}, overlapsSwapped, modelCalls, ms}`, written by
+the route only (the planner returns `overlapsSwapped`). No brief text in the log.
 
 ## Weak flags (`flagOutline`, pure)
 
@@ -91,7 +92,7 @@ the profile source alone is not a flag: the UI already shows `source`.
 | kind | When | Example reason |
 |---|---|---|
 | `overlap` | The point makes an earlier point's point (`claimsOverlap` over the brief facts, `namesFree` words ignored), or the hook's (`echoesHook`: it gives one of the hook's figures, or shares two of its words beyond the names). `overlapsWith` is the earlier point's id. | "Says the same as point 2. Give this slide a different point." / "The first slide already says this. Give this slide a point the first slide does not make." |
-| `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else); a point of three words or fewer ("Six Saturdays", "₦150 per kWh", "Ngozi Ade"); or the prompt left where nothing was found (`EMPTY_POINT`, checked before overlap and never named as the earlier point another overlaps). A bare figure the reader weighs (a quantity, offer, condition or age with a number: "Only 12 places", "Ready in 3 days") is not filler. | "Only says when it happens. Add what the reader gets." |
+| `filler` | A body point whose only content is who it is for, when or where (audience, date, day, time, place facts and nothing else); a point of three words or fewer ("Six Saturdays", "₦150 per kWh", "Ngozi Ade"); or the prompt left where nothing was found (`EMPTY_POINT`, checked before overlap and never named as the earlier point another overlaps). A point drawn from the brief's own note on who the piece is for (60% of its words in an `audienceNotes` sentence) says only who it is for, however long; a point that is the brief's words cut at a comma before their noun ("who want a smooth", `cutBeforeItsNoun`) stops mid-sentence. A bare figure the reader weighs (a quantity, offer, condition or age with a number: "Only 12 places", "Ready in 3 days") is not filler. | "Only says when it happens. Add what the reader gets." |
 | `profile-fill` | A body point drawn from the profile because the brief ran out that states what the brand is, sells or believes (`genericProfile`: overview, offer, values). Never on a `"user"` point, never on one drawn from `differentiators`: a concrete profile fact ("Beans from the Mambilla Plateau") shows its `source` and is not flagged. | "Taken from your brand profile because the brief ran out: it says what the brand is or believes, which the first slide already says. Replace it with a fact about this offer." |
 
 Only body points are flagged, plus a hook that only names the offer (no
@@ -131,6 +132,14 @@ to about 60%.
    the brief's words up to the figure when they are little more than it
    ("We are raising $1.2 million" of a longer sentence; `leadUpTo`), else
    bare (`actionPoint`).
+1a. The brief's words to the designer are never a point (`designer-note.ts`):
+   a labelled note ("Audience:", "Target:", "For:", "Tone:", "Goal:" and the
+   like) leaves the pool and every sentence a point quotes, a piece lead
+   ("A short deck for office managers in Lagos:") is cut off its sentence,
+   and a fact only those words give is not the set's to carry
+   (`onlyForDesigner`, read in `readSequenceBrief`). A clause is never cut
+   at the comma between two adjectives ("who want a smooth, low-acid
+   coffee" stays whole, `profileClauses`).
 2a. Every hard brief fact is on a point (`withEveryFactPlaced`, H5). A
    claim fact no point states (a count, an offer, a condition) takes the
    emptiest body slot in the brief's own sentence (an empty slide first,
@@ -546,6 +555,14 @@ than how:
    `FRAME_BOUNDS`. Its facts go to the action frame and are drawn there,
    per-frame rules move up one (`rulesWithout`), neighbours' layouts are
    settled again.
+3. Lift: a hook that still blocks takes a body frame's line as its
+   headline, and that frame leaves the set, only when the lifted hook
+   passes what a planned hook must (`promotableOntoHook`): the headline
+   stands whole (no fragment, no relative opener like "Who want…"), is
+   not the brief's words to the designer ("Audience: …", a piece lead),
+   the hook still names the offering, and no flat-hook fault is left.
+   Otherwise the hook keeps its fault and is refused (integration round
+   2, HIGH 1: "Audience: young professionals in Yaba" opened a set).
 
 Neither ever touches a frame whose point the owner wrote (Addendum D,
 D1): `"user"`, or `edited` (`ownerWritten`). Its fault is left on the set
@@ -559,7 +576,10 @@ Each change is kept only where the set ends with fewer blocking faults.
 What is left is refused as before. `PlannedSequenceResult.framesDropped`
 lists the dropped frames by their index in the approved outline, and
 `framesLeftOut` names each one (the outline point's title, else the
-frame's) with its reason, `"fault"` or `"empty"`. The job renders and
+frame's) with its reason: `"empty"`, `"fault"`, or `"merged"` when its
+line opens the hook or another slide still makes its point (`keptOn`
+names that slide; `whereItLives`, `left-out.ts`). The notice never says
+a slide "couldn't be worded" while its words are on the set. The job renders and
 bills only the frames left and reports both on its result
 (`SequenceJobResult`). The set view says which slides were left out and
 why, above the stage (`leftOutNotice`, `set-viewer.tsx`). The trace keeps
@@ -568,6 +588,17 @@ the counts apart: `design.sequence.completed` and
 `dropped` / `frames_dropped`, `delivered` and `failed` (planned frames
 that did not render) (`setCounts`). The eval holds the set to the count
 it says it delivered and prints "frames dropped by the last stand".
+
+### One footer system per set (H2)
+
+After the last stand, `withOneFooterSystem` (`footer-system.ts`) puts
+every footer line on the action frame, where the reader looks to act, and
+clears the other frames' footers; a line the action already says is not
+said twice, and a full footer takes a line beside its shortest one ("our
+Yaba shop · 8am to 2pm") when that fits the footer's 40 characters. All or
+nothing, and kept only when it adds no blocking fault. The trace's
+`footerSystem` is `"one"` or `"per-frame"` (integration round 2, MEDIUM 3:
+a date bar on one body slide and on no other).
 
 ### An "Add a point" slide left untouched (C5)
 

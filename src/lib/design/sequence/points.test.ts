@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FrameBeat } from "./contract";
-import { beatOf, CAFE_FACTS, cafePlan, fact } from "./fixtures";
+import { beatOf, CAFE_FACTS, cafePlan, fact, LUMEN_BRIEF } from "./fixtures";
 import {
   briefPoints,
   factOnlyFrames,
@@ -254,5 +254,34 @@ describe("pricesWithoutScope: a price keeps what the brief says it is for", () =
       }),
     ];
     expect(pricesWithoutScope(frames, [price], brief, free)).toEqual([]);
+  });
+});
+
+/* Integration round 2, HIGH 2: the pool cut the brief's audience note at
+   its comma ("Audience: young professionals in Yaba and Surulere who want a
+   smooth") and offered it as a point. */
+describe("briefPoints: the brief's notes to the designer", () => {
+  const lumenFacts = [
+    fact("date", "Saturday 14 November"),
+    fact("place", "our Yaba shop (12 Herbert Macaulay Way)"),
+    fact("price", "N3,500"),
+    fact("contact", "WhatsApp 0812 555 0199"),
+  ];
+
+  it("offers no point from a note to the designer", () => {
+    const points = briefPoints(LUMEN_BRIEF, lumenFacts);
+    expect(points.length).toBeGreaterThan(0);
+    for (const p of points) {
+      expect(p).not.toMatch(/audience|young professionals|surulere/i);
+    }
+  });
+
+  it("never cuts a noun phrase at the comma between its adjectives", () => {
+    expect(
+      profileClauses("Made for people who want a smooth, low-acid cup"),
+    ).toEqual(["Made for people who want a smooth, low-acid cup"]);
+    expect(
+      profileClauses("Full-grain leather, hand-stitched soles, free resole"),
+    ).toEqual(["Full-grain leather", "Hand-stitched soles", "Free resole"]);
   });
 });

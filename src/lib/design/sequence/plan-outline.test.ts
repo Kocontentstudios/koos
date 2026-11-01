@@ -241,6 +241,42 @@ describe("planSequence from an approved outline (O5)", () => {
     ]);
   });
 
+  /* Integration round 2, MEDIUM 3: one body slide carried a date bar and
+     no other did. The plan decides the footer once. */
+  it("gives the set one footer system: the brief's lines on the close only", async () => {
+    generateObject.mockImplementation(async (o: unknown) => {
+      if (isArc(o)) return { object: ARC };
+      if (isCopy(o)) {
+        return {
+          object: {
+            ...COPY,
+            frames: COPY.frames.map((f, i) =>
+              i === 1
+                ? { ...f, footerLines: ["Saturday 15 November"] }
+                : i === 3
+                  ? {
+                      ...f,
+                      footerLines: [
+                        "₦2,500 a bottle",
+                        "WhatsApp 0803 555 0142",
+                      ],
+                    }
+                  : f,
+            ),
+          },
+        };
+      }
+      if (isAudit(o))
+        return { object: { repeats: [], unsourced: [], freshSpares: [] } };
+      return { object: { frames: [] } };
+    });
+    const result = await plan();
+    const footers = result.plan.frames.map((f) => f.footerLines);
+    expect(footers.slice(0, -1)).toEqual([[], [], []]);
+    expect(footers.at(-1)?.length).toBeLessThanOrEqual(3);
+    expect(footers.at(-1)?.join(" \n ")).toContain("8am to 2pm");
+  });
+
   it("refuses an outline whose length is not the frame count", async () => {
     await expect(plan(OUTLINE, 5)).rejects.toThrow(/4 points for 5 frames/);
     expect(generateObject).not.toHaveBeenCalled();

@@ -156,9 +156,10 @@ export interface ReplanFrameInput {
 }
 
 /** Why a planned frame is not in the delivered set: its point was left as
- *  "Add a point" ("empty"), or its copy kept a blocking fault code could
- *  not clear ("fault"). */
-export type LeftOutReason = "empty" | "fault";
+ *  "Add a point" ("empty"), its copy kept a blocking fault code could
+ *  not clear ("fault"), or it was taken off because another slide now
+ *  makes its point ("merged", with keptOn when one slide does). */
+export type LeftOutReason = "empty" | "fault" | "merged";
 
 /** A frame the set was asked for and does not deliver, named as the owner
  *  saw it. */
@@ -169,6 +170,9 @@ export interface LeftOutFrame {
    *  is known. */
   title: string;
   reason: LeftOutReason;
+  /** "merged" only: zero-based, in the set as delivered, the slide that
+   *  now makes its point. Absent when its point is spread over several. */
+  keptOn?: number;
 }
 
 /** Stored in generation_jobs.result when a sequence job succeeds, and in

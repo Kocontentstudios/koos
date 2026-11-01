@@ -344,6 +344,7 @@ describe("design outline route, the outline", () => {
       kind: "carousel",
       frames: 4,
       weak: { overlap: 1, filler: 1, profileFill: 0 },
+      overlapsSwapped: 0,
       modelCalls: 1,
       ms: 900,
     });

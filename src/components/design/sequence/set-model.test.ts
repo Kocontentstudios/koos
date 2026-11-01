@@ -326,3 +326,35 @@ describe("frames a set left out (Addendum D, D2)", () => {
     expect(leftOutNotice(whole)).toBeNull();
   });
 });
+
+/* Integration round 2, HIGH 1: slide 3's words were the hook's headline
+   while the notice said slide 3 "couldn't be worded". A slide whose point
+   another slide makes is said to be there. */
+describe("leftOutNotice: a slide whose words are still in the set", () => {
+  const notice = (frame: Parameters<typeof leftOutOf>[0]["framesLeftOut"]) => {
+    const set = buildSet(BRAND, frameRows(4), { leftOut: frame });
+    if (!set) throw new Error("no set");
+    return leftOutNotice(set)?.slides ?? [];
+  };
+
+  it("says a slide whose line opens the set is on slide 1, never that it couldn't be worded", () => {
+    const [line] = notice([
+      { index: 2, title: "Low-acid coffee", reason: "merged", keptOn: 0 },
+    ]);
+    expect(line).toBe(
+      "Slide 3, “Low-acid coffee”: its line now opens slide 1, so it isn't repeated on a slide of its own.",
+    );
+    expect(line).not.toMatch(/couldn't word/);
+  });
+
+  it("names the slide that makes its point, or says the others do", () => {
+    expect(
+      notice([{ index: 2, title: "", reason: "merged", keptOn: 3 }]),
+    ).toEqual([
+      "Slide 3: slide 4 already makes its point, so it isn't repeated on a slide of its own.",
+    ]);
+    expect(notice([{ index: 2, title: "", reason: "merged" }])).toEqual([
+      "Slide 3: the other slides already make its point, so it isn't repeated on a slide of its own.",
+    ]);
+  });
+});

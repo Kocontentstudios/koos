@@ -9,6 +9,7 @@ import {
 } from "@/lib/jobs/directions/brief-read";
 import { actionPrices } from "./arc";
 import { FRAME_BOUNDS, type SequenceKind } from "./contract";
+import { onlyForDesigner } from "./designer-note";
 import { namesFree } from "./hook";
 import { sequenceFacts } from "./ledger";
 
@@ -143,10 +144,14 @@ export async function readSequenceBrief(
     ]),
   );
   const brandName = context.brandSummary.name;
+  /* A fact only the brief's note to the designer gives ("Audience: young
+     professionals in Yaba and Surulere") is not the reader's to be told,
+     so no frame is held to it. */
   const facts = sequenceFacts(read, brandName, briefText).filter(
     (f) =>
-      f.kind !== "product" ||
-      (!NAMES_THE_PIECE.test(f.text.trim()) && isThing(f.text)),
+      (f.kind !== "product" ||
+        (!NAMES_THE_PIECE.test(f.text.trim()) && isThing(f.text))) &&
+      (f.kind === "product" || !onlyForDesigner(f, briefText)),
   );
   const offering = settledOffering(
     read.offering?.phrase ?? null,

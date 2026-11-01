@@ -158,6 +158,7 @@ export async function POST(req: Request) {
       filler: weakOf("filler"),
       profileFill: weakOf("profile-fill"),
     },
+    overlapsSwapped: planned.overlapsSwapped ?? 0,
     modelCalls: planned.modelCalls,
     ms: planned.ms,
   });

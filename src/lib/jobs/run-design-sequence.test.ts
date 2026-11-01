@@ -821,6 +821,30 @@ describe("billing and traces", () => {
   });
 });
 
+/* Integration round 2, LOW 6: a fact the owner deleted from the outline
+   was counted as missing (factsMissing: 2, setFaults), so the trace
+   overstated the set's faults. */
+describe("a fact the owner took out of the outline", () => {
+  it("is never counted as missing from the set", async () => {
+    const facts = [
+      { kind: "price", text: "₦600", needs: ["600"] },
+      { kind: "offer", text: "buy two, get a free pastry", needs: ["pastry"] },
+    ];
+    const frames = Array.from({ length: 3 }, (_, i) => beat(i, 3));
+    frames[1] = { ...frames[1], headline: "Only ₦600 a box" };
+    planSequence.mockResolvedValue(
+      planned(planOf(3, frames), {
+        facts,
+        factsReleased: ["buy two, get a free pastry"],
+      }),
+    );
+    await run(3);
+    const metadata = db.usage[0].metadata;
+    expect(metadata.setFactsMissing).toEqual([]);
+    expect(metadata.setFaults).toEqual([]);
+  });
+});
+
 describe("a frame that fails", () => {
   it("marks its row failed and delivers and bills the rest", async () => {
     let calls = 0;

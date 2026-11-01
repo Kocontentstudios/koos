@@ -38,20 +38,41 @@ describe("checkBuildOutput", () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  async function serverWith(files) {
+  async function serverWith(files, text = {}) {
     dir = await mkdtemp(path.join(tmpdir(), "koos-build-check-"));
     for (const file of files) {
       await mkdir(path.dirname(path.join(dir, file)), { recursive: true });
-      await writeFile(path.join(dir, file), "");
+      await writeFile(path.join(dir, file), text[file] ?? "");
     }
     return dir;
   }
 
-  it("fails a build that bundled the worker, naming the fix", async () => {
+  /* Integration round 2, LOW 4: the text told the reader to use
+     webpackIgnore, which f06259a found Turbopack 16.4.1 ignores. */
+  it("fails a build that bundled the worker, naming the fix that works", async () => {
     const result = await checkBuildOutput(await serverWith(BUNDLED_WORKER));
     expect(result.ok).toBe(false);
     expect(result.problems).toHaveLength(2);
-    expect(result.problems[0]).toMatch(/webpackIgnore/);
+    expect(result.problems[0]).toMatch(/process\.getBuiltinModule/);
+    expect(result.problems[0]).toMatch(
+      /webpackIgnore and turbopackIgnore do not stop/,
+    );
+    expect(result.problems[0]).not.toMatch(/Pass its path .* webpackIgnore/);
+  });
+
+  it("fails a build whose chunk compiled a require into a throw, whatever its name", async () => {
+    const chunk = "chunks/ssr/some_renamed_chunk._.js";
+    const result = await checkBuildOutput(
+      await serverWith([chunk, "app/page.js"], {
+        [chunk]: `e.exports=function(){throw Error("Cannot find module as expression is too dynamic")}`,
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.problems).toEqual([
+      expect.stringMatching(
+        /^chunks\/ssr\/some_renamed_chunk\._\.js: .*too dynamic/,
+      ),
+    ]);
   });
 
   it("passes a build that did not", async () => {

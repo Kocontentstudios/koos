@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { factLedger } from "@/lib/jobs/directions/claims";
-import type { PlannedSequence } from "./contract";
+import type { FrameBeat, PlannedSequence } from "./contract";
 import { blockingFaults, type FaultRules, setFaults } from "./faults";
-import { beatOf, CAFE_BRIEF, CAFE_FACTS, cafePlan } from "./fixtures";
-import { lastStand, rulesWithout } from "./last-stand";
+import {
+  beatOf,
+  CAFE_BRIEF,
+  CAFE_FACTS,
+  cafePlan,
+  fact,
+  LUMEN_BRIEF,
+} from "./fixtures";
+import { lastStand, promotableOntoHook, rulesWithout } from "./last-stand";
 
 /* Rubric Addendum C, C1: a blocking fault the repairs leave is cleared by
    a sourced point in the frame's place, or the frame off the set; never
@@ -235,6 +242,7 @@ describe("lastStand: a hook no spare can fix", () => {
     });
     expect(result.blocking).toEqual([]);
     expect(result.dropped).toEqual([1]);
+    expect(result.promoted).toEqual([1]);
     expect(result.plan.frames[0].headline).toBe("Pour one at our Yaba bar");
     expect(result.plan.frames[0].subheadline).toBe(hookPoint);
     expect(result.rules.owners?.[0]).toEqual([0, 4]);
@@ -305,5 +313,153 @@ describe("rulesWithout", () => {
       { kind: "unsourced", frame: 2, text: "z" },
     ]);
     expect(next.held).toEqual([{ text: "a held point", frames: [0, 4] }]);
+  });
+});
+
+/* Integration round 2, HIGH 1, the critic's own set: the hook still
+   blocked, the stand took slide 3's line ("Audience: young professionals
+   in Yaba", the brief's note to the designer) as the hook's headline and
+   dropped slide 3, and the set view said slide 3 "couldn't be worded". */
+describe("lastStand: a line that cannot open the set never becomes the hook", () => {
+  const LUMEN_FACTS = [
+    fact("product", "Lumen Cold Brew"),
+    fact("date", "Saturday 14 November"),
+    fact("place", "our Yaba shop (12 Herbert Macaulay Way)"),
+    fact("price", "N3,500"),
+    fact("contact", "WhatsApp 0812 555 0199"),
+  ];
+  const hookPoint =
+    "Lumen Cold Brew is steeped for 20 hours from single-origin Ethiopian beans.";
+  const lumenPlan = (third: Partial<FrameBeat>): PlannedSequence => ({
+    ...cafePlan(),
+    frames: [
+      beatOf({
+        role: "hook",
+        title: "Lumen Cold Brew",
+        headline: "Lumen Cold Brew is here",
+        subheadline: "Our cold brew lands at the Yaba shop on Saturday.",
+        layout: "banner-bottom",
+        showsImage: true,
+      }),
+      beatOf({
+        title: "Launch day pastry",
+        headline: "Buy two, get a free pastry",
+        subheadline: "The pastry comes free on launch day only.",
+        layout: "split-left",
+      }),
+      beatOf({
+        title: "Young professionals in Yaba",
+        headline: "Audience: young professionals in Yaba",
+        subheadline: "Lumen Cold Brew is smooth and low in acid.",
+        ...third,
+      }),
+      beatOf({
+        role: "cta",
+        title: "Order ahead",
+        headline: "Order ahead for Saturday 14 November",
+        cta: "Order on WhatsApp",
+        footerLines: [
+          "N3,500 a bottle",
+          "our Yaba shop (12 Herbert Macaulay Way)",
+          "WhatsApp 0812 555 0199",
+        ],
+        layout: "quote-card",
+      }),
+    ],
+  });
+  const lumenRules = (claims: string[]): FaultRules => ({
+    frameCount: 4,
+    facts: LUMEN_FACTS,
+    offering: "Lumen Cold Brew",
+    hasImage: true,
+    brandName: "Lumen Coffee",
+    names: [],
+    ledger: factLedger([LUMEN_BRIEF], 1),
+    owners: [[0], [], [], [1, 2, 3, 4]],
+    claims,
+    briefText: LUMEN_BRIEF,
+  });
+  const claims = [
+    hookPoint,
+    "Launch day only: buy two, get a free pastry.",
+    "Audience: young professionals in Yaba and Surulere who want a smooth",
+    "",
+  ];
+
+  it("starts from a hook that blocks", () => {
+    expect(blockingOn(lumenPlan({}), lumenRules(claims))).toContain(0);
+  });
+
+  it("never puts the brief's note to the designer on the hook", () => {
+    /* The owner wrote slide 2, so slide 3 is the only body frame the
+       stand may take off: the live run's position. */
+    const result = lastStand({
+      plan: lumenPlan({}),
+      rules: lumenRules(claims),
+      claims,
+      spares: [],
+      sourceText: LUMEN_BRIEF,
+      ownerWritten: [false, true, false, false],
+    });
+    const hook = result.plan.frames[0];
+    expect(hook.headline).not.toMatch(/audience|young professionals/i);
+    for (const what of result.applied) {
+      expect(what).not.toMatch(/^frame 3: its line made the hook's headline/);
+    }
+    for (const beat of result.plan.frames) {
+      expect(beat.headline).not.toMatch(/^Audience:/);
+    }
+    expect(result.dropped).toContain(2);
+    expect(result.promoted).toEqual([]);
+  });
+});
+
+describe("promotableOntoHook", () => {
+  const rules = {
+    offering: "Lumen Cold Brew",
+    names: [],
+    brandName: "Lumen Coffee",
+    facts: [],
+  };
+  const hook = (headline: string) =>
+    beatOf({
+      role: "hook",
+      headline,
+      subheadline:
+        "Lumen Cold Brew pours low in acid, straight from the bottle.",
+    });
+
+  it.each([
+    [
+      "the brief's note to the designer",
+      "Audience: young professionals in Yaba",
+    ],
+    ["a fragment", "Who want a smooth"],
+    ["the piece's own lead", "A short deck for office managers in Lagos"],
+    ["an announcement", "Lumen Cold Brew is here"],
+  ])("refuses %s", (_, headline) => {
+    expect(promotableOntoHook(hook(headline), rules)).toBe(false);
+  });
+
+  it("refuses a hook that no longer names the offering", () => {
+    expect(
+      promotableOntoHook(
+        beatOf({
+          role: "hook",
+          headline: "Steeped 20 hours, so every sip stays smooth",
+          subheadline: "No heat touches the beans.",
+        }),
+        rules,
+      ),
+    ).toBe(false);
+  });
+
+  it("takes a concrete line over a subheadline that names the offering", () => {
+    expect(
+      promotableOntoHook(
+        hook("Steeped 20 hours, so every sip stays smooth"),
+        rules,
+      ),
+    ).toBe(true);
   });
 });

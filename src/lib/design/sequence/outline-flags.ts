@@ -3,6 +3,7 @@ import { contentStems } from "@/lib/jobs/directions/text-overlap";
 import { claimsOverlap } from "./arc";
 import { conceptsIn, withConcepts } from "./concepts";
 import type { OutlinePoint, OutlineWeak, SequenceKind } from "./contract";
+import { audienceNotes } from "./designer-note";
 import { EMPTY_POINT, factsIn } from "./outline-arc";
 import { stopsMidPhrase } from "./phrase";
 
@@ -21,6 +22,11 @@ export interface OutlineFlagContext {
    *  describes the brand, which the hook already names, and its flag
    *  says to replace it. */
   genericProfile?: readonly string[];
+  /** The brief's own words, read for a point cut out of one of its
+   *  sentences before its noun (cutBeforeItsNoun) and for its notes on who
+   *  the piece is for (audienceNotes): a point drawn from one of those is
+   *  flagged as the profile's audience is. */
+  briefText?: string;
 }
 
 /** The profile fields whose statements describe the brand rather than
@@ -86,11 +92,32 @@ const BARE_WORDS = 3;
 const wordsIn = (text: string) =>
   text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
+const WHO_IT_IS_FOR = "Only says who it is for. Say what they get from it.";
+
+/* A point the brief's note on who the piece is for already says ("Young
+   professionals in Yaba who want a smooth, low-acid coffee") describes the
+   reader, however many words it has. */
+const AUDIENCE_SHARE = 0.6;
+
+function drawnFromAudienceNote(point: string, briefText: string): boolean {
+  const own = [...contentStems(point)];
+  if (own.length === 0) return false;
+  return audienceNotes(briefText).some((note) => {
+    const theirs = contentStems(note);
+    return (
+      own.filter((s) => theirs.has(s)).length / own.length >= AUDIENCE_SHARE
+    );
+  });
+}
+
 function fillerReason(
   point: Draft,
   stated: readonly BriefFact[],
   ctx: OutlineFlagContext,
 ): string | null {
+  if (drawnFromAudienceNote(point.point, ctx.briefText ?? "")) {
+    return WHO_IT_IS_FOR;
+  }
   const audience = contentStems(ctx.audience ?? "");
   const logistics = stated.filter((f) => WHEN.has(f.kind) || WHERE.has(f.kind));
   const ignored = new Set([
@@ -114,7 +141,7 @@ function fillerReason(
   }
   const said = contentStems(point.point, ctx.free);
   if ([...said].some((s) => audience.has(s))) {
-    return "Only says who it is for. Say what they get from it.";
+    return WHO_IT_IS_FOR;
   }
   const fact = stated[0];
   if (fact) {
@@ -124,6 +151,27 @@ function fillerReason(
     return `Only gives "${point.point}". Say what it means for the reader.`;
   }
   return "Too thin to fill a slide. Say one thing the reader gets or should know.";
+}
+
+/* "who want a smooth" of the brief's "who want a smooth, low-acid
+   coffee": the point stops on an adjective whose noun the brief gives
+   after the comma. */
+const ENDS_ON_DETERMINER_AND_WORD =
+  /\b(?:a|an|the|our|your|their|its|this|that|some|every|each|more|most|very|so)\s+[\p{L}-]+$/iu;
+
+const escapedForRegex = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Whether `point` is the brief's words cut at a comma before the noun
+ *  they lead to. */
+export function cutBeforeItsNoun(point: string, briefText: string): boolean {
+  const bare = point.trim().replace(/[.…]+$/, "");
+  if (!bare || !briefText || !ENDS_ON_DETERMINER_AND_WORD.test(bare)) {
+    return false;
+  }
+  return new RegExp(`${escapedForRegex(bare)},\\s+\\p{Ll}`, "iu").test(
+    briefText.replace(/\s+/g, " "),
+  );
 }
 
 /* Words that announce rather than give a reason ("Now open", "Introducing"). */
@@ -226,7 +274,11 @@ export function flagOutline<P extends Draft>(
       ...point,
       weak: w,
     });
-    if (point.role !== "cta" && stopsMidPhrase(point.point)) {
+    if (
+      point.role !== "cta" &&
+      (stopsMidPhrase(point.point) ||
+        cutBeforeItsNoun(point.point, ctx.briefText ?? ""))
+    ) {
       return weak({
         kind: "filler",
         reason:

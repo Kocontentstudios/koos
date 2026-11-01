@@ -22,7 +22,7 @@ import {
 } from "@/components/design/sequence/set-jobs";
 import { SET_WATCH_INTERVAL_MS } from "@/components/design/sequence/use-set-watch";
 import type { SerializedGeneration } from "@/lib/design/serialize";
-import { withKoImagery } from "@/lib/testing/ko-imagery";
+import { withDesignFlags } from "@/lib/testing/ko-imagery";
 import { DesignStudioClient } from "./design-studio-client";
 
 const design = {
@@ -53,14 +53,14 @@ vi.mock("./context-picker", () => ({
   toAttachmentRefs: () => [],
 }));
 
-function renderStudio(initial: SerializedGeneration[]) {
+function renderStudio(initial: SerializedGeneration[], multiFrame = true) {
   return render(
     <DesignStudioClient
       brandId={BRAND}
       brandName="Lagos Loom"
       initialGenerations={initial}
     />,
-    withKoImagery(true),
+    withDesignFlags({ koImagery: true, multiFrame }),
   );
 }
 
@@ -560,5 +560,60 @@ describe("a set still being made when Design Studio opens", () => {
         .getByText("Making your carousel. Planning…")
         .closest("[role=status]"),
     ).not.toBeNull();
+  });
+});
+
+/* Integration round 2, MEDIUM 1: turned off as a kill switch, the flag
+   still left existing sets showing ZIP, PDF, Edit and Regenerate (each a
+   404 behind a "try again" message), and the studio asked for
+   /api/design/set-jobs on every load. */
+describe("Design Studio with FEATURE_MULTI_FRAME off", () => {
+  const frames = frameRows(5);
+
+  it("never asks for the server's set jobs", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderStudio([...frames, singleRow("s1")], false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SET_WATCH_INTERVAL_MS * 12);
+    });
+    expect(urls().filter((u) => u.startsWith("/api/design/set-jobs"))).toEqual(
+      [],
+    );
+  });
+
+  it("opens an existing set with per-frame downloads only", async () => {
+    renderStudio(frames, false);
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Open carousel/ }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    for (const name of [
+      "Download ZIP",
+      "Download PDF",
+      "Edit & regenerate frame 1",
+      "Regenerate frame 1",
+    ]) {
+      expect(within(dialog).queryByRole("button", { name })).toBeNull();
+    }
+    expect(
+      within(dialog).getByRole("link", { name: /Download this frame/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("promises no retry on a set none of whose frames rendered", () => {
+    renderStudio(
+      frames.map((r) => ({
+        ...r,
+        status: "failed",
+        url: null,
+      })) as SerializedGeneration[],
+      false,
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Open carousel, 5 slides: The launch. None of its frames rendered",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Open it to retry its frames")).toBeNull();
   });
 });

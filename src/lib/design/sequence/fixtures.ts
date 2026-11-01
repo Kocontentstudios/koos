@@ -115,3 +115,9 @@ export function withFrame(
     ),
   };
 }
+
+/* The integration critic's round 2 brief (HIGH 1 and 2): its last
+   sentence is a note to the designer, which reached slide 3 as a point and
+   then the hook as its headline. */
+export const LUMEN_BRIEF =
+  "Lumen Coffee is launching Lumen Cold Brew, a 20-hour steeped cold brew, on Saturday 14 November at our Yaba shop (12 Herbert Macaulay Way). A 350ml bottle costs N3,500. Launch day only: buy two, get a free pastry. Brewed with single-origin Ethiopian beans. Order ahead on WhatsApp 0812 555 0199. Audience: young professionals in Yaba and Surulere who want a smooth, low-acid coffee.";

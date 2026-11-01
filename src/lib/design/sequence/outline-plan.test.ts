@@ -7,6 +7,7 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 import { type BriefFact, needsFor } from "@/lib/jobs/directions/brief-facts";
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import { FRAME_BOUNDS, OUTLINE_LIMITS } from "./contract";
+import { LUMEN_BRIEF } from "./fixtures";
 import { EMPTY_POINT } from "./outline-arc";
 import {
   actionPoint,
@@ -198,19 +199,17 @@ describe("planOutline", () => {
     },
   );
 
-  it("logs counts only, never the brief", async () => {
+  /* Integration round 2, LOW 6: the planner and the route both wrote
+     design.outline.planned, so every outline was counted twice. The route
+     writes it; the planner hands over what only it knows. */
+  it("leaves the trace line to the route, handing over its counts", async () => {
     generateObject.mockResolvedValue({ object: arcAnswer([1, 2, 0]) });
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    await plan(3);
-    const [name, payload] =
-      info.mock.calls.find(([n]) => n === "design.outline.planned") ?? [];
-    expect(name).toBe("design.outline.planned");
-    expect(JSON.stringify(payload)).not.toContain("steeped");
-    expect(payload).toMatchObject({
-      kind: "carousel",
-      frames: 3,
-      modelCalls: 2,
-    });
+    const result = await plan(3);
+    expect(
+      info.mock.calls.filter(([n]) => n === "design.outline.planned"),
+    ).toHaveLength(0);
+    expect(result).toMatchObject({ modelCalls: 2, overlapsSwapped: 0 });
     info.mockRestore();
   });
 });
@@ -602,7 +601,9 @@ describe("owner-facing and broken copy on the outline's points", () => {
     const close = placed.at(-1)?.text ?? "";
     expect(close).not.toMatch(/short deck|office managers/i);
     expect(close).not.toContain(hook.replace(/\.$/, ""));
-    expect(close).toBe("Contact wholesale@lumencoffee.ng. In Lagos.");
+    /* Integration round 2, LOW 1: "Lagos" is only in the brief's words to
+       the designer, and glued on alone it read "… In Lagos." */
+    expect(close).toBe("Contact wholesale@lumencoffee.ng.");
   });
 
   it("drops only the lead that names the piece", () => {
@@ -623,5 +624,46 @@ describe("owner-facing and broken copy on the outline's points", () => {
     ]) {
       expect(withoutPieceLead(kept)).toBe(kept);
     }
+  });
+});
+
+/* Integration round 2, HIGH 2, end to end on the critic's brief: no point
+   quotes the brief's audience note, cut or whole, and a fact only that note
+   gives is not the set's to carry. */
+describe("planOutline on a brief with a note to the designer", () => {
+  const lumenReader = vi.fn(async () => ({
+    facts: [
+      { kind: "date", text: "Saturday 14 November" },
+      { kind: "place", text: "our Yaba shop (12 Herbert Macaulay Way)" },
+      { kind: "price", text: "N3,500" },
+      { kind: "contact", text: "WhatsApp 0812 555 0199" },
+      { kind: "place", text: "Yaba and Surulere" },
+    ],
+    offering: { kind: "product", phrase: "Lumen Cold Brew" },
+    people: [],
+  }));
+
+  it("never offers the note as a point, nor holds the set to its place", async () => {
+    generateObject.mockResolvedValue({
+      object: arcAnswer([1, 2, 3, 4, 0], "Steeped 20 hours for a smooth cup"),
+    });
+    const { outline } = await planOutline(
+      {
+        context: context({
+          title: "Lumen Cold Brew launch",
+          briefText: LUMEN_BRIEF,
+          brandSummary: { name: "Lumen Coffee", tone: "Warm" },
+        }),
+        kind: "carousel",
+        frameCount: 5,
+        memorySummary: "",
+      },
+      { briefReader: lumenReader },
+    );
+    for (const p of outline.points) {
+      expect(p.point).not.toMatch(/audience|surulere|young professionals/i);
+      expect(p.point).not.toMatch(/\ba smooth$/);
+    }
+    expect(outline.facts).not.toContain("Yaba and Surulere");
   });
 });

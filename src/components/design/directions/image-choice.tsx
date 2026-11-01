@@ -2,6 +2,8 @@
 
 import { ImageUp, type LucideIcon, Sparkles, Type } from "lucide-react";
 import { useState } from "react";
+import { kindNoun } from "@/components/design/sequence/set-model";
+import type { SequenceKind } from "@/lib/design/sequence/contract";
 import { DESIGN_IMAGE_SUMMARY } from "@/lib/uploads/design-image-limits";
 import { cn } from "@/lib/utils";
 import { offeredSources } from "./flow-logic";
@@ -78,6 +80,14 @@ export interface ImageChoiceProps {
   onNoImage: () => void;
   /** A file dropped on the upload card skips the empty drop zone entirely. */
   onFileDropped: (file: File) => void;
+  /** Set when the run makes one carousel or presentation, not two
+   *  directions: the cards then promise what the run makes. */
+  setKind?: SequenceKind | null;
+}
+
+/** What the run lays out, as the cards say it. */
+export function laidOut(setKind: SequenceKind | null | undefined): string {
+  return setKind ? `every slide of your ${kindNoun(setKind)}` : "both designs";
 }
 
 export function ImageChoice({
@@ -86,6 +96,7 @@ export function ImageChoice({
   onLetKoCreate,
   onNoImage,
   onFileDropped,
+  setKind = null,
 }: ImageChoiceProps) {
   const [dropActive, setDropActive] = useState(false);
 
@@ -121,7 +132,7 @@ export function ImageChoice({
         <ChoiceCard
           icon={Sparkles}
           title="Let KO create the imagery"
-          description="KO creates imagery from the brief and your Brand Brain, then builds both designs around it."
+          description={`KO creates imagery from the brief and your Brand Brain, then builds ${laidOut(setKind)} around it.`}
           hint="No image needed"
           onClick={onLetKoCreate}
         />
@@ -129,7 +140,7 @@ export function ImageChoice({
         <ChoiceCard
           icon={Type}
           title="Design without an image"
-          description="Your words lead. KO lays out both designs in your brand's type and colours, with no photo."
+          description={`Your words lead. KO lays out ${laidOut(setKind)} in your brand's type and colours, with no photo.`}
           hint="No image needed"
           onClick={onNoImage}
         />
