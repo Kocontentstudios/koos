@@ -6,6 +6,7 @@ vi.mock("@/lib/ai/provider", () => ({ getModel: () => "model" }));
 
 import { directionsContext } from "@/lib/jobs/directions/fixtures";
 import type { ApprovedOutline } from "./contract";
+import { EMPTY_POINT } from "./outline-arc";
 import { planSequence } from "./plan";
 
 const BRIEF =
@@ -215,6 +216,29 @@ describe("planSequence from an approved outline (O5)", () => {
       "cta",
     ]);
     expect(result.plan.frames[3].cta).toBe("Reserve on WhatsApp");
+  });
+
+  it('names an "Add a point" slide it left out, by its place in the approved outline', async () => {
+    const withPlaceholder: ApprovedOutline = {
+      ...OUTLINE,
+      points: [
+        ...OUTLINE.points.slice(0, 3),
+        {
+          id: "p4",
+          role: "body",
+          title: "Add a point",
+          point: EMPTY_POINT,
+          source: "user",
+        },
+        OUTLINE.points[3],
+      ],
+    };
+    const result = await plan(withPlaceholder);
+    expect(result.plan.frames).toHaveLength(4);
+    expect(result.framesDropped).toEqual([3]);
+    expect(result.framesLeftOut).toEqual([
+      { index: 3, title: "Add a point", reason: "empty" },
+    ]);
   });
 
   it("refuses an outline whose length is not the frame count", async () => {

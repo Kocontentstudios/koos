@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BrandSummary } from "@/lib/ai/prompts/strategy";
 import {
   type ApprovedOutline,
   type ApprovedOutlinePoint,
@@ -12,6 +13,7 @@ import {
   type SequenceKind,
 } from "./contract";
 import { signedSource } from "./outline-sign";
+import { profileStatements } from "./points";
 
 export interface OutlineValidateContext {
   /** The kind the server resolved from the brief; the client's is checked
@@ -22,6 +24,21 @@ export interface OutlineValidateContext {
   profileStatements: readonly string[];
   /** The brand's name: a domain spelling it is the owner's own (O4). */
   brandName?: string;
+}
+
+/** What every server path validates an approved outline against: the
+ *  route and the job alike, so a domain spelling the brand's name passes
+ *  both or neither. */
+export function outlineValidateContext(
+  kind: SequenceKind,
+  context: { briefText?: string | null; brandSummary: BrandSummary },
+): OutlineValidateContext {
+  return {
+    kind,
+    briefText: context.briefText ?? "",
+    profileStatements: profileStatements(context.brandSummary),
+    brandName: context.brandSummary.name,
+  };
 }
 
 export type OutlineValidation =
@@ -194,6 +211,12 @@ function registeredLabel(host: string): string {
   return labels.at(-1) ?? "";
 }
 
+/* A name is spelt in a domain with "&" as "and" or left out:
+   crownandcoil.ng and crowncoil.ng both spell "Crown & Coil". */
+const spellings = (name: string) => [
+  ...new Set([letters(name), letters(name.replace(/&|\+/g, " and "))]),
+];
+
 /** Whether `host` is the brand's own domain: the label it is registered
  *  under spells the brand's name, or two or three words the brief or
  *  profile run together as a name ("Pedal Doctor"). */
@@ -201,10 +224,42 @@ function ownDomain(host: string, names: readonly string[]): boolean {
   if (SHORTENERS.test(host)) return false;
   const label = letters(registeredLabel(host));
   if (label.length < OWN_NAME_CHARS) return false;
-  return names.some((name) => {
-    const spelt = letters(name);
-    return spelt.length >= OWN_NAME_CHARS && label === spelt;
-  });
+  return names.some((name) =>
+    spellings(name).some(
+      (spelt) => spelt.length >= OWN_NAME_CHARS && label === spelt,
+    ),
+  );
+}
+
+/* Where a Nigerian business sends readers to itself on a platform: its
+   Instagram handle, its WhatsApp number, its Paystack payment page. The
+   host must be the platform's own, exactly, so "instagram.com.evil.example"
+   and "wa.me.example" stay refused, and the path must be a handle, a
+   number or a payment page, never the bare platform. */
+const OWN_PAGES: readonly { host: RegExp; path: RegExp }[] = [
+  {
+    host: /^(?:www\.)?instagram\.com$/,
+    path: /^\/[a-z0-9._]{1,30}\/?$/,
+  },
+  { host: /^wa\.me$/, path: /^\/\+?\d{7,15}\/?(?:\?text=[^\s]*)?$/ },
+  {
+    host: /^(?:www\.)?paystack\.com$/,
+    path: /^\/(?:pay|buy)\/[a-z0-9-]{2,64}\/?$/,
+  },
+  {
+    host: /^(?:www\.)?paystack\.shop$/,
+    path: /^\/[a-z0-9-]{2,64}(?:\/[a-z0-9-]{1,64})?\/?$/,
+  },
+];
+
+/** Whether `link` is the owner's own page on a platform they sell
+ *  through (OWN_PAGES). */
+function ownPlatformPage(link: string): boolean {
+  const bare = link.toLowerCase().replace(/^https?:\/\//, "");
+  const slash = bare.search(/[/?#]/);
+  const host = slash < 0 ? bare : bare.slice(0, slash);
+  const path = slash < 0 ? "" : bare.slice(slash).replace(/[.,;:!]+$/, "");
+  return OWN_PAGES.some((page) => page.host.test(host) && page.path.test(path));
 }
 
 /* Capitalised runs of two or three words: the names a brief writes. */
@@ -230,7 +285,11 @@ export function unsourcedLinks(
     .map((m) => m[0])
     .filter((link) => {
       const host = hostOf(link);
-      return !known.includes(host) && !ownDomain(host, names);
+      return (
+        !known.includes(host) &&
+        !ownDomain(host, names) &&
+        !ownPlatformPage(link)
+      );
     });
 }
 
@@ -505,23 +564,22 @@ export function validateApprovedOutline(
     ok: true,
     outline: {
       kind,
-      points: points.map((p) => {
+      points: points.map((p): ApprovedOutlinePoint => {
         const point = flat(p.point);
+        const signed = signedSource(
+          { kind: ctx.kind, briefText: ctx.briefText, role: p.role, point },
+          p.sig,
+        );
+        /* The signature travels on with the point: the job validates the
+           route's outline again, and a point stripped of it there would be
+           read as the owner's. */
         return {
           id: p.id,
           role: p.role,
           title: flat(p.title),
           point,
-          source:
-            signedSource(
-              {
-                kind: ctx.kind,
-                briefText: ctx.briefText,
-                role: p.role,
-                point,
-              },
-              p.sig,
-            ) ?? outlineSourceOf(point, ctx),
+          source: signed ?? outlineSourceOf(point, ctx),
+          ...(signed ? { sig: p.sig } : { edited: true }),
         };
       }),
     },

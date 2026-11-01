@@ -213,10 +213,11 @@ export function titleWithin(title: string, max: number): string {
   return words.join(" ").slice(0, max);
 }
 
-/* A clause ends at a sentence mark, a dash or a comma that is not inside
-   a number ("1,200" stays whole). */
+/* A clause ends at a dash, a bracket, a comma that is not inside a
+   number ("1,200" stays whole), or a sentence mark a space or the end
+   follows, so "$1.2M" and "founders@farmlink.ng" stay whole. */
 const firstClause = (point: string) =>
-  point.split(/[.;:(—–!?]|,(?!\d)/)[0] ?? point;
+  point.split(/[.;:!?](?=\s|$)|[(—–]|,(?!\d)/)[0] ?? point;
 
 const keyOf = (word: string) =>
   word.toLowerCase().replace(/[^\p{L}\p{N}'’-]/gu, "");

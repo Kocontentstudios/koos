@@ -3,7 +3,7 @@ import {
   contentStems,
   isNearDuplicateHeadline,
 } from "@/lib/jobs/directions/text-overlap";
-import { upperFirst } from "./casing";
+import { upperFirst, withAddressesKept } from "./casing";
 import type { FrameBeat } from "./contract";
 
 /**
@@ -317,6 +317,39 @@ export function titleOffCopy(
   return ![...named].some((s) => mine.has(s));
 }
 
+/* A word that carries a figure or an address: "$750,000", "1,140",
+   "founders@farmlink.ng". */
+const WHOLE_TOKEN = /[\p{N}@]/u;
+const tokenKey = (word: string) =>
+  word.toLowerCase().replace(/^[^\p{L}\p{N}₦$£€@]+|[^\p{L}\p{N}%]+$/gu, "");
+
+/**
+ * The figure or address in `title` that is only the start of one its
+ * copy or sources give whole, or null: "$750" where the frame says
+ * "$750,000", "founders@farmlink" for "founders@farmlink.ng". A title
+ * that cuts one names a different sum or an address that goes nowhere.
+ */
+export function cutToken(
+  title: string,
+  texts: readonly string[],
+): string | null {
+  const given = new Set(
+    texts.flatMap((t) => t.split(/\s+/).map(tokenKey)).filter(Boolean),
+  );
+  for (const word of title.split(/\s+/)) {
+    const key = tokenKey(word);
+    if (!key || !WHOLE_TOKEN.test(key) || given.has(key)) continue;
+    const longer = [...given].find(
+      (g) =>
+        g.length > key.length &&
+        g.startsWith(key) &&
+        /^[,.@\p{N}]/u.test(g.slice(key.length)),
+    );
+    if (longer) return key;
+  }
+  return null;
+}
+
 export interface TitleRules {
   /** Where a cut title would come from: the brief, the brand profile. */
   sources: readonly string[];
@@ -334,15 +367,18 @@ export function titleProblems(
 ): { frame: number; detail: string }[] {
   return frames.flatMap((beat, frame) => {
     const fault = titleFault(beat.title);
+    const cut = cutToken(beat.title, [copyOf(beat), ...sources]);
     const detail = fault
       ? `its title "${beat.title}" does not read as a name: ${fault}`
-      : isCutTitle(beat.title, sources)
-        ? `its title "${beat.title}" is a phrase cut off mid-way`
-        : frames.some((e, k) => k < frame && sameTitle(e.title, beat.title))
-          ? `its title "${beat.title}" is an earlier frame's title`
-          : titleOffCopy(beat)
-            ? `its title "${beat.title}" shares no word with its own frame's copy`
-            : null;
+      : cut
+        ? `its title cuts "${cut}" short of what the copy says`
+        : isCutTitle(beat.title, sources)
+          ? `its title "${beat.title}" is a phrase cut off mid-way`
+          : frames.some((e, k) => k < frame && sameTitle(e.title, beat.title))
+            ? `its title "${beat.title}" is an earlier frame's title`
+            : titleOffCopy(beat)
+              ? `its title "${beat.title}" shares no word with its own frame's copy`
+              : null;
     return detail ? [{ frame, detail }] : [];
   });
 }
@@ -351,14 +387,16 @@ export function titleProblems(
    offers "Free repotting, for life" and "Free repotting". */
 function clausesOf(text: string): string[] {
   const whole = text.trim().replace(/[.!?…]+$/u, "");
+  /* A mark splits only where a space follows it: "$750,000" and
+     "founders@farmlink.ng" are one word each. */
   const parts = whole
-    .split(/\s*(?:[,;:?!.]|\s[-–—]\s)\s*/u)
+    .split(/\s*(?:[,;:?!.](?=\s|$)|\s[-–—]\s)\s*/u)
     .map((p) => p.trim())
     .filter(Boolean);
   return [whole, ...parts];
 }
 
-const capitalised = upperFirst;
+const capitalised = (text: string) => withAddressesKept(text, upperFirst);
 
 /** The opening words of a headline that fit on a card and end on a word
  *  a phrase can end on, longest first: "Taught by teachers" and "Taught
@@ -410,7 +448,7 @@ export function withSettledTitles<T extends FrameBeat>(
       ...headPhrases(beat.subheadline),
     ]
       .map((t) => capitalised(cleanTitle(t)))
-      .filter(Boolean);
+      .filter((t) => t && !cutToken(t, [copyOf(beat), ...rules.sources]));
     const fits = (title: string) => {
       const trial = [...settled, { ...beat, title }, ...frames.slice(i + 1)];
       return !titleProblems(trial, rules).some((p) => p.frame === i);

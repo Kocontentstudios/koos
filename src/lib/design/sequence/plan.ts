@@ -32,6 +32,7 @@ import { withConsistentCasing } from "./casing";
 import {
   type ApprovedOutline,
   type FrameBeat,
+  type LeftOutFrame,
   type PlannedSequence,
   type PlanSequenceInput,
   type PlanSequenceResult,
@@ -53,11 +54,13 @@ import { lastStand } from "./last-stand";
 import { withFigureLayout } from "./layouts";
 import { sequenceLedger } from "./ledger";
 import {
+  approvedPoints,
   factsIn,
   fixedArcAnswer,
   outlinePool,
   ownedClaims,
   ownerStatements,
+  ownerWritten,
 } from "./outline-arc";
 import { stopsMidPhrase } from "./phrase";
 import { type Draft, settlePick } from "./pick";
@@ -178,6 +181,8 @@ export interface PlannedSequenceResult extends PlanSequenceResult {
    *  stand took off rather than ship a blocking fault (lastStand). The
    *  set has that many fewer frames, and bills only what it delivers. */
   framesDropped: number[];
+  /** framesDropped with each frame's title and why it was left out. */
+  framesLeftOut: LeftOutFrame[];
 }
 
 type BrandFrame = Pick<
@@ -906,6 +911,8 @@ async function planSequenceOnce(
           claims: arc.frames.map((f) => f.claim),
           spares: standSpares(outline, planned, pool, spares, arc, facts, free),
           sourceText: sourceTextOf(rules),
+          ownerWritten: ownerWritten(outline),
+          approved: approvedPoints(outline),
           tidy: (frames, kept) =>
             withConsistentCasing(
               withSettledTitles(
@@ -931,6 +938,7 @@ async function planSequenceOnce(
             ).plan,
         })
       : null;
+  const beforeStand = plan;
   if (stand) {
     plan = stand.plan;
     unsourced = unsourced.flatMap((u) => {
@@ -948,10 +956,19 @@ async function planSequenceOnce(
      frame the last stand took off, read through what was left. */
   const origin =
     placeholders?.origin ?? Array.from({ length: frameCount }, (_, i) => i);
-  const framesDropped = [
-    ...(placeholders?.dropped ?? []),
-    ...(stand?.dropped ?? []).map((i) => origin[i] ?? i),
-  ].sort((a, b) => a - b);
+  const framesLeftOut: LeftOutFrame[] = [
+    ...(placeholders?.dropped ?? []).map((index) => ({
+      index,
+      title: approvedOutline?.points[index]?.title ?? "",
+      reason: "empty" as const,
+    })),
+    ...(stand?.dropped ?? []).map((i) => ({
+      index: origin[i] ?? i,
+      title: outline?.points[i]?.title ?? beforeStand.frames[i]?.title ?? "",
+      reason: "fault" as const,
+    })),
+  ].sort((a, b) => a.index - b.index);
+  const framesDropped = framesLeftOut.map((f) => f.index);
 
   /* After a drop the per-frame rules are the stand's; the planner's own
      are left as they were, so what the eval kept of them still reads. */
@@ -1009,6 +1026,7 @@ async function planSequenceOnce(
     refused,
     lastResort: [...resorted.applied, ...(stand?.applied ?? [])],
     framesDropped,
+    framesLeftOut,
     modelCalls,
     repaired: copyKey(plan.frames) !== copyKey(draft.frames),
   };

@@ -26,8 +26,10 @@ import {
   clampFrameCount,
   sequenceKindOf,
 } from "@/lib/design/sequence/contract";
-import { validateApprovedOutline } from "@/lib/design/sequence/outline-validate";
-import { profileStatements } from "@/lib/design/sequence/points";
+import {
+  outlineValidateContext,
+  validateApprovedOutline,
+} from "@/lib/design/sequence/outline-validate";
 import type { DirectionsImage } from "@/lib/jobs/run-design-directions";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
 import { executeGenerationJob } from "@/lib/jobs/run-generation";
@@ -242,11 +244,10 @@ export async function POST(req: Request) {
       : null;
   let approvedOutline: ApprovedOutline | undefined;
   if (sequenceKind && body.approvedOutline != null) {
-    const checked = validateApprovedOutline(body.approvedOutline, {
-      kind: sequenceKind,
-      briefText: context.briefText ?? "",
-      profileStatements: profileStatements(context.brandSummary),
-    });
+    const checked = validateApprovedOutline(
+      body.approvedOutline,
+      outlineValidateContext(sequenceKind, context),
+    );
     if (!checked.ok) {
       return Response.json(
         { error: "Invalid outline", problems: checked.problems },

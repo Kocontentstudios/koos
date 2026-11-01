@@ -52,6 +52,7 @@ import type {
   ApprovedOutline,
   FrameBeat,
   FrameEdits,
+  LeftOutFrame,
   OutlineProblem,
   PlannedSequence,
   RegenerateFrameJobResult,
@@ -67,12 +68,14 @@ import {
 } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
 import { frameRationale, liveFrames } from "@/lib/design/sequence/frames";
-import { validateApprovedOutline } from "@/lib/design/sequence/outline-validate";
+import {
+  outlineValidateContext,
+  validateApprovedOutline,
+} from "@/lib/design/sequence/outline-validate";
 import {
   planSequence,
   SequenceShipRefusedError,
 } from "@/lib/design/sequence/plan";
-import { profileStatements } from "@/lib/design/sequence/points";
 import { replanFrame } from "@/lib/design/sequence/replan";
 import type { DesignSpec } from "@/lib/design/spec";
 import { STORAGE_PREFIXES } from "@/lib/storage";
@@ -212,6 +215,9 @@ export interface SequenceCheckpoint {
     /** Frames, by their planned index, the planner dropped rather than
      *  ship a blocking fault. */
     framesDropped?: number[];
+    /** framesDropped named and explained; absent on checkpoints written
+     *  before it existed. */
+    framesLeftOut?: LeftOutFrame[];
   };
   /** The approved outline the plan was written from, as this job
    *  validated it; absent for a set planned without the outline step. */
@@ -1179,11 +1185,10 @@ function settledOutline(
   const planned = resumedState(checkpoint);
   if (planned) return planned.outline;
   if (!requested) return undefined;
-  const checked = validateApprovedOutline(requested, {
-    kind,
-    briefText: context.briefText ?? "",
-    profileStatements: profileStatements(context.brandSummary),
-  });
+  const checked = validateApprovedOutline(
+    requested,
+    outlineValidateContext(kind, context),
+  );
   if (!checked.ok) {
     console.error("design sequence outline refused", {
       problems: checked.problems,
@@ -1278,6 +1283,7 @@ async function planSet({
       invented: planned.invented.map((i) => `frame ${i.frame + 1}: ${i.text}`),
       factsDrawn: planned.factsDrawn,
       framesDropped: planned.framesDropped ?? [],
+      framesLeftOut: planned.framesLeftOut ?? [],
     },
     frames: {},
     startedAt,
@@ -1443,10 +1449,47 @@ async function billSet({
 }
 
 /** The set's one trace line (H14), written however the set ended. */
+/** The frames a plan left out, by framesDropped, each named where the
+ *  checkpoint's framesLeftOut says (absent on checkpoints written before
+ *  it). */
+export function framesLeftOutOf(
+  planned:
+    | Pick<SequenceCheckpoint["planned"], "framesDropped" | "framesLeftOut">
+    | undefined,
+): LeftOutFrame[] {
+  const named = planned?.framesLeftOut ?? [];
+  return (planned?.framesDropped ?? []).map(
+    (index) =>
+      named.find((f) => f.index === index) ?? {
+        index,
+        title: "",
+        reason: "fault" as const,
+      },
+  );
+}
+
+/**
+ * A set's counts as the trace reports them: what was asked for (the
+ * approved outline's length, or the count planned for), what the plan
+ * kept after leaving frames out, and how many it left out. The plan's
+ * own length is never reported as what was asked for.
+ */
+export function setCounts(
+  state: Pick<SequenceCheckpoint, "plan" | "planned">,
+): { requested: number; planned: number; dropped: number } {
+  const planned = state.plan.frames.length;
+  const dropped = framesLeftOutOf(state.planned).length;
+  return { requested: planned + dropped, planned, dropped };
+}
+
 function logSequenceCompleted(trace: {
   setId: string | null;
+  /** What the owner asked for, before any frame was left out. */
   requested: number;
+  /** Frames the planner left out (framesLeftOut), never drawn or billed. */
+  dropped: number;
   delivered: number;
+  /** Planned frames that did not render. */
   failed: number;
   /** The brief's facts no delivered frame states, measured on drawn copy. */
   factsMissing: number;
@@ -1490,6 +1533,7 @@ export async function settleSetOnFailure({
       logSequenceCompleted({
         setId: null,
         requested: frameCount,
+        dropped: 0,
         delivered: 0,
         failed: frameCount,
         factsMissing: 0,
@@ -1530,9 +1574,11 @@ export async function settleSetOnFailure({
       jobFailed: true,
     });
     const failed = frameCount - delivered.length;
+    const counts = setCounts(state);
     logSequenceCompleted({
       setId: state.setId,
-      requested: frameCount,
+      requested: counts.requested,
+      dropped: counts.dropped,
       delivered: delivered.length,
       failed,
       factsMissing: coverage.missing.length,
@@ -1546,7 +1592,8 @@ export async function settleSetOnFailure({
         session_id: sessionId ?? null,
         set_id: state.setId,
         kind: state.plan.kind,
-        requested: frameCount,
+        requested: counts.requested,
+        frames_dropped: counts.dropped,
         delivered: delivered.length,
         failed,
         facts_missing: coverage.missing.length,
@@ -1760,9 +1807,11 @@ async function completeSet({
   }
 
   const ms = Date.now() - state.startedAt;
+  const counts = setCounts(state);
   logSequenceCompleted({
     setId,
-    requested: frameCount,
+    requested: counts.requested,
+    dropped: counts.dropped,
     delivered: delivered.length,
     failed: frameCount - delivered.length,
     factsMissing: coverage.missing.length,
@@ -1779,7 +1828,8 @@ async function completeSet({
       kind,
       source: context.source,
       image_source: source,
-      requested: frameCount,
+      requested: counts.requested,
+      frames_dropped: counts.dropped,
       delivered: delivered.length,
       failed: frameCount - delivered.length,
       quality_faults: records.filter((r) => r.faults.length > 0).length,
@@ -1806,6 +1856,7 @@ function setResult(
   const generationIds = live
     .filter((r) => r.status === "succeeded")
     .map((r) => r.id);
+  const leftOut = framesLeftOutOf(state.planned);
   return {
     resultId: generationIds[0],
     result: {
@@ -1813,8 +1864,11 @@ function setResult(
       setId: state.setId,
       sequenceKind: state.plan.kind,
       frameCount: state.plan.frames.length,
-      ...((state.planned?.framesDropped ?? []).length > 0
-        ? { framesDropped: state.planned.framesDropped }
+      ...(leftOut.length > 0
+        ? {
+            framesDropped: leftOut.map((f) => f.index),
+            framesLeftOut: leftOut,
+          }
         : {}),
       generationIds,
       failed: live.filter((r) => r.status === "failed").map((r) => r.id),

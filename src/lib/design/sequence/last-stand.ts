@@ -12,6 +12,7 @@ import { asSentence, fitsSubheadline } from "./gate";
 import { namesFree } from "./hook";
 import { framesToTry, plainVersions } from "./last-resort";
 import { isStatFigure, settleFrameLayouts, withFigureLayout } from "./layouts";
+import { pointKeptOnSet } from "./outline-arc";
 
 /**
  * What runs when the last resort and the fix call leave a blocking fault
@@ -19,11 +20,15 @@ import { isStatFigure, settleFrameLayouts, withFigureLayout } from "./layouts";
  *
  *  1. Swap: a frame at fault is given a sourced point no frame makes (a
  *     spare from the pool: the brief's or the profile's own words), and is
- *     written from it in code (plainVersions). Never a frame the owner
- *     wrote: the owner's point is theirs to change.
+ *     written from it in code (plainVersions).
  *  2. Drop: a middle frame at fault is taken off the set while the count
  *     stays within FRAME_BOUNDS. Its facts go to the action frame, the
  *     neighbours' layouts are settled again, and the drop is reported.
+ *
+ * Neither ever touches a frame the owner wrote (rubric Addendum D, D1):
+ * the owner's point is theirs to change, so its fault is left for the
+ * caller to refuse. A frame from any other approved point leaves the set
+ * only when the set still makes that point elsewhere.
  *
  * Each change is kept only where the set ends with fewer blocking faults,
  * so a swap or a drop never trades one fault for another. What is left
@@ -43,6 +48,12 @@ export interface StandInput {
   /** Settles titles and casing after a change; `kept` maps each frame to
    *  its index in the plan as first written. */
   tidy?: (frames: readonly FrameBeat[], kept: readonly number[]) => FrameBeat[];
+  /** By frame as first written, whether the owner wrote its point
+   *  (ownerWritten): never swapped, never dropped. */
+  ownerWritten?: readonly boolean[];
+  /** By frame as first written, the approved outline's point, or "": a
+   *  frame leaves only when the set still makes it (pointKeptOnSet). */
+  approved?: readonly string[];
   /** Writes facts no frame states onto their frame (withFactsDrawn), with
    *  the fact homes after a drop. */
   draw?: (
@@ -153,6 +164,8 @@ export function lastStand({
   sourceText = "",
   tidy = (frames) => [...frames],
   draw = (p) => p,
+  ownerWritten = [],
+  approved = [],
 }: StandInput): StandResult {
   let current = plan;
   let currentRules = rules;
@@ -164,7 +177,18 @@ export function lastStand({
   let score = blockingScore(current, currentRules);
   const min = FRAME_BOUNDS[plan.kind].min;
   const free = namesFree(rules.brandName, rules.offering);
-  const owned = (i: number) => (currentRules.owned?.[i] ?? "").trim() !== "";
+  const theirs = (i: number) =>
+    (currentRules.owned?.[i] ?? "").trim() !== "" ||
+    ownerWritten[kept[i] ?? -1] === true;
+  /* A frame's approved point may stop being its own only while the set
+     still makes it somewhere: a swap or a drop never loses an approved
+     fact. */
+  const stillMade = (i: number, next: PlannedSequence) => {
+    const point = approved[kept[i] ?? -1]?.trim() ?? "";
+    return !point || pointKeptOnSet(next.frames, point, free);
+  };
+  const mayLeave = (i: number, without: PlannedSequence) =>
+    !theirs(i) && stillMade(i, without);
 
   for (let change = 0; change < MAX_CHANGES && score > 0; change += 1) {
     const faults = blockingFaults(setFaults(current, currentRules));
@@ -184,7 +208,7 @@ export function lastStand({
 
     for (const frame of frames) {
       const beat = current.frames[frame];
-      if (!beat || beat.role === "cta" || owned(frame)) continue;
+      if (!beat || beat.role === "cta" || theirs(frame)) continue;
       for (const spare of unused) {
         const nextClaims = currentClaims.map((c, i) =>
           i === frame ? spare : c,
@@ -215,6 +239,7 @@ export function lastStand({
               kept,
             ),
           };
+          if (!stillMade(frame, next)) continue;
           const nextScore = blockingScore(next, nextRules);
           if (nextScore < (best?.score ?? score)) {
             best = {
@@ -251,6 +276,7 @@ export function lastStand({
           ),
         };
         const next = draw(without, nextRules, nextKept);
+        if (!mayLeave(frame, next)) continue;
         const nextScore = blockingScore(next, nextRules);
         if (nextScore < (best?.score ?? score)) {
           best = {
@@ -271,7 +297,7 @@ export function lastStand({
        its headline, over its own subheadline that names the offering, and
        that frame leaves the set: a body frame's concrete point ("Last batch
        sold out in 9 days") is what a hook is built on. */
-    if (!best && faults.some((f) => f.frame === 0)) {
+    if (!best && faults.some((f) => f.frame === 0) && !theirs(0)) {
       const hook = current.frames[0];
       for (let frame = 1; frame < current.frames.length - 1; frame += 1) {
         const beat = current.frames[frame];
@@ -316,6 +342,7 @@ export function lastStand({
             ),
           };
           const next = draw(without, nextRules, nextKept);
+          if (!mayLeave(frame, next) || !stillMade(0, next)) continue;
           const nextScore = blockingScore(next, nextRules);
           if (nextScore < (best?.score ?? score)) {
             best = {

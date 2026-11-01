@@ -39,7 +39,10 @@ vi.mock("@/lib/jobs/run-design-sequence", () => ({
   frameCountNotice: (kind: string, frames: number, asked: number | null) =>
     frameCountNotice(kind, frames, asked),
 }));
-vi.mock("@/lib/design/sequence/outline-validate", () => ({
+vi.mock("@/lib/design/sequence/outline-validate", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/design/sequence/outline-validate")
+  >()),
   validateApprovedOutline: (raw: unknown, ctx: unknown) =>
     validateApprovedOutline(raw, ctx),
 }));
@@ -322,7 +325,7 @@ function outline(n: number, source = "brief") {
 }
 
 describe("design generate route, an approved outline (O4)", () => {
-  it("validates the outline against the brief's kind, brief and profile, never the client's sources", async () => {
+  it("validates the outline against the brief's kind, brief, profile and brand name, never the client's sources", async () => {
     const sent = outline(4, "user");
     const res = await post({ image: UPLOAD, approvedOutline: sent });
     expect(res.status).toBe(202);
@@ -330,6 +333,7 @@ describe("design generate route, an approved outline (O4)", () => {
       kind: "carousel",
       briefText: "Croissant week at Crumb & Co.",
       profileStatements: ["A Lekki bakery."],
+      brandName: "Crumb & Co.",
     });
   });
 

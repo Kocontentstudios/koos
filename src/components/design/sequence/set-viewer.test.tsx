@@ -753,3 +753,40 @@ describe("round 2: frame editor rules", () => {
     );
   });
 });
+
+describe("SetViewer says which slides were left out (Addendum D, D2)", () => {
+  const LEFT_OUT = [
+    { index: 2, title: "Our traction", reason: "fault" as const },
+    { index: 5, title: "Add a point", reason: "empty" as const },
+  ];
+
+  it("names each slide left out and why, above the stage", () => {
+    const rows = frameRows(5);
+    const set = buildSet(BRAND, rows, { leftOut: LEFT_OUT });
+    if (!set) throw new Error("no set");
+    renderViewer(set);
+    const notice = document.querySelector("[data-left-out]") as HTMLElement;
+    expect(notice).not.toBeNull();
+    expect(notice).toHaveTextContent(
+      "We left 2 slides out, so your carousel has 5 slides, not 7. You aren't charged for them.",
+    );
+    expect(
+      within(notice)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual([
+      "Slide 3, “Our traction”: we couldn't word it in a way that passed our checks, and we don't deliver a slide that fails them.",
+      "Slide 6, “Add a point”: it still said “Add a point”, so there was nothing to put on it.",
+    ]);
+    expect(
+      notice.compareDocumentPosition(screen.getByRole("tablist")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(notice.closest("[role=status]")).toBeNull();
+  });
+
+  it("says nothing when every slide asked for was delivered", () => {
+    renderViewer();
+    expect(document.querySelector("[data-left-out]")).toBeNull();
+  });
+});

@@ -8,6 +8,8 @@ import {
   frameState,
   groupGallery,
   isBuilding,
+  leftOutNotice,
+  leftOutOf,
   markStalled,
   mergeSets,
   readyFrames,
@@ -278,5 +280,49 @@ describe("mergeSets", () => {
       ReturnType<typeof buildSet>
     >;
     expect(mergeSets(held, markStalled(held)).frames[4]?.stalled).toBe(true);
+  });
+});
+
+describe("frames a set left out (Addendum D, D2)", () => {
+  const LEFT_OUT = [
+    { index: 1, title: "Our traction", reason: "fault" as const },
+  ];
+
+  it("reads them from a job result, by index alone for a result stored before names", () => {
+    expect(leftOutOf({ framesDropped: [1], framesLeftOut: LEFT_OUT })).toEqual(
+      LEFT_OUT,
+    );
+    expect(leftOutOf({ framesDropped: [3] })).toEqual([
+      { index: 3, title: "", reason: "fault" },
+    ]);
+    expect(leftOutOf({})).toEqual([]);
+  });
+
+  it("keeps them on the set through a gallery read that knows nothing of them", () => {
+    const held = buildSet(BRAND, frameRows(4), { leftOut: LEFT_OUT });
+    const incoming = buildSet(BRAND, frameRows(4));
+    if (!held || !incoming) throw new Error("no set");
+    expect(incoming.leftOut).toBeUndefined();
+    expect(mergeSets(held, incoming).leftOut).toEqual(LEFT_OUT);
+    expect(swapFrame(held, { ...frameRow(1), id: "f1-new" }).leftOut).toEqual(
+      LEFT_OUT,
+    );
+  });
+
+  it("says one slide in the singular, and names an unnamed slide by number", () => {
+    const set = buildSet(BRAND, frameRows(4), {
+      leftOut: [{ index: 4, title: "", reason: "fault" }],
+    });
+    if (!set) throw new Error("no set");
+    expect(leftOutNotice(set)).toEqual({
+      summary:
+        "We left 1 slide out, so your carousel has 4 slides, not 5. You aren't charged for it.",
+      slides: [
+        "Slide 5: we couldn't word it in a way that passed our checks, and we don't deliver a slide that fails them.",
+      ],
+    });
+    const whole = buildSet(BRAND, frameRows(4));
+    if (!whole) throw new Error("no set");
+    expect(leftOutNotice(whole)).toBeNull();
   });
 });

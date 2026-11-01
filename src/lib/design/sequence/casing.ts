@@ -11,6 +11,30 @@ import type { FrameBeat } from "./contract";
 
 export type HeadlineCase = "title" | "sentence";
 
+/* An address is spelt exactly as the owner gave it: casing a word inside
+   "founders@farmlink.ng" or "crownandcoil.ng/kids" sends a reader to an
+   address that is not theirs. */
+const ADDRESS =
+  /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}|\bhttps?:\/\/\S+|\b(?:www\.)?[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.(?:com|ng|net|org|io|co|app|me|ly|africa|uk|shop|store|dev|ai)\b(?:\/[^\s,;]*)?/giu;
+
+/** `recase` applied to `text` with every email address, link and domain
+ *  held out of it and put back as written. */
+export function withAddressesKept(
+  text: string,
+  recase: (text: string) => string,
+): string {
+  const held: string[] = [];
+  const masked = text.replace(ADDRESS, (found) => {
+    held.push(found);
+    return `\uE000${held.length - 1}\uE001`;
+  });
+  if (held.length === 0) return recase(text);
+  return recase(masked).replace(
+    /\uE000(\d+)\uE001/g,
+    (_, n: string) => held[Number(n)] ?? "",
+  );
+}
+
 /* Words title case leaves lowercase inside a headline. */
 const SMALL_WORDS = new Set([
   "a",
@@ -333,8 +357,16 @@ export function withConsistentCasing(
         ? "title"
         : "sentence";
   if (style === null) return { frames: [...frames], recased: [], style };
+  const spellings = nameSpellings(sources);
+  /* Names come back as their sources spell them after the change:
+     "Crown & Coil" has no run of capitals for toSentence to keep. */
   const recase = (text: string) =>
-    style === "title" ? toTitle(text) : toSentence(text, names, runs, runOnly);
+    withAddressesKept(text, (t) =>
+      withNamesSpelt(
+        style === "title" ? toTitle(t) : toSentence(t, names, runs, runOnly),
+        spellings,
+      ),
+    );
   const recased: number[] = [];
   const next = frames.map((beat, i) => {
     const headline =
@@ -438,8 +470,7 @@ export function sentenceCased(
   const { runs: given, runOnly, heads, named } = nameRuns(sources);
   const runs = [...given, ...leadingParts(named)];
   const names = new Set([...properNouns(sources), ...heads]);
-  return withNamesSpelt(
-    toSentence(text, names, runs, runOnly),
-    nameSpellings(sources),
+  return withAddressesKept(text, (t) =>
+    withNamesSpelt(toSentence(t, names, runs, runOnly), nameSpellings(sources)),
   );
 }

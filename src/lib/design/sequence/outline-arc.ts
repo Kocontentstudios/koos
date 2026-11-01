@@ -86,6 +86,23 @@ export function ownedClaims(outline: ApprovedOutline | null): string[] {
   );
 }
 
+/** By point, whether the owner wrote it: typed as their own ("user"), or
+ *  changed from what the planner signed (`edited`). The last stand never
+ *  swaps or drops such a frame. */
+export function ownerWritten(outline: ApprovedOutline | null): boolean[] {
+  return (outline?.points ?? []).map(
+    (p) => !isEmptyPoint(p.point) && (p.source === "user" || p.edited === true),
+  );
+}
+
+/** By point, the words the owner approved, or "" for an "Add a point"
+ *  slide: what must still be said somewhere if its frame leaves. */
+export function approvedPoints(outline: ApprovedOutline | null): string[] {
+  return (outline?.points ?? []).map((p) =>
+    isEmptyPoint(p.point) ? "" : p.point,
+  );
+}
+
 /* Share of an owner's point's own words the frame must keep for its
    claim to stand: copy may shorten it, never swap it for another claim. */
 const KEPT_SHARE = 0.5;
@@ -111,4 +128,27 @@ export function ownerPointKept(
   const mine = contentStems(copy, free);
   const kept = theirs.filter((s) => mine.has(s)).length;
   return kept / theirs.length >= KEPT_SHARE;
+}
+
+/** Whether a set still makes `point` on some frame or across them: its
+ *  figures and at least half its own words are on the set (ownerPointKept
+ *  read over every frame). */
+export function pointKeptOnSet(
+  frames: readonly Pick<
+    FrameBeat,
+    "headline" | "subheadline" | "footerLines" | "cta"
+  >[],
+  point: string,
+  free: ReadonlySet<string> = new Set(),
+): boolean {
+  return ownerPointKept(
+    {
+      headline: frames.map((f) => f.headline).join(" \n "),
+      subheadline: frames.map((f) => f.subheadline).join(" \n "),
+      cta: frames.map((f) => f.cta).join(" \n "),
+      footerLines: frames.flatMap((f) => f.footerLines),
+    },
+    point,
+    free,
+  );
 }

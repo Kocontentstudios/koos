@@ -1,5 +1,7 @@
 import {
   type FrameRole,
+  type LeftOutFrame,
+  type SequenceJobResult,
   type SequenceKind,
   sequenceKindOf,
 } from "@/lib/design/sequence/contract";
@@ -25,6 +27,9 @@ export interface DesignSet {
   brandId: string;
   kind: SequenceKind;
   frames: FrameSlot[];
+  /** Frames the set was asked for and does not deliver, from the job's
+   *  result; absent where the set was read from its rows alone. */
+  leftOut?: LeftOutFrame[];
 }
 
 export type FrameState = "ready" | "rendering" | "failed" | "missing";
@@ -132,7 +137,12 @@ function outranks(row: SerializedGeneration, held: SerializedGeneration) {
 export function buildSet(
   brandId: string,
   rows: SerializedGeneration[],
-  known: { setId?: string; kind?: SequenceKind; frameCount?: number } = {},
+  known: {
+    setId?: string;
+    kind?: SequenceKind;
+    frameCount?: number;
+    leftOut?: LeftOutFrame[];
+  } = {},
 ): DesignSet | null {
   const framed = rows.filter((r) => r.frame);
   const setId = known.setId ?? framed[0]?.frame?.setId;
@@ -160,7 +170,13 @@ export function buildSet(
       generation,
     };
   });
-  return { setId, brandId, kind, frames };
+  return {
+    setId,
+    brandId,
+    kind,
+    frames,
+    ...(known.leftOut?.length ? { leftOut: known.leftOut } : {}),
+  };
 }
 
 /** The set with `row` on show at its own index; every other frame kept. */
@@ -192,8 +208,11 @@ export function swapFrame(
  */
 export function mergeSets(held: DesignSet, incoming: DesignSet): DesignSet {
   if (held.setId !== incoming.setId) return incoming;
+  /* A gallery read knows nothing of what the job left out. */
+  const leftOut = incoming.leftOut ?? held.leftOut;
   return {
     ...incoming,
+    ...(leftOut ? { leftOut } : {}),
     frames: incoming.frames.map((slot) => {
       const mine = held.frames[slot.index]?.generation;
       const theirs = slot.generation;
@@ -201,6 +220,52 @@ export function mergeSets(held: DesignSet, incoming: DesignSet): DesignSet {
       return { ...slot, generation: mine, stalled: undefined };
     }),
   };
+}
+
+const LEFT_OUT_REASONS: Record<LeftOutFrame["reason"], string> = {
+  empty: "it still said “Add a point”, so there was nothing to put on it",
+  fault:
+    "we couldn't word it in a way that passed our checks, and we don't deliver a slide that fails them",
+};
+
+/** What a finished job left out, by framesDropped, each named where the
+ *  result's framesLeftOut says; a result stored before it gives indexes
+ *  only. */
+export function leftOutOf(
+  result: Pick<SequenceJobResult, "framesDropped" | "framesLeftOut">,
+): LeftOutFrame[] {
+  const named = result.framesLeftOut ?? [];
+  return (result.framesDropped ?? []).map(
+    (index) =>
+      named.find((f) => f.index === index) ?? {
+        index,
+        title: "",
+        reason: "fault" as const,
+      },
+  );
+}
+
+/** One sentence per frame the set left out, saying which slide and why,
+ *  and the line over them; null when nothing was left out. */
+export function leftOutNotice(
+  set: DesignSet,
+): { summary: string; slides: string[] } | null {
+  const leftOut = set.leftOut ?? [];
+  if (leftOut.length === 0) return null;
+  const delivered = set.frames.length;
+  const asked = delivered + leftOut.length;
+  const noun = kindNoun(set.kind);
+  const summary =
+    leftOut.length === 1
+      ? `We left 1 slide out, so your ${noun} has ${delivered} slides, not ${asked}. You aren't charged for it.`
+      : `We left ${leftOut.length} slides out, so your ${noun} has ${delivered} slides, not ${asked}. You aren't charged for them.`;
+  const slides = leftOut.map((frame) => {
+    const name = frame.title.trim()
+      ? `Slide ${frame.index + 1}, “${frame.title.trim()}”`
+      : `Slide ${frame.index + 1}`;
+    return `${name}: ${LEFT_OUT_REASONS[frame.reason]}.`;
+  });
+  return { summary, slides };
 }
 
 export function readyFrames(set: DesignSet): SerializedGeneration[] {

@@ -10,6 +10,9 @@ import { lastStand, rulesWithout } from "./last-stand";
    shipped. */
 
 const SPARE = "Every bottle is steeped for 18 hours in cold water";
+/* An approved point the set says nowhere once the bare third frame gives
+   it up: only "patience" is on the set, a quarter of its words. */
+const APPROVED_POINT = "Patience is the whole recipe, nothing rushed";
 
 /* A four-frame cafe set whose third frame says nothing under its
    headline: a blocking fault on a frame that carries no fact. */
@@ -91,7 +94,7 @@ describe("lastStand", () => {
     expect(result.plan.frames.at(-1)?.role).toBe("cta");
   });
 
-  it("never swaps the owner's own point, so drops that frame instead", () => {
+  it("neither swaps nor drops the owner's own point, and leaves its fault to refuse", () => {
     const rules = rulesFor(4, {
       owned: ["", "", "Patience in every glass", ""],
     });
@@ -102,7 +105,59 @@ describe("lastStand", () => {
       spares: [SPARE],
     });
     expect(result.claims).not.toContain(SPARE);
+    expect(result.dropped).toEqual([]);
+    expect(result.plan.frames).toHaveLength(4);
+    expect(result.blocking.map((f) => f.frame)).toEqual([2]);
+  });
+
+  it("never drops a frame whose point the owner edited, though its words read as the brief's", () => {
+    const result = lastStand({
+      plan: withBareFrame(),
+      rules: rulesFor(4),
+      claims: rulesFor(4).claims ?? [],
+      spares: [SPARE],
+      ownerWritten: [false, false, true, false],
+    });
+    expect(result.dropped).toEqual([]);
+    expect(result.claims).not.toContain(SPARE);
+    expect(result.plan.frames[2].headline).toBe("Patience in every glass");
+    expect(result.blocking.map((f) => f.frame)).toEqual([2]);
+  });
+
+  it("keeps an approved point's frame when dropping it would leave the point unsaid", () => {
+    const result = lastStand({
+      plan: withBareFrame(),
+      rules: rulesFor(4),
+      claims: rulesFor(4).claims ?? [],
+      spares: [],
+      approved: ["", "", APPROVED_POINT, ""],
+    });
+    expect(result.dropped).toEqual([]);
+    expect(result.plan.frames).toHaveLength(4);
+  });
+
+  it("never swaps an approved point away for a spare the set does not otherwise make", () => {
+    const result = lastStand({
+      plan: withBareFrame(),
+      rules: rulesFor(4),
+      claims: rulesFor(4).claims ?? [],
+      spares: [SPARE],
+      approved: ["", "", APPROVED_POINT, ""],
+    });
+    expect(result.claims).not.toContain(SPARE);
+    expect(result.dropped).toEqual([]);
+  });
+
+  it("drops an approved point's frame when another frame still says it", () => {
+    const result = lastStand({
+      plan: withBareFrame(),
+      rules: rulesFor(4),
+      claims: rulesFor(4).claims ?? [],
+      spares: [],
+      approved: ["", "", "₦2,500 a bottle", ""],
+    });
     expect(result.dropped).toEqual([2]);
+    expect(result.blocking).toEqual([]);
   });
 
   it("never takes a set below its bounds, and leaves the fault to refuse", () => {
@@ -184,6 +239,46 @@ describe("lastStand: a hook no spare can fix", () => {
     expect(result.plan.frames[0].subheadline).toBe(hookPoint);
     expect(result.rules.owners?.[0]).toEqual([0, 4]);
     expect(result.applied[0]).toMatch(/made the hook's headline/);
+  });
+
+  it("leaves an owner-written hook as it is, and an owner-written body frame in the set", () => {
+    const cafe = withBareFrame().frames;
+    const plan: PlannedSequence = {
+      ...cafePlan(),
+      frames: [
+        {
+          ...cafe[0],
+          headline: "Kiln Coffee cold brew is back",
+          subheadline: "Our cold brew is on the bar again.",
+        },
+        cafe[1],
+        cafe[3],
+      ],
+    };
+    const rules = rulesFor(3, {
+      names: ["cold brew"],
+      owners: [[0], [4], [1, 2, 3, 5]],
+      claims: ["", "Pour one at our Yaba bar", ""],
+    });
+    expect(blockingOn(plan, rules)).toContain(0);
+    for (const ownerWritten of [
+      [true, false, false],
+      [false, true, false],
+    ]) {
+      const result = lastStand({
+        plan,
+        rules,
+        claims: rules.claims ?? [],
+        spares: [],
+        ownerWritten,
+      });
+      expect(result.dropped).toEqual([]);
+      if (ownerWritten[0]) {
+        expect(result.plan.frames[0].headline).toBe(
+          "Kiln Coffee cold brew is back",
+        );
+      }
+    }
   });
 });
 

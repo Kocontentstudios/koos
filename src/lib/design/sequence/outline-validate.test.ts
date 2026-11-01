@@ -88,6 +88,7 @@ describe("validateApprovedOutline", () => {
       title: "A title",
       point: "Beans from the Mambilla Plateau",
       source: "profile",
+      edited: true,
     });
     expect("extra" in result.outline).toBe(false);
   });

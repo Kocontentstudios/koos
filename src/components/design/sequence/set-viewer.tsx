@@ -24,6 +24,7 @@ import {
   frameState,
   isBuilding,
   kindNoun,
+  leftOutNotice,
   roleLabel,
   slideCount,
 } from "./set-model";
@@ -135,6 +136,29 @@ function KindPill({ set }: { set: DesignSet }) {
       <span aria-hidden="true">·</span>
       {slideCount(set.frames.length)}
     </span>
+  );
+}
+
+/* Said once, above the stage: the owner counted the slides they asked
+   for, and a shorter set with no word of why reads as a lost slide. */
+function LeftOutNotice({ set }: { set: DesignSet }) {
+  const notice = leftOutNotice(set);
+  if (!notice) return null;
+  return (
+    <div
+      data-left-out
+      className="flex gap-2 rounded-lg bg-[var(--status-pending-bg)] px-3 py-2 text-[12px] leading-snug text-[var(--status-pending-fg)]"
+    >
+      <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="font-medium">{notice.summary}</p>
+        <ul className="flex flex-col gap-0.5">
+          {notice.slides.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -255,6 +279,8 @@ export function SetViewer({
         building={building}
         waiting={waitingMessage}
       />
+
+      <LeftOutNotice set={set} />
 
       <BuildingStatus line={building} />
 

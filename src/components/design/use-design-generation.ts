@@ -14,6 +14,7 @@ import {
   buildSet,
   type DesignSet,
   kindNoun,
+  leftOutOf,
   readyFrames,
 } from "@/components/design/sequence/set-model";
 import {
@@ -291,6 +292,7 @@ export function useDesignGeneration(): LiveDesignGeneration {
         setId: result.setId,
         kind: result.sequenceKind,
         frameCount: result.frameCount,
+        leftOut: leftOutOf(result),
       });
       const rendered = set ? readyFrames(set) : [];
       if (!set || rendered.length === 0) {

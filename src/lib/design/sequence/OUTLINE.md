@@ -199,6 +199,12 @@ to about 60%.
    read it as the brief's and wrote the brief's hours back.
 3. The signature covers the role too, so a planned body point moved into
    the hook's slot is read again.
+4. A verified `sig` stays on the validated point, so the job, which
+   validates the route's outline again against the brief it resolves,
+   reads every point exactly as the route did. Any point without one is
+   marked `edited: true` whatever source its words read as: an owner who
+   rewrites a planned point into the brief's own sentence still wrote it.
+   The client's own `edited` is never read.
 
 A `"user"` point is added to the ledger (`sequenceLedger(..., stated)`) and
 the title sources, so copy may say it. The key is `OUTLINE_SIGNING_SECRET`,
@@ -259,10 +265,16 @@ On the set path:
      (`unsourcedLinks`): "Visit http://evil.example" is refused, the
      brief's own `crownandcoil.ng` is not. The owner's own domain is not
      refused either (O4): one whose registered label spells the brand's
-     name (`brandName` when the route passes it) or a two- or three-word
-     name the brief or profile writes ("pedaldoctor.ng" for "Pedal
-     Doctor"). A lookalike host ("pedaldoctor.ng.evil.example", read by
-     the label it is registered under) and a link shortener ("bit.ly")
+     name (`brandName`, which the route and the job both pass through
+     `outlineValidateContext`) or a two- or three-word name the brief or
+     profile writes ("pedaldoctor.ng" for "Pedal Doctor"), with "&" read
+     as "and" or as nothing ("crownandcoil.ng" and "crowncoil.ng" for
+     "Crown & Coil"). So is the owner's own page on a platform they sell
+     through: `instagram.com/<handle>`, `wa.me/<number>`,
+     `paystack.com/pay/<page>` and `paystack.shop/<page>`, on that exact
+     host with a handle, number or page in the path. A lookalike host
+     ("pedaldoctor.ng.evil.example", "instagram.com.evil.example",
+     "lnstagram.com"), a bare platform host and a link shortener ("bit.ly")
      never are.
    - `injection` also covers what the writer was given set aside
      ("Disregard the brand profile"), the writer told who to be or how to
@@ -517,17 +529,32 @@ than how:
    (`plainVersions`, headline-rewriting versions first). Spares are the
    pool's; with an approved outline only while it is untouched, since
    every unused planned point of an edited outline is one the owner took
-   out. A frame carrying the owner's own point is never swapped.
+   out.
 2. Drop: a body frame at fault is taken off while the set stays within
    `FRAME_BOUNDS`. Its facts go to the action frame and are drawn there,
    per-frame rules move up one (`rulesWithout`), neighbours' layouts are
    settled again.
 
+Neither ever touches a frame whose point the owner wrote (Addendum D,
+D1): `"user"`, or `edited` (`ownerWritten`). Its fault is left on the set
+and refused. A frame from any other approved point is swapped or dropped
+only when the set still makes that point afterwards (`pointKeptOnSet`:
+every figure and at least half its own words, across all frames), so no
+fact the owner approved leaves the set. An owner-written hook is never
+given a later frame's line.
+
 Each change is kept only where the set ends with fewer blocking faults.
 What is left is refused as before. `PlannedSequenceResult.framesDropped`
-lists the dropped frames by their index in the approved outline; the job
-renders and bills only the frames left and reports them on its result
-(`SequenceJobResult.framesDropped`); the eval holds the set to the count
+lists the dropped frames by their index in the approved outline, and
+`framesLeftOut` names each one (the outline point's title, else the
+frame's) with its reason, `"fault"` or `"empty"`. The job renders and
+bills only the frames left and reports both on its result
+(`SequenceJobResult`). The set view says which slides were left out and
+why, above the stage (`leftOutNotice`, `set-viewer.tsx`). The trace keeps
+the counts apart: `design.sequence.completed` and
+`design_sequence_generated` log `requested` (what was asked for),
+`dropped` / `frames_dropped`, `delivered` and `failed` (planned frames
+that did not render) (`setCounts`). The eval holds the set to the count
 it says it delivered and prints "frames dropped by the last stand".
 
 ### An "Add a point" slide left untouched (C5)
@@ -537,6 +564,17 @@ Before any copy is written, `settlePlaceholders` gives each untouched
 drops it within `FRAME_BOUNDS` and reports it in `framesDropped`. A
 writer is never handed a slide with no claim, which it filled with
 claims no source gives ("We work through every moving part").
+
+### Figures, addresses and names in titles (Addendum D, D4)
+
+A title never cuts a figure or an address its copy gives whole
+(`cutToken`: "$750" where the frame says "$750,000", "founders@farmlink"
+for "founders@farmlink.ng"); such a candidate is never chosen, and one
+that reaches `titleProblems` is a title fault. Clauses split only at a
+mark a space follows, so "$750,000" and "$1.2M" stay one word. Casing
+never touches an email address, link or domain (`withAddressesKept`),
+and names come back as their sources spell them after a re-case ("Crown
+& Coil", never "crown & Coil").
 
 ### Copy that must not ship (C6)
 

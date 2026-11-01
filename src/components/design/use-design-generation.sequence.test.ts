@@ -213,6 +213,18 @@ describe("a sequence job comes back as one set", () => {
     expect(result.current.partial).toBeNull();
   });
 
+  it("carries the slides the job left out onto the set it shows", async () => {
+    const leftOut = [{ index: 5, title: "Our traction", reason: "fault" }];
+    pollGenerationJob.mockResolvedValue({
+      ...SEQUENCE,
+      framesDropped: [5],
+      framesLeftOut: leftOut,
+    });
+    const { result } = await generated();
+    expect(result.current.set?.frames).toHaveLength(5);
+    expect(result.current.set?.leftOut).toEqual(leftOut);
+  });
+
   it("reads failed frames too, so each keeps its place", async () => {
     rows[3] = frameRow(3, { status: "failed", url: null });
     pollGenerationJob.mockResolvedValue({

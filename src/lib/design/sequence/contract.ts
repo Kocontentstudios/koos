@@ -155,6 +155,22 @@ export interface ReplanFrameInput {
   edits?: FrameEdits;
 }
 
+/** Why a planned frame is not in the delivered set: its point was left as
+ *  "Add a point" ("empty"), or its copy kept a blocking fault code could
+ *  not clear ("fault"). */
+export type LeftOutReason = "empty" | "fault";
+
+/** A frame the set was asked for and does not deliver, named as the owner
+ *  saw it. */
+export interface LeftOutFrame {
+  /** Zero-based, in the set as asked for (the approved outline's order). */
+  index: number;
+  /** The outline point's title, else the planned frame's; "" when neither
+   *  is known. */
+  title: string;
+  reason: LeftOutReason;
+}
+
 /** Stored in generation_jobs.result when a sequence job succeeds, and in
  *  the shape the client polls for. */
 export interface SequenceJobResult {
@@ -166,6 +182,9 @@ export interface SequenceJobResult {
    *  took off rather than ship a blocking fault; frameCount is what was
    *  left. Absent when none was. */
   framesDropped?: number[];
+  /** framesDropped named and explained, for the set view to tell the
+   *  owner. Absent when none was, and on results stored before it. */
+  framesLeftOut?: LeftOutFrame[];
   /** Delivered frames, in frame order. */
   generationIds: string[];
   failed: string[];
@@ -274,7 +293,14 @@ export interface PlannedOutline {
 export type ApprovedOutlinePoint = Pick<
   OutlinePoint,
   "id" | "role" | "title" | "point" | "source"
-> & { sig?: string };
+> & {
+  sig?: string;
+  /** Set by the server only (validateApprovedOutline): the point came
+   *  back without the planner's signature over these words, so the owner
+   *  wrote or changed it, whatever source its words read as. The last
+   *  stand never swaps or drops such a frame. */
+  edited?: true;
+};
 
 /** What POST /api/design/generate accepts as `approvedOutline`. */
 export interface ApprovedOutline {

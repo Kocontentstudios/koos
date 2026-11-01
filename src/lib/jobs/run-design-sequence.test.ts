@@ -59,7 +59,10 @@ vi.mock("@/lib/design/sequence/plan", async (importOriginal) => ({
   ).SequenceShipRefusedError,
   planSequence: (input: unknown) => planSequence(input),
 }));
-vi.mock("@/lib/design/sequence/outline-validate", () => ({
+vi.mock("@/lib/design/sequence/outline-validate", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/design/sequence/outline-validate")
+  >()),
   validateApprovedOutline: (raw: unknown, ctx: unknown) =>
     validateApprovedOutline(raw, ctx),
 }));
@@ -614,7 +617,38 @@ describe("a set of frames", () => {
     expect(outcome.result).toMatchObject({
       frameCount: 3,
       framesDropped: [2],
+      framesLeftOut: [{ index: 2, title: "", reason: "fault" }],
     });
+  });
+
+  it("names a left-out frame in the result, and traces what was asked for apart from what was delivered", async () => {
+    planSequence.mockResolvedValue(
+      planned(planOf(3), {
+        framesDropped: [2],
+        framesLeftOut: [{ index: 2, title: "Our traction", reason: "fault" }],
+      }),
+    );
+    const outcome = await run(4);
+    expect(outcome.result.framesLeftOut).toEqual([
+      { index: 2, title: "Our traction", reason: "fault" },
+    ]);
+    const lines = logSpy.mock.calls
+      .map(([line]: unknown[]) => String(line))
+      .filter((line: string) => line.startsWith("design.sequence.completed "));
+    expect(
+      JSON.parse(lines[0].slice("design.sequence.completed ".length)),
+    ).toMatchObject({ requested: 4, dropped: 1, delivered: 3, failed: 0 });
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "design_sequence_generated",
+        properties: expect.objectContaining({
+          requested: 4,
+          frames_dropped: 1,
+          delivered: 3,
+          failed: 0,
+        }),
+      }),
+    );
   });
 
   it("still fails a short plan that reports no drop", async () => {
@@ -1813,11 +1847,15 @@ describe("a set generated from an approved outline (O4, O5)", () => {
   it("re-validates the outline against the brief the job resolved", async () => {
     const outline = approved(4);
     await runFrom(outline, 4);
-    const context = carouselContext() as { briefText?: string | null };
+    const context = carouselContext() as {
+      briefText?: string | null;
+      brandSummary: { name: string };
+    };
     expect(validateApprovedOutline).toHaveBeenCalledWith(outline, {
       kind: "carousel",
       briefText: context.briefText ?? "",
       profileStatements: expect.any(Array),
+      brandName: context.brandSummary.name,
     });
   });
 

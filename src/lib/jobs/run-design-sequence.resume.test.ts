@@ -31,7 +31,10 @@ vi.mock("@/lib/design/context", () => ({
   resolveDesignContext: (args: unknown) => resolveDesignContext(args),
   DesignContextError: class DesignContextError extends Error {},
 }));
-vi.mock("@/lib/design/sequence/outline-validate", () => ({
+vi.mock("@/lib/design/sequence/outline-validate", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/design/sequence/outline-validate")
+  >()),
   validateApprovedOutline: (raw: unknown, ctx: unknown) =>
     validateApprovedOutline(raw, ctx),
 }));
@@ -209,6 +212,7 @@ describe("resumeDesignSequenceJob", () => {
       kind: "carousel",
       briefText: "Croissant week",
       profileStatements: [],
+      brandName: "Crumb & Co.",
     });
   });
 
