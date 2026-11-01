@@ -434,7 +434,7 @@ export function DesignDirectionsDialog({
     step === "outline" || outlineHandingOff
       ? { step: "outline", outline, starting: outlineHandingOff }
       : step === "choose"
-        ? { step: "choose" }
+        ? { step: "choose", setKind: expectedKind }
         : step === "upload"
           ? {
               step: "upload",

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && node scripts/fetch-fonts.mjs && next build",
+    "build": "node scripts/migrate.mjs && node scripts/check-env.mjs && node scripts/fetch-fonts.mjs && next build && node scripts/check-build-output.mjs",
     "preflight": "node scripts/check-env.mjs",
     "fonts": "node scripts/fetch-fonts.mjs",
     "start": "next start",

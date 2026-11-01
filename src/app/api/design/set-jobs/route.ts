@@ -1,5 +1,6 @@
 import { getAuthUser } from "@/lib/auth/get-user";
 import { checkBrandAccess } from "@/lib/db/queries";
+import { multiFrameEnabled } from "@/lib/design/multi-frame-flag";
 import { listOpenSetJobs } from "@/lib/design/sequence/open-set-jobs.server";
 import { isUuid } from "@/lib/validation/uuid";
 
@@ -12,6 +13,9 @@ export async function GET(req: Request) {
   const { dbUser } = await getAuthUser();
   if (!dbUser) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  if (!multiFrameEnabled()) {
+    return Response.json({ error: "Not found" }, { status: 404 });
   }
   const brandId = new URL(req.url).searchParams.get("brandId");
   if (!brandId || !isUuid(brandId)) {

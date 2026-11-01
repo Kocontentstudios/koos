@@ -102,6 +102,97 @@ describe("D3: the owner's own domain and pages count as stated", () => {
   });
 });
 
+/* Integration critic round 1, MEDIUM 2: the owner's webmail was refused
+   while a stranger's Instagram or Paystack page, a hyphenated spelling of
+   the name and a redirect through the owner's own domain were accepted. */
+describe("D3: whose link it is, not which host it is on", () => {
+  const checkWithBrief = (brief: string, mid: string) =>
+    validateApprovedOutline(
+      outlineWith(mid),
+      outlineValidateContext("carousel", {
+        briefText: brief,
+        brandSummary: SALON as never,
+      }),
+    );
+
+  it("accepts the owner's own address on a webmail host", () => {
+    for (const mid of [
+      "Write to crownandcoil@gmail.com",
+      "Write to crownandcoil@yahoo.com",
+      "Questions? Write to crownandcoil.lekki@gmail.com",
+      "Write to thecrownandcoil@outlook.com",
+    ]) {
+      expect(checkSalon(mid).ok, mid).toBe(true);
+    }
+  });
+
+  it("refuses a stranger's webmail and names the whole address", () => {
+    const result = checkSalon("Email hello@gmail.com");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.problems[0].rule).toBe("link");
+      expect(result.problems[0].detail).toContain("hello@gmail.com");
+    }
+    expect(checkSalon("Email wigsrus@yahoo.com").ok).toBe(false);
+  });
+
+  it("refuses a platform page whose handle names someone else", () => {
+    for (const mid of [
+      "See us at instagram.com/cheapwigs_competitor",
+      "Pay at paystack.com/pay/someone-else",
+      "Pay at paystack.shop/someone-else",
+      "Follow notcrownandcoil at instagram.com/notcrownandcoil",
+    ]) {
+      const result = checkSalon(mid);
+      expect(result.ok, mid).toBe(false);
+      if (!result.ok) expect(result.problems[0].rule, mid).toBe("link");
+    }
+  });
+
+  it("accepts a platform page the brief gives, whatever its handle", () => {
+    const brief = `${SALON_BRIEF} Pay at paystack.com/pay/cc-deposit-2026.`;
+    expect(
+      checkWithBrief(
+        brief,
+        "Pay your deposit at paystack.com/pay/cc-deposit-2026",
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("does not let the platform's name in the brief vouch for any page on it", () => {
+    const brief = `${SALON_BRIEF} Follow instagram.com/crownandcoil.`;
+    expect(
+      checkWithBrief(brief, "See us at instagram.com/cheapwigs_competitor").ok,
+    ).toBe(false);
+  });
+
+  it("refuses a hyphenated spelling of the name as a lookalike", () => {
+    expect(checkSalon("Book at crown-and-coil.ng").ok).toBe(false);
+  });
+
+  it("refuses another ending once the brief gives the owner's domain", () => {
+    const brief = `${SALON_BRIEF} Book at crownandcoil.ng.`;
+    expect(checkWithBrief(brief, "Book at crownandcoil.ng/silk").ok).toBe(true);
+    expect(checkWithBrief(brief, "Book at shop.crownandcoil.ng").ok).toBe(true);
+    for (const mid of ["Book at crownandcoil.com", "Book at crowncoil.ng"]) {
+      expect(checkWithBrief(brief, mid).ok, mid).toBe(false);
+    }
+  });
+
+  it("refuses a link that forwards the reader somewhere else", () => {
+    for (const mid of [
+      "Book at crownandcoil.ng/redirect?to=evil.example",
+      "Book at crownandcoil.ng/go?url=https://evil.example",
+      "Book at crownandcoil.ng/out/https://evil.example",
+    ]) {
+      expect(checkSalon(mid).ok, mid).toBe(false);
+    }
+    expect(checkSalon("Book at https://crownandcoil.ng/book?ref=x").ok).toBe(
+      true,
+    );
+  });
+});
+
 describe("D4: money, addresses and names are never cut or re-cased in titles", () => {
   const RAISE = "We are raising $750,000 to build 20 more grids";
 

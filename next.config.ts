@@ -49,9 +49,14 @@ const securityHeaders = [
   { key: "Content-Security-Policy-Report-Only", value: contentSecurityPolicy },
 ];
 
+/* The worker resolves next/og itself at run time, outside the bundle, so
+   what next/og loads (its wasm and fallback faces) is traced with it. */
 const RENDER_FILES = [
   "./src/lib/design/render/fonts/*.ttf",
   "./src/lib/design/render/satori-worker.cjs",
+  "./node_modules/next/og.js",
+  "./node_modules/next/dist/server/og/**",
+  "./node_modules/next/dist/compiled/@vercel/og/**",
 ];
 
 const nextConfig: NextConfig = {

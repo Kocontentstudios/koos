@@ -68,6 +68,9 @@ export function srcThresholds(
 }
 
 export const PHONE_WIDTH = 390;
+/* WCAG 1.4.10's reflow width: the band under a breakpoint narrower than the
+   phone pass is measured here (outline-step.tsx's min-[360px]). */
+export const NARROW_WIDTH = 320;
 export const DESKTOP_WIDTH = 1440;
 /* The laptop pass also runs with reduced motion, so styles that apply only
    under prefers-reduced-motion are measured at a common width. */
@@ -83,13 +86,18 @@ export interface ExtraViewport {
 }
 
 /** One width per band the thresholds make, besides the full 1440 pass: the
- * phone width for the band below the first threshold, and each threshold
+ * phone width for the band below the first threshold (or a narrower one
+ * when that threshold is at or under the phone width), and each threshold
  * itself for the band it opens. A band that already holds 1440 needs no
  * extra pass. */
 export function laneViewports(thresholds = srcThresholds()): ExtraViewport[] {
   const sorted = [...new Set(thresholds)].sort((a, b) => a - b);
   const bandOf = (width: number) => sorted.filter((t) => t <= width).length;
   const widths = new Set<number>([PHONE_WIDTH, REDUCED_MOTION_WIDTH]);
+  const first = sorted[0];
+  if (first !== undefined && first <= PHONE_WIDTH) {
+    widths.add(Math.min(NARROW_WIDTH, first - 1));
+  }
   for (const t of sorted) {
     if (t > PHONE_WIDTH && bandOf(t) !== bandOf(DESKTOP_WIDTH)) widths.add(t);
   }

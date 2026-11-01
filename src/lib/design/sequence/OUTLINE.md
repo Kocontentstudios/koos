@@ -267,15 +267,27 @@ On the set path:
      refused either (O4): one whose registered label spells the brand's
      name (`brandName`, which the route and the job both pass through
      `outlineValidateContext`) or a two- or three-word name the brief or
-     profile writes ("pedaldoctor.ng" for "Pedal Doctor"), with "&" read
-     as "and" or as nothing ("crownandcoil.ng" and "crowncoil.ng" for
-     "Crown & Coil"). So is the owner's own page on a platform they sell
-     through: `instagram.com/<handle>`, `wa.me/<number>`,
-     `paystack.com/pay/<page>` and `paystack.shop/<page>`, on that exact
-     host with a handle, number or page in the path. A lookalike host
-     ("pedaldoctor.ng.evil.example", "instagram.com.evil.example",
-     "lnstagram.com"), a bare platform host and a link shortener ("bit.ly")
-     never are.
+     profile writes ("pedaldoctor.ng" for "Pedal Doctor"), letter for
+     letter, with "&" read as "and" or as nothing ("crownandcoil.ng" and
+     "crowncoil.ng" for "Crown & Coil"). A hyphenated spelling
+     ("crown-and-coil.ng") is how a lookalike spells a name and never
+     counts. Once the brief or profile gives a domain spelling the name,
+     only that registrable domain (and its subdomains) is the owner's:
+     "crownandcoil.com" is a lookalike of a brief's "crownandcoil.ng".
+     So is the owner's own page on a platform they sell through:
+     `instagram.com/<handle>`, `paystack.com/pay/<page>` and
+     `paystack.shop/<page>` when the handle or page opens with the brand's
+     name ("crownandcoil", "crown.and.coil", "crownandcoil_lekki"), and
+     `wa.me/<number>`, since a number spells no name and a bare phone
+     number is copy the owner may give anyway. Their address on a webmail
+     host (gmail, yahoo, outlook and the like) counts when its name opens
+     with the brand's ("crownandcoil@gmail.com"); "hello@gmail.com" is
+     refused and named in full. A platform's or mail host's name in the
+     brief vouches for nothing: the whole page or address must be there.
+     A lookalike host ("pedaldoctor.ng.evil.example",
+     "instagram.com.evil.example", "lnstagram.com"), a bare platform host,
+     a link shortener ("bit.ly") and a link that carries another address
+     on ("crownandcoil.ng/redirect?to=evil.example") never are.
    - `injection` also covers what the writer was given set aside
      ("Disregard the brand profile"), the writer told who to be or how to
      write or what to return ("Pretend you are", "write in all caps",

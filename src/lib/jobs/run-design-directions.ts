@@ -83,6 +83,7 @@ import {
   layoutJudge,
   photoPlace,
   renderDirectionGuarded,
+  renderFailureMessage,
   renderRefusalMessage,
 } from "./directions/render";
 import { currentSibling, designSpecOf } from "./directions/schema";
@@ -1041,9 +1042,7 @@ export async function generateDirectionsWork(
       if (refusal) refusals.push(refusal);
       await updateDesignGeneration(row.id, {
         status: "failed",
-        error: (
-          refusal ?? (err instanceof Error ? err.message : "Unknown error")
-        ).slice(0, 500),
+        error: renderFailureMessage(err).slice(0, 500),
       }).catch((writeErr) => {
         /* Left pending, the row holds its layout for PENDING_CLAIM_MS and a
            regenerate in that window is refused (round-8 code critic). */

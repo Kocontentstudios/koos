@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAuthUser = vi.fn();
 const checkBrandAccess = vi.fn();
@@ -28,9 +28,14 @@ const JOB = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("FEATURE_MULTI_FRAME", "on");
   getAuthUser.mockResolvedValue({ dbUser: { id: "u1" } });
   checkBrandAccess.mockResolvedValue({ ok: true });
   listOpenSetJobs.mockResolvedValue([JOB]);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("GET /api/design/set-jobs", () => {
@@ -44,6 +49,13 @@ describe("GET /api/design/set-jobs", () => {
       BRAND,
       "manage_content",
     );
+  });
+
+  it("is not there with FEATURE_MULTI_FRAME off, and reads nothing", async () => {
+    vi.stubEnv("FEATURE_MULTI_FRAME", "");
+    expect((await call()).status).toBe(404);
+    expect(checkBrandAccess).not.toHaveBeenCalled();
+    expect(listOpenSetJobs).not.toHaveBeenCalled();
   });
 
   it("refuses a caller who is not signed in", async () => {

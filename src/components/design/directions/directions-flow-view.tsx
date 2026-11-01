@@ -6,7 +6,10 @@ import type { DesignEntry } from "@/components/design/design-analytics";
 import { OutlineStep } from "@/components/design/sequence/outline-step";
 import type { SequenceProgress } from "@/components/design/sequence/progress";
 import { setHeading } from "@/components/design/sequence/set-heading";
-import type { DesignSet } from "@/components/design/sequence/set-model";
+import {
+  type DesignSet,
+  kindNoun,
+} from "@/components/design/sequence/set-model";
 import { SetProgress } from "@/components/design/sequence/set-progress";
 import { SetViewer } from "@/components/design/sequence/set-viewer";
 import type { OutlineController } from "@/components/design/sequence/use-outline";
@@ -16,6 +19,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import type {
   ApprovedOutline,
   FrameEdits,
+  SequenceKind,
 } from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import type { JobStage } from "@/lib/generation/poll-job";
@@ -41,7 +45,12 @@ import type { DesignImageUpload } from "./use-design-image-upload";
 export type DirectionsEntry = DesignEntry;
 
 export type DirectionsView =
-  | { step: "choose" }
+  | {
+      step: "choose";
+      /** Set when the run is certain to be a set: it makes one carousel or
+       *  presentation, not two directions to pick from. */
+      setKind?: SequenceKind | null;
+    }
   | {
       step: "upload";
       upload: DesignImageUpload;
@@ -268,6 +277,19 @@ function ResultsFooter({
   );
 }
 
+export function chooseDescription(
+  koImagery: boolean,
+  setKind: SequenceKind | null,
+): string {
+  const options = koImagery
+    ? "Use your own image or let KO create it."
+    : "Use your own image, or go without one and let your words lead.";
+  const outcome = setKind
+    ? `Either way you get one ${kindNoun(setKind)}, every slide designed to match.`
+    : "Either way you get two different design directions to pick from.";
+  return `${options} ${outcome}`;
+}
+
 export function DirectionsFlowView({
   entry,
   view,
@@ -286,11 +308,7 @@ export function DirectionsFlowView({
         <>
           <Header
             title={CHOOSE_TITLE[entry]}
-            description={
-              koImagery
-                ? "Use your own image or let KO create it. Either way you get two different design directions to pick from."
-                : "Use your own image, or go without one and let your words lead. Either way you get two different design directions to pick from."
-            }
+            description={chooseDescription(koImagery, view.setKind ?? null)}
           />
           <ImageChoice
             koImagery={koImagery}

@@ -8,6 +8,7 @@ import { decodePngRgba } from "@/lib/images/png-pixels";
 import { type LoadedFont, loadBrandFonts } from "./fonts";
 import {
   closeRenderPool,
+  RenderFailedError,
   RenderTimeoutError,
   renderPng,
   renderPoolStats,
@@ -160,6 +161,13 @@ describe("renderPng", () => {
         fonts,
       ),
     ).rejects.toThrow(/lookupType/);
+    await expect(
+      renderPng(
+        documentElement(textDoc("مرحبا بالعالم", 900), {}),
+        CANVAS,
+        fonts,
+      ),
+    ).rejects.toBeInstanceOf(RenderFailedError);
     await renderPng(documentElement(textDoc("After", 900), {}), CANVAS, fonts);
     expect(renderPoolStats().spawns).toBe(spawns);
   }, 60_000);

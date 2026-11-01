@@ -28,6 +28,7 @@ import {
 } from "@/lib/design/render/logo";
 import {
   EmojiBudgetError,
+  RenderFailedError,
   RenderTimeoutError,
 } from "@/lib/design/render/satori-pool";
 import type { DesignSpec } from "@/lib/design/spec";
@@ -212,6 +213,19 @@ export function renderRefusalMessage(err: unknown): string | null {
       : "This design's image could not be read. Try another image, or regenerate to make new imagery.";
   }
   return null;
+}
+
+export const RENDER_FAILED_MESSAGE =
+  "This design could not be drawn. Please try again.";
+
+/** What a row and the job say when a render failed: the refusal when there
+ *  is one, a plain sentence when the renderer itself broke (its own text
+ *  names modules and bundler internals), else the error's message. */
+export function renderFailureMessage(err: unknown): string {
+  const refusal = renderRefusalMessage(err);
+  if (refusal) return refusal;
+  if (err instanceof RenderFailedError) return RENDER_FAILED_MESSAGE;
+  return err instanceof Error ? err.message : "Unknown error";
 }
 
 /** Whether `spec` keeps its copy off `subject` and draws it cleanly: the

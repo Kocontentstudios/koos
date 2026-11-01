@@ -175,11 +175,19 @@ async function renderingRoutes() {
 /* The render worker (satori-pool.ts) is started from a file path, so it is
    force-included beside the fonts; the font checks below look past it. */
 const RENDER_WORKER = "./src/lib/design/render/satori-worker.cjs";
+/* The worker resolves next/og itself, outside the bundle, so what next/og
+   loads ships with it. */
+const RENDER_WORKER_DEPS = [
+  "./node_modules/next/og.js",
+  "./node_modules/next/dist/server/og/**",
+  "./node_modules/next/dist/compiled/@vercel/og/**",
+];
+const WORKER_FILES = new Set([RENDER_WORKER, ...RENDER_WORKER_DEPS]);
 const allIncludes = nextConfig.outputFileTracingIncludes ?? {};
 const includes = Object.fromEntries(
   Object.entries(allIncludes).map(([route, globs]) => [
     route,
-    globs.filter((glob) => glob !== RENDER_WORKER),
+    globs.filter((glob) => !WORKER_FILES.has(glob)),
   ]),
 );
 
@@ -231,6 +239,9 @@ describe("the render worker", () => {
     await readFile(path.join(REPO, RENDER_WORKER));
     for (const route of await renderingRoutes()) {
       expect(allIncludes[route], route).toContain(RENDER_WORKER);
+      for (const dep of RENDER_WORKER_DEPS) {
+        expect(allIncludes[route], route).toContain(dep);
+      }
     }
   });
 });

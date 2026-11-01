@@ -107,7 +107,7 @@ import {
   type DirectionAssets,
   layoutJudge,
   renderDirectionGuarded,
-  renderRefusalMessage,
+  renderFailureMessage,
 } from "./directions/render";
 import {
   chooseLayout,
@@ -622,10 +622,7 @@ async function renderFrame(
     });
   } catch (err) {
     console.error(`design frame ${rowId} failed`, err);
-    const message = (
-      renderRefusalMessage(err) ??
-      (err instanceof Error ? err.message : "Unknown error")
-    ).slice(0, 500);
+    const message = renderFailureMessage(err).slice(0, 500);
     await updateDesignGeneration(rowId, {
       status: "failed",
       error: message,

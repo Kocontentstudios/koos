@@ -213,21 +213,71 @@ function registeredLabel(host: string): string {
 
 /* A name is spelt in a domain with "&" as "and" or left out:
    crownandcoil.ng and crowncoil.ng both spell "Crown & Coil". */
-const spellings = (name: string) => [
-  ...new Set([letters(name), letters(name.replace(/&|\+/g, " and "))]),
-];
+const spellings = (name: string) =>
+  [...new Set([letters(name), letters(name.replace(/&|\+/g, " and "))])].filter(
+    (spelt) => spelt.length >= OWN_NAME_CHARS,
+  );
 
-/** Whether `host` is the brand's own domain: the label it is registered
- *  under spells the brand's name, or two or three words the brief or
- *  profile run together as a name ("Pedal Doctor"). */
-function ownDomain(host: string, names: readonly string[]): boolean {
+/** The registrable domain: "pedaldoctor.com.ng" of "shop.pedaldoctor.com.ng". */
+function registrableDomain(host: string): string {
+  const labels = host.split(".").filter(Boolean);
+  const keep =
+    labels.length > 2 && SUFFIX_PAIRS.test(labels.at(-2) ?? "") ? 3 : 2;
+  return labels.slice(-keep).join(".");
+}
+
+/** Whether `host` is the brand's own domain. When the brief or profile
+ *  gives a domain spelling the name, only that one is (`recorded`): another
+ *  ending or a hyphenated spelling of the same name is a lookalike of it.
+ *  With none on record, the label it is registered under must spell the
+ *  brand's name, or two or three words the brief or profile run together
+ *  as a name ("Pedal Doctor"), letter for letter: "crown-and-coil.ng" is
+ *  how a lookalike spells "Crown & Coil", so a hyphen never counts. */
+function ownDomain(
+  host: string,
+  names: readonly string[],
+  recorded: readonly string[],
+): boolean {
   if (SHORTENERS.test(host)) return false;
-  const label = letters(registeredLabel(host));
-  if (label.length < OWN_NAME_CHARS) return false;
-  return names.some((name) =>
-    spellings(name).some(
-      (spelt) => spelt.length >= OWN_NAME_CHARS && label === spelt,
+  if (recorded.length > 0) return recorded.includes(registrableDomain(host));
+  return spellsAName(registeredLabel(host), names);
+}
+
+function spellsAName(label: string, names: readonly string[]): boolean {
+  if (!/^[a-z0-9]+$/.test(label)) return false;
+  return names.some((name) => spellings(name).includes(label));
+}
+
+/** The domains the brief and profile give that spell the brand's name. */
+function recordedOwnDomains(
+  sources: readonly string[],
+  names: readonly string[],
+): string[] {
+  return [
+    ...new Set(
+      sources.flatMap((source) =>
+        [...source.matchAll(LINK)]
+          .map((m) => hostOf(m[0]))
+          .filter(
+            (host) =>
+              !SHORTENERS.test(host) &&
+              names.some((name) =>
+                spellings(name).includes(letters(registeredLabel(host))),
+              ),
+          )
+          .map(registrableDomain),
+      ),
     ),
+  ];
+}
+
+/** Whether a handle is the brand's: it opens with the brand's name, as
+ *  "crownandcoil", "crown.and.coil", "crownandcoil_lekki" and
+ *  "lumencoffeeyaba" do. "cheapwigs_competitor" names someone else. */
+function ownHandle(handle: string, names: readonly string[]): boolean {
+  const spelt = letters(handle).replace(/^the(?=.{5})/, "");
+  return names.some((name) =>
+    spellings(name).some((name) => spelt.startsWith(name)),
   );
 }
 
@@ -235,39 +285,90 @@ function ownDomain(host: string, names: readonly string[]): boolean {
    Instagram handle, its WhatsApp number, its Paystack payment page. The
    host must be the platform's own, exactly, so "instagram.com.evil.example"
    and "wa.me.example" stay refused, and the path must be a handle, a
-   number or a payment page, never the bare platform. */
-const OWN_PAGES: readonly { host: RegExp; path: RegExp }[] = [
+   number or a payment page, never the bare platform. A handle or page
+   name must spell the brand's name: anyone can be at instagram.com. A
+   number cannot spell a name, and a bare phone number is copy the owner
+   may give anywhere, so a wa.me number is theirs as the number would be. */
+const OWN_PAGES: readonly {
+  host: RegExp;
+  path: RegExp;
+  named: boolean;
+}[] = [
   {
     host: /^(?:www\.)?instagram\.com$/,
-    path: /^\/[a-z0-9._]{1,30}\/?$/,
+    path: /^\/([a-z0-9._]{1,30})\/?$/,
+    named: true,
   },
-  { host: /^wa\.me$/, path: /^\/\+?\d{7,15}\/?(?:\?text=[^\s]*)?$/ },
+  {
+    host: /^wa\.me$/,
+    path: /^\/\+?\d{7,15}\/?(?:\?text=[^\s]*)?$/,
+    named: false,
+  },
   {
     host: /^(?:www\.)?paystack\.com$/,
-    path: /^\/(?:pay|buy)\/[a-z0-9-]{2,64}\/?$/,
+    path: /^\/(?:pay|buy)\/([a-z0-9-]{2,64})\/?$/,
+    named: true,
   },
   {
     host: /^(?:www\.)?paystack\.shop$/,
-    path: /^\/[a-z0-9-]{2,64}(?:\/[a-z0-9-]{1,64})?\/?$/,
+    path: /^\/([a-z0-9-]{2,64})(?:\/[a-z0-9-]{1,64})?\/?$/,
+    named: true,
   },
 ];
 
-/** Whether `link` is the owner's own page on a platform they sell
- *  through (OWN_PAGES). */
-function ownPlatformPage(link: string): boolean {
+/* Mail hosts anyone can open an address on. The address is the owner's
+   when its name opens with the brand's ("crownandcoil@gmail.com"); the
+   host alone says nothing about whose it is. */
+const WEBMAIL =
+  /^(?:gmail\.com|googlemail\.com|yahoo\.com|yahoo\.co\.uk|ymail\.com|outlook\.com|hotmail\.com|live\.com|icloud\.com|me\.com|aol\.com|proton\.me|protonmail\.com|zoho\.com)$/;
+
+function splitLink(link: string): { host: string; path: string } {
   const bare = link.toLowerCase().replace(/^https?:\/\//, "");
   const slash = bare.search(/[/?#]/);
-  const host = slash < 0 ? bare : bare.slice(0, slash);
-  const path = slash < 0 ? "" : bare.slice(slash).replace(/[.,;:!]+$/, "");
-  return OWN_PAGES.some((page) => page.host.test(host) && page.path.test(path));
+  return {
+    host: (slash < 0 ? bare : bare.slice(0, slash)).replace(/^www\./, ""),
+    path: slash < 0 ? "" : bare.slice(slash).replace(/[.,;:!]+$/, ""),
+  };
+}
+
+/** Whether `link` is the owner's own page on a platform they sell
+ *  through (OWN_PAGES). */
+function ownPlatformPage(link: string, names: readonly string[]): boolean {
+  const { host, path } = splitLink(link);
+  return OWN_PAGES.some((page) => {
+    const match = page.host.test(host) ? page.path.exec(path) : null;
+    if (!match) return false;
+    return !page.named || ownHandle(match[1] ?? "", names);
+  });
+}
+
+const isPlatformHost = (host: string) =>
+  WEBMAIL.test(host) || OWN_PAGES.some((page) => page.host.test(host));
+
+/* A link that carries another address in its path or query sends the
+   reader on to wherever that says: "crownandcoil.ng/redirect?to=evil.example". */
+const REDIRECT_KEY =
+  /[?&](?:to|url|u|uri|redirect(?:_?ur[il])?|next|goto|target|dest(?:ination)?|continue|return(?:_?to)?|r|link|out|q)=/i;
+const CARRIED_ADDRESS =
+  /(?:https?:|%3a%2f%2f|\/\/|=)[^&\s]*?[a-z0-9-]+\.[a-z]{2,}/i;
+
+function forwardsElsewhere(link: string): boolean {
+  const { path } = splitLink(link);
+  return REDIRECT_KEY.test(path) || CARRIED_ADDRESS.test(path.slice(1));
 }
 
 /* Capitalised runs of two or three words: the names a brief writes. */
 const NAME_RUN =
   /\b\p{Lu}[\p{L}'&-]*(?:\s+(?:&\s+)?\p{Lu}[\p{L}'&-]*){1,2}\b/gu;
 
+/* The address an email's host belongs to: "crownandcoil@" before "gmail.com". */
+const MAILBOX_BEFORE = /([a-z0-9._%+-]+)@$/i;
+
 /** The links in `point` that neither the brief nor the profile gives, nor
- *  spell the brand's own name. */
+ *  are the brand's own (its domain, its handle on a platform it sells
+ *  through, its address on a mail host). A platform's or mail host's name
+ *  in the brief vouches for nothing: the whole link or address must be
+ *  there. */
 export function unsourcedLinks(
   point: string,
   ctx: Pick<
@@ -281,16 +382,29 @@ export function unsourcedLinks(
     ...(ctx.brandName ? [ctx.brandName] : []),
     ...sources.flatMap((s) => [...s.matchAll(NAME_RUN)].map((m) => m[0])),
   ];
-  return [...point.matchAll(LINK)]
-    .map((m) => m[0])
-    .filter((link) => {
-      const host = hostOf(link);
-      return (
-        !known.includes(host) &&
-        !ownDomain(host, names) &&
-        !ownPlatformPage(link)
-      );
-    });
+  const recorded = recordedOwnDomains(sources, names);
+  return [...point.matchAll(LINK)].flatMap((m) => {
+    const link = m[0];
+    const host = hostOf(link);
+    const mailbox = MAILBOX_BEFORE.exec(point.slice(0, m.index))?.[1];
+    if (mailbox && WEBMAIL.test(host)) {
+      const address = `${mailbox}@${host}`.toLowerCase();
+      return known.includes(address) || ownHandle(mailbox, names)
+        ? []
+        : [address];
+    }
+    const parts = splitLink(link);
+    const given = known.includes(
+      isPlatformHost(host)
+        ? `${parts.host}${parts.path}`.replace(/\/$/, "")
+        : host,
+    );
+    if (given) return [];
+    if (forwardsElsewhere(link)) return [link];
+    return ownDomain(host, names, recorded) || ownPlatformPage(link, names)
+      ? []
+      : [link];
+  });
 }
 
 /* A link scheme that runs code or carries a document is never copy. */

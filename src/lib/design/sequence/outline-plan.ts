@@ -78,10 +78,29 @@ export function clipped(text: string, max: number): string {
   return `${(atWord > max / 2 ? cut.slice(0, atWord) : cut).replace(/[\s,;:.-]+$/, "")}…`;
 }
 
+/* The brief's words about the piece itself, before what the piece says:
+   "A short deck for office managers in Lagos: Lumen Coffee now supplies
+   offices" and "Sponsorship deck for Lagos Design Week 2026, 4 to 8
+   December". On a slide's point they are the owner talking to the
+   designer (C6), so a point quotes only what follows them. Without a colon
+   only "<piece> for|about|on" goes: "A deck to pitch offices" would leave
+   an order. */
+const PIECE_LEAD_TO_COLON =
+  /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|carousel|presentation|slides?|post|reel|flyer|poster)\s+(?:for|about|on|to)\b[^:.!?]{0,80}:\s+(?=\S)/iu;
+const PIECE_LEAD =
+  /^(?:(?:an?|the|our|this)\s+)?(?:[\p{L}-]+\s+){0,2}(?:deck|carousel|presentation|slides?|post|reel|flyer|poster)\s+(?:for|about|on)\s+(?=\S)/iu;
+
+export function withoutPieceLead(sentence: string): string {
+  const rest = sentence
+    .replace(PIECE_LEAD_TO_COLON, "")
+    .replace(PIECE_LEAD, "");
+  return rest === sentence ? sentence : upperFirst(rest);
+}
+
 const sentencesOf = (text: string) =>
   text
     .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.trim())
+    .map((s) => withoutPieceLead(s.trim()))
     .filter(Boolean);
 
 /* What a brief says the reader does to act: a sentence holding its
@@ -94,6 +113,41 @@ const ACTING =
 const ACTION_SENTENCE_EXTRA = 2;
 
 const asSentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);
+
+/* A when or where given bare reads as a fragment glued on ("Saturday 14
+   November. our Yaba shop."): each takes the word that says what it is,
+   unless it already opens with one. */
+const OPENS_WITH_PREPOSITION =
+  /^(?:on|at|in|from|by|until|till|before|after|near|inside|beside|this|every|each|next)\b/i;
+const LEAD_WORD: Partial<Record<BriefFact["kind"], (text: string) => string>> =
+  {
+    date: () => "on",
+    day: () => "on",
+    time: (text) => (/\bto\b|[–-]/.test(text) ? "from" : "at"),
+    place: (text) => (VENUE.test(text) ? "at" : "in"),
+  };
+
+/* A place you go into is "at" ("at our Yaba shop", "at Landmark
+   Centre"); a city or district is "in" ("in Lagos"). */
+const VENUE =
+  /^(?:our|the|a|an)\b|\d|\b(?:shop|store|bar|caf[eé]|hall|cent(?:re|er)|office|studio|salon|restaurant|hotel|church|school|market|mall|plaza|street|road|way|avenue|close|crescent|estate|house|building|park|ground|arena|club|gym|clinic|hub|space|lounge|kitchen|bakery|branch|warehouse|tower|complex|venue|garden|field|stadium|auditorium)\b/i;
+
+const isWhenOrWhere = (fact: BriefFact) => fact.kind in LEAD_WORD;
+
+function clauseOf(fact: BriefFact): string {
+  const text = fact.text.trim();
+  const lead = LEAD_WORD[fact.kind];
+  if (!lead) return text;
+  return OPENS_WITH_PREPOSITION.test(text)
+    ? text.replace(/^\p{Lu}/u, (c) => c.toLowerCase())
+    : `${lead(text)} ${text}`;
+}
+
+/** Facts the brief gives in no sentence of their own, as one sentence:
+ *  "On Saturday 14 November at our Yaba shop (12 Herbert Macaulay Way)." */
+export function factsAsSentence(facts: readonly BriefFact[]): string {
+  return asSentence(upperFirst(facts.map(clauseOf).join(" ")));
+}
 
 /* Words a lead may hold before its fact: "We are raising $1.2 million"
    of "We are raising $1.2 million to build 20 more grids". */
@@ -139,14 +193,21 @@ export function actionPoint(brief: SequenceBrief): {
     sentences.find((s) =>
       carried.some((f) => f.kind === "contact" && factStated(f, s)),
     ) ?? sentences.find((s) => ACTING.test(s));
-  const rest = carried
-    .filter((f) => !acting || !factStated(f, acting))
-    .map((f) => f.text);
+  const rest = carried.filter((f) => !acting || !factStated(f, acting));
   /* "Contact founders@farmlink.ng. $750,000." glues a bare figure on; the
      brief's own sentence for it ("We are raising $750,000.") reads as one
      point. */
   const said = new Set(acting ? [acting] : []);
-  const restSentences = rest.map((text) => {
+  const restSentences: string[] = [];
+  let bareWhenWhere: BriefFact[] = [];
+  const closeWhenWhere = () => {
+    if (bareWhenWhere.length > 0) {
+      restSentences.push(factsAsSentence(bareWhenWhere));
+    }
+    bareWhenWhere = [];
+  };
+  for (const fact of rest) {
+    const text = fact.text;
     const factWords = contentStems(text, brief.free);
     /* Only a sentence that is little more than the fact: one that also
        says what the offer is would recap the hook on the action. */
@@ -157,12 +218,20 @@ export function actionPoint(brief: SequenceBrief): {
         [...contentStems(s, brief.free)].filter((w) => !factWords.has(w))
           .length <= ACTION_SENTENCE_EXTRA,
     );
+    const lead = holding ? null : leadUpTo(text, sentences, brief.free);
+    if (!holding && !lead && isWhenOrWhere(fact)) {
+      bareWhenWhere.push(fact);
+      continue;
+    }
+    closeWhenWhere();
     if (holding) {
       said.add(holding);
-      return asSentence(holding);
+      restSentences.push(asSentence(holding));
+    } else {
+      restSentences.push(lead ? asSentence(lead) : factsAsSentence([fact]));
     }
-    return asSentence(leadUpTo(text, sentences, brief.free) ?? text);
-  });
+  }
+  closeWhenWhere();
   if (acting) {
     const point = [asSentence(acting), ...new Set(restSentences)].join(" ");
     return {
@@ -173,7 +242,7 @@ export function actionPoint(brief: SequenceBrief): {
   if (rest.length > 0) {
     return {
       point: clipped(
-        `How to act: ${rest.join(", ")}.`,
+        `How to act: ${rest.map((f) => f.text).join(", ")}.`,
         OUTLINE_LIMITS.pointChars,
       ),
       source: "brief",
@@ -416,12 +485,15 @@ export function withEveryFactPlaced(
   const besideAction = (fact: BriefFact, n: number) =>
     AT_ACTION.has(fact.kind) &&
     (fact.kind !== "price" || atAction === undefined || atAction.has(n));
+  const saidTogether: BriefFact[] = [];
   for (const [n, fact] of facts.entries()) {
     if (fact.kind === "product" || states(fact)) continue;
     const sentence = sentencesStating(fact, briefText)[0];
-    if (!sentence) continue;
-    const at = besideAction(fact, n) ? -1 : slotFor();
-    if (at >= 0) {
+    /* A fact only the piece's own lead states ("for office managers in
+       Lagos") still goes beside the action, said on its own. */
+    if (!sentence && !besideAction(fact, n)) continue;
+    const at = !sentence || besideAction(fact, n) ? -1 : slotFor();
+    if (sentence && at >= 0) {
       next[at] = {
         ...next[at],
         text: clipped(asSentence(sentence), OUTLINE_LIMITS.pointChars),
@@ -432,27 +504,62 @@ export function withEveryFactPlaced(
     const action = next.at(-1);
     if (!action) continue;
     const already = action.text.toLowerCase();
+    const bare = (t: string) => t.toLowerCase().replace(/[.!?]$/, "");
     const candidates = [
       sentence,
       leadUpTo(fact.text, sentences),
-      fact.text,
+      factsAsSentence([fact]),
     ].filter((t): t is string => Boolean(t));
     /* Two facts of one sentence ("Saturday 15 November, 8am to 2pm") are
        joined once; the reader would see the sentence twice. */
-    if (
-      candidates.some((t) =>
-        already.includes(t.toLowerCase().replace(/[.!?]$/, "")),
-      )
-    ) {
+    if (candidates.some((t) => already.includes(bare(t)))) {
       continue;
     }
-    const said = candidates
-      .map((t) => `${asSentence(action.text)} ${asSentence(t)}`)
-      .find((joined) => joined.length <= OUTLINE_LIMITS.pointChars);
-    if (said) next[next.length - 1] = { ...action, text: said };
+    /* A sentence another slide already says would close the set by
+       repeating it (the presentation's close restated its hook); the fact
+       is joined on its own instead. */
+    const elsewhere = next
+      .slice(0, -1)
+      .map((p) => p.text.toLowerCase())
+      .join(" ");
+    const onItsOwn = candidates.at(-1);
+    const chosen = candidates
+      .filter((t) => t === onItsOwn || !elsewhere.includes(bare(t)))
+      .find((t) => fitsAfter(action.text, t));
+    /* Bare whens and wheres are said together once every fact is in:
+       "On Saturday 14 November at our Yaba shop.", not two fragments. */
+    if (chosen === onItsOwn && isWhenOrWhere(fact)) {
+      saidTogether.push(fact);
+      continue;
+    }
+    if (chosen) {
+      next[next.length - 1] = {
+        ...action,
+        text: joinedAfter(action.text, chosen),
+      };
+    }
+  }
+  const action = next.at(-1);
+  if (action && saidTogether.length > 0) {
+    const together = factsAsSentence(saidTogether);
+    const text = fitsAfter(action.text, together)
+      ? joinedAfter(action.text, together)
+      : saidTogether
+          .map((fact) => factsAsSentence([fact]))
+          .reduce(
+            (sofar, one) =>
+              fitsAfter(sofar, one) ? joinedAfter(sofar, one) : sofar,
+            action.text,
+          );
+    next[next.length - 1] = { ...action, text };
   }
   return next;
 }
+
+const joinedAfter = (text: string, more: string) =>
+  `${asSentence(text)} ${asSentence(more)}`;
+const fitsAfter = (text: string, more: string) =>
+  joinedAfter(text, more).length <= OUTLINE_LIMITS.pointChars;
 
 /**
  * The outline of a set: exactly frameCount points, hook first and action

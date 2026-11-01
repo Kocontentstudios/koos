@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -369,6 +375,45 @@ describe("DesignDirectionsDialog with a set of frames", () => {
     await userEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
     expect(keepWaitingOnFrame).toHaveBeenCalledWith(0);
     expect(regenerateFrame).not.toHaveBeenCalled();
+  });
+});
+
+/* Integration critic round 1, LOW: the image step promised "two
+   different design directions" for a carousel that is one set of slides. */
+describe("what the image step promises", () => {
+  const openOn = (designType: string, multiFrame: boolean) =>
+    render(
+      <DesignDirectionsDialog
+        open
+        onOpenChange={vi.fn()}
+        entry="brief"
+        args={{ brandId: BRAND, briefId: "brief-1" }}
+        design={runState()}
+        ticketContext={{ briefId: "brief-1", designType }}
+      />,
+      flags(multiFrame),
+    );
+
+  it.each([
+    ["Instagram carousel", "one carousel"],
+    ["Pitch presentation", "one presentation"],
+  ])("promises a %s set as one piece, not two directions", (type, noun) => {
+    openOn(type, true);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(`Either way you get ${noun}`);
+    expect(dialog).not.toHaveTextContent(/two different design directions/);
+  });
+
+  it("still promises two directions for a single design, or with sets off", () => {
+    openOn("Instagram post", true);
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "two different design directions",
+    );
+    cleanup();
+    openOn("Instagram carousel", false);
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "two different design directions",
+    );
   });
 });
 

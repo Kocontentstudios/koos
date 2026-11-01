@@ -513,10 +513,13 @@ describe("downloads", () => {
           }),
         );
       });
-      expect(saveBlob).toHaveBeenCalledWith(
-        expect.any(Blob),
-        `launch.${format}`,
-      );
+      /* Read, not matched with expect.any(Blob): on Node 22 (CI) the
+         response's Blob is Node's and jsdom's Blob global is another
+         realm's, so the instanceof check fails while the bytes are right. */
+      expect(saveBlob).toHaveBeenCalledTimes(1);
+      const [blob, filename] = saveBlob.mock.calls[0] as [Blob, string];
+      expect(filename).toBe(`launch.${format}`);
+      expect(await blob.text()).toBe("bytes");
       expect(screen.getByRole("button", { name })).not.toHaveAttribute(
         "aria-busy",
       );

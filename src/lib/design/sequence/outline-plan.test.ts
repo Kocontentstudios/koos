@@ -15,6 +15,7 @@ import {
   leadUpTo,
   planOutline,
   withEveryFactPlaced,
+  withoutPieceLead,
 } from "./outline-plan";
 import { validateApprovedOutline } from "./outline-validate";
 
@@ -496,5 +497,131 @@ describe("withEveryFactPlaced: a figure the reader does not pay", () => {
       "Revenue grew from ₦310 million in 2024 to ₦720 million in 2025.",
     );
     expect(placed[2].text).toBe("Contact ibrahim@lumoragrid.ng.");
+  });
+});
+
+/* Integration critic round 1, MEDIUM 3: the carousel's action point read
+   "Saturday 14 November. our Yaba shop (12 Herbert Macaulay Way)." and the
+   presentation's close carried the brief's words to the designer ("A short
+   deck for office managers in Lagos:") and repeated the hook. */
+describe("owner-facing and broken copy on the outline's points", () => {
+  const fact = (kind: string, text: string) => ({
+    kind: kind as "date",
+    text,
+    needs: needsFor(kind as "date", text),
+  });
+  const LUMEN =
+    "Lumen Coffee is launching Lumen Cold Brew, a 20-hour steeped cold brew, on Saturday 14 November at our Yaba shop (12 Herbert Macaulay Way). A 350ml bottle costs N3,500. Launch day only: buy two, get a free pastry. Brewed with single-origin Ethiopian beans. Order ahead on WhatsApp 0812 555 0199. Audience: young professionals in Yaba and Surulere who want a smooth, low-acid coffee.";
+  const DECK =
+    "A short deck for office managers in Lagos: Lumen Coffee now supplies offices with fresh-roasted beans and a weekly barista visit. Plans start at N85,000 a month for up to 20 staff. Free tasting session for the first 10 offices that book in November. Contact wholesale@lumencoffee.ng.";
+
+  it("says a bare when and where as one sentence, never a lowercase fragment", () => {
+    const facts = [
+      fact("date", "Saturday 14 November"),
+      fact("place", "our Yaba shop (12 Herbert Macaulay Way)"),
+      fact("price", "N3,500"),
+      fact("contact", "WhatsApp 0812 555 0199"),
+    ];
+    const placed = withEveryFactPlaced(
+      [
+        {
+          text: "Lumen Cold Brew is steeped for 20 hours for a smoother cup.",
+          source: "brief",
+          role: "hook",
+        },
+        {
+          text: "Small-batch roaster with two cafes in Lagos",
+          source: "profile",
+          role: "body",
+        },
+        {
+          text: "Order ahead on WhatsApp 0812 555 0199. A 350ml bottle costs N3,500.",
+          source: "brief",
+          role: "cta",
+        },
+      ],
+      facts,
+      LUMEN,
+      new Set([2]),
+    );
+    const cta = placed.at(-1)?.text ?? "";
+    expect(cta).toBe(
+      "Order ahead on WhatsApp 0812 555 0199. A 350ml bottle costs N3,500. On Saturday 14 November at our Yaba shop (12 Herbert Macaulay Way).",
+    );
+    expect(cta).not.toMatch(/[.!?]\s+\p{Ll}/u);
+  });
+
+  it("gives the action's own bare facts the same way", () => {
+    const { point } = actionPoint({
+      briefText: "Fresh bread daily. WhatsApp 0803 555 0142 to order.",
+      brandName: "Kiln Bakery",
+      facts: [
+        fact("contact", "WhatsApp 0803 555 0142"),
+        fact("day", "Saturday"),
+        fact("time", "8am to 2pm"),
+        fact("place", "Surulere"),
+      ],
+      offering: "bread",
+      offeringIndex: -1,
+      names: [],
+      free: new Set<string>(),
+      atAction: new Set([1, 2, 3]),
+      readAvailable: true,
+    });
+    expect(point).toBe(
+      "WhatsApp 0803 555 0142 to order. On Saturday from 8am to 2pm in Surulere.",
+    );
+  });
+
+  it("never quotes the brief's words about the piece itself, nor repeats the hook on the close", () => {
+    const facts = [
+      fact("place", "Lagos"),
+      fact("price", "N85,000 a month"),
+      fact("contact", "wholesale@lumencoffee.ng"),
+    ];
+    const hook =
+      "Lumen Coffee now supplies offices with fresh-roasted beans and a weekly barista visit.";
+    const placed = withEveryFactPlaced(
+      [
+        { text: hook, source: "brief", role: "hook" },
+        {
+          text: "Plans start at N85,000 a month for up to 20 staff.",
+          source: "brief",
+          role: "body",
+        },
+        {
+          text: "Contact wholesale@lumencoffee.ng.",
+          source: "brief",
+          role: "cta",
+        },
+      ],
+      facts,
+      DECK,
+      new Set(),
+    );
+    const close = placed.at(-1)?.text ?? "";
+    expect(close).not.toMatch(/short deck|office managers/i);
+    expect(close).not.toContain(hook.replace(/\.$/, ""));
+    expect(close).toBe("Contact wholesale@lumencoffee.ng. In Lagos.");
+  });
+
+  it("drops only the lead that names the piece", () => {
+    expect(
+      withoutPieceLead(
+        "A short deck for office managers in Lagos: Lumen Coffee now supplies offices.",
+      ),
+    ).toBe("Lumen Coffee now supplies offices.");
+    expect(
+      withoutPieceLead(
+        "Sponsorship deck for Lagos Design Week 2026, 4 to 8 December at Landmark Centre.",
+      ),
+    ).toBe("Lagos Design Week 2026, 4 to 8 December at Landmark Centre.");
+    for (const kept of [
+      "A deck to pitch offices on our beans.",
+      "Desk posts for every office.",
+      "Our cold brew is steeped for 20 hours.",
+    ]) {
+      expect(withoutPieceLead(kept)).toBe(kept);
+    }
   });
 });

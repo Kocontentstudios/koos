@@ -52,6 +52,14 @@ describe("laneViewports", () => {
     expect(uncoveredBands(thresholds, widths)).toEqual([]);
   });
 
+  it("renders under a breakpoint narrower than the phone pass", () => {
+    const thresholds = [360, 768];
+    const widths = laneViewports(thresholds).map((v) => v.width);
+    expect(uncoveredBands(thresholds, [...widths, DESKTOP_WIDTH])).toEqual([]);
+    expect(widths).toContain(320);
+    expect(laneViewports([300]).map((v) => v.width)).toContain(299);
+  });
+
   it("finds an uncovered band", () => {
     expect(uncoveredBands([600, 700], [390, 1440])).toEqual([[600, 700]]);
   });
