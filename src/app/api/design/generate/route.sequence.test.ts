@@ -16,6 +16,7 @@ const countDesignGenerationsForWorkspace = vi.fn();
 const countReservedDesignUnitsForWorkspace = vi.fn();
 const sweepAbandonedDesignSets = vi.fn();
 const frameCountNotice = vi.fn();
+const validateApprovedOutline = vi.fn();
 
 vi.mock("@/lib/auth/get-user", () => ({ getAuthUser: () => getAuthUser() }));
 vi.mock("@/lib/rate-limit", () => ({
@@ -37,6 +38,10 @@ vi.mock("@/lib/jobs/run-design-sequence", () => ({
     sweepAbandonedDesignSets(workspaceId),
   frameCountNotice: (kind: string, frames: number, asked: number | null) =>
     frameCountNotice(kind, frames, asked),
+}));
+vi.mock("@/lib/design/sequence/outline-validate", () => ({
+  validateApprovedOutline: (raw: unknown, ctx: unknown) =>
+    validateApprovedOutline(raw, ctx),
 }));
 vi.mock("@/lib/auth/require-verified-email", () => ({
   requireVerifiedEmail: () => null,
@@ -103,6 +108,8 @@ function contextOf(designType: string | null, slides: number | null = null) {
     brand: { id: BRAND_ID },
     designType,
     slides,
+    briefText: "Croissant week at Crumb & Co.",
+    brandSummary: { name: "Crumb & Co.", offer: "A Lekki bakery." },
   });
 }
 
@@ -128,6 +135,12 @@ beforeEach(() => {
   createGenerationJob.mockResolvedValue({ id: "job-1" });
   generateDesignWork.mockResolvedValue({ result: {} });
   contextOf("Instagram carousel", 4);
+  validateApprovedOutline.mockImplementation(
+    (raw: { kind: string; points: unknown[] }) => ({
+      ok: true,
+      outline: { kind: raw.kind, points: raw.points },
+    }),
+  );
 });
 
 afterEach(() => {
@@ -292,5 +305,159 @@ describe("design generate route, what stays a single design", () => {
     } finally {
       process.env.FEATURE_KO_IMAGERY = "";
     }
+  });
+});
+
+function outline(n: number, source = "brief") {
+  return {
+    kind: "carousel",
+    points: Array.from({ length: n }, (_, i) => ({
+      id: `p${i + 1}`,
+      role: i === 0 ? "hook" : i === n - 1 ? "cta" : "body",
+      title: `Point ${i + 1}`,
+      point: `What frame ${i + 1} says.`,
+      source,
+    })),
+  };
+}
+
+describe("design generate route, an approved outline (O4)", () => {
+  it("validates the outline against the brief's kind, brief and profile, never the client's sources", async () => {
+    const sent = outline(4, "user");
+    const res = await post({ image: UPLOAD, approvedOutline: sent });
+    expect(res.status).toBe(202);
+    expect(validateApprovedOutline).toHaveBeenCalledWith(sent, {
+      kind: "carousel",
+      briefText: "Croissant week at Crumb & Co.",
+      profileStatements: ["A Lekki bakery."],
+    });
+  });
+
+  it("puts the validated outline, not the raw one, on the job and the work", async () => {
+    const validated = {
+      ...outline(4),
+      points: outline(4).points.map((p) => ({ ...p, title: p.title.trim() })),
+    };
+    validateApprovedOutline.mockReturnValue({ ok: true, outline: validated });
+    await post({
+      image: UPLOAD,
+      approvedOutline: { ...outline(4, "user"), extra: "stripped" },
+    });
+    expect(jobInput().sequence).toEqual({
+      frames: 4,
+      asked: 4,
+      approvedOutline: validated,
+    });
+    expect(workArgs().sequence).toMatchObject({
+      frames: 4,
+      approvedOutline: validated,
+    });
+  });
+
+  it("sizes the set by the approved points, over a frames field and the brief's count", async () => {
+    contextOf("Instagram carousel", 8);
+    const res = await post({
+      image: UPLOAD,
+      frames: 9,
+      approvedOutline: outline(6),
+    });
+    expect(res.status).toBe(202);
+    expect(jobInput().sequence).toMatchObject({ frames: 6, asked: 6 });
+    expect(await res.json()).toEqual({
+      jobId: "job-1",
+      frames: 6,
+      notice: null,
+    });
+  });
+
+  it("refuses an invalid outline with its problems, before quota or any job", async () => {
+    const problems = [
+      { point: 0, rule: "hook-first", detail: "point 1 is body" },
+      { point: 2, rule: "markup", detail: "point 3 holds <" },
+    ];
+    validateApprovedOutline.mockReturnValue({ ok: false, problems });
+    const res = await post({ image: UPLOAD, approvedOutline: outline(4) });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Invalid outline", problems });
+    expect(checkDesignQuota).toHaveBeenCalledTimes(1);
+    expect(createGenerationJob).not.toHaveBeenCalled();
+    expect(generateDesignWork).not.toHaveBeenCalled();
+  });
+
+  it("checks quota for the approved count, and names it in the shortfall", async () => {
+    process.env.DESIGN_GENERATION_MONTHLY_QUOTA = "10";
+    countDesignGenerationsForWorkspace.mockResolvedValue(6);
+    const res = await post({
+      image: UPLOAD,
+      frames: 3,
+      approvedOutline: outline(7),
+    });
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toMatch(
+      /^This carousel needs 7 designs; this workspace has 4 left this month\./,
+    );
+    expect(body).toMatchObject({ requested: 7 });
+    expect(checkDesignQuota).toHaveBeenLastCalledWith(
+      "w1",
+      expect.any(Date),
+      7,
+    );
+    expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("lets a deleted point lower the bill: five approved of a planned six spend five", async () => {
+    process.env.DESIGN_GENERATION_MONTHLY_QUOTA = "10";
+    countDesignGenerationsForWorkspace.mockResolvedValue(5);
+    const res = await post({ image: UPLOAD, approvedOutline: outline(5) });
+    expect(res.status).toBe(202);
+    expect(checkDesignQuota).toHaveBeenLastCalledWith(
+      "w1",
+      expect.any(Date),
+      5,
+    );
+  });
+
+  it("refuses an unauthenticated caller before reading the outline", async () => {
+    getAuthUser.mockResolvedValue({ dbUser: null });
+    const res = await post({ image: UPLOAD, approvedOutline: outline(4) });
+    expect(res.status).toBe(401);
+    expect(validateApprovedOutline).not.toHaveBeenCalled();
+  });
+
+  it("refuses another brand's caller before reading the outline", async () => {
+    checkBrandAccess.mockResolvedValue({
+      ok: false,
+      status: 404,
+      error: "Brand not found",
+    });
+    const res = await post({ image: UPLOAD, approvedOutline: outline(4) });
+    expect(res.status).toBe(404);
+    expect(validateApprovedOutline).not.toHaveBeenCalled();
+    expect(createGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("ignores the outline with the flag off, as any unknown field (O7, H6)", async () => {
+    process.env.FEATURE_MULTI_FRAME = "";
+    const res = await post({ image: UPLOAD, approvedOutline: { junk: true } });
+    expect(res.status).toBe(202);
+    expect(validateApprovedOutline).not.toHaveBeenCalled();
+    expect(jobInput()).not.toHaveProperty("sequence");
+    expect(workArgs()).not.toHaveProperty("sequence");
+  });
+
+  it("ignores the outline for a single-image format", async () => {
+    contextOf("Instagram post", 4);
+    const single = await post({ image: UPLOAD, approvedOutline: outline(4) });
+    expect(single.status).toBe(202);
+    expect(jobInput()).not.toHaveProperty("sequence");
+    expect(validateApprovedOutline).not.toHaveBeenCalled();
+  });
+
+  it("plans without an outline when none is sent, exactly as before", async () => {
+    await post({ image: UPLOAD, frames: 4 });
+    expect(validateApprovedOutline).not.toHaveBeenCalled();
+    expect(jobInput().sequence).toEqual({ frames: 4, asked: 4 });
+    expect(workArgs().sequence).not.toHaveProperty("approvedOutline");
   });
 });

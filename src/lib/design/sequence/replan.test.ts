@@ -748,3 +748,55 @@ describe("repairedVersion: what code takes out before a regenerate is judged", (
     expect(result.beat.headline).not.toMatch(/2,500/);
   });
 });
+
+describe("replanFrame from an approved outline (O5)", () => {
+  const plan = cafePlan();
+  const outlineWith = (index: number, point: string) => ({
+    kind: plan.kind,
+    points: plan.frames.map((beat, i) => ({
+      id: `p${i + 1}`,
+      role: beat.role,
+      title: beat.title,
+      point: i === index ? point : `What frame ${i + 1} says.`,
+      source: (i === index ? "user" : "brief") as "user" | "brief",
+    })),
+  });
+
+  it("tells the model the frame's approved point and to keep that claim", async () => {
+    generateObject.mockResolvedValue(rewrite());
+    await replanFrame(
+      { context, plan, index: 1 },
+      {
+        briefReader: reader,
+        approvedOutline: outlineWith(1, "Cold brew steeped for 18 hours."),
+      },
+    );
+    const prompt = generateObject.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain(
+      'Its point, as the user approved it: "Cold brew steeped for 18 hours."',
+    );
+    expect(prompt).toContain("none turns it into a different claim");
+    expect(prompt).not.toContain("What frame 3 says.");
+  });
+
+  it("counts the user's own point as stated, so its number is not refused as invented", async () => {
+    generateObject.mockResolvedValue(
+      rewrite({ subheadline: "₦2,500 a bottle · 40 bottles made" }),
+    );
+    const result = await replanFrame(
+      { context, plan, index: 1 },
+      {
+        briefReader: reader,
+        approvedOutline: outlineWith(1, "We made 40 bottles this week."),
+      },
+    );
+    expect(result.beat.subheadline).toBe("₦2,500 a bottle · 40 bottles made");
+  });
+
+  it("says nothing of an outline for a set made without one", async () => {
+    generateObject.mockResolvedValue(rewrite());
+    await replanFrame({ context, plan, index: 1 }, { briefReader: reader });
+    const prompt = generateObject.mock.calls[0][0].prompt as string;
+    expect(prompt).not.toContain("as the user approved it");
+  });
+});

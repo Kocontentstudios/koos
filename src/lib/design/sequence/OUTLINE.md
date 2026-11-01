@@ -65,7 +65,8 @@ Success: `200 {outline: PlannedOutline}`.
   `"body"` (`roleOf`).
 - Ids are `"p1".."pN"` in frame order.
 - `source` is `"brief"` or `"profile"`; the planner never returns `"user"`.
-- `weak` is set by `flagOutline`, never by a model.
+- `weak` is set by `flagOutline`, never by a model. `planOutline` flags
+  before it returns, so the route does not flag a second time.
 - `title` is about its own point (`outlineTitles`): the arc's title follows
   the point it was written for when `settleArc` moves points, and a title
   that shares no word or figure with its point is remade from the point's
@@ -73,6 +74,10 @@ Success: `200 {outline: PlannedOutline}`.
 - `sig` is the server's HMAC over `kind`, the brief, `source` and `point`
   (`outline-sign.ts`). The client sends it back unchanged with an unedited
   point, and drops it (or lets it go stale) when the user edits the words.
+
+A planner that throws, or returns an outline that breaks these rules, is
+`502 {error}` with a `design.outline.failed` log line, never a half-formed
+outline.
 
 Trace: one log line `design.outline.planned` with `{kind, frames, weak:
 {overlap, filler, profileFill}, modelCalls, ms}`. No brief text in the log.
@@ -283,12 +288,22 @@ On the set path:
    point counts as stated: copy may use it and the ledger does not flag it
    invented.
 3. `frames` becomes `outline.points.length`. A `frames` field that
-   disagrees with it is `400 {error: "frames does not match the outline"}`.
+   disagrees with it is ignored, not refused: the approved points are what
+   the user saw priced on the button (Oluwaseyi, 2026-10-31).
 4. Quota is checked for `points.length` units (`checkDesignQuota(...,
    points.length)`), as today.
 5. The validated outline rides on the job input
    (`SequenceJobInput.sequence.approvedOutline`) so a resumed slice re-plans
    from it, and reaches the planner as `PlanSequenceInput.approvedOutline`.
+   The job validates it again against the brief it resolves before
+   planning; a failure fails the job with `ApprovedOutlineError` before any
+   row or charge. Once the plan is checkpointed, the checkpoint's outline
+   stands.
+6. The outline is stored on the set (`design_sets.outline`, migration
+   0041). A frame regenerated later gets it as
+   `ReplanFrameDeps.approvedOutline`: the rewrite is told the frame's
+   approved point and keeps that claim, and every approved point counts as
+   stated in its ledger. Typed edits are drawn as written, as before.
 
 The planner, given an approved outline (O5):
 

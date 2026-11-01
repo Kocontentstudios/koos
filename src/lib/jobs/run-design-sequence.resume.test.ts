@@ -11,6 +11,7 @@ const listSetFrames = vi.fn();
 const updateDesignGeneration = vi.fn();
 const recordUsageEvent = vi.fn();
 const annotateSetUsage = vi.fn(async (..._args: unknown[]) => {});
+const validateApprovedOutline = vi.fn();
 
 vi.mock("@/lib/db/queries", () => ({
   updateGenerationJob: (id: string, patch: unknown) =>
@@ -29,6 +30,10 @@ vi.mock("@/lib/analytics/posthog-server", () => ({
 vi.mock("@/lib/design/context", () => ({
   resolveDesignContext: (args: unknown) => resolveDesignContext(args),
   DesignContextError: class DesignContextError extends Error {},
+}));
+vi.mock("@/lib/design/sequence/outline-validate", () => ({
+  validateApprovedOutline: (raw: unknown, ctx: unknown) =>
+    validateApprovedOutline(raw, ctx),
 }));
 vi.mock("./run-generation", () => ({
   executeGenerationJob: (...args: unknown[]) => executeGenerationJob(...args),
@@ -163,6 +168,48 @@ describe("resumeDesignSequenceJob", () => {
       },
     );
     expect(updateGenerationJob).not.toHaveBeenCalled();
+  });
+
+  it("re-plans a slice that never checkpointed from the outline the job carries", async () => {
+    const approvedOutline = {
+      kind: "carousel",
+      points: ["hook", "body", "body", "cta"].map((role, i) => ({
+        id: `p${i + 1}`,
+        role,
+        title: `Point ${i + 1}`,
+        point: `What frame ${i + 1} says.`,
+        source: "brief",
+      })),
+    };
+    resolveDesignContext.mockResolvedValue({
+      brand: { id: "b1" },
+      designType: "Instagram carousel",
+      briefText: "Croissant week",
+      brandSummary: { name: "Crumb & Co." },
+    });
+    validateApprovedOutline.mockReturnValue({
+      ok: false,
+      problems: [{ point: null, rule: "kind", detail: "stop here" }],
+    });
+    await resumeDesignSequenceJob(
+      job({ ...INPUT, sequence: { frames: 4, approvedOutline } }),
+    );
+    const work = executeGenerationJob.mock.calls[0][1] as (
+      runtime: unknown,
+    ) => Promise<unknown>;
+    await expect(
+      work({
+        checkpoint: {},
+        reportProgress: () => {},
+        saveCheckpoint: async () => {},
+        shouldPause: () => false,
+      }),
+    ).rejects.toThrow(/Open the outline again/);
+    expect(validateApprovedOutline).toHaveBeenCalledWith(approvedOutline, {
+      kind: "carousel",
+      briefText: "Croissant week",
+      profileStatements: [],
+    });
   });
 
   it("fails the job when its input is not a set", async () => {

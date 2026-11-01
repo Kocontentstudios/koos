@@ -52,6 +52,7 @@ import type {
   ApprovedOutline,
   FrameBeat,
   FrameEdits,
+  OutlineProblem,
   PlannedSequence,
   RegenerateFrameJobResult,
   SequenceImageSource,
@@ -66,10 +67,12 @@ import {
 } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
 import { frameRationale, liveFrames } from "@/lib/design/sequence/frames";
+import { validateApprovedOutline } from "@/lib/design/sequence/outline-validate";
 import {
   planSequence,
   SequenceShipRefusedError,
 } from "@/lib/design/sequence/plan";
+import { profileStatements } from "@/lib/design/sequence/points";
 import { replanFrame } from "@/lib/design/sequence/replan";
 import type { DesignSpec } from "@/lib/design/spec";
 import { STORAGE_PREFIXES } from "@/lib/storage";
@@ -210,6 +213,9 @@ export interface SequenceCheckpoint {
      *  ship a blocking fault. */
     framesDropped?: number[];
   };
+  /** The approved outline the plan was written from, as this job
+   *  validated it; absent for a set planned without the outline step. */
+  outline?: ApprovedOutline;
   /** Frames that finished, delivered or failed, with what they carried, so a
    *  later slice neither renders them again nor loses their record. */
   frames: Record<string, FrameRecord>;
@@ -261,6 +267,21 @@ function planErrorMessage(
   const noun = slides.length === 1 ? "slide" : "slides";
   const points = slides.length === 1 ? "point" : "points";
   return `We couldn't write ${noun} ${listed} of this ${kind} without repeating another slide or going beyond your brief. Change ${points} ${listed} in the outline, or try again.`;
+}
+
+/** The approved outline does not hold against the brief the job resolved:
+ *  the brief changed after the outline was planned, or the input was not
+ *  one the route accepted. */
+export class ApprovedOutlineError extends Error {
+  constructor(
+    kind: SequenceKind,
+    readonly problems: OutlineProblem[],
+  ) {
+    super(
+      `The outline you approved no longer fits this ${kind}'s brief. Open the outline again and generate from it.`,
+    );
+    this.name = "ApprovedOutlineError";
+  }
 }
 
 /** The frame asked for is gone, not this brand's, or not a frame. */
@@ -883,10 +904,16 @@ export async function generateSequenceWork(
     throw new KoImageryDisabledError();
   }
   const brandId = context.brand.id;
-  /* The count asked for, until the plan is written: a frame the planner
-     dropped rather than ship a blocking fault (framesDropped) is neither
-     drawn nor billed. */
-  let frameCount = request.frames;
+  /* The count asked for (the approved outline's, when there is one), until
+     the plan is written: a frame the planner dropped rather than ship a
+     blocking fault (framesDropped) is neither drawn nor billed. */
+  const outline = settledOutline(
+    runtime.checkpoint,
+    request.approvedOutline,
+    context,
+    kind,
+  );
+  let frameCount = outline ? outline.points.length : request.frames;
   const uploadKey =
     request.image.source === "upload" ? request.image.key : null;
   const report = (
@@ -915,6 +942,7 @@ export async function generateSequenceWork(
         source,
         uploadKey,
         startedAt,
+        outline,
       });
       await runtime.saveCheckpoint({ ...state });
     }
@@ -949,6 +977,7 @@ export async function generateSequenceWork(
       facts: state.facts,
       offering: state.offering,
       request: contextRequest ?? {},
+      outline: state.outline ?? null,
     });
 
     /* Rows already written by an earlier slice are reused, so a resumed set
@@ -1131,7 +1160,37 @@ function resumedState(
     frames: { ...(saved.frames ?? {}) },
     startedAt: saved.startedAt,
     completed: saved.completed === true,
+    ...(saved.outline ? { outline: saved.outline } : {}),
   };
+}
+
+/**
+ * The approved outline a set is planned from. Validated again here, not
+ * only in the route: the job resolves the brief afresh, and a resumed slice
+ * reads the outline back from a stored job input. Once a plan is
+ * checkpointed, the outline it was written from is the one that stands.
+ */
+function settledOutline(
+  checkpoint: Record<string, unknown>,
+  requested: ApprovedOutline | undefined,
+  context: DesignContext,
+  kind: SequenceKind,
+): ApprovedOutline | undefined {
+  const planned = resumedState(checkpoint);
+  if (planned) return planned.outline;
+  if (!requested) return undefined;
+  const checked = validateApprovedOutline(requested, {
+    kind,
+    briefText: context.briefText ?? "",
+    profileStatements: profileStatements(context.brandSummary),
+  });
+  if (!checked.ok) {
+    console.error("design sequence outline refused", {
+      problems: checked.problems,
+    });
+    throw new ApprovedOutlineError(kind, checked.problems);
+  }
+  return checked.outline;
 }
 
 /** One planner call for the whole set, refused when the plan breaks the
@@ -1143,6 +1202,7 @@ async function planSet({
   source,
   uploadKey,
   startedAt,
+  outline,
 }: {
   context: DesignContext;
   kind: SequenceKind;
@@ -1150,6 +1210,7 @@ async function planSet({
   source: SequenceImageSource;
   uploadKey: string | null;
   startedAt: number;
+  outline: ApprovedOutline | undefined;
 }): Promise<SequenceCheckpoint> {
   const brandId = context.brand.id;
   const upload = uploadKey ? await loadDesignImage(uploadKey, brandId) : null;
@@ -1167,6 +1228,7 @@ async function planSet({
       : null,
     memorySummary,
     recentLayouts,
+    ...(outline ? { approvedOutline: outline } : {}),
   }).catch((err) => {
     /* A blocking fault no repair cleared is refused before any frame
        renders or is billed; the user sees the same plain refusal as a set
@@ -1219,6 +1281,7 @@ async function planSet({
     },
     frames: {},
     startedAt,
+    ...(outline ? { outline } : {}),
   };
 }
 
@@ -1803,6 +1866,7 @@ export async function resumeDesignSequenceJob(job: {
   const image = input.image;
   const frames = input.sequence.frames;
   const asked = input.sequence.asked ?? null;
+  const approvedOutline = input.sequence.approvedOutline;
   await executeGenerationJob(
     job.id,
     (runtime) =>
@@ -1811,7 +1875,12 @@ export async function resumeDesignSequenceJob(job: {
           context,
           userId: job.userId,
           sessionId: null,
-          request: { image, frames, asked },
+          request: {
+            image,
+            frames,
+            asked,
+            ...(approvedOutline ? { approvedOutline } : {}),
+          },
           contextRequest,
         },
         runtime,
@@ -1911,6 +1980,9 @@ export async function regenerateFrameWork(
     {
       facts: (set.facts as BriefFact[]) ?? [],
       offering: set.offering,
+      ...(set.outline
+        ? { approvedOutline: set.outline as ApprovedOutline }
+        : {}),
     },
   );
   const replanned: PlannedSequence = {

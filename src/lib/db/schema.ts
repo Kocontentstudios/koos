@@ -730,6 +730,9 @@ export const designSets = pgTable("design_sets", {
   facts: jsonb("facts").notNull().default(sql`'[]'::jsonb`),
   offering: text("offering"),
   request: jsonb("request").notNull().default(sql`'{}'::jsonb`),
+  /** The ApprovedOutline the set was generated from, as validated; null
+   *  for a set planned without the outline step. */
+  outline: jsonb("outline"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

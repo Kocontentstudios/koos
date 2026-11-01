@@ -576,6 +576,8 @@ export interface RegeneratePromptInput {
   index: number;
   mustState: string[];
   offering: string | null;
+  /** The point the user approved for this frame in the outline step. */
+  point?: string;
 }
 
 /** Versions of a frame one regenerate asks for. One call, so the user pays
@@ -587,7 +589,7 @@ export const REGENERATE_VERSIONS = 2;
  *  neighbours and keeps its job in the story. */
 export function buildFrameRegeneratePrompt(
   context: DesignContext,
-  { kind, frames, index, mustState, offering }: RegeneratePromptInput,
+  { kind, frames, index, mustState, offering, point }: RegeneratePromptInput,
 ): string {
   const noun = frameNoun(kind);
   const beat = frames[index];
@@ -597,6 +599,9 @@ export function buildFrameRegeneratePrompt(
     `The other ${noun}s of the ${kind}, which stay as they are:\n\n${beatLines(frames, noun, others)}`,
     `Write ${noun} ${index + 1} again, ${REGENERATE_VERSIONS} different versions of it: each a new headline and supporting copy for the same point ("${beat.title}"), different from what it says now, from every other ${noun} and from each other. It stays ${ROLE_BRIEF[beat.role]}`,
     `It says now: headline "${beat.headline}"${beat.subheadline ? `, subheadline "${beat.subheadline}"` : ""}.`,
+    point
+      ? `Its point, as the user approved it: "${point}". Every version makes that claim and no other, in new words; none turns it into a different claim.`
+      : null,
     mustState.length > 0
       ? `Each version states, in these words: ${mustState.map((x) => `"${x}"`).join(", ")}.`
       : null,

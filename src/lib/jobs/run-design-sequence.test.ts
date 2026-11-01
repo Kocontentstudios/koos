@@ -51,12 +51,17 @@ const getPlateAdapter = vi.fn();
 const paletteForCutout = vi.fn();
 const judgeAndCorrect = vi.fn();
 const failAbandonedDesignJobs = vi.fn();
+const validateApprovedOutline = vi.fn();
 
 vi.mock("@/lib/design/sequence/plan", async (importOriginal) => ({
   SequenceShipRefusedError: (
     await importOriginal<typeof import("@/lib/design/sequence/plan")>()
   ).SequenceShipRefusedError,
   planSequence: (input: unknown) => planSequence(input),
+}));
+vi.mock("@/lib/design/sequence/outline-validate", () => ({
+  validateApprovedOutline: (raw: unknown, ctx: unknown) =>
+    validateApprovedOutline(raw, ctx),
 }));
 vi.mock("@/lib/design/sequence/replan", () => ({
   replanFrame: (input: unknown, deps: unknown) => replanFrame(input, deps),
@@ -227,6 +232,7 @@ vi.mock("@/lib/design/render/logo", async (importOriginal) => ({
 }));
 
 const {
+  ApprovedOutlineError,
   FrameBusyError,
   FrameTargetError,
   frameCorrectionKeeps,
@@ -402,6 +408,10 @@ beforeEach(() => {
   planSequence.mockImplementation(async (input: { frameCount: number }) =>
     planned(planOf(input.frameCount)),
   );
+  validateApprovedOutline.mockImplementation((raw: unknown) => ({
+    ok: true,
+    outline: raw,
+  }));
   uploadObject.mockResolvedValue(undefined);
   loadBestLogo.mockResolvedValue({ logo: null, fault: null });
   createNotification.mockResolvedValue(undefined);
@@ -1757,5 +1767,170 @@ describe("sweeping sets nobody will resume (H7, H11)", () => {
   it("never throws into the request it runs in", async () => {
     failAbandonedDesignJobs.mockRejectedValue(new Error("db down"));
     await expect(sweepAbandonedDesignSets("w1")).resolves.toBe(0);
+  });
+});
+
+describe("a set generated from an approved outline (O4, O5)", () => {
+  type ApprovedOutline =
+    import("@/lib/design/sequence/contract").ApprovedOutline;
+
+  function approved(n: number): ApprovedOutline {
+    return {
+      kind: "carousel",
+      points: Array.from({ length: n }, (_, i) => ({
+        id: i === 2 ? "u-1" : `p${i + 1}`,
+        role: i === 0 ? "hook" : i === n - 1 ? "cta" : "body",
+        title: `Point ${i + 1}`,
+        point:
+          i === 2
+            ? "We bake with butter from one farm in Jos."
+            : `What frame ${i + 1} says.`,
+        source: i === 2 ? "user" : "brief",
+      })),
+    };
+  }
+
+  function runFrom(
+    outline: ApprovedOutline,
+    frames: number,
+    runtime = runtimeWith().runtime,
+  ) {
+    return generateSequenceWork(
+      {
+        context: carouselContext(),
+        userId: "u1",
+        sessionId: "s1",
+        request: {
+          image: { source: "none" },
+          frames,
+          approvedOutline: outline,
+        },
+      },
+      runtime as never,
+    );
+  }
+
+  it("re-validates the outline against the brief the job resolved", async () => {
+    const outline = approved(4);
+    await runFrom(outline, 4);
+    const context = carouselContext() as { briefText?: string | null };
+    expect(validateApprovedOutline).toHaveBeenCalledWith(outline, {
+      kind: "carousel",
+      briefText: context.briefText ?? "",
+      profileStatements: expect.any(Array),
+    });
+  });
+
+  it("hands the planner the validated outline and sizes the set by its points", async () => {
+    const validated = approved(5);
+    validateApprovedOutline.mockReturnValue({ ok: true, outline: validated });
+    const outcome = await runFrom(approved(5), 3);
+    expect(planSequence).toHaveBeenCalledWith(
+      expect.objectContaining({ frameCount: 5, approvedOutline: validated }),
+    );
+    expect(frameRows()).toHaveLength(5);
+    expect(outcome.result.frameCount).toBe(5);
+  });
+
+  it("fails before planning, writing no row and billing nothing, when the outline no longer holds", async () => {
+    const problems = [{ point: 1, rule: "markup", detail: "holds {{" }];
+    validateApprovedOutline.mockReturnValue({ ok: false, problems });
+    const err = await runFrom(approved(4), 4).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApprovedOutlineError);
+    expect((err as InstanceType<typeof ApprovedOutlineError>).problems).toEqual(
+      problems,
+    );
+    expect((err as Error).message).toMatch(/Open the outline again/);
+    expect(planSequence).not.toHaveBeenCalled();
+    expect(db.rows.size).toBe(0);
+    expect(db.usage).toHaveLength(0);
+  });
+
+  it("stores the outline with the set's plan, and in the checkpoint", async () => {
+    const outline = approved(4);
+    const { runtime } = runtimeWith();
+    const outcome = await runFrom(outline, 4, runtime);
+    const set = db.sets.get(outcome.result.setId) as Record<string, unknown>;
+    expect(set.outline).toEqual(outline);
+    expect(runtime.checkpoint).toMatchObject({ outline });
+  });
+
+  it("stores no outline for a set planned without one", async () => {
+    const outcome = await run(3);
+    const set = db.sets.get(outcome.result.setId) as Record<string, unknown>;
+    expect(set.outline).toBeNull();
+    expect(validateApprovedOutline).not.toHaveBeenCalled();
+    expect(planSequence.mock.calls[0][0]).not.toHaveProperty("approvedOutline");
+  });
+
+  it("keeps the checkpoint's outline on a resumed slice, never validating again", async () => {
+    const outline = approved(4);
+    let slices = 0;
+    const checkpoint: Record<string, unknown> = {};
+    const first = runtimeWith(checkpoint, () => {
+      slices += 1;
+      return slices > 2;
+    });
+    await expect(runFrom(outline, 4, first.runtime)).rejects.toBeInstanceOf(
+      JobPausedError,
+    );
+    expect(validateApprovedOutline).toHaveBeenCalledTimes(1);
+    validateApprovedOutline.mockReturnValue({
+      ok: false,
+      problems: [{ point: null, rule: "kind", detail: "brief changed" }],
+    });
+    const second = runtimeWith(checkpoint);
+    const outcome = await runFrom(outline, 4, second.runtime);
+    expect(validateApprovedOutline).toHaveBeenCalledTimes(1);
+    expect(planSequence).toHaveBeenCalledTimes(1);
+    expect(outcome.result.frameCount).toBe(4);
+  });
+
+  it("keeps a regenerated frame to the approved points the set was made from", async () => {
+    const outline = approved(4);
+    const outcome = await runFrom(outline, 4);
+    const target = frameRows()[2];
+    replanFrame.mockImplementation(
+      async (input: { plan: PlannedSequence; index: number }) => ({
+        beat: { ...input.plan.frames[input.index], headline: "One farm, Jos" },
+        modelCalls: 1,
+        uncovered: [],
+      }),
+    );
+    await regenerateFrameWork(
+      {
+        context: carouselContext(),
+        userId: "u1",
+        sessionId: "s1",
+        generationId: target.id,
+      },
+      runtimeWith().runtime as never,
+    );
+    expect(target.setId).toBe(outcome.result.setId);
+    expect(replanFrame).toHaveBeenCalledWith(
+      expect.objectContaining({ index: 2 }),
+      expect.objectContaining({ approvedOutline: outline }),
+    );
+  });
+
+  it("regenerates a frame of a set made without an outline as before", async () => {
+    await run(3);
+    replanFrame.mockImplementation(
+      async (input: { plan: PlannedSequence; index: number }) => ({
+        beat: input.plan.frames[input.index],
+        modelCalls: 1,
+        uncovered: [],
+      }),
+    );
+    await regenerateFrameWork(
+      {
+        context: carouselContext(),
+        userId: "u1",
+        sessionId: "s1",
+        generationId: frameRows()[1].id,
+      },
+      runtimeWith().runtime as never,
+    );
+    expect(replanFrame.mock.calls[0][1]).not.toHaveProperty("approvedOutline");
   });
 });
