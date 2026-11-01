@@ -1205,7 +1205,170 @@ function needsHold(needs: readonly string[], text: string): boolean {
 
 const isSpan = (kind: CoverKind) => kind === "offer" || kind === "condition";
 
+/* Verbs an offer's terms are given by, each saying the same thing: a
+   weekday booking that "includes" a free scalp massage "gets" one. */
+const OFFER_VERBS = new Set(
+  "get gets include includes come comes earn earns".split(" "),
+);
+/* Words a copy may put between an offer's subject and its verb: the
+   place or name it is at ("Weekday bookings at Crown & Coil include"). */
+const OFFER_GAP = 4;
+const NEGATION = new Set(
+  "not never no don't doesn't won't cannot can't didn't nor".split(" "),
+);
+
+/**
+ * Whether `part` gives an offer's whole span with its verb said another
+ * way: the subject and the terms each whole and in order, an offer verb
+ * between them, and at most a short name or place before the verb. The
+ * terms are never loosened ("a free scalp massage" stays whole), so a
+ * dropped item still fails as holdsWhole does.
+ */
+function holdsWithOfferVerb(phrase: string, part: string): boolean {
+  const wanted = withoutEdgeMarks(factTokens(phrase));
+  const at = wanted.findIndex((t) => OFFER_VERBS.has(t.key.slice(2)));
+  if (at <= 0 || at === wanted.length - 1) return false;
+  const subject = wanted.slice(0, at);
+  const terms = wanted.slice(at + 1);
+  const copy = factTokens(part);
+  return runsOf(copy, subject).some((start) => {
+    const from = start + subject.length;
+    for (let gap = 0; gap <= OFFER_GAP; gap += 1) {
+      const verb = copy[from + gap];
+      if (!verb) return false;
+      if (verb.kind !== "word" || NEGATION.has(verb.key.slice(2))) {
+        return false;
+      }
+      if (OFFER_VERBS.has(verb.key.slice(2))) {
+        const rest = copy.slice(from + gap + 1, from + gap + 1 + terms.length);
+        return (
+          rest.length === terms.length &&
+          rest.every((t, k) => t.key === terms[k].key)
+        );
+      }
+    }
+    return false;
+  });
+}
+
+/* One word between a count's number and its qualified noun leaves how
+   many alone ("14 solar cold rooms" is 14 cold rooms); a second ("14 farmers rent
+   cold rooms"), a joining word ("14 towns with cold rooms") or a plural
+   ("14 farms' cold rooms") makes the number count something else. */
+const JOINING_WORDS = new Set(
+  "with in of for and or per from at to across by on into than about".split(
+    " ",
+  ),
+);
+const countsOtherThing = (word: string) =>
+  JOINING_WORDS.has(word.toLowerCase()) || /[^s]s'?$/i.test(word);
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/* Words that say what a counted thing is like, not what thing it is. */
+const DESCRIBING = new Set(
+  "new more extra additional rural urban local hot fresh small large big full whole private shared dedicated quiet modern working active happy paying regular returning young old first further".split(
+    " ",
+  ),
+);
+const DESCRIBING_ENDING = /(?:al|ive|ous|ful|ic|ish|less|ern)$/i;
+
+const describes = (word: string) =>
+  DESCRIBING.has(word.toLowerCase()) || DESCRIBING_ENDING.test(word);
+
+/**
+ * The ways `text` can say a count fact once the copy's own wording is
+ * undone: a modifier between the number and the fact's noun dropped
+ * ("14 solar cold rooms" as "14 cold rooms"), and a count written as a
+ * compound ("9,800-home networks" as "9,800 homes"). The number and the
+ * noun are always the fact's own, in its order, so no other count reads
+ * as this one.
+ */
+function countWordings(fact: BriefFact, text: string): string[] {
+  const m = /^(?:\D*?\s)?([\d][\d,.]*)\s+(\p{L}[\p{L}'-]*)(\s+\p{L})?/u.exec(
+    fact.text,
+  );
+  if (!m) return [];
+  const [, number, noun, qualified] = m;
+  const wordings: string[] = [];
+  const modifier = new RegExp(
+    `(^|[^\\d.,])(${escaped(number)})\\s+([\\p{L}][\\p{L}'-]*)\\s+(${escaped(noun)}\\b)`,
+    "giu",
+  );
+  /* A count whose noun the brief already qualifies ("cold rooms") takes
+     any word more: "14 solar cold rooms" are still its cold rooms. A
+     one-word noun takes only a word that describes it ("30 new laptops",
+     "9,800 rural homes", "80 hot desks"): "20 parking spots" counts
+     another thing than the brief's "20 spots". */
+  const dropped = text.replace(modifier, (all, lead, n, word, head) =>
+    countsOtherThing(word) ||
+    word.toLowerCase() === noun.toLowerCase() ||
+    (!qualified && !describes(word))
+      ? all
+      : `${lead}${n} ${head}`,
+  );
+  if (dropped !== text) wordings.push(dropped);
+  for (const singular of new Set([
+    noun.replace(/s$/i, ""),
+    noun.replace(/es$/i, ""),
+  ])) {
+    if (singular === noun || singular.length < 2) continue;
+    const compound = new RegExp(
+      `(^|[^\\d.,])(${escaped(number)})-(${escaped(singular)})\\b`,
+      "giu",
+    );
+    const opened = text.replace(compound, `$1$2 ${noun}`);
+    if (opened !== text) wordings.push(opened);
+  }
+  return wordings;
+}
+
+/* A date that is only a year and the word leading to it ("By 2028", "by
+   end of 2027") is said wherever that lead and year are, mid-sentence
+   too: "25,000 homes by 2028" gives it. The lead is kept, so "in 2028"
+   never reads as "by 2028". */
+const YEAR_DATE =
+  /^(?:(by|in|until|before|from|since|after)\s+)?((?:the\s+)?end\s+of\s+)?((?:19|20)\d\d)$/i;
+
+function yearStated(fact: string, text: string): boolean {
+  const m = YEAR_DATE.exec(fact.trim().replace(/[.]$/, ""));
+  if (!m) return false;
+  const [, lead, endOf, year] = m;
+  const pattern = new RegExp(
+    `${lead ? `\\b${lead}\\s+` : "(?:^|[^\\d,.])"}${endOf ? "(?:the\\s+)?end\\s+of\\s+" : ""}${year}(?!\\d)`,
+    "i",
+  );
+  return pattern.test(text);
+}
+
+/* "One" in "every one of these 9,800 homes" picks out of the count; it
+   is not a second count of homes contradicting the first. */
+const ONE_OF =
+  /\b(?:(?:every|each|any|not)\s+)?one\s+of\s+(?=the\b|these\b|those\b|our\b|its\b|their\b|your\b)/gi;
+
 function statedIn(
+  fact: BriefFact,
+  part: CopyPart,
+  design: readonly (readonly CopyToken[])[],
+): boolean {
+  if (fact.kind === "date" && yearStated(fact.text, part.text)) return true;
+  if (part.text.search(ONE_OF) >= 0) {
+    const picked = part.text.replace(ONE_OF, "each of ");
+    const line = part.line.replace(ONE_OF, "each of ");
+    return statedIn(fact, { text: picked, line }, design);
+  }
+  if (statedAsWritten(fact, part, design)) return true;
+  if (fact.kind !== "quantity") return false;
+  return countWordings(fact, part.text).some((text) =>
+    statedAsWritten(
+      fact,
+      { text, line: part.line === part.text ? text : part.line },
+      design,
+    ),
+  );
+}
+
+function statedAsWritten(
   fact: BriefFact,
   part: CopyPart,
   design: readonly (readonly CopyToken[])[],
@@ -1239,9 +1402,13 @@ function statedIn(
      delivery to Lekki, Ajah and Ikoyi" lost Ikoyi (round-6 code critic).
      So is a price with no amount ("first session is free"): its words
      scattered are not its terms. */
-  if (isSpan(fact.kind) || fact.kind === "price") {
-    return holdsWhole(fact.text, part.text);
+  if (isSpan(fact.kind)) {
+    return (
+      holdsWhole(fact.text, part.text) ||
+      holdsWithOfferVerb(fact.text, part.text)
+    );
   }
+  if (fact.kind === "price") return holdsWhole(fact.text, part.text);
   return holdsWhole(fact.text, part.text) || needsHold(fact.needs, part.text);
 }
 

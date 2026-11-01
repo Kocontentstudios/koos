@@ -1,0 +1,518 @@
+[
+  {
+    "fixtureId": "pepper-sauce",
+    "kind": "carousel",
+    "frames": [
+      {
+        "headline": "Introducing Ata Kitchen Pepper Sauce",
+        "subheadline": "Our scotch bonnet pepper sauce",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "It's back!",
+        "subheadline": "Our pepper sauce is back in stock",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Back in stock",
+        "subheadline": "Scotch bonnet pepper sauce is available again",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Real heat",
+        "subheadline": "Real heat from real peppers",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Made with real peppers",
+        "subheadline": "Nothing artificial added",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Great taste",
+        "subheadline": "Small-batch Nigerian pepper sauce",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Affordable price",
+        "subheadline": "₦3,500 a 250ml jar",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Learn more",
+        "subheadline": "Get yours today",
+        "footerLines": [
+          "Ata Kitchen"
+        ],
+        "cta": "Order now",
+        "showsImage": true
+      }
+    ]
+  },
+  {
+    "fixtureId": "saas",
+    "kind": "carousel",
+    "frames": [
+      {
+        "headline": "Introducing Ledgerly",
+        "subheadline": "The invoicing app for freelancers",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Invoicing made easy",
+        "subheadline": "Ledgerly makes invoicing easy",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Easy invoicing",
+        "subheadline": "Send invoices easily with Ledgerly",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Naira and dollars",
+        "subheadline": "Invoicing in naira and dollars",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Payment reminders",
+        "subheadline": "Reminders for late payments",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Built for freelancers",
+        "subheadline": "Built for Nigerian freelancers",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Save time",
+        "subheadline": "Spend your time on the work",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Learn more",
+        "subheadline": "Ledgerly is coming soon",
+        "footerLines": [
+          "Ledgerly"
+        ],
+        "cta": "Sign up",
+        "showsImage": false
+      }
+    ]
+  },
+  {
+    "fixtureId": "laundry",
+    "kind": "carousel",
+    "frames": [
+      {
+        "headline": "Introducing FreshFold",
+        "subheadline": "Laundry pickup and delivery",
+        "footerLines": [
+          "FreshFold"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Laundry made easy",
+        "subheadline": "We make laundry easy",
+        "footerLines": [
+          "FreshFold"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Easy laundry",
+        "subheadline": "Wash, dry and iron",
+        "footerLines": [
+          "FreshFold"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "We pick up and deliver",
+        "subheadline": "Free pickup and delivery",
+        "footerLines": [
+          "FreshFold"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Learn more",
+        "subheadline": "Book today",
+        "footerLines": [
+          "FreshFold"
+        ],
+        "cta": "Book now",
+        "showsImage": false
+      }
+    ]
+  },
+  {
+    "fixtureId": "clinic",
+    "kind": "carousel",
+    "frames": [
+      {
+        "headline": "Introducing Teeth Whitening",
+        "subheadline": "At Smile Studio",
+        "footerLines": [
+          "Smile Studio"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "A brighter smile",
+        "subheadline": "Get a brighter smile with whitening",
+        "footerLines": [
+          "Smile Studio"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Brighten your smile",
+        "subheadline": "Teeth whitening for a brighter smile",
+        "footerLines": [
+          "Smile Studio"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Gentle care",
+        "subheadline": "Gentle care, explained before it starts",
+        "footerLines": [
+          "Smile Studio"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Learn more",
+        "subheadline": "Book your appointment",
+        "footerLines": [
+          "Smile Studio"
+        ],
+        "cta": "Book now",
+        "showsImage": true
+      }
+    ]
+  },
+  {
+    "fixtureId": "pitch-deck",
+    "kind": "presentation",
+    "frames": [
+      {
+        "headline": "Introducing Farmlink",
+        "subheadline": "Seed round pitch deck",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "About us",
+        "subheadline": "Farmlink rents solar cold rooms",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "What we do",
+        "subheadline": "We rent cold rooms to farmers",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "The problem",
+        "subheadline": "Farmers need cold storage",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Our solution",
+        "subheadline": "Solar cold rooms for farmers",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Why Farmlink",
+        "subheadline": "No upfront cost for farmers",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Our vision",
+        "subheadline": "Farmers keep more of what they grow",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Thank you",
+        "subheadline": "Questions?",
+        "footerLines": [
+          "Farmlink"
+        ],
+        "cta": "Contact us",
+        "showsImage": false
+      }
+    ]
+  },
+  {
+    "fixtureId": "school-deck",
+    "kind": "presentation",
+    "frames": [
+      {
+        "headline": "Introducing Ikorodu Code Club",
+        "subheadline": "Fundraising deck",
+        "footerLines": [
+          "Ikorodu Code Club"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "About us",
+        "subheadline": "A free after-school coding club",
+        "footerLines": [
+          "Ikorodu Code Club"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "What we do",
+        "subheadline": "We teach coding to students",
+        "footerLines": [
+          "Ikorodu Code Club"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Our mission",
+        "subheadline": "Every child deserves a first line of code",
+        "footerLines": [
+          "Ikorodu Code Club"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Thank you",
+        "subheadline": "Support us today",
+        "footerLines": [
+          "Ikorodu Code Club"
+        ],
+        "cta": "Get in touch",
+        "showsImage": false
+      }
+    ]
+  },
+  {
+    "fixtureId": "tailor",
+    "kind": "carousel",
+    "frames": [
+      {
+        "headline": "Introducing Stitchwell",
+        "subheadline": "Tailoring and alterations",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Alterations",
+        "subheadline": "We do alterations",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "We alter clothes",
+        "subheadline": "Alterations and repairs",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Perfect fit",
+        "subheadline": "Clothes that fit",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "A better fit",
+        "subheadline": "Get a better fit with Stitchwell",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Quality work",
+        "subheadline": "Done in our own workroom",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Made to measure",
+        "subheadline": "Made-to-measure shirts too",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "",
+        "showsImage": true
+      },
+      {
+        "headline": "Learn more",
+        "subheadline": "Visit us today",
+        "footerLines": [
+          "Stitchwell"
+        ],
+        "cta": "Contact us",
+        "showsImage": true
+      }
+    ]
+  },
+  {
+    "fixtureId": "car-wash",
+    "kind": "carousel",
+    "frames": [
+      {
+        "headline": "Introducing Shine Mobile",
+        "subheadline": "Mobile car wash",
+        "footerLines": [
+          "Shine Mobile"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Car wash made easy",
+        "subheadline": "We make car washing easy",
+        "footerLines": [
+          "Shine Mobile"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Easy car wash",
+        "subheadline": "Get your car washed easily",
+        "footerLines": [
+          "Shine Mobile"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "We come to you",
+        "subheadline": "Exterior wash and interior vacuum",
+        "footerLines": [
+          "Shine Mobile"
+        ],
+        "cta": "",
+        "showsImage": false
+      },
+      {
+        "headline": "Learn more",
+        "subheadline": "Book today",
+        "footerLines": [
+          "Shine Mobile"
+        ],
+        "cta": "Book now",
+        "showsImage": false
+      }
+    ]
+  }
+]

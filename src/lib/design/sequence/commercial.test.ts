@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { factLedger } from "@/lib/jobs/directions/claims";
 import { commercialClaims } from "./commercial";
 import { beatOf } from "./fixtures";
-import { inventedOn } from "./plan";
+import { inventedOn } from "./ledger";
 
 /* Briefs that are not eval fixtures: a borehole driller and a gym. */
 const DRILLER =

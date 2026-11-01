@@ -1,0 +1,70 @@
+[
+  {"fixtureId":"pepper-sauce","kind":"carousel","frames":[
+    {"headline":"Scotch bonnet pepper sauce is back","subheadline":"Small-batch heat from Ata Kitchen, made in Ibadan.","footerLines":["Ata Kitchen"],"cta":"","showsImage":true},
+    {"headline":"About 30 scotch bonnets in every jar","subheadline":"Blended with onion, garlic and oil. Nothing artificial added.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"Peppers straight from Oyo farms","subheadline":"Bought from smallholder farmers and blended without preservatives.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"One teaspoon heats a whole pot","subheadline":"That is all a pot of stew needs, so one jar goes a long way.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Opened? It keeps for 3 months","subheadline":"Store it in the fridge and the heat stays put.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"300 jars a batch, no more","subheadline":"Every batch is made in our own Ibadan kitchen.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"The last batch went in 9 days","subheadline":"This one is back in stock now. Do not wait for the sold-out post.","footerLines":["₦3,500 a 250ml jar"],"cta":"","showsImage":false},
+    {"headline":"Order your jar on WhatsApp","subheadline":"₦3,500 a 250ml jar.","footerLines":["WhatsApp 0809 222 7781"],"cta":"WhatsApp 0809 222 7781 to order","showsImage":true}
+  ]},
+  {"fixtureId":"saas","kind":"carousel","frames":[
+    {"headline":"Stop chasing late payments","subheadline":"Ledgerly launches 3 March. Invoicing for Nigerian freelancers, free for your first 3 months.","footerLines":["Ledgerly"],"cta":"","showsImage":false},
+    {"headline":"Bill in naira or dollars","subheadline":"Clients at home and abroad, invoiced from one app.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Sent in under a minute","subheadline":"Fill it in, send it, get back to the work you are paid for.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"See the moment they open it","subheadline":"No more wondering if your invoice landed in a spam folder.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Reminders that send themselves","subheadline":"3 days before the due date, on the day, and 7 days after. You never write the awkward email.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Paid straight from the link","subheadline":"Clients pay by bank transfer or card from the invoice itself.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"412 freelancers invoiced with us in beta","subheadline":"On 3 March, Ledgerly opens its doors.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Your first 3 months are free","subheadline":"No card needed to start.","footerLines":["ledgerly.app"],"cta":"Sign up at ledgerly.app","showsImage":false}
+  ]},
+  {"fixtureId":"laundry","kind":"carousel","frames":[
+    {"headline":"Lekki Phase 1, your weekend is back","subheadline":"FreshFold laundry pickup: we collect, wash, iron and bring it home.","footerLines":["FreshFold"],"cta":"","showsImage":false},
+    {"headline":"Out Monday, back Wednesday","subheadline":"We pick up between 7am and 9am, before you leave for work, and return it washed and ironed.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Only ever washed with your own clothes","subheadline":"Every bag on its own, whites and colours apart.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Folded, sealed and tagged","subheadline":"A tag lists every item. If anything goes missing or gets damaged, we replace it.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Book your first pickup","subheadline":"₦8,000 for a 10kg bag, about a week of clothes for two adults.","footerLines":["freshfold.ng"],"cta":"Book at freshfold.ng","showsImage":false}
+  ]},
+  {"fixtureId":"clinic","kind":"carousel","frames":[
+    {"headline":"Teeth whitening, 6 to 8 shades lighter","subheadline":"Most patients get there in one 60-minute session at Smile Studio, Ikeja GRA.","footerLines":["Smile Studio, Ikeja GRA"],"cta":"","showsImage":true},
+    {"headline":"Checked first, or you pay nothing","subheadline":"We look at your teeth and gums before we start. If whitening is not right for you, you pay nothing.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"Whiter without the sting","subheadline":"A desensitising gel goes on before and after the session.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"A licensed dentist, never an assistant","subheadline":"Our lead dentist has done over 900 whitening treatments.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"₦45,000 for December","subheadline":"Results last 12 to 18 months with normal brushing.","footerLines":["Call 0701 234 9876"],"cta":"Call 0701 234 9876 to book","showsImage":false}
+  ]},
+  {"fixtureId":"pitch-deck","kind":"presentation","frames":[
+    {"headline":"Farmlink: solar cold rooms for Kano tomato farmers","subheadline":"Seed round: raising $750,000.","footerLines":["Farmlink"],"cta":"","showsImage":false},
+    {"headline":"A picked tomato lasts about 3 days","subheadline":"In a Farmlink cold room it lasts about 3 weeks.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Cold storage, rented by the crate","subheadline":"₦500 per crate per day. No upfront cost for farmers. Solar powered, off the grid.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"14 cold rooms running in Kano today","subheadline":"1,140 farmers have rented crates from us since March 2024.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"91% full through the last harvest","subheadline":"Farmers fill the rooms when the crop comes in.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Each room pays back in 18 months","subheadline":"300 crates per room at ₦500 per crate per day.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"$750,000 opens 20 more cold rooms","subheadline":"New markets in Kaduna and Jos.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Join the Farmlink seed round","subheadline":"Talk to the founders about the $750,000 raise.","footerLines":["founders@farmlink.ng"],"cta":"Email founders@farmlink.ng","showsImage":false}
+  ]},
+  {"fixtureId":"school-deck","kind":"presentation","frames":[
+    {"headline":"30 laptops for Ikorodu Code Club","subheadline":"₦6,000,000 lets more students join our free after-school coding club.","footerLines":["Ikorodu Code Club"],"cta":"","showsImage":false},
+    {"headline":"Four students share one laptop","subheadline":"120 students learn to code with us each term, every Wednesday 2pm to 4pm.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"60 students turned away last term","subheadline":"12 volunteer engineers teach each week. We ran out of laptops, not teachers.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"₦200,000 a laptop, five years of lessons","subheadline":"By the end of their first term, every student publishes their own website.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Fund the laptops","subheadline":"₦6,000,000 for 30 laptops.","footerLines":["hello@ikorodu-codeclub.org"],"cta":"Email hello@ikorodu-codeclub.org","showsImage":false}
+  ]},
+  {"fixtureId":"tailor","kind":"carousel","frames":[
+    {"headline":"Trousers hemmed for ₦3,000","subheadline":"Alterations at Stitchwell, Wuse 2. Ready in 3 days.","footerLines":["Stitchwell"],"cta":"","showsImage":true},
+    {"headline":"Off the rack fits the hanger","subheadline":"Your clothes should fit you.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"Pinned on you, in your shoes","subheadline":"So the length sits right where you wear it.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"Jeans keep their original hem","subheadline":"Just ask when you drop them off.","footerLines":[],"cta":"","showsImage":true},
+    {"headline":"Sewn in our own workroom","subheadline":"About 60 pairs hemmed there every week.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Not right? We redo it free","subheadline":"Any hem, within 7 days.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Drop off Monday to Saturday","subheadline":"9am to 7pm at Plot 12 Aminu Kano Crescent, Wuse 2.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Book your hem","subheadline":"₦3,000, ready in 3 days.","footerLines":["Call 0805 111 2233"],"cta":"Call 0805 111 2233","showsImage":true}
+  ]},
+  {"fixtureId":"car-wash","kind":"carousel","frames":[
+    {"headline":"We wash your car while you work","subheadline":"Shine Mobile comes to your office car park in GRA Phase 2. ₦6,000 a wash, interior included.","footerLines":["Shine Mobile"],"cta":"","showsImage":false},
+    {"headline":"You never leave your desk","subheadline":"About 40 minutes, Monday to Friday, 8am to 4pm. We send a photo when it is done.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"No puddles, no worries","subheadline":"A waterless wash, and every washer is trained and insured, so any damage is covered.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Bring the whole office","subheadline":"Book 10 or more cars and get a fixed weekly slot.","footerLines":[],"cta":"","showsImage":false},
+    {"headline":"Book your first wash","subheadline":"₦6,000, interior included.","footerLines":["WhatsApp 0816 404 5050"],"cta":"Book on WhatsApp 0816 404 5050","showsImage":false}
+  ]}
+]

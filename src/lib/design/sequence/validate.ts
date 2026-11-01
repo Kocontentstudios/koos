@@ -22,8 +22,11 @@ export interface SequenceRules {
   /** Whether the set has an image to draw (an upload or a KO plate). */
   hasImage: boolean;
   /** Words every frame may share without repeating itself: the brand's
-   *  name ("Crumb & Co." on two headlines is not one idea twice). */
+   *  name ("Bread & Co." on two headlines is not one idea twice). */
   brandName?: string | null;
+  /** Brief facts the owner took out of the approved outline
+   *  (releasedFacts), by their text: no frame need state them. */
+  released?: readonly string[];
 }
 
 const MAX_FOOTER_LINES = DRAFT_LIMITS.footerLines;
@@ -34,7 +37,7 @@ const wordsIn = (text: string) =>
 const WORD_BUDGET = " words, over the ";
 
 /** A headline past the format's word budget: drawable, so it weighs less
- *  than a problem that loses the frame (plan.ts planScore). */
+ *  than a problem that loses the frame (faults.ts ruleFaults). */
 export function isWordBudgetProblem(problem: SequenceProblem): boolean {
   return problem.rule === "copy-length" && problem.detail.includes(WORD_BUDGET);
 }
@@ -205,9 +208,12 @@ function headlineProblems(
 export function factsUncovered(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],
+  released: readonly string[] = [],
 ): BriefFact[] {
   return facts.filter(
-    (fact) => !frames.some((beat) => factStated(fact, frameCopy(beat))),
+    (fact) =>
+      !released.includes(fact.text) &&
+      !frames.some((beat) => factStated(fact, frameCopy(beat))),
   );
 }
 
@@ -233,7 +239,7 @@ export function validateSequence(
   frames.forEach((beat, i) => {
     problems.push(...copyLimitProblems(beat, i, plan.kind));
   });
-  for (const fact of factsUncovered(frames, rules.facts)) {
+  for (const fact of factsUncovered(frames, rules.facts, rules.released)) {
     problems.push({
       frame: null,
       rule: "fact-uncovered",

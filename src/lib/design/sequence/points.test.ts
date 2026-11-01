@@ -6,6 +6,7 @@ import {
   factOnlyFrames,
   misplacedPrices,
   priceAmounts,
+  pricesWithoutScope,
   profileClauses,
   profilePoints,
 } from "./points";
@@ -14,7 +15,7 @@ const priceFrame = (over: Partial<FrameBeat> = {}) =>
   beatOf({ headline: "₦2,500 a Bottle", subheadline: "", ...over });
 
 describe("factOnlyFrames", () => {
-  it("names a middle frame that is only the price (round-2 critic, every five-frame carousel)", () => {
+  it("names a middle frame that is only the price", () => {
     const frames = [cafePlan().frames[0], priceFrame(), cafePlan().frames[4]];
     expect(factOnlyFrames(frames, CAFE_FACTS)).toEqual([
       {
@@ -64,7 +65,7 @@ describe("factOnlyFrames", () => {
     ).toEqual([]);
   });
 
-  it('names a bare date or venue frame (round-4 critic: "Launches on 3 March")', () => {
+  it('names a bare date or venue frame ("Launches on 3 March")', () => {
     const facts = [fact("date", "3 March"), ...CAFE_FACTS];
     const frames = [
       beatOf({ role: "hook", headline: "Still chasing payment?" }),
@@ -98,7 +99,7 @@ describe("profilePoints", () => {
   it("lists the profile's statements clause by clause, what sets the brand apart first, never the goal or the audience", () => {
     expect(profilePoints(brand, "Launch our cold brew.")).toEqual([
       { field: "differentiators", text: "Beans from the Mambilla Plateau" },
-      { field: "differentiators", text: "roasted each week" },
+      { field: "differentiators", text: "Roasted each week" },
       { field: "offer", text: "Specialty coffee and cold brew" },
       { field: "values", text: "Patience over shortcuts" },
       { field: "overview", text: "Coffee bar in Yaba, Lagos" },
@@ -124,26 +125,39 @@ describe("profilePoints", () => {
       ),
     ).toEqual([
       "Full-grain leather",
-      "hand-stitched soles",
-      "free resole in year one",
+      "Hand-stitched soles",
+      "Free resole in year one",
     ]);
     expect(profileClauses("Coffee bar in Yaba, Lagos")).toEqual([
       "Coffee bar in Yaba, Lagos",
     ]);
     expect(
       profileClauses(
+        "Brings designers, brands and buyers into one programme. A week of talks, exhibitions and a market",
+      ),
+    ).toEqual([
+      "Brings designers, brands and buyers into one programme",
+      "A week of talks, exhibitions and a market",
+    ]);
+    expect(
+      profileClauses(
+        "Bike servicing. Gears tuned and brakes bled in one visit",
+      ),
+    ).toEqual(["Bike servicing", "Gears tuned and brakes bled in one visit"]);
+    expect(
+      profileClauses(
         "Kano hibiscus; dates, no refined sugar. Made at ledgerly.app daily.",
       ),
     ).toEqual([
       "Kano hibiscus, dates",
-      "no refined sugar",
+      "No refined sugar",
       "Made at ledgerly.app daily",
     ]);
   });
 });
 
 describe("misplacedPrices", () => {
-  it("names a carousel price the copy put before the action frame (round-3 critic, finding 3)", () => {
+  it("names a carousel price the copy put before the action frame", () => {
     expect(misplacedPrices(cafePlan().frames, CAFE_FACTS, "carousel")).toEqual([
       {
         frame: 1,
@@ -154,7 +168,7 @@ describe("misplacedPrices", () => {
     ]);
   });
 
-  it("finds the amount in any words around it (round-4 critic, MEDIUM 6)", () => {
+  it("finds the amount in any words around it", () => {
     const pair = [fact("price", "₦32,000 a pair")];
     const said = (headline: string) =>
       misplacedPrices(
@@ -209,5 +223,36 @@ describe("briefPoints", () => {
     expect(
       briefPoints("₦2,500 a bottle. Saturday 15 November.", CAFE_FACTS),
     ).toEqual([]);
+  });
+});
+
+describe("pricesWithoutScope: a price keeps what the brief says it is for", () => {
+  const price = fact("price", "₦12,000");
+  const brief = "Fixit Hub tune-ups cost ₦12,000. We fix punctures and brakes.";
+  const free = new Set(["fixit", "hub"]);
+
+  it("names a frame that widens a tune-up's price to every service", () => {
+    const frames = [
+      beatOf({ role: "cta", headline: "Your service costs ₦12,000" }),
+    ];
+    expect(pricesWithoutScope(frames, [price], brief, free)).toEqual([
+      {
+        frame: 0,
+        detail: expect.stringContaining(
+          '"₦12,000" without what the brief says',
+        ),
+      },
+    ]);
+  });
+
+  it("reads the whole frame, so a bare footer under its item keeps its scope", () => {
+    const frames = [
+      beatOf({
+        role: "cta",
+        headline: "Book a tune-up today",
+        footerLines: ["₦12,000"],
+      }),
+    ];
+    expect(pricesWithoutScope(frames, [price], brief, free)).toEqual([]);
   });
 });

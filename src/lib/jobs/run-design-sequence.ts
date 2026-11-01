@@ -49,6 +49,7 @@ import {
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { lookAtPhoto } from "@/lib/design/quality/plate-check";
 import type {
+  ApprovedOutline,
   FrameBeat,
   FrameEdits,
   PlannedSequence,
@@ -65,7 +66,10 @@ import {
 } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
 import { frameRationale, liveFrames } from "@/lib/design/sequence/frames";
-import { planSequence } from "@/lib/design/sequence/plan";
+import {
+  planSequence,
+  SequenceShipRefusedError,
+} from "@/lib/design/sequence/plan";
 import { replanFrame } from "@/lib/design/sequence/replan";
 import type { DesignSpec } from "@/lib/design/spec";
 import { STORAGE_PREFIXES } from "@/lib/storage";
@@ -153,6 +157,9 @@ export interface SequenceRequest {
   /** The count the request or brief asked for before FRAME_BOUNDS clamped
    *  it into `frames`, so the user is told when the set is not that size. */
   asked?: number | null;
+  /** The outline the user approved, validated by the route; `frames` is its
+   *  points' length. Copy is written from it (planSequence). */
+  approvedOutline?: ApprovedOutline;
 }
 
 /** What the context of a set was resolved from: kept on the job for a
@@ -169,7 +176,13 @@ export interface SequenceContextRequest {
 export interface SequenceJobInput extends SequenceContextRequest {
   image: DirectionsImage;
   regenerateOf: null;
-  sequence: { frames: number; asked?: number | null };
+  /* The approved outline rides on the job so a slice that stops before
+     the plan is checkpointed re-plans from what the user approved. */
+  sequence: {
+    frames: number;
+    asked?: number | null;
+    approvedOutline?: ApprovedOutline;
+  };
 }
 
 /** A frame regenerate's generation_jobs.input. */
@@ -193,6 +206,9 @@ export interface SequenceCheckpoint {
     invented?: string[];
     /** Brief facts the planner wrote into a footer itself. */
     factsDrawn?: string[];
+    /** Frames, by their planned index, the planner dropped rather than
+     *  ship a blocking fault. */
+    framesDropped?: number[];
   };
   /** Frames that finished, delivered or failed, with what they carried, so a
    *  later slice neither renders them again nor loses their record. */
@@ -217,11 +233,34 @@ export class SequencePlanError extends Error {
     kind: SequenceKind,
     readonly problems: SequenceProblem[],
   ) {
-    super(
-      `We couldn't plan this ${kind} as a set that keeps to your brief. Try again, or add more detail to the brief.`,
-    );
+    super(planErrorMessage(kind, problems));
     this.name = "SequencePlanError";
   }
+}
+
+/* A refusal the owner can act on names the slide whose point to change
+   in the outline; a set broken as a whole has no slide to name. */
+function planErrorMessage(
+  kind: SequenceKind,
+  problems: readonly SequenceProblem[],
+): string {
+  const slides = [
+    ...new Set(
+      problems.flatMap((p) =>
+        p.rule === "blocking-fault" && p.frame !== null ? [p.frame + 1] : [],
+      ),
+    ),
+  ].sort((a, b) => a - b);
+  if (slides.length === 0) {
+    return `We couldn't plan this ${kind} as a set that keeps to your brief. Try again, or add more detail to the brief.`;
+  }
+  const listed =
+    slides.length === 1
+      ? `${slides[0]}`
+      : `${slides.slice(0, -1).join(", ")} and ${slides.at(-1)}`;
+  const noun = slides.length === 1 ? "slide" : "slides";
+  const points = slides.length === 1 ? "point" : "points";
+  return `We couldn't write ${noun} ${listed} of this ${kind} without repeating another slide or going beyond your brief. Change ${points} ${listed} in the outline, or try again.`;
 }
 
 /** The frame asked for is gone, not this brand's, or not a frame. */
@@ -844,7 +883,10 @@ export async function generateSequenceWork(
     throw new KoImageryDisabledError();
   }
   const brandId = context.brand.id;
-  const frameCount = request.frames;
+  /* The count asked for, until the plan is written: a frame the planner
+     dropped rather than ship a blocking fault (framesDropped) is neither
+     drawn nor billed. */
+  let frameCount = request.frames;
   const uploadKey =
     request.image.source === "upload" ? request.image.key : null;
   const report = (
@@ -878,6 +920,7 @@ export async function generateSequenceWork(
     }
     const set = state;
     const { setId, plan } = set;
+    frameCount = plan.frames.length;
     if (set.completed) {
       return setResult(
         set,
@@ -1124,9 +1167,28 @@ async function planSet({
       : null,
     memorySummary,
     recentLayouts,
+  }).catch((err) => {
+    /* A blocking fault no repair cleared is refused before any frame
+       renders or is billed; the user sees the same plain refusal as a set
+       that broke a rule. */
+    if (!(err instanceof SequenceShipRefusedError)) throw err;
+    console.error("design sequence plan refused", {
+      blockingFaults: err.faults.length,
+    });
+    throw new SequencePlanError(
+      kind,
+      err.faults.map((f) => ({
+        frame: f.frame,
+        rule: "blocking-fault" as const,
+        detail: f.detail,
+      })),
+    );
   });
   const fatal = planned.problems.filter((p) => FATAL_RULES.includes(p.rule));
-  if (planned.plan.frames.length !== frameCount) {
+  if (
+    planned.plan.frames.length !==
+    frameCount - (planned.framesDropped ?? []).length
+  ) {
     fatal.push({
       frame: null,
       rule: "count",
@@ -1153,6 +1215,7 @@ async function planSet({
       problems: planned.problems,
       invented: planned.invented.map((i) => `frame ${i.frame + 1}: ${i.text}`),
       factsDrawn: planned.factsDrawn,
+      framesDropped: planned.framesDropped ?? [],
     },
     frames: {},
     startedAt,
@@ -1673,7 +1736,7 @@ async function completeSet({
 
 /** The job's result, read off the set's frames on show. */
 function setResult(
-  state: Pick<SequenceCheckpoint, "setId" | "plan">,
+  state: Pick<SequenceCheckpoint, "setId" | "plan" | "planned">,
   live: readonly GenerationRow[],
   source: SequenceImageSource,
 ): { resultId?: string; result: SequenceJobResult } {
@@ -1687,6 +1750,9 @@ function setResult(
       setId: state.setId,
       sequenceKind: state.plan.kind,
       frameCount: state.plan.frames.length,
+      ...((state.planned?.framesDropped ?? []).length > 0
+        ? { framesDropped: state.planned.framesDropped }
+        : {}),
       generationIds,
       failed: live.filter((r) => r.status === "failed").map((r) => r.id),
       imageSource: source,

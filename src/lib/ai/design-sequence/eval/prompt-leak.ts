@@ -4,10 +4,10 @@ import {
   type SequenceEvalCase,
 } from "./cases";
 
-/* Round-3 critic, finding 2: the prompt's example hooks were the eval's
-   own fixtures, and the model copied them word for word, so the hook
-   score measured recall of the prompt. No fixture phrase, tuning or held
-   out, may reach the prompt file or any prompt it builds. */
+/* A prompt whose example hooks are the eval's own fixtures gets them
+   copied word for word, and the hook score then measures recall of the
+   prompt. No fixture phrase, tuning or held out, may reach the prompt
+   file or any prompt it builds. */
 
 /* Words a fixture shares with any brief of its kind; a prompt about
    carousels has to be able to say "class" or "coffee". Everything else a

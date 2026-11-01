@@ -1,7 +1,7 @@
 import type { PlannedSequence } from "@/lib/design/sequence/contract";
 import { PRESENTATION_ASPECT } from "@/lib/design/sequence/contract";
 import { frameSpec } from "@/lib/design/sequence/frame-spec";
-import { isCleanTitle } from "@/lib/design/sequence/title";
+import { titleProblems } from "@/lib/design/sequence/title";
 import {
   factsUncovered,
   validateSequence,
@@ -32,23 +32,25 @@ export interface RunScore {
   paletteShared: boolean;
   /** No frame in its neighbour's layout or composition. */
   layoutVariety: boolean;
-  /** Every frame's title reads as its name on the card: no version label
-   *  or source id leaked from the planner (title.ts). */
+  /** Every frame's title reads as its own name on the card: no planner
+   *  label or placeholder, not cut off mid-phrase or stripped of a
+   *  figure's comma, no other frame's title, and not naming another
+   *  frame's point (title.ts titleProblems). */
   titleClean: boolean;
   /** Every labelled fact on at least one frame, and the offering named on
    *  the hook. */
   factCoverage: boolean;
   uncovered: string[];
   offeringOnHook: boolean;
-  /** Reported, not gated: what still stood after the repair pass. */
+  /** Reported, not gated: what still stood after the fix calls. */
   problems: string[];
 }
 
 /** The case's hand labels, needing what a design must show to state
  *  them. A venue the brief calls "our Yaba bar" is stated by the brand's
  *  name and the area, exactly as the directions path and the job's
- *  drawn-copy check read it (withVenueOrBrand): round 3's cafe set ended on
- *  "Kiln Coffee, Yaba", which the product counts and a bare label did not.
+ *  drawn-copy check read it (withVenueOrBrand): "Kiln Coffee, Yaba" states
+ *  "our Yaba bar", as the product counts it.
  *  The rule is deterministic, so this is still not the planner's reader. */
 export function labelledFacts(c: SequenceEvalCase): BriefFact[] {
   return withVenueOrBrand(
@@ -88,10 +90,13 @@ function sharedSystem(plan: PlannedSequence, c: SequenceEvalCase): boolean {
   );
 }
 
+/** `released`: facts the owner took out of the approved outline
+ *  (lanes.ts factsTakenOut), which no frame need state. */
 export function scoreRun(
   c: SequenceEvalCase,
   frames: number,
   plan: PlannedSequence,
+  released: readonly string[] = [],
 ): RunScore {
   const facts = labelledFacts(c);
   const problems = validateSequence(plan, {
@@ -100,8 +105,11 @@ export function scoreRun(
     offering: c.offering,
     hasImage: c.imageSource !== "none",
     brandName: c.brand.name,
+    released,
   });
-  const uncovered = factsUncovered(plan.frames, facts).map((f) => f.text);
+  const uncovered = factsUncovered(plan.frames, facts, released).map(
+    (f) => f.text,
+  );
   const hook = plan.frames[0];
   const offeringOnHook = Boolean(hook && copyNamesOffering(hook, c.offering));
   return {
@@ -111,7 +119,15 @@ export function scoreRun(
     roles: rolesHold(plan),
     paletteShared: sharedSystem(plan, c),
     layoutVariety: !problems.some((p) => p.rule === "layout-repeat"),
-    titleClean: plan.frames.every((beat) => isCleanTitle(beat.title)),
+    titleClean:
+      titleProblems(plan.frames, {
+        sources: [
+          c.request.briefText,
+          ...Object.values(c.brand).filter(
+            (v): v is string => typeof v === "string",
+          ),
+        ],
+      }).length === 0,
     factCoverage: uncovered.length === 0 && offeringOnHook,
     uncovered,
     offeringOnHook,

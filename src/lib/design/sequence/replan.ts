@@ -17,6 +17,7 @@ import {
   readBriefWithModel,
   settleBriefRead,
 } from "@/lib/jobs/directions/brief-read";
+import type { FactLedger } from "@/lib/jobs/directions/claims";
 import { copyNamesOffering } from "@/lib/jobs/directions/finalize";
 import { COPY_LIMITS } from "@/lib/jobs/directions/schema";
 import {
@@ -29,14 +30,17 @@ import type {
   PlannedSequence,
   ReplanFrameInput,
 } from "./contract";
+import { withoutStatement } from "./cuts";
+import { withRewrite } from "./fixes";
+import { asSentence } from "./gate";
 import { hookFaults, hookPreviews } from "./hook";
 import { withFigureLayout } from "./layouts";
-import { inventedOn, sequenceFacts, sequenceLedger, withRewrite } from "./plan";
-import { misplacedPrices } from "./points";
+import { inventedOn, sequenceFacts, sequenceLedger } from "./ledger";
+import { misplacedPrices, textStatesPrice, withoutAmount } from "./points";
 import { repairSequenceFor } from "./repair";
 import { factsTwiceInFrame, withoutRepeats } from "./repeats";
 import { type FrameRewrite, rewriteResponseSchema } from "./schema";
-import { settledTitle } from "./title";
+import { titleProblems, withSettledTitles } from "./title";
 import {
   copyLimitProblems,
   factsUncovered,
@@ -76,31 +80,50 @@ export interface RegenerateProblem {
   detail: string;
 }
 
-/* A refused paid regenerate says why (round-2 critic, finding 8), in a
-   sentence for the person who pressed the button, never the instruction
-   the model was given (round-3 critic, finding 5). */
+/* A refused paid regenerate says why, in a sentence for the person who
+   pressed the button, never the instruction the model was given. Each
+   reason completes "Every new version ..." or "One new version ...". */
 const USER_REASON: Record<RegenerateProblemKind, string> = {
-  "too-long": "The new words were too long to fit.",
-  "same-as-before": "Every new version said what it says now.",
-  "repeats-frame": "Every new version repeated another frame's headline.",
-  "drops-fact": "Every new version left out a detail only this frame gives.",
-  "drops-offering": "Every new version stopped saying what is on offer.",
-  invented:
-    "Every new version added a detail neither the brief nor the brand profile gives.",
-  role: "Every new version broke this frame's job in the set.",
-  "flat-hook": "Every new opening was a label, not a reason to swipe.",
-  "hook-preview": "Every new opening gave away a later frame's point.",
-  "price-placement": "Every new version moved the price off the last frame.",
-  "fact-twice": "Every new version gave the same detail twice.",
-  "nothing-back": "No new version came back.",
+  "too-long": "was too long to fit",
+  "same-as-before": "said what it says now",
+  "repeats-frame": "repeated another frame's headline",
+  "drops-fact": "left out a detail only this frame gives",
+  "drops-offering": "stopped saying what is on offer",
+  invented: "added a detail neither the brief nor the brand profile gives",
+  role: "broke this frame's job in the set",
+  "flat-hook": "was a label, not a reason to swipe",
+  "hook-preview": "gave away a later frame's point",
+  "price-placement": "moved the price off the last frame",
+  "fact-twice": "gave the same detail twice",
+  "nothing-back": "came back empty",
 };
 
-/** The user's reason for a refused regenerate, from its first problem. */
+/**
+ * The user's reason for a refused regenerate, true of what came back: a
+ * problem every version shares is said of every version; otherwise each
+ * version's first problem is said of that one. Null when there is none.
+ */
 export function replanReason(
-  problems: readonly RegenerateProblem[],
+  versions: readonly (readonly RegenerateProblem[])[],
 ): string | null {
-  const first = problems[0];
-  return first ? USER_REASON[first.kind] : null;
+  const refused = versions.filter((v) => v.length > 0);
+  if (refused.length === 0) return null;
+  if (refused.length === 1 && versions.length <= 1) {
+    const only = refused[0][0];
+    return only.kind === "nothing-back"
+      ? "No new version came back."
+      : `The new version ${USER_REASON[only.kind]}.`;
+  }
+  const shared = refused[0].find((p) =>
+    refused.every((v) => v.some((q) => q.kind === p.kind)),
+  );
+  if (shared && refused.length === versions.length) {
+    return `Every new version ${USER_REASON[shared.kind]}.`;
+  }
+  const said = [...new Set(refused.map((v) => USER_REASON[v[0].kind]))];
+  return said.length === 1
+    ? `${refused.length === 1 ? "One" : "Each"} new version ${said[0]}.`
+    : `One new version ${said[0]}; another ${said.slice(1).join("; another ")}.`;
 }
 
 /** A model rewrite none of whose versions could stand beside its set.
@@ -109,14 +132,15 @@ export function replanReason(
 export class FrameReplanError extends Error {
   readonly problems: string[];
   readonly reasons: RegenerateProblemKind[];
-  constructor(found: readonly RegenerateProblem[]) {
-    const reason = replanReason(found);
+  constructor(versions: readonly (readonly RegenerateProblem[])[]) {
+    const reason = replanReason(versions);
     super(
       `KO couldn't rewrite this frame to fit the set.${reason ? ` ${reason}` : ""} The frame is unchanged. Try again, or edit its words.`,
     );
     this.name = "FrameReplanError";
+    const found = versions.flat();
     this.problems = found.map((p) => p.detail);
-    this.reasons = found.map((p) => p.kind);
+    this.reasons = [...new Set(found.map((p) => p.kind))];
   }
 }
 
@@ -149,9 +173,51 @@ export interface FrameEditResult {
   beat: FrameBeat;
   /** Brief facts the set stated before the edit and no frame states now.
    *  The user's words still stand (H9); the job hands these on so the
-   *  user is told what the set stopped saying (round-3 critic, finding 7:
-   *  clearing a subheadline dropped the set's only price unseen). */
+   *  user is told what the set stopped saying: clearing a subheadline can
+   *  drop the set's only price. */
   uncovered: BriefFact[];
+}
+
+/** Whether two headlines are the same words to a reader: case, spacing
+ *  and punctuation aside ("Killed your last plant?!" is "Killed your last
+ *  plant?"). */
+export function sameWords(a: string, b: string): boolean {
+  const norm = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}₦$£€%]+/gu, " ")
+      .trim();
+  return norm(a) === norm(b);
+}
+
+/** Whether a headline is another's words to a reader: the same words
+ *  (sameWords), or those words with one more ("We rebuild the sole from
+ *  scratch today" beside "We rebuild the sole from scratch"). */
+export function sameHeadline(a: string, b: string): boolean {
+  if (sameWords(a, b)) return true;
+  const words = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}₦$£€%]+/gu, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+  const [short, long] = [words(a), words(b)].sort(
+    (x, y) => x.length - y.length,
+  );
+  if (short.length < 2 || long.length - short.length !== 1) return false;
+  const at = (k: number) => short.every((w, i) => long[i + k] === w);
+  return at(0) || at(1);
+}
+
+/** The frame's title, kept when it still names the frame's copy, else
+ *  settled on the copy as it now reads (withSettledTitles). */
+function titleFor(frames: readonly FrameBeat[], index: number): string {
+  const own = titleProblems(frames, { sources: [] }).some(
+    (p) => p.frame === index,
+  );
+  if (!own) return frames[index].title;
+  return withSettledTitles(frames, { sources: [] })[index].title;
 }
 
 /**
@@ -159,8 +225,11 @@ export interface FrameEditResult {
  * (H9). Role, image and footer stay; the layout changes only when a
  * stat-highlight is left with no figure to set large (withFigureLayout).
  * Refused, with a reason the user can act on, only when the words cannot
- * be drawn: past a limit, an empty headline, a button on a frame that is
- * not the last, or the last frame left without one.
+ * be drawn: past a limit, an empty headline, a headline another frame
+ * already has word for word or with one word more (H4), a button on a
+ * frame that is not the last, or the last frame left without one. The
+ * card's title follows the edited copy when the old one no longer names
+ * it.
  */
 export function applyFrameEdits(
   plan: PlannedSequence,
@@ -177,6 +246,15 @@ export function applyFrameEdits(
   const headline = edited("headline", edits.headline, beat.headline);
   if (!headline) {
     throw new FrameEditError("Every frame needs a headline.", "headline");
+  }
+  const twin = plan.frames.findIndex(
+    (other, i) => i !== index && sameHeadline(other.headline, headline),
+  );
+  if (edits.headline !== undefined && twin >= 0) {
+    throw new FrameEditError(
+      `Frame ${twin + 1} already has this headline. Give this frame its own.`,
+      "headline",
+    );
   }
   const subheadline = edited(
     "subheadline",
@@ -196,13 +274,9 @@ export function applyFrameEdits(
       "cta",
     );
   }
-  const next = withFigureLayout({
-    ...beat,
-    title: settledTitle(beat.title, beat.title),
-    headline,
-    subheadline,
-    cta,
-  });
+  const typed = withFigureLayout({ ...beat, headline, subheadline, cta });
+  const draft = plan.frames.map((b, i) => (i === index ? typed : b));
+  const next = { ...typed, title: titleFor(draft, index) };
   const frames = plan.frames.map((b, i) => (i === index ? next : b));
   const before = new Set(factsUncovered(plan.frames, facts));
   return {
@@ -298,7 +372,17 @@ export function regenerateProblems(
       add("price-placement", fault.detail);
     }
   }
-  for (const fact of factsTwiceInFrame(next, facts)) {
+  const twice = new Set(factsTwiceInFrame(next, facts));
+  for (const price of facts.filter((f) => f.kind === "price")) {
+    const fields = [
+      next.headline,
+      next.subheadline,
+      next.cta,
+      ...next.footerLines,
+    ].filter((text) => textStatesPrice(price, text));
+    if (fields.length > 1) twice.add(price);
+  }
+  for (const fact of twice) {
     add("fact-twice", `it gives "${fact.text}" twice on one frame`);
   }
   if (index === 0) {
@@ -311,6 +395,50 @@ export function regenerateProblems(
     }
   }
   return problems;
+}
+
+/**
+ * A regenerated version with what code can take out taken out, before it
+ * is judged: a statement no source gives (withoutStatement), a carousel's
+ * price on a frame before the action, and on the action frame a price its
+ * footer already gives said again in the copy. A version only these made
+ * unusable is then kept rather than the regenerate refused. Code only
+ * removes words.
+ */
+export function repairedVersion(
+  next: FrameBeat,
+  kind: PlannedSequence["kind"],
+  facts: readonly BriefFact[],
+  ledger: FactLedger,
+): FrameBeat {
+  let beat = next;
+  for (const statement of inventedOn(beat, ledger)) {
+    const cut = withoutStatement(beat, statement);
+    if (cut) beat = { ...beat, ...cut };
+  }
+  const offAction = kind === "carousel" && beat.role !== "cta";
+  for (const price of facts.filter((f) => f.kind === "price")) {
+    if (offAction) {
+      beat = {
+        ...beat,
+        footerLines: beat.footerLines.filter(
+          (line) => !textStatesPrice(price, line),
+        ),
+      };
+    }
+    const footed = beat.footerLines.some((l) => textStatesPrice(price, l));
+    if (!offAction && !footed) continue;
+    for (const field of ["headline", "subheadline"] as const) {
+      if (!textStatesPrice(price, beat[field])) continue;
+      const cut = withoutAmount(beat[field], price);
+      if (cut === null) continue;
+      beat = {
+        ...beat,
+        [field]: field === "subheadline" ? asSentence(cut) : cut,
+      };
+    }
+  }
+  return beat;
 }
 
 export interface ReplanFrameDeps {
@@ -353,7 +481,11 @@ async function heldTo(
     ]),
   );
   return {
-    facts: sequenceFacts(read, context.brandSummary.name),
+    facts: sequenceFacts(
+      read,
+      context.brandSummary.name,
+      context.briefText ?? "",
+    ),
     offering:
       offering !== undefined ? offering : (read.offering?.phrase ?? null),
     calls: 1,
@@ -422,19 +554,22 @@ export async function replanFrame(
   };
 
   const judge = (rewrite: FrameRewrite) => {
-    /* Same point, so the same title on its card. */
     /* A footer line that repeats the copy above is dropped, as a planned
        set's is (withoutRepeats); code drops, it never writes. */
-    const [next] = withoutRepeats(
-      [
-        withFigureLayout({
-          ...withRewrite(beat, rewrite),
-          title: settledTitle(beat.title, beat.title),
-        }),
-      ],
+    /* Same point, so the same card title while it still names the copy. */
+    const [written] = withoutRepeats(
+      [withFigureLayout({ ...withRewrite(beat, rewrite), title: beat.title })],
       facts,
       offering,
     );
+    const repaired = repairedVersion(written, plan.kind, facts, ledger);
+    const next = {
+      ...repaired,
+      title: titleFor(
+        plan.frames.map((b, i) => (i === index ? repaired : b)),
+        index,
+      ),
+    };
     return {
       next,
       problems: regenerateProblems(plan, index, next, {
@@ -462,7 +597,7 @@ export async function replanFrame(
   if (usable) return { beat: usable.next, modelCalls, uncovered: [] };
   throw new FrameReplanError(
     versions.length > 0
-      ? versions[versions.length - 1].problems
-      : [{ kind: "nothing-back", detail: "no frame came back" }],
+      ? versions.map((v) => v.problems)
+      : [[{ kind: "nothing-back", detail: "no frame came back" }]],
   );
 }

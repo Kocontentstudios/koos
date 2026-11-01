@@ -1,6 +1,5 @@
 import { DRAFT_LIMITS } from "@/lib/jobs/directions/schema";
-import { GRADE_NOTE_MAX } from "./choose";
-import { POINT_MAX, REVIEW_NOTE_MAX, SCENE_MAX } from "./schema";
+import { ANGLE_MAX, SCENE_MAX } from "./schema";
 
 /**
  * Rescues a planner answer that is complete but malformed, so the user gets
@@ -8,13 +7,14 @@ import { POINT_MAX, REVIEW_NOTE_MAX, SCENE_MAX } from "./schema";
  * calls this only after the answer failed to parse or validate, and the
  * schema is checked again on what it returns.
  *
- * Shapes seen on the real model (variant A's eval round 3, the textile
- * brief), as in the directions answer (directions/repair.ts):
+ * Shapes seen on the real model, as in the directions answer
+ * (directions/repair.ts):
  *  - every enum quoted twice: "logoPlacement": "\"top-left\"", and the
  *    empty logo quote as "\"\"";
- *  - `frames` (or `footerLines`, `facts`) as a JSON string holding the array;
+ *  - `frames` (or `footerLines`, `spare`, `otherHooks`) as a JSON string
+ *    holding the array;
  *  - a text field past its parse limit, shortened at a word boundary only so
- *    the answer parses: the validator then names it and the repair pass has
+ *    the answer parses: the fault check then names it and the fix call has
  *    it rewritten, so a cut clause is never drawn without the model asked;
  *  - one frame too many, a closing frame written twice: the first frames
  *    and the last are kept, since the last is the action.
@@ -24,7 +24,6 @@ import { POINT_MAX, REVIEW_NOTE_MAX, SCENE_MAX } from "./schema";
 
 const TEXT_LIMITS: Record<string, number> = {
   title: DRAFT_LIMITS.title,
-  point: POINT_MAX,
   headline: DRAFT_LIMITS.headline,
   subheadline: DRAFT_LIMITS.subheadline,
   cta: DRAFT_LIMITS.cta,
@@ -40,7 +39,7 @@ const ANSWER_ENUMS = [
   "backgroundTreatment",
   "footerStyle",
 ] as const;
-const FRAME_ENUMS = ["beat", "layout"] as const;
+const FRAME_ENUMS = ["layout"] as const;
 
 function unquoted(value: unknown): unknown {
   if (typeof value !== "string") return value;
@@ -98,46 +97,15 @@ function repairedFrame(value: unknown): unknown {
         );
     }
   }
-  if ("facts" in frame) {
-    frame.facts = parsedArray(frame.facts);
-    if (frame.facts === null) frame.facts = [];
-  }
+  /* A frame of copy without its card name still has all its words; code
+     names it from them (withSettledTitles) rather than ask again. */
+  if ("headline" in frame && typeof frame.title !== "string") frame.title = "";
   if ("showsImage" in frame) frame.showsImage = asBoolean(frame.showsImage);
-  /* An outline frame that leaves out a source it cites cites none: 0 is
-     the schema's answer for that, so the outline is kept. */
-  if ("beat" in frame) {
-    for (const key of ["profilePoint", "briefPoint"] as const) {
-      const cited = Number(frame[key] ?? 0);
-      frame[key] = Number.isInteger(cited) ? cited : 0;
-    }
+  if ("point" in frame) {
+    const cited = Number(frame.point);
+    frame.point = Number.isInteger(cited) ? cited : 0;
   }
   return frame;
-}
-
-/* An editor's note is never drawn, so shortening one loses nothing. */
-function repairedNote(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-  const note = { ...(value as Record<string, unknown>) };
-  if (typeof note.fails === "string" && note.fails.length > REVIEW_NOTE_MAX) {
-    note.fails = clampWords(note.fails, REVIEW_NOTE_MAX);
-  }
-  return note;
-}
-
-function repairedGrade(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-  const grade = { ...(value as Record<string, unknown>) };
-  if (
-    typeof grade.repeats === "string" &&
-    grade.repeats.length > GRADE_NOTE_MAX
-  ) {
-    grade.repeats = clampWords(grade.repeats, GRADE_NOTE_MAX);
-  }
-  return grade;
 }
 
 /** The first `count - 1` frames and the last, when one too many came. */
@@ -175,20 +143,37 @@ export async function repairSequenceText({
   if (typeof answer.cta === "string" && answer.cta.length > DRAFT_LIMITS.cta) {
     answer.cta = clampWords(answer.cta, DRAFT_LIMITS.cta);
   }
-  if ("review" in answer) {
-    answer.review = parsedArray(answer.review);
-    if (answer.review === null) answer.review = [];
-    if (Array.isArray(answer.review)) {
-      answer.review = answer.review.map(repairedNote);
+  if (
+    typeof answer.hookAngle === "string" &&
+    answer.hookAngle.length > ANGLE_MAX
+  ) {
+    answer.hookAngle = clampWords(answer.hookAngle, ANGLE_MAX);
+  }
+  if ("subjects" in answer) {
+    answer.subjects = parsedArray(answer.subjects);
+    if (answer.subjects === null) answer.subjects = [];
+    if (Array.isArray(answer.subjects)) {
+      answer.subjects = answer.subjects.map((subject) =>
+        subject && typeof subject === "object" && "points" in subject
+          ? {
+              ...subject,
+              points:
+                parsedArray((subject as { points: unknown }).points) ?? [],
+            }
+          : subject,
+      );
     }
   }
-  if ("grades" in answer) {
-    answer.grades = parsedArray(answer.grades);
-    if (Array.isArray(answer.grades)) {
-      answer.grades = answer.grades.map(repairedGrade);
+  if ("spare" in answer) {
+    answer.spare = parsedArray(answer.spare);
+    if (answer.spare === null) answer.spare = [];
+  }
+  if ("otherHooks" in answer) {
+    answer.otherHooks = parsedArray(answer.otherHooks);
+    if (answer.otherHooks === null) answer.otherHooks = [];
+    if (Array.isArray(answer.otherHooks)) {
+      answer.otherHooks = answer.otherHooks.map(repairedFrame);
     }
-    const repaired = JSON.stringify(answer);
-    return repaired === JSON.stringify(parsed) ? null : repaired;
   }
   answer.frames = parsedArray(answer.frames);
   if (Array.isArray(answer.frames)) {

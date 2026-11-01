@@ -23,11 +23,11 @@ import { frameCopy } from "./validate";
  * Copy a set says twice: inside one frame (a subheadline restating its
  * headline, a footer item restating the copy above), or across frames (a
  * fact given again on a later frame, a subheadline another frame already
- * used as its line). The first eval round's judge read exactly this as
- * "one message cut into pieces" (nonRepetitive 2.25 of 5).
+ * used as its line). A reader takes exactly this as "one message cut into
+ * pieces".
  *
  * Not a contract rule: a repeat is drawable, so the job never fails a set
- * for one. The planner asks the repair pass to take them out, keeps a
+ * for one. The planner asks the fix call to take them out, keeps a
  * rewrite only when it leaves fewer, and drops a repeating subheadline in
  * code when nothing is lost (withoutRepeatingSubheadline).
  */
@@ -119,11 +119,10 @@ function withoutFactTexts(text: string, facts: readonly BriefFact[]): string {
 }
 
 /* A number given on two frames is one point made twice even when no fact
-   of the brief names it: round 2's cafe set opened on "18 hours in the
-   making" and followed with "18 hours. Not a minute less." A number inside
-   a brief fact is the fact check's (factRepeats): round 3's SaaS set was
-   charged with "3" twice for "Launches on 3 March" and "Free for your
-   first 3 months", two facts that share a digit. */
+   of the brief names it ("18 hours in the making", then "18 hours. Not a
+   minute less."). A number inside a brief fact is the fact check's
+   (factRepeats): "Launches on 3 March" and "Free for your first 3 months"
+   are two facts that share a digit, not one said twice. */
 function numberRepeats(
   frames: readonly FrameBeat[],
   offering: string,
@@ -167,8 +166,8 @@ function phrasesOf(text: string): Map<string, string> {
 }
 
 /* The same few words on two frames read as one line said twice even when
-   the lines around them differ: round-1 critic, the baking set said "in our
-   working kitchen" on frames 2 and 4, and the judge marked it down. A
+   the lines around them differ ("in our working kitchen" on frames 2 and
+   4). A
    brief fact said twice is factRepeats'; the offering's and the brand's
    names may be said on any frame; two headlines alike are validateSequence's
    headline-repeat. */
@@ -210,9 +209,9 @@ function phraseRepeats(
 }
 
 /* The action is the last frame's, so a middle frame asking for it spends
-   the close before the viewer gets there: round 2, the cafe set's price
-   frame said "Reserve a bottle before you arrive" over "WhatsApp to
-   reserve", and the judge read the close as said twice. Only the button's
+   the close before the viewer gets there ("Reserve a bottle before you
+   arrive" over a close of "WhatsApp to reserve" is the close said twice).
+   Only the button's
    verb counts: "bottle" in "Reserve a bottle" is the price frame's too. */
 const ACTION_VERBS = new Set(
   [
@@ -265,13 +264,12 @@ function actionPreviews(
 }
 
 /* Two headlines built on the same words are one idea headlined twice even
-   when the near-duplicate check (validateSequence) passes them: round 5's
-   SaaS set headlined late payments on three frames ("Late payments?
-   Ledgerly chases them." and "Late payment? Handled."). Any two frames,
-   not only neighbours, since the reader remembers the headline. */
+   when the near-duplicate check (validateSequence) passes them ("Late
+   deliveries? We chase them." and "Late delivery? Handled."). Any two
+   frames, not only neighbours, since the reader remembers the headline. */
 const IDEA_STEMS = 2;
 
-function headlineIdeaRepeats(
+export function headlineIdeaRepeats(
   frames: readonly FrameBeat[],
   facts: readonly BriefFact[],
   free: ReadonlySet<string>,
@@ -377,9 +375,10 @@ const JOINER = "\\s,;:·|•—–\\-";
 const TRAILING_JOINERS = new RegExp(`[${JOINER}]+$`);
 const LEADING_JOINERS = new RegExp(`^[${JOINER}.!?]+`);
 /* A word that leans on what was dropped: "Reserve before" alone, "on, 10am
-   to 1pm". Such a remainder is refused rather than rewritten. */
+   to 1pm", the particle of "back Wednesday" ("we collect Monday, back").
+   Such a remainder is refused rather than rewritten. */
 const LEANING =
-  /^(?:on|at|from|by|in|for|to|and|or|until|till|before|after|this|every|the|of|with|across|near|around|into|onto|inside|within|throughout|over|under|beside|serving|covering|including)$/i;
+  /^(?:on|at|from|by|in|for|to|and|or|until|till|before|after|this|every|the|of|with|across|near|around|into|onto|inside|within|throughout|over|under|beside|serving|covering|including|back|out|up|off|down|away|due|open|opens|closes|starts|ends|runs|returned|ready)$/i;
 const SENTENCE_END = /[.!?]$/;
 
 function joined(left: string, gap: string, right: string): string | null {
@@ -419,10 +418,16 @@ export function withoutFactWords(text: string, fact: BriefFact): string | null {
   }
   const gap =
     before.slice(left.length) || (after.match(LEADING_JOINERS)?.[0] ?? "");
-  const rest = joined(left.trim(), gap, right);
-  if (rest === null) return null;
-  /* One word left is never a line: round 6 shipped "Serving" from
-     "Serving Lekki Phase 1" with the place dropped. */
+  const joinedRest = joined(left.trim(), gap, right);
+  if (joinedRest === null) return null;
+  /* The sentence keeps its full stop when the fact was its last words. */
+  const close = /[.!?]$/.exec(text.trim())?.[0] ?? "";
+  const rest =
+    joinedRest && close && !SENTENCE_END.test(joinedRest)
+      ? `${joinedRest}${close}`
+      : joinedRest;
+  /* One word left is never a line: "Serving" from "Serving Lekki Phase 1"
+     with the place dropped. */
   if (rest !== "" && rest.split(/\s+/).length < 2) return null;
   return rest === "" || /[\p{L}\p{N}]/u.test(rest) ? rest : null;
 }
@@ -470,10 +475,11 @@ function crowding(
 }
 
 /**
- * The frame that keeps each fact, in order: one whose headline gives it
- * (a headline is never cut, so the fact stays there whatever else
- * happens), the frame the outline gave it, else the frame that says it
- * most plainly, the earliest of those tied. -1 for a fact no frame states,
+ * The frame that keeps each fact, in order: the frame the arc gave it,
+ * where it states it (a copy of the fact on another frame's headline is
+ * then a fault the fix call is asked about, never the reason the owner
+ * loses it), then one whose headline gives it (a headline is never cut),
+ * else the frame that says it most plainly, the earliest of those tied. -1 for a fact no frame states,
  * and for a contact or the offering, which any frame may give.
  */
 function factKeepers(
@@ -483,10 +489,6 @@ function factKeepers(
 ): number[] {
   return facts.map((fact, n) => {
     if (RECAP_EXEMPT.has(fact.kind)) return -1;
-    const inHeadline = frames.findIndex((beat) =>
-      factStated(fact, asLine(beat.headline)),
-    );
-    if (inHeadline >= 0) return inHeadline;
     const owner = owners.findIndex((owned) => owned.includes(n));
     if (
       owner >= 0 &&
@@ -495,6 +497,10 @@ function factKeepers(
     ) {
       return owner;
     }
+    const inHeadline = frames.findIndex((beat) =>
+      factStated(fact, asLine(beat.headline)),
+    );
+    if (inHeadline >= 0) return inHeadline;
     let keeper = -1;
     let plainest = Number.POSITIVE_INFINITY;
     frames.forEach((beat, i) => {
@@ -508,15 +514,26 @@ function factKeepers(
   });
 }
 
+/* What a cut leaves must still read as the brief's words, not a piece of
+   them: "powered. By 2028: 25,000." from "9,800 homes powered. By 2028:
+   25,000 homes." opens mid-sentence and ends on a bare count. */
+export function readsWhole(text: string): boolean {
+  const line = text.trim();
+  return (
+    !/^\p{Ll}[\p{L}'-]*(?=\s|[,;:!?]|\.(?:\s|$)|$)/u.test(line) &&
+    !/[.!?]\s+\p{Ll}/u.test(line) &&
+    !/[:,]\s*[\d][\d,.]*[.!?]?$/u.test(line) &&
+    !/[:,;]$/.test(line)
+  );
+}
+
 /**
  * Each fact said once, where it belongs: a frame other than the fact's
  * keeper (factKeepers) loses the fact's words from its subheadline and
  * footer lines, a footer line left empty goes, and a headline is never
- * cut. Eval round 2: frame 5's footer gave "Saturday 22 November · 10am to
- * 1pm" and the address after frame 4 had crammed all three into its
- * subheadline, and the judge read the close as said twice (the round-2
- * critic: "drop the recap whenever an earlier frame states the fact").
- * `owners` is the outline's facts by frame; without it the first frame to
+ * cut: a close whose footer gives the date, time and address another
+ * frame already crammed into its subheadline reads as said twice.
+ * `owners` is the arc's facts by frame; without it the first frame to
  * state a fact keeps it. Words are only dropped where the brief's words
  * stand whole and the rest reads on its own (withoutFactWords), and the
  * set is returned unchanged if a drop would leave any fact unstated.
@@ -538,7 +555,8 @@ export function withoutRecap(
       const keep = facts.filter(
         (fact) => !again.includes(fact) && factStated(fact, asLine(text)),
       );
-      return withoutRepeatedFacts(text, again, keep);
+      const rest = withoutRepeatedFacts(text, again, keep);
+      return rest === "" || readsWhole(rest) ? rest : text;
     };
     const footerLines = beat.footerLines.map(trimmed).filter(Boolean);
     const subheadline = beat.subheadline ? trimmed(beat.subheadline) : "";

@@ -55,7 +55,7 @@ export function cafePlan(over: Partial<PlannedSequence> = {}): PlannedSequence {
     frames: [
       beatOf({
         role: "hook",
-        title: "The launch",
+        title: "Saturday, slowed down",
         headline: "Your Saturday, slowed down",
         subheadline: "Our cold brew, slow-steeped and poured over ice",
         layout: "banner-bottom",
@@ -63,18 +63,18 @@ export function cafePlan(over: Partial<PlannedSequence> = {}): PlannedSequence {
         backgroundPrompt: "a glass bottle of cold brew on a dark wooden bar",
       }),
       beatOf({
-        title: "The price",
+        title: "Price per bottle",
         headline: "₦2,500 a bottle",
         layout: "stat-highlight",
       }),
       beatOf({
-        title: "The day",
+        title: "15 November",
         headline: "Saturday 15 November",
         subheadline: "8am to 2pm",
         layout: "hero-center",
       }),
       beatOf({
-        title: "The place",
+        title: "Our Yaba bar",
         headline: "Pour one at our Yaba bar",
         subheadline: "Sit in with a glass, or carry yours out",
         layout: "split-left",
