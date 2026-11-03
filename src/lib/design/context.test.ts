@@ -309,3 +309,63 @@ describe("the order the renderer tries a brand's marks in", () => {
     expect(context.logoCandidates[0]).toBe("u/profile.png");
   });
 });
+
+/* KOOS-AI-002: a carousel or deck brief says how many frames it wants; the
+   count travels with the format, from the brief first and the request next. */
+describe("resolveDesignContext slides", () => {
+  beforeEach(() => {
+    getDesignBriefById.mockResolvedValue({
+      id: "br1",
+      brandId: "b1",
+      title: "Carousel brief",
+      briefMarkdown: "Five reasons to visit.",
+      designType: "Instagram carousel",
+      dimensions: "1080x1350",
+      slides: 5,
+    });
+    getDesignTicketById.mockResolvedValue({
+      id: "t1",
+      brandId: "b1",
+      ticketNumber: 12,
+      title: "Deck request",
+      brief: "Pitch deck",
+      notes: null,
+      designType: "Presentation",
+      dimensions: null,
+      slides: 8,
+    });
+  });
+
+  it("carries the brief's slide count", async () => {
+    const ctx = await resolveDesignContext({ brandId: "b1", briefId: "br1" });
+    expect(ctx.slides).toBe(5);
+  });
+
+  it("takes the request's count when it is the only source", async () => {
+    const ctx = await resolveDesignContext({
+      brandId: "b1",
+      attachments: [{ type: "ticket", id: "t1" }],
+    });
+    expect(ctx.slides).toBe(8);
+    expect(ctx.designType).toBe("Presentation");
+  });
+
+  it("prefers the brief over the request, as for the format", async () => {
+    const ctx = await resolveDesignContext({
+      brandId: "b1",
+      attachments: [
+        { type: "ticket", id: "t1" },
+        { type: "brief", id: "br1" },
+      ],
+    });
+    expect(ctx.slides).toBe(5);
+  });
+
+  it("is null when nothing gives a count", async () => {
+    const ctx = await resolveDesignContext({
+      brandId: "b1",
+      freeform: "A carousel about croissants",
+    });
+    expect(ctx.slides).toBeNull();
+  });
+});

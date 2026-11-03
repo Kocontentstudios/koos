@@ -1,6 +1,5 @@
 import { after } from "next/server";
 import { resolveDesignProviders } from "@/lib/ai/image";
-import { isAspectRatio } from "@/lib/ai/image/types";
 import { getAnalyticsSessionId } from "@/lib/analytics/session-id";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { requireVerifiedEmail } from "@/lib/auth/require-verified-email";
@@ -9,17 +8,32 @@ import {
   createGenerationJob,
   getDesignGenerationById,
 } from "@/lib/db/queries";
-import { type AttachmentRef, isAttachmentType } from "@/lib/design/attachments";
 import { DesignContextError, resolveDesignContext } from "@/lib/design/context";
 import { readRationale } from "@/lib/design/direction-rationale";
 import {
   KoImageryDisabledError,
   koImageryEnabled,
 } from "@/lib/design/ko-imagery-flag";
+import { multiFrameEnabled } from "@/lib/design/multi-frame-flag";
 import { checkDesignQuota, quotaExceeded } from "@/lib/design/quota";
+import {
+  type DesignContextBody,
+  parseContextFields,
+  parseFrames,
+} from "@/lib/design/request-fields";
+import {
+  type ApprovedOutline,
+  clampFrameCount,
+  sequenceKindOf,
+} from "@/lib/design/sequence/contract";
+import {
+  outlineValidateContext,
+  validateApprovedOutline,
+} from "@/lib/design/sequence/outline-validate";
 import type { DirectionsImage } from "@/lib/jobs/run-design-directions";
 import { generateDesignWork } from "@/lib/jobs/run-design-generation";
 import { executeGenerationJob } from "@/lib/jobs/run-generation";
+import { SEQUENCE_SLICE_BUDGET_MS } from "@/lib/jobs/stale";
 import { checkRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { isStorageConfigured } from "@/lib/storage";
 import {
@@ -30,30 +44,6 @@ import { isUuid } from "@/lib/validation/uuid";
 
 // Headroom for the post-response generation work kicked off via after().
 export const maxDuration = 300;
-
-const MAX_FREEFORM_LENGTH = 1000;
-/** Enough for a brief, a calendar item, a campaign and a few assets. A bound
- *  matters here because each attachment costs a query and prompt budget. */
-const MAX_ATTACHMENTS = 10;
-
-/**
- * Validates the client's attachment list. Returns null when anything is
- * malformed, so a bad payload is a 400 rather than a partially-honoured
- * request. Ownership is proved later, per type, in resolveDesignContext.
- */
-function parseAttachments(value: unknown): AttachmentRef[] | null {
-  if (value == null) return [];
-  if (!Array.isArray(value)) return null;
-  const refs: AttachmentRef[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) return null;
-    const { type, id } = entry as Record<string, unknown>;
-    if (!isAttachmentType(type)) return null;
-    if (typeof id !== "string" || !isUuid(id)) return null;
-    refs.push({ type, id });
-  }
-  return refs;
-}
 
 /**
  * The image choice that selects the two-directions path. Undefined when the
@@ -96,15 +86,11 @@ export async function POST(req: Request) {
   });
   if (!verdict.ok) return tooManyRequests(verdict);
 
-  let body: {
-    brandId?: string;
-    briefId?: string | null;
-    calendarItemId?: string | null;
-    attachments?: unknown;
-    freeform?: string | null;
-    aspectRatio?: string | null;
+  let body: DesignContextBody & {
     image?: unknown;
     regenerateOf?: unknown;
+    frames?: unknown;
+    approvedOutline?: unknown;
   };
   try {
     body = await req.json();
@@ -112,43 +98,27 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { brandId, briefId, calendarItemId, freeform, aspectRatio } = body;
-  const attachments = parseAttachments(body.attachments);
-  if (attachments === null) {
-    return Response.json({ error: "Invalid attachments" }, { status: 400 });
+  const parsedFields = parseContextFields(body);
+  if (!parsedFields.ok) {
+    return Response.json({ error: parsedFields.error }, { status: 400 });
   }
-  if (attachments.length > MAX_ATTACHMENTS) {
-    return Response.json(
-      { error: `Attach at most ${MAX_ATTACHMENTS} items.` },
-      { status: 400 },
-    );
-  }
-  if (!brandId || !isUuid(brandId)) {
-    return Response.json(
-      { error: "Missing or invalid brandId" },
-      { status: 400 },
-    );
-  }
-  for (const [name, value] of [
-    ["briefId", briefId],
-    ["calendarItemId", calendarItemId],
-  ] as const) {
-    if (value != null && !isUuid(value)) {
-      return Response.json({ error: `Invalid ${name}` }, { status: 400 });
-    }
-  }
-  if (freeform != null && freeform.length > MAX_FREEFORM_LENGTH) {
-    return Response.json(
-      { error: `Prompt must be ${MAX_FREEFORM_LENGTH} characters or fewer` },
-      { status: 400 },
-    );
-  }
-  if (aspectRatio != null && !isAspectRatio(aspectRatio)) {
-    return Response.json({ error: "Invalid aspectRatio" }, { status: 400 });
-  }
+  const {
+    brandId,
+    briefId,
+    calendarItemId,
+    attachments,
+    freeform,
+    aspectRatio,
+  } = parsedFields.fields;
   const image = parseImage(body.image);
   if (image === null) {
     return Response.json({ error: "Invalid image" }, { status: 400 });
+  }
+  /* Read only with FEATURE_MULTI_FRAME on: off, the field is ignored as any
+     unknown field always was. */
+  const frames = multiFrameEnabled() ? parseFrames(body.frames) : undefined;
+  if (frames === null) {
+    return Response.json({ error: "Invalid frames" }, { status: 400 });
   }
   const { regenerateOf } = body;
   if (regenerateOf != null) {
@@ -235,6 +205,16 @@ export async function POST(req: Request) {
     );
   }
 
+  /* Sets bill frame by frame and reserve the rest; one nobody will resume
+     is settled first, so its unbilled frames stop holding the units this
+     request is checked against. */
+  if (multiFrameEnabled()) {
+    const { sweepAbandonedDesignSets } = await import(
+      "@/lib/jobs/run-design-sequence"
+    );
+    await sweepAbandonedDesignSets(access.brand.workspaceId);
+  }
+
   const quota = await checkDesignQuota(access.brand.workspaceId);
   if (!quota.ok) return quotaExceeded(quota);
 
@@ -255,6 +235,58 @@ export async function POST(req: Request) {
     throw err;
   }
 
+  /* A carousel or presentation becomes a set of frames (KOOS-AI-002) only
+     with the flag on and an image choice, and never for a direction being
+     regenerated. Its count comes from the request, else the brief. */
+  const sequenceKind =
+    image && regenerateOf == null && multiFrameEnabled()
+      ? sequenceKindOf(context.designType)
+      : null;
+  let approvedOutline: ApprovedOutline | undefined;
+  if (sequenceKind && body.approvedOutline != null) {
+    const checked = validateApprovedOutline(
+      body.approvedOutline,
+      outlineValidateContext(sequenceKind, context),
+    );
+    if (!checked.ok) {
+      return Response.json(
+        { error: "Invalid outline", problems: checked.problems },
+        { status: 400 },
+      );
+    }
+    approvedOutline = checked.outline;
+  }
+  /* The approved outline is what the user saw priced on the button, so its
+     length wins over a `frames` field that disagrees with it. */
+  const askedFrames = approvedOutline
+    ? approvedOutline.points.length
+    : (frames ?? context.slides);
+  const sequence = sequenceKind
+    ? {
+        frames: clampFrameCount(sequenceKind, askedFrames),
+        asked: askedFrames ?? null,
+        contextRequest: {
+          briefId: briefId ?? null,
+          calendarItemId: calendarItemId ?? null,
+          attachments,
+          freeform: freeform ?? null,
+          aspectRatio: aspectRatio ?? null,
+        },
+        ...(approvedOutline ? { approvedOutline } : {}),
+      }
+    : null;
+  /* A set costs one unit per frame, so it is refused before the job when
+     the workspace cannot pay for all of them, rather than delivering the
+     first few frames of a carousel. */
+  if (sequenceKind && sequence) {
+    const setQuota = await checkDesignQuota(
+      access.brand.workspaceId,
+      new Date(),
+      sequence.frames,
+    );
+    if (!setQuota.ok) return quotaExceeded(setQuota, sequenceKind);
+  }
+
   const job = await createGenerationJob({
     kind: "design_render",
     userId: dbUser.id,
@@ -264,31 +296,60 @@ export async function POST(req: Request) {
       calendarItemId: calendarItemId ?? null,
       attachments,
       ...(image ? { image, regenerateOf: regenerateOf ?? null } : {}),
+      ...(sequence
+        ? {
+            sequence: {
+              frames: sequence.frames,
+              asked: sequence.asked,
+              ...(sequence.approvedOutline
+                ? { approvedOutline: sequence.approvedOutline }
+                : {}),
+            },
+            freeform: freeform ?? null,
+            aspectRatio: aspectRatio ?? null,
+          }
+        : {}),
     },
   });
 
   const sessionId = await getAnalyticsSessionId();
+  const work = (runtime: Parameters<typeof generateDesignWork>[1]) =>
+    generateDesignWork(
+      {
+        context,
+        userId: dbUser.id,
+        sessionId,
+        ...(image
+          ? {
+              directions: {
+                image,
+                regenerateOf:
+                  typeof regenerateOf === "string" ? regenerateOf : null,
+              },
+            }
+          : {}),
+        ...(sequence ? { sequence } : {}),
+      },
+      runtime,
+    );
   after(() =>
-    executeGenerationJob(job.id, (runtime) =>
-      generateDesignWork(
-        {
-          context,
-          userId: dbUser.id,
-          sessionId,
-          ...(image
-            ? {
-                directions: {
-                  image,
-                  regenerateOf:
-                    typeof regenerateOf === "string" ? regenerateOf : null,
-                },
-              }
-            : {}),
-        },
-        runtime,
-      ),
-    ),
+    sequence
+      ? executeGenerationJob(job.id, work, {
+          softDeadlineMs: SEQUENCE_SLICE_BUDGET_MS,
+        })
+      : executeGenerationJob(job.id, work),
   );
 
+  if (sequenceKind && sequence) {
+    const { frameCountNotice } = await import("@/lib/jobs/run-design-sequence");
+    return Response.json(
+      {
+        jobId: job.id,
+        frames: sequence.frames,
+        notice: frameCountNotice(sequenceKind, sequence.frames, sequence.asked),
+      },
+      { status: 202 },
+    );
+  }
   return Response.json({ jobId: job.id }, { status: 202 });
 }

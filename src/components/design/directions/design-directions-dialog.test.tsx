@@ -95,6 +95,7 @@ function direction(
     direction: { title, reasons: ["r"] },
     imageSource: "ko",
     editable: true,
+    frame: null,
     ...overrides,
   };
 }

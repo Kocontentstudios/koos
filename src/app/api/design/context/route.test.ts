@@ -35,6 +35,7 @@ const optionsOf = async (res: Response) =>
         id: string;
         groupId?: string;
         groupLabel?: string;
+        designType?: string | null;
       }[];
     }
   ).options;
@@ -118,6 +119,49 @@ describe("the picker sees every calendar", () => {
     await call();
     const limit = q.briefs.mock.calls[0][1] as number;
     expect(limit).toBeGreaterThanOrEqual(100);
+  });
+});
+
+/* KOOS-AI-002: the studio stops a carousel or presentation at its outline
+   only if it knows the format before generate, so each option carries the
+   format loadAttachment would resolve. */
+describe("each option carries its format", () => {
+  it("passes on a brief's and a ticket's design type", async () => {
+    q.briefs.mockResolvedValue([
+      { id: "b1", title: "Launch", designType: "Instagram carousel" },
+    ]);
+    q.tickets.mockResolvedValue([
+      { id: "t1", title: "Deck", ticketNumber: 4, designType: "Presentation" },
+    ]);
+    const options = await optionsOf(await call());
+    expect(options.find((o) => o.id === "b1")).toMatchObject({
+      designType: "Instagram carousel",
+    });
+    expect(options.find((o) => o.id === "t1")).toMatchObject({
+      designType: "Presentation",
+    });
+  });
+
+  it("falls back to a calendar item's content type, as the generate route does", async () => {
+    const item = {
+      title: "Teaser",
+      platform: "Instagram",
+      date: null,
+      designRequired: true,
+      calendarId: "cal-1",
+      strategyName: "Launch",
+    };
+    q.items.mockResolvedValue([
+      { ...item, id: "i1", designType: null, contentType: "carousel" },
+      { ...item, id: "i2", designType: "Story", contentType: "carousel" },
+    ]);
+    const options = await optionsOf(await call());
+    expect(options.find((o) => o.id === "i1")).toMatchObject({
+      designType: "carousel",
+    });
+    expect(options.find((o) => o.id === "i2")).toMatchObject({
+      designType: "Story",
+    });
   });
 });
 

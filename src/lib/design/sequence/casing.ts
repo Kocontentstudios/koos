@@ -1,0 +1,476 @@
+import type { FrameBeat } from "./contract";
+
+/**
+ * One casing across a set's headlines. A set read in order with "Taught by
+ * Teachers Who Mark WAEC Scripts" beside sentence-case headlines reads as
+ * frames written by strangers. The style most headlines already use wins
+ * (sentence case on a tie), and only the others are changed. Proper nouns
+ * survive the change: a word the brief or the brand profile capitalises
+ * mid-sentence, a day or a month, and an acronym keep their capitals.
+ */
+
+export type HeadlineCase = "title" | "sentence";
+
+/* An address is spelt exactly as the owner gave it: casing a word inside
+   "founders@farmlink.ng" or "crownandcoil.ng/kids" sends a reader to an
+   address that is not theirs. */
+const ADDRESS =
+  /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}|\bhttps?:\/\/\S+|\b(?:www\.)?[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.(?:com|ng|net|org|io|co|app|me|ly|africa|uk|shop|store|dev|ai)\b(?:\/[^\s,;]*)?/giu;
+
+/** `recase` applied to `text` with every email address, link and domain
+ *  held out of it and put back as written. */
+export function withAddressesKept(
+  text: string,
+  recase: (text: string) => string,
+): string {
+  const held: string[] = [];
+  const masked = text.replace(ADDRESS, (found) => {
+    held.push(found);
+    return `\uE000${held.length - 1}\uE001`;
+  });
+  if (held.length === 0) return recase(text);
+  return recase(masked).replace(
+    /\uE000(\d+)\uE001/g,
+    (_, n: string) => held[Number(n)] ?? "",
+  );
+}
+
+/* Words title case leaves lowercase inside a headline. */
+const SMALL_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "nor",
+  "of",
+  "to",
+  "in",
+  "on",
+  "at",
+  "for",
+  "by",
+  "with",
+  "from",
+  "as",
+  "per",
+  "via",
+  "vs",
+  "into",
+  "onto",
+  "over",
+  "than",
+  "so",
+  "yet",
+]);
+
+const CALENDAR = new Set(
+  [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ].flatMap((w) => [w, `${w}s`]),
+);
+
+const isWord = (token: string) => /^\p{L}/u.test(token);
+const isAcronym = (token: string) => /^\p{Lu}{2,}\b/u.test(token);
+/* A capital after a small letter is the name's own spelling ("FreshFold",
+   "WhatsApp", "iFresh"), never a casing choice, so no casing touches it. */
+const isCamel = (token: string) => /\p{Ll}\p{Lu}/u.test(token);
+/* "M-Pesa", "E-Naira": a lone capital before a hyphen spells a name. */
+const isLetterName = (token: string) => /^\p{Lu}-\p{Lu}/u.test(token);
+const bare = (token: string) =>
+  token.toLowerCase().replace(/[^\p{L}\p{N}'’-]/gu, "");
+
+/** The words `sources` capitalise where a sentence does not make them:
+ *  the names a casing change must keep. */
+export function properNouns(sources: readonly (string | null | undefined)[]) {
+  const names = new Set<string>(CALENDAR);
+  for (const source of sources) {
+    const tokens = (source ?? "").split(/\s+/).filter(Boolean);
+    tokens.forEach((token, i) => {
+      const startsSentence = i === 0 || /[.!?:]$/.test(tokens[i - 1]);
+      if (isCamel(token) || isLetterName(token)) names.add(bare(token));
+      else if (!startsSentence && /^\p{Lu}/u.test(token)) {
+        names.add(bare(token));
+      }
+    });
+  }
+  return names;
+}
+
+/** Runs of two or more capitalised words in `sources` ("Bright Path",
+ *  "Lagos Design Week"), each word bare and lowercased, and the words
+ *  that are capitalised only inside such a run: "Coffee" in "Kiln
+ *  Coffee" is part of a name, not a name on its own. A run's first word
+ *  is never only part of it: "Ironclad" names "Ironclad Gym". */
+export function nameRuns(sources: readonly (string | null | undefined)[]): {
+  runs: string[][];
+  runOnly: Set<string>;
+  heads: Set<string>;
+  /** The runs that are a whole source: a name given on its own. */
+  named: string[][];
+} {
+  const runs: string[][] = [];
+  const named: string[][] = [];
+  const inRun = new Set<string>();
+  const alone = new Set<string>();
+  const heads = new Set<string>();
+  for (const source of sources) {
+    const tokens = (source ?? "").split(/\s+/).filter(Boolean);
+    const capped = (t: string | undefined) =>
+      t !== undefined && /^\p{Lu}/u.test(t) && isWord(t);
+    let run: string[] = [];
+    let runOpensSentence = false;
+    const close = () => {
+      if (run.length >= 2) {
+        runs.push(run);
+        for (const w of run) inRun.add(w);
+        /* A name's first word names it alone ("Join Ironclad today" for
+           "Ironclad Gym"), where a later one is the kind of thing it is
+           ("Coffee" in "Kiln Coffee"). A run that opens its sentence may
+           open on a verb ("Launch Week"), unless the run is the whole
+           source, as a brand name given on its own is. */
+        if (!runOpensSentence || run.length === tokens.length) {
+          heads.add(run[0]);
+        }
+        if (run.length === tokens.length) named.push(run);
+      }
+      /* "Contact Ngozi Ade" opens its sentence, so its first word may be
+         a verb: the name is also the run without it. Two words ("Kiln
+         Coffee") are left whole, since either may be the name. */
+      if (runOpensSentence && run.length >= 3) runs.push(run.slice(1));
+      run = [];
+    };
+    tokens.forEach((token, i) => {
+      const startsSentence = i === 0 || /[.!?:]$/.test(tokens[i - 1]);
+      const word = bare(token);
+      const leadsRun = run.length === 0 && SMALL_WORDS.has(word);
+      if (capped(token) && !leadsRun) {
+        if (run.length === 0) runOpensSentence = startsSentence;
+        run.push(word);
+        const nextOn = capped(tokens[i + 1]) && !/[.!?:,;]$/.test(token);
+        if (!startsSentence && run.length === 1 && !nextOn) alone.add(word);
+        if (!nextOn) close();
+      } else {
+        close();
+      }
+    });
+    close();
+  }
+  return {
+    runs,
+    runOnly: new Set([...inRun].filter((w) => !alone.has(w) && !heads.has(w))),
+    heads,
+    named,
+  };
+}
+
+/* A brand's name of three or more words is often given by its first two
+   ("Bright Path" of "Bright Path Academy", "Udi Hills" of "Udi Hills
+   Cowork"): those words are its name too. Only a name given on its own
+   counts: "Lagos Design" of "We run Lagos Design Week" names nothing. */
+export function leadingParts(named: readonly string[][]): string[][] {
+  return named.flatMap((run) =>
+    run.length < 3 ? [] : run.slice(2).map((_, k) => run.slice(0, k + 2)),
+  );
+}
+
+/** Indexes, among `words`, of every word inside a run of `runs`. */
+function inRuns(words: readonly string[], runs: readonly string[][]) {
+  const held = new Set<number>();
+  const keys = words.map(bare);
+  for (const run of runs) {
+    for (let i = 0; i + run.length <= keys.length; i += 1) {
+      if (run.every((w, k) => keys[i + k] === w)) {
+        for (let k = 0; k < run.length; k += 1) held.add(i + k);
+      }
+    }
+  }
+  return held;
+}
+
+/** The casing a headline is written in, or null when it has too few
+ *  words beyond the first to tell. */
+export function headlineCase(
+  headline: string,
+  names: ReadonlySet<string> = new Set(),
+): HeadlineCase | null {
+  const words = headline
+    .split(/\s+/)
+    .slice(1)
+    .filter(
+      (w) =>
+        isWord(w) &&
+        !SMALL_WORDS.has(bare(w)) &&
+        !isAcronym(w) &&
+        !isCamel(w) &&
+        !names.has(bare(w)),
+    );
+  if (words.length < 2) return null;
+  const capped = words.filter((w) => /^\p{Lu}/u.test(w)).length;
+  if (capped === words.length) return "title";
+  return capped === 0 ? "sentence" : null;
+}
+
+function lowered(part: string, names: ReadonlySet<string>): string {
+  if (
+    !isWord(part) ||
+    isAcronym(part) ||
+    isCamel(part) ||
+    names.has(bare(part))
+  ) {
+    return part;
+  }
+  return /^\p{Lu}\p{Ll}/u.test(part) || /^\p{Lu}$/u.test(part)
+    ? `${part[0].toLowerCase()}${part.slice(1)}`
+    : part;
+}
+
+/* "Take-Home" in a sentence-case set reads as title case kept on half a
+   word, even where it opens the headline: the parts after a hyphen follow
+   the set's casing. */
+function afterHyphens(token: string, names: ReadonlySet<string>): string {
+  if (isLetterName(token)) return token;
+  const [head, ...rest] = token.split("-");
+  return [head, ...rest.map((part) => lowered(part, names))].join("-");
+}
+
+function toSentence(
+  headline: string,
+  names: ReadonlySet<string>,
+  runs: readonly string[][] = [],
+  runOnly: ReadonlySet<string> = new Set(),
+): string {
+  const tokens = headline.split(/(\s+)/);
+  const words = tokens.filter((t) => t && !/^\s+$/.test(t));
+  const held = inRuns(words, runs);
+  const own = new Set([...names].filter((n) => !runOnly.has(n)));
+  let count = 0;
+  let sentenceStart = true;
+  return tokens
+    .map((token) => {
+      if (/^\s+$/.test(token) || !token) return token;
+      const at = count;
+      const first = count === 0 || sentenceStart;
+      count += 1;
+      sentenceStart = /[.!?:]$/.test(token);
+      if (held.has(at)) return capitalised(token);
+      const tail = afterHyphens(token, own);
+      if (first || own.has(bare(token)) || namesPlace(bare(token), own)) {
+        return tail;
+      }
+      return lowered(tail, own);
+    })
+    .join("");
+}
+
+/* A place's name the sources only give as its people's ("Nigerian",
+   "Ghanaian", "Kenyan"): "Built for Nigeria" keeps its capital. */
+const DEMONYM_ENDING = /^(?:n|an|ian|ese)$/;
+const NAME_STEM_MIN = 4;
+
+function namesPlace(word: string, names: ReadonlySet<string>): boolean {
+  if (word.length < NAME_STEM_MIN) return false;
+  for (const name of names) {
+    if (
+      name.length > word.length &&
+      name.startsWith(word) &&
+      DEMONYM_ENDING.test(name.slice(word.length))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const capitalised = (token: string) =>
+  isWord(token) ? upperFirst(token) : token;
+
+/** `text` with its first letter capitalised, unless its first word is
+ *  spelt with a capital after a small letter: "iPhone" and "eBay" open a
+ *  sentence as they are, never as "IPhone". */
+export function upperFirst(text: string): string {
+  if (!text || /^\p{Ll}+\p{Lu}/u.test(text)) return text;
+  return `${text[0].toUpperCase()}${text.slice(1)}`;
+}
+
+function toTitle(headline: string): string {
+  const tokens = headline.split(/(\s+)/);
+  let words = 0;
+  return tokens
+    .map((token) => {
+      if (/^\s+$/.test(token) || !token) return token;
+      const first = words === 0;
+      words += 1;
+      if (!isWord(token) || /^\p{Lu}/u.test(token)) return token;
+      if (!first && SMALL_WORDS.has(bare(token))) return token;
+      return upperFirst(token);
+    })
+    .join("");
+}
+
+/** The set's headlines in the casing most of them use, and every card
+ *  title in that casing too: "Heel Turnaround" beside "Made for office
+ *  shoes" reads as two writers. */
+export function withConsistentCasing(
+  frames: readonly FrameBeat[],
+  sources: readonly (string | null | undefined)[],
+): { frames: FrameBeat[]; recased: number[]; style: HeadlineCase | null } {
+  const { runs: given, runOnly, heads, named } = nameRuns(sources);
+  const runs = [...given, ...leadingParts(named)];
+  const names = new Set([...properNouns(sources), ...heads]);
+  /* A name's words say nothing of the casing around them: "Pour one at
+     Kiln Coffee" is sentence case. */
+  const own = new Set([...names].filter((n) => !runOnly.has(n)));
+  const withoutRuns = (headline: string) => {
+    const words = headline.split(/\s+/).filter(Boolean);
+    const held = inRuns(words, runs);
+    return words.filter((_, i) => i === 0 || !held.has(i)).join(" ");
+  };
+  const styles = frames.map((beat) =>
+    headlineCase(withoutRuns(beat.headline), own),
+  );
+  const titles = styles.filter((s) => s === "title").length;
+  const sentences = styles.filter((s) => s === "sentence").length;
+  const style: HeadlineCase | null =
+    titles === 0 && sentences === 0
+      ? null
+      : titles > sentences
+        ? "title"
+        : "sentence";
+  if (style === null) return { frames: [...frames], recased: [], style };
+  const spellings = nameSpellings(sources);
+  /* Names come back as their sources spell them after the change:
+     "Crown & Coil" has no run of capitals for toSentence to keep. */
+  const recase = (text: string) =>
+    withAddressesKept(text, (t) =>
+      withNamesSpelt(
+        style === "title" ? toTitle(t) : toSentence(t, names, runs, runOnly),
+        spellings,
+      ),
+    );
+  const recased: number[] = [];
+  const next = frames.map((beat, i) => {
+    const headline =
+      styles[i] === null || styles[i] === style
+        ? beat.headline
+        : recase(beat.headline);
+    const title = recase(beat.title);
+    if (headline === beat.headline && title === beat.title) return beat;
+    recased.push(i);
+    return { ...beat, headline, title };
+  });
+  return { frames: next, recased, style };
+}
+
+/* A name as its sources spell it: capitalised words, an "&" between two
+   of them, and a number closing it ("Crown & Coil", "Wuse 2", "Lekki
+   Phase 1"). */
+const NAME_PHRASE =
+  /\p{Lu}[\p{L}'’-]*(?:\s+(?:&\s+)?\p{Lu}[\p{L}'’-]*)*(?:\s+\d+[A-Za-z]?\b)?/gu;
+
+/** Each name `sources` spell with capitals, keyed by its lowercase form:
+ *  every phrase of two or more parts, its first word (which names it
+ *  alone: "Lumora" for "Lumora Grid"), and a single capitalised word a
+ *  sentence does not open. */
+export function nameSpellings(
+  sources: readonly (string | null | undefined)[],
+): Map<string, string> {
+  const spelt = new Map<string, string>();
+  for (const source of sources) {
+    const text = source ?? "";
+    for (const match of text.matchAll(NAME_PHRASE)) {
+      const phrase = match[0].replace(/\s+/g, " ").trim();
+      const parts = phrase.split(" ");
+      const at = match.index ?? 0;
+      const opensSentence = at === 0 || /[.!?:]\s*$/.test(text.slice(0, at));
+      const whole = phrase === text.trim();
+      /* A phrase opening its sentence may open on a verb ("Book Pedal
+         Doctor") or be a heading in title case: only what follows its
+         first word is taken as a name, and only when that is a phrase. */
+      const named =
+        opensSentence && !whole
+          ? parts.slice(1).filter((w) => w !== "&")
+          : parts;
+      if (parts.length >= 2 && named.length >= 2) {
+        const name =
+          opensSentence && !whole ? parts.slice(1).join(" ") : phrase;
+        spelt.set(name.toLowerCase(), name);
+        if (!opensSentence || whole) {
+          spelt.set(named[0].toLowerCase(), named[0]);
+        }
+        const lead = parts.filter((w) => w !== "&");
+        if (whole && lead.length >= 3) {
+          for (let k = 2; k < lead.length; k += 1) {
+            const prefix = lead.slice(0, k).join(" ");
+            if (!spelt.has(prefix.toLowerCase())) {
+              spelt.set(prefix.toLowerCase(), prefix);
+            }
+          }
+        }
+      } else if ((!opensSentence || whole) && !SMALL_WORDS.has(bare(phrase))) {
+        spelt.set(phrase.toLowerCase(), phrase);
+      }
+    }
+  }
+  return spelt;
+}
+
+const escapedPhrase = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** `text` with every name `spellings` holds written as its sources spell
+ *  it: "Visit crown & coil" is "Visit Crown & Coil". */
+export function withNamesSpelt(
+  text: string,
+  spellings: ReadonlyMap<string, string>,
+): string {
+  const longestFirst = [...spellings.keys()].sort(
+    (a, b) => b.length - a.length,
+  );
+  let out = text;
+  for (const key of longestFirst) {
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])${escapedPhrase(key).replace(/ /g, "\\s+")}(?![\\p{L}\\p{N}])`,
+      "giu",
+    );
+    out = out.replace(pattern, (found) =>
+      isCamel(found) || isAcronym(found)
+        ? found
+        : (spellings.get(key) ?? found),
+    );
+  }
+  return out;
+}
+
+/** `text` in sentence case, the names `sources` give kept: how an
+ *  outline's titles read beside the set's sentence-case copy. */
+export function sentenceCased(
+  text: string,
+  sources: readonly (string | null | undefined)[],
+): string {
+  const { runs: given, runOnly, heads, named } = nameRuns(sources);
+  const runs = [...given, ...leadingParts(named)];
+  const names = new Set([...properNouns(sources), ...heads]);
+  return withAddressesKept(text, (t) =>
+    withNamesSpelt(toSentence(t, names, runs, runOnly), nameSpellings(sources)),
+  );
+}

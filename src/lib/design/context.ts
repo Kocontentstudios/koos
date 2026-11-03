@@ -49,6 +49,9 @@ export interface DesignContext {
   /** Brief markdown, calendar item brief, or the user's free-form ask. */
   briefText: string | null;
   designType: string | null;
+  /** Frames a carousel or presentation brief asked for; null when none
+   *  said (KOOS-AI-002). */
+  slides: number | null;
   dimensions: string | null;
   aspectRatio: AspectRatio;
   platform: string | null;
@@ -117,6 +120,7 @@ async function loadAttachment(
         label: brief.title,
         text: clamp(brief.briefMarkdown),
         designType: brief.designType,
+        slides: brief.slides,
         dimensions: brief.dimensions,
       };
     }
@@ -150,6 +154,7 @@ async function loadAttachment(
         label: ticket.title ?? formatTicketNumber(ticket.ticketNumber),
         text: clamp([ticket.brief, ticket.notes].filter(Boolean).join("\n\n")),
         designType: ticket.designType,
+        slides: ticket.slides,
         dimensions: ticket.dimensions,
       };
     }
@@ -259,6 +264,7 @@ export async function resolveDesignContext({
     title: merged.title,
     briefText: merged.briefText,
     designType: merged.designType,
+    slides: merged.slides,
     dimensions: merged.dimensions,
     aspectRatio: merged.aspectRatio,
     platform: merged.platform,

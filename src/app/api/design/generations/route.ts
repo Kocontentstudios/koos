@@ -3,6 +3,7 @@ import {
   checkBrandAccess,
   listDesignGenerationsForBrand,
 } from "@/lib/db/queries";
+import { MAX_GENERATION_IDS } from "@/lib/design/generation-ids";
 import { serializeGeneration } from "@/lib/design/serialize";
 import { isUuid } from "@/lib/validation/uuid";
 
@@ -10,7 +11,7 @@ const MAX_LIMIT = 60;
 
 /* A generation run asks for its own rows by id. Bounded so the parameter
    cannot be used to assemble an arbitrarily long IN list. */
-const MAX_IDS = 20;
+const MAX_IDS = MAX_GENERATION_IDS;
 
 export async function GET(req: Request) {
   const { dbUser } = await getAuthUser();

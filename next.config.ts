@@ -49,20 +49,30 @@ const securityHeaders = [
   { key: "Content-Security-Policy-Report-Only", value: contentSecurityPolicy },
 ];
 
+/* The worker resolves next/og itself at run time, outside the bundle, so
+   what next/og loads (its wasm and fallback faces) is traced with it. */
+const RENDER_FILES = [
+  "./src/lib/design/render/fonts/*.ttf",
+  "./src/lib/design/render/satori-worker.cjs",
+  "./node_modules/next/og.js",
+  "./node_modules/next/dist/server/og/**",
+  "./node_modules/next/dist/compiled/@vercel/og/**",
+];
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["postgres", "@node-rs/argon2"],
   /* scripts/fetch-fonts.mjs vendors these before the build, but fonts.ts reads
      them through a runtime join of process.cwd() that the tracer cannot
      follow. Without the explicit include they never reach the function that
      renders designs, and every render silently falls back to Google Fonts —
-     which is the whole defect. Keyed on the one route that renders. The
-     render worker (satori-pool.ts) is started from a file path at run time
-     too, so it is listed for the same reason. */
+     which is the whole defect. Keyed on every route that renders: generate,
+     a set's frame regenerate, and the job poll that resumes a paused set.
+     The render worker (satori-pool.ts) is started from a file path at run
+     time too, so it is listed for the same reason. */
   outputFileTracingIncludes: {
-    "/api/design/generate": [
-      "./src/lib/design/render/fonts/*.ttf",
-      "./src/lib/design/render/satori-worker.cjs",
-    ],
+    "/api/design/generate": RENDER_FILES,
+    "/api/design/generations/[id]/regenerate-frame": RENDER_FILES,
+    "/api/jobs/[id]": RENDER_FILES,
   },
   images: {
     remotePatterns: r2Host ? [{ protocol: "https", hostname: r2Host }] : [],

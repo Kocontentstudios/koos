@@ -694,14 +694,48 @@ export const designGenerations = pgTable(
     imageSource: text("image_source", { enum: ["upload", "ko", "none"] }),
     /** The user's upload this design was built around, when it was. */
     sourceImageKey: text("source_image_key"),
+    /** KOOS-AI-002: the carousel or presentation this row is one frame of.
+     *  Null on single designs. */
+    setId: uuid("set_id"),
+    frameIndex: integer("frame_index"),
+    /** How many frames the set was asked for, so a set short of a failed
+     *  frame still knows its size. */
+    frameCount: integer("frame_count"),
+    /** The regenerated row that replaced this frame. */
+    supersededBy: uuid("superseded_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
     index().on(t.brandId),
     index().on(t.briefId),
     index().on(t.calendarItemId),
+    index().on(t.setId),
   ],
 );
+
+/** KOOS-AI-002: what a carousel or presentation was planned as, one row per
+ *  set. Its frames are design_generations rows sharing set_id = id. The plan
+ *  is kept so one frame can be regenerated under the set's palette, logo and
+ *  footer system without planning the whole set again; plan.frames[i] is
+ *  replaced when frame i is. `request` is what the context was resolved
+ *  from, so a regenerate reads the brief the set was made from. */
+export const designSets = pgTable("design_sets", {
+  id: uuid("id").primaryKey(),
+  brandId: uuid("brand_id")
+    .notNull()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["carousel", "presentation"] }).notNull(),
+  frameCount: integer("frame_count").notNull(),
+  plan: jsonb("plan").notNull(),
+  facts: jsonb("facts").notNull().default(sql`'[]'::jsonb`),
+  offering: text("offering"),
+  request: jsonb("request").notNull().default(sql`'{}'::jsonb`),
+  /** The ApprovedOutline the set was generated from, as validated; null
+   *  for a set planned without the outline step. */
+  outline: jsonb("outline"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 export const designDeliverables = pgTable(
   "design_deliverables",

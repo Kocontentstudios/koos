@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAttachmentType,
   mergeAttachments,
+  primaryDesignType,
   type ResolvedAttachment,
   sortByPrecedence,
 } from "@/lib/design/attachments";
@@ -181,6 +182,30 @@ describe("mergeAttachments", () => {
       expect(merged.designType).toBe("Post");
     });
 
+    it("takes the slide count with the same precedence as the format", () => {
+      const ticket: ResolvedAttachment = {
+        type: "ticket",
+        id: "t1",
+        label: "Carousel request",
+        text: "Five slides",
+        designType: "Carousel",
+        slides: 5,
+      };
+      expect(
+        mergeAttachments({ attachments: [ticket, brief({ slides: 7 })] })
+          .slides,
+      ).toBe(7);
+      expect(
+        mergeAttachments({ attachments: [ticket, brief({ slides: null })] })
+          .slides,
+      ).toBe(5);
+      expect(
+        mergeAttachments({ attachments: [ticket, brief({ slides: 0 })] })
+          .slides,
+      ).toBe(5);
+      expect(mergeAttachments({ attachments: [brief()] }).slides).toBeNull();
+    });
+
     it("is null for a scalar nothing supplies", () => {
       const merged = mergeAttachments({ attachments: [strategy()] });
       expect(merged.platform).toBeNull();
@@ -260,5 +285,37 @@ describe("mergeAttachments", () => {
     expect(merged.briefText).toContain("A bold flyer for the launch.");
     expect(merged.briefText).toContain("Tease the drop.");
     expect(merged.platform).toBe("Instagram");
+  });
+});
+
+/* KOOS-AI-002: Design Studio reads the format from its picker options before
+   sending anything, to know a set needs its outline first. It must agree
+   with what the server merges, or a carousel skips the outline. */
+describe("primaryDesignType", () => {
+  it("picks the format the server's merge picks, for every order", () => {
+    const sets: ResolvedAttachment[][] = [
+      [calendarItem(), brief({ designType: "Instagram carousel" })],
+      [brief({ designType: null }), calendarItem()],
+      [calendarItem(), brief({ designType: "  " })],
+      [{ type: "strategy", id: "s", label: "S", text: null }],
+      [],
+    ];
+    for (const attachments of sets) {
+      for (const ordered of [attachments, [...attachments].reverse()]) {
+        expect(primaryDesignType(ordered)).toBe(
+          mergeAttachments({ attachments: ordered }).designType,
+        );
+      }
+    }
+  });
+
+  it("takes picker options, which carry only a type and a format", () => {
+    expect(
+      primaryDesignType([
+        { type: "ticket", designType: "Flyer" },
+        { type: "brief", designType: "Presentation" },
+      ]),
+    ).toBe("Presentation");
+    expect(primaryDesignType([{ type: "asset" }])).toBeNull();
   });
 });

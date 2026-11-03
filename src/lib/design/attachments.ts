@@ -30,6 +30,8 @@ export interface ResolvedAttachment {
   /** The prose this attachment contributes. Empty for an image-only asset. */
   text: string | null;
   designType?: string | null;
+  /** How many frames a carousel or deck brief asked for (KOOS-AI-002). */
+  slides?: number | null;
   dimensions?: string | null;
   platform?: string | null;
   scheduledFor?: string | null;
@@ -57,12 +59,27 @@ const PRECEDENCE: AttachmentType[] = [
   "asset",
 ];
 
-export function sortByPrecedence(
-  attachments: ResolvedAttachment[],
-): ResolvedAttachment[] {
+export function sortByPrecedence<T extends { type: AttachmentType }>(
+  attachments: T[],
+): T[] {
   return [...attachments].sort(
     (a, b) => PRECEDENCE.indexOf(a.type) - PRECEDENCE.indexOf(b.type),
   );
+}
+
+/**
+ * The design type a set of attachments resolves to, by the same precedence
+ * the server merges them with. Exported so the Design Studio picker can tell,
+ * before anything is sent, that the run will be a carousel or presentation.
+ */
+export function primaryDesignType(
+  attachments: Pick<ResolvedAttachment, "type" | "designType">[],
+): string | null {
+  for (const attachment of sortByPrecedence(attachments)) {
+    const value = attachment.designType;
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
 }
 
 function firstDefined<K extends keyof ResolvedAttachment>(
@@ -76,10 +93,21 @@ function firstDefined<K extends keyof ResolvedAttachment>(
   return null;
 }
 
+function firstCount(ordered: ResolvedAttachment[]): number | null {
+  for (const attachment of ordered) {
+    const value = attachment.slides;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
 export interface MergedContext {
   briefText: string | null;
   title: string | null;
   designType: string | null;
+  slides: number | null;
   dimensions: string | null;
   platform: string | null;
   scheduledFor: string | null;
@@ -125,7 +153,10 @@ export function mergeAttachments(input: {
     // The prompt is the user's ask, not a name, so a title only ever comes
     // from an attachment.
     title: ordered[0]?.label ?? null,
-    designType: firstDefined(ordered, "designType"),
+    designType: primaryDesignType(ordered),
+    /* The same precedence as designType, so the count read belongs to the
+       format read. */
+    slides: firstCount(ordered),
     dimensions,
     platform: firstDefined(ordered, "platform"),
     scheduledFor: firstDefined(ordered, "scheduledFor"),

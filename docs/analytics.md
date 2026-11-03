@@ -92,6 +92,8 @@ stable for the lifetime of one login) where available.
 | `workspace_access_changed` | an admin approves or revokes a workspace; `distinct_id` is the workspace **owner** | `workspaceId`, `status`, `decidedBy` (admin user id) |
 | `design_directions_generated` | a FEAT-033 directions job delivers at least one direction (two on a first run, one on a regenerate) | `source` (`upload`/`ko`/`none`; `none` is a text-led job with no image, PR 1's default while `FEATURE_KO_IMAGERY` is off), `directions` (how many were delivered), `quality_faults` (delivered directions still carrying a pre-delivery fault, each counted once however many faults it carries), `regenerated`, `image_calls`, `redrafted`, `layouts_forced`, `plates_rejected` (KO plates the plate check turned down at least once, for the wrong product or for painted lettering, counted from the rejections themselves, so a rejected plate whose retry got no answer still counts), `plates_failed` (plates turned down twice, for the wrong product or scene, painted lettering, or a face beside a person the brief names), `text_led` (KO directions delivered with no image, laid out as text and announced to the user in the bell: either no plate passed the check, or the image model returned nothing that could be drawn), `text_led_image_model_down` (of those, the directions whose image model returned nothing at all, so no plate was judged; the bell then says the image service was unavailable rather than that its plates were wrong), `text_led_upload` (upload directions delivered with no image, laid out as text because the client's photo fits no layout whole at this size; announced in the bell. From round 21 a photo the sibling already shows is drawn again in another layout, never dropped for it), `headlines_lost` (directions failed because the model's headline could not be drawn even after the fit pass was asked again; code never draws a headline of its own), `offerings_lost` (directions failed because they never name what the brief offers, even after the fact writer was asked for it once more; code never writes it in) |
 | `design_generated` | any design job succeeds, variants or directions | `source` (entry surface), `variants`, `quality_faults`, `judge_verdicts`, `corrections_kept` |
+| `design_sequence_generated` | a KOOS-AI-002 carousel or presentation job (`FEATURE_MULTI_FRAME`) ends: once, on the slice that completes the set, or once when a planned set's job fails for good (work error, slice ceiling, resumes spent, access revoked); a failed set carries only `set_id`, `kind`, `requested`, `delivered`, `failed`, `facts_missing`, `job_failed`, `ms` | `set_id`, `kind` (`carousel`/`presentation`), `source` (entry surface), `image_source` (`upload`/`ko`/`none`), `requested` (frames asked for), `delivered`, `failed`, `quality_faults` (frames, delivered or failed, that carry a pre-delivery fault), `facts_missing` (brief facts no delivered frame states: coverage is per set, not per frame), `hook_names_offering` (`true`/`false`, `null` with no offering or no hook delivered), `image_calls`, `text_led` (frames meant to show the image that were laid out as text), `plan_repaired`, `plan_model_calls`, `job_failed` (`true` when the job failed after the set was planned: its delivered frames are still billed, one unit each), `ms` (first slice start to completion, across resumes) |
+| `design_frame_regenerated` | one frame of a set is drawn again and replaces the frame on show | `set_id`, `frame_index`, `kind`, `edited` (the user typed the copy; otherwise the model rewrote it), `image_source`, `quality_faults` (0 or 1) |
 
 The two `design_request_start_*` events answer whether design requests actually
 want to begin from the calendar: compare the `calendar` share of
@@ -120,6 +122,32 @@ painted once more; `plates_rejected` counts these). The same job also fires
 `design_generated`, so the quality-gate
 series on that event does not read as a drop to zero when the entry points
 switch from variants to directions.
+
+A set of frames (KOOS-AI-002) writes one `design_generated` usage row per
+delivered frame, so a seven-frame carousel costs seven quota units and a frame
+that failed costs none. Each row's metadata carries `setId`, `frameIndex`,
+`frameCount` and `generationId`, plus the frame's own `faults` and the plan's
+`planModelCalls`, `planRepaired` and `planProblems`. Each row is written as
+its frame lands, so a slice that pauses and is never resumed (the tab was
+closed) has still paid for every frame it put on show. When the set ends,
+however it ends, any delivered frame a killed slice could not bill is billed
+through the same `generationId` gate, so no frame is billed twice, and the
+set's outcome is merged onto its frames' rows: `setFactsMissing` (brief facts
+no delivered frame states), `setFaults`, `hookNamesOffering`, `delivered`,
+`failed`, `jobFailed`. A regenerated frame writes one more row with
+`regenerateOf`, which the set's outcome leaves alone. The job also logs one
+line, `design.sequence.completed {"setId", "requested", "delivered",
+"failed", "factsMissing", "ms"}`, for the logs where neither PostHog nor
+Postgres is to hand. The completing slice checkpoints `completed: true`
+before it rings the bell, logs or captures, so a resumed slice never reports
+a set twice.
+
+The up-front quota check (`checkDesignQuota`) counts, besides billed rows,
+the units sets in flight are still owed: a set's requested frames less the
+frames it has settled, and one per frame regenerate. A frame-billing job
+silent for `ABANDONED_SET_MS` (10 minutes) reserves nothing and is failed
+and settled by the sweep the generate and regenerate-frame routes run
+before their quota check (`design job … abandoned; settled by the sweep`).
 
 The pre-existing `usage_events` DB table keeps recording independently. A
 directions job writes one `design_generated` usage row (one quota unit) whose

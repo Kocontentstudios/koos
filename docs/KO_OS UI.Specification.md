@@ -1780,6 +1780,10 @@ Focus, every variant: 2px solid `--ring` outline at a 2px offset, on `focus-visi
 
 * Open: fade \+ scale 0.98 to 1, 320ms. Close: reverse 220ms.
 
+* Unsaved work: while a modal holds edits that closing would throw away, every way out the modal owns (Escape, the close X, a backdrop tap) asks first, on every step that would throw the edits away, not only the step that shows them. A browser back is not one of these: modals push no history entry, so it leaves the page. The question is a nested confirm (`role="alertdialog"`) with focus on the safe answer ("Keep editing", outline) beside the destructive one (Destructive Fill); Escape or a tap beside the question means keep editing. A backdrop tap on such a modal does nothing at all, since it is usually a slip. Implemented for the outline step by `src/components/design/directions/discard-outline-confirm.tsx`.
+
+* Close X: when the modal's contents scroll, the scroll box starts below the X (8px inset plus its 28px size, 44px on a phone or touch screen), so a scrolled control never sits under it and a tap meant for a field never closes the modal.
+
 ### **Drawer (Right Side)**
 
 * Width: 420px. Height: 100vh. Background: Surface 2\.

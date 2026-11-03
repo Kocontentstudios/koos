@@ -26,12 +26,13 @@ const {
   documentRenderer,
   drawsDifferently,
   renderDirectionGuarded,
+  RENDER_FAILED_MESSAGE,
+  renderFailureMessage,
   renderRefusalMessage,
 } = await import("./render");
 const { DocumentAssetError } = await import("@/lib/design/document/rasterize");
-const { EmojiBudgetError, RenderTimeoutError } = await import(
-  "@/lib/design/render/satori-pool"
-);
+const { EmojiBudgetError, RenderFailedError, RenderTimeoutError } =
+  await import("@/lib/design/render/satori-pool");
 const { designSpecOf } = await import("./schema");
 const { designPng, directionsContext, draftOf } = await import("./fixtures");
 
@@ -152,6 +153,29 @@ describe("documentRenderer", () => {
       renderRefusalMessage(new DocumentAssetError("k", "unreadable")),
     ).toMatch(/could not be read/);
     expect(renderRefusalMessage(new Error("resvg out of memory"))).toBeNull();
+  });
+
+  it("never shows the renderer's own text to the user", () => {
+    /* What job 2281afa3 showed in the dialog when Turbopack bundled the
+       render worker (integration critic round 1). */
+    const bundlerThrow = new RenderFailedError(
+      "Cannot find module as expression is too dynamic",
+    );
+    expect(renderFailureMessage(bundlerThrow)).toBe(RENDER_FAILED_MESSAGE);
+    expect(renderFailureMessage(bundlerThrow)).not.toMatch(/module|dynamic/);
+    expect(
+      renderFailureMessage(new RenderFailedError("renderer exited (1)")),
+    ).toBe(RENDER_FAILED_MESSAGE);
+  });
+
+  it("keeps a refusal's own advice and any other error's message", () => {
+    expect(renderFailureMessage(new EmojiBudgetError(16))).toMatch(
+      /more than 16 different emoji/,
+    );
+    expect(
+      renderFailureMessage(new Error("The photo covers every layout.")),
+    ).toBe("The photo covers every layout.");
+    expect(renderFailureMessage("thrown string")).toBe("Unknown error");
   });
 
   it("reports the original failure when the mark was not the cause", async () => {

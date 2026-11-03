@@ -30,6 +30,7 @@ import {
   designBriefs,
   designDeliverables,
   designGenerations,
+  designSets,
   designTicketAttachments,
   designTickets,
   emailVerificationTokens,
@@ -724,6 +725,8 @@ export async function listCalendarItemsForBrand(brandId: string, limit = 500) {
         platform: calendarItems.platform,
         date: calendarItems.date,
         designRequired: calendarItems.designRequired,
+        designType: calendarItems.designType,
+        contentType: calendarItems.contentType,
         calendarId: calendars.id,
         calendarCreatedAt: calendars.createdAt,
         calendarStart: calendars.startDate,
@@ -1022,6 +1025,205 @@ export async function listDesignGenerationsForBrand(
     .where(and(...filters))
     .orderBy(desc(designGenerations.createdAt))
     .limit(opts.limit ?? 50);
+}
+
+/**
+ * Every row of one carousel or presentation (KOOS-AI-002), in frame order and
+ * oldest first within a frame, superseded and failed rows included: the
+ * caller picks the live frame with liveFrames(). Brand-scoped so a guessed
+ * set id reads nothing.
+ */
+export async function listSetFrames(brandId: string, setId: string) {
+  return db
+    .select()
+    .from(designGenerations)
+    .where(
+      and(
+        eq(designGenerations.brandId, brandId),
+        eq(designGenerations.setId, setId),
+      ),
+    )
+    .orderBy(designGenerations.frameIndex, designGenerations.createdAt);
+}
+
+/** Points a replaced frame at the row that replaced it. */
+export async function supersedeFrame(id: string, replacedBy: string) {
+  await db
+    .update(designGenerations)
+    .set({ supersededBy: replacedBy })
+    .where(eq(designGenerations.id, id));
+}
+
+/** A set's plan. A resumed job writes it again, which changes nothing. */
+export async function createDesignSet(data: typeof designSets.$inferInsert) {
+  await db.insert(designSets).values(data).onConflictDoNothing();
+}
+
+/** One set's plan, brand-scoped like listSetFrames. */
+export async function getDesignSet(brandId: string, setId: string) {
+  const [row] = await db
+    .select()
+    .from(designSets)
+    .where(and(eq(designSets.id, setId), eq(designSets.brandId, brandId)));
+  return row ?? null;
+}
+
+/**
+ * Replaces one frame's beat in a set's plan, in place in the database, so two
+ * frames regenerated at once cannot write each other's old beat back.
+ */
+export async function replaceDesignSetBeat(
+  setId: string,
+  index: number,
+  beat: unknown,
+) {
+  await db
+    .update(designSets)
+    .set({
+      plan: sql`jsonb_set(${designSets.plan}, ${`{frames,${index}}`}::text[], ${JSON.stringify(beat)}::jsonb)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(designSets.id, setId));
+}
+
+/**
+ * The generations of a set already charged for. A sequence job bills its
+ * delivered frames when it completes; a job resumed after that write and
+ * before its success was recorded would otherwise bill them again.
+ */
+export async function listBilledSetGenerations(
+  brandId: string,
+  setId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({
+      id: sql<string | null>`${usageEvents.metadata}->>'generationId'`,
+    })
+    .from(usageEvents)
+    .where(
+      and(
+        eq(usageEvents.brandId, brandId),
+        eq(usageEvents.kind, "design_generated"),
+        sql`${usageEvents.metadata}->>'setId' = ${setId}`,
+      ),
+    );
+  return rows.map((r) => r.id).filter((id): id is string => Boolean(id));
+}
+
+/**
+ * Writes what only the whole set knows (coverage across frames, how many
+ * failed) onto the usage rows its job billed frame by frame. A regenerated
+ * frame's row describes its own job, so it is left as it was.
+ */
+export async function annotateSetUsage(
+  brandId: string,
+  setId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  await db
+    .update(usageEvents)
+    .set({
+      metadata: sql`coalesce(${usageEvents.metadata}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+    })
+    .where(
+      and(
+        eq(usageEvents.brandId, brandId),
+        eq(usageEvents.kind, "design_generated"),
+        sql`${usageEvents.metadata}->>'setId' = ${setId}`,
+        sql`${usageEvents.metadata}->>'regenerateOf' is null`,
+      ),
+    );
+}
+
+/* A design job that bills frame by frame: a set (input.sequence) or one
+   frame of a set drawn again (input.regenerateFrame). */
+const billsFramesSql = sql`(${generationJobs.input}->'sequence' is not null or ${generationJobs.input}->'regenerateFrame' is not null)`;
+
+/**
+ * Quota units promised to sets still being drawn in a workspace, not yet
+ * billed: a set's requested frames less the frames it has settled (a
+ * delivered frame is billed as it lands, a failed one is free), and one for
+ * a frame regenerate. Without it two carousels started together each pass
+ * the up-front check against the same remaining units. A job silent since
+ * before `activeSince` is abandoned and reserves nothing.
+ */
+export async function countReservedDesignUnitsForWorkspace(
+  workspaceId: string,
+  activeSince: Date,
+): Promise<number> {
+  const settledFrames = sql`(
+    select count(distinct ${designGenerations.frameIndex})
+    from ${designGenerations}
+    where ${designGenerations.brandId} = ${generationJobs.brandId}
+      and ${designGenerations.setId}::text = ${generationJobs.result}->'checkpoint'->>'setId'
+      and ${designGenerations.status} <> 'pending'
+  )`;
+  const [row] = await db
+    .select({
+      reserved: sql<string | null>`sum(
+        case when ${generationJobs.input}->'regenerateFrame' is not null then 1
+        else greatest(0, coalesce((${generationJobs.input}->'sequence'->>'frames')::int, 0) - ${settledFrames})
+        end
+      )`,
+    })
+    .from(generationJobs)
+    .innerJoin(brands, eq(generationJobs.brandId, brands.id))
+    .where(
+      and(
+        eq(brands.workspaceId, workspaceId),
+        eq(generationJobs.kind, "design_render"),
+        inArray(generationJobs.status, ["pending", "running"]),
+        gte(generationJobs.updatedAt, activeSince),
+        billsFramesSql,
+      ),
+    );
+  return Number(row?.reserved ?? 0);
+}
+
+/**
+ * Fails, atomically, the frame-billing design jobs of a workspace silent
+ * since before `silentBefore`: no worker heartbeats them and no poll came
+ * back to resume them. Only the caller that fails a job gets it back, so its
+ * set is settled once even when two requests sweep together.
+ */
+export async function failAbandonedDesignJobs(
+  workspaceId: string,
+  silentBefore: Date,
+  error: string,
+) {
+  return db
+    .update(generationJobs)
+    .set({ status: "failed", error, updatedAt: new Date() })
+    .where(
+      and(
+        eq(generationJobs.kind, "design_render"),
+        inArray(generationJobs.status, ["pending", "running"]),
+        lt(generationJobs.updatedAt, silentBefore),
+        billsFramesSql,
+        inArray(
+          generationJobs.brandId,
+          db
+            .select({ id: brands.id })
+            .from(brands)
+            .where(eq(brands.workspaceId, workspaceId)),
+        ),
+      ),
+    )
+    .returning();
+}
+
+/** Fails a regenerated frame's row its job left pending. A row that has
+ *  already landed or failed keeps its status. */
+export async function failPendingGeneration(id: string, error: string) {
+  await db
+    .update(designGenerations)
+    .set({ status: "failed", error })
+    .where(
+      and(
+        eq(designGenerations.id, id),
+        eq(designGenerations.status, "pending"),
+      ),
+    );
 }
 
 /**

@@ -64,6 +64,9 @@ export interface FactForm {
   text: string;
   tokens: CopyToken[];
   guard: Guard | null;
+  /** Parts of the fact the guard finds in the field rather than the run
+   *  holds ("2025" of "sold in 2025" opening the sentence). */
+  carries?: readonly string[];
   /** The fact's kind, which says what another number beside it is
    *  (rivalled). */
   kind?: string;
@@ -741,67 +744,176 @@ const labelled: Guard = ({ after }) =>
    holdout, H96). Read whole, "8 spots to grab" is refused with it, and
    the fact writer writes it in; any other word may follow a count ("50
    guests max", "Two senior React engineers wanted"). */
-const notToDo: Guard = ({ after }) => !word(after, "to");
+/* "to" after a count opens a range ("10 to 12 seats"); after a run that
+   ends on its year it moves on to the next dated value ("from ₦310
+   million in 2024 to ₦720 million in 2025"). */
+const notToDo: Guard = ({ run, after, afterThat }) =>
+  !word(after, "to") || (isYear(run.at(-1)) && !isYear(afterThat));
 
-/* What may stand before a count: a clause's start or a word from this
-   closed list, none of which changes how many. "Over 10 seats sold" is
-   more than ten (round-12 code critic, G15), and so are "nearly", "about",
-   "at least" and every word not named here, which the fact writer then
-   writes in. "to" stays for "Send money to 20 African countries" and "Up
-   to 16 places"; the spec records "close to 10 seats" as its residual. */
-const COUNT_BEFORE = [
-  /* "a dozen cupcakes": the article of a number word. */
-  "a",
-  "only",
-  "just",
-  "the",
-  "all",
-  "our",
-  "your",
-  "these",
-  "those",
-  "its",
-  "their",
-  "top",
-  "with",
-  "of",
-  "for",
-  "to",
-  "and",
-  "in",
-  "across",
-  "has",
-  "have",
-  "hiring",
-  "win",
-  "book",
-  "reserve",
-  "grab",
-  "claim",
-  "meet",
-  "join",
-  "featuring",
-  "offering",
-  "including",
+/* Words before a count that change how many it is: "Over 10 seats sold"
+   is more than ten, "the first 20 customers"
+   is not 20 customers. Any other word leaves the count as the brief gives
+   it: an allowlist of verbs missed "This round deploys 60 more ATMs" and
+   "Heel replacement done in 20 minutes", so code drew the fact a second
+   time onto another frame. "to" stays a
+   plain lead for "Up to 16 places"; the spec records "close to 10 seats"
+   as its residual. */
+const COUNT_CHANGERS = [
+  "over",
+  "nearly",
+  "almost",
+  "about",
+  "around",
+  "roughly",
+  "approximately",
+  "approx",
+  "circa",
+  "under",
+  "than",
+  "least",
+  "most",
+  "some",
+  "first",
+  "last",
+  "not",
+  "no",
+  "never",
+  "minus",
+  "every",
+  "each",
+  "per",
+  "below",
+  "above",
+  "beyond",
+  "past",
+  "another",
 ];
 const counted: Guard = (around) =>
-  (startsClause(around) || word(around.before, ...COUNT_BEFORE)) &&
+  (startsClause(around) ||
+    (around.before?.kind === "word" &&
+      !word(around.before, ...COUNT_CHANGERS))) &&
   notToDo(around);
+/* "Up to 10 seats" is a class of ten, but "up to 60 more ATMs" is a
+   ceiling on a plan the brief states as a number: an increment the brief
+   gives exactly is not stated by its cap. */
+const countedIncrement: Guard = (around) =>
+  counted(around) &&
+  !(word(around.before, "to") && word(around.beforeThat, "up"));
+const countedFor = (text: string): Guard =>
+  /\bmore\b/i.test(text) ? countedIncrement : counted;
+
+/* "2.1 million litres sold in 2025" is stated by "In 2025 Aqualoop sold
+   2.1 million litres": the year may open the sentence, so a form without
+   its trailing "in 2025" counts where the same field gives that year. */
+const YEAR = /^(?:19|20)\d\d$/;
+const countedInYear =
+  (year: string): Guard =>
+  (around) =>
+    counted(around) &&
+    around.field.some((t) => t.text.toLowerCase() === year.toLowerCase());
+
+/* Participles a count is put after or before with one meaning: "2.1
+   million litres sold in 2025" is "sold 2.1 million litres in 2025". */
+const MOVABLE_PARTICIPLES = [
+  "sold",
+  "served",
+  "delivered",
+  "installed",
+  "trained",
+  "taught",
+  "reached",
+  "built",
+  "made",
+  "shipped",
+  "planted",
+  "raised",
+  "funded",
+  "deployed",
+  "treated",
+  "placed",
+];
+
+/* The fact with its participle moved before the number, or null when it
+   has none past its noun. */
+function participleFirst(core: readonly CopyToken[]): string | null {
+  const at = core.findIndex(
+    (t, i) => i >= 2 && word(t, ...MOVABLE_PARTICIPLES),
+  );
+  if (at < 0) return null;
+  const moved = [core[at], ...core.slice(0, at), ...core.slice(at + 1)];
+  return moved.map((t) => t.text).join(" ");
+}
+
+/* A share has no word of its own, but its sentence names what it is a
+   share of: "Post-harvest loss dropped from 40% to 12%" states 12%. "from"
+   before it gives the value it moved away from, a count changer ("over
+   12%") or "up to" changes it, and "to" after it opens a range. */
+const shared: Guard = (around) =>
+  (startsClause(around) ||
+    (around.before?.kind === "word" &&
+      !word(around.before, ...COUNT_CHANGERS, "from") &&
+      !(word(around.before, "to") && word(around.beforeThat, "up")))) &&
+  !word(around.after, "to");
+
+const isShare = (tokens: readonly CopyToken[]) =>
+  tokens.length === 2 && isNumber(tokens[0]) && tokens[1].key === "%";
+
+/* "Groups of 8 per teacher" is stated by "Every teacher takes groups of
+   8": the unit a group is per may be said anywhere in the same field. */
+function perUnitForm(core: readonly CopyToken[]): FactForm | null {
+  const [group, of, n, per, ...unit] = core;
+  if (
+    group?.kind !== "word" ||
+    !word(of, "of") ||
+    !isNumber(n) ||
+    !word(per, ...PER) ||
+    unit.length !== 1 ||
+    unit[0].kind !== "word"
+  ) {
+    return null;
+  }
+  const unitKey = nounKey(unit[0].text);
+  const inField: Guard = (around) =>
+    counted(around) &&
+    around.field.some((t) => t.kind === "word" && nounKey(t.text) === unitKey);
+  return form(`${group.text} of ${n.text}`, inField);
+}
 
 function quantityForms(tokens: CopyToken[], own: string): FactForm[] {
   const hasWord = (ts: CopyToken[]) => ts.some((t) => t.kind === "word");
+  if (isShare(tokens)) return [form(own, shared)];
   if (!hasWord(tokens)) return [form(own, alone)];
   let core = tokens;
   while (core.length > 1 && word(core[0], ...COUNT_LEAD)) core = core.slice(1);
   while (core.length > 1 && word(core[core.length - 1], ...COUNT_TAIL)) {
     core = core.slice(0, -1);
   }
-  const forms = [form(own, counted)];
+  const forms = [form(own, countedFor(own))];
+  const perUnit = perUnitForm(core);
+  if (perUnit) forms.push(perUnit);
   if (!hasWord(core) || !isNumber(core[0])) return forms;
   const [n, ...rest] = core.map((t) => t.text);
   const noun = rest.join(" ");
   /* "Just 20 more spots" is 20 spots (round-9 code critic, FN8). */
-  forms.push(form(`${n} ${noun}`, counted), form(`${n} more ${noun}`, counted));
+  forms.push(
+    form(`${n} ${noun}`, countedFor(noun)),
+    form(`${n} more ${noun}`, countedIncrement),
+  );
+  const moved = participleFirst(core);
+  if (moved) forms.push(form(moved, counted));
+  const year = core.at(-1)?.text ?? "";
+  const when = YEAR.test(year) || monthOf(core.at(-1)) !== null;
+  if (core.length > 3 && when && word(core.at(-2), "in")) {
+    const yearless = core.slice(0, -2);
+    const inYear = countedInYear(year);
+    const withYear = (text: string): FactForm => ({
+      ...form(text, inYear),
+      carries: [year],
+    });
+    forms.push(withYear(yearless.map((t) => t.text).join(" ")));
+    const movedYearless = participleFirst(yearless);
+    if (movedYearless) forms.push(withYear(movedYearless));
+  }
   if (rest.length === 1 && /s$/i.test(noun)) {
     for (const label of [`${noun}:`, `${noun} left:`]) {
       for (const lead of ["", "only ", "just "]) {
@@ -1287,7 +1399,10 @@ function wholeForms(
     guards.includes(g) ? guards.indexOf(g) : guards.push(g) - 1;
   const whole = forms.filter((f) => {
     const key = `${f.tokens.map((t) => t.key).join(" ")}|${guardId(f.guard)}`;
-    if (seen.has(key) || partsMissing(parts, f).length > 0) return false;
+    const missing = partsMissing(parts, f).filter(
+      (name) => !f.carries?.includes(name),
+    );
+    if (seen.has(key) || missing.length > 0) return false;
     seen.add(key);
     return true;
   });
@@ -1400,10 +1515,12 @@ function cutFromNumber({ run, before, after, afterThat }: Around): boolean {
   if (isNumeric(first) && (isNumeric(before) || joinsNumbers(before))) {
     return true;
   }
+  /* A run ending on its year is cut only by another year ("in 2024 to
+     2025"); "in 2024 to ₦720 million in 2025" moves on to the next value. */
+  const joinedOn = isYear(last) ? isYear(afterThat) : !isYear(afterThat);
   return (
     isNumeric(last) &&
-    ((isNumeric(after) && !isYear(after)) ||
-      (joinsNumbers(after) && !isYear(afterThat)))
+    ((isNumeric(after) && !isYear(after)) || (joinsNumbers(after) && joinedOn))
   );
 }
 
@@ -1817,6 +1934,10 @@ function offeredAsAlternative(
    "10th of 10 seats" is), nor an isOtherValue number, nor a number with
    its own noun or rate anywhere else ("one artisan", "90 minutes", "2 per
    room"). */
+const DURATION_NOUNS = new Set(
+  ["minute", "min", "hour", "hr", "day", "week", "month", "year"].map(nounKey),
+);
+
 function countRival(
   tokens: readonly CopyToken[],
   i: number,
@@ -1838,9 +1959,11 @@ function countRival(
   if (isOtherValue(tokens, i)) return false;
   /* "10 seats per row, 5 rows": a count per something is multiplied by
      any other count in its field. */
-  if (perUnit) return true;
-  if (word(tokens[i + 1], ...RATE)) return false;
   const { nouns, next } = nounsAfter(tokens, i);
+  /* "Our 12 stylists each trained for two years": a length of time is
+     how long, never a second count the first is multiplied by. */
+  if (perUnit) return !nouns.some((n) => DURATION_NOUNS.has(countNoun(n)));
+  if (word(tokens[i + 1], ...RATE)) return false;
   if (!namesItsNoun(t, nouns)) return true;
   if (nouns.some((n) => counts.has(countNoun(n)))) return true;
   if (
@@ -2049,7 +2172,69 @@ function timeRival(
   }
   if (word(tokens[i + 1], ...RATE)) return false;
   const { nouns } = nounsAfter(tokens, i);
+  if (countsDays(tokens, i, nouns)) return false;
   return namesWhen(nouns) || !namesKnownCount(t, nouns);
+}
+
+/* Words after which a number in digits is the hour something starts
+   ("Doors 6 Fridays", "Gates 7 Saturdays"), not a count of the days. */
+const HOUR_LEADS = [
+  "doors",
+  "door",
+  "gates",
+  "gate",
+  "opens",
+  "open",
+  "starts",
+  "start",
+  "kickoff",
+  "from",
+  "at",
+  "by",
+  "till",
+  "til",
+  "until",
+  "before",
+  "after",
+  "around",
+];
+/* "Six Saturday mornings" and "Eight Saturday sessions" count what
+   happens on those days. */
+const ON_THE_DAY = [
+  "mornings",
+  "afternoons",
+  "evenings",
+  "nights",
+  "sessions",
+  "classes",
+  "lessons",
+  "workshops",
+  "meetups",
+  "meetings",
+  "clinics",
+  "visits",
+  "shifts",
+];
+
+/* "Six Saturdays, 9am to 12pm" counts the days the hours fall on; it is
+   not "6 Fridays" read as six o'clock. A digit counts days when it opens
+   the field or follows a word that does not lead an hour ("Join us 6
+   Saturdays"); after a mark or an hour's lead ("9am to 12pm, 8 Fridays",
+   "Doors 6 Fridays") it is still an hour. */
+function countsDays(
+  tokens: readonly CopyToken[],
+  i: number,
+  nouns: readonly CopyToken[],
+): boolean {
+  const spelled = !/\d/.test(tokens[i].text);
+  const before = tokens[i - 1];
+  const opensCount =
+    i === 0 || (before?.kind === "word" && !word(before, ...HOUR_LEADS));
+  const daysCounted = nouns.some(
+    (n, k) =>
+      isDayWord(n) && (/s$/.test(n.key) || word(nouns[k + 1], ...ON_THE_DAY)),
+  );
+  return daysCounted && (spelled || opensCount);
 }
 
 /* Whether the number at `i` is another price beside the run's amount:
@@ -2223,6 +2408,42 @@ function pricedApart(
   return ownAmount >= 0 && boundToItem(runTokens, ownAmount, priced.own);
 }
 
+/* The year a value at `i` is dated by: "₦720 million in 2025", "(2025)". */
+function yearAfter(tokens: readonly CopyToken[], i: number): number | null {
+  for (let k = i + 1; k <= i + 3 && k < tokens.length; k++) {
+    const t = tokens[k];
+    if (isYear(t)) return t.value ?? null;
+    if (!(word(t, "in", "for", "during", "by") || t.text === "(")) {
+      return null;
+    }
+  }
+  return null;
+}
+
+/* "from ₦310 million in 2024 to ₦720 million in 2025" is a change over
+   time, not a choice: each amount is dated by its own year, so neither is
+   the other's alternative and the ruling's "two values, states neither"
+   does not apply. Both years must be given and differ. */
+function datedApart(
+  tokens: readonly CopyToken[],
+  i: number,
+  run: { start: number; end: number },
+): boolean {
+  const rivalYear = yearAfter(tokens, i);
+  if (rivalYear === null) return false;
+  const ownYears = new Set<number>();
+  for (let k = run.start; k < run.end; k++) {
+    if (isYear(tokens[k])) ownYears.add(tokens[k].value ?? 0);
+  }
+  const trailing = yearAfter(tokens, run.end - 1);
+  if (trailing !== null) ownYears.add(trailing);
+  const [from, to] = i < run.start ? [i, run.start] : [run.end, i];
+  const offeredAsChoice = tokens
+    .slice(from, to)
+    .some((t) => word(t, "or", "either"));
+  return ownYears.size > 0 && !ownYears.has(rivalYear) && !offeredAsChoice;
+}
+
 /* What counts as another value of the fact's kind, anywhere in its field
    (Oluwaseyi's ruling, 2026-10-28), read beyond the ruling's own words
    where a reader could still take the number for one, failing closed:
@@ -2331,7 +2552,8 @@ function rivalled(
           start,
           end,
         }) &&
-        !pricedApart(tokens, i, { start, end, clause }, priced),
+        !pricedApart(tokens, i, { start, end, clause }, priced) &&
+        !datedApart(tokens, i, { start, end }),
     );
   }
   if (!run.some(isNumeric)) return false;

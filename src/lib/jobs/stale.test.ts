@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  ABANDONED_SET_MS,
   CALENDAR_STALE_MS,
   DEFAULT_STALE_MS,
   isPausedForResume,
+  isRegenerateFrameJobInput,
+  isResumableJob,
+  isSequenceJobInput,
   MAX_RESUMES,
   resolveStaleAction,
   resumeCountFrom,
+  SEQUENCE_SLICE_BUDGET_MS,
+  staleMsFor,
 } from "./stale";
 
 const NOW = 1_700_000_000_000;
@@ -110,5 +116,85 @@ describe("isPausedForResume", () => {
   it("is false for null or non-object state", () => {
     expect(isPausedForResume(null)).toBe(false);
     expect(isPausedForResume("paused")).toBe(false);
+  });
+});
+
+/* KOOS-AI-002: a design job that builds a set of frames checkpoints like a
+   calendar and resumes the same way (H8); every other design job does not. */
+describe("resumable design jobs", () => {
+  const sequenceInput = { image: { source: "none" }, sequence: { frames: 6 } };
+
+  it("names a set-of-frames design job resumable, and no other design job", () => {
+    expect(
+      isResumableJob({ kind: "design_render", input: sequenceInput }),
+    ).toBe(true);
+    expect(
+      isResumableJob({ kind: "design_render", input: { image: {} } }),
+    ).toBe(false);
+    expect(isResumableJob({ kind: "design_render", input: null })).toBe(false);
+    expect(isResumableJob({ kind: "calendar" })).toBe(true);
+    expect(isResumableJob({ kind: "strategy", input: sequenceInput })).toBe(
+      false,
+    );
+  });
+
+  it("reads only a numeric frame count as a sequence", () => {
+    expect(isSequenceJobInput({ sequence: { frames: "6" } })).toBe(false);
+    expect(isSequenceJobInput({ sequence: null })).toBe(false);
+    expect(isSequenceJobInput("sequence")).toBe(false);
+  });
+
+  it("watches a resumable design job on the calendar's short window", () => {
+    expect(staleMsFor("design_render", true)).toBe(CALENDAR_STALE_MS);
+    expect(staleMsFor("design_render")).toBe(DEFAULT_STALE_MS);
+    expect(staleMsFor("calendar")).toBe(CALENDAR_STALE_MS);
+  });
+
+  it("resumes a silent set-of-frames job and fails it once resumes are spent", () => {
+    const silent = job({
+      kind: "design_render",
+      resumable: true,
+      updatedAt: new Date(NOW - CALENDAR_STALE_MS - 1),
+    });
+    expect(resolveStaleAction(silent, NOW)).toBe("resume");
+    expect(
+      resolveStaleAction({ ...silent, resumeCount: MAX_RESUMES }, NOW),
+    ).toBe("fail");
+  });
+
+  it("reads a frame regenerate by its target id", () => {
+    expect(
+      isRegenerateFrameJobInput({ regenerateFrame: "f1", edits: null }),
+    ).toBe(true);
+    expect(isRegenerateFrameJobInput({ regenerateOf: "f1" })).toBe(false);
+    expect(isRegenerateFrameJobInput({ regenerateFrame: 3 })).toBe(false);
+    expect(isRegenerateFrameJobInput(null)).toBe(false);
+  });
+
+  /* The sweep must never take a set a live slice or a watching poller
+     still holds: the worker beats every 20s within a 300s invocation, and
+     a poller resumes within CALENDAR_STALE_MS of the last beat. */
+  it("calls a set abandoned only well past a slice and every resume window", () => {
+    expect(ABANDONED_SET_MS).toBeGreaterThan(300_000);
+    expect(ABANDONED_SET_MS).toBeGreaterThan(
+      SEQUENCE_SLICE_BUDGET_MS + CALENDAR_STALE_MS * 2,
+    );
+    expect(ABANDONED_SET_MS).toBeGreaterThan(DEFAULT_STALE_MS);
+  });
+
+  it("keeps a single design job on the long fail-only window", () => {
+    const single = job({ kind: "design_render" });
+    expect(
+      resolveStaleAction(
+        { ...single, updatedAt: new Date(NOW - CALENDAR_STALE_MS - 1) },
+        NOW,
+      ),
+    ).toBe("none");
+    expect(
+      resolveStaleAction(
+        { ...single, updatedAt: new Date(NOW - DEFAULT_STALE_MS - 1) },
+        NOW,
+      ),
+    ).toBe("fail");
   });
 });

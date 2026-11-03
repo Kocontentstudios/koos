@@ -21,15 +21,11 @@ import {
 import { measureImage } from "@/lib/design/document/image-facts";
 import { prepareDocumentFonts } from "@/lib/design/document/rasterize";
 import {
-  HEADS_UNKNOWN,
-  headsForLayout,
-  headsWithMargin,
   measureSubject,
   type NoCropReason,
   SUBJECT_COVERED,
   SUBJECT_CROPPED,
   type SubjectBox,
-  subjectFromAlpha,
 } from "@/lib/design/document/subject";
 import {
   KoImageryDisabledError,
@@ -39,7 +35,6 @@ import { markIsTooThin } from "@/lib/design/logo-placement";
 import { readImageDimensions } from "@/lib/design/png-dimensions";
 import { lookAtPhoto, type PhotoLook } from "@/lib/design/quality/plate-check";
 import type { DesignSpec } from "@/lib/design/spec";
-import { cleanCutoutBytes } from "@/lib/images/cutout-edge";
 import { STORAGE_PREFIXES, uploadObject } from "@/lib/storage";
 import { loadDesignImage } from "@/lib/uploads/design-image";
 import { mapWithConcurrency } from "./calendar-assembly";
@@ -53,6 +48,7 @@ import {
   notifyImageLeftOff,
   notifyLogoLeftOff,
 } from "./design-notify";
+import { readUploadedPhoto } from "./design-photo";
 import { draftDirections, type PriorDirection } from "./directions/brief";
 import {
   brandSetting,
@@ -87,6 +83,7 @@ import {
   layoutJudge,
   photoPlace,
   renderDirectionGuarded,
+  renderFailureMessage,
   renderRefusalMessage,
 } from "./directions/render";
 import { currentSibling, designSpecOf } from "./directions/schema";
@@ -154,7 +151,7 @@ export class SubjectFaultError extends Error {
 export const HEADS_UNKNOWN_FAULT =
   "the photo shows people but no head could be boxed in it, even when asked again, so it was never cropped: drawn whole or left off";
 
-const SUBJECT_FAULTS: readonly string[] = [
+export const SUBJECT_FAULTS: readonly string[] = [
   SUBJECT_CROPPED,
   SUBJECT_FACE_ONLY,
   SUBJECT_COVERED,
@@ -222,6 +219,23 @@ export class NewsNotStatedError extends Error {
   }
 }
 
+/** Why a design was drawn without the plate it was painted, or null when
+ *  the plate was used. */
+export function plateCheckFault(check: PlateCheck): string | null {
+  switch (check) {
+    case "failed":
+      return "the generated image did not show the product, so the design was drawn without one";
+    case "failed-lettering":
+      return "the generated image kept painting made-up writing on the product, so the design was drawn without one";
+    case "failed-people":
+      return "the generated image kept painting a face beside a person the brief names, so the design was drawn without one";
+    case "unavailable":
+      return "the image model returned no image that could be drawn, so the design was drawn without one";
+    default:
+      return null;
+  }
+}
+
 interface RegenerationTarget {
   set: string;
   slot: number;
@@ -236,7 +250,10 @@ interface RegenerationTarget {
 /* The round-2 live run lost a finished direction to one TLS "bad record
    mac" on this upload, which the S3 client does not retry. The render is the
    expensive part and is already done, so one more attempt is cheap. */
-async function storeDelivered(key: string, bytes: Uint8Array): Promise<void> {
+export async function storeDelivered(
+  key: string,
+  bytes: Uint8Array,
+): Promise<void> {
   const put = () =>
     uploadObject({ key, body: bytes, contentType: "image/png" });
   try {
@@ -537,55 +554,22 @@ export async function generateDirectionsWork(
       );
     }
   }
-  /* The client's photo's people. The look's boxes are grown by the head
-     margin (round-26 contract break: a box drawn short of the barista's
-     face let a crop through it), and since the look also misplaces and
-     misses heads, a photo with people in it is never cropped at all. */
+  /* The client's photo's people, the heads every layout keeps whole, and
+     why it may not be cropped (readUploadedPhoto). */
   let photoHeadsSeen: SubjectBox[] = [];
   let photoHeads: SubjectBox[] = [];
-  /* People in the photo and no head boxed, even when asked again, is not
-     "no heads" (round-10 live verdict, CB2: the cafe crop sliced the
-     barista's face). Every crop and band is then refused, the photo drawn
-     whole or left off, and the direction carries a fault. */
   let headsUnknown = false;
-  /* What every layout of the client's photo sees as its heads, and why it
-     may not be cropped (headsForLayout: people in the photo are never
-     cropped, Oluwaseyi's ruling of 2026-10-29). */
   let layoutHeads: readonly SubjectBox[] = [];
   let noCropReason: NoCropReason | null = null;
   if (upload && images[0]) {
-    const measured = await facts.get(images[0]);
-    if (!measured?.cutout) {
-      photoHeadsSeen = photoLook?.heads ?? [];
-      photoHeads = headsWithMargin(photoHeadsSeen);
-      const decided = headsForLayout(
-        Boolean(photoLook?.peopleVisible),
-        photoHeads,
-      );
-      layoutHeads = decided.heads;
-      noCropReason = decided.noCrop;
-      headsUnknown = noCropReason === "headsUnknown";
-    }
-    /* A cut-out's subject is its visible pixels, which are exact; the look
-       is only for a photograph, where the whole subject comes first and a
-       person's head and shoulders second. With people in an uncropped
-       photo and no subject boxed, the subject is the whole photo. */
-    const boxes = measured?.cutout
-      ? [subjectFromAlpha(measured)]
-      : [
-          photoLook?.subject ?? (noCropReason ? HEADS_UNKNOWN[0] : null),
-          photoLook?.face ?? null,
-        ];
-    for (let i = 0; i < settled.length; i += 1) subjectBoxes[i] = boxes;
-    /* Drawn on a coloured ground, a cut-out's baked shadow and white fringe
-       show; its edge is feathered and decontaminated first (cutout-edge). */
-    if (measured?.cutout) {
-      images[0].asset = {
-        ...images[0].asset,
-        bytes: await cleanCutoutBytes(images[0].asset.bytes),
-        contentType: "image/png",
-      };
-    }
+    const read = await readUploadedPhoto(
+      images[0],
+      (await facts.get(images[0])) ?? null,
+      photoLook,
+    );
+    ({ photoHeadsSeen, photoHeads, layoutHeads, noCropReason, headsUnknown } =
+      read);
+    for (let i = 0; i < settled.length; i += 1) subjectBoxes[i] = read.boxes;
   }
 
   const largestImage = Math.max(
@@ -613,30 +597,8 @@ export async function generateDirectionsWork(
     for (const row of rows) addFault(row.id, HEADS_UNKNOWN_FAULT);
   }
   plateChecks.forEach((check, i) => {
-    if (check === "failed") {
-      addFault(
-        rows[i].id,
-        "the generated image did not show the product, so the design was drawn without one",
-      );
-    }
-    if (check === "failed-lettering") {
-      addFault(
-        rows[i].id,
-        "the generated image kept painting made-up writing on the product, so the design was drawn without one",
-      );
-    }
-    if (check === "failed-people") {
-      addFault(
-        rows[i].id,
-        "the generated image kept painting a face beside a person the brief names, so the design was drawn without one",
-      );
-    }
-    if (check === "unavailable") {
-      addFault(
-        rows[i].id,
-        "the image model returned no image that could be drawn, so the design was drawn without one",
-      );
-    }
+    const fault = plateCheckFault(check);
+    if (fault) addFault(rows[i].id, fault);
   });
   let reasonsReplaced = 0;
   const layoutChoices: (LayoutChoice | null)[] = rows.map(() => null);
@@ -1080,9 +1042,7 @@ export async function generateDirectionsWork(
       if (refusal) refusals.push(refusal);
       await updateDesignGeneration(row.id, {
         status: "failed",
-        error: (
-          refusal ?? (err instanceof Error ? err.message : "Unknown error")
-        ).slice(0, 500),
+        error: renderFailureMessage(err).slice(0, 500),
       }).catch((writeErr) => {
         /* Left pending, the row holds its layout for PENDING_CLAIM_MS and a
            regenerate in that window is refused (round-8 code critic). */

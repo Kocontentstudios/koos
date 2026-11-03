@@ -121,3 +121,25 @@ describe("defaultDimensions", () => {
     expect(formatRules("social-post").defaultDimensions).toBe("1080x1350");
   });
 });
+
+/* KOOS-AI-002: with FEATURE_MULTI_FRAME on, a deck is built as a set of 16:9
+   slides; off, the format reads exactly as it always has. */
+describe("presentation with sets of frames", () => {
+  it("is generatable at 16:9 only with the flag on", () => {
+    expect(formatRules("presentation", {}).generatable).toBe(false);
+    expect(formatRules("presentation", {}).defaultDimensions).toBe("");
+    const on = formatRules("presentation", { FEATURE_MULTI_FRAME: "1" });
+    expect(on.generatable).toBe(true);
+    expect(on.multiPage).toBe(true);
+    expect(on.defaultDimensions).toBe("1344x756");
+  });
+
+  it("changes no other format", () => {
+    for (const format of DESIGN_FORMATS) {
+      if (format === "presentation") continue;
+      expect(formatRules(format, { FEATURE_MULTI_FRAME: "1" })).toEqual(
+        formatRules(format, {}),
+      );
+    }
+  });
+});

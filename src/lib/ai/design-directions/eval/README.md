@@ -481,6 +481,22 @@ until the fact writer writes the fact in. `pricesDetached` now reads the
 amount by value; through `factStated` it built a fact with no words, which
 is never stated, so before this round the gate could not fire.
 
+Three narrow readings of that ruling came from KOOS-AI-002, each with
+tests in
+`brief-facts.quantity-lead.test.ts`:
+
+- Two amounts each dated by its own, different year are a change over
+  time, not a choice: "Revenue rose from ₦310 million in 2024 to ₦720
+  million in 2025" states both (`datedApart` in `fact-forms.ts`). An "or"
+  between them still states neither, and so does one year for both.
+- A length of time is never a second count a per-unit count multiplies:
+  "Our 12 stylists each trained for two years" states "12 stylists".
+- An offer or condition may be given with another offer verb ("get",
+  "include", "come with", "earn") and a short name before it: "Weekday
+  bookings at Crown & Coil include a free scalp massage" states "Weekday
+  bookings get a free scalp massage". Its terms stay whole, and a
+  negation before the verb states nothing.
+
 The job's integration test (`run-design-directions.integration.test.ts`)
 needs a database, so `pnpm test` skips it. CI runs it in the `integration`
 job of `.github/workflows/ci.yml`: a `postgres:17-alpine` service, every

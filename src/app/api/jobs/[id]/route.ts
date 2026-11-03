@@ -10,20 +10,44 @@ import {
 import { resumeCalendarJob } from "@/lib/jobs/run-generation";
 import {
   isPausedForResume,
+  isRegenerateFrameJobInput,
+  isResumableJob,
+  isSequenceJobInput,
   resolveStaleAction,
   resumeCountFrom,
   staleMsFor,
 } from "@/lib/jobs/stale";
 import { isUuid } from "@/lib/validation/uuid";
 
-// Headroom for a resumed calendar slice kicked off via after().
+// Headroom for a resumed calendar or design-set slice kicked off via after().
 export const maxDuration = 300;
 
 const STALLED_ERROR = "Generation stalled. Please try again.";
+const RESUME_ERROR = "Generation could not be resumed. Please try again.";
 
 type ClaimedJob = NonNullable<
   Awaited<ReturnType<typeof claimPausedGenerationJob>>
 >;
+type PolledJob = NonNullable<Awaited<ReturnType<typeof getGenerationJobById>>>;
+
+/**
+ * Fails a job for good. What a design job that bills frames left behind is
+ * settled too (KOOS-AI-002 H7): a set's frames on show are billed and the
+ * ones never drawn are marked failed, and a frame regenerate's new row is
+ * marked failed, since nothing will come back to them.
+ */
+async function failJob(job: PolledJob | ClaimedJob, error: string) {
+  await updateGenerationJob(job.id, { status: "failed", error });
+  if (
+    job.kind === "design_render" &&
+    (isSequenceJobInput(job.input) || isRegenerateFrameJobInput(job.input))
+  ) {
+    const { settleFrameJobOnFailure } = await import(
+      "@/lib/jobs/run-design-sequence"
+    );
+    await settleFrameJobOnFailure(job, error);
+  }
+}
 
 /* The poll checked access before claiming, but a revoke can land between that
    check and this callback; checking again here, after the claim and right
@@ -35,13 +59,31 @@ async function resumeIfStillAllowed(claimed: ClaimedJob, userId: string) {
     "manage_content",
   );
   if (!access.ok) {
-    await updateGenerationJob(claimed.id, {
-      status: "failed",
-      error: access.error,
-    });
+    await failJob(claimed, access.error);
     return;
   }
-  await resumeCalendarJob(claimed);
+  await resumeClaimedJob(claimed);
+}
+
+/** Continues a claimed job with the work its kind and input name. */
+async function resumeClaimedJob(claimed: ClaimedJob) {
+  if (claimed.kind === "calendar") {
+    await resumeCalendarJob(claimed);
+    return;
+  }
+  if (claimed.kind === "design_render" && isSequenceJobInput(claimed.input)) {
+    /* Loaded only here: the render pipeline is heavy, and every other poll
+       of this route never needs it. */
+    const { resumeDesignSequenceJob } = await import(
+      "@/lib/jobs/run-design-sequence"
+    );
+    await resumeDesignSequenceJob(claimed);
+    return;
+  }
+  await updateGenerationJob(claimed.id, {
+    status: "failed",
+    error: RESUME_ERROR,
+  });
 }
 
 /** In-flight progress parked in the result column by executeGenerationJob. */
@@ -58,7 +100,8 @@ function progressFrom(result: unknown): unknown {
  * job succeeds; while the job runs, `progress` carries the worker's last
  * reported step.
  *
- * This route is also the resume driver for checkpointed calendar jobs: when
+ * This route is also the resume driver for checkpointed jobs (calendars, and
+ * carousels or presentations built as sets of frames): when
  * the worker's heartbeat goes silent (serverless 300s kill, deploy), the
  * poll atomically claims the job and relaunches the remaining work from its
  * checkpoint via after() — bounded by MAX_RESUMES, after which the job
@@ -82,12 +125,14 @@ export async function GET(
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
 
+  const resumable = isResumableJob(job);
   const action = resolveStaleAction(
     {
       kind: job.kind,
       status: job.status,
       updatedAt: job.updatedAt,
       resumeCount: resumeCountFrom(job.result),
+      resumable,
     },
     Date.now(),
   );
@@ -107,10 +152,7 @@ export async function GET(
       return Response.json({ error: access.error }, { status: access.status });
     }
     if (!access.ok) {
-      await updateGenerationJob(job.id, {
-        status: "failed",
-        error: access.error,
-      });
+      await failJob(job, access.error);
       return Response.json({
         status: "failed",
         kind: job.kind,
@@ -146,10 +188,7 @@ export async function GET(
   }
 
   if (action === "fail") {
-    await updateGenerationJob(job.id, {
-      status: "failed",
-      error: STALLED_ERROR,
-    });
+    await failJob(job, STALLED_ERROR);
     return Response.json({
       status: "failed",
       kind: job.kind,
@@ -161,7 +200,10 @@ export async function GET(
   if (action === "resume") {
     // The staleness condition inside the UPDATE makes concurrent pollers
     // race safely: only the winner gets a row back and relaunches.
-    const claimed = await claimStaleGenerationJob(job.id, staleMsFor(job.kind));
+    const claimed = await claimStaleGenerationJob(
+      job.id,
+      staleMsFor(job.kind, resumable),
+    );
     if (claimed) {
       console.log(
         `resuming generation job ${job.id} (attempt ${resumeCountFrom(claimed.result)})`,

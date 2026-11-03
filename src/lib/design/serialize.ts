@@ -1,5 +1,7 @@
 import type { designGenerations } from "@/lib/db/schema";
 import { readRationale } from "@/lib/design/direction-rationale";
+import type { SerializedFrame } from "@/lib/design/sequence/contract";
+import { serializedFrameOf } from "@/lib/design/sequence/frames";
 import type { DesignSpec } from "@/lib/design/spec";
 import { getSignedReadUrl, publicUrl } from "@/lib/storage";
 
@@ -19,12 +21,19 @@ export interface SerializedGeneration {
   briefId: string | null;
   calendarItemId: string | null;
   headline: string | null;
+  /** The frame editor prefills from these (KOOS-AI-002): a user editing a
+   *  frame sees the line they are changing. Null when the spec has none;
+   *  optional so a row built before they were on the wire still types. */
+  subheadline?: string | null;
+  cta?: string | null;
   createdAt: string;
   /** A direction's name and "why this works" list; null on variant rows. */
   direction: { title: string; reasons: string[] } | null;
   imageSource: "upload" | "ko" | "none" | null;
   /** Whether a layer document exists to edit. Old rows have none. */
   editable: boolean;
+  /** Which carousel or presentation frame this is; null on single designs. */
+  frame: SerializedFrame | null;
 }
 
 /** Signed URLs are minted per request rather than stored, so a gallery link
@@ -66,9 +75,12 @@ export async function serializeGeneration(
     briefId: row.briefId,
     calendarItemId: row.calendarItemId,
     headline: spec?.headline ?? null,
+    subheadline: spec?.subheadline ?? null,
+    cta: spec?.cta ?? null,
     createdAt: row.createdAt.toISOString(),
     direction: directionOf(row.rationale),
     imageSource: row.imageSource ?? null,
     editable: row.document !== null && row.document !== undefined,
+    frame: serializedFrameOf(row),
   };
 }

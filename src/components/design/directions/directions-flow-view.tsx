@@ -3,9 +3,24 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DesignEntry } from "@/components/design/design-analytics";
+import { OutlineStep } from "@/components/design/sequence/outline-step";
+import type { SequenceProgress } from "@/components/design/sequence/progress";
+import { setHeading } from "@/components/design/sequence/set-heading";
+import {
+  type DesignSet,
+  kindNoun,
+} from "@/components/design/sequence/set-model";
+import { SetProgress } from "@/components/design/sequence/set-progress";
+import { SetViewer } from "@/components/design/sequence/set-viewer";
+import type { OutlineController } from "@/components/design/sequence/use-outline";
 import type { GenerationStage } from "@/components/design/use-design-generation";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import type {
+  ApprovedOutline,
+  FrameEdits,
+  SequenceKind,
+} from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import type { JobStage } from "@/lib/generation/poll-job";
 import { cn } from "@/lib/utils";
@@ -17,7 +32,11 @@ import {
 import { useEscapeLayer } from "./escape-layer";
 import { FlowDescription, FlowTitle } from "./flow-heading";
 import { type ImageSource, resultsHeading, startOverLabel } from "./flow-logic";
-import { GenerationError, GenerationProgress } from "./generation-status";
+import {
+  GenerationError,
+  GenerationProgress,
+  GenerationStillRunning,
+} from "./generation-status";
 import { ImageChoice } from "./image-choice";
 import { ImageDropzone } from "./image-dropzone";
 import { ImagePreview } from "./image-preview";
@@ -26,10 +45,17 @@ import type { DesignImageUpload } from "./use-design-image-upload";
 export type DirectionsEntry = DesignEntry;
 
 export type DirectionsView =
-  | { step: "choose" }
+  | {
+      step: "choose";
+      /** Set when the run is certain to be a set: it makes one carousel or
+       *  presentation, not two directions to pick from. */
+      setKind?: SequenceKind | null;
+    }
   | {
       step: "upload";
       upload: DesignImageUpload;
+      /** As on "choose": set when the run makes one set. */
+      setKind?: SequenceKind | null;
       /** "Use this image" was pressed before the upload finished. */
       waitingOnUpload: boolean;
       /** Forces the drop-target look where no real drag can be shown. */
@@ -49,6 +75,11 @@ export type DirectionsView =
       unusableImage: boolean;
     }
   | {
+      /** The client stopped waiting; the job had not failed. */
+      step: "still-running";
+      message: string;
+    }
+  | {
       step: "results";
       slots: DirectionSlot[];
       source: ImageSource | null;
@@ -57,6 +88,29 @@ export type DirectionsView =
       regenerateError: { slot: number; message: string } | null;
       sendingId: string | null;
       sendNotices: Record<string, SendNotice>;
+    }
+  | {
+      /** A carousel or presentation's points, approved before generating. */
+      step: "outline";
+      outline: OutlineController;
+      /** Generate was pressed and the server has not answered yet. */
+      starting: boolean;
+    }
+  | {
+      step: "set-progress";
+      progress: SequenceProgress;
+      stage: GenerationStage | null;
+      source: ImageSource;
+    }
+  | {
+      step: "set-results";
+      set: DesignSet;
+      source: ImageSource | null;
+      /** `regen:${generationId}` for every frame regenerating. */
+      frameActions: ReadonlySet<string>;
+      frameErrors: Readonly<Record<number, string>>;
+      /** Frame indexes whose regenerate outlived the poll. */
+      framesStillRunning: ReadonlySet<number>;
     };
 
 export interface DirectionsHandlers {
@@ -72,6 +126,17 @@ export interface DirectionsHandlers {
   onChooseAnotherImage: () => void;
   onRegenerate: (slot: number) => void;
   onSendToTeam: (generation: SerializedGeneration) => void;
+  /* Optional: only a set's results use them, and a caller built for
+     directions alone stays complete without them. */
+  onRegenerateFrame?: (
+    generationId: string,
+    edits?: FrameEdits,
+  ) => Promise<SerializedGeneration | null>;
+  onKeepWaitingOnFrame?: (index: number) => void;
+  /* Optional for the same reason: only a set's outline step uses them. */
+  onGenerateOutline?: (approved: ApprovedOutline) => void;
+  /** Present when the run on screen came from an approved outline. */
+  onEditOutline?: () => void;
   onDone: () => void;
 }
 
@@ -85,9 +150,15 @@ const CHOOSE_TITLE: Record<DirectionsEntry, string> = {
  *  The results width keeps the base 1rem gutter each side: a bare
  *  sm:max-w-5xl replaces it and ran the card edge to edge at 640-1024px. */
 export function dialogWidthFor(view: DirectionsView): string {
-  return view.step === "results"
-    ? "sm:max-w-[min(64rem,calc(100%-2rem))]"
-    : "sm:max-w-xl";
+  if (view.step === "results") return "sm:max-w-[min(64rem,calc(100%-2rem))]";
+  /* One frame large, not two side by side: wider only spreads the rail. */
+  if (view.step === "set-results") {
+    return "sm:max-w-[min(48rem,calc(100%-2rem))]";
+  }
+  /* One column of editable cards; the base width squeezed the point field
+     to a few words a line. */
+  if (view.step === "outline") return "sm:max-w-[min(40rem,calc(100%-2rem))]";
+  return "sm:max-w-xl";
 }
 
 function Header({
@@ -98,7 +169,7 @@ function Header({
   description: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 pr-8 pb-4 max-sm:pr-14 [@media(hover:none)]:pr-14">
+    <div className="flex flex-col gap-1.5 pb-4">
       <FlowTitle>{title}</FlowTitle>
       <FlowDescription>{description}</FlowDescription>
     </div>
@@ -208,6 +279,19 @@ function ResultsFooter({
   );
 }
 
+export function chooseDescription(
+  koImagery: boolean,
+  setKind: SequenceKind | null,
+): string {
+  const options = koImagery
+    ? "Use your own image or let KO create it."
+    : "Use your own image, or go without one and let your words lead.";
+  const outcome = setKind
+    ? `Either way you get one ${kindNoun(setKind)}, every slide designed to match.`
+    : "Either way you get two different design directions to pick from.";
+  return `${options} ${outcome}`;
+}
+
 export function DirectionsFlowView({
   entry,
   view,
@@ -226,11 +310,7 @@ export function DirectionsFlowView({
         <>
           <Header
             title={CHOOSE_TITLE[entry]}
-            description={
-              koImagery
-                ? "Use your own image or let KO create it. Either way you get two different design directions to pick from."
-                : "Use your own image, or go without one and let your words lead. Either way you get two different design directions to pick from."
-            }
+            description={chooseDescription(koImagery, view.setKind ?? null)}
           />
           <ImageChoice
             koImagery={koImagery}
@@ -238,6 +318,7 @@ export function DirectionsFlowView({
             onLetKoCreate={handlers.onLetKoCreate}
             onNoImage={handlers.onNoImage}
             onFileDropped={handlers.onFile}
+            setKind={view.setKind ?? null}
           />
         </>
       );
@@ -249,7 +330,11 @@ export function DirectionsFlowView({
         <>
           <Header
             title="Upload your image"
-            description="KO keeps your image exactly as it is and designs two directions around it."
+            description={
+              view.setKind
+                ? `KO keeps your image exactly as it is and designs every slide of your ${kindNoun(view.setKind)} around it.`
+                : "KO keeps your image exactly as it is and designs two directions around it."
+            }
           />
           {upload.status === "idle" ? (
             <ImageDropzone
@@ -313,8 +398,61 @@ export function DirectionsFlowView({
           onUseKoImagery={handlers.onLetKoCreate}
           onNoImage={handlers.onNoImage}
           onChangeImage={handlers.onBackToChoice}
+          onEditOutline={handlers.onEditOutline}
         />
       );
+
+    case "still-running":
+      return (
+        <GenerationStillRunning
+          message={view.message}
+          onKeepWaiting={handlers.onRetryGeneration}
+          onClose={handlers.onDone}
+        />
+      );
+
+    case "outline":
+      return (
+        <OutlineStep
+          outline={view.outline}
+          starting={view.starting}
+          onBack={handlers.onBackToChoice}
+          onGenerate={(approved) => handlers.onGenerateOutline?.(approved)}
+        />
+      );
+
+    case "set-progress":
+      return (
+        <SetProgress
+          progress={view.progress}
+          stage={view.stage}
+          source={view.source}
+        />
+      );
+
+    case "set-results": {
+      const heading = setHeading(view.set);
+      return (
+        <>
+          <Header title={heading.title} description={heading.description} />
+          <SetViewer
+            set={view.set}
+            actingOn={view.frameActions}
+            frameErrors={view.frameErrors}
+            stillRunning={view.framesStillRunning}
+            onRegenerateFrame={handlers.onRegenerateFrame ?? (async () => null)}
+            onKeepWaiting={handlers.onKeepWaitingOnFrame}
+          />
+          <ResultsFooter
+            source={view.source}
+            designsOnScreen
+            regenerating={view.frameActions.size > 0}
+            onStartOver={handlers.onBackToChoice}
+            onDone={handlers.onDone}
+          />
+        </>
+      );
+    }
 
     case "results": {
       const ready = view.slots.filter((slot) => slot.generation).length;

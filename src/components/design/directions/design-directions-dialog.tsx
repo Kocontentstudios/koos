@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trackImageChoice } from "@/components/design/design-analytics";
 import { DesignPreviewModal } from "@/components/design/design-preview-modal";
 import {
@@ -10,12 +10,20 @@ import {
   type TicketContext,
 } from "@/components/design/send-to-team";
 import {
+  type OutlineRequest,
+  useOutline,
+} from "@/components/design/sequence/use-outline";
+import {
   type DesignGenerationState,
   type DesignImageChoice,
   type GenerateArgs,
   useDesignGeneration,
 } from "@/components/design/use-design-generation";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  type ApprovedOutline,
+  sequenceKindOf,
+} from "@/lib/design/sequence/contract";
 import type { SerializedGeneration } from "@/lib/design/serialize";
 import { cn } from "@/lib/utils";
 import type { DirectionSlot, SendNotice } from "./direction-results";
@@ -26,25 +34,32 @@ import {
   type DirectionsView,
   dialogWidthFor,
 } from "./directions-flow-view";
+import { DiscardOutlineConfirm } from "./discard-outline-confirm";
 import { EscapeLayerProvider, useEscapeLayerStack } from "./escape-layer";
 import { FlowChromeProvider } from "./flow-heading";
 import { type ImageSource, isUnusableImageError } from "./flow-logic";
 import { useKoImageryOffered } from "./ko-imagery-context";
+import { useMultiFrameOffered } from "./multi-frame-context";
 import { useDesignImageUpload } from "./use-design-image-upload";
 
-type Step = "choose" | "upload" | "run";
+type Step = "choose" | "upload" | "outline" | "run";
 
 export interface DesignDirectionsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entry: DirectionsEntry;
-  /** Everything a run needs except the image, which this dialog chooses. */
-  args: Omit<GenerateArgs, "image" | "regenerateOf">;
+  /** Everything a run needs except the image and, for a set, the outline,
+   *  which this dialog chooses. */
+  args: Omit<GenerateArgs, "image" | "regenerateOf" | "approvedOutline">;
   /** Owned by the caller when it also needs the results (Design Studio's
    *  history grid); created here otherwise. */
   design: DesignGenerationState;
   /** Carried into a design ticket when a direction is sent to the team. */
   ticketContext?: TicketContext;
+  /** The format the server will read from `args`, when the caller knows it
+   *  apart from a ticket (Design Studio, from its attached picker options).
+   *  Falls back to the ticket's. */
+  designType?: string | null;
   /** Fires whenever this dialog starts a billable run, including a single
    *  slot's regenerate, so the caller knows new designs may exist. */
   onRunStart?: () => void;
@@ -55,13 +70,20 @@ export const DIRECTIONS_POPUP_CLASS =
 
 /* Scroll the contents, not the popup: the close button is positioned against
    the popup, so scrolling that carries the X off-screen. The scroller spans
-   the popup's padding (-m-4 p-4) because a scroll box clips whatever crosses
-   its edge: flush with the content, it cut the 2px-offset focus outline off
-   every edge control, and the footer could not bleed to the popup's edge.
-   Padding does not stop the browser scrolling a newly focused control flush
-   with the edge, which clipped its outline again; scroll-padding does. */
+   the popup's side and bottom padding (-mx-4 -mb-4, px-4 pb-4) because a
+   scroll box clips whatever crosses its edge: flush with the content, it cut
+   the 2px-offset focus outline off every edge control, and the footer could
+   not bleed to the popup's edge. Its top edge sits at the close button's
+   bottom (8px inset plus 28px, or 44px on a phone or touch screen), so a
+   scrolled field never passes under the X and a tap meant for the field
+   can't close the dialog. Padding does not stop the browser scrolling a
+   newly focused control flush with the edge, which clipped its outline
+   again; scroll-padding does. */
 export const DIRECTIONS_SCROLL_CLASS =
-  "-m-4 flex flex-col overflow-y-auto p-4 scroll-py-2";
+  "-mx-4 -mb-4 mt-5 flex flex-col overflow-y-auto px-4 pt-2 pb-4 scroll-py-2 max-sm:mt-9 [@media(hover:none)]:mt-9";
+
+const NO_FRAME_ACTIONS: ReadonlySet<string> = new Set();
+const NO_FRAMES_WAITING: ReadonlySet<number> = new Set();
 
 function slotsOf(design: DesignGenerationState): DirectionSlot[] {
   return [
@@ -80,6 +102,7 @@ export function DesignDirectionsDialog({
   args,
   design,
   ticketContext,
+  designType,
   onRunStart,
 }: DesignDirectionsDialogProps) {
   const upload = useDesignImageUpload(args.brandId);
@@ -104,7 +127,50 @@ export function DesignDirectionsDialog({
   const [sendNotices, setSendNotices] = useState<Record<string, SendNotice>>(
     {},
   );
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const lastImage = useRef<DesignImageChoice | null>(null);
+  const multiFrame = useMultiFrameOffered();
+  /* Studio hands over the attachments' design type and the brief and
+     calendar entry points the ticket's; with FEATURE_MULTI_FRAME on, a
+     carousel or presentation there is certain to be built as a set, so it
+     stops at the outline. Otherwise the run is told nothing, exactly as
+     before, and learns it is a set from the job's own progress. */
+  const expectedKind = multiFrame
+    ? sequenceKindOf(designType ?? ticketContext?.designType)
+    : null;
+  const {
+    brandId,
+    briefId,
+    calendarItemId,
+    attachments,
+    freeform,
+    aspectRatio,
+  } = args;
+  const outlineRequest = useMemo<OutlineRequest>(
+    () => ({
+      brandId,
+      briefId,
+      calendarItemId,
+      attachments,
+      freeform,
+      aspectRatio,
+    }),
+    [brandId, briefId, calendarItemId, attachments, freeform, aspectRatio],
+  );
+  /* Only a set the server is certain to build gets an outline step; the
+     kind passed when there is none is never read. */
+  const outline = useOutline(expectedKind ?? "carousel", outlineRequest);
+  /* Set when the run on screen was started from an approved outline, so
+     its error offers the way back to that outline. */
+  const [fromOutline, setFromOutline] = useState(false);
+
+  function run(runArgs: GenerateArgs) {
+    if (expectedKind) {
+      void design.generate(runArgs, { sequenceKind: expectedKind });
+    } else {
+      void design.generate(runArgs);
+    }
+  }
 
   const slots = slotsOf(design).map((slot, i) => replaced[i] ?? slot);
 
@@ -116,6 +182,10 @@ export function DesignDirectionsDialog({
     setSendNotices({});
   }
 
+  /* A carousel or presentation stops at its outline first: the user
+     approves the points before any copy is written or unit spent. The
+     outline already on screen is kept, so changing the image never throws
+     the user's edits away. */
   function start(image: DesignImageChoice) {
     trackImageChoice(image.source, entry);
     lastImage.current = image;
@@ -125,10 +195,23 @@ export function DesignDirectionsDialog({
         ? upload.state.image.name
         : null,
     );
+    if (expectedKind) {
+      setStep("outline");
+      return;
+    }
+    launch(image);
+  }
+
+  function launch(image: DesignImageChoice, approvedOutline?: ApprovedOutline) {
     clearRunState();
+    setFromOutline(approvedOutline !== undefined);
     setStep("run");
     onRunStart?.();
-    void design.generate({ ...args, image });
+    run(
+      approvedOutline
+        ? { ...args, image, approvedOutline }
+        : { ...args, image },
+    );
   }
 
   /* "Use this image" pressed mid-upload continues on its own the moment the
@@ -210,25 +293,47 @@ export function DesignDirectionsDialog({
     }
   }
 
+  /* Closing resets the flow, and an edited outline can't be got back: a new
+     plan costs another rate-limited call and says something different. The
+     outline outlives its own step (Back to change the image keeps it, and a
+     failed run offers Edit outline), so the guard follows the draft, not the
+     step. Once a run has the outline and is not failing, it is spent. */
+  const outlineStillNeeded =
+    step !== "run" || (fromOutline && !design.pending && !!design.error);
+  const outlineAtRisk =
+    outline.state.status === "ready" &&
+    outline.state.draft.edited &&
+    outlineStillNeeded;
+
+  function closeFlow() {
+    setStep("choose");
+    setWaitingOnUpload(false);
+    upload.clear();
+    outline.reset();
+    setFromOutline(false);
+    setConfirmingDiscard(false);
+    clearRunState();
+    onOpenChange(false);
+  }
+
   function handleOpenChange(
     next: boolean,
     details?: DialogPrimitive.Root.ChangeEventDetails,
   ) {
-    if (
-      !next &&
-      details?.reason === "escape-key" &&
-      escapeLayers.dismissInnermost()
-    ) {
+    if (next) {
+      onOpenChange(true);
+      return;
+    }
+    if (details?.reason === "escape-key" && escapeLayers.dismissInnermost()) {
       details.cancel();
       return;
     }
-    if (!next) {
-      setStep("choose");
-      setWaitingOnUpload(false);
-      upload.clear();
-      clearRunState();
+    if (outlineAtRisk) {
+      details?.cancel();
+      setConfirmingDiscard(true);
+      return;
     }
-    onOpenChange(next);
+    closeFlow();
   }
 
   const handlers: DirectionsHandlers = {
@@ -257,6 +362,16 @@ export function DesignDirectionsDialog({
       }
     },
     onBackToChoice: backToChoice,
+    onGenerateOutline: (approved) => {
+      const image = lastImage.current;
+      if (image) launch(image, approved);
+    },
+    onEditOutline: fromOutline
+      ? () => {
+          design.reset();
+          setStep("outline");
+        }
+      : undefined,
     onRetryGeneration: () => void design.retry(),
     onChooseAnotherImage: () => {
       design.reset();
@@ -265,6 +380,15 @@ export function DesignDirectionsDialog({
     },
     onRegenerate: (slot) => void regenerate(slot),
     onSendToTeam: (generation) => void sendToTeam(generation),
+    /* Each frame is its own billed job, so the caller hears of it as a run,
+       the same as a slot regenerate. */
+    onRegenerateFrame: async (generationId, edits) => {
+      onRunStart?.();
+      return (await design.regenerateFrame?.(generationId, edits)) ?? null;
+    },
+    onKeepWaitingOnFrame: (index) => {
+      void design.keepWaitingOnFrame?.(index);
+    },
     onDone: () => handleOpenChange(false),
   };
 
@@ -272,8 +396,10 @@ export function DesignDirectionsDialog({
 
   /* Rows without a direction (from a server that has not shipped directions
      yet, or a run that fell back to the old path) have no title or reasons to
-     fill a direction card with, so they open the preview they always did. */
-  if (finished && design.generations.some((g) => !g.direction)) {
+     fill a direction card with, so they open the preview they always did. A
+     set's frames carry no reasons either, but a set always opens the set
+     viewer. */
+  if (finished && !design.set && design.generations.some((g) => !g.direction)) {
     const image = lastImage.current;
     return (
       <DesignPreviewModal
@@ -290,7 +416,7 @@ export function DesignDirectionsDialog({
           image
             ? () => {
                 onRunStart?.();
-                void design.generate({ ...args, image });
+                run({ ...args, image });
               }
             : undefined
         }
@@ -299,53 +425,84 @@ export function DesignDirectionsDialog({
     );
   }
 
+  /* The outline stays on screen while the server takes the run, so its
+     Generate button shows that wait. */
+  const outlineHandingOff =
+    step === "run" && fromOutline && design.pending && design.posting === true;
+
   const view: DirectionsView =
-    step === "choose"
-      ? { step: "choose" }
-      : step === "upload"
-        ? {
-            step: "upload",
-            upload: upload.state,
-            waitingOnUpload:
-              waitingOnUpload &&
-              (upload.state.status === "preparing" ||
-                upload.state.status === "uploading"),
-          }
-        : design.pending
+    step === "outline" || outlineHandingOff
+      ? { step: "outline", outline, starting: outlineHandingOff }
+      : step === "choose"
+        ? { step: "choose", setKind: expectedKind }
+        : step === "upload"
           ? {
-              step: "progress",
-              source: source ?? "none",
-              stage: design.stage,
-              jobStage: design.jobStage,
-              progress: design.progress,
+              step: "upload",
+              setKind: expectedKind,
+              upload: upload.state,
+              waitingOnUpload:
+                waitingOnUpload &&
+                (upload.state.status === "preparing" ||
+                  upload.state.status === "uploading"),
             }
-          : design.error
+          : design.pending && design.sequenceProgress
             ? {
-                step: "error",
+                step: "set-progress",
+                progress: design.sequenceProgress,
+                stage: design.stage,
                 source: source ?? "none",
-                message: design.error,
-                unusableImage: isUnusableImageError(design.error),
               }
-            : {
-                step: "results",
-                slots,
-                source,
-                imageName,
-                regeneratingSlot,
-                regenerateError,
-                sendingId,
-                sendNotices,
-              };
+            : design.pending
+              ? {
+                  step: "progress",
+                  source: source ?? "none",
+                  stage: design.stage,
+                  jobStage: design.jobStage,
+                  progress: design.progress,
+                }
+              : design.error && design.stillRunning
+                ? { step: "still-running", message: design.error }
+                : design.error
+                  ? {
+                      step: "error",
+                      source: source ?? "none",
+                      message: design.error,
+                      unusableImage: isUnusableImageError(design.error),
+                    }
+                  : design.set
+                    ? {
+                        step: "set-results",
+                        set: design.set,
+                        source,
+                        frameActions: design.frameActions ?? NO_FRAME_ACTIONS,
+                        frameErrors: design.frameErrors ?? {},
+                        framesStillRunning:
+                          design.framesStillRunning ?? NO_FRAMES_WAITING,
+                      }
+                    : {
+                        step: "results",
+                        slots,
+                        source,
+                        imageName,
+                        regeneratingSlot,
+                        regenerateError,
+                        sendingId,
+                        sendNotices,
+                      };
 
   /* A click beside the dialog is usually a slip, and closing resets the
-     flow; it may only dismiss when nothing would be thrown away. Escape and
-     the X stay deliberate ways out. */
+     flow; it may only dismiss when nothing would be thrown away. An edited
+     outline is guarded by the confirm on every other path, so a slip there
+     asks nothing. */
   const pointerDismissable =
-    view.step === "choose" ||
-    (view.step === "upload" && view.upload.status === "idle") ||
-    (view.step === "results" &&
-      view.regeneratingSlot === null &&
-      view.sendingId === null);
+    !outlineAtRisk &&
+    (view.step === "choose" ||
+      (view.step === "upload" && view.upload.status === "idle") ||
+      (view.step === "results" &&
+        view.regeneratingSlot === null &&
+        view.sendingId === null) ||
+      (view.step === "set-results" && view.frameActions.size === 0) ||
+      (view.step === "outline" && !view.starting));
 
   return (
     <Dialog
@@ -371,6 +528,11 @@ export function DesignDirectionsDialog({
             </EscapeLayerProvider>
           </FlowChromeProvider>
         </div>
+        <DiscardOutlineConfirm
+          open={confirmingDiscard}
+          onKeep={() => setConfirmingDiscard(false)}
+          onDiscard={closeFlow}
+        />
       </DialogContent>
     </Dialog>
   );

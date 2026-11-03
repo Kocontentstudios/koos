@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { LoadedFont } from "./fonts";
 
@@ -47,6 +47,17 @@ export class RenderTimeoutError extends Error {
 export const MAX_EMOJI_FETCHES_PER_RENDER = 24;
 export const EMOJI_BUDGET = "EMOJI_BUDGET" as const;
 
+/** satori, resvg or the worker itself failed. The message is the
+ *  renderer's own, for the log; renderRefusalMessage gives users a plain
+ *  sentence instead, because the raw text names modules and bundler
+ *  internals. */
+export class RenderFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RenderFailedError";
+  }
+}
+
 export class EmojiBudgetError extends Error {
   readonly code = EMOJI_BUDGET;
   constructor(readonly limit: number) {
@@ -62,8 +73,7 @@ export class EmojiBudgetError extends Error {
 export const DEFAULT_RENDER_LIMIT_MS = 20_000;
 
 /** The worker's own file. Resolved from the app root like FONT_DIR, and
- *  traced into the deploy by next.config.ts, because a bundler cannot see a
- *  path handed to a Worker at run time. */
+ *  traced into the deploy by next.config.ts. */
 export const WORKER_FILE = join(
   process.cwd(),
   "src/lib/design/render/satori-worker.cjs",
@@ -161,12 +171,24 @@ function settle(slot: Slot, outcome: { bytes?: Uint8Array; error?: Error }) {
   stats.busyMs += performance.now() - running.started;
   slot.running = null;
   if (outcome.bytes) running.task.resolve(outcome.bytes);
-  else running.task.reject(outcome.error ?? new Error("render failed"));
+  else
+    running.task.reject(
+      outcome.error ?? new RenderFailedError("render failed"),
+    );
   pump();
 }
 
+/* Turbopack reads a Worker built from a static import and bundles its
+   file as an entry, ignoring turbopackIgnore and webpackIgnore (16.4.1). The
+   bundled worker's run-time require of next/og compiles to a throw, so no
+   design drew on `next start`. The class taken at run time is invisible to
+   it; scripts/check-build-output.mjs fails the build if that ever changes. */
+function workerThreads(): typeof import("node:worker_threads") {
+  return process.getBuiltinModule("node:worker_threads");
+}
+
 function spawn(): Slot {
-  const worker = new Worker(WORKER_FILE);
+  const worker = new (workerThreads().Worker)(WORKER_FILE);
   stats.spawns += 1;
   const slot: Slot = { worker, faces: new Set(), running: null };
   worker.on(
@@ -186,7 +208,7 @@ function spawn(): Slot {
               error:
                 reply.code === EMOJI_BUDGET
                   ? new EmojiBudgetError(MAX_EMOJI_FETCHES_PER_RENDER)
-                  : new Error(reply.error ?? "render failed"),
+                  : new RenderFailedError(reply.error ?? "render failed"),
             },
       );
     },
@@ -195,11 +217,11 @@ function spawn(): Slot {
      running, never the process; the next task gets a new worker. */
   worker.on("error", (error: Error) => {
     drop(slot);
-    settle(slot, { error });
+    settle(slot, { error: new RenderFailedError(error.message) });
   });
   worker.on("exit", (code) => {
     drop(slot);
-    settle(slot, { error: new Error(`renderer exited (${code})`) });
+    settle(slot, { error: new RenderFailedError(`renderer exited (${code})`) });
   });
   worker.unref();
   slots.push(slot);
